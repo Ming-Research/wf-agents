@@ -1078,6 +1078,12 @@ pub enum Unmet {
     NotAnswered { name: String },
     /// The work's branch changes this file the project protects, and nothing says why.
     Unexplained { path: String },
+    /// It wrote this block, which names the head of the work's branch, naming no commit that is the head, this one.
+    NotTheHead { block: String, head: String },
+    /// It wrote this block, which names the head of the work's branch, naming a new head as changing nothing in meaning.
+    HeadChanged { block: String },
+    /// It says in this block that a run gave a test's result, in these words, which no run of its work gave.
+    NoSuchRun { block: String, claim: String },
 }
 
 /// What came back at the end of a round.
@@ -2488,6 +2494,17 @@ impl Unmet {
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
             UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
+            UnmetOf::NotTheHead { block, head } => Unmet::NotTheHead {
+                block: block.to_string(),
+                head: head.clone(),
+            },
+            UnmetOf::HeadChanged { block } => Unmet::HeadChanged {
+                block: block.to_string(),
+            },
+            UnmetOf::NoSuchRun { block, claim } => Unmet::NoSuchRun {
+                block: block.to_string(),
+                claim: claim.clone(),
+            },
         }
     }
 }

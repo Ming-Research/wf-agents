@@ -28,7 +28,7 @@ use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
 use tokio::sync::mpsc;
-use work::{Fill, Given, Measures, RanOn, Spent, Time, Why, Work};
+use work::{Fill, Given, Measures, RanOn, Spent, Tested, Time, Why, Work};
 
 use crate::Message;
 
@@ -628,9 +628,16 @@ impl CallReply {
 
     /// The call has this result.
     pub fn done(self, result: String) {
+        self.tested(result, None);
+    }
+
+    /// The call has this result, and its runs of the project's tests reported this, where its host read each test's
+    /// result.
+    pub fn tested(self, result: String, tested: Option<Tested>) {
         let event = Event::Done {
             call: self.call,
             result,
+            tested,
         };
         // Where the loop has ended, the process is stopping: the call is handed out again when it starts again.
         let _ = self.to.send(Message::Happened { work: self.work, event });

@@ -453,7 +453,7 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
 }
 
 /// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
-/// their words beside the flows; what the texts sent to the agents name and hold ([`carry::system::faults`]); and of each
+/// their words beside the flows, and the words a return's claims of a run are read back by; what the texts sent to the agents name and hold ([`carry::system::faults`]); and of each
 /// project, its declaration on its main and its files every system prompt holds there, where works branch from
 /// ([`carry::system::project_files`]), and two projects in one repository, each said with the projects' keys. The texts
 /// are the flows', the same for every project but for what a project's declaration gives them: a fault every project's
@@ -464,6 +464,9 @@ fn start_faults(settings: &carry::Settings, beside: &flow::agents::Agents, flows
         .collect();
     let words = carry::word_faults(&beside.acts.check).into_iter();
     faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
+    let claim = (beside.tools.get(carry::RUN_TESTS)).and_then(|tool| tool.claim.as_deref());
+    let claims = carry::claim_faults(claim).into_iter();
+    faults.extend(claims.map(|fault| format!("{}/{fault}", beside.root.display())));
     let (declared, wrong) = carry::projects::declared(settings, beside);
     faults.extend(wrong);
     let mut of_texts: Vec<(String, Vec<&str>)> = Vec::new();

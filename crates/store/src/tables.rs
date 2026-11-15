@@ -323,6 +323,11 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     })?
     .into_iter()
     .collect();
+    for (call, tested) in rows(db, "SELECT call, tested FROM tested WHERE work = ?1", w, |row| {
+        Ok((CallId(row.get(0)?), row.get::<_, String>(1)?))
+    })? {
+        out.tested.insert(call, parse("tested", &tested)?);
+    }
 
     out.spent = rows(
         db,
@@ -511,6 +516,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let back = gained("back", &held.back, &given.back, round_entry)?;
     let calls = gained("calls", &held.calls, &given.calls, |c| Entry::Call(*c))?;
     let results = gained("results", &held.results, &given.results, |c| Entry::Call(*c))?;
+    let tested = gained("tested", &held.tested, &given.tested, |c| Entry::Call(*c))?;
     let spent = gained("spent", &held.spent, &given.spent, round_entry)?;
     let moments = grown("moments", &held.moments, &given.moments, |m| Entry::At(m.from))?;
     let sessions = grown("sessions", &held.sessions, &given.sessions, |s| Entry::At(s.at))?;
@@ -684,6 +690,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         db.execute(
             "INSERT INTO results (work, call, result) VALUES (?1, ?2, ?3)",
             params![w, call.0, result],
+        )?;
+    }
+    for (call, ran) in tested {
+        db.execute(
+            "INSERT INTO tested (work, call, tested) VALUES (?1, ?2, ?3)",
+            params![w, call.0, json("tested", ran)?],
         )?;
     }
     for ((run, round), s) in spent {

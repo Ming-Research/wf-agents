@@ -188,6 +188,15 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'unexplained', path: 'AGENTS.md' })).toBe(
       'it left AGENTS.md, a file the project protects, changed, and said not why',
     );
+    expect(unmetWords({ kind: 'notTheHead', block: 'code', head: 'abc1234' })).toBe(
+      "it handed in code naming no commit that is the head of the work's branch, abc1234",
+    );
+    expect(unmetWords({ kind: 'headChanged', block: 'tests' })).toBe(
+      "it handed in tests naming a new head of the work's branch, as changing nothing in meaning",
+    );
+    expect(unmetWords({ kind: 'noSuchRun', block: 'evidence', claim: '`a_row` passed on abc1234' })).toBe(
+      'it said in evidence that `a_row` passed on abc1234, which no run of its work gave',
+    );
   });
 });
 

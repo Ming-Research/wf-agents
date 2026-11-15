@@ -786,6 +786,9 @@ impl Build<'_> {
             Unmet::NotAnswerable { name } => (&f.not_answerable, vec![("name", name.clone())]),
             Unmet::NotAnswered { name } => (&f.not_answered, vec![("name", name.clone())]),
             Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
+            Unmet::NotTheHead { block: b, head } => (&f.not_the_head, vec![block(b), ("head", head.clone())]),
+            Unmet::HeadChanged { block: b } => (&f.head_changed, vec![block(b)]),
+            Unmet::NoSuchRun { block: b, claim } => (&f.no_such_run, vec![block(b), ("claim", claim.clone())]),
         };
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))

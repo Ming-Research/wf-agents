@@ -40,7 +40,7 @@ use crate::git::{self, Started};
 use crate::held::{Failing, Held, Stop};
 use crate::host::{Asking, Branch, Failed, Host, NotMerged};
 use crate::settings::Project;
-use crate::{protected, tree};
+use crate::{handed, protected, tree};
 
 use flow::agents::{AskProtected, fill};
 
@@ -579,11 +579,12 @@ fn merged_or_failed(
     }
 }
 
-/// The blocks in which the work names the commit it hands in, as the cells of its flow write them: what any cell
-/// writes but the check's own; not what only people write, nor what a source outside the work writes, as main's head.
+/// The blocks in which the work names the commit it hands in: those the flow marks as naming the head of the work's
+/// branch (`names_the_head`), which what reads the change runs on, the review among them; not a block only the check
+/// writes, nor what only people write, nor what a source outside the work writes, as main's head.
 fn naming_blocks(flow: &Compiled, check: &decide::CellId) -> Vec<BlockId> {
     (flow.blocks.iter())
-        .filter(|(_, block)| block.writers.outside.is_none())
+        .filter(|(_, block)| block.names_the_head && block.writers.outside.is_none())
         .filter(|(_, block)| block.writers.cells.iter().any(|cell| cell != check))
         .map(|(id, _)| id.clone())
         .collect()
@@ -796,31 +797,14 @@ async fn unnamed(
     head: &str,
     words: &flow::agents::Found,
 ) -> Result<Option<String>, String> {
-    // Each word that could be a commit's name, with the commit the repository resolves it to.
-    let mut named: Vec<(&str, String)> = Vec::new();
-    let words_of = text.split(|c: char| !c.is_ascii_alphanumeric());
-    for word in words_of.filter(|w| (7..=40).contains(&w.len()) && w.chars().all(|c| c.is_ascii_hexdigit())) {
-        let commit = format!("{word}^{{commit}}");
-        let resolved = git::said(&project.repo, &["rev-parse", "--verify", "--quiet", &commit]).await?;
-        if resolved.ok && !named.iter().any(|(_, full)| *full == resolved.out) {
-            named.push((word, resolved.out));
-        }
-    }
+    let named = handed::named(project, text).await?;
     if named.is_empty() {
         return Ok(Some(fill(&words.unnamed, &[("head", head)])));
     }
-    // From the head down through the engine's own merges of main, each by its first parent, the branch's side.
-    let mut at = head.to_string();
-    loop {
-        if named.iter().any(|(_, full)| *full == at) {
-            return Ok(None);
-        }
-        match git::engine_merge(project, &at).await? {
-            Some(first) => at = first,
-            None => break,
-        }
+    if handed::names_the_head(&named, &handed::heads(project, head).await?) {
+        return Ok(None);
     }
-    let written: Vec<&str> = named.iter().map(|(word, _)| *word).collect();
+    let written: Vec<&str> = named.iter().map(|(word, _)| word.as_str()).collect();
     let written = written.join(", ");
     let slots = [("named", written.as_str()), ("head", head)];
     Ok(Some(fill(&words.not_head, &slots)))
@@ -850,7 +834,8 @@ pub fn main_faults(flow: &Compiled) -> Vec<String> {
 }
 
 /// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among its
-/// outputs, and it offers the values the check writes; the cells of `start`, `merge` and `deliver` have no choice among
+/// outputs, and it offers the values the check writes, and a block a cell writes names the head of the work's branch
+/// for it to hold the head to ([`naming_blocks`]); the cells of `start`, `merge` and `deliver` have no choice among
 /// their outputs, since they have no outcome to choose. A flow with any of these is not run with the real carriers.
 pub fn faults(flow: &Compiled, values: &CheckValues) -> Vec<String> {
     let (passed, failed) = (&values.passed, &values.failed);
@@ -867,6 +852,12 @@ pub fn faults(flow: &Compiled, values: &CheckValues) -> Vec<String> {
             .filter_map(|block| Some((block, flow.blocks.get(block)?.values.as_ref()?)))
             .collect();
         let at = format!("the flow {}, cell {} (act {act})", flow.name, cell.id);
+        if act == "check" && naming_blocks(flow, &cell.id).is_empty() {
+            faults.push(format!(
+                "{at}: no block a cell writes names the head of the work's branch (names_the_head), so the check would \
+                 pass no commit"
+            ));
+        }
         match act {
             "check" => match choices.as_slice() {
                 [(block, values)] if !(values.iter().any(|v| v == passed) && values.iter().any(|v| v == failed)) => {
@@ -1235,6 +1226,54 @@ mod tests {
     #[test]
     fn a_flow_whose_acts_have_what_they_need_has_no_fault() {
         assert_eq!(faults(&acts_flow(), &words().check.values), Vec::<String>::new());
+    }
+
+    // Every commit the check passes is one the review judged: each block the check holds the head to runs, before the
+    // check, a cell whose choice the check requires, which a new version of the block, as a new commit is, runs again
+    // before the check. A commit the work named only elsewhere, as in an answer to the check, would reach the check
+    // with no review of it.
+    #[test]
+    fn every_block_the_check_holds_the_head_to_runs_a_judge_the_check_waits_for() {
+        let flow = crate::system::tests::engineer();
+        let cells = flow.flow.cells();
+        let check = (cells.iter())
+            .position(|c| {
+                flow.cells
+                    .iter()
+                    .any(|s| s.id == c.id && s.act.as_deref() == Some("check"))
+            })
+            .expect("the flow has a check");
+        let blocks = naming_blocks(&flow, &cells[check].id);
+        assert_eq!(blocks, [BlockId::from("code"), BlockId::from("tests")]);
+        let required: Vec<&BlockId> = (cells[check].requires.iter())
+            .filter_map(|c| match c {
+                decide::Condition::Is { block, .. } => Some(block),
+                decide::Condition::Test(_) => None,
+            })
+            .collect();
+        for block in &blocks {
+            let judged = cells[..check]
+                .iter()
+                .any(|c| c.runs_on.contains(block) && c.outputs.iter().any(|o| required.contains(&o)));
+            assert!(
+                judged,
+                "a new commit named in {block} reaches the check with no judge it waits for"
+            );
+        }
+    }
+
+    // The check holds the head of the work's branch to the blocks that name it: a flow with none would have it pass
+    // nothing, and is not run.
+    #[test]
+    fn a_check_with_no_block_that_names_the_head_is_a_fault() {
+        let mut flow = acts_flow();
+        flow.blocks.get_mut(&BlockId::from("code")).unwrap().names_the_head = false;
+        let faults = faults(&flow, &words().check.values);
+        assert_eq!(faults.len(), 1, "{faults:?}");
+        assert!(
+            faults[0].contains("cell check (act check)") && faults[0].contains("names_the_head"),
+            "{faults:?}"
+        );
     }
 
     #[test]

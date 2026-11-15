@@ -148,6 +148,11 @@ fn changes() -> Vec<Change> {
             ("results", Entry::Call(*call))
         },
         |w| {
+            let (call, tested) = w.tested.iter_mut().next().expect("a run's report");
+            tested.cases.pop();
+            ("tested", Entry::Call(*call))
+        },
+        |w| {
             let (&(run, round), spent) = w.spent.iter_mut().next().expect("a cost");
             spent.usd_micros += 1;
             ("spent", Entry::Round { run, round })
@@ -212,6 +217,7 @@ fn removals() -> Vec<Change> {
         },
         |w| ("calls", Entry::Call(w.calls.pop_last().expect("a call").0)),
         |w| ("results", Entry::Call(w.results.pop_last().expect("a result").0)),
+        |w| ("tested", Entry::Call(w.tested.pop_last().expect("a run's report").0)),
         |w| {
             let ((run, round), _) = w.spent.pop_last().expect("a cost");
             ("spent", Entry::Round { run, round })
@@ -243,7 +249,7 @@ fn a_work_changed_at_an_entry_the_store_holds_is_refused_for_every_table_and_not
     let (db, mut store, work, kept) = held();
     let changes = changes();
     let tables: BTreeSet<&str> = changes.iter().map(|change| change(&mut kept.clone()).0).collect();
-    assert_eq!(tables.len(), 24, "a table has no change: {tables:?}");
+    assert_eq!(tables.len(), 25, "a table has no change: {tables:?}");
     for change in changes {
         let mut given = kept.clone();
         let (table, entry) = change(&mut given);

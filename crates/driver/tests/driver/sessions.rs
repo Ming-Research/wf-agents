@@ -456,6 +456,7 @@ fn a_round_past_the_limit_has_the_cell_that_loads_the_session_run_again_once_the
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
+        tested: None,
     });
     // Entered again for the result, the build goes on in its session.
     let (again, cell) = s.round();
@@ -600,6 +601,7 @@ fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_goes_on_in_t
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
+        tested: None,
     });
     // Entered again for the result, the build goes on in the session the load began, which never saw the run that
     // asked.
@@ -675,6 +677,7 @@ fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_be
     s.on(Event::Done {
         call,
         result: "the code".to_string(),
+        tested: None,
     });
     // The review, entered again for the result, does not go on in the session its round was flagged in: it begins
     // the new one.
@@ -710,6 +713,7 @@ fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_runs_in
     s.on(Event::Done {
         call,
         result: "the code".to_string(),
+        tested: None,
     });
     let again = s.round().0;
     assert_ne!(again, review);
@@ -798,6 +802,7 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
+        tested: None,
     });
     let (again, cell) = s.round();
     assert_eq!(cell, "build");
@@ -819,6 +824,7 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_at_the
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
+        tested: None,
     });
     let was = Why::Account {
         was: Some("first".to_string()),
@@ -1375,6 +1381,7 @@ fn a_round_that_went_on_in_its_session_within_the_caches_life_and_read_less_than
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
+        tested: None,
     });
     measured(&mut s, 0, "a");
     s.hands_in(1_000, true);
@@ -1398,6 +1405,7 @@ fn a_miss_after_what_comes_before_the_messages_changed_is_expected_and_a_hit_is_
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
+        tested: None,
     });
     // On another model, the session is written again by design.
     measured(&mut s, 0, "b");
@@ -1539,6 +1547,7 @@ fn a_round_due_while_its_works_ping_is_under_way_begins_after_the_ping_and_what_
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
+        tested: None,
     });
     assert_eq!(s.kept().records.rounds.len(), rounds, "a round began beside the ping");
     assert!(

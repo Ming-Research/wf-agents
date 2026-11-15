@@ -35,7 +35,8 @@ impl Hub {
     async fn tests_asked(&self, named: &Named, call: Asking) -> Result<Option<String>, String> {
         let place = self.place();
         let branch = branch(&place);
-        self.host.run_tests(&branch, named, call, &mut Stop::never()).await
+        let answered = self.host.run_tests(&branch, named, call, &mut Stop::never()).await;
+        answered.map(|answered| answered.map(|a| a.said))
     }
 
     /// The verdict the round of the check finds on the commit.

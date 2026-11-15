@@ -275,6 +275,8 @@ pub struct Block {
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, as the
     /// block's file or the trigger that declares it says; none where neither does.
     pub writes: Texts,
+    /// It names the commit at the head of the work's branch that holds what its writer hands in.
+    pub names_the_head: bool,
     /// Who writes it.
     pub writers: Writers,
     /// Who reads it.
@@ -2228,6 +2230,7 @@ impl<'a> Definition<'a> {
                     field: declared.field.clone(),
                     trigger: self.trigger_blocks.contains(name),
                     writes: declared.writes.clone(),
+                    names_the_head: declared.names_the_head,
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,

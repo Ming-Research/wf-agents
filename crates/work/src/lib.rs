@@ -14,11 +14,13 @@ pub mod filled;
 pub mod measured;
 pub mod observations;
 pub mod sessions;
+pub mod tested;
 
 pub use filled::{Fill, FillFault, Filled};
 pub use measured::{Measured, Measures, Pinged};
 pub use observations::Observed;
 pub use sessions::{Ran, RanOn, Session, Why};
+pub use tested::Tested;
 
 /// Everything kept of one work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -40,6 +42,9 @@ pub struct Work {
     pub calls: BTreeMap<CallId, Call>,
     /// The result of each call that has one.
     pub results: BTreeMap<CallId, String>,
+    /// What the runs of the project's tests that each call of `run_tests` asked for reported, where its host read each
+    /// test's result (module [`tested`]).
+    pub tested: BTreeMap<CallId, Tested>,
     /// What each round that ended took, by its run and its number in the run, the first being one.
     pub spent: BTreeMap<(RunId, usize), Spent>,
     /// When each thing that happened was taken, in order: the first place given to its entries, and the time.

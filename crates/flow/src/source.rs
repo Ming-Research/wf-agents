@@ -376,6 +376,11 @@ pub struct BlockFile {
     /// `{name}` in it a place the engine fills in a run.
     #[serde(default)]
     pub writes: Texts,
+    /// The block names the commit at the head of the work's branch that holds what its writer hands in: a return that
+    /// writes it is held to the branch's head, and the check before the merge passes only a head it names. Only a
+    /// block cells write, and no choice, is one.
+    #[serde(default)]
+    pub names_the_head: bool,
 }
 
 /// A block as written in a file of a flow's `blocks/`, or, of the engine's own data, in a file of `../data/`: as in
@@ -408,6 +413,10 @@ pub struct LaidOutBlockFile {
     /// `{name}` in it a place the engine fills in a run. The words are the flow's, so the code holds none of them.
     #[serde(default)]
     pub writes: Texts,
+    /// The block names the commit at the head of the work's branch that holds what its writer hands in, as
+    /// [`BlockFile::names_the_head`] says.
+    #[serde(default)]
+    pub names_the_head: bool,
 }
 
 /// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
@@ -433,6 +442,7 @@ impl From<LaidOutBlockFile> for BlockFile {
             what: block.what,
             field: block.field,
             writes: block.writes,
+            names_the_head: block.names_the_head,
         }
     }
 }

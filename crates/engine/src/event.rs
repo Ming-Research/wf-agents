@@ -3,7 +3,7 @@
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 
-use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Tested, Time, Why};
 
 use crate::spoken::{NoOne, Telling, To};
 
@@ -57,8 +57,13 @@ pub enum Event {
         resets: Option<Time>,
         spent: Spent,
     },
-    /// The call has its result.
-    Done { call: CallId, result: String },
+    /// The call has its result, and, of a call of `run_tests` whose host read each test's result, what its runs
+    /// reported.
+    Done {
+        call: CallId,
+        result: String,
+        tested: Option<Tested>,
+    },
     /// The owner says these words to a line of the work's flow, or about a question of the work: to the cell the
     /// engine chooses (crate module `spoken`).
     Said { to: To, words: String },

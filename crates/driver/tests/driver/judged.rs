@@ -259,6 +259,7 @@ fn a_call_withdrawn_with_its_work_is_neither_judged_nor_part_of_its_tool_s_histo
         Event::Done {
             call: withdrawn,
             result,
+            tested: None,
         },
     );
     // The call after it is judged by the two that had their results, the withdrawn one being none of them.

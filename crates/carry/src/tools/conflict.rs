@@ -81,7 +81,7 @@ mod tests {
             input,
         };
         match answer(&host, &repo.project, &branch, &told, &call, &mut Stop::never()).await {
-            Answer::Result(said) => (said, host.asked()),
+            Answer::Result(said, _) => (said, host.asked()),
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
     }

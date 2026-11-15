@@ -53,7 +53,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 16;
+pub const SCHEMA_VERSION: u32 = 17;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
@@ -80,6 +80,7 @@ const MIGRATIONS: &[&str] = &[
         "../../../db/migrations/202611142100-keep-what-the-calls-of-a-round-came-to-and-the-pings-of-sessions.sql"
     ),
     include_str!("../../../db/migrations/202611142300-keep-the-cell-an-entry-of-what-is-said-is-said-to.sql"),
+    include_str!("../../../db/migrations/202611151000-keep-what-the-runs-of-the-tests-reported.sql"),
 ];
 
 // The migrations bring a database of every earlier version to this one.

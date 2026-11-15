@@ -22,12 +22,13 @@ use std::time::Duration;
 use flow::agents::{Ci, CiFast, CiFull, ResultWords, Tool, fill};
 use store::WorkNumber;
 use uuid::Uuid;
+use work::Tested;
 
 use super::api::{Api, Check, Outcome, Run};
 use super::results::{self, Became, Case};
 use super::{GitHub, output};
 use crate::held::Stop;
-use crate::host::{Asking, Failed, Named, Verdict};
+use crate::host::{Answered, Asking, Failed, Named, Verdict};
 use crate::process;
 
 /// A request for runs of the workflows: the commit they run on, and which of the work's asks it is, by which its runs
@@ -132,7 +133,7 @@ impl<A: Api> GitHub<A> {
         request: Request<'_>,
         named: &Named,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<Answered>, String> {
         let Some(ran) = self.execute_role(&role, request, named, stop).await? else {
             return Ok(None);
         };
@@ -141,7 +142,10 @@ impl<A: Api> GitHub<A> {
             .result
             .as_ref()
             .ok_or("the words of run_tests have no [result]")?;
-        Ok(Some(said(words, &role, request.commit, &ran, named, false)))
+        Ok(Some(Answered {
+            said: said(words, &role, request.commit, &ran, named, false),
+            tested: Some(tested(request.commit, &ran)),
+        }))
     }
 
     /// The value the run of the workflow asked for by the request holds in its name: a name-based UUID (version 5) of
@@ -346,6 +350,28 @@ impl<A: Api> GitHub<A> {
         Ok(Some(
             runs.into_iter().filter(|r| r.title.contains(&plan.call)).collect(),
         ))
+    }
+}
+
+/// What the runs on the commit reported of the project's tests, as their results say, each test in the order they hold
+/// them: a run whose results could not be read reported none.
+fn tested(commit: &str, ran: &[Ran]) -> Tested {
+    let cases = (ran.iter())
+        .filter_map(|one| one.results.as_ref().ok())
+        .flat_map(|run| &run.cases)
+        .map(|case| work::tested::Case {
+            unit: case.test.unit.clone(),
+            name: case.test.name.clone(),
+            outcome: match case.outcome {
+                results::Outcome::Passed => work::tested::Outcome::Passed,
+                results::Outcome::Failed => work::tested::Outcome::Failed,
+                results::Outcome::Skipped => work::tested::Outcome::Skipped,
+            },
+        })
+        .collect();
+    Tested {
+        commit: commit.to_string(),
+        cases,
     }
 }
 

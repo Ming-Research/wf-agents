@@ -195,6 +195,7 @@ impl W {
         self.on(Event::Done {
             call,
             result: format!("the result of {}", call.0),
+            tested: None,
         })
     }
 

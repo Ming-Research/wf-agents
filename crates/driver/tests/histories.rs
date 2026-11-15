@@ -550,10 +550,12 @@ impl History {
             Effect::Call { call, .. } => Event::Done {
                 call,
                 result: format!("the result of {}", call.0),
+                tested: None,
             },
             Effect::Withdraw { call } => Event::Done {
                 call,
                 result: "withdrawn".to_string(),
+                tested: None,
             },
             Effect::Stop { run } => Event::Returned {
                 run,
@@ -718,6 +720,7 @@ impl History {
                         Event::Done {
                             call,
                             result: "the answer".to_string(),
+                            tested: None,
                         },
                     ));
                     return;
@@ -758,6 +761,7 @@ impl History {
                 let late = Event::Done {
                     call: CallId(10_000),
                     result: "late".into(),
+                    tested: None,
                 };
                 d.happened(now, work, late).map(drop)
             }
@@ -775,6 +779,7 @@ impl History {
                 let again = Event::Done {
                     call,
                     result: "again".into(),
+                    tested: None,
                 };
                 d.happened(now, of, again).map(drop)
             }

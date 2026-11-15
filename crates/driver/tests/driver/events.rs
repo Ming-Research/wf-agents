@@ -155,6 +155,7 @@ fn what_cannot_have_happened_to_a_work_is_refused_and_leaves_the_driver_and_the_
             Event::Done {
                 call: CallId(99),
                 result: "late".into(),
+                tested: None,
             },
             engine::Refused::NoSuchCall(CallId(99)),
         ),
@@ -178,7 +179,16 @@ fn what_cannot_have_happened_to_a_work_is_refused_and_leaves_the_driver_and_the_
     let again = h.round(w).0;
     let got = h.refused(|d, now| {
         let result = "again".to_string();
-        d.happened(now, w, Event::Done { call, result }).map(drop)
+        d.happened(
+            now,
+            w,
+            Event::Done {
+                call,
+                result,
+                tested: None,
+            },
+        )
+        .map(drop)
     });
     assert_eq!(got, Failed::Refused(engine::Refused::AlreadyDone(call)));
     // The work goes on as it was: the writer, entered again for the result.

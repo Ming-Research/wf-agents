@@ -20,10 +20,11 @@ use flow::agents::{Agents, ResultGiven, fill};
 use serde::Deserialize;
 use service::{CallReply, ToolCall, Tools as ToolsTrait, WITHDRAWN};
 use store::WorkNumber;
+use work::Tested;
 
 use crate::git;
 use crate::held::{Held, Stop};
-use crate::host::{Asking, Branch, Host, Named};
+use crate::host::{Answered, Asking, Branch, Host, Named};
 use crate::settings::Project;
 
 pub use query::{QUERY, Querying};
@@ -49,9 +50,10 @@ struct Inner<H> {
     query: Querying,
 }
 
-/// What came of a call.
+/// What came of a call: its result, with what its runs of the project's tests reported where its host read each
+/// test's result; or that it was withdrawn.
 enum Answer {
-    Result(String),
+    Result(String, Option<Tested>),
     Withdrawn,
 }
 
@@ -99,7 +101,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 let told = cancel.clone();
                 let mut running = tokio::task::spawn_blocking(move || asked.query.answer(&input, &told));
                 tokio::select! {
-                    said = &mut running => Answer::Result(said.unwrap_or_else(|_| inner.query.unavailable())),
+                    said = &mut running => Answer::Result(said.unwrap_or_else(|_| inner.query.unavailable()), None),
                     () = stop.told() => {
                         cancel.tell();
                         Answer::Withdrawn
@@ -129,12 +131,12 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 };
                 answer(&inner.host, &inner.project, &branch, &told, &asked, &mut stop).await
             };
-            let result = match answered {
-                Answer::Result(result) => result,
-                Answer::Withdrawn => WITHDRAWN.to_string(),
+            let (result, tested) = match answered {
+                Answer::Result(result, tested) => (result, tested),
+                Answer::Withdrawn => (WITHDRAWN.to_string(), None),
             };
             if let Some(reply) = inner.held.take(key) {
-                reply.done(result);
+                reply.tested(result, tested);
             }
         });
     }
@@ -217,16 +219,17 @@ async fn answer(
     let name = call.name;
     if name != RUN_TESTS {
         let tools = told.tools.join(", ");
-        return Answer::Result(format!("No such tool: {name}. The tools are: {tools}."));
+        return Answer::Result(format!("No such tool: {name}. The tools are: {tools}."), None);
     }
     let checked = match asked(call.input) {
-        Err(why) => Ok(Some(
+        Err(why) => Ok(Some(Answered::said(
             told.unread.map_or(why.clone(), |words| fill(words, &[("error", &why)])),
-        )),
+        ))),
         Ok(named) => run_tests(host, project, branch, &named, Asking::Call(call.id), stop).await,
     };
     match checked {
-        Ok(Some(said)) | Err(said) => Answer::Result(said),
+        Ok(Some(answered)) => Answer::Result(answered.said, answered.tested),
+        Err(said) => Answer::Result(said, None),
         Ok(None) => Answer::Withdrawn,
     }
 }
@@ -240,11 +243,11 @@ async fn run_tests(
     named: &Named,
     asking: Asking,
     stop: &mut Stop,
-) -> Result<Option<String>, String> {
+) -> Result<Option<Answered>, String> {
     let could_not = |why: String| format!("The check could not be run: {why}");
     let found = conflict::found(project, branch.place, &host.kept_main()).await;
     if let Some(said) = found.map_err(could_not)? {
-        return Ok(Some(said));
+        return Ok(Some(Answered::said(said)));
     }
     host.run_tests(branch, named, asking, stop).await.map_err(could_not)
 }
@@ -327,7 +330,7 @@ mod tests {
             input,
         };
         match answer(host, &repo.project, &branch, &TOLD, &call, &mut Stop::never()).await {
-            Answer::Result(result) => result,
+            Answer::Result(result, _) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
     }

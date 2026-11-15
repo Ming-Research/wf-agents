@@ -38,7 +38,7 @@ use uuid::Uuid;
 pub use api::{Api, Pull, State};
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
-use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
+use super::{Answered, Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::git::{self, With};
 use crate::held::Stop;
 use crate::settings::{self, Project};
@@ -450,7 +450,7 @@ impl<A: Api> Host for GitHub<A> {
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<Answered>, String> {
         // What the check before the merge refuses, this refuses the same way: the repository's configuration, a
         // worktree off the work's branch, and in the push, connections sent elsewhere and submodules.
         let place = branch.place;
@@ -460,18 +460,19 @@ impl<A: Api> Host for GitHub<A> {
         let dir = git::worktree(place)?;
         git::configuration(&self.project, place).await?;
         git::on_branch(place).await?;
+        let said = |said: String| Ok(Some(Answered::said(said)));
         if git::merging(&dir).await? {
             let changes = git::uncommitted(&dir).await?;
-            return Ok(Some(fill(&words.merge_under_way, &[("changes", &changes)])));
+            return said(fill(&words.merge_under_way, &[("changes", &changes)]));
         }
         let changes = git::uncommitted(&dir).await?;
         if !changes.is_empty() {
-            return Ok(Some(fill(&words.uncommitted, &[("changes", &changes)])));
+            return said(fill(&words.uncommitted, &[("changes", &changes)]));
         }
         let ci = self.config.ci.as_ref();
         let role = match self.role(ci, named)? {
             Ok(role) => role,
-            Err(refused) => return Ok(Some(refused)),
+            Err(refused) => return said(refused),
         };
         let repo = &self.project.repo;
         let commit = git::git(repo, &["rev-parse", &place.reference()]).await?;
@@ -481,7 +482,7 @@ impl<A: Api> Host for GitHub<A> {
             .await?
             .ok
         {
-            return Ok(Some(fill(&words.no_own_commit, &[("main", &self.project.main)])));
+            return said(fill(&words.no_own_commit, &[("main", &self.project.main)]));
         }
         self.push(branch, &commit).await?;
         self.pull_request(branch).await?;

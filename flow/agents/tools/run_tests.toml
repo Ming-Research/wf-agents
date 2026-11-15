@@ -4,7 +4,14 @@ words = '''
   committed is not run. Ask as `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says
   and checks among {named_checks}; what is named is run alone, by the project's fast workflow. Name none to run the
   project's full workflows. It gives each test, passed or failed, with the time it took and what a failed one said,
-  and each job, how it ended and its wall time.'''
+  and each job, how it ended and its wall time. Write a result a run gave as `` `<test>` passed on <commit> `` or
+  `` `<test>` failed on <commit> ``: a result no run of yours gave on that commit sends your return back.'''
+
+# How what a return hands in says that a run gave a test's result, as `words` tells it: the engine reads each back from
+# every block a return writes and sends the return back for each that no run of the work on that commit gave. `{test}`
+# the test's name as the run's results give it, `{became}` `passed` or `failed` of `[result]`, `{commit}` the commit
+# the run ran on.
+claim = "`{test}` {became} on {commit}"
 
 # What it says in place of `words` where the host is the local repository.
 words_local = '''

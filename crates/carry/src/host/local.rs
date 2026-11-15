@@ -6,7 +6,7 @@ use std::path::Path;
 
 use flow::agents::{LocalWords, Tool, fill};
 
-use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
+use super::{Answered, Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::git;
 use crate::held::Stop;
 use crate::process::{self, Ran};
@@ -114,7 +114,7 @@ impl Host for Local {
         named: &Named,
         _: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<Answered>, String> {
         let words = self.words()?;
         let ran = match git::worktree(branch.place) {
             Ok(dir) => self.run(&dir, stop).await,
@@ -123,12 +123,12 @@ impl Host for Local {
         // What could not be run is said with the command, as what ran is.
         let check = &self.project.check;
         let said = ran.unwrap_or_else(|why| Some(fill(&words.could_not, &[("command", check), ("why", &why)])));
-        // The tests and checks named are not run apart: the whole command runs.
+        // The tests and checks named are not run apart: the whole command runs, and no test's result is read.
         Ok(said.map(|said| {
             if named.is_empty() {
-                said
+                Answered::said(said)
             } else {
-                format!("{}\n\n{said}", words.not_apart)
+                Answered::said(format!("{}\n\n{said}", words.not_apart))
             }
         }))
     }

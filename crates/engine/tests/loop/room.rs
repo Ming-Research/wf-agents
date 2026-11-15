@@ -80,6 +80,7 @@ fn with_no_slot_free_the_calls_a_round_asks_for_are_made_and_the_run_given_their
         Event::Done {
             call: calls[0].0,
             result: "passed".to_string(),
+            tested: None,
         },
         FULL,
     )

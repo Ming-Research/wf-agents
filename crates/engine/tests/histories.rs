@@ -300,6 +300,7 @@ impl Part for Shape {
                 Event::Done {
                     call,
                     result: "late".to_string(),
+                    tested: None,
                 }
             }
             _ => Event::Returned {

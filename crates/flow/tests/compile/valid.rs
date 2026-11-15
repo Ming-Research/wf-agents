@@ -187,6 +187,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             field: None,
             trigger: false,
             writes: Texts::default(),
+            names_the_head: false,
             writers: Writers {
                 cells: ids(writers),
                 people: who.0,

@@ -36,6 +36,10 @@ Why: What ran is kept whole (principle the-past-as-it-ran): a query run again la
 What `{store}` in the words of `query` is filled with, by `carry::store`, is made from the comments of `db/schema.sql`, each table's and each column's. A table or a column whose comment says "hidden from agents" is left out of it and cannot be read by a query. The tool is off until the settings open it (`query.open`), and cannot be opened while the schema hides nothing, which is a fault at start: what agents may see of the store, and under which names, is the owner's to mark. With it off, a request is answered from the tool's file that the store is not open.
 Why: A description written apart from the schema drifts from it. Marking nothing hidden would give agents the machine's paths and what they are not meant to read by default; the owner is made to choose.
 
+### decision what-a-run-reported-is-kept-with-its-call
+Of a call of `run_tests` whose host reads each test's result, what its runs reported is kept beside the call's result: the commit they ran on and each test with its unit, its name and what became of it; the local host, whose check command gives no test's result, keeps none, and no result a return claims is then one a run gave.
+Why: What a return says a run gave is held to it (the returns' decision a-hand-in-is-held-to-what-the-engine-recorded). Read back from the words of the call's result instead, it would rest on how those words are laid out, and the result holds what each failed test printed, which an agent's own test writes, so its words could make a run seem to give what it did not (principle agent-writing-is-data). It says again what the result says, a few words a test, in the one form that is read exactly.
+
 ### decision a-tools-result-is-kept-whole-and-given-cut
 What a tool says is kept whole in the work's records, and cut only where a round is given it, at the bound its tool's words name.
 Why: Cut where the host made it, the engine's records kept only what the agent was given, and what was cut could never be read again; the bound is the round's, not the result's.

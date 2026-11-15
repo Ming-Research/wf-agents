@@ -450,6 +450,12 @@ export function unmetWords(unmet: Unmet): string {
       return `it dealt with the owner's words by ${unmet.name}, and gave no reply`;
     case 'unexplained':
       return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
+    case 'notTheHead':
+      return `it handed in ${unmet.block} naming no commit that is the head of the work's branch, ${unmet.head}`;
+    case 'headChanged':
+      return `it handed in ${unmet.block} naming a new head of the work's branch, as changing nothing in meaning`;
+    case 'noSuchRun':
+      return `it said in ${unmet.block} that ${unmet.claim}, which no run of its work gave`;
   }
 }
 

@@ -665,6 +665,11 @@ pub struct SentBackFaults {
     pub not_answered: String,
     /// `{path}` a file the project protects that the work changes, and of which it says not why.
     pub unexplained: String,
+    /// `{block}` a block that names the head of the work's branch, `{head}` the head as the round left it.
+    pub not_the_head: String,
+    pub head_changed: String,
+    /// `{claim}` what the return says a run gave, as it wrote it.
+    pub no_such_run: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -713,6 +718,11 @@ pub struct Tool {
     pub github: Option<GithubWords>,
     /// What it says where the host is the local repository.
     pub local: Option<LocalWords>,
+    /// How what a return hands in says that a run of it gave a test's result, which the engine reads back and holds to
+    /// the runs of the work: `{test}` the test's name as the run's results give it, `{became}` what became of it in the
+    /// words of [`ResultWords`] (`passed`, `failed`), `{commit}` the commit the run ran on, in this order, with words
+    /// before the test that end where its name begins.
+    pub claim: Option<String>,
 }
 
 /// What a result of `run_tests` says of the tests and checks a run found. `{...}` are filled in a run.

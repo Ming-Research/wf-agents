@@ -80,6 +80,7 @@ fn act(h: &H, s: usize) -> Option<Act> {
                 Event::Done {
                     call,
                     result: "By name.".to_string(),
+                    tested: None,
                 },
             )
         }
@@ -138,10 +139,12 @@ fn answer(h: &H, s: usize) -> Option<Act> {
         Effect::Call { call, .. } => Event::Done {
             call,
             result: format!("the result of {}", call.0),
+            tested: None,
         },
         Effect::Withdraw { call } => Event::Done {
             call,
             result: "withdrawn".to_string(),
+            tested: None,
         },
         Effect::Stop { run } => Event::Returned {
             run,

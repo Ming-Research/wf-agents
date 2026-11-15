@@ -460,6 +460,7 @@ impl Sim {
         self.take(Event::Done {
             call,
             result: result.to_string(),
+            tested: None,
         });
     }
 

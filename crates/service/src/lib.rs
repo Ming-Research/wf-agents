@@ -370,6 +370,7 @@ impl Service {
                     let event = Event::Done {
                         call,
                         result: WAITED.to_string(),
+                        tested: None,
                     };
                     let todos = (self.driver.happened(now, work, event)).map_err(|failed| answer(work, failed))?;
                     self.hand(now, todos)?;
@@ -588,7 +589,11 @@ impl Service {
                 if by_engine {
                     return Err(Refusal::NotAPersonsCall(call));
                 }
-                Event::Done { call, result }
+                Event::Done {
+                    call,
+                    result,
+                    tested: None,
+                }
             }
         };
         let todos = self.driver.happened(now, work, event).map_err(Refusal::Failed)?;
@@ -746,6 +751,7 @@ impl Service {
                     return Ok(Some(Event::Done {
                         call: *call,
                         result: WITHDRAWN.to_string(),
+                        tested: None,
                     }));
                 }
                 None => return Err(stray(Missing::Call(*call))),

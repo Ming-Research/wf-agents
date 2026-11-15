@@ -46,3 +46,13 @@ research that handed in no plan, or an implementation that handed in nothing, le
 reviewed, holding the research's commits or nothing, whose CI passed and which merged. The old flow merged only after
 its review approved. The answer to a question the check asks reaches the last cell with a trigger of an answer, the
 implementation, which may have nothing to do: run only by what it writes, the check never looked again.
+
+### decision every-commit-is-reviewed-before-the-merge
+The work names the commit it hands in only in `code` and `tests`, the blocks that name the head of its branch, which are
+both of the group that runs the review; the check passes only a head they name, so each commit it passes ran the review,
+which comes before it in the walk and whose yes it requires, before the check. The testing's commits are reviewed so, by
+the review run again for its `tests`; no cell of its own reviews them, and the testing does not come before the review.
+Why: The testing commits its tests after the review's yes, and a commit named only in an answer, as to the check, which
+runs the check and not the review, reached the merge with no review of it. A second review after the testing was turned
+down: the review already runs on each new version of `tests`, and a second cell would judge the same change by the same
+standard twice. Testing before the review was turned down: the review says whether the change needs it.

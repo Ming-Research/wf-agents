@@ -36,6 +36,10 @@
 //! holds nothing is sent it. After each use of a tool another hook gives the session what the owner said to the
 //! round while it runs, where the runner put it in the round's files (`cli::Words`).
 //!
+//! As a round ends with a return that does the cell's work, what it writes is held to the head of the work's branch as
+//! the round left it and to the runs of the work's tests the engine recorded, and the return is sent back for each thing
+//! that does not match ([`handed`]).
+//!
 //! As a round of a line that may change the work ends with a return, the engine looks at what the work's branch changes
 //! under the paths the project protects, and asks the owner by itself where it is a change not asked of yet, beside
 //! the return, each file with why the work says it is needed; where a file of it has no reason, it asks nothing, and a
@@ -85,7 +89,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::{Project, Settings};
-use crate::{acts, failure, git, kept, protected, returns, session, system, tools, tree};
+use crate::{acts, failure, git, handed, kept, protected, returns, session, system, tools, tree};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -563,6 +567,8 @@ impl Inner {
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
                 came.found.extend(unexplained);
+                came.found
+                    .extend(self.handed(round, &place, of, flow, &came.writes).await);
                 Ok(Carried::Came(came, read.spent))
             }
             Err(why) => Ok(Carried::Failed(
@@ -571,6 +577,36 @@ impl Inner {
                 failure::Said::default(),
                 read.spent,
             )),
+        }
+    }
+
+    /// What is wrong with what the return writes, held to the head of the work's branch as the round left it and to
+    /// the runs of the work's tests the engine recorded ([`handed`]): each is sent back for. A look that fails is said
+    /// on the standard error and sends nothing back, the check before the merge holding the head all the same.
+    async fn handed(
+        &self,
+        round: &Round,
+        place: &git::Place,
+        of: &Of,
+        flow: &flow::Compiled,
+        writes: &[work::Handed],
+    ) -> Vec<Unmet> {
+        let tool = of.beside.tools.get(tools::RUN_TESTS);
+        let claims = tool.and_then(|tool| {
+            Some(handed::Claims {
+                claim: tool.claim.as_deref()?,
+                result: tool.result.as_ref()?,
+            })
+        });
+        match handed::held(&of.project, place, flow, &round.kept, writes, claims.as_ref()).await {
+            Ok(found) => found,
+            Err(why) => {
+                eprintln!(
+                    "work {}: what the return hands in could not be held to the work's branch: {why}",
+                    round.work.0
+                );
+                Vec::new()
+            }
         }
     }
 

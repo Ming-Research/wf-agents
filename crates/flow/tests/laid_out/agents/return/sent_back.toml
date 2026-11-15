@@ -30,6 +30,13 @@ not_an_option = "`{name}` recommends no option."
 not_answerable = "`{name}` cannot be answered here."
 not_answered = "`{name}` is not answered."
 unexplained = "`{path}` is protected: say why, or take it back."
+# A block that names the commit at the head of the work's branch that holds what its writer hands in, `{block}`, which
+# the return writes naming no commit that is the head as the round left it, `{head}`.
+not_the_head = "`{block}` names the commit that holds what you hand in, and names none that is the head of the work's branch, {head}: commit everything, and name the head."
+# Such a block, written as changing nothing in meaning, that names a head its version before did not.
+head_changed = "`{block}` is named in `meaning_unchanged`, and names a head of the work's branch that its version before did not: a commit of its own changes its meaning."
+# A result of a test the return says a run gave, `{claim}` as it wrote it, in `{block}`, that no run of the work gave.
+no_such_run = "`{block}` says {claim}, and no run of `run_tests` of this work on that commit gave it: say only what a run gave."
 
 [unread]
 not_of_its_form = "Not of its form: {error}"

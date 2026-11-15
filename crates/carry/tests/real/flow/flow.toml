@@ -16,7 +16,9 @@ people = true
 
 [blocks.place]
 
+# The commit that holds the build, which the check passes only as the head of the work's branch.
 [blocks.code]
+names_the_head = true
 
 [blocks.title]
 what = "The name of the work's merge."

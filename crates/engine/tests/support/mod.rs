@@ -482,6 +482,7 @@ impl Driver {
         let taken = self.take(Event::Done {
             call,
             result: format!("the result of {}", call.0),
+            tested: None,
         });
         assert!(taken, "the result of an open call was refused");
         self.closed.push(call);
@@ -587,6 +588,7 @@ impl Driver {
                 let taken = self.take(Event::Done {
                     call,
                     result: "withdrawn".to_string(),
+                    tested: None,
                 });
                 assert!(taken, "the result of a withdrawn call was refused");
                 self.closed.push(call);

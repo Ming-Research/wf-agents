@@ -290,4 +290,4 @@ pub fn project_files(project: &Project, beside: &Agents) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -21,6 +21,7 @@
 //! - [`outside`]: the check of the outside the agents' rounds need, which the engine takes by itself while they wait
 //!   for it: the sign-in, the network and a short request.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
+//! - `handed`: what a return hands in, held to the head of the work's branch and to the runs of the work's tests.
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `query` and `run_tests`.
@@ -38,6 +39,7 @@ mod cost;
 pub mod failure;
 pub mod git;
 pub mod guard;
+mod handed;
 mod held;
 mod host;
 mod kept;
@@ -66,6 +68,7 @@ use tools::Tools;
 
 pub use acts::{MAIN, WATCH, Watch, Words, faults, main_faults, word_faults};
 pub use agents::{Agents, Of, ROUNDS};
+pub use handed::claim_faults;
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;

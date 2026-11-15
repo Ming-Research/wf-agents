@@ -40,6 +40,7 @@ impl Hub {
         self.host
             .run_tests(&branch(&place), named, self.call(), &mut Stop::never())
             .await
+            .map(|answered| answered.map(|a| a.said))
     }
 
     /// The runs by hand GitHub was asked for.

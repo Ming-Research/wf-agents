@@ -18,7 +18,7 @@ fn beside() -> Agents {
 }
 
 /// The engineer's flow, compiled against what the engine has for it.
-fn engineer() -> Compiled {
+pub(crate) fn engineer() -> Compiled {
     let source = flow::read(&root().join("engineer")).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {

@@ -82,6 +82,7 @@ fn a_calls_result_is_kept() {
     w.on(Event::Done {
         call,
         result: "found it".to_string(),
+        tested: None,
     });
     assert_eq!(w.work.results, BTreeMap::from([(call, "found it".to_string())]));
     assert_eq!(

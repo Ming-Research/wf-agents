@@ -1375,7 +1375,14 @@ impl H {
     /// The call has its result.
     pub fn answer(&mut self, work: WorkNumber, call: CallId) -> Vec<Todo> {
         let result = format!("the result of {}", call.0);
-        self.on(work, Event::Done { call, result })
+        self.on(
+            work,
+            Event::Done {
+                call,
+                result,
+                tested: None,
+            },
+        )
     }
 
     /// The outside source says this of [`PROJECT`], which the driver must take, and gives what is to be done.

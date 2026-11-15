@@ -12,6 +12,7 @@ fn rebuilt(work: &Work) -> Work {
         back: work.back.clone(),
         calls: work.calls.clone(),
         results: work.results.clone(),
+        tested: work.tested.clone(),
         spent: work.spent.clone(),
         moments: work.moments.clone(),
         sessions: work.sessions.clone(),
@@ -39,6 +40,7 @@ fn a_work_rebuilt_from_its_parts_goes_on_exactly_as_the_original() {
     let done = Event::Done {
         call: calls[1].0,
         result: "yes".into(),
+        tested: None,
     };
     assert_eq!(copy.on(done.clone()), w.on(done));
     assert_eq!(copy.work, w.work);

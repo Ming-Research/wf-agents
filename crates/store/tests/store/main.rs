@@ -296,7 +296,9 @@ impl Driver {
             }
             for call in calls {
                 let result = format!("the result of {}", call.0);
-                self.on(Event::Done { call, result });
+                // A call of an odd number ran the project's tests, and its host read each test's result.
+                let tested = (call.0 % 2 == 1).then(|| tested(call));
+                self.on(Event::Done { call, result, tested });
             }
         }
         panic!("calls are still to be made");
@@ -307,7 +309,11 @@ impl Driver {
         for e in pending(&self.flow, &self.work) {
             if let Effect::Withdraw { call } = e {
                 let result = "withdrawn".to_string();
-                self.on(Event::Done { call, result });
+                self.on(Event::Done {
+                    call,
+                    result,
+                    tested: None,
+                });
             }
         }
     }
@@ -504,6 +510,22 @@ fn reopened_after(d: &mut Driver) {
         d.work.records.released().is_some(),
         "what the work held was not let go again"
     );
+}
+
+/// What the runs a call asked for reported: a test that passed and one that failed, on a commit of the call's own.
+fn tested(call: CallId) -> work::Tested {
+    let case = |name: &str, outcome| work::tested::Case {
+        unit: "engine".to_string(),
+        name: name.to_string(),
+        outcome,
+    };
+    work::Tested {
+        commit: format!("{:040x}", call.0),
+        cases: vec![
+            case("tests::a_row", work::tested::Outcome::Passed),
+            case("tests::later", work::tested::Outcome::Failed),
+        ],
+    }
 }
 
 /// A work on the judged flow whose returns are of the form every cell's return takes (design document

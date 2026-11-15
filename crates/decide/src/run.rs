@@ -344,6 +344,16 @@ pub enum Unmet {
     /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking
     /// at the branch as the round ended.
     Unexplained { path: String },
+    /// The return writes the block, which names the commit at the head of the work's branch that holds what its writer
+    /// hands in, and names no commit that is that head as the round left it, here whole, nor one under it with only
+    /// the engine's own merges of main on top: as the engine found it, looking at the branch as the round ended.
+    NotTheHead { block: BlockId, head: String },
+    /// The return writes the block, which names the head of the work's branch, as changing nothing in meaning, and the
+    /// head it names is not one its version before named: a commit of its own changes what the block hands in.
+    HeadChanged { block: BlockId },
+    /// The return says in the block that a run gave a test's result, in these words, and no run of `run_tests` of the
+    /// work on that commit gave it, as the engine's records of the runs hold them.
+    NoSuchRun { block: BlockId, claim: String },
 }
 
 /// What a pause of the run's work holds back of its rounds.

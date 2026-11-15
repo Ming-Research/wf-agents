@@ -289,11 +289,19 @@ impl History {
             Effect::Round { run, cell, .. } => self.end_round(run, cell.as_str()),
             Effect::Call { call, .. } => {
                 let result = format!("the result of {}", call.0);
-                self.take(Event::Done { call, result });
+                self.take(Event::Done {
+                    call,
+                    result,
+                    tested: None,
+                });
             }
             Effect::Withdraw { call } => {
                 let result = "withdrawn".to_string();
-                self.take(Event::Done { call, result });
+                self.take(Event::Done {
+                    call,
+                    result,
+                    tested: None,
+                });
             }
             Effect::Stop { run } => {
                 let spent = self.spent(run);

@@ -25,6 +25,7 @@ use std::sync::Arc;
 use decide::run::Failure;
 use decide::{CallId, RunId};
 use store::WorkNumber;
+use work::Tested;
 
 use crate::git::Place;
 use crate::held::Stop;
@@ -203,16 +204,16 @@ pub trait Host: Send + Sync + 'static {
     /// the host again: where a work's change begins is worked out from it.
     fn kept_main(&self) -> String;
 
-    /// What the agents' tool `run_tests` finds of the work, with the tests and checks the agent named, in words for the
-    /// agent whose call asks, whole; none where it was told to stop. An `Err` is why it could not run them, for the
-    /// agent too. What failed is said as [`Host::verdict`] says it.
+    /// What the agents' tool `run_tests` finds of the work, with the tests and checks the agent named ([`Answered`]);
+    /// none where it was told to stop. An `Err` is why it could not run them, for the agent too. What failed is said
+    /// as [`Host::verdict`] says it.
     fn run_tests(
         &self,
         branch: &Branch<'_>,
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> impl Future<Output = Result<Option<String>, String>> + Send;
+    ) -> impl Future<Output = Result<Option<Answered>, String>> + Send;
 
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
     /// where it did not merge, closed with a word that its work ended ([`CLOSED`]). What is gone, closed or merged
@@ -223,6 +224,21 @@ pub trait Host: Send + Sync + 'static {
     /// again on the branch it kept: its pull request into main, which its cancel closed, is opened again, where it has
     /// one closed and not merged and none open.
     fn reopen(&self, branch: &Branch<'_>) -> impl Future<Output = Result<(), String>> + Send;
+}
+
+/// What `run_tests` found of the work: in words for the agent whose call asks, whole; and what its runs of the
+/// project's tests reported, where the host reads each test's result, which what a return says a run gave is held to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Answered {
+    pub said: String,
+    pub tested: Option<Tested>,
+}
+
+impl Answered {
+    /// Words alone, of a host that reads no test's result or of what ran no test.
+    pub fn said(said: String) -> Answered {
+        Answered { said, tested: None }
+    }
 }
 
 /// The tests and the checks an agent names to `run_tests`, each as it wrote it.
@@ -283,7 +299,7 @@ impl<H: Host> Host for Arc<H> {
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<Answered>, String> {
         (**self).run_tests(branch, named, asking, stop).await
     }
 

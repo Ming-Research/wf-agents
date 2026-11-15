@@ -121,6 +121,7 @@ fn a_result_of_a_call_the_work_does_not_have_is_refused() {
     let event = Event::Done {
         call,
         result: "x".into(),
+        tested: None,
     };
     assert_eq!(w.refused(event), Refused::NoSuchCall(call));
 }
@@ -134,6 +135,7 @@ fn a_second_result_of_a_call_is_refused() {
     let event = Event::Done {
         call,
         result: "again".into(),
+        tested: None,
     };
     assert_eq!(w.refused(event), Refused::AlreadyDone(call));
 }

@@ -22,6 +22,7 @@ impl Hub {
         self.host
             .run_tests(&branch(&place), &Named::default(), self.call(), &mut Stop::never())
             .await
+            .map(|answered| answered.map(|a| a.said))
     }
 }
 

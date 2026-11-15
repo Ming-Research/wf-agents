@@ -69,6 +69,7 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     );
     assert_eq!(r.done.len(), w.results.len());
     assert!(w.results.values().any(|v| v == "withdrawn"), "no call withdrawn");
+    assert!(!w.tested.is_empty(), "no run's report of the tests kept");
 
     let every = [
         (Outsider::Person, false),

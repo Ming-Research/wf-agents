@@ -339,6 +339,16 @@ CREATE TABLE results (
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
 
+-- What the runs of the project's tests that a call of `run_tests` asked for reported (JSON), where its host read each
+-- test's result: the commit they ran on, and each test with its unit, its name and what became of it.
+CREATE TABLE tested (
+    work INTEGER NOT NULL,
+    call INTEGER NOT NULL,
+    tested TEXT NOT NULL, -- Hidden from agents.
+    PRIMARY KEY (work, call),
+    FOREIGN KEY (work, call) REFERENCES called (work, call)
+);
+
 -- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, its tokens,
 -- the context it ended with in tokens (NULL where it is not known), and how often its session was compacted.
 CREATE TABLE spent (

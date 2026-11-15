@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
+use super::{Answered, Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::held::Stop;
 
 /// The host's answers, and what it was asked.
@@ -133,12 +133,13 @@ impl Host for Fake {
         named: &Named,
         asking: Asking,
         _: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<Answered>, String> {
         self.given(branch);
         lock(&self.askings).push(asking);
         lock(&self.asked).push(Asked::RunTests(named.clone()));
         let said = lock(&self.tests).clone();
-        said.map(Some).ok_or_else(|| NO_TOOLS.to_string())
+        said.map(|said| Some(Answered::said(said)))
+            .ok_or_else(|| NO_TOOLS.to_string())
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

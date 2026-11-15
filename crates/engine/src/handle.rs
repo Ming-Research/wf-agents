@@ -422,7 +422,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 }
             }
         }
-        Event::Done { call, result } => {
+        Event::Done { call, result, tested } => {
             if !work.records.called.iter().any(|c| c.call == call) {
                 return Err(Refused::NoSuchCall(call));
             }
@@ -434,6 +434,9 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             let at = work.tick();
             work.records.done.push(Done { call, at });
             work.results.insert(call, result);
+            if let Some(tested) = tested {
+                work.tested.insert(call, tested);
+            }
         }
         Event::Answer {
             question,
