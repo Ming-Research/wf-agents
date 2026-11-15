@@ -427,3 +427,21 @@ fn a_word_of_a_shape_the_engine_does_not_check_is_found_at_any_depth() {
         ]
     );
 }
+
+// The record a cell asks for tests in takes the commit an entry names, as a string, and nothing else beside the tests and
+// the checks. Well under a millisecond alone; no other test holds the record's shape to what an entry may name.
+#[test]
+fn an_entry_of_the_tests_record_may_name_its_commit_as_a_string() {
+    let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/data/run_tests.toml"))
+        .expect("the record of the tests");
+    let table: toml::Table = toml::from_str(&text).expect("TOML");
+    let entries = flow::Shape(table["shape"].clone());
+    let full = "0123456789abcdef0123456789abcdef01234567";
+    assert!(form::fits(
+        &json!({"tests": ["a"], "checks": [], "commit": full}),
+        &entries
+    ));
+    assert!(form::fits(&json!({"tests": ["a"]}), &entries));
+    assert!(!form::fits(&json!({"tests": ["a"], "commit": 1}), &entries));
+    assert!(!form::fits(&json!({"tests": ["a"], "at": full}), &entries));
+}

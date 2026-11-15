@@ -85,9 +85,12 @@ async fn a_merged_work_has_its_worktrees_taken_away_its_branch_kept_and_the_host
     let place = repo.place(WORK);
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
     let head = run(&repo.project.repo, &["rev-parse", &place.reference()]);
+    // An entry of the work named a commit, which the local host ran in a worktree of its own.
+    let commits = git::at_commit(&repo.project, &place, &head).await.expect("made").dir;
     let acts = acts(&repo, Fake::new(&main));
     acts.inner.release(&release(End::Merged)).await.expect("it lets go");
     assert!(!place.dir.exists(), "the worktree is taken away");
+    assert!(!commits.exists(), "and the worktree of the commits its entries named");
     let listed = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
     assert!(!listed.contains(&place.dir.display().to_string()), "{listed}");
     assert_eq!(

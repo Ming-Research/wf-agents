@@ -35,8 +35,8 @@ pub(crate) enum Asked {
     Verdict(String),
     /// To run these tests and checks, as a cell named them.
     RunTests(Named),
-    /// To cancel what these asked it to run of the tests.
-    Cancel(Vec<Asking>),
+    /// To cancel what these asked it to run of the tests, each with the commit it named, where it named one.
+    Cancel(Vec<(Asking, Option<String>)>),
     /// To merge, the check having passed this commit.
     Merge(Option<String>),
     /// To let go of what it holds for the branch, the work having merged or not.
@@ -153,7 +153,7 @@ impl Host for Fake {
         said.map(Some).ok_or_else(|| Failed::refused(NO_TOOLS))
     }
 
-    async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[Asking]) -> Result<(), Failed> {
+    async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[(Asking, Option<String>)]) -> Result<(), Failed> {
         self.given(branch);
         lock(&self.asked).push(Asked::Cancel(asking.to_vec()));
         match lock(&self.cancelling).clone() {

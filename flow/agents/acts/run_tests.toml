@@ -15,6 +15,13 @@ not_cancelled = "What the replaced entries of `run_tests` ({entries}) asked the 
 # `{why}` why, as the host or the reading of the entry says it.
 could_not = "The check could not be run: {why}"
 
+# What a result says first, on every host: the entry it answers, `{entry}` the entry's version.
+entry = "For `run_tests`, version {entry}:"
+
+# Why an entry that names a commit is run nowhere, said in `could_not`'s words: the commit is no full commit hash of the
+# work's branch. It says nothing of what the agent wrote.
+not_of_the_branch = "The commit named is no full commit hash of the work's branch."
+
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is
 # whole, `{file}` the file that holds it whole.
@@ -77,6 +84,10 @@ passed = "passed"
 failed = "failed ({status})"
 could_not = "The check `{command}` could not be run: {why}"
 not_apart = "The tests and checks you named are not run apart: the whole command runs."
+# What it says first of what it ran on: `{commit}` the commit of the working tree it ran in, which is the commit an entry
+# names where it names one; `ran_on_changed` where the working tree has changes not committed.
+ran_on = "On the commit {commit}:"
+ran_on_changed = "On the working tree at {commit}, with changes not committed:"
 
 # What fills `{named_checks}`, the checks an agent may name, as the project declares its fast workflow (`[ci.fast]` of
 # flow/project.toml): `named`, `{checks}` the checks it runs by name, each between backticks and joined by commas;

@@ -117,6 +117,9 @@ pub struct Permissions {
     pub allowed: Vec<String>,
     /// What a round may not use, as the command line's tool rules name it.
     pub refused: Vec<String>,
+    /// The directories outside the worktree a round may read, as the command line is told them (`--add-dir`): the
+    /// one that holds the whole results of what the works asked for, which no round may edit ([`Permissions::reading`]).
+    pub readable: Vec<String>,
 }
 
 impl Permissions {
@@ -171,12 +174,16 @@ impl Permissions {
             locks,
             allowed,
             refused,
+            readable: Vec::new(),
         }
     }
 
     /// The arguments that give a round these permissions, after the installation's own.
     pub fn arguments(&self) -> Vec<String> {
         let mut out = Vec::new();
+        for dir in &self.readable {
+            out.extend(["--add-dir".to_string(), dir.clone()]);
+        }
         if !self.allowed.is_empty() {
             out.push("--allowedTools".to_string());
             out.extend(self.allowed.iter().cloned());
@@ -186,6 +193,25 @@ impl Permissions {
             out.extend(self.refused.iter().cloned());
         }
         out
+    }
+
+    /// The permissions with this directory let read beside the worktree, and refused to every edit: what it holds is
+    /// given to the rounds of every work as the engine wrote it. The command line's rule of `Edit` covers each of its
+    /// tools that edit files, and the commands it knows to write, a redirection among them; a program a command starts
+    /// may still write there, as it may write the repository's configuration ([`crate::git::configuration`]). A path
+    /// that begins with `//` is one from the root of the file system; the directory is named as given and, where it
+    /// differs, as its links lead.
+    pub fn reading(mut self, dir: &std::path::Path) -> Permissions {
+        let given = dir.display().to_string();
+        let mut named = vec![given.clone()];
+        if let Ok(real) = std::fs::canonicalize(dir).map(|real| real.display().to_string())
+            && real != given
+        {
+            named.push(real);
+        }
+        self.refused.extend(named.iter().map(|dir| format!("Edit(/{dir}/**)")));
+        self.readable.push(given);
+        self
     }
 
     /// What the agent is told its line may do in the worktree, in one line of the system prompt, which no rule says by
