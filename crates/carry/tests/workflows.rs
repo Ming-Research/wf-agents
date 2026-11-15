@@ -155,7 +155,7 @@ fn each_workflow_the_engine_runs_takes_a_commit_and_a_call_and_names_its_run_by_
 }
 
 // What a run uploads for the engine is JUnit, all of it in the one artifact `test-results`: the full workflow's jobs
-// each upload theirs in a file of their own, nextest's of each third of the Rust tests and vitest's of the page, and
+// each upload theirs in a file of their own, nextest's of each part of the Rust tests and vitest's of the page, and
 // the job `check` makes them one; the fast workflow uploads its own.
 #[test]
 fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
