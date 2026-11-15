@@ -11,14 +11,17 @@
 //! said it had taken the message in (`work::sessions::wrote_into`). A version is held by what it is, never by its
 //! content: a new version is new, though it says what an earlier one said, as a person saying the same twice, or a
 //! datum changed and changed back. Everything is read as the records stood when the round began, so that a round given
-//! again is sent the same.
+//! again is sent the same: it is given again only where its program took nothing in (crate `carry`).
 //!
 //! The round is filled with what its cell is given and its session lacks, in the order of the message: which work it
 //! is, each datum of the cell's context by the kind the cell gives it in, what the cell returns, its task, and the
 //! results and the reasons for sending back that the round is given; and, where the round's script gives its agent a
 //! part to play, that part, with the words that it is a test agent where its session lacks them (design document
 //! `testing`, 12). A datum with no version yet is left out, and so is one the session holds, but for the line that
-//! says so where it is new to the cell.
+//! says so where it is new to the cell. Where the last round that put its message into the session had nothing it
+//! returned taken, as one that failed for any cause but a return that could not be read, or one of a run given up, the
+//! round is told so, in place of what the return before that round handed in, which that round was told: the session
+//! holds that round's work, and its return where it made one.
 //!
 //! What changed in a datum given `last_and_latest` is what differs in its text, but for a datum whose versions the
 //! carrier compares itself, as git compares the versions of the design tree: the carrier gives what changed from each
@@ -36,7 +39,7 @@ use work::{Ask, Back, Call, Fill, Given, Tool, Why, Work};
 use crate::diff;
 use crate::message::{self, Called, Datum, Form, Main, Run, Sent, Situation, Stands, Values, Version};
 use crate::text::as_written;
-use decide::run::Unmet;
+use decide::run::{Failure, Unmet};
 
 /// Which work a round is of, and the item it is done for, by their numbers, with the item's title.
 #[derive(Clone, Copy, Debug)]
@@ -122,7 +125,9 @@ pub fn enter(
         matches!(v.by, Writer::Run(r) if of_cell(&records, r, cell)) || theirs.contains(&(block.clone(), v.at))
     };
     let mut situation = Situation {
-        after_hand_in: !held.taken.is_empty(),
+        // What the last return handed in was told the round after it, which a round cut off since was.
+        after_hand_in: !held.taken.is_empty() && !held.cut_off,
+        after_cut_off: held.cut_off,
         ..Situation::default()
     };
     let mut values = Run {
@@ -486,6 +491,9 @@ struct Held {
     sent_back: BTreeSet<usize>,
     /// What the last return in it handed in: each block, with the version it is kept as.
     taken: Vec<(BlockId, Seq)>,
+    /// Whether the last round that put its message into it had nothing it returned taken: it failed for a cause other
+    /// than a return that could not be read, or its run was given up.
+    cut_off: bool,
 }
 
 /// What the session the round of this number of the run runs in, on this line, holds as the round begins, at this
@@ -553,10 +561,17 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
             }
         }
     }
-    // What the rounds handed in, and what was put into each that reached the model while it ran; and what the last
-    // return in the session handed in, a round that failed having returned nothing.
+    // What the rounds handed in, and what was put into each that reached the model while it ran; what the last
+    // return in the session handed in, a round that failed having returned nothing; and whether the last round that put
+    // its message into the session, since it last held nothing but where it was compacted, had nothing it returned
+    // taken. A return that could not be read is sent back, and says why itself.
     let asked = entries_asked(flow, records);
     let mut last: Option<(Seq, Vec<(BlockId, Seq)>)> = None;
+    let lost = (of_line(work, line))
+        .filter(|s| s.why == Why::Lost && s.at < began && number_at(work, line, s.at) == session)
+        .map(|s| s.at)
+        .max();
+    let mut wrote_last: Option<(Seq, bool)> = None;
     for (r, k, from, ended) in &rounds {
         let into = |p: &&decide::PutIn| p.run == *r && p.at > *from && p.at < *ended && p.at > top;
         if reached(*r, *k) {
@@ -574,12 +589,25 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
                 taken.push((block.clone(), at));
             }
         }
-        let returned = !matches!(work.back.get(&(*r, *k)), Some(Back::Failed { .. }) | None);
+        let back = work.back.get(&(*r, *k));
+        let returned = !matches!(back, Some(Back::Failed { .. }) | None);
         if returned && *ended >= top && last.as_ref().is_none_or(|(at, _)| at < ended) {
             last = Some((*ended, taken));
         }
+        let since = lost.is_none_or(|lost| *ended > lost);
+        if reached(*r, *k) && since && wrote_last.is_none_or(|(at, _)| at < *ended) {
+            let read = matches!(
+                back,
+                Some(Back::Failed {
+                    failure: Failure::Unread,
+                    ..
+                })
+            );
+            wrote_last = Some((*ended, !returned && !read));
+        }
     }
     held.taken = last.map(|(_, taken)| taken).unwrap_or_default();
+    held.cut_off = wrote_last.is_some_and(|(_, cut)| cut);
     held
 }
 

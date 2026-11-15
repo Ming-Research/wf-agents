@@ -134,6 +134,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         message,
         [
             (Part::Taken, None, Some(Only::AfterHandIn)),
+            (Part::CutOff, None, Some(Only::AfterCutOff)),
             (Part::Heading, None, None),
             (Part::Main, Some(InputKind::Latest), Some(Only::TakesMain)),
             (Part::Context, None, None),
@@ -144,7 +145,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
             (Part::Triggers, None, None),
         ]
     );
-    assert_eq!(read.message.parts[8].does.as_deref(), Some(": {do}"));
+    assert_eq!(read.message.parts[9].does.as_deref(), Some(": {do}"));
     assert_eq!(read.message.parts[0].between.as_deref(), Some(", "));
     assert_eq!(read.message.compacted, "Compacted: the round again.");
     assert_eq!(read.results.none, "(none)");

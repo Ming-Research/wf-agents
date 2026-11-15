@@ -62,6 +62,8 @@ pub struct Situation {
     pub holds: Vec<String>,
     /// The last return in the session handed in blocks.
     pub after_hand_in: bool,
+    /// The last round that put its message into the session had nothing it returned taken.
+    pub after_cut_off: bool,
     /// The triggers that ran the cell and are new to it, by name.
     pub triggers: Vec<String>,
     /// How the session stands with each datum of the cell's context, by name; one not named, as with
@@ -378,6 +380,7 @@ pub fn message(
     for part in &words.message.parts {
         let applies = match part.only {
             Some(Only::AfterHandIn) => situation.after_hand_in,
+            Some(Only::AfterCutOff) => situation.after_cut_off,
             Some(Only::TakesMain) => cell.takes_main,
             Some(Only::Part) => situation.part,
             None => true,
@@ -552,7 +555,7 @@ impl Build<'_> {
                 None => own,
                 Some(run) => filled(own, &[("part", run.part.as_deref().unwrap_or_default())]),
             },
-            Part::Heading | Part::Task | Part::Context | Part::Triggers | Part::Told => own,
+            Part::CutOff | Part::Heading | Part::Task | Part::Context | Part::Triggers | Part::Told => own,
         })
     }
 
