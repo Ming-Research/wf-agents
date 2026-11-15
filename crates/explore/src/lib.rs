@@ -13,6 +13,7 @@
 //! ([`replay`]).
 
 pub mod model;
+pub mod renaming;
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};

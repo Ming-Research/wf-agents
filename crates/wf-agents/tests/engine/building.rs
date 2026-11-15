@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
+use crate::Engine;
+
 /// The directory of the repository's flows.
 fn repository() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow")
@@ -73,8 +75,17 @@ fn items(dir: &Path) -> PathBuf {
     file
 }
 
-/// The build of these flows into a data directory of its own: whether it succeeded, what it printed, and its list.
-fn build(flows: &[PathBuf]) -> (bool, String, String) {
+/// What a build left: whether it succeeded, what it printed, its list and every store's, and the directory that holds
+/// its data directory, `built`.
+struct Built {
+    ok: bool,
+    said: String,
+    list: String,
+    dir: tempfile::TempDir,
+}
+
+/// The build of these flows into a data directory of its own.
+fn build(flows: &[PathBuf]) -> Built {
     let dir = tempfile::tempdir().expect("a directory");
     let data = dir.path().join("built");
     std::fs::create_dir(&data).expect("the data directory");
@@ -97,7 +108,41 @@ fn build(flows: &[PathBuf]) -> (bool, String, String) {
             list.push_str(&store);
         }
     }
-    (out.status.success(), said, list)
+    Built {
+        ok: out.status.success(),
+        said,
+        list,
+        dir,
+    }
+}
+
+/// Serves a fresh copy of the main store as its notes say: as it starts it holds every work, the hold after a restart
+/// (a round having been left under way), and let on, a work whose round was left under way still has it under way.
+fn served(built: &Built, flows: &[PathBuf]) {
+    let main = built.dir.path().join("built/main");
+    let copy = built.dir.path().join("served");
+    std::fs::create_dir(&copy).expect("the copy's directory");
+    for entry in std::fs::read_dir(main.join("data")).expect("the store's data directory") {
+        let entry = entry.expect("an entry of it");
+        std::fs::copy(entry.path(), copy.join(entry.file_name())).expect("a file of the store is copied");
+    }
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wf-agents"));
+    command.arg("run").arg("--data").arg(&copy);
+    for flow in flows {
+        command.arg("--flow").arg(flow);
+    }
+    command
+        .arg("--script")
+        .arg(main.join("serve/test.toml"))
+        .args(["--port", "0"]);
+    let engine = Engine::start_with(command);
+    let held = engine.says(&["list"]);
+    assert!(
+        held.starts_with("The engine started with works going on and holds every work"),
+        "{held}"
+    );
+    engine.says(&["resume", "--all"]);
+    engine.until(&["list"], |line| line.contains("is under way"));
 }
 
 /// How many states of this kind the list counts as made.
@@ -116,9 +161,15 @@ fn made(list: &str, kind: &str) -> usize {
 fn every_state_the_build_lists_is_reached_and_every_kind_has_one() {
     let started = Instant::now();
     let flows = [repository().join("engineer"), repository().join("deliver"), stalled()];
-    let (ok, said, list) = build(&flows);
-    assert!(ok, "{said}\n{list}");
-    let none: Vec<&&str> = KINDS.iter().filter(|kind| made(&list, kind) == 0).collect();
+    let built = build(&flows);
+    let list = &built.list;
+    assert!(built.ok, "{}\n{list}", built.said);
+    let none: Vec<&&str> = KINDS.iter().filter(|kind| made(list, kind) == 0).collect();
     assert!(none.is_empty(), "no state of these kinds was made: {none:?}\n{list}");
+    let moved = list
+        .lines()
+        .any(|line| line.starts_with("- main-moved: ") && !line.starts_with("- main-moved: 0 "));
+    assert!(moved, "no state was made in the store where main moves\n{list}");
     println!("built in {:?}", started.elapsed());
+    served(&built, &flows[..2]);
 }

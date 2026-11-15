@@ -671,3 +671,84 @@ fn write_list(
     let file = data.join("states.md");
     std::fs::write(&file, s).map_err(|e| format!("{}: {e}", file.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bound the flow and the flow renamed are explored at: the exploration's own renaming property's.
+    const SMALL: explore::Bounds = explore::Bounds {
+        spend: 1,
+        outside_after: 1,
+        steps: 200,
+        states: 200_000,
+    };
+
+    /// Each state the build would make on the flow, in words: its kind and state, its path, and its acts and rounds.
+    fn states(compiled: &Compiled, words: &Agents) -> Vec<String> {
+        let model = Model::new(compiled.clone());
+        let group = |work: &work::Work, decision: &decide::Decision| cases::state_of(&model.compiled, work, decision);
+        let explored = explore::explore_grouped(&model, SMALL, &group);
+        let mut of_flow = Vec::new();
+        let mut said = Vec::new();
+        for (state, path) in &explored.groups {
+            match cases::case_of(&model, state, path) {
+                Ok(case) => of_flow.push(case),
+                Err(why) => said.push(format!("not {state}: {why}")),
+            }
+        }
+        let (ruled, not) = rules::ruled(compiled, words, &of_flow);
+        of_flow.extend(ruled);
+        said.extend(not.into_iter().map(|(state, why)| format!("not {state}: {why}")));
+        for case in of_flow {
+            let path: Vec<String> = case.path.iter().map(ToString::to_string).collect();
+            said.push(format!(
+                "{} | {} | {} | {:?} | {:?}",
+                case.kind,
+                case.state,
+                path.join(", "),
+                case.acts,
+                case.rounds
+            ));
+        }
+        said.sort();
+        said
+    }
+
+    /// The text with each word a renamed name gives back as the name it replaced.
+    fn back(text: &str, names: &BTreeMap<String, String>) -> String {
+        let to: BTreeMap<&str, &str> = names.iter().map(|(was, is)| (is.as_str(), was.as_str())).collect();
+        let mut out = String::with_capacity(text.len());
+        let mut word = String::new();
+        for c in text.chars().chain(std::iter::once(' ')) {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                word.push(c);
+                continue;
+            }
+            out.push_str(to.get(word.as_str()).copied().unwrap_or(&word));
+            word.clear();
+            out.push(c);
+        }
+        out.pop();
+        out
+    }
+
+    // The build names no cell, block or trigger: the engineer's flow with every one of them renamed alike gives the
+    // same states, their paths, acts and rounds the same, their names following. A second or so alone, at the bound the
+    // exploration's own renaming property explores at.
+    #[test]
+    fn the_flow_renamed_gives_the_same_states_its_names_following() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+        let source = flow::read(&dir).expect("the flow is read");
+        let has = crate::has(&dir);
+        let compiled = flow::compile(&source, &has).expect("the flow compiles");
+        let (names, renamed) = explore::renaming::renamed(&source);
+        let renamed = flow::compile(&renamed, &has).expect("the flow renamed compiles");
+        let words = running::beside(std::slice::from_ref(&dir), std::slice::from_ref(&compiled)).expect("the words");
+        let were = states(&compiled, &words);
+        let mut are: Vec<String> = states(&renamed, &words).iter().map(|s| back(s, &names)).collect();
+        are.sort();
+        assert!(were.len() > 10, "{were:#?}");
+        assert_eq!(are, were);
+    }
+}

@@ -684,19 +684,32 @@ impl<'m> Replay<'m> {
             engine::handle_in(replay.flow, &mut replay.work, Time(replay.clock), given, taking)
                 .map_err(|why| format!("the work could not be added as a play adds it: {why:?}"))?;
         }
-        replay.give(Given::Resumed)?;
-        // Let on with nothing of it started, the work is started: the driver writes its block of the start.
-        if let Some(block) = model.sources.get(driver::START) {
+        // Let on with nothing of it started, the work is started: the driver writes its block of the start as it takes
+        // the letting on, before the walk.
+        let start = model.sources.get(driver::START).map(|block| {
             let declared = model.compiled.blocks.get(block);
             let content = declared.and_then(|b| b.writes.get("text")).unwrap_or_default();
-            replay.give(Given::Wrote {
+            Given::Wrote {
                 block: block.clone(),
                 by: Outsider::Outside,
                 content: content.to_string(),
                 matters: true,
                 value: None,
-            })?;
-        }
+            }
+        });
+        let then = |_: &Compiled, _: &Work| start.clone().into_iter().collect::<Vec<Given>>();
+        replay.clock += 1000;
+        let (flow, now) = (replay.flow, Time(replay.clock));
+        engine::handle_then(
+            flow,
+            &mut replay.work,
+            now,
+            Given::Resumed,
+            Room::FREE,
+            engine::Gate::Open,
+            &then,
+        )
+        .map_err(|why| format!("the work could not be let on as a play lets it on: {why:?}"))?;
         Ok(replay)
     }
 
