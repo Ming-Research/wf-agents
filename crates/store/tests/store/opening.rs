@@ -406,63 +406,61 @@ fn a_file_of_version_17_is_migrated_and_each_of_its_writes_reads_as_holding_what
     assert_eq!(store.load(WorkNumber(2)), Ok(other));
 }
 
-#[test]
-fn a_file_of_version_17_that_lacks_what_a_version_holds_is_not_opened_and_is_left_as_it_was() {
-    let work = kept_at_17(false);
-    let places = |old: &Db| -> (i64, i64) {
-        let file = Connection::open(&old.path).expect("the database opens");
-        let written = file
-            .query_row("SELECT at FROM written WHERE block = 'request'", [], |r| r.get(0))
-            .expect("a place");
-        let finished = file
-            .query_row("SELECT at FROM finished WHERE run = 1", [], |r| r.get(0))
-            .expect("a place");
-        (written, finished)
-    };
-    type Lack = fn(&Db, (i64, i64)) -> String;
-    let lacks: [(&str, Lack); 3] = [
-        ("a written version", |old, (written, _)| {
-            let file = Connection::open(&old.path).expect("the database opens");
-            file.execute(
-                "DELETE FROM contents WHERE block = 'request' AND version = ?1",
-                [written],
-            )
-            .expect("the content is lacking");
-            format!("the content of the version of request written at {written} of work 1 is missing")
-        }),
-        ("a version a run wrote", |old, (_, finished)| {
-            let file = Connection::open(&old.path).expect("the database opens");
-            file.execute(
-                "DELETE FROM contents WHERE block = 'verdict' AND version = ?1",
-                [finished],
-            )
-            .expect("the content is lacking");
-            format!("the content of the version of verdict written by run 1 at {finished} of work 1 is missing")
-        }),
-        ("a write of a run that has no end", |old, _| {
-            let file = Connection::open(&old.path).expect("the database opens");
-            file.pragma_update(None, "foreign_keys", "OFF")
-                .expect("the foreign keys are let be");
-            file.execute("DELETE FROM finished WHERE run = 1", [])
-                .expect("the run is lacking");
-            "by run 1 of work 1 has no finished run".to_string()
-        }),
-    ];
-    for (lack, make) in lacks {
-        let (old, _) = kept_in(17, &work);
-        let wanted = make(&old, places(&old));
-        let before = dump(&old.path);
-        match Store::open(&old.path) {
-            Err(Fault::Database(said)) => {
-                assert!(said.contains(&wanted), "{lack}: {said:?} does not say {wanted:?}");
-            }
-            other => panic!("{lack}: opened or failed otherwise: {:?}", other.map(|_| ())),
-        }
-        assert_eq!(dump(&old.path), before, "{lack}: the file was changed");
-        let copies = before_migration::copies(&before_migration::dir(&old.path));
-        assert_eq!(copies.len(), 1, "{lack}");
-        assert_eq!(dump(&copies[0]), before, "{lack}: the copy is not the file as it was");
+/// A file of version 17 that lacks something `make` takes out of it, given the places of the request written and of the
+/// run's finish, and says what the refusal says: it is not opened, nothing of it is changed, and the copy taken before
+/// holds it as it was.
+fn lacking(make: impl Fn(&Connection, i64, i64) -> String) {
+    let (old, _) = kept_in(17, &kept_at_17(false));
+    let file = Connection::open(&old.path).expect("the database opens");
+    let written: i64 =
+        (file.query_row("SELECT at FROM written WHERE block = 'request'", [], |r| r.get(0))).expect("a place");
+    let finished: i64 = (file.query_row("SELECT at FROM finished WHERE run = 1", [], |r| r.get(0))).expect("a place");
+    let wanted = make(&file, written, finished);
+    drop(file);
+    let before = dump(&old.path);
+    match Store::open(&old.path) {
+        Err(Fault::Database(said)) => assert!(said.contains(&wanted), "{said:?} does not say {wanted:?}"),
+        other => panic!("opened or failed otherwise: {:?}", other.map(|_| ())),
     }
+    assert_eq!(dump(&old.path), before, "the file was changed");
+    let copies = before_migration::copies(&before_migration::dir(&old.path));
+    assert_eq!(copies.len(), 1);
+    assert_eq!(dump(&copies[0]), before, "the copy is not the file as it was");
+}
+
+#[test]
+fn a_file_of_version_17_that_lacks_the_content_of_a_version_written_is_not_opened_and_is_left_as_it_was() {
+    lacking(|file, written, _| {
+        file.execute(
+            "DELETE FROM contents WHERE block = 'request' AND version = ?1",
+            [written],
+        )
+        .expect("the content is lacking");
+        format!("the content of the version of request written at {written} of work 1 is missing")
+    });
+}
+
+#[test]
+fn a_file_of_version_17_that_lacks_the_content_of_a_version_a_run_wrote_is_not_opened_and_is_left_as_it_was() {
+    lacking(|file, _, finished| {
+        file.execute(
+            "DELETE FROM contents WHERE block = 'verdict' AND version = ?1",
+            [finished],
+        )
+        .expect("the content is lacking");
+        format!("the content of the version of verdict written by run 1 at {finished} of work 1 is missing")
+    });
+}
+
+#[test]
+fn a_file_of_version_17_with_a_write_of_a_run_that_has_no_end_is_not_opened_and_is_left_as_it_was() {
+    lacking(|file, _, _| {
+        file.pragma_update(None, "foreign_keys", "OFF")
+            .expect("the foreign keys are let be");
+        file.execute("DELETE FROM finished WHERE run = 1", [])
+            .expect("the run is lacking");
+        "by run 1 of work 1 has no finished run".to_string()
+    });
 }
 
 #[test]
