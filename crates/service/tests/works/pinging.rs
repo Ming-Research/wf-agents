@@ -36,15 +36,16 @@ async fn a_work_cancelled_while_its_session_is_pinged_lets_go_of_what_it_holds_o
     assert!(trial.step().await.is_none());
 }
 
-/// The trial's script, the review's first round running longer than the cache keeps a session and asking for a query,
-/// whose result enters the review again: the engineer's line, which the review's opinions run, is pinged while the
-/// review's round runs.
+/// The trial's script, the review's first run asking first, in a round longer than the cache keeps a session, for a
+/// query, whose result runs the review again: the engineer's line, which the review's opinions run, is pinged while the
+/// review's round runs. The review's later runs object and then are content, as the trial's two do.
 fn a_long_first_round_of_the_review() -> Script {
     let text = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
-    let first = "[[flows.trial.rounds]]\ncell = \"review\"\nrun = 1\n";
+    let run = |n: u32| format!("[[flows.trial.rounds]]\ncell = \"review\"\nrun = {n}\n");
     let asks = r#"took = { ms = 3_400_000 }
 asks = [{ tool = "query", input = '{"sql": "select number from items"}' }]"#;
-    let text = text.replacen(first, &format!("{first}{asks}\n\n{first}round = 2\n"), 1);
+    let text = text.replacen(&run(2), &run(3), 1);
+    let text = text.replacen(&run(1), &format!("{}{asks}\n\n{}", run(1), run(2)), 1);
     Script::read(&text).expect("the script reads")
 }
 
@@ -69,15 +70,17 @@ async fn a_ping_runs_beside_the_rounds_of_another_line_and_one_of_its_own_line_w
         reviewing(&trial.decision(work)),
         "the engineer was pinged beside the review's round"
     );
-    // The review's round asks, the call has its result, and the review's next round ends, all beside the ping.
-    let review = |trial: &Trial| {
+    // The review's round asks, the call has its result, and the review's next run, entered for it, ends, all beside
+    // the ping.
+    let reviewed = |trial: &Trial| {
         let kept = trial.work(work);
-        let run = (kept.records.started.iter())
-            .find(|s| s.cell.as_str() == "review")
-            .map(|s| s.run);
-        (kept.records.returned.iter()).filter(|r| Some(r.run) == run).count()
+        let review = |run: decide::RunId| {
+            let started = kept.records.started.iter().find(|s| s.run == run);
+            started.is_some_and(|s| s.cell.as_str() == "review")
+        };
+        (kept.records.returned.iter()).filter(|r| review(r.run)).count()
     };
-    while review(&trial) < 2 {
+    while reviewed(&trial) < 2 {
         let event = trial.step().await.expect("the review goes on beside the ping");
         assert!(!matches!(event, Event::Pinged { .. }), "the ping ended by itself");
     }
