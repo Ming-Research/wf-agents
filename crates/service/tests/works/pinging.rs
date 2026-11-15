@@ -57,7 +57,8 @@ async fn a_ping_runs_beside_the_rounds_of_another_line_and_one_of_its_own_line_w
     let mut trial = Trial::warm_with(a_long_first_round_of_the_review());
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.step().await.unwrap();
+    let asked = |d: &Decision| matches!(d, Decision::Wait { at, .. } if at.as_str() == "plan");
+    trial.until(work, asked).await;
     trial.answer(work, "By name, as the user likes.");
     let reviewing = |d: &Decision| matches!(d, Decision::Busy { cell, .. } if cell.as_str() == "review");
     trial.until(work, reviewing).await;
