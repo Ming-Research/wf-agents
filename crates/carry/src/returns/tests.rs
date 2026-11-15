@@ -7,6 +7,7 @@
 
 mod adversarial;
 mod checks;
+mod groups;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -52,6 +53,12 @@ triggered_by = ["on_ok"]
 
 /// The small flow, compiled against what it names.
 pub(crate) fn flow() -> Compiled {
+    compiled(FLOW, WRITE, &[])
+}
+
+/// A small flow of these definitions of the flow and of `write`, with the merge after it, the files of the small flow
+/// and these beside them, compiled against what the small flow names.
+pub(crate) fn compiled(flow: &str, write: &str, more: &[(&str, &str)]) -> Compiled {
     let files = [
         ("lines/engineer.toml", ""),
         ("blocks/plan.toml", "shown = true\n"),
@@ -77,13 +84,13 @@ pub(crate) fn flow() -> Compiled {
     ];
     let source = flow::Source {
         laid_out: true,
-        flow: FLOW.to_string(),
+        flow: flow.to_string(),
         cells: BTreeMap::from([
-            ("write".to_string(), WRITE.to_string()),
+            ("write".to_string(), write.to_string()),
             ("merge".to_string(), MERGE.to_string()),
         ]),
         rules: BTreeMap::new(),
-        files: (files.iter())
+        files: (files.iter().chain(more))
             .map(|(path, text)| (path.to_string(), text.to_string()))
             .collect(),
     };
@@ -114,7 +121,7 @@ pub(crate) fn words() -> flow::agents::Agents {
 /// What came back, read against the cell `write`.
 fn read(r: &Value) -> Result<Came, String> {
     let flow = flow();
-    came(r, &flow, cell(&flow), &words())
+    came(r, &flow, cell(&flow), &words()).map(|reading| reading.came)
 }
 
 fn handed(block: &str, content: &str, matters: bool, value: Option<&str>) -> Handed {
@@ -204,6 +211,7 @@ fn what_a_return_says_beside_its_work_is_kept() {
                         follows: "warmer".to_string(),
                     }],
                     about: None,
+                    reasons: BTreeMap::new(),
                 },
                 Question::Withdrawn {
                     name: "old".to_string(),
@@ -277,13 +285,44 @@ fn a_question_of_a_cell_no_answer_runs_is_found_as_one_no_answer_could_reach() {
             "options": [{"does": "blue", "follows": "calm"}]},
         {"name": "old", "withdrawn": "Settled."},
     ]}});
-    let found = came(&r, &flow, merge, &words()).expect("it is read").found;
+    let found = came(&r, &flow, merge, &words()).expect("it is read").came.found;
     assert_eq!(
         found,
         [Unmet::NotAnswerable {
             name: "which".to_string()
         }]
     );
+}
+
+// Why a return says the work changes each file the project protects is taken from the return that does the cell's
+// work, as it wrote it, for the engine's look at the branch; a return that only asks for calls cannot say it.
+#[test]
+fn why_a_return_changes_each_protected_file_is_read_for_the_look_at_the_branch() {
+    let flow = flow();
+    let reading = |r: &Value| came(r, &flow, cell(&flow), &words()).expect("it is read");
+    let mut r = work();
+    r["outcome"]["protected_changes"] = json!({"AGENTS.md": "The guide must say it.", "flow/cell.toml": " Needed. "});
+    let said = reading(&r);
+    let expected = BTreeMap::from([
+        ("AGENTS.md".to_string(), "The guide must say it.".to_string()),
+        ("flow/cell.toml".to_string(), " Needed. ".to_string()),
+    ]);
+    assert_eq!(said.protected.as_ref(), Some(&expected));
+    assert_eq!(said.came, worked(), "it changes nothing else of the reading");
+    // Left out, null, or written as a string that holds it.
+    assert_eq!(reading(&work()).protected, Some(BTreeMap::new()));
+    r["outcome"]["protected_changes"] = Value::Null;
+    assert_eq!(reading(&r).protected, Some(BTreeMap::new()));
+    r["outcome"]["protected_changes"] = json!(r#"{"AGENTS.md": "The guide must say it."}"#);
+    assert_eq!(
+        reading(&r).protected,
+        Some(BTreeMap::from([expected.into_iter().next().unwrap()]))
+    );
+    // A reason that is no text is not of the form.
+    r["outcome"]["protected_changes"] = json!({"AGENTS.md": 3});
+    assert!(came(&r, &flow, cell(&flow), &words()).is_err());
+    let calls = json!({"calls": {"query": [{"sql": "select 1"}]}});
+    assert_eq!(reading(&calls).protected, None);
 }
 
 #[test]
@@ -432,6 +471,7 @@ fn a_return_in_its_form_is_read_as_it_was() {
         "meaning_unchanged": [],
         "questions": [],
         "observations": [],
+        "protected_changes": {"AGENTS.md": "The guide must say it."},
         "reply": "Yes.",
         "outputs": {"plan": "Greet."},
     }});

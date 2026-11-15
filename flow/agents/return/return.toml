@@ -13,7 +13,7 @@
 # flow names; any other name, that field.
 [form]
 calls = ["tools"]
-outcome = ["dealt_with", "meaning_unchanged", "questions", "observations", "reply", "outputs"]
+outcome = ["dealt_with", "meaning_unchanged", "questions", "observations", "protected_changes", "reply", "outputs"]
 
 # The part on returning of a line's system prompt, after the engine's words (`../session.toml`): the same for every
 # cell of the flow. `heading`, `first` and `kinds`; each field told `alone`, in the order of the form, with those told
@@ -30,7 +30,7 @@ alone.'''
 # An item of the list of the fields, and of the tools.
 item = "- {text}"
 # The fields told `listed`, in this order.
-listed = ["reply", "questions", "observations"]
+listed = ["reply", "questions", "observations", "protected_changes"]
 every_time = '''
 A block the list marks "hand it in every time" you always hand in, as it stands, and a choice with its value: handing
 it in again with its value unchanged runs no cell again. A return with a question you wait for may leave them out,
@@ -39,7 +39,7 @@ fields = '''
 Fields that are not blocks of the work:'''
 owner_reads = "The owner reads {fields}: write them in `owner.language`, with technical terms in their English original."
 # The fields the owner reads, in the order `owner_reads` names them.
-reads = ["reply", "questions"]
+reads = ["reply", "questions", "protected_changes"]
 and = " and "
 calls = '''
 A tool of the engine is asked for under its name, and the cell is entered again once its results are there.'''

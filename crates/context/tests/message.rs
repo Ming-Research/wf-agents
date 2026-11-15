@@ -84,17 +84,20 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
 }
 
 #[test]
-fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_none_of_it() {
+fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_for_each_with_its_version() {
     let mut sim = Sim::new();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
     let entered = sim.enter(&round, false);
-    let plan = sim.version("plan");
+    let (plan, request) = (sim.version("plan"), sim.version("request"));
     let outputs = returns(&["- `code`: "]);
+    // The build never worked from either: each is new to it, and the session holds it already.
     let expected = message(&[
         format!("Kept: `plan` {plan}"),
         "# Build".to_string(),
+        format!("## `plan`, version {plan}, in this session already"),
+        format!("## `request`, version {request}, in this session already"),
         outputs.clone(),
         "Build what the plan says.".to_string(),
         ran_by(&["plan"]),
@@ -104,6 +107,7 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_none_of
         entered.fills,
         [part("outputs", &outputs), part("task", "Build what the plan says.")]
     );
+    assert_eq!(entered.situation.data["request"], Stands::HoldsNew);
 }
 
 #[test]
@@ -352,6 +356,29 @@ fn a_round_after_its_return_was_sent_back_is_sent_why() {
     assert!(anew.text.contains("## Sent back"), "{}", anew.text);
 }
 
+// A return the engine found leaving files the project protects changed with nothing to say why is sent back naming
+// each, in the words of the files beside the flows.
+#[test]
+fn a_return_that_leaves_a_protected_file_changed_and_says_not_why_is_sent_back_naming_it() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = ["AGENTS.md", "flow/cell.toml"]
+        .map(|path| Unmet::Unexplained { path: path.to_string() })
+        .to_vec();
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    assert_eq!((again.run, again.number), (round.run, 2));
+    let entered = sim.enter(&again, false);
+    let said = "## Sent back\n\n- `AGENTS.md` is protected: say why, or take it back.\n- `flow/cell.toml` is \
+                protected: say why, or take it back.\n";
+    assert!(entered.text.contains(said), "{}", entered.text);
+}
+
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
     let mut sim = Sim::new();
@@ -403,7 +430,13 @@ fn what_the_page_shows_for_the_situation_is_what_the_engine_sends_in_it_with_its
     let round = sim.round().expect("the build is entered again");
     let entered = sim.enter(&round, false);
     let cell = sim.cell(&round);
-    let open = context::message(&sim.flow, &sim.words, cell, &entered.situation, Values::Slots);
+    let open = context::message(
+        &sim.flow,
+        &sim.words,
+        cell,
+        &entered.situation,
+        Values::Slots(&sim.named),
+    );
     let shape = |sent: &[context::Sent]| -> Vec<(String, Option<String>, context::Form)> {
         sent.iter().map(|s| (s.part.clone(), s.block.clone(), s.form)).collect()
     };
@@ -450,7 +483,8 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
 }
 
 #[test]
-fn a_datum_given_last_and_latest_whose_session_holds_its_latest_and_not_the_version_last_worked_from_is_sent_whole() {
+fn a_datum_given_last_and_latest_whose_session_holds_its_latest_and_not_the_version_last_worked_from_is_not_sent_again()
+{
     let mut sim = reviewed();
     let first = sim.version("code");
     carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
@@ -465,14 +499,12 @@ fn a_datum_given_last_and_latest_whose_session_holds_its_latest_and_not_the_vers
     let entered = sim.enter(&round, false);
     let code = sim.version("code");
     assert!(first < code);
-    assert_eq!(entered.situation.data["code"], Stands::Lacks);
+    assert_eq!(entered.situation.data["code"], Stands::HoldsLatest);
     let sent = (entered.sent.iter())
         .find(|s| s.block.as_deref() == Some("code"))
-        .expect("the code is sent");
-    assert_eq!(sent.form, context::Form::Whole);
-    let text = format!("## `code`, version {code}\n\n{changed}");
-    assert_eq!(context::text::as_written(&sent.pieces), text);
-    assert!(entered.fills.contains(&whole("code", code)));
+        .expect("the code's line is sent");
+    assert_eq!(sent.form, context::Form::Held);
+    assert!(!entered.fills.contains(&whole("code", code)), "{:?}", entered.fills);
 }
 
 #[test]
@@ -507,4 +539,109 @@ fn a_return_that_would_write_over_a_version_it_never_saw_is_sent_back_with_that_
     );
     assert!(entered.text.contains(&sent_back), "{}", entered.text);
     assert_eq!(entered.fills, [Fill::SentBack { round: 2 }, whole("verdict", over)]);
+}
+
+#[test]
+fn a_round_whose_program_said_it_took_its_message_in_holds_it_whatever_it_failed_of_and_one_that_said_nothing_does_not()
+{
+    use decide::run::Failure;
+    // A crash before the program read its input fails in passing as one after it does: only what the stream said tells.
+    for (failure, received) in [
+        (Failure::Passing, true),
+        (Failure::Passing, false),
+        (Failure::UsageLimit, true),
+        (Failure::UsageLimit, false),
+    ] {
+        let mut sim = Sim::new();
+        sim.writes("request", "Greet the user.");
+        let round = sim.round().expect("the plan is entered");
+        let first = sim.enter(&round, sim.begins(&round));
+        sim.tries(&round, 1, first.fills.clone());
+        sim.fails_as(&round, failure, received);
+        if failure == Failure::Passing {
+            let wait = *sim.calls().last().expect("the wait before it is tried again");
+            sim.done(wait, "over");
+        }
+        let again = sim.round().expect("the plan's round is tried again");
+        assert_eq!((again.run, again.number), (round.run, 2));
+        assert_eq!(sim.begins(&again), !received, "{failure:?}, {received}");
+        let entered = sim.enter(&again, sim.begins(&again));
+        let request = whole("request", sim.version("request"));
+        assert_eq!(
+            entered.fills.contains(&request),
+            !received,
+            "{failure:?}: {:?}",
+            entered.fills
+        );
+    }
+}
+
+#[test]
+fn a_version_that_says_what_an_earlier_one_said_is_new_and_sent_and_no_repeat() {
+    let mut sim = reviewed();
+    let held = sim.version("plan");
+    // The plan changes and changes back; the review, whose session holds the first, is sent the third whole, though it
+    // says what the first said.
+    carry(&mut sim, &[("plan", "Greet by name, kindly.", None)]);
+    carry(&mut sim, &[("code", "fn greet() {}\n", None)]);
+    carry(
+        &mut sim,
+        &[("opinions", "Kinder.", None), ("verdict", "no", Some("no"))],
+    );
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    // The owner says the same twice while the build runs: each is given.
+    sim.writes("notes", "Keep it short.");
+    sim.writes("notes", "Keep it short.");
+    carry(&mut sim, &[("code", "fn greet(name: &str) {}\n", None)]);
+    let round = sim.round().expect("the review is entered again");
+    assert_eq!(round.cell.as_str(), "review");
+    let latest = sim.version("plan");
+    assert_eq!(sim.content("plan", Seq(latest)), sim.content("plan", Seq(held)));
+    let entered = sim.enter(&round, sim.begins(&round));
+    assert!(entered.fills.contains(&whole("plan", latest)), "{:?}", entered.fills);
+    let notes = sim.versions("notes");
+    assert_eq!(notes.len(), 2);
+    for version in notes {
+        assert!(
+            entered.fills.contains(&whole("notes", version.0)),
+            "{:?}",
+            entered.fills
+        );
+    }
+}
+
+#[test]
+fn a_setting_the_task_a_trigger_s_words_or_a_block_s_words_name_is_sent_with_its_value_beside_it() {
+    let mut sim = Sim::new();
+    let language = |key: &str| (key == "owner.language").then(|| "Chinese".to_string());
+    sim.named = flow::system::Settings::of(&sim.words.project, &sim.words.installation, language);
+    let code = sim.flow.blocks.get_mut(&BlockId::from("code")).expect("the code");
+    code.what = Some("The code, its comments in `owner.language`.".to_string());
+    let build = (sim.flow.cells.iter_mut())
+        .find(|c| c.id.as_str() == "build")
+        .expect("the build");
+    build.task = Some("Build what the plan says, in `owner.language`.".to_string());
+    build.triggers[0].does = Some("Say why in `owner.language`.".to_string());
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, false);
+    for line in [
+        "- `code`: The code, its comments in `owner.language` (Chinese).",
+        "Build what the plan says, in `owner.language` (Chinese).",
+        "- `plan`: Say why in `owner.language` (Chinese).",
+    ] {
+        assert!(entered.text.contains(line), "{line} is not in:\n{}", entered.text);
+    }
+    // The page shows them as the files write them.
+    let cell = sim.cell(&round);
+    let defined = context::defined(&sim.flow, &sim.words, cell);
+    let task = defined
+        .iter()
+        .find(|d| d.part == flow::agents::Part::Task)
+        .expect("the task");
+    assert_eq!(
+        as_written(&task.pieces),
+        "Build what the plan says, in `owner.language`."
+    );
 }

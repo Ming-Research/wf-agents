@@ -390,19 +390,29 @@ function SpentPart({ s, items }: { s: System; items: Map<number, Item> }) {
           label="Read from the cache"
           title="The share of the tokens sent that the prompt cache gave"
         />
+        {s.pinged && s.pinged.rounds > 0 && (
+          <Tile
+            value={dollars(s.pinged.usdMicros)}
+            label="Keep-warm pings"
+            title={`${s.pinged.rounds} pings, which keep the sessions of lines that wait in the prompt cache`}
+          />
+        )}
       </Tiles>
       {s.weeks.length > 1 && (
         <>
           <h4 className="view-sub label">Week by week</h4>
           <ViewTable
-            heads={['Week of', 'Cost', 'Rounds', 'Merged', 'Cancelled', 'Added', 'Sent back', 'Failed']}
-            numbers={[1, 2, 3, 4, 5, 6, 7]}
+            heads={['Week of', 'Cost', 'Rounds', 'Pings', 'Merged', 'Cancelled', 'Added', 'Sent back', 'Failed']}
+            numbers={[1, 2, 3, 4, 5, 6, 7, 8]}
           >
             {s.weeks.map((w) => (
               <tr key={w.start}>
                 <td title={fullTime(w.start)}>{clock(w.start).slice(0, 5)}</td>
                 <td className="num">{dollars(w.spent.usdMicros)}</td>
                 <td className="num">{w.spent.rounds}</td>
+                <td className="num" title={w.pinged ? `${w.pinged.rounds} keep-warm pings` : undefined}>
+                  {dollars(w.pinged?.usdMicros ?? 0)}
+                </td>
                 <td className="num">{w.merged}</td>
                 <td className="num">{w.cancelled}</td>
                 <td className="num">{w.added}</td>

@@ -54,7 +54,8 @@ runner = "github"
 too_long = "2h"
 
 # The paths that govern the project's agents, which the owner changes: where a work's change against main touches one,
-# the engine asks the owner whether the change stays (`agents/asks.toml`). A path ending in `/` is a directory and
+# the work says why each such change is needed (`agents/return/fields/protected_changes.toml`) or takes it back, and the
+# engine asks the owner whether the change stays (`agents/asks.toml`). A path ending in `/` is a directory and
 # everything in it.
 [protected]
 paths = ["AGENTS.md", "design/constitution.md", "design/principles/", "flow/", ".github/workflows/"]

@@ -4,7 +4,8 @@
 //! that is the latest or an earlier one, with the option the work goes by or another, or with no such option. The
 //! driver is `support`'s; at any step the engine may stop.
 //!
-//! What is checked after every step, beside what the driver checks:
+//! What is checked after every step, beside what the driver checks; of a run started or an answer, once, at the step
+//! that adds it, since what it is checked against, the records before its place, no later step changes:
 //! - a cell is never entered while a question of its own that it waits for stands with no answer to its latest version;
 //! - the merge never begins while `asked` is `waiting`, nor while any question stands unanswered;
 //! - `asked` says `waiting` exactly while a question stands unanswered, and is otherwise `answered` or never written;
@@ -129,6 +130,7 @@ fn asked(name: &str, waits: bool, recommends: Option<u64>, n: usize) -> Question
         ask: format!("Which way for {name}, the {n}th time?"),
         options: vec![way("the short way"), way("the long way")],
         about: None,
+        reasons: Default::default(),
     }
 }
 
@@ -282,10 +284,22 @@ fn asked_value(records: &Records) -> Option<&str> {
         .and_then(|w| w.value.as_deref())
 }
 
-/// What must hold of the questions after every step.
-fn check(work: &Work) {
+/// How far [`check`] has read the records: how many of the runs started and of the answers it has checked.
+#[derive(Default)]
+struct Checked {
+    started: usize,
+    answers: usize,
+}
+
+/// What must hold of the questions after every step: of the runs started and the answers the step added, each checked
+/// once, against the records before its place; and of `asked`, against the records as they stand.
+fn check(work: &Work, checked: &mut Checked) {
     let r = &work.records;
-    for started in &r.started {
+    assert!(
+        r.started.len() >= checked.started && r.answers.len() >= checked.answers,
+        "runs started or answers were taken out of the records"
+    );
+    for started in &r.started[checked.started..] {
         let before = r.before(started.at);
         let standing = questions(&before);
         for (name, q) in &standing {
@@ -320,7 +334,7 @@ fn check(work: &Work) {
         unanswered,
         "asked is {value:?} while a question stands unanswered is {unanswered}"
     );
-    for answer in &r.answers {
+    for answer in &r.answers[checked.answers..] {
         let before = r.before(answer.at);
         let standing = questions(&before);
         let asking = standing.get(answer.question.as_str());
@@ -373,6 +387,8 @@ fn check(work: &Work) {
             );
         }
     }
+    checked.started = r.started.len();
+    checked.answers = r.answers.len();
 }
 
 /// One history of the seed, with the engine stopping or not.
@@ -380,6 +396,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Reached)
     let mut d = Driver::new(asking(), Rng::new(seed), seed, stops);
     let mut part = Asking;
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        let mut checked = Checked::default();
         d.take(Event::Wrote {
             block: "request".into(),
             by: Outsider::Person,
@@ -388,14 +405,16 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Reached)
             value: None,
         });
         d.check();
-        check(&d.work);
+        check(&d.work, &mut checked);
         for _ in 0..PEOPLE {
             d.step(&mut part, true);
             d.check();
-            check(&d.work);
+            check(&d.work, &mut checked);
         }
         if d.paused {
             d.take(Event::Resumed);
+            d.check();
+            check(&d.work, &mut checked);
         }
         let mut rested = false;
         for _ in 0..AFTER {
@@ -404,7 +423,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Reached)
                 break;
             }
             d.check();
-            check(&d.work);
+            check(&d.work, &mut checked);
         }
         assert!(
             rested,

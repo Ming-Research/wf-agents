@@ -14,3 +14,5 @@ run = "Merge {main} at {head} into the work's branch as run {run} starts"
 check = "Merge {main} at {head} into the work's branch"
 # The merge of the work's branch into main, where no host merges it.
 merge = "Merge {branch}"
+# The name of a work's merge, where the work has written none.
+unnamed = "Work {work}"

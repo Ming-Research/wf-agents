@@ -396,6 +396,7 @@ fn history(d: &mut Driver) {
             },
         ],
         about: None,
+        reasons: BTreeMap::new(),
     }];
     d.end(came);
     let version = d.work.records.questions.last().expect("the question is kept").at;

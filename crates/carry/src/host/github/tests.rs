@@ -577,6 +577,7 @@ async fn the_merge_merges_the_pull_request_only_at_the_commit_the_check_passed_a
             number: 1,
             head: later,
             method: "squash".to_string(),
+            title: "Greet the user (#1)".to_string(),
         }]
     );
     assert!(

@@ -18,6 +18,9 @@ pub struct Levels {
     highest: usize,
     /// Whether the levels are the settings', whose keys a refusal names.
     from_settings: bool,
+    /// The widest an item's title may be, as [`crate::title_width`] counts it; none, any width. These are the rules the
+    /// settings give an item as it is added or changed, and this one is held with them.
+    title_max: Option<usize>,
 }
 
 /// A level: its name, and what work it is for.
@@ -71,6 +74,7 @@ impl Levels {
             default: default_at,
             highest: highest_at,
             from_settings: true,
+            title_max: None,
         })
     }
 
@@ -85,6 +89,21 @@ impl Levels {
             default: 0,
             highest: 0,
             from_settings: false,
+            title_max: None,
+        }
+    }
+
+    /// These levels, holding a title to this width at most.
+    pub fn with_title_max(mut self, title_max: usize) -> Levels {
+        self.title_max = Some(title_max);
+        self
+    }
+
+    /// Whether an item's title is within the width the settings allow; if not, why not, in words.
+    pub fn title_fits(&self, title: &str) -> Result<(), String> {
+        match self.title_max {
+            Some(max) => crate::title_fits(title, max),
+            None => Ok(()),
         }
     }
 

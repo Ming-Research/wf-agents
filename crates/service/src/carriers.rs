@@ -21,11 +21,12 @@ use std::sync::Arc;
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::Policy;
+use driver::history::Lines;
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
 use tokio::sync::mpsc;
-use work::{Fill, Given, RanOn, Spent, Time, Why, Work};
+use work::{Fill, Given, Measures, RanOn, Spent, Time, Why, Work};
 
 use crate::Message;
 
@@ -79,6 +80,17 @@ pub trait Rounds: Send + Sync {
         None
     }
 
+    /// Sends the session a keep-warm ping, which only keeps its prompt cache from letting it go while its line waits:
+    /// the reply says once what it took, or why it failed. Rounds carried out in no session are given none; by default
+    /// a ping fails, saying so.
+    fn ping(&self, ping: Ping, reply: PingReply) {
+        let _ = ping;
+        reply.failed(
+            "these rounds are carried out in no session".to_string(),
+            Spent::default(),
+        );
+    }
+
     /// Lets go of what the rounds of this kind made for the work outside the engine, the work having ended and nothing
     /// of it being under way; the reply says once that it is let go. Given again after the process started again, it is
     /// the same letting go, and what was let go already is found let go. Rounds that make nothing outside the engine
@@ -86,6 +98,62 @@ pub trait Rounds: Send + Sync {
     fn release(&self, release: Release, reply: ReleaseReply) {
         let _ = release;
         reply.released();
+    }
+}
+
+/// A keep-warm ping of the session of this number of a line of the work.
+#[derive(Clone, Debug)]
+pub struct Ping {
+    pub work: WorkNumber,
+    /// The flow the work runs on.
+    pub flow: Arc<Compiled>,
+    pub line: String,
+    /// Which of the line's sessions, counted from none.
+    pub session: u32,
+    /// The item the work is done for.
+    pub item: Item,
+    /// The work as it was kept when the ping was handed out.
+    pub kept: Arc<Work>,
+}
+
+/// The way to say once what came of a keep-warm ping.
+#[derive(Debug)]
+pub struct PingReply {
+    work: WorkNumber,
+    line: String,
+    session: u32,
+    to: mpsc::UnboundedSender<Message>,
+}
+
+impl PingReply {
+    pub(crate) fn new(work: WorkNumber, line: String, session: u32, to: mpsc::UnboundedSender<Message>) -> Self {
+        PingReply {
+            work,
+            line,
+            session,
+            to,
+        }
+    }
+
+    /// The ping ended, having taken this.
+    pub fn ended(self, spent: Spent) {
+        self.send(spent, None);
+    }
+
+    /// The ping failed, for this reason, having taken this.
+    pub fn failed(self, why: String, spent: Spent) {
+        self.send(spent, Some(why));
+    }
+
+    fn send(self, spent: Spent, failed: Option<String>) {
+        let event = Event::Pinged {
+            line: self.line,
+            session: self.session,
+            spent,
+            failed,
+        };
+        // Where the loop has ended, the process is stopping: a ping still due is given again when it starts again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
     }
 }
 
@@ -306,6 +374,9 @@ pub struct Round {
     pub item: Item,
     /// The work as it was kept when the round was handed out.
     pub kept: Arc<Work>,
+    /// What the round is judged by while it runs: the lines the history of its cell and its flow give, in every work
+    /// on the flow (crate `driver`, module `history`).
+    pub lines: Lines,
 }
 
 /// A call of a run that a tool answers, to make or to withdraw.
@@ -451,6 +522,16 @@ impl Teller {
             run: self.run,
             attempt,
             fills,
+        });
+    }
+
+    /// What the calls to the model of the try of this number of the round came to, as the carrier read them: said
+    /// before the round's end, so that it is in the records with the round.
+    pub fn measured(&self, attempt: usize, measures: Measures) {
+        self.tell(Event::Measured {
+            run: self.run,
+            attempt,
+            measures,
         });
     }
 

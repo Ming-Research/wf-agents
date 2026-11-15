@@ -31,17 +31,13 @@ async fn two_projects_in_one_installation_each_work_in_its_own_repository() {
     };
     assert!(has(&real.repo, &our_branch) && !has(&real.repo, &their_branch));
     assert!(has(&other, &their_branch) && !has(&other, &our_branch));
-    let merged = |repo: &std::path::Path| git_in(repo, &["log", "main", "--format=%s"]);
-    let (in_ours, in_theirs) = (merged(&real.repo), merged(&other));
-    assert!(
-        in_ours.lines().next().is_some_and(|l| l.starts_with("Merge work-1-")),
-        "{in_ours}"
-    );
-    assert!(
-        in_theirs.lines().next().is_some_and(|l| l.starts_with("Merge work-2-")),
-        "{in_theirs}"
-    );
-    assert!(!in_ours.contains("Merge work-2-") && !in_theirs.contains("Merge work-1-"));
+    // The head of each main is the merge of its own work's branch.
+    let merged = |repo: &std::path::Path, reference: &str| {
+        let parents = git_in(repo, &["log", "-1", "--format=%P", "main"]);
+        let head = git_in(repo, &["rev-parse", reference]);
+        parents.split(' ').nth(1) == Some(head.as_str())
+    };
+    assert!(merged(&real.repo, &our_branch) && merged(&other, &their_branch));
 }
 
 #[tokio::test]

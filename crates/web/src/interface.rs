@@ -142,9 +142,12 @@ async fn change(State(handle): State<Handle>, levels: std::sync::Arc<Levels>, bo
         match change.taken(&levels) {
             Ok(change) => changes.push(change),
             Err(why) if asked_alone => {
-                return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("The item's level: {why}."));
+                return fail(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!("{}{}.", why[..1].to_uppercase(), &why[1..]),
+                );
             }
-            Err(why) => unlevelled.push(format!("change {}: the item's level: {why}", at + 1)),
+            Err(why) => unlevelled.push(format!("change {}: {}", at + 1, why)),
         }
     }
     if !unlevelled.is_empty() {

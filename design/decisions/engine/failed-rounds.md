@@ -43,8 +43,8 @@ A return that could not be read is sent back to the agent in its session, as any
 Why: The agent's work is done and only its hand-in is wrong, so running the round from its start would pay for it twice. Repairing a text that is no JSON, in the engine or by a cheap model, was turned down: the agent that wrote it holds in its session what it meant, while a repair guesses at it (judgment, not measured).
 
 ### decision a-flagged-round-begins-a-new-session
-A round the service's safety check flagged is given again at once in a new session of its line, whose name is worked out from how many of the line's rounds were flagged; flagged again in the same run, with only failures between, the work is paused.
-Why: The same session would give the check the same context again, more likely the cause than the task's words, though that is a judgment no case has shown; a second flag says what the agent is given needs a look.
+A round the service's safety check flagged, or the run guard stopped, is given again at once in a new session of its line, whose name is worked out from how many of the line's rounds failed so; failed so again in the same run, with only failures between, the work is paused.
+Why: The same session would give the check, or the guard, the same context again, more likely the cause than the task's words, though that is a judgment no case has shown; a second time says what the agent is given needs a look.
 
 ### decision a-note-run-is-held-only-by-its-own-pause
 While a work is paused, a run that answers the owner, a note a person wrote to its cell or the owner turning to it, has its round after a failure held only where the engine paused the work since that round began, for its failure or for the budget it took the work over, which its carrier says before the round's end.

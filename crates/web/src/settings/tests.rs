@@ -30,6 +30,7 @@ model = "claude-sonnet-5-5"
 
 [items]
 default_level = "1"
+title_max = 40
 "#;
 
 /// The keys the stand-in reading knows, by table.
@@ -39,7 +40,7 @@ const KNOWN: [(&str, &[&str]); 4] = [
         "agents",
         &["command", "slots", "args", "permissions", "levels", "config_dir"],
     ),
-    ("items", &["default_level", "highest_level"]),
+    ("items", &["default_level", "highest_level", "title_max"]),
     ("sessions", &["context_limit"]),
 ];
 
@@ -233,7 +234,7 @@ fn a_change_is_written_with_the_files_comments_and_layout_kept() {
     assert!(text.contains("slots = 3\n"), "{text}");
     assert!(text.contains("model = \"claude-opus-5-5\"\n"), "{text}");
     assert!(
-        text.contains("[items]\ndefault_level = \"1\"\nhighest_level = \"2\"\n"),
+        text.contains("[items]\ndefault_level = \"1\"\ntitle_max = 40\nhighest_level = \"2\"\n"),
         "{text}"
     );
     assert!(text.contains("[sessions]\ncontext_limit = 400000\n"), "{text}");
