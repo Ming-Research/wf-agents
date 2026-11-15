@@ -82,13 +82,14 @@ and a green result would send the cell back for answering it by nothing but its 
 ### decision the-owner-turning-to-a-waiting-cell-enters-it-once
 While a cell waits (decision a-wait-holds-its-cell), the owner turning to it, by words or by an answer, enters it only
 for a version no run of the cell has seen: none that finished was told it, and none still open holds it; and only such
-a version stops a round under way of a later cell. A run so entered that asks in turn leaves what the owner wrote new,
+a version, of a cell no waiting cell holds back, stops a round under way of a later cell. A run so entered that asks in turn leaves what the owner wrote new,
 for the run the results begin, which deals with both; a run abandoned, its round stopped or its return unread, saw
 nothing, and the cell is entered for the version again.
 Why: Entered again for the same version each time such a run asked, the cell went round without end, a call asked at
 each turn, and no limit counted it: a build entered for an answer that asked for a tool first did so in the real
 carriers' tests. Counting a version the cell was told as the owner turning to it, the round that ran the tests was
-stopped as it wrote the result, for words the asking cell had answered before it asked. Counted from the cell's last run
+stopped as it wrote the result, for words the asking cell had answered before it asked, or for words to a cell after
+it, which could not run before the result came. Counted from the cell's last run
 begun instead, a version told to a run that was then abandoned waited for every result before any run answered it.
 
 ### decision a-work-no-cell-can-move-is-stalled
