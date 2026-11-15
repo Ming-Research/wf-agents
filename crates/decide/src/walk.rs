@@ -860,8 +860,12 @@ impl<'a> Walk<'a> {
         if (paused(self.records) || room.paused) && !self.for_a_note(i, &because, None) {
             return Some(Decision::Paused);
         }
+        // Entered but for a slot, the cell waits for one alone.
         if cell.slot && !room.slot {
-            return Some(wait(vec![Waited::Slot]));
+            return Some(Decision::Wait {
+                at: cell.id.clone(),
+                on: vec![Waited::Slot],
+            });
         }
         Some(Decision::Run {
             cell: cell.id.clone(),
