@@ -36,14 +36,13 @@ fn reviewed_at_c1() -> W {
         "R1",
         &[
             ("deep_needed", Some("no")),
-            ("edits_tree", Some("no")),
             ("plan_owner", None),
             ("plan_agent", None),
             ("acceptance", None),
         ],
         Vec::new(),
     );
-    w.hands_in("R2", &[("better_found", Some("no"))], Vec::new());
+    w.hands_in("R2", &[], Vec::new());
     w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
     w.hands_in(
         "T1",

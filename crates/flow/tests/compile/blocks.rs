@@ -257,6 +257,7 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
             "main",
             "session",
             "start",
+            "head",
             "tree",
             "words",
         ]),
