@@ -16,6 +16,7 @@ mod forms;
 mod going;
 mod left;
 mod levels;
+mod parts;
 mod permissions;
 mod projects;
 mod protected;
@@ -39,7 +40,9 @@ use decide::{CallId, Decision, Pauser, RunId, Who};
 use driver::{FirstWrite, NewItem};
 use engine::Event;
 use flow::{Compiled, Has};
-use service::{Act, CallReply, Inbox, Message, Round, RoundReply, Rounds, Service, SystemClock, ToolCall, Tools};
+use service::{
+    Act, CallReply, Inbox, Message, Round, RoundReply, Rounds, Script, Service, SystemClock, ToolCall, Tools,
+};
 use store::{ItemNumber, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::Work;
@@ -280,6 +283,8 @@ pub struct Real {
     calls: PathBuf,
     pub settings: Settings,
     flow: Compiled,
+    /// The script that gives the rounds their parts to play, where one does.
+    parts: Option<Script>,
     service: Service,
     inbox: Inbox,
     /// How many rounds the carriers said failed, and how often they said a work is to wait for the owner.
@@ -695,9 +700,11 @@ impl Rounds for Deaf {
 }
 
 /// The loop with the real carriers of the settings, on an empty store or the one in the data directory, the calls of
-/// `query` answered by the tests; with agents whose stops are dropped where `deaf`.
-fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Service, Inbox) {
-    let mut carriers = carry::carriers(settings.clone(), data, beside()).expect("the carriers are made");
+/// `query` answered by the tests; with agents whose stops are dropped where `deaf`, and that give each round the part
+/// the script of parts gives it, where there is one.
+fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool, parts: Option<&Script>) -> (Service, Inbox) {
+    let (mut carriers, _) =
+        carry::carry(settings.clone(), data, beside(), parts.cloned()).expect("the carriers are made");
     if deaf {
         carriers.agents = Arc::new(Deaf(carriers.agents));
     }
@@ -808,7 +815,7 @@ impl Real {
             query: Default::default(),
         };
         let flow = compiled(on);
-        let (service, inbox) = open(&settings, &data, &flow, false);
+        let (service, inbox) = open(&settings, &data, &flow, false, None);
         Real {
             _dir: dir,
             data,
@@ -816,6 +823,7 @@ impl Real {
             calls,
             settings,
             flow,
+            parts: None,
             service,
             inbox,
             failures: 0,
@@ -842,11 +850,19 @@ impl Real {
         Real::open(On::Trial, answers, None, "true")
     }
 
+    /// The trial flow as [`Real::trial`] gives it, each round given the part this script of parts gives it.
+    pub fn playing(answers: Fake, parts: &str) -> Real {
+        let mut real = Real::trial(answers);
+        real.parts = Some(Script::read(parts).expect("the script of parts reads"));
+        real.restart();
+        real
+    }
+
     /// Stops the loop and its carriers and starts them again on the same store, as a new process of the engine
     /// would, the owner lifting at once the pause of everything it makes as it starts on works going on. What the old
     /// carriers run goes on running.
     pub fn restart(&mut self) {
-        let (service, inbox) = open(&self.settings, &self.data, &self.flow, false);
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, false, self.parts.as_ref());
         self.service = service;
         self.inbox = inbox;
         self.lift_the_starts_pause();
@@ -855,7 +871,7 @@ impl Real {
     /// Starts the loop again on the same store with agents that drop every stop they are given, the owner lifting at
     /// once the pause of everything it makes as it starts on works going on.
     pub fn deafen(&mut self) {
-        let (service, inbox) = open(&self.settings, &self.data, &self.flow, true);
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, true, self.parts.as_ref());
         self.service = service;
         self.inbox = inbox;
         self.lift_the_starts_pause();

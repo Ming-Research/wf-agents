@@ -84,7 +84,7 @@ pub struct Part {
     /// engine's words, of the form `form` for the engine's fields, `outputs` for the line's blocks and `tools` for the
     /// flow's tools, a part of a message by its `part`, a block by its name.
     pub name: String,
-    /// Of a part written anew each time, when it is sent at all: its `only`.
+    /// Of a part of the message, when it is sent at all: its `only`.
     pub only: Option<String>,
     /// The file its words come from; of a part of the form, each file and directory its definition comes from, in
     /// order, between commas.
@@ -413,9 +413,13 @@ impl<'a> Build<'a> {
             PartIs::Task => (What::Task, self.task_source(cell)),
             PartIs::Results => (What::Message, self.source("agents/message/results.toml")),
             PartIs::SentBack => (What::Message, self.source("agents/return/sent_back.toml")),
-            PartIs::Taken | PartIs::Heading | PartIs::Work | PartIs::Main | PartIs::Triggers => {
-                (What::Message, self.source("agents/message/message.toml"))
-            }
+            PartIs::Taken
+            | PartIs::Heading
+            | PartIs::Work
+            | PartIs::Main
+            | PartIs::Triggers
+            | PartIs::Told
+            | PartIs::Played => (What::Message, self.source("agents/message/message.toml")),
         }
     }
 }
