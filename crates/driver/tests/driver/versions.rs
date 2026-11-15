@@ -73,7 +73,7 @@ fn a_work_is_added_on_the_version_installed_from_its_start_and_the_store_keeps_e
         version: plain().version,
         ids: BTreeMap::new(),
     };
-    assert_eq!(on(&h, a), [start.clone()]);
+    assert_eq!(on(&h, a), std::slice::from_ref(&start));
     h.arm(Plan::Never);
     let (_, b) = h.add(new_item("b", &[], "plain"));
     assert_eq!(on(&h, b), [start]);
