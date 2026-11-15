@@ -82,7 +82,7 @@ fn of(line: &str) -> String {
     let cell = cell(&flow, line);
     let protected = &beside.project.protected.paths;
     let tests = cell.tests_only.then(|| crate::tests_only::paths(&beside.project));
-    let permissions = Permissions::of(cell.reads_only, &[], &Default::default());
+    let permissions = Permissions::of(cell.reads_only, &[], &[], &Default::default());
     let your_line = permissions.told(&beside.your_line, protected, tests);
     of_line(&beside, &filling(&settings, &beside), &flow, cell, &your_line, project).expect("it is made")
 }

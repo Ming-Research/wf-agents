@@ -76,15 +76,17 @@ command = "claude"
 slots = 2
 # What the program is given on every round after what the engine gives it.
 args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
-# The engine refuses every agent its heavy commands (builds, test suites, git push and the like). Here the installation
-# adds what its project's toolchain counts as heavy, the commands that update the project's lock files and build, run
-# and install nothing, which an agent that writes may run though a heavy command covers them, and the uses of those
-# that are refused all the same (`*` for any text): the engine knows no lock command of its own. A lock command that a
-# heavy command falls under or that pushes, and a `*` or a parenthesis in a heavy or lock command, are refused. In
-# `args`, `--settings`, `--setting-sources`, `--permission-prompt-tool`, `--` and a last flag not known to take no
-# value are refused, since they would undo the engine's rules or take its own arguments after them. With no lock
-# command named, an agent may update no lock file, and `wf-agents run` says so as it starts.
-permissions = { heavy = ["uv"], locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
+# Every agent is refused what the files beside the flows refuse every agent (git push) and the heavy commands its
+# project's declaration names (`[heavy]` of `flow/project.toml`: builds, test suites and the like). Here the
+# installation names the commands that update its projects' lock files and build, run and install nothing, which an
+# agent that writes may run though a heavy command covers them, as `uv lock` where a project's heavy commands hold `uv`,
+# and the uses of those that are refused all the same (`*` for any text): the engine knows no lock command of its own. A
+# lock command that a heavy command falls under or that falls under what every agent is refused, and a `*` or a
+# parenthesis in a lock command, are refused. In `args`, `--settings`, `--setting-sources`, `--permission-prompt-tool`,
+# `--` and a last flag not known to take no value are refused, since they would undo the engine's rules or take its own
+# arguments after them. With no lock command named, an agent may update no lock file, and `wf-agents run` says so as it
+# starts.
+permissions = { locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # Which settings files the program reads, given as --setting-sources on every round. Left out, it is `user`, so that a
 # settings file the worktree holds, which an agent may write, is not read; `project` and `local`, which are such files,
 # are refused.

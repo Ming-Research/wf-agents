@@ -232,7 +232,7 @@ pub(crate) async fn changes(
     Ok(changes)
 }
 
-/// The judges' heads the check holds the work to: of each cell that writes a choice the check's preconditions read and
+/// The judges' heads the check holds the work to: of each cell that writes a block the check's preconditions read and
 /// that the block of the work's head runs, as the flow's graph says, what the version of the head it consumed says;
 /// none where it consumed none. None where the flow has no block of the head.
 pub(crate) fn reviewed(flow: &Compiled, work: &Work, check: &decide::CellId) -> Option<Vec<Option<String>>> {

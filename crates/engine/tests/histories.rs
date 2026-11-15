@@ -1,4 +1,4 @@
-//! Simulated histories of whole works through `handle` only (principle simulated-histories). A driver holds what the
+//! Simulated histories of whole works through `handle` only (design document `testing`, 4). A driver holds what the
 //! engine gave to be done and not yet done (rounds to end, calls to answer, rounds to stop, calls to withdraw) and at
 //! each step does one of those things, or a person or the outside acts; at any step the engine may stop, and the
 //! driver then forgets what it held and takes `pending` instead. The driver is `support`'s, which the histories of the

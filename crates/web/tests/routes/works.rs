@@ -100,6 +100,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "value": "merged",
                         "saidTo": null,
                         "chars": 42,
+                        "empty": false,
                     }],
                 },
                 {
@@ -112,6 +113,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "value": null,
                         "saidTo": null,
                         "chars": 23,
+                        "empty": false,
                     }],
                 },
             ],
@@ -257,4 +259,28 @@ async fn what_there_is_none_of_is_refused_with_why() {
     let (status, words) = refused(router, "/api/v1/works/one").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(words.starts_with("The path cannot be read: "), "{words}");
+}
+
+// A version says whether it holds nothing as the engine recorded it, and the route works out nothing of its own: words
+// of only whitespace hold nothing though their length is not nought, and the owner's request holds what it says. Well
+// under a second alone, the engine's loop in memory; no other test holds the route to what the engine recorded.
+#[tokio::test(start_paused = true)]
+async fn a_version_says_whether_it_holds_nothing_as_the_engine_recorded_it() {
+    let running = running();
+    let router = &running.router;
+    greeted(router).await;
+    let blank = json!({ "kind": "write", "block": "opinions", "content": " \n  ", "value": null });
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &blank).await,
+        (StatusCode::NO_CONTENT, Value::Null)
+    );
+    let page = get_json(router, "/api/v1/works/1").await;
+    let first = |name: &str| {
+        let blocks = page["blocks"].as_array().unwrap();
+        let block = blocks.iter().find(|b| b["name"] == name).unwrap();
+        let version = &block["versions"][0];
+        (version["chars"].clone(), version["empty"].clone())
+    };
+    assert_eq!(first("opinions"), (json!(4), json!(true)));
+    assert_eq!(first("request"), (json!(23), json!(false)));
 }

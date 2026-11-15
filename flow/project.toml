@@ -62,3 +62,11 @@ too_long = "2h"
 # everything in it.
 [protected]
 paths = ["AGENTS.md", "design/constitution.md", "design/principles/", "flow/", ".github/workflows/"]
+
+# The project's heavy commands, which take the host's processor, such as building, testing and measuring, each a command
+# with the start of its arguments: no agent runs them, and the project's tests are had through `run_tests` (principle
+# refuse-as-little-as-must-be). What every agent is refused whatever its project is `agents/refused.toml`; the commands
+# that update the project's lock files, which an agent that writes may run though one of these covers them, are the
+# installation's (`agents.permissions.locks`).
+[heavy]
+commands = ["cargo", "rustc", "rustup", "npm", "npx", "node --test", "tsc", "vitest", "hyperfine"]
