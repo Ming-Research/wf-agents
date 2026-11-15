@@ -25,8 +25,8 @@ use crate::model::{
     BACKGROUND, DEPENDENCIES, DISCUSSION, Event, HEAD, MAIN, Model, Q_AND_A, START, TREE, Variant, ran, ran_back_on,
     ran_on, reply_loop, show_key, skipped, waited_at_gate,
 };
-use crate::reading::{Reading, Reason, Writer};
 use crate::support::World;
+use reading::{Reading, Reason, Writer};
 
 /// The properties, by their numbers in the owner's test plan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

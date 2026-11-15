@@ -10,7 +10,7 @@ use decide::run::Hold;
 use decide::{Cell, Decision, Flow, Pause, Pauser, Room, Seq, decide_in, hold_in};
 
 use crate::properties::{Verdict, last_place};
-use crate::reading::{Reading, Reason, Writer};
+use reading::{Reading, Reason, Writer};
 
 pub const ONLY_FOR_A_NOTE: &str = "a paused work starts a run only for a note a person wrote";
 pub const ANSWERS: &str = "a paused work answers a note a person wrote";
