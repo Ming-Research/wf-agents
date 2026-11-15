@@ -1250,9 +1250,9 @@ impl History {
 
     /// Where the asking cell has the precondition "ready" for it, a person says no in it now and then once a run of the
     /// cell that rested at a call has the call's result, before the run goes on, while the result the cell waits for is
-    /// still to come: the run rests on no call of its own, held by the precondition (counted as "a run of a cell that
-    /// waits for a result rests on no call of its own while a cell giving the result applies", which the histories that
-    /// ask must reach).
+    /// still to come: the run rests on no call of its own, held by the precondition, and the walk decides there (counted
+    /// as "a run of a cell that waits for a result rests on no call of its own while a cell giving the result applies",
+    /// which the histories whose rounds fail often must reach).
     fn unready_the_resting(&mut self) {
         let Some((asker, _)) = self.unreadying.as_ref() else {
             return;
@@ -1677,7 +1677,15 @@ fn random_works_keep_the_engines_properties_and_come_to_rest() {
 
 #[test]
 fn rounds_failing_often_while_people_pause_and_write_keep_the_engines_properties() {
-    histories(FAILING, 600, &[pausing::UNPAUSED_ANSWERS, properties::RESULT_RUN_FIRST]);
+    histories(
+        FAILING,
+        600,
+        &[
+            pausing::UNPAUSED_ANSWERS,
+            properties::RESULT_RUN_FIRST,
+            properties::RESULT_AT_REST,
+        ],
+    );
 }
 
 #[test]

@@ -1510,8 +1510,8 @@ impl<'a> Walk<'a> {
     /// The cell before the run's that the owner turned to and that is to run, with the block by which the owner turned
     /// to it, where there is one: the round under way of the run is then stopped. Of the cells before the run's that
     /// apply, the first to which something that [interrupts](Flow::interrupts) is new in a version no run of it has
-    /// seen, whose preconditions hold, that is at no limit, that the pause lets run, and that has no run at rest of its
-    /// own; none after a cell that waits (decision a-wait-holds-its-cell).
+    /// seen, whose preconditions hold, that is at no limit, and that the pause lets run; none at or after a cell with a
+    /// run unfinished, and none after a cell that waits (decision a-wait-holds-its-cell).
     fn stopping(&self, run: &RunView<'a>, room: Room) -> Option<(CellId, BlockId)> {
         let place = self.flow.place(&run.started.cell)?;
         let paused = paused(self.records) || room.paused;

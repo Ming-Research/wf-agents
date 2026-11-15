@@ -137,7 +137,9 @@ const RESULT_LEFT_OUT: &str = "a work waits at a cell for other than a result no
 pub const RESULT_RUN_FIRST: &str =
     "a cell whose run rests on a call of its own goes on while its result's giver applies";
 const GIVER_STOPPED: &str = "the owner's words to a cell that waits for a result stop the round of the cell giving it";
-const RESULT_AT_REST: &str =
+/// What the histories whose rounds fail often must reach, where a person says no in a precondition of the asking cell
+/// as its run rests with the result of its call.
+pub const RESULT_AT_REST: &str =
     "a run of a cell that waits for a result rests on no call of its own while a cell giving the result applies";
 /// Not required: the owner turning to a waiting cell while no slot is free is rare.
 const RESULT_FOR_A_SLOT: &str = "a cell entered but for a slot waits for it while a cell that gives its result applies";
@@ -160,7 +162,6 @@ pub const WAITS_REACHED: &[&str] = &[
     STALLED_FOR_A_RESULT,
     RESULT_LEFT_OUT,
     GIVER_STOPPED,
-    RESULT_AT_REST,
 ];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
@@ -619,14 +620,25 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
         v.fail(PURE, format!("the same records in another order give {other:?}"));
     }
 
-    // A run of a cell that waits for a result at rest on no call of its own, while a cell that gives the result
-    // applies: the walk does not let the run go first, which the property of results holds where the work waits at the
-    // cell.
+    // Where the walk decides at a run of a cell that waits for a result, at rest on no call of its own and held by a
+    // precondition, while a cell that gives the result applies: a giver begins, or the work waits at the cell, which
+    // the property of results then judges.
     let now = Seq(u64::MAX);
+    let decided_at = match d {
+        Decision::Run { cell, .. } | Decision::Wait { at: cell, .. } => flow.place(cell),
+        _ => None,
+    };
     for (i, cell) in flow.cells().iter().enumerate() {
-        let giving = (cell.asks.iter())
-            .any(|asks| reading.awaits(cell, asks, now) && givers(flow, asks).any(|(j, _)| reading.applies(flow, j)));
-        if giving && reading.applies(flow, i) && rests_on_no_call(reading, &cell.id) {
+        let giving: Vec<usize> = (cell.asks.iter())
+            .filter(|asks| reading.awaits(cell, asks, now))
+            .flat_map(|asks| givers(flow, asks).map(|(j, _)| j).filter(|&j| reading.applies(flow, j)))
+            .collect();
+        let held = cell.requires.iter().any(|key| !reading.key_holds(flow, key, i));
+        let judged = decided_at.is_some_and(|k| match d {
+            Decision::Run { .. } => giving.contains(&k),
+            _ => k == i,
+        });
+        if judged && held && reading.applies(flow, i) && rests_on_no_call(reading, &cell.id) {
             v.count(RESULT_AT_REST);
         }
     }
