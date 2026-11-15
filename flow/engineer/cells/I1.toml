@@ -66,7 +66,7 @@ outputs = [
 # What the cell does when each trigger fires; a trigger with none is the task's alone.
 [do]
 on_plan = """See what changed in the plan since the version you last built from, the whole of it where you built from none, and bring the code to it."""
-on_spoken = """The owner has said something to you in `discussion`: that comes first. Do what it says, and answer it in `reply`: what you changed for it, or why not. What it asks that is not yours to change, pass on in the block you write for the cell whose it is."""
+on_spoken = """The owner has said something to you in `discussion`: that comes first. Do what it says, and answer it in `reply`: what you changed for it, or why not. Pass on what it asks of another cell in the block you write for that cell."""
 on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: follow the option the owner took."""
 on_review = """Answer each point of `review` in `reply_review`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 on_testing = """Answer each point of `testing` in `reply_testing`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""

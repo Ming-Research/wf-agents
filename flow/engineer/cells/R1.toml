@@ -61,7 +61,7 @@ on_background = """See what changed from the version you last worked from, the w
 on_tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
 on_plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
 on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
-on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `reply`. What it asks that is not yours to change, pass on in the block you write for the cell whose it is."""
+on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `reply`. Pass on what it asks of another cell in the block you write for that cell."""
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
