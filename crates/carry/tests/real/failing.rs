@@ -30,7 +30,7 @@ async fn a_failed_round_pauses_the_work_with_the_reason_and_the_next_round_runs_
         "{why}"
     );
     // What the program said says that the prompt is too long; the engine adds only that running it again cannot help.
-    assert!(why.contains("running the round again cannot help"), "{why}");
+    assert!(why.contains("Running the round again cannot help."), "{why}");
     let plan_run = kept.records.started[0].run;
     assert_eq!(kept.records.rounds.len(), 1);
     assert_eq!(kept.records.returned.len(), 1, "the plan's round has ended");

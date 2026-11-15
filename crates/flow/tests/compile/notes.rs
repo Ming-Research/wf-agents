@@ -42,3 +42,17 @@ fn a_block_people_do_not_write_is_no_note() {
     };
     assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.plan.note", what)]);
 }
+
+#[test]
+fn a_block_no_source_writes_says_nobody_changes_what_a_source_writes() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.confirmed]\nvalues = [\"yes\", \"no\"]\npeople = true",
+        "[blocks.confirmed]\nvalues = [\"yes\", \"no\"]\npeople = true\nchanged_by = \"owner\"",
+    );
+    let what = ChangedByWithoutSource {
+        block: "confirmed".to_string(),
+    };
+    assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.confirmed.changed_by", what)]);
+}

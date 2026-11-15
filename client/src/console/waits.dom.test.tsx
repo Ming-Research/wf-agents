@@ -11,7 +11,7 @@ import { rank } from '../works/placing';
 import { waitingCount, waitsOf, waitsOnOwner } from '../works/waiting';
 import { STATE, nowTone, stateOf } from '../works/words';
 import type { Flow } from '../api';
-import type { Act, Block, EngineAct, Failure, Item, Now, Outage, Pauser, Question, Wait, WorkPage } from '../works-api';
+import type { Act, Block, EngineAct, Failure, Item, Now, Outage, Pauser, Question, Step, Wait, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { asksOf } from './items';
 import { ItemPanel } from './ItemWindow';
@@ -115,7 +115,7 @@ const OWNERS: [string, Now, Wait][] = [
   [
     'a pause the engine made',
     { kind: 'paused', by: 'engine', why: 'a round failed' },
-    wait('pause', 'The engine paused the work: a round failed', { kind: 'resume' }),
+    wait('pause', 'The engine paused the work. A round failed.', { kind: 'resume' }),
   ],
   [
     'the works held after the engine started again',
@@ -134,18 +134,22 @@ const OWNERS: [string, Now, Wait][] = [
   [
     'a question the work went on past, which the merge now waits for',
     ANSWERS,
-    wait('answer-measure', 'What of measure?', { kind: 'answer', question: 'measure', version: 4 }),
+    wait('answer-measure', 'The merge waits for this answer.', { kind: 'answer', question: 'measure', version: 4 }),
   ],
   [
     "a review's verdict for the owner to rule on",
     VERDICT,
-    wait('write-content', 'merge requires test = may_merge, which content keeps from holding.', {
+    wait('write-content', '`merge` requires `test = may_merge`, which `content` keeps from holding.', {
       kind: 'write',
       block: 'content',
       value: 'yes',
     }),
   ],
-  ["the agents' command line, which cannot run", shared('cannotRun'), wait('agents', "The agents' command line cannot run: Not logged in", { kind: 'outside', what: MEND })],
+  [
+    "the agents' command line, which cannot run",
+    shared('cannotRun'),
+    wait('agents', "The agents' command line cannot run. Not logged in.", { kind: 'outside', what: MEND }),
+  ],
 ];
 
 /// What the engine's list leaves out, which is not the owner's to end whatever the work does.
@@ -197,7 +201,12 @@ function draw(
   waits: Wait[],
   opens: string | undefined,
   send: (w: number, a: Act) => Promise<unknown>,
-  o: { engine?: (a: EngineAct) => Promise<unknown>; paused?: Pauser; read?: { flow: Flow; blocks: Block[]; load?: LoadVersion } } = {},
+  o: {
+    engine?: (a: EngineAct) => Promise<unknown>;
+    paused?: Pauser;
+    steps?: Step[];
+    read?: { flow: Flow; blocks: Block[]; load?: LoadVersion };
+  } = {},
 ) {
   const read = o.read ?? { flow: FLOW, blocks: [] };
   const item: Item = { ...base, work: { ...base.work, now, waits, paused: o.paused ?? null } };
@@ -214,7 +223,7 @@ function draw(
     flow: read.flow,
     cells: [],
     blocks: read.blocks,
-    steps: [],
+    steps: o.steps ?? [],
     questions: questionsOf(waits),
   };
   act(() =>
@@ -245,13 +254,9 @@ const unmount = () => {
 
 const none = () => Promise.resolve(null);
 
-/// Words a card says around what it is about, which no card of a stop says.
-const FILLER = [
-  'The work waits for you',
-  'The merge waits for this answer',
-  'Still to confirm',
-  'The work waits for this ruling',
-];
+/// Words a card says around what it is about, which no card of a stop says: a card says the engine's one sentence of
+/// why, and nothing of the page's own.
+const FILLER = ['The work waits for you', 'Still to confirm', 'The work waits for this ruling'];
 
 describe("what waits for the owner, as the engine's one list names it", () => {
   it.each(OWNERS)('is counted, marked, carded once in the look of a stop and said on the state line alike: %s', async (_, now, w) => {
@@ -324,7 +329,7 @@ describe('a stop that no one waits on', () => {
   it('is a card in the same look, saying what is wrong, for a fault and for a stall, and counts nothing', () => {
     for (const [now, why] of [
       [{ kind: 'fault', words: 'Two entries at 3' } as Now, 'Two entries at 3'],
-      [STALLED, 'it waits for checked = yes, which only cell check can make hold; cell check does not run: nothing new runs it'],
+      [STALLED, 'It waits for checked = yes, which only check can make hold, and check does not run, as nothing new runs it.'],
     ] as const) {
       const container = draw(now, [], undefined, none);
       const card = container.querySelector('.cw-waits .cw-choice-holds');
@@ -347,7 +352,7 @@ describe('the cards of what waits for the owner', () => {
     const [, now, w] = OWNERS[8];
     const container = draw(now, [w], undefined, none);
     const card = container.querySelector('[data-wait="agents"]');
-    expect(card?.textContent).toBe(`The agents' command line cannot run: Not logged in${MEND}`);
+    expect(card?.textContent).toBe(`The agents' command line cannot run. Not logged in.${MEND}`);
     expect(container.textContent?.split('Sign it in again').length).toBe(2);
   });
 
@@ -363,11 +368,16 @@ describe('the cards of what waits for the owner', () => {
       expect(button.title).not.toBe('');
       act(() => button.click());
     };
+    const labels: (string | null | undefined)[] = [];
     for (const i of [1, 2, 3]) {
       const [, now, w] = OWNERS[i];
-      press(draw(now, [w], w.key, send), w.key);
+      const el = draw(now, [w], w.key, send);
+      labels.push(el.querySelector(`[data-wait="${w.key}"] button`)?.textContent);
+      press(el, w.key);
       unmount();
     }
+    // The engine's pause is lifted by Resume, which no switch of the owner's own pause is named.
+    expect(labels).toEqual(['Let it go on', 'Let it go on', 'Resume']);
     expect(sent).toEqual([
       { kind: 'result', call: 4, result: 'go on' },
       { kind: 'letGo', cell: 'plan' },
@@ -384,12 +394,73 @@ describe('the cards of what waits for the owner', () => {
       'held',
     );
     expect(engine).toEqual([{ kind: 'resume' }]);
+    expect(document.querySelector('[data-wait="held"] button')?.textContent).toBe('Resume all');
   });
 
-  it("let the engine's pause on from its card alone: the pause switch shows only the owner's own pause", () => {
+  it('say why a question holds the work under what it asks, where that is not what it asks, as for the merge', () => {
+    const [, now, w] = OWNERS[6];
+    const container = draw(now, [w], undefined, none);
+    const card = container.querySelector('[data-wait="answer-measure"]') as HTMLElement;
+    expect(card.querySelector('.cw-choice-q')?.textContent).toBe('What of measure?');
+    expect([...card.querySelectorAll('.cw-choice-stops')].map((e) => e.textContent)).toEqual([
+      'The merge waits for this answer.',
+    ]);
+    unmount();
+    // A question the work waits for at its cell is its own why: the card says nothing more.
+    const [, at, own] = OWNERS[5];
+    expect(draw(at, [own], undefined, none).querySelector('.cw-choice-stops')).toBeNull();
+  });
+
+  it("set a reason's names and values in the monospace, as the engine marks them, and a ruling's values as keys", async () => {
+    const [, now, w] = OWNERS[7];
+    const container = draw(now, [w], undefined, none, { read: { flow: RULED, blocks: [SAID_NO] } });
+    await act(async () => undefined);
+    const card = container.querySelector('[data-wait="write-content"]') as HTMLElement;
+    expect([...card.querySelectorAll('.cw-choice-q code')].map((c) => c.textContent)).toEqual([
+      'merge',
+      'test = may_merge',
+      'content',
+    ]);
+    expect(card.querySelector('.cw-choice-q')?.textContent).not.toContain('`');
+    expect([...card.querySelectorAll('.cw-option-label code')].map((c) => c.textContent)).toEqual(['content = yes']);
+  });
+
+  it("draw the engine's pause of an ended work whose letting go failed as its one card, which alone lets it on", () => {
+    const sent: Act[] = [];
+    const failed = 'GitHub did not close the pull request: HTTP 502.';
+    const why = `The engine paused the work. Letting go of what the work held failed. ${failed}`;
+    const steps: Step[] = [{ kind: 'paused', at: 9, time: 0, by: 'engine', why: failed }];
+    const container = draw(
+      { kind: 'merged' },
+      [wait('pause', why, { kind: 'resume' })],
+      undefined,
+      (_, a) => {
+        sent.push(a);
+        return Promise.resolve(null);
+      },
+      { paused: 'engine', steps },
+    );
+    expect(container.querySelectorAll('[data-wait="pause"]')).toHaveLength(1);
+    expect(container.textContent?.split('Letting go').length).toBe(2);
+    const buttons = [...container.querySelectorAll('.cw-item > .cw-acts button, .cw-waits button')].map((b) => b.textContent);
+    expect(buttons).toEqual(['Resume']);
+    act(() => (container.querySelector('[data-wait="pause"] button') as HTMLButtonElement).click());
+    expect(sent).toEqual([{ kind: 'resume' }]);
+  });
+
+  it('are opened by an address that keeps the name of what waits whole, whatever its characters', () => {
+    for (const key of ['answer-read time', 'answer-a/b', 'answer-über?#x', 'answer-"quoted"']) {
+      const hash = hashOf({ view: 'console', item: 12, wait: key });
+      expect(routeOf(hash)).toEqual({ view: 'console', item: 12, wait: key });
+    }
+  });
+
+  it("let the engine's pause on from its card alone: the pause switch shows only the owner's own pause, and says so", () => {
     const pressed = (el: HTMLElement) => el.querySelector('.cw-acts [aria-pressed="true"], .cw-acts [aria-checked="true"]')?.textContent;
     const [, now, w] = OWNERS[3];
-    expect(pressed(draw(now, [w], undefined, none, { paused: 'engine' }))).toBe('Start');
+    const engine = draw(now, [w], undefined, none, { paused: 'engine' });
+    expect(engine.querySelector('.cw-acts .switch')?.getAttribute('aria-label')).toBe('Your own pause of the work');
+    expect(pressed(engine)).toBe('Start');
     unmount();
     expect(pressed(draw({ kind: 'paused', by: 'owner', why: null }, [], undefined, none, { paused: 'owner' }))).toBe('Pause');
   });

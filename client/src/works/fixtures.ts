@@ -679,7 +679,7 @@ function long(start: number): Built {
   });
   const approval: Wait = {
     key: 'write-approval',
-    why: 'merge requires test = approved, which approval keeps from holding.',
+    why: '`merge` requires `test = approved`, which `approval` keeps from holding.',
     ends: { kind: 'write', block: 'approval', value: 'yes' },
   };
   const page = h.page(
@@ -840,7 +840,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.round(run, { minutes: 5, asks: [{ kind: 'tool', name: 'shell', input: 'npm test', result: '212 passed' }] });
     const why = "The agent's program exited with status 1: the session could not be resumed.";
     h.round(run, { minutes: 0.5, usd: 0.01, fails: why });
-    const paused: Wait = { key: 'pause', why: `The engine paused the work: ${why}`, ends: { kind: 'resume' } };
+    const paused: Wait = { key: 'pause', why: `The engine paused the work. ${why}`, ends: { kind: 'resume' } };
     keep({
       page: h.page(
         50,

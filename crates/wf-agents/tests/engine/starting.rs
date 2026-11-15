@@ -74,8 +74,8 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
     drop(engine);
 
     let engine = Engine::start(&place);
-    let held = "The engine started with works going on and holds every work until you have looked: none begins a \
-                round but to answer a note, until `wf-agents resume --all`";
+    let held = "The engine started with works going on and holds every work until the owner has looked: none begins \
+                a round but to answer a note, until `wf-agents resume --all`";
     assert_eq!(
         engine.says(&["list"]),
         format!(

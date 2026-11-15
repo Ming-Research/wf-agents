@@ -88,7 +88,7 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
             "now": { "kind": "paused", "by": "engine", "why": "The agent's program could not start." },
             "waits": [{
                 "key": "pause",
-                "why": "The engine paused the work: The agent's program could not start.",
+                "why": "The engine paused the work. The agent's program could not start.",
                 "ends": { "kind": "resume" },
             }],
         }])

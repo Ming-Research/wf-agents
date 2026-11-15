@@ -85,14 +85,14 @@ const KINDS: Wait[] = [
   question(3, 'Which?'),
   wait('answer-scope', 'What of scope?', { kind: 'answer', question: 'scope', version: 4 }),
   wait('limit', 'The run of plan had 2 returns sent back, its limit.', { kind: 'goOn', call: 4 }),
-  wait('pause', 'The engine paused the work: a round failed'),
+  wait('pause', 'The engine paused the work. A round failed.'),
   wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
-  wait('write-content', 'merge requires test = may_merge, which content keeps from holding.', {
+  wait('write-content', '`merge` requires `test = may_merge`, which `content` keeps from holding.', {
     kind: 'write',
     block: 'content',
     value: 'yes',
   }),
-  wait('agents', "The agents' command line cannot run: Not logged in", { kind: 'outside', what: 'Sign it in again.' }),
+  wait('agents', "The agents' command line cannot run. Not logged in.", { kind: 'outside', what: 'Sign it in again.' }),
 ];
 
 describe('what waits for the owner in a work', () => {
@@ -139,7 +139,10 @@ describe("the browser's notifications", () => {
     }
     const ask = wait('answer-long', 'Which way?\n\nThe details.', { kind: 'answer', question: 'long', version: 2 });
     draw(withWaits(142, [ask]));
-    expect(Told.made.map((n) => n.options.body)).toEqual([...KINDS.map((w) => w.why), 'Which way?']);
+    // A name or a value in backticks is said bare: a notification has no monospace.
+    const bare = KINDS.map((w) => w.why.replace(/`/g, ''));
+    expect(bare[5]).toBe('merge requires test = may_merge, which content keeps from holding.');
+    expect(Told.made.map((n) => n.options.body)).toEqual([...bare, 'Which way?']);
     for (const n of Told.made) {
       expect(n.title).toBe("Waiting for you: #142 Keep the panel's width");
       expect(n.options.body).not.toContain('waits for you');

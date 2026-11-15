@@ -135,7 +135,7 @@ const wait = (key: string, why: string, ends: Ends): Wait => ({ key, why, ends }
 
 /// The block a test reads that the owner writes, keeping the cell's `requires` from holding, as the engine says it.
 const ruling = (cell: string, t: Test, block: string): Wait =>
-  wait(`write-${block}`, `${cell} requires test = ${t.name}, which ${block} keeps from holding.`, {
+  wait(`write-${block}`, `\`${cell}\` requires \`test = ${t.name}\`, which \`${block}\` keeps from holding.`, {
     kind: 'write',
     block,
     value: 'yes',
@@ -350,7 +350,7 @@ export function fixtureItems(start = Date.now()): Items {
           waits: [
             wait(
               'pause',
-              "The engine paused the work: the agent's program exited with an error: the session could not be resumed",
+              "The engine paused the work. The agent's program exited with an error: the session could not be resumed.",
               { kind: 'resume' },
             ),
           ],
