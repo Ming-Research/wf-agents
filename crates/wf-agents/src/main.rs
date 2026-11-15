@@ -1,9 +1,11 @@
 //! The `wf-agents` command. Each part of the system adds its subcommands here.
 //!
+//! - `reference`: `wf-agents help`, the whole reference of the command line.
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
 
+mod reference;
 mod running;
 mod situations;
 mod talk;
@@ -23,7 +25,7 @@ const PORT: u16 = 7470;
 
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
-#[command(version)]
+#[command(version, disable_help_subcommand = true)]
 struct Cli {
     // Required: with none, clap fails with the usage and the names of the subcommands.
     #[command(subcommand)]
@@ -32,6 +34,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// With no command named, prints the whole reference at once: the program's description, then every command with
+    /// its long help, each under a line with its full name. With commands named, prints the long help of that one,
+    /// as its `--help` does.
+    Help {
+        /// The command, and the command under it, to print the help of.
+        command: Vec<String>,
+    },
     /// A flow's definition: a directory holding `flow.toml` and one file for each cell.
     #[command(subcommand)]
     Flow(FlowCommand),
@@ -413,6 +422,24 @@ enum FlowCommand {
 
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::Help { command } => {
+            let program = <Cli as clap::CommandFactory>::command();
+            let said = if command.is_empty() {
+                Some(reference::whole(&program))
+            } else {
+                reference::of(&program, &command)
+            };
+            match said {
+                Some(said) => {
+                    print!("{said}");
+                    ExitCode::SUCCESS
+                }
+                None => {
+                    eprintln!("no command `{}`", command.join(" "));
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Command::Flow(FlowCommand::Check { dir }) => check(&dir),
         Command::Flow(FlowCommand::Page { dir, port }) => page(dir, port),
         Command::Flow(FlowCommand::Situations {

@@ -66,7 +66,7 @@ pub use levels::{Level, Levels, LevelsFault};
 pub use projects::Projects;
 pub use script::Script;
 pub use scripted::Scripted;
-pub use titles::{title_fits, title_width};
+pub use titles::{title_fits, title_words};
 pub use words::{no_one_words, record_fault_words, refused_words, store_fault_words};
 
 /// The result of a wait the engine made before a round that failed in passing is tried again, once its time has come.

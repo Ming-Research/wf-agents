@@ -42,6 +42,9 @@ pub struct Check {
     pub outcome: Outcome,
     /// Where a person sees it, where it says.
     pub url: Option<String>,
+    /// How long it took, in whole seconds, from its start to its end as GitHub records them; only for a job that ran to
+    /// a conclusion of passed or failed, and none where GitHub gives no usable start or end.
+    pub took: Option<u64>,
 }
 
 /// What came of a check.
@@ -49,7 +52,9 @@ pub struct Check {
 pub enum Outcome {
     /// It is not complete.
     Pending,
-    /// It passed, or had nothing to do.
+    /// It did not run: its condition was false, or a job it needs did not succeed.
+    Skipped,
+    /// It passed.
     Passed,
     /// It judged the code and found it wanting, with GitHub's word for how.
     Failed(String),

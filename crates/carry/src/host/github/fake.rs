@@ -385,6 +385,7 @@ impl Api for Fake {
                 name: "test".to_string(),
                 outcome: super::api::Outcome::Broken(how.to_string()),
                 url: None,
+                took: None,
             }]);
         }
         Ok((kept.fast.get(&asked.commit)).map_or_else(Vec::new, |(jobs, _)| jobs.clone()))

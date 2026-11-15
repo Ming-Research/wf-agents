@@ -590,7 +590,7 @@ impl Real {
             items: Items {
                 default_level: "1".to_string(),
                 highest_level: None,
-                title_max: 40,
+                title_max: 20,
             },
             backup: None,
             sessions: Default::default(),
