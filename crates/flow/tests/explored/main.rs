@@ -50,7 +50,25 @@ const BOUNDS: Bounds = Bounds {
 
 /// The breaches the flow's own definition makes, each by its property and its name, with why it is the flow's and not
 /// the engine's. Each is reported; none is mended here, since the flow changes only with the owner.
-const KNOWN: &[(Property, &str, &str)] = &[];
+const KNOWN: &[(Property, &str, &str)] = &[
+    (
+        Property::Incremental,
+        "the owner changes the background did not reach R0, which it runs, before the work stopped",
+        MERGE_UNSTOPPED,
+    ),
+    (
+        Property::Incremental,
+        "the owner changes the background did not reach R1, which it runs, before the work stopped",
+        MERGE_UNSTOPPED,
+    ),
+];
+
+/// Why a change of the background while the merge's round is under way reaches no cell.
+const MERGE_UNSTOPPED: &str = "The owner changes the background while the merge's round is under way. A round under way \
+     is stopped only for what a source that turns the work writes (the owner's words, an answer), and the background is \
+     no such block, so the merge goes on; the work has ended once the merge has its record, and R0 and R1, which run on \
+     the background, never read the change. Whether a change of what the item asks should hold the merge is the \
+     owner's to decide.";
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
