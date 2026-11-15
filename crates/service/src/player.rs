@@ -13,7 +13,6 @@
 //! state never came is named, as is each the engine refused.
 
 use std::fmt;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,14 +20,14 @@ use decide::Seq;
 use driver::{Asked, FirstWrite, NewItem};
 use flow::Compiled;
 use flow::agents::Agents;
-use store::{ItemChange, ItemNumber, Store, WorkNumber};
+use store::{ItemChange, ItemNumber, WorkNumber};
 use tokio::sync::oneshot;
 use work::Time;
 
 use crate::judge::{self, Added, Judged, Shown};
 use crate::script::Script;
 use crate::script::items::{ActScript, Does, LEVEL, Step};
-use crate::{Act, Clock, Fault, Inbox, Message, Refusal, Scripted, Service, TokioClock, store_fault_words};
+use crate::{Act, Clock, Fault, Inbox, Message, Refusal, Service, TokioClock};
 
 /// The loop run in this process one thing at a time, on the clock of the runtime it runs on: what a play takes, and
 /// what the service's own tests drive.
@@ -79,6 +78,10 @@ pub struct Bounds {
 pub struct Played {
     /// Each item, in the script's order.
     pub items: Vec<ItemPlayed>,
+    /// Where every item went as the script says and nothing stopped the loop, each of the script's round entries that
+    /// no round of the play took, in words, as [`Script::untaken`] says it: in a play that went otherwise, a round not
+    /// taken says only where it stopped.
+    pub untaken: Vec<String>,
     /// How many things the loop took.
     pub steps: usize,
     /// What stopped the loop, where something did, in words.
@@ -98,45 +101,69 @@ pub struct ItemPlayed {
 }
 
 impl Played {
-    /// Whether the play went as its script says: every item's work took its path, every act was given and taken, and
-    /// nothing stopped the loop.
+    /// Whether the play went as its script says: every item went as it says, and nothing stopped the loop.
     pub fn took(&self) -> bool {
-        self.fault.is_none()
-            && (self.items.iter())
-                .all(|item| item.judged == Judged::Took && item.unreached.is_empty() && item.refused.is_empty())
+        self.fault.is_none() && self.items.iter().all(ItemPlayed::took)
+    }
+
+    /// What stopped the loop, in a line, where something did.
+    pub fn stopped(&self) -> Option<String> {
+        (self.fault.as_ref()).map(|fault| format!("The loop stopped: {fault}"))
     }
 }
 
-/// What came of the play, a line for each item and one for what stopped the loop.
+impl ItemPlayed {
+    /// Whether the item went as the script says: its work took its path, and every act of it was given and taken.
+    pub fn took(&self) -> bool {
+        self.judged == Judged::Took && self.unreached.is_empty() && self.refused.is_empty()
+    }
+
+    /// What came of the item, at this place among the script's items, in one line: how its work's records stand
+    /// against its path, and each act of it not given or refused.
+    pub fn line(&self, place: usize) -> String {
+        let mut line = format!("items[{place}], W{}: {}", self.work.0, self.judged);
+        for act in &self.unreached {
+            line.push_str(&format!("; its act {act} was not given: its state never came"));
+        }
+        for (act, why) in &self.refused {
+            line.push_str(&format!("; its act {act} was refused: {why}"));
+        }
+        line
+    }
+}
+
+/// What came of the play: a line for each item, one for each round entry no round took, and one for what stopped the
+/// loop.
 impl fmt::Display for Played {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (k, item) in self.items.iter().enumerate() {
-            write!(f, "items[{k}], W{}: {}", item.work.0, item.judged)?;
-            for act in &item.unreached {
-                write!(f, "; its act {act} was not given: its state never came")?;
-            }
-            for (act, why) in &item.refused {
-                write!(f, "; its act {act} was refused: {why}")?;
-            }
-            writeln!(f)?;
+            writeln!(f, "{}", item.line(k))?;
         }
-        if let Some(fault) = &self.fault {
-            writeln!(f, "The loop stopped: {fault}")?;
+        for untaken in &self.untaken {
+            writeln!(f, "{untaken}")?;
+        }
+        if let Some(stopped) = self.stopped() {
+            writeln!(f, "{stopped}")?;
         }
         Ok(())
     }
 }
 
-/// Plays the script on these flows, with what is written beside them, over the store at this path, which holds nothing
-/// yet, its items added to the project of this name, its clock starting at the time the script names as its start, or
-/// at `start` where it names none, within the bounds; or says what is wrong with the script for them, each in words
-/// with where it is, as its check says, and each item with no path, since a play judges what it plays. It runs on the
-/// runtime it is called on, whose time the caller pauses.
+/// The engine a play is played on, opened on the clock it is given over a store that holds nothing of another play, its
+/// carriers following the script: as `wf-agents run --script` opens it (crate `wf-agents`), and opened again where an
+/// act stops it; or why it cannot be opened, in words.
+pub type Open<'a> = dyn Fn(Arc<dyn Clock>) -> Result<(Service, Inbox), String> + 'a;
+
+/// Plays the script on these flows, with what is written beside them, on the engine `open` opens, its items added to
+/// the project of this name, its clock starting at the time the script names as its start, or at `start` where it names
+/// none, within the bounds; or says what is wrong with the script for them, each in words with where it is, as its
+/// check says, and each item with no path, since a play judges what it plays. It runs on the runtime it is called on,
+/// whose time the caller pauses.
 pub async fn play(
     script: &Script,
     flows: &[Compiled],
     words: &Agents,
-    store: &Path,
+    open: &Open<'_>,
     project: &str,
     start: Time,
     bounds: Bounds,
@@ -159,10 +186,8 @@ pub async fn play(
     let start = script.start.map_or(start, Time);
     let clock = Arc::new(TokioClock::new(start));
     let open = || -> Result<(Service, Inbox), String> {
-        let opened = Store::open(store).map_err(|fault| store_fault_words(&fault))?;
-        let carriers = Scripted::new(script.clone(), words.clone()).carriers();
         let clock: Arc<dyn Clock> = clock.clone();
-        Service::open(Box::new(opened), flows.to_vec(), carriers, clock).map_err(|fault| fault.to_string())
+        open(clock)
     };
     let mut stepper = Stepper::new(open().map_err(|fault| vec![fault])?);
     let mut play = Play {
@@ -236,8 +261,24 @@ pub async fn play(
             unreached: (play.next[k]..item.acts.len()).map(|j| j + 1).collect(),
             refused: play.refused[k].clone(),
         })
-        .collect();
-    Ok(Played { items, steps, fault })
+        .collect::<Vec<_>>();
+    let mut untaken = Vec::new();
+    if fault.is_none() && items.iter().all(ItemPlayed::took) {
+        let driver = play.stepper.service().driver();
+        let kept: Vec<_> = (play.works.iter())
+            .filter_map(|work| driver.work(*work).map(|kept| (work.0, kept)))
+            .collect();
+        let works: Vec<(&str, u64, &decide::Records)> = (kept.iter())
+            .map(|(work, kept)| (kept.flow.name.as_str(), *work, &kept.work.records))
+            .collect();
+        untaken = script.untaken(&works);
+    }
+    Ok(Played {
+        items,
+        untaken,
+        steps,
+        fault,
+    })
 }
 
 /// A play under way: the loop, and how far each item's acts have gone.
