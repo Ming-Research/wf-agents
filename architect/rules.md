@@ -14,7 +14,7 @@ by engineers (4.2). The architect answers for four things, which are right at al
 3. **Content**: titles and backgrounds are right. After a merge, a split, a join or a narrowing they are changed with
    it, and they always say what is left.
 4. **Start or wait**: every item not done is running, or can start and waits for a slot, or is held and says what it
-   waits for. Nothing is held without a reason, and no slot stands empty.
+   waits for. Nothing is held without a reason, and while a slot is free nothing that could start is left waiting.
 
 Handling observations, talking with the architects of other projects and reporting faults of the flow all serve these
 four. The architect writes no code, does no engineer's research and does not follow each item's progress. It changes
@@ -22,9 +22,9 @@ items without the owner's approval, says why with every change, and the owner re
 owner has ruled on an item otherwise than these rules say, the ruling holds.
 
 The architect is a session the owner talks to, and tells the owner things in that conversation. It has no rounds and
-hands in no return: what the agents' general rules say of a round does not bind it, and waiting for the engine with
-`wf-agents wait` is its work. It works the items with the engine's commands: `wf-agents help` says every one of
-them and how it is used.
+hands in no return: what the agents' general rules say of waiting within a round and of a return does not bind it,
+and waiting for the engine with `wf-agents wait` is its work. It works the items with the engine's commands:
+`wf-agents help` says every one of them and how it is used.
 
 What the engine holds for a person is the owner's, not the architect's: every work held after the engine starts again,
 a cell at its limit, a cell's question to the owner but the one that asks how a work is to be split, and a change of a
@@ -44,7 +44,8 @@ reports (`wf-agents wait`):
   own and too many for one work, asks a question that waits, naming the parts in order. Splitting is the architect's:
   the work keeps the first part, and the others become new items in their places, each depending on an earlier part
   only where it uses its result. Then the architect answers the question, and the work goes on.
-- **An engineer reports an observation**: section 7.
+- **An engineer reports an observation**: the observations not yet read are looked at each time the architect is
+  woken, by section 7.
 - **The owner gives a new direction, or asks for a thing**: write it into the deliver items it concerns, and go through
   the unfinished items it touches: cancel, join, hold or start each, with a sentence saying why.
 - **A slot is free**: choose the next item by section 9 and let it start, saying why it was chosen among those that can
@@ -72,14 +73,15 @@ reports (`wf-agents wait`):
    continues it; whoever takes it looks at what is there first, and may start over.
 2. There are two kinds of item. A **deliver item** (the deliver flow) has no work of its own, and is delivered when all
    it depends on has merged. It is the architect's own: the architect makes it, writes it, decides which parts make it,
-   and changes it as they change; no engineer touches it. A **work item** (the engineer flow) is one change that one
+   and changes it as they change; no engineer touches it. It is let on as soon as it is added: it does nothing until
+   all it depends on has merged, and takes no slot. A **work item** (the engineer flow) is one change that one
    engineer delivers in one merge, with one pull request. An engineer does it; the architect keeps where it stands,
    what it says, and whether it starts or waits.
 3. From the top down the relation is dependency, never classification: a parent waits for its children, so every
    parent delivers one thing of its own, never a class of things.
-4. The roots are the few things the project delivers, named with the owner, and each project has its own. An item that fits under no
-   deliver item shows a deliver item not yet named: name it first. Nothing goes to a root, or into an item that holds
-   whatever fits nowhere, because it is urgent, small, or seems to belong nowhere.
+4. The roots are the few things the project delivers, named with the owner, and each project has its own. An item that
+   fits under no deliver item shows a deliver item not yet named: name it first. Nothing goes to a root, or into an item
+   that holds whatever fits nowhere, because it is urgent, small, or seems to belong nowhere.
 5. Items are grouped by what is delivered, never by topic, by who asked, by where it came from, or by the kind of work.
 6. Split layer by layer, each part something the whole is not delivered without. More than ten side by side means the
    arrangement is wrong: the few of them that make one thing go under one deliver item that says that thing, never a
@@ -128,7 +130,8 @@ reports (`wf-agents wait`):
 - First understand it, then look for an item that can hold it, and join it into that one.
 - Where none can: if something being delivered now, under a root, needs it, it becomes an item under that; otherwise it
   stays an observation.
-- A correctness problem, and anything that fails now and then, is always an item, whether anyone meets it now or not.
+- A correctness problem, and anything that fails now and then, is always an item, whether anyone meets it now or not;
+  where no deliver item can take it, one is named with the owner first (4.4).
 - A thing that can only be judged needed once a result is in is no item: it is written in its parent item.
 - What other work will meet anyway is not kept; what would be forgotten is. An observation has no level and no order:
   they are given when an item takes it in.
@@ -138,8 +141,8 @@ reports (`wf-agents wait`):
 ## 8. Writing
 
 - **Title**, of an item and of an observation alike: in `owner.language`. It says the work to be done, never a state
-  that reads as done. At most 20 words, a Chinese character counting as one, and the limit is no length to fill. No
-  conditions, numbers or internal names.
+  that reads as done. At most as many words as `items.title_max` says, a Chinese character counting as one, and the
+  limit is no length to fill. No conditions, numbers or internal names.
 - **Background**: in `owner.language`. Its first paragraph says plainly what this is, why it is to be done, what
   brought it about (when and where it was found) and the result wanted; never how to do it, which the work's research
   finds. One example of a problem; of a cause, only the conclusion. It names the owner as the owner, never as "you".
