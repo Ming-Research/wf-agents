@@ -85,7 +85,8 @@ cell = "D4"
 hands_in = [{ block = "tree_ok", value = "yes" }]
 
 # Implementation: asks for the check, which ends its run, and, entered again for its result, hands in the code with a
-# decision of its own; then a fix for the review, one for the testing and one for the check before the merge.
+# decision of its own; then a fix for the review, one for the testing and one for the check before the merge, which it
+# commits: the new head runs the check again.
 [[flows.engineer.rounds]]
 cell = "I1"
 asks = [{ tool = "check", input = "the work's branch" }]
@@ -120,8 +121,8 @@ cell = "I1"
 run = 5
 hands_in = [
     { block = "code", content = "As before, with the latest main taken in and the work's migration renamed to follow main's." },
-    { block = "reply_check", content = "Fixed: the work's migration now follows the one main added." },
 ]
+commits = [{ block = "head", content = "4b8e2d1" }]
 
 # The review: objects once, then asks for adversarial testing, and keeps asking for it while the summing that made it
 # ask is in the change.

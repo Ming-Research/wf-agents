@@ -140,8 +140,6 @@ export function faultWords(fault: Fault): string {
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
-    case 'describedNotRunOn':
-      return `The cell says what the work is by ${w.block}, but ${w.block} does not run it.`;
     case 'takenNotRead':
       return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'twoForms':

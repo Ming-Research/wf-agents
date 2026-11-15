@@ -10,15 +10,17 @@
 //! it writes, its choices alone, its content with its opinions for the cells before it (all, or each alone), a judge's
 //! refusal with its reasons, its content with a question that waits for the owner (with the content's choices, or with
 //! choices that skip the cell itself), of the check's act a red check or a merge conflict, and on a path that spent
-//! nothing a return that is sent back. A return that sends work round (opinions, a refusal, a send-back, a red check)
+//! nothing a return that is sent back. An agent's round that deals with what an act after its cell wrote commits,
+//! moving the work's head as it ends. A return that sends work round (opinions, a refusal, a send-back, a red check)
 //! may be given at every round of its cell from then on, for the same one spent: the flow's limits must stop it. What
 //! the outside writes, spending one: the owner speaks to a cell, changes the background, answers a question or takes
-//! another option for one, lets a cell go on at its limit; main moves, a line begins a new session, the tree changes.
-//! It writes while the work waits or is stalled, on a path that spent at most one before; while a round is under way,
-//! the owner speaks to its cell on such a path, and on a path that spent nothing the background or what runs the cell
-//! from outside is written too. The owner answers a question the work waits on whatever the path spent. Past a write
-//! from outside the cells give their content alone. The items the work depends on merging costs nothing. A stalled
-//! work, which the engine pauses for the owner, saying why, is a stop for the owner as a wait for the owner is.
+//! another option for one, lets a cell go on at its limit; main moves, a line begins a new session, the tree changes, a
+//! commit no round made moves the work's head. It writes while the work waits or is stalled, on a path that spent at
+//! most one before; while a round is under way, the owner speaks to its cell on such a path, and on a path that spent
+//! nothing the background or what runs the cell from outside is written too. The owner answers a question the work
+//! waits on whatever the path spent. Past a write from outside the cells give their content alone. The items the work
+//! depends on merging costs nothing. A stalled work, which the engine pauses for the owner, saying why, is a stop for
+//! the owner as a wait for the owner is.
 //!
 //! Two states that would go on alike are one (`explore::Explorer::key`), and one reached having spent no more is kept.
 //! A path of more than 200 decisions with nothing written from outside, or that comes back to a state it was in, breaks
@@ -43,8 +45,7 @@ use std::path::Path;
 
 use decide::{BlockId, CellId};
 use explore::{
-    A_QUESTION_WAITED, Bounds, Explored, MAIN_WHILE_THE_CHECK_WAITS, Property, STALLED_SHOWN, WAITED_FOR_THE_OWNER,
-    explore,
+    A_QUESTION_WAITED, Bounds, Explored, MAIN_WHILE_THE_CHECK_WAITS, Property, WAITED_FOR_THE_OWNER, explore,
 };
 use flow::{Compiled, Has, compile, read};
 use model::{Model, ran, ran_on, reply_loop};
@@ -81,6 +82,7 @@ fn engineer() -> Compiled {
             "main",
             "session",
             "start",
+            "head",
             "tree",
             "words",
         ]),
@@ -177,9 +179,6 @@ fn rare() -> Vec<String> {
         A_QUESTION_WAITED.to_string(),
         ran_on(&cell("R0"), "on_session"),
         ran_on(&cell("D1"), "on_session"),
-        // A cell hands in no block that runs a cell after it, I1 nothing for a red check: nothing runs the check again,
-        // and the merge waits on what only the check writes, shown as waiting for the owner.
-        STALLED_SHOWN.to_string(),
         MAIN_WHILE_THE_CHECK_WAITS.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
         "stop: the work merged".to_string(),
@@ -262,6 +261,13 @@ const NEVER: &[(&str, &str)] = &[
         "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \
          check's own question runs the check again, and the work merges on it, is the engine's test of a work taken \
          to the merge on the answer alone (crates/engine/tests/engineer/merging.rs).",
+    ),
+    (
+        "the work waited at M2 on checked = yes",
+        "The merge waits on checked = yes only where nothing runs the check again after it said no, a stall, which no \
+         path of the flow reaches: the implementation's return to a red check leaves what runs the check again, its \
+         commit or a question, or is sent back (decision an-act-is-answered-by-what-runs-it). How a stalled work is \
+         shown is the engine's test of stalling (crates/engine/tests/loop/stalling.rs).",
     ),
     (
         "the work waited at M1 on asked = answered",

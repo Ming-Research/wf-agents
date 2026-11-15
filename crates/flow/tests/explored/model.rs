@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use decide::run::{Return, Told};
+use decide::run::{Answer, Return, Told};
 use decide::{BlockId, CallId, Cell, CellId, Condition, TestKind, Write};
 use flow::{Compiled, Kind};
 
@@ -20,15 +20,19 @@ const SPOKEN: &str = "on_spoken";
 const ANSWERED: &str = "on_answer";
 
 /// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines, each line
-/// writing a block of its own, and the design tree.
+/// writing a block of its own, the design tree, and the work's head, as a commit no round made moves it.
 pub const START: &str = "start";
 pub const DEPENDENCIES: &str = "dependencies";
 pub const MAIN: &str = "main";
 pub const SESSION: &str = "session";
 pub const TREE: &str = "tree";
+pub const HEAD: &str = "head";
 
 /// The engine's act that checks the work before the merge.
 const CHECK: &str = "check";
+
+/// The source of the questions' standing, which the engine writes.
+const ASKED: &str = "asked";
 
 /// What a round of a cell returns.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -155,6 +159,9 @@ pub struct Model {
     pub sessions: BTreeMap<String, BlockId>,
     /// The place of the check's cell.
     pub check: usize,
+    /// Of each cell by its place, of each block that runs it and that an act of the engine's after it writes, what
+    /// runs that act again, as the engine reads it of the graph.
+    pub answered_by: Vec<BTreeMap<BlockId, Answer>>,
     /// Of each cell by its place, a block that is no choice and that it does not write: what a return sent back
     /// writes.
     stray: Vec<BlockId>,
@@ -252,7 +259,7 @@ impl Model {
             spoken.push(own(SPOKEN));
             answered.push(own(ANSWERED));
         }
-        let sources = [START, DEPENDENCIES, MAIN, TREE]
+        let sources = [START, DEPENDENCIES, MAIN, TREE, HEAD]
             .into_iter()
             .filter_map(|source| {
                 (compiled.blocks.iter())
@@ -274,6 +281,22 @@ impl Model {
         let check = (compiled.cells.iter())
             .position(|c| c.act.as_deref() == Some(CHECK))
             .expect("the flow has a check");
+        let asked = (compiled.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(ASKED));
+        let answered_by = (0..cells.len())
+            .map(|i| {
+                let mut answers: BTreeMap<BlockId, Answer> = BTreeMap::new();
+                for block in &cells[i].runs_on {
+                    let acts = (compiled.cells.iter().zip(cells)).skip(i + 1);
+                    for (_, act) in acts.filter(|(spec, act)| spec.kind == Kind::Engine && act.outputs.contains(block))
+                    {
+                        let answer = answers.entry(block.clone()).or_default();
+                        answer.runs.extend(act.runs_on.iter().cloned());
+                        answer.question |= asked.is_some_and(|(id, _)| act.runs_on.contains(id));
+                    }
+                }
+                answers
+            })
+            .collect();
         let stray = (cells.iter())
             .map(|cell| {
                 (compiled.blocks.keys())
@@ -298,6 +321,7 @@ impl Model {
             sources,
             sessions,
             check,
+            answered_by,
             stray,
         }
     }
@@ -324,7 +348,7 @@ impl Model {
     }
 
     /// The cells, by their places, a write of these blocks can run again: each that one of them runs, or whose
-    /// condition or preconditions read one, and so on through what each of those writes.
+    /// condition or preconditions read one, and so on through what each of those writes or commits.
     pub fn reach(&self, from: &[BlockId]) -> BTreeSet<usize> {
         let cells = self.cells();
         let mut blocks: Vec<BlockId> = from.to_vec();
@@ -339,10 +363,19 @@ impl Model {
                     || (cell.applies.iter().chain(&cell.requires)).any(|k| self.key_reads(k).contains(&block));
                 if reads && reached.insert(j) {
                     blocks.extend(cell.outputs.iter().cloned());
+                    blocks.extend(self.commits(j).cloned());
                 }
             }
         }
         reached
+    }
+
+    /// The work's head, of the agent cell at this place that answers an act of the engine's by it: a round of it that
+    /// deals with what the act wrote commits its fix, which moves the head.
+    pub fn commits(&self, i: usize) -> Option<&BlockId> {
+        let head = self.sources.get(HEAD)?;
+        let answers = self.agent(i) && self.answered_by[i].values().any(|a| a.runs.contains(head));
+        answers.then_some(head)
     }
 
     /// The value the content of a cell writes into the choice, which has this value now.
@@ -452,6 +485,7 @@ impl Model {
                 found: Vec::new(),
                 waits: false,
                 questions: Vec::new(),
+                read: Vec::new(),
             };
             return (ret, false);
         }
@@ -513,6 +547,15 @@ impl Model {
             })
             .collect();
         let asks = matches!(variant, Variant::Asks(_));
+        // A round that deals with what an act after its cell wrote commits its fix, which moves the work's head, read
+        // as the round ends; where it asks as well it commits all the same, since the exploration keeps no question in
+        // the records and never writes the questions' standing, which would run the act on the answer.
+        let read = (self.commits(i).filter(|head| {
+            (dealt_with.iter())
+                .filter_map(|block| self.answered_by[i].get(block))
+                .any(|a| a.runs.contains(head))
+        }))
+        .cloned();
         let ret = Return::Came {
             dealt_with,
             writes,
@@ -520,6 +563,7 @@ impl Model {
             found: Vec::new(),
             waits: asks,
             questions: Vec::new(),
+            read: read.into_iter().collect(),
         };
         (ret, asks)
     }

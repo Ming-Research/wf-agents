@@ -400,6 +400,7 @@ fn engineer() -> flow::Compiled {
             "main",
             "session",
             "start",
+            "head",
             "tree",
             "words",
         ]),

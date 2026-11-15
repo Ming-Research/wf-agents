@@ -24,7 +24,8 @@
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `query` and `run_tests`.
-//! - [`tree`]: the design tree on a work's branch, as the data a source outside the work writes.
+//! - `branch`: what the engine reads of a work's branch as data of the work, in one step: [`tree`], the design tree on
+//!   it, and [`head`], the work's head, each the data of a source outside the work.
 //! - [`session`]: the sessions of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
 //! - [`account`]: the account the agents' program makes its calls under, a directory of its own signed in by hand.
@@ -32,12 +33,14 @@
 pub mod account;
 mod acts;
 mod agents;
+mod branch;
 pub mod catch_up;
 pub mod cli;
 mod cost;
 pub mod failure;
 pub mod git;
 pub mod guard;
+pub mod head;
 mod held;
 mod host;
 mod kept;
