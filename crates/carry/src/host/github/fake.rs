@@ -353,9 +353,9 @@ impl Api for Fake {
         if kept.another_call {
             made.push(("another".to_string(), true));
         }
+        let (ran, going) = (!kept.queued, kept.going);
         for (call, another) in made {
             let id = 1000 + kept.runs.len() as u64;
-            let ran = !kept.queued;
             kept.runs.push(Dispatched {
                 workflow: workflow.to_string(),
                 branch: branch.to_string(),
@@ -365,7 +365,7 @@ impl Api for Fake {
                     id,
                     title: format!("fast {call}"),
                     started: ran,
-                    completed: ran && !kept.going,
+                    completed: ran && !going,
                     cancelled: false,
                     url: format!("https://github.example/actions/runs/{id}"),
                 },
