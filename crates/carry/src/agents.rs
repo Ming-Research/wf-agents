@@ -109,6 +109,9 @@ pub struct Agents {
     inner: Arc<Inner>,
 }
 
+/// The lock of one line's session of a work: one program at a time runs on it, a round's or a keep-warm ping's.
+type SessionLock = Arc<tokio::sync::Mutex<()>>;
+
 struct Inner {
     settings: Settings,
     data: PathBuf,
@@ -123,7 +126,7 @@ struct Inner {
     /// A lock for each line of each work, so that a keep-warm ping of a line's session never runs beside a round of
     /// the line, two programs on one session: a round waits for a ping of its line to end, and a ping that finds a
     /// round of its line under way is given up. A round of another line runs beside the ping.
-    on_line: std::sync::Mutex<BTreeMap<(WorkNumber, String), Arc<tokio::sync::Mutex<()>>>>,
+    on_line: std::sync::Mutex<BTreeMap<(WorkNumber, String), SessionLock>>,
     /// What the owner said to each round given and not yet ended that its hook is to give it, by the round; one
     /// telling of a round, or its end, at a time, so that what waits for its hook is known.
     said: std::sync::Mutex<Tellings>,
@@ -970,7 +973,7 @@ impl Inner {
     }
 
     /// The lock of the work's line, made where it has none.
-    fn lock(&self, work: WorkNumber, line: &str) -> Arc<tokio::sync::Mutex<()>> {
+    fn lock(&self, work: WorkNumber, line: &str) -> SessionLock {
         let mut locks = self.on_line.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         locks.entry((work, line.to_string())).or_default().clone()
     }
