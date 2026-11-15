@@ -28,7 +28,9 @@
 //! to ([`Network`]). Neither is held but as a timer, which is set again from the records when the process starts again.
 //!
 //! The owner's pause of everything comes to the loop as an act of its own, which the driver keeps; how many rounds of
-//! agents go on at once is what the carriers say ([`Carriers::slots`]), and the driver gives no more.
+//! agents go on at once is what the carriers say ([`Carriers::slots`]), and the driver gives no more. Whether a pause
+//! holds a work back the carriers are told as the loop opens and whenever it may have changed ([`Rounds::paused`]),
+//! for what a carrier holds back of a round for itself.
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
@@ -277,6 +279,8 @@ impl Service {
             wake: None,
             pinging: BTreeMap::new(),
         };
+        let works: Vec<WorkNumber> = service.driver.works().map(|kept| kept.head.number).collect();
+        service.tell_paused(works);
         service.hand(now, todos)?;
         service.set_wake();
         Ok((service, Inbox(inbox)))
@@ -398,8 +402,10 @@ impl Service {
                         let _ = reply.send(Ok(()));
                         self.hand(now, todos)?;
                         // What every work does now may have changed, though no record of one grew.
+                        let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
+                        self.tell_paused(works.clone());
                         let _ = self.changed.send(Changed {
-                            works: self.driver.works().map(|kept| kept.head.number).collect(),
+                            works,
                             items: false,
                             copies: false,
                         });
@@ -737,6 +743,19 @@ impl Service {
         &**self.carriers.rounds(kind)
     }
 
+    /// Tells the carriers whether a pause holds each of these works back now, its own or the owner's of everything.
+    fn tell_paused(&self, works: Vec<WorkNumber>) {
+        let everything = self.driver.everything_paused().is_some();
+        for work in works {
+            let Some(kept) = self.driver.work(work) else {
+                continue;
+            };
+            let paused = everything || decide::paused(&kept.work.records);
+            self.carriers.agents.paused(work, paused);
+            self.carriers.acts.paused(work, paused);
+        }
+    }
+
     /// How many things that happened each work has taken.
     fn sizes(&self) -> BTreeMap<WorkNumber, usize> {
         (self.driver.works())
@@ -744,12 +763,14 @@ impl Service {
             .collect()
     }
 
-    /// Tells whoever listens which works grew since `before`, and whether an item was added.
+    /// Tells whoever listens which works grew since `before`, and whether an item was added; and the carriers whether
+    /// a pause holds each work that grew.
     fn tell(&self, before: &BTreeMap<WorkNumber, usize>, items: bool) {
         let works: Vec<WorkNumber> = (self.sizes().into_iter())
             .filter(|(work, size)| before.get(work) != Some(size))
             .map(|(work, _)| work)
             .collect();
+        self.tell_paused(works.clone());
         if !works.is_empty() || items {
             // Nobody may be listening.
             let _ = self.changed.send(Changed {

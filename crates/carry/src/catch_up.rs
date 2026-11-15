@@ -281,7 +281,7 @@ mod tests {
             &host,
             &branch,
             &lock,
-            (crate::host::Asking::Round(RunId(1), 1), &mut stop),
+            (crate::host::Asking::Round(RunId(1), 1), &mut stop, &|_| {}),
             &crate::acts::words().check,
             &gate,
         )

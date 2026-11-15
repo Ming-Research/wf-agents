@@ -21,7 +21,9 @@ pub enum Event {
     },
     /// The outside wrote a block while the round of this run was under way, as its carrier's own doing for that round,
     /// as taking main in is: the version is written and put into the round, so that the round is told of it and the
-    /// run consumes it.
+    /// run consumes it. Where the block's latest version says it already, as the watch of main may have written the
+    /// head a check reads, no version is written and that one is put in, unless the round was told of it already; a
+    /// run abandoned while its round is under way consumes nothing, and the version is only written.
     WroteForRound {
         run: RunId,
         block: BlockId,
