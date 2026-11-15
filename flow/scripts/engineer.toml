@@ -5,6 +5,10 @@
 # review keeps asking for it and the testing is content; the check before the merge fails once, and after the fix the
 # review, the testing and the check look again and pass.
 
+# The time the script's play starts at (`wf-agents play`), every other time it names being after it: 2026-11-10, at
+# midnight.
+start = 1794268800000
+
 [took]
 ms = 4000
 usd_micros = 180000
@@ -208,3 +212,44 @@ hands_in = [{ block = "checked", value = "yes" }]
 [[flows.engineer.rounds]]
 cell = "M2"
 took = { ms = 1000 }
+
+# The case the script plays: one item. The research asks the owner a question it waits for and needs the deep
+# research, which leaves the research no longer applying: its question holds nothing there, the work goes on, and the
+# merge's check waits for the answer, where the owner takes the option recommended.
+[[items]]
+title = "Keep what each call of a tool cost"
+flow = "engineer"
+writes = [{ block = "background", content = "A round's cost is kept, and a call's is not." }]
+acts = [
+    { at = { waits = "M1", for = "precondition", key = "asked" }, do = "answer", question = "call_cost", option = 1 },
+]
+path = [
+    { runs = "S1" },
+    { runs = "R0" },
+    { runs = "R1" },
+    { runs = "D1" },
+    { runs = "D2" },
+    { runs = "D3" },
+    { runs = "D1" },
+    { runs = "D2" },
+    { runs = "D3" },
+    { runs = "D4" },
+    { runs = "I1" },
+    { runs = "T3" },
+    { runs = "I1" },
+    { runs = "T1" },
+    { runs = "I1" },
+    { runs = "T1" },
+    { runs = "T2" },
+    { runs = "I1" },
+    { runs = "T1" },
+    { runs = "T2" },
+    { runs = "T1" },
+    { waits = "M1", for = "precondition", key = "asked" },
+    { runs = "M1" },
+    { runs = "I1" },
+    { runs = "T1" },
+    { runs = "M1" },
+    { runs = "M2" },
+    { ends = "merged" },
+]

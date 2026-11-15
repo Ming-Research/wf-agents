@@ -3,16 +3,21 @@
 //! act says, main moved once for every item that moves it, and each work judged against its path; and what a script's
 //! items, acts and paths name that the flows lack, told in one pass.
 
+use std::sync::Arc;
+
 use flow::Compiled;
-use service::{Bounds, Judged, Played, Script, play};
+use service::{Bounds, Clock, Judged, Played, Script, Scripted, Service, play};
 use store::{Storage, Store, WorkNumber};
 
 use crate::{START, scoped, trial_dir, trial_flow, words};
 
-/// The trial's script with these items.
+/// The trial's script with these items in place of its own case.
 fn script(items: &str) -> Script {
     let trial = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
-    Script::read(&format!("{trial}\n{items}")).expect("the script reads")
+    let own = Script::read(&trial).expect("the trial's script reads").items.len();
+    let mut script = Script::read(&format!("{trial}\n{items}")).expect("the script reads");
+    script.items.drain(..own);
+    script
 }
 
 /// Plays the script on the trial flow over a store of its own, within an hour of the clock and a thousand things
@@ -30,7 +35,14 @@ async fn played_on(script: &Script, flow: Compiled) -> (Result<Played, Vec<Strin
         ms: 3_600_000,
     };
     let path = dir.path().join("store.sqlite");
-    let played = play(script, &[flow], &words(), &path, "trial", START, bounds).await;
+    let flows = [flow];
+    // The engine as `wf-agents run --script` opens it, its carriers following the script.
+    let open = |clock: Arc<dyn Clock>| {
+        let store = Store::open(&path).map_err(|fault| service::store_fault_words(&fault))?;
+        let carriers = Scripted::new(script.clone(), words()).carriers();
+        Service::open(Box::new(store), flows.to_vec(), carriers, clock).map_err(|fault| fault.to_string())
+    };
+    let played = play(script, &flows, &words(), &open, "trial", START, bounds).await;
     (played, dir)
 }
 
@@ -219,11 +231,8 @@ async fn a_path_left_is_named_at_its_first_step_off_it() {
 async fn a_play_starts_its_clock_at_the_time_the_script_names_as_its_start() {
     // The trial's script with a start a day after the tests' own: the work is added then, and not at the play's start.
     let start = START.0 + 86_400_000;
-    let text = format!(
-        "start = {start}\n{}",
-        std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).unwrap()
-    );
-    let script = Script::read(&format!("{text}\n{}", item(ANSWER, MERGED))).expect("the script reads");
+    let mut script = script(&item(ANSWER, MERGED));
+    script.start = Some(start);
     let (played, dir) = played_on(&script, trial_flow()).await;
     assert!(played.expect("the script is played").took());
     let kept = store(&dir).load(WorkNumber(1)).expect("the store has the work");

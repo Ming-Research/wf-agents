@@ -13,7 +13,6 @@
 //! state never came is named, as is each the engine refused.
 
 use std::fmt;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,14 +20,14 @@ use decide::Seq;
 use driver::{Asked, FirstWrite, NewItem};
 use flow::Compiled;
 use flow::agents::Agents;
-use store::{ItemChange, ItemNumber, Store, WorkNumber};
+use store::{ItemChange, ItemNumber, WorkNumber};
 use tokio::sync::oneshot;
 use work::Time;
 
 use crate::judge::{self, Added, Judged, Shown};
 use crate::script::Script;
 use crate::script::items::{ActScript, Does, LEVEL, Step};
-use crate::{Act, Clock, Fault, Inbox, Message, Refusal, Scripted, Service, TokioClock, store_fault_words};
+use crate::{Act, Clock, Fault, Inbox, Message, Refusal, Service, TokioClock};
 
 /// The loop run in this process one thing at a time, on the clock of the runtime it runs on: what a play takes, and
 /// what the service's own tests drive.
@@ -127,16 +126,21 @@ impl fmt::Display for Played {
     }
 }
 
-/// Plays the script on these flows, with what is written beside them, over the store at this path, which holds nothing
-/// yet, its items added to the project of this name, its clock starting at the time the script names as its start, or
-/// at `start` where it names none, within the bounds; or says what is wrong with the script for them, each in words
-/// with where it is, as its check says, and each item with no path, since a play judges what it plays. It runs on the
-/// runtime it is called on, whose time the caller pauses.
+/// The engine a play is played on, opened on the clock it is given over a store that holds nothing of another play, its
+/// carriers following the script: as `wf-agents run --script` opens it (crate `wf-agents`), and opened again where an
+/// act stops it; or why it cannot be opened, in words.
+pub type Open<'a> = dyn Fn(Arc<dyn Clock>) -> Result<(Service, Inbox), String> + 'a;
+
+/// Plays the script on these flows, with what is written beside them, on the engine `open` opens, its items added to
+/// the project of this name, its clock starting at the time the script names as its start, or at `start` where it names
+/// none, within the bounds; or says what is wrong with the script for them, each in words with where it is, as its
+/// check says, and each item with no path, since a play judges what it plays. It runs on the runtime it is called on,
+/// whose time the caller pauses.
 pub async fn play(
     script: &Script,
     flows: &[Compiled],
     words: &Agents,
-    store: &Path,
+    open: &Open<'_>,
     project: &str,
     start: Time,
     bounds: Bounds,
@@ -159,10 +163,8 @@ pub async fn play(
     let start = script.start.map_or(start, Time);
     let clock = Arc::new(TokioClock::new(start));
     let open = || -> Result<(Service, Inbox), String> {
-        let opened = Store::open(store).map_err(|fault| store_fault_words(&fault))?;
-        let carriers = Scripted::new(script.clone(), words.clone()).carriers();
         let clock: Arc<dyn Clock> = clock.clone();
-        Service::open(Box::new(opened), flows.to_vec(), carriers, clock).map_err(|fault| fault.to_string())
+        open(clock)
     };
     let mut stepper = Stepper::new(open().map_err(|fault| vec![fault])?);
     let mut play = Play {

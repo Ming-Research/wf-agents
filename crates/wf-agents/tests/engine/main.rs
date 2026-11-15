@@ -1,13 +1,14 @@
-//! `wf-agents run` and the commands that talk to it, each run as the command: the engine runs the trial flow (the flow
-//! crate's `tests/laid_out/trial`), or the flows the repository defines, with a script whose rounds are short, over
-//! a data directory of its own. The tests are kept in modules by subject, so that a new test goes into the module of
-//! what it tests.
+//! `wf-agents run`, `wf-agents play` and the commands that talk to a running engine, each run as the command: the
+//! engine runs the trial flow (the flow crate's `tests/laid_out/trial`), or the flows the repository defines, with a
+//! script whose rounds are short, over a data directory of its own. The tests are kept in modules by subject, so that a
+//! new test goes into the module of what it tests.
 
 mod changing;
 mod delivering;
 mod everything;
 mod failing;
 mod items;
+mod playing;
 mod starting;
 mod waiting;
 
