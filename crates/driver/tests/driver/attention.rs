@@ -132,6 +132,111 @@ fn the_engine_pausing_a_work_for_its_reason_is_a_line_and_the_owner_pausing_one_
     );
 }
 
+/// A writer, a check of what it wrote and of main, which may say that what it wrote waits for main to move, and the
+/// merge, which the check's yes lets through.
+fn checked() -> flow::Compiled {
+    let flow = r#"
+        name = "checked"
+        order = ["write", "check", "merge"]
+        [limits]
+        again = 2
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.text]
+        [blocks.checked]
+        values = ["yes", "no"]
+        [blocks.main]
+        outside = "main"
+        writes = { text = "Main is at {head}." }
+        [blocks.merged]
+        shown = true
+        [blocks.start]
+        outside = "start"
+        writes = { text = "The owner started the work." }
+        [tests.passed]
+        says = "The check passed"
+        kind = "all"
+        reads = ["checked"]
+        is = "yes"
+    "#;
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the text the request asks for."
+        inputs = ["start", "request"]
+        outputs = ["text"]
+    "#;
+    let check = r#"
+        title = "Check"
+        kind = "engine"
+        act = "check"
+        inputs = ["text", "main"]
+        outputs = ["checked"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        requires = { test = "passed" }
+        inputs = ["text"]
+        outputs = ["merged"]
+    "#;
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: [("write", write), ("check", check), ("merge", merge)]
+            .map(|(id, text)| (id.to_string(), text.to_string()))
+            .into(),
+        files: [(
+            flow::waits_file(),
+            include_str!("../../../../flow/agents/waits.toml").to_string(),
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        sources: [driver::START.to_string(), "main".to_string()].into(),
+        acts: ["check".to_string(), "merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the definition compiles")
+}
+
+// A check that holds the work, saying that what it wrote waits for main to move, has the work wait for main: waiting on
+// no one, it is no line for the planner, neither the owner's nor a stall nor a wait for items; the same check saying
+// nothing of main stalls the work, which is a line. Under a second alone, a store on disk; no other test holds the
+// planner to a work that waits for the outside.
+#[test]
+fn a_work_waiting_for_main_to_move_is_no_line_and_one_stalled_is() {
+    for waits in [true, false] {
+        let mut h = H::with(vec![checked()]);
+        let (_, w) = h.add(new_item("a", &[], "checked"));
+        let mark = since(&h, None).mark;
+        h.let_on(w);
+        h.hands_in(w, &[("text", None)]);
+        let held = hands_in(&[("checked", Some("no"))]);
+        let came = Came {
+            waits_for: waits.then(|| "main".into()),
+            ..held
+        };
+        h.returns(w, came);
+        let answer = since(&h, Some(&mark));
+        if waits {
+            assert!(
+                matches!(&h.decision(w), Decision::Wait { on, .. } if matches!(on[..], [Waited::Outside { .. }])),
+                "{:?}",
+                h.decision(w)
+            );
+            assert_eq!(heeds(&answer), Vec::<Heed>::new(), "waiting on no one");
+        } else {
+            assert!(matches!(h.decision(w), Decision::Stalled { .. }), "{:?}", h.decision(w));
+            assert_eq!(heeds(&answer), [Heed::Stalled { work: w }]);
+        }
+    }
+}
+
 #[test]
 fn a_work_that_stalls_is_a_line_until_what_runs_a_cell_moves_it_on() {
     let mut h = H::new();

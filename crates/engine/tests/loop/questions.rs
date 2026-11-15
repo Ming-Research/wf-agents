@@ -157,6 +157,23 @@ impl W {
     }
 }
 
+// Words about a question go to the cell that asked it, and are refused where the owner's words run no block of that
+// cell: here the research, which reads none of them; the work is left as it was. Well under a millisecond alone; no
+// other test holds this refusal.
+#[test]
+fn words_about_a_question_of_a_cell_the_owners_words_do_not_run_are_refused() {
+    let (mut w, _) = researched(vec![asked("way", true)]);
+    let to = engine::spoken::To::Question("way".to_string());
+    let research = decide::CellId::from("research");
+    let refused = engine::spoken::NoOne::NotSpokenTo(research);
+    assert_eq!(engine::spoken::receiver(&w.flow, &w.work, &to), Err(refused.clone()));
+    let said = Event::Said {
+        to,
+        words: "Keep it to one table.".to_string(),
+    };
+    assert_eq!(w.refused(said), Refused::NoOneSpokenTo(refused));
+}
+
 #[test]
 fn a_question_a_return_asks_is_a_version_of_its_own_of_the_asking_cell() {
     let (w, _) = researched(vec![asked("which", false)]);

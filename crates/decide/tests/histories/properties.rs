@@ -126,6 +126,11 @@ const STALLED_FOR_A_RESULT: &str = "a work is stalled for a result no cell will 
 const RESULT_WAITED: &str = "a work waits for a result a cell that gives it applies to";
 const RESULT_LEFT_OUT: &str = "a work waits at a cell for other than a result no cell that gives it applies to";
 pub const RESULT_WAITS: &str = "a work waits for a result only while a cell that gives it applies";
+pub const OUTSIDE: &str = "a work waits for the outside only for what the latest run of a cell said it waits for";
+const OUTSIDE_WAITED: &str = "a work waits for main to move, as a check said what it wrote waits for";
+
+/// What the histories with a check before the merge must reach (decision what-a-run-wrote-may-wait-for-the-outside).
+pub const CHECKS_REACHED: &[&str] = &[OUTSIDE_WAITED];
 
 /// What the histories that draw a cell asking for tests must reach (decisions a-wait-holds-its-cell,
 /// a-wait-of-a-skipped-cell-is-put-away).
@@ -571,7 +576,8 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                         v.count(RESULT_WAITED);
                         waited_result(v, flow, reading, i, (record, result, by));
                     }
-                    Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } | Waited::Outside { .. } => {}
+                    Waited::Outside { source, run, block } => outside(v, flow, reading, i, (source, *run, block)),
+                    Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } => {}
                 }
             }
             left_out(v, flow, reading, i, on);
@@ -727,6 +733,57 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         if reading.pending(cell, now) {
             return;
         }
+    }
+}
+
+/// Property what-a-run-wrote-may-wait-for-the-outside: a work waits at the cell at this place for a source outside the
+/// work only where the run named is the latest finished run of its cell, which writes the block named; that run said
+/// what it wrote waits for a block the source writes, of which nothing is new to the cell; and the block keeps a key of
+/// the preconditions of the cell where the work waits from holding.
+fn outside(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, (source, run, block): (&str, RunId, &BlockId)) {
+    v.count(OUTSIDE_WAITED);
+    let now = Seq(u64::MAX);
+    let cells = flow.cells();
+    let Some(started) = reading.started.get(&run) else {
+        v.fail(
+            OUTSIDE,
+            format!("the work waits for {source} for run {run:?}, which never started"),
+        );
+        return;
+    };
+    let cell = &started.cell;
+    let latest = (reading.finished.values())
+        .filter(|f| reading.started[&f.run].cell == *cell)
+        .max_by_key(|f| f.at);
+    let Some(latest) = latest.filter(|f| f.run == run) else {
+        v.fail(
+            OUTSIDE,
+            format!("the work waits for {source} for run {run:?}, the latest finished of {cell} or none"),
+        );
+        return;
+    };
+    let waited = latest.waits_for.as_ref();
+    let of_source = waited.is_some_and(|b| flow.outsiders(b).is_some_and(|o| o.outside.as_deref() == Some(source)));
+    let place = flow.place(cell).expect("a cell of the flow");
+    let writes = cells[place].outputs.contains(block);
+    let new = waited.is_some_and(|b| !reading.new_to(cell, b, now).is_empty());
+    let keeps = (cells[i].requires.iter()).any(|key| {
+        !reading.key_holds(flow, key, i)
+            && match key {
+                Condition::Is { block: b, .. } => b == block,
+                Condition::Test(test) => flow.tests()[test].reads.contains(block),
+            }
+    });
+    if !of_source || !writes || new || !keeps {
+        v.fail(
+            OUTSIDE,
+            format!(
+                "the work waits at {} for {source} for {block} of run {run:?} of {cell}, which said it waits for \
+                 {waited:?} of the source {of_source}, writes {block} {writes}, has something of it new {new}, and \
+                 keeps a key from holding {keeps}",
+                cells[i].id
+            ),
+        );
     }
 }
 

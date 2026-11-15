@@ -27,7 +27,10 @@
 //!   a-wait-of-a-skipped-cell-is-put-away). In three of ten of those, the cell that gives results runs only while a
 //!   choice the asking cell alone writes says yes, so that a wait may be for a result no cell will give (decision
 //!   a-work-no-cell-can-move-is-stalled); and in half of these the asking cell has the precondition "ready" too, so
-//!   that it may wait for the owner while no cell will give its result (property `RESULT_WAITS`).
+//!   that it may wait for the owner while no cell will give its result (property `RESULT_WAITS`). In about a quarter of
+//!   the histories with no judge, drawn apart, a check stands before the merge, run by the brief and by main, which the
+//!   outside alone writes there, writing a choice only it writes, which the merge waits on at yes; a run of it that
+//!   says no says in half of them that what it wrote waits for main to move (property `OUTSIDE`).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -138,6 +141,10 @@ const TESTS: &str = "tests";
 const GIVER: &str = "giver";
 /// The choice, which only the asking cell writes, of whether the cell that gives results runs, where it runs only so.
 const GIVES: &str = "gives";
+
+/// The check that stands before the merge where one does, and the choice only it writes, which the merge waits on.
+const CHECK: &str = "check";
+const CHECKED: &str = "checked";
 
 /// From this round of a run on, its agent returns what meets everything the flow requires of it.
 const ROUNDS: usize = 3;
@@ -289,6 +296,9 @@ struct History {
     /// Draws what the histories with a judge add, apart from `rng`, so that the histories without one go as they did
     /// before the judge was added.
     judged: Option<Rng>,
+    /// Where a check stands before the merge: what draws whether a run of it that says no says that what it wrote
+    /// waits for main to move.
+    checks: Option<Rng>,
     /// Draws which rounds fail, apart from `rng`, in the histories where rounds fail.
     failing: Option<Rng>,
     /// Draws the room the engine leaves the work, apart from `rng`, in the histories where it changes.
@@ -403,7 +413,22 @@ impl History {
             }
             result
         });
-        let mut w = if judged.is_some() {
+        // In about a quarter of the histories with no judge, drawn apart, a check stands before the merge, run by the
+        // brief and by main and writing a choice only it writes, which the merge waits on at yes; a run of it that says
+        // no says in half the histories that what it wrote waits for main to move, as the engine's check does where what
+        // fails also fails on main (decision what-a-run-wrote-may-wait-for-the-outside).
+        let mut checking = Rng::new(seed ^ 0xC4EC_0000_57A1_1ED0);
+        let checks = (judged.is_none() && checking.chance(25)).then_some(checking);
+        let mut w = if checks.is_some() {
+            cells.push(cell(CHECK, &[BRIEF, MAIN], &[CHECKED]));
+            let mut merge = gate();
+            merge.requires.push(Condition::Is {
+                block: CHECKED.into(),
+                value: "yes".into(),
+            });
+            cells.push(merge);
+            World::new(cells)
+        } else if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
             judge.again = 2;
             cells.push(judge);
@@ -421,6 +446,10 @@ impl History {
         };
         w.notes(&[BRIEF]);
         w.turning(SPOKEN);
+        if checks.is_some() {
+            w.written_by_cells(CHECKED);
+            w.written_outside(MAIN, MAIN);
+        }
         if let Some(result) = &result {
             w.written_by_cells(result);
             w.written_by_cells(TESTS);
@@ -447,6 +476,7 @@ impl History {
             w,
             rng,
             judged,
+            checks,
             failing,
             rooms,
             room: Room::FREE,
@@ -774,7 +804,7 @@ impl History {
             .expect("the run started")
             .clone();
         let cell = flow.cells()[flow.place(&started.cell).expect("a cell of the flow")].clone();
-        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, GATE, "ready", "flip", GIVES]
+        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, GATE, "ready", "flip", GIVES, CHECKED]
             .into_iter()
             .map(|b| (b.into(), vec!["yes".to_string(), "no".to_string()]))
             .collect();
@@ -806,13 +836,16 @@ impl History {
                     let at = self.w.tick();
                     self.w.records.called.push(Called { call, run, on, at });
                 }
+                // A check that says no may say that what it wrote waits for main to move.
+                let said_no = (writes.iter()).any(|w| w.block.as_str() == CHECKED && w.value.as_deref() == Some("no"));
+                let waits = cell.id.as_str() == CHECK && said_no && self.checks.as_mut().is_some_and(|r| r.chance(50));
                 let at = self.w.tick();
                 self.w.records.finished.push(Finished {
                     run,
                     at,
                     writes,
                     dealt_with: Some(dealt_with),
-                    waits_for: None,
+                    waits_for: waits.then(|| MAIN.into()),
                 });
             }
             Step::SendBack { unmet } => {
@@ -1002,7 +1035,7 @@ impl History {
                 calls: Vec::new(),
             };
         }
-        let choice = |b: &BlockId| [CHOICE, VERDICT].contains(&b.as_str());
+        let choice = |b: &BlockId| [CHOICE, VERDICT, CHECKED].contains(&b.as_str());
         let write = |rng: &mut Rng, block: &BlockId, meets: bool| {
             let value = if choice(block) {
                 match rng.below(10) {
@@ -1503,6 +1536,7 @@ fn random_works_keep_the_engines_properties_and_come_to_rest() {
         &[
             properties::REACHED,
             properties::WAITS_REACHED,
+            properties::CHECKS_REACHED,
             pausing::REACHED,
             room::REACHED,
         ]
