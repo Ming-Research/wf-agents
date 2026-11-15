@@ -336,7 +336,9 @@ impl History {
             self.came(round)
         };
         self.sim.returns(round, came, compactions);
+        // A round stopped put its message into its session, and nothing it returned was taken.
         if stopped {
+            self.lines.entry(line).or_default().cut = true;
             return;
         }
         if compactions > 0 {
