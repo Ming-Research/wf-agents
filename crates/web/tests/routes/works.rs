@@ -168,6 +168,20 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             ],
             // The plan's question is a call of the earlier form: no question of the work's own is asked.
             "questions": [],
+            // The engineer's line stands at the plan, which waits for its call, and which the owner's words run not;
+            // no cell of the reviewer's line has run.
+            "speaking": [
+                {
+                    "to": { "kind": "line", "line": "engineer" },
+                    "cell": null,
+                    "refused": "the words would reach plan, which the owner's words do not run",
+                },
+                {
+                    "to": { "kind": "line", "line": "reviewer" },
+                    "cell": null,
+                    "refused": "no cell of the line reviewer has run yet, and the work stands at none of them",
+                },
+            ],
         })
     );
 }
