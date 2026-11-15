@@ -894,8 +894,8 @@ impl Driver {
         if let Event::Pinged { line, .. } = &event {
             self.pinging.remove(&(work, line.clone()));
         }
-        let gate = match begins_a_wait {
-            Some(held) => self.gate_of(work).and(held),
+        let gate = match &begins_a_wait {
+            Some(held) => self.gate_of(work).and(held.clone()),
             None => self.gate_of(work),
         };
         let limits = self.limits(work);

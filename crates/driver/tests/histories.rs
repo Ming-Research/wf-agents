@@ -10,9 +10,8 @@
 //! dependencies have not all merged has started a run; a work never let on has started none; and a keep-warm ping is
 //! never given beside a round of its line, nor a round of a line beside its ping, while pings beside the rounds of an
 //! act and of another line, and rounds beside a ping, are each reached. When the driver stops, what it says was kept is
-//! what the store holds. A round or a call of a tool that ended is judged against the
-//! lines of its history as it was when first seen, however the history grew since (decision
-//! `judged-by-the-history-as-it-began`).
+//! what the store holds. A round or a call of a tool that ended is judged against the lines of its history as it was
+//! when first seen, however the history grew since (decision `judged-by-the-history-as-it-began`).
 //!
 //! Once people stop, the works left paused are let on as their last act, and the rounds, the tools' calls, the
 //! withdrawals and the stops are answered until nothing more is given: within a bound each work then waits, saying for
