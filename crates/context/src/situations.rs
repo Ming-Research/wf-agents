@@ -36,7 +36,8 @@
 //! and the rest; a datum that cannot stand as its class does is unwritten where it may be, else lacking. Besides, on a later entry run by the first
 //! trigger, with the data of what ran it held as last worked from and the rest held: the result of a call of each kind
 //! and why a return was sent back, which come after a return that handed in nothing, each come of taking main in where
-//! the cell takes it, new to the session, and an entry after a return that handed in nothing.
+//! the cell takes it, new to the session, an entry after a round that put its message into the session and had nothing
+//! it returned taken, and an entry after a return that handed in nothing.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -482,6 +483,7 @@ impl<'a> Reach<'a> {
         Situation {
             holds,
             after_hand_in,
+            after_cut_off: false,
             triggers: (self.cell.triggers.iter())
                 .filter(|t| ran.triggers.iter().any(|r| r.name == t.name))
                 .map(|t| t.name.clone())
@@ -557,6 +559,14 @@ impl<'a> Reach<'a> {
                 out.push(named(format!("main_{key}"), Situation { main, ..base.clone() }));
             }
         }
+        // A round after one that put its message into the session and had nothing it returned taken.
+        let after_cut_off = true;
+        let cut_off = Situation {
+            after_hand_in,
+            after_cut_off,
+            ..base.clone()
+        };
+        out.push(named("cut_off".into(), cut_off));
         out.push(named("nothing_handed_in".into(), Situation { after_hand_in, ..base }));
         out
     }

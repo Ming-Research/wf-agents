@@ -213,6 +213,8 @@ pub struct ProgramWords {
     pub exited: String,
     /// A signal ended it.
     pub signal: String,
+    /// It ran as the process of the engine that ran it ended, and what it printed until then holds no result.
+    pub cut_off: String,
 }
 
 /// What the engine's check of the outside of the agents' rounds found down, where it says it itself.
@@ -1027,6 +1029,9 @@ pub struct MessagePart {
 pub enum Part {
     /// What the last return handed in is kept as.
     Taken,
+    /// That nothing the last round in the session returned was taken, that round having put its message into the
+    /// session and ended before its return could be.
+    CutOff,
     /// The cell's title.
     Heading,
     /// Which work and which item the session is for.
@@ -1058,6 +1063,7 @@ impl Part {
     pub fn name(self) -> &'static str {
         match self {
             Part::Taken => "taken",
+            Part::CutOff => "cut_off",
             Part::Heading => "heading",
             Part::Work => "work",
             Part::Main => "main",
@@ -1079,6 +1085,8 @@ impl Part {
 pub enum Only {
     /// After a return that handed in blocks.
     AfterHandIn,
+    /// After a round that put its message into the session and had nothing it returned taken.
+    AfterCutOff,
     /// To a cell that takes main in.
     TakesMain,
     /// To a round its script gives a part to play (design document `testing`, 12).
@@ -1090,6 +1098,7 @@ impl Only {
     pub fn name(self) -> &'static str {
         match self {
             Only::AfterHandIn => "after_hand_in",
+            Only::AfterCutOff => "after_cut_off",
             Only::TakesMain => "takes_main",
             Only::Part => "part",
         }

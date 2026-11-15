@@ -718,8 +718,8 @@ fn a_round_after_one_that_took_its_message_in_and_had_nothing_it_returned_taken_
         // A session that holds nothing holds nothing of it either.
         assert!(!told(&sim.enter(&again, true)), "{failure:?}, {received}, anew");
     }
-    let mut sim = reviewed();
-    let round = sim.round().expect("the build is entered again after the review");
+    let sim = reviewed();
+    let round = sim.round().expect("the plan is entered again after the review");
     let entered = sim.enter(&round, sim.begins(&round));
     assert!(!told(&entered), "after a return: {}", entered.text);
 }
