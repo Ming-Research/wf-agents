@@ -6,8 +6,10 @@
 //   until now (`System`). The page cuts the weeks at Monday's midnight in the browser's time zone.
 // - `GET  /api/v1/settings`: the installation's settings as their file writes them (`SettingsPage`).
 // - `POST /api/v1/settings`: the owner's change of a few keys (`SettingsChange`), answered with what changed (`Saved`).
-// - `GET  /api/v1/settings/accounts`: the accounts the agents' program may run under (`AccountsPage`).
-// - `POST /api/v1/settings/accounts`: the owner's choice of another (`AccountChoice`), answered as a change.
+// - `GET  /api/v1/settings/accounts`: the accounts the agents' program may run under, as the file lists them and the
+//   engine stands (`AccountsPage`).
+// - `POST /api/v1/settings/accounts`: the owner takes one, or sets the switch that lets the engine move on, each taken
+//   by the engine at once; or adds a new account's directory to the file, answered as a change (`AccountsChange`).
 //
 // The pages reach them through a context, which a test sets to its own source, and which the page's address with
 // `?fixtures` sets to the fixtures (fixtures.ts).
@@ -220,26 +222,47 @@ export interface Account {
   name: string;
   path: string;
   signedInAs: string | null;
-  /// Whether the file names it.
-  named: boolean;
+  /// Whether the agents run under it now.
+  inUse: boolean;
+  /// Whether the engine runs with it listed: one only the file lists is taken as the engine starts again.
+  running: boolean;
+  /// Whether it is at a usage limit, and when that resets, where it was said.
+  limited: boolean;
+  resets: number | null;
+}
+
+/// An account taken as the one the agents run under: by the owner or the engine, when; and, taken by the engine, the
+/// account it left at that one's limit, and when that limit resets.
+export interface Taken {
+  name: string;
+  path: string;
+  by: 'owner' | 'engine';
+  at: number;
+  left: string | null;
+  resets: number | null;
 }
 
 export interface AccountsPage {
   command: string;
   variable: string;
   signIn: string;
-  /// The directory the accounts' directories are in; none where the file names no directory of the program's.
+  /// The directory a new account's directory is made in, beside the first listed; none where the file lists none.
   dir: string | null;
-  /// The name every account's directory begins with.
+  /// The name every new account's directory begins with.
   stem: string;
   accounts: Account[];
+  /// Whether the engine moves on to another account at the week's limit of the one in use.
+  movingOn: boolean;
+  /// Every account taken, the latest first.
+  taken: Taken[];
   base: string;
 }
 
-export interface AccountChoice {
-  base: string;
-  name: string;
-}
+/// What the owner does of the accounts.
+export type AccountsChange =
+  | { take: { path: string } }
+  | { movingOn: { on: boolean } }
+  | { add: { base: string; name: string } };
 
 async function send<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
@@ -261,7 +284,24 @@ export interface SystemSource {
   loadSettings(): Promise<SettingsPage>;
   saveSettings(change: SettingsChange): Promise<Saved>;
   loadAccounts(): Promise<AccountsPage>;
-  chooseAccount(choice: AccountChoice): Promise<Saved>;
+  /// Takes an account, or sets the switch: answered with nothing once the engine has it; an account added is
+  /// answered as a change.
+  changeAccounts(change: AccountsChange): Promise<Saved | null>;
+}
+
+/// Sends what the owner does of the accounts: one the engine takes is answered with no content.
+async function sendAccounts(change: AccountsChange): Promise<Saved | null> {
+  const path = '/api/v1/settings/accounts';
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(change),
+  });
+  if (!response.ok) {
+    const refusal = (await response.json().catch(() => null)) as Refusal | null;
+    throw new Error(refusal?.error ?? `${path} answered ${response.status}`);
+  }
+  return response.status === 204 ? null : ((await response.json()) as Saved);
 }
 
 /// The interface.
@@ -270,7 +310,7 @@ export const INTERFACE: SystemSource = {
   loadSettings: () => read<SettingsPage>('/api/v1/settings'),
   saveSettings: (change) => send<Saved>('/api/v1/settings', change),
   loadAccounts: () => read<AccountsPage>('/api/v1/settings/accounts'),
-  chooseAccount: (choice) => send<Saved>('/api/v1/settings/accounts', choice),
+  changeAccounts: sendAccounts,
 };
 
 /// The fixtures, loaded only when asked for. What the owner changes is only logged.
@@ -282,10 +322,7 @@ export const FIXTURES: SystemSource = {
     return { said: change.set.map((s) => `${s.key} = ${JSON.stringify(s.value)}`).join('; '), committed: false };
   },
   loadAccounts: async () => (await import('./fixtures')).fixtureAccounts(),
-  chooseAccount: async (choice) => {
-    console.info('settings/accounts', choice);
-    return { said: `the agents run under ${choice.name}`, committed: false };
-  },
+  changeAccounts: async (change) => (await import('./fixtures')).fixtureAccountsChange(change),
 };
 
 export const SystemSourceContext = createContext<SystemSource>(
