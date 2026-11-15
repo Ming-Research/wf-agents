@@ -69,8 +69,18 @@ const KNOWN: &[(Property, &str, &str)] = &[(
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
-    let source = read(&dir).expect("the engineer's flow is read");
+    defined("engineer")
+}
+
+/// The deliver flow as the repository defines it, compiled against what the engine has.
+fn deliver() -> Compiled {
+    defined("deliver")
+}
+
+/// A flow of the repository's, by its directory's name, compiled against what the engine has.
+fn defined(name: &str) -> Compiled {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow").join(name);
+    let source = read(&dir).expect("the flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
         sources: names(&[
@@ -84,12 +94,12 @@ fn engineer() -> Compiled {
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge", "run_tests"]),
+        acts: names(&["start", "check", "merge", "run_tests", "deliver"]),
         tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };
-    compile(&source, &has).expect("the engineer's flow compiles")
+    compile(&source, &has).expect("the flow compiles")
 }
 
 fn stats(e: &Explored) -> String {
@@ -173,6 +183,9 @@ fn rare() -> Vec<String> {
         reply_loop(&block("review"), &block("reply_review")),
         reply_loop(&block("testing"), &block("reply_testing")),
         "a return was sent back".to_string(),
+        // A question that does not hold the work, which the merge waits on until the owner answers it.
+        "the work waited at M1 on asked = answered".to_string(),
+        ran_on(&cell("M1"), "on_asked"),
         A_QUESTION_WAITED.to_string(),
         ran_on(&cell("R0"), "on_session"),
         ran_on(&cell("D1"), "on_session"),
@@ -256,22 +269,38 @@ const NEVER: &[(&str, &str)] = &[
          bound.",
     ),
     (
-        "M1 ran on on_asked",
-        "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \
-         check's own question runs the check again, and the work merges on it, is the engine's test of a work taken \
-         to the merge on the answer alone (crates/engine/tests/engineer/merging.rs).",
-    ),
-    (
         "the work waited at M2 on checked = yes",
         "The merge waits on checked = yes only where nothing runs the check again after it said no, a stall, which no \
          path of the flow reaches: the implementation's return to a red check leaves what runs the check again, its \
          commit or a question, or is sent back (decision an-act-is-answered-by-what-runs-it). How a stalled work is \
          shown is the engine's test of stalling (crates/engine/tests/loop/stalling.rs).",
     ),
-    (
-        "the work waited at M1 on asked = answered",
-        "The exploration asks the owner by a call on the owner, and keeps no question in the records, so asked keeps \
-         its default, answered. The histories of questions (crates/engine/tests/questions.rs) check that the merge \
-         never begins while asked is waiting.",
-    ),
 ];
+
+/// The deliver flow explored as the engineer's is: every property kept on every path, and its way reached, the work
+/// waiting for the items it is made of and delivered once they merge.
+#[test]
+fn the_deliver_flow_keeps_every_property_on_every_path_explored() {
+    let m = Model::new(deliver());
+    let e = explore(&m, BOUNDS);
+    let mut failed = Vec::new();
+    for (property, name) in PROPERTIES {
+        let breaches: Vec<String> = (e.breaches.iter())
+            .filter(|((p, _), _)| p == property)
+            .map(|((_, n), b)| format!("breached: {n}\n{}", b.show()))
+            .collect();
+        if !breaches.is_empty() {
+            failed.push(format!("property {name}:\n{}", breaches.join("\n")));
+        }
+    }
+    let way = [
+        ran(&CellId::from("V1")),
+        "the work waited at V1 on dependencies = merged".to_string(),
+        "stop: the work merged".to_string(),
+    ];
+    for item in way.iter().filter(|item| !e.reached.contains_key(*item)) {
+        failed.push(format!("not reached: {item}"));
+    }
+    eprintln!("{}\n\n{}", stats(&e), report(&e));
+    assert!(failed.is_empty(), "{}\n\n{}", stats(&e), failed.join("\n\n"));
+}
