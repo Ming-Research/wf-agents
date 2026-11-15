@@ -634,6 +634,26 @@ pub fn fence(text: &str) -> String {
     "`".repeat((longest + 1).max(3))
 }
 
+/// The fence that closes the fenced block a text leaves open at its end, as long as the one that opened it; none where
+/// it leaves none. A block opens on a line of three backticks or more after at most three spaces, as [`fenced`] makes
+/// one, and closes on a line of at least as many and nothing else.
+pub fn left_open(text: &str) -> Option<String> {
+    let mut open: Option<usize> = None;
+    for line in text.split('\n') {
+        let bare = line.trim_start_matches(' ');
+        let ticks = bare.len() - bare.trim_start_matches('`').len();
+        if line.len() - bare.len() > 3 {
+            continue;
+        }
+        match open {
+            Some(opened) if ticks >= opened && bare.trim_end().len() == ticks => open = None,
+            None if ticks >= 3 => open = Some(ticks),
+            _ => {}
+        }
+    }
+    open.map(|ticks| "`".repeat(ticks))
+}
+
 /// A text that is not the flow's words, as what holds it gives it: in a fenced block of its own, the text between the
 /// line that opens it and the line that closes it as it is, byte for byte; so that nothing in it, a heading, a line
 /// that underlines one or a fence of its own, is read as the structure of what holds it.
@@ -701,6 +721,16 @@ mod tests {
         assert_eq!(fenced("a `b`"), "```\na `b`\n```");
         assert_eq!(fenced("```rust\nx\n```"), "````\n```rust\nx\n```\n````");
         assert_eq!(fenced(""), "```\n\n```");
+    }
+
+    // A block a text leaves open is closed by a fence as long as the one that opened it; one closed, or a fence inside
+    // a longer one, leaves none open.
+    #[test]
+    fn a_block_left_open_is_closed_by_a_fence_as_long_as_its_own() {
+        assert_eq!(left_open("Said:\n```\nhalf"), Some("```".to_string()));
+        assert_eq!(left_open("Said:\n````\n```\nhalf"), Some("````".to_string()));
+        assert_eq!(left_open("Said:\n```\nwhole\n```"), None);
+        assert_eq!(left_open("No block."), None);
     }
 
     #[test]
