@@ -2,9 +2,9 @@
 //!
 //! The owner speaks about a question, or to a line of the work's flow, and the engine alone chooses the cell the words
 //! reach ([`receiver`]): words about a question go to the cell that asked it, or, for a question of the engine's, to
-//! the cell its answer goes to; words to a line go to the cell the line has reached (`decide::reached`). Where that cell
-//! cannot take them, as one the owner's words do not run or one that does not apply now, or where the work has ended,
-//! the words are refused, saying why, and go to no other cell.
+//! the cell its answer goes to; words to a line go to the cell the line has reached (`decide::reached`), of those of
+//! it the owner's words run. Where that cell cannot take them, as one the owner's words do not run or one that does
+//! not apply now, or where the work has ended, the words are refused, saying why, and go to no other cell.
 //!
 //! In one act the words are the owner's entry of the record of what is said, the datum the cell's trigger of the owner's
 //! words has its agent read (`discussion` in the engineer's flow), in the words of that datum's `owner`, with the cell;
@@ -65,7 +65,9 @@ pub enum NoOne {
     NoSuchLine(String),
     /// The work has no question of this name that stands.
     NoSuchQuestion(String),
-    /// No cell of the line has run, and the work stands at none of them.
+    /// The owner's words run no cell of the line.
+    NoneOfTheLine(String),
+    /// No cell of the line that the owner's words run has run, and the work stands at none of them.
     NotReached(String),
     /// The words would go to this cell, and the owner's words do not run it.
     NotSpokenTo(CellId),
@@ -100,14 +102,22 @@ pub fn receiver(flow: &Compiled, work: &Work, to: &To) -> Result<CellId, NoOne> 
             asked::answering(flow, asked)
         }
         To::Line(line) => {
-            let cells: Vec<CellId> = (flow.cells.iter())
+            let of_line: Vec<&CellSpec> = (flow.cells.iter())
                 .filter(|c| c.line.as_deref() == Some(line.as_str()))
-                .map(|c| c.id.clone())
                 .collect();
-            if cells.is_empty() {
+            if of_line.is_empty() {
                 return Err(NoOne::NoSuchLine(line.clone()));
             }
-            decide::reached(&flow.flow, records, &cells).ok_or_else(|| NoOne::NotReached(line.clone()))?
+            if !of_line.iter().any(|c| trigger(flow, c).is_some()) {
+                return Err(NoOne::NoneOfTheLine(line.clone()));
+            }
+            // Only a cell the owner's words run counts as where the line stands: one they do not run, as the reading
+            // of the tree a reopened session begins with, is passed over.
+            let can: Vec<CellId> = (of_line.into_iter())
+                .filter(|c| trigger(flow, c).is_some())
+                .map(|c| c.id.clone())
+                .collect();
+            decide::reached(&flow.flow, records, &can).ok_or_else(|| NoOne::NotReached(line.clone()))?
         }
     };
     let spoken_to = (flow.cells.iter())
@@ -177,7 +187,8 @@ pub(crate) fn said(
 /// Puts into the round of the run that is under way these versions, which the engine gave its carrier to tell the
 /// round ([`Effect::Tell`]) and the carrier says the round was given; or why they cannot be: no round of the run is
 /// under way, or one of them is no version the owner's words wrote. Of a run abandoned meanwhile, whose round is being
-/// stopped and whose return is dropped, nothing is put in: the words stay new to the cell.
+/// stopped, they are put in all the same, so that its session is known to hold them; its return is dropped, and they
+/// stay new to the cell.
 pub(crate) fn heard(
     flow: &Compiled,
     work: &mut Work,
@@ -187,11 +198,8 @@ pub(crate) fn heard(
     let r = &work.records;
     let began = r.rounds.iter().filter(|x| x.run == run).count();
     let ended = r.returned.iter().filter(|x| x.run == run).count();
-    if began == ended {
+    if began == ended || r.finished.iter().any(|f| f.run == run) {
         return Err(Refused::NoRoundUnderWay(run));
-    }
-    if r.finished.iter().any(|f| f.run == run) || r.abandoned.iter().any(|a| a.run == run) {
-        return Ok(());
     }
     for (block, version) in &versions {
         let words = (flow.blocks.get(block)).is_some_and(|b| b.writers.outside.as_deref() == Some(flow::WORDS));

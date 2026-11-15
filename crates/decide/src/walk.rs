@@ -308,12 +308,13 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
             _ => None,
         })
         .unwrap_or(&[]);
-    // And one entered while a question of its cell, asked before the run began, waits for its answer (36).
-    let waits = flow.place(&r.started.cell).is_some_and(|i| {
-        walk.owed(i).0.iter().any(|c| !given.contains(c))
-            || (walk.questions.values())
-                .any(|q| q.latest.cell == r.started.cell && q.holds() && q.latest.at < r.started.at)
-    });
+    // And one entered while a question of its cell waited for its answer (36): as the work stood when the run began,
+    // which is what its round was entered for, whatever is answered while it runs.
+    let before = records.before(r.started.at);
+    let began = Walk::new(flow, &before);
+    let waits = flow
+        .place(&r.started.cell)
+        .is_some_and(|i| walk.owed(i).0.iter().any(|c| !given.contains(c)) || !began.held(i).is_empty());
     let outputs = (cell.into_iter().flat_map(|c| &c.outputs))
         .map(|block| {
             let latest = walk.current(block);
@@ -342,10 +343,10 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
     })
 }
 
-/// The cell of these, the cells of one line, that the line has reached: the one with a run neither finished nor
-/// abandoned, the one whose run started last where more than one has; with none, the one the work waits or stalls at;
-/// else the one whose run started last; none where no run of any of them started and the work stands at none of them
-/// (design document `data-and-context`, 32). Whether that cell can be spoken to now is not this function's to say.
+/// The cell of these, the cells of one line that count, that the line has reached: the one with a run neither finished
+/// nor abandoned, the one whose run started last where more than one has; with none, the one the work waits or stalls
+/// at; else the one whose run started last; none where no run of any of them started and the work stands at none of
+/// them (design document `data-and-context`, 32). Which cells count, as those the owner's words run, the caller says.
 pub fn reached(flow: &Flow, records: &Records, cells: &[CellId]) -> Option<CellId> {
     let walk = Walk::new(flow, records);
     let of_line = |r: &&RunView| cells.contains(&r.started.cell);
@@ -565,7 +566,8 @@ fn check(records: &Records) -> Result<(), RecordFault> {
 
 /// What is wrong with a version put into a round: it is no version of its block, it was written at the place it was
 /// put in or after, or its run had no round under way there, between a round's beginning and its end, and before the
-/// run finished or was abandoned.
+/// run finished. A run abandoned has its round under way until that round ends, and what was given it meanwhile, as
+/// the owner's words its hook gave it, is put in all the same: its session holds them.
 fn put_in_fault(records: &Records, p: &PutIn) -> Result<(), RecordFault> {
     if !records.wrote(&p.block, p.version) {
         return Err(RecordFault::PutInNoVersion(p.at));
@@ -584,9 +586,7 @@ fn put_in_fault(records: &Records, p: &PutIn) -> Result<(), RecordFault> {
     began.sort();
     ended.sort();
     let in_round = (began.iter().enumerate()).any(|(i, b)| *b < p.at && ended.get(i).is_none_or(|e| *e > p.at));
-    let gone = (records.finished.iter().filter(|f| f.run == p.run).map(|f| f.at))
-        .chain(records.abandoned.iter().filter(|a| a.run == p.run).map(|a| a.at))
-        .any(|at| at <= p.at);
+    let gone = (records.finished.iter()).any(|f| f.run == p.run && f.at <= p.at);
     if !in_round || gone {
         return Err(RecordFault::PutInNoRound(p.at));
     }
@@ -961,6 +961,8 @@ impl<'a> Walk<'a> {
     /// still waited for (design document `data-and-context`, 36, 42), by a version no run of the cell has seen: none
     /// that finished was told it, and none still open holds it. A run so entered that asks for calls in turn leaves what
     /// the owner wrote for the run their results begin; one abandoned saw nothing, and the cell is entered for it again.
+    /// A cell its question holds that is owed results all of which are in is entered for them, with what the owner
+    /// wrote that is new to it, as one its question does not hold is: it answers the owner at once (34).
     fn entering(&self, i: usize) -> (Vec<Cause>, Vec<Waited>) {
         let mut because = self.needs(i);
         let (calls, open) = self.owed(i);
@@ -973,10 +975,15 @@ impl<'a> Walk<'a> {
                     .filter_map(|r| self.told(r, block))
                     .max()
             };
+            let results = open.is_empty() && !calls.is_empty();
             because.retain(|cause| {
                 matches!(cause, Cause::Changed { block, .. }
-                    if self.flow.interrupts(block) && self.current(block).is_some_and(|v| Some(v.at) > seen(block)))
+                    if self.flow.interrupts(block)
+                        && (results || self.current(block).is_some_and(|v| Some(v.at) > seen(block))))
             });
+            if results {
+                because.push(Cause::Results { calls });
+            }
             let on = if because.is_empty() {
                 held.into_iter().chain(open).collect()
             } else {

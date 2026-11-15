@@ -115,6 +115,7 @@ fn until(id: &str) -> (Sim, support::Given) {
                 ("acceptance", "The greeting names the user.", None),
             ],
             "R2" => &[("better_found", "", Some("no"))],
+            "I1" => &[("code", "abc", None)],
             other => panic!("{other} is entered before {id}"),
         };
         tried(&mut sim, &round);
@@ -308,4 +309,63 @@ fn words_to_a_work_that_has_ended_are_refused_and_go_to_no_cell() {
     let refused = engine::handle(&sim.flow, &mut sim.work, engine::Time(1_000), said);
     assert_eq!(refused, Err(engine::Refused::NoOneSpokenTo(NoOne::Ended)));
     assert_eq!(sim.versions("discussion").len(), entries, "nothing is written");
+}
+
+#[test]
+fn a_reopened_session_s_reading_of_the_tree_leaves_the_line_where_its_cell_that_takes_words_stands() {
+    let (mut sim, round) = until("I1");
+    tried(&mut sim, &round);
+    sim.hands_in(&round, &[("code", "abc", None)]);
+    // The engineer's session is reopened: R0, which the owner's words do not run, reads the tree again.
+    sim.anew("engineer", engine::Why::Owner);
+    let reading = sim.round().expect("a round is given");
+    assert_eq!(reading.cell.as_str(), "R0");
+    assert_eq!(receiver(&sim, To::Line("engineer".into())), Ok(CellId::from("I1")));
+}
+
+#[test]
+fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
+    let (mut sim, review) = until("T1");
+    tried(&mut sim, &review);
+    let effects = sim.take(Event::Said {
+        to: To::Line("code_reviewer".into()),
+        words: "Look at the names too.".to_string(),
+    });
+    let versions = (effects.into_iter())
+        .find_map(|e| match e {
+            Effect::Tell { telling, .. } => Some(telling.versions),
+            _ => None,
+        })
+        .expect("the review under way is told");
+    // Words to the implementation, before the review, stop the review's round.
+    let effects = sim.take(Event::Said {
+        to: To::Line("engineer".into()),
+        words: "Shorter, please.".to_string(),
+    });
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::Stop { run } if *run == review.run))
+    );
+    // The hook gave the review the owner's words before its round ended.
+    sim.take(Event::SaidToRound {
+        run: review.run,
+        versions,
+    });
+    sim.returns(&review, Came::default(), 0);
+    let implement = sim.round().expect("a round is given");
+    assert_eq!(implement.cell.as_str(), "I1");
+    tried(&mut sim, &implement);
+    sim.hands_in(&implement, &[]);
+    // The review runs again for the words it never dealt with; its session holds them, and is given what it lacks.
+    let again = sim.round().expect("a round is given");
+    assert_eq!(again.cell.as_str(), "T1");
+    let entered = sim.enter(&again, sim.begins(&again));
+    assert!(entered.text.contains("The owner, to `I1`:"), "{}", entered.text);
+    assert!(
+        !entered.text.contains("The owner, to `T1`:"),
+        "given again:\n{}",
+        entered.text
+    );
+    assert!(entered.text.contains("- `on_spoken`"), "{}", entered.text);
 }

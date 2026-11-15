@@ -163,3 +163,71 @@ fn a_line_has_reached_the_cell_running_or_holding_the_work_on_it_and_else_the_on
     assert_eq!(w.decide(), waits_for("better", "which"));
     assert_eq!(reached(&w), Some("better".into()), "holding the work");
 }
+
+/// A research its question `which` holds, which the owner's words entered: gives the run they entered it with.
+fn spoken_to_while_held() -> (World, decide::RunId, Seq) {
+    let mut w = World::with_gate(vec![
+        cell(
+            "research",
+            &["brief", "research answered", "spoken to research"],
+            &["plan"],
+        ),
+        cell("implement", &["plan"], &["code"]),
+    ]);
+    w.turning("research answered");
+    w.turning("spoken to research");
+    w.person_writes("brief");
+    w.run("research", &[("plan", Matters)]);
+    let version = w.questions("research", "which", true);
+    w.outside_writes("spoken to research");
+    let run = w.start("research");
+    (w, run, version)
+}
+
+#[test]
+fn a_cell_held_by_its_question_that_asked_for_a_tool_answering_the_owner_is_entered_for_its_result() {
+    let (mut w, _, _) = spoken_to_while_held();
+    let call = w.asks("research", None);
+    assert_eq!(
+        w.decide(),
+        Decision::Wait {
+            at: "research".into(),
+            on: vec![
+                Waited::Answer {
+                    question: "which".to_string()
+                },
+                Waited::Call { call, on: None }
+            ],
+        }
+    );
+    w.done(call);
+    let Decision::Run { cell, because, .. } = w.decide() else {
+        panic!("nothing runs: {:?}", w.decide())
+    };
+    assert_eq!(cell.as_str(), "research");
+    assert_eq!(
+        because,
+        vec![
+            changed("spoken to research", None, false),
+            Cause::Results { calls: vec![call] }
+        ]
+    );
+    // The run given the result answers the owner and goes on waiting, held to nothing its cell must write.
+    let given = w.start("research");
+    assert!(decide::told(&w.flow, &w.records, given).expect("the run started").waits);
+    w.finish("research", &[]);
+    assert_eq!(w.decide(), waits_for("research", "which"));
+}
+
+#[test]
+fn a_round_entered_for_the_owners_words_is_judged_as_its_cell_stood_when_it_began_though_its_question_is_answered_meanwhile()
+ {
+    let (mut w, run, version) = spoken_to_while_held();
+    w.answers("which", version, 2);
+    w.outside_writes("research answered");
+    let told = decide::told(&w.flow, &w.records, run).expect("the run started");
+    assert!(
+        told.waits,
+        "held to nothing its cell must write, as it was entered for the words while it waited"
+    );
+}
