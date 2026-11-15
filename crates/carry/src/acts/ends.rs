@@ -637,6 +637,6 @@ async fn a_merge_takes_the_turn_before_it_merges_and_one_refused_for_a_moved_mai
         waiting.inner.end_turn(other);
     };
     let (merged, ()) = tokio::join!(waiting.inner.act(&round, &teller, &mut Stop::never()), letting_go);
-    assert!(merged.is_ok(), "{merged:?}");
+    assert!(merged.is_ok(), "{:?}", merged.as_ref().err());
     assert_eq!(waiting.inner.host.asked().last(), Some(&Asked::Merge(Some(checked))));
 }
