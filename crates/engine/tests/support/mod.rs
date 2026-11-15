@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use decide::run::Failure;
-use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, Started, decide};
+use decide::{CallId, Cause, CellId, Decision, Outsider, Pauser, Records, RunId, Seq, Started, decide};
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
 
@@ -74,6 +74,8 @@ pub struct Seen {
     pub released: usize,
     /// Words told to a round under way.
     pub told: usize,
+    /// Results of what a cell asked for in a record, handed in by a cell that gives them.
+    pub results: usize,
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
@@ -159,18 +161,37 @@ pub fn waited(records: &Records, started: &Started) -> bool {
 /// record: the latest entry a run of it wrote of the record finished before the run started, and no version of the
 /// result was written after it and before. Read from the records and the flow.
 pub fn waited_for_a_result(flow: &decide::Flow, records: &Records, started: &Started) -> bool {
-    let Some(cell) = flow.place(&started.cell).map(|i| &flow.cells()[i]) else {
+    awaits(flow, records, &started.cell, started.at)
+}
+
+/// Whether the cell waits, at this place, for the result of what a run of it asked for in a record: its latest entry
+/// of the record before the place, a write of it by a finished run of the cell, has no result handed in after it, and
+/// no run of a cell that gives the result, started after it, finished passing over it. Read from the records and the
+/// flow.
+pub fn awaits(flow: &decide::Flow, records: &Records, cell: &CellId, at: Seq) -> bool {
+    let Some(cell) = flow.place(cell).map(|i| &flow.cells()[i]) else {
         return false;
     };
+    let of = |run: RunId| records.started.iter().find(|s| s.run == run);
     cell.asks.iter().any(|asks| {
         let entry = (records.finished.iter())
-            .filter(|f| f.at < started.at && f.writes.iter().any(|w| w.block == asks.record))
-            .filter(|f| (records.started.iter()).any(|s| s.run == f.run && s.cell == cell.id))
+            .filter(|f| f.at < at && f.writes.iter().any(|w| w.block == asks.record))
+            .filter(|f| of(f.run).is_some_and(|s| s.cell == cell.id))
             .map(|f| f.at)
             .max();
-        entry.is_some_and(|entry| {
-            !(records.written.iter()).any(|w| w.block == asks.result && w.at > entry && w.at < started.at)
-        })
+        let Some(entry) = entry else {
+            return false;
+        };
+        let gives = |c: &CellId| {
+            (flow.place(c)).is_some_and(|j| {
+                let giver = &flow.cells()[j];
+                giver.runs_on.contains(&asks.record) && giver.outputs.contains(&asks.result)
+            })
+        };
+        let after = (records.finished.iter()).filter(|f| f.at > entry && f.at < at);
+        let answered = after.clone().any(|f| f.writes.iter().any(|w| w.block == asks.result));
+        let passed = after.filter_map(|f| of(f.run)).any(|s| s.at > entry && gives(&s.cell));
+        !answered && !passed
     })
 }
 
@@ -402,6 +423,27 @@ impl Driver {
         let mut pending = pending(&self.flow, &self.work);
         pending.sort_by_key(key);
         assert_eq!(pending, self.held, "what is pending is not what the driver holds");
+        // While a cell waits for the result of what it asked for, no round of a later cell is under way but one of a cell
+        // that gives it (decision a-wait-holds-its-cell).
+        let now = Seq(u64::MAX);
+        for effect in &pending {
+            let Effect::Round { cell, .. } = effect else {
+                continue;
+            };
+            let Some(i) = self.flow.flow.place(cell) else {
+                continue;
+            };
+            for before in &self.flow.flow.cells()[..i] {
+                if decide::applies(&self.flow.flow, r, &before.id) && awaits(&self.flow.flow, r, &before.id, now) {
+                    let gives = (before.asks.iter()).any(|a| self.flow.flow.cells()[i].runs_on.contains(&a.record));
+                    assert!(
+                        gives,
+                        "a round of {cell} is under way while {} before it waits for a result",
+                        before.id
+                    );
+                }
+            }
+        }
         // A round that ended, as a failed one has, is not under way: none is to be done again.
         for effect in &pending {
             if let Effect::Round { run, number, .. } = effect {

@@ -63,7 +63,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
 
-use decide::{CallId, Decision, Outsider, Pauser, RunId, Who, decide};
+use decide::{BlockId, CallId, Decision, Outsider, Pauser, RunId, Who, decide};
 use engine::{Ask, Came, Effect, Event, Handed, Spent, Work, pending};
 use flow::{Compiled, Has, Source, compile};
 use support::{Driver, Part, Rng, Seen};
@@ -113,10 +113,22 @@ fn agent(inputs: &[&str], outputs: &[&str], must: &[&str], when: Option<&str>) -
 
 /// The block's name as a constant, so that the blocks a shape uses can be gathered.
 fn block_name(b: &str) -> &'static str {
-    ["request", "main", "opinions", "plan", "notes", "choice", "merged"]
-        .into_iter()
-        .find(|n| *n == b)
-        .expect("a block of the histories")
+    [
+        "request",
+        "main",
+        "opinions",
+        "plan",
+        "notes",
+        "choice",
+        "merged",
+        "tests",
+        "draft_tested",
+        "write_tested",
+        "ask_tested",
+    ]
+    .into_iter()
+    .find(|n| *n == b)
+    .expect("a block of the histories")
 }
 
 /// The merge, the engine's own cell, after the cell that last writes the plan; where `bound`, it must write what it
@@ -130,8 +142,9 @@ fn merge(bound: bool) -> String {
 }
 
 /// One of the shapes of flow, each ending in the merge. Each cell that may be bound to write a block each time is,
-/// where `binds` draws it so, about one time in two.
-fn shape(n: usize, binds: &mut Rng) -> Compiled {
+/// where `binds` draws it so, about one time in two. Where `asking`, the first cell asks for tests in a record, which
+/// runs the engine's act that runs them before the merge, handing in the result as the first cell's own block.
+fn shape(n: usize, binds: &mut Rng, asking: bool) -> Compiled {
     let choice = Some(r#"{ choice = "yes" }"#);
     let mut bound =
         |blocks: &'static [&'static str]| -> &'static [&'static str] { if binds.chance(50) { blocks } else { &[] } };
@@ -163,6 +176,21 @@ fn shape(n: usize, binds: &mut Rng) -> Compiled {
             ),
         ],
     };
+    let mut cells = cells;
+    if asking {
+        let (id, (file, used)) = &mut cells[0];
+        let result = block_name(&format!("{id}_tested"));
+        *file = (file.replacen("inputs = [", &format!("inputs = [\"{result}\", "), 1)).replacen(
+            "outputs = [",
+            "outputs = [\"tests\", ",
+            1,
+        );
+        used.extend(["tests", result]);
+        let tests = format!(
+            "title = \"Run tests\"\nkind = \"engine\"\nact = \"run_tests\"\ninputs = [\"tests\"]\noutputs = [\"{result}\"]\n"
+        );
+        cells.push(("tests", (tests, vec!["tests", result])));
+    }
     let mut order: Vec<&str> = cells.iter().map(|(id, _)| *id).collect();
     order.push("merge");
     let mut blocks: BTreeSet<&str> = cells.iter().flat_map(|(_, (_, used))| used.iter().copied()).collect();
@@ -176,7 +204,7 @@ fn shape(n: usize, binds: &mut Rng) -> Compiled {
     };
     let has = Has {
         sources: ["main".to_string()].into(),
-        acts: ["merge".to_string()].into(),
+        acts: ["merge".to_string(), "run_tests".to_string()].into(),
         ..Default::default()
     };
     compile(&source, &has).expect("the shape compiles")
@@ -206,6 +234,20 @@ impl Part for Shape {
     fn returns(&mut self, d: &mut Driver, _: RunId, cell: &str) -> Came {
         let place = d.flow.flow.place(&cell.into()).expect("the cell is in the flow");
         let outputs = d.flow.flow.cells()[place].outputs.clone();
+        // The act that runs the tests hands in the result of each entry it gives, as the asking cell's own block.
+        if d.flow.cells[place].act.as_deref() == Some(flow::RUNS_TESTS) {
+            let results: Vec<Handed> = (decide::asked_of(&d.flow.flow, &d.work.records, &cell.into()).into_iter())
+                .map(|entry| Handed {
+                    content: format!("The tests {} asked for passed.", entry.cell),
+                    block: entry.result,
+                    matters: true,
+                    value: None,
+                })
+                .collect();
+            d.seen.results += results.len();
+            return Came::hands_in(results);
+        }
+        let asks = &d.flow.flow.cells()[place].asks;
         let asked = self.asked.entry(cell.to_string()).or_default();
         match d.rng.below(10) {
             5..=7 if *asked < ASKING => {
@@ -231,12 +273,21 @@ impl Part for Shape {
             }
             8..=9 => Came::asks(vec![]),
             _ => {
-                *asked = 0;
                 let mut blocks = Vec::new();
                 for b in &outputs {
                     if d.rng.chance(70) {
                         blocks.push(b.clone());
                     }
+                }
+                // Asking for tests is asking: past the line, the cell hands in its work and asks nothing.
+                let entry = |b: &BlockId| asks.iter().any(|a| &a.record == b);
+                if *asked >= ASKING {
+                    blocks.retain(|b| !entry(b));
+                }
+                if blocks.iter().any(entry) {
+                    *asked += 1;
+                } else {
+                    *asked = 0;
                 }
                 if d.rng.chance(10) {
                     blocks.push(["request", "merged", "opinions", "choice"][d.rng.below(4)].into());
@@ -376,7 +427,9 @@ fn wrote(block: &str, by: Outsider, matters: bool, value: Option<String>) -> Eve
 fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
     let mut rng = Rng::new(seed);
     // Which cells are bound to write a block each time is drawn apart, so that the other draws stay as they were.
-    let flow = shape(rng.below(4), &mut Rng::new(seed ^ 0xB10C_5EED_0FC3_1150));
+    // Whether a cell asks for tests is drawn apart too.
+    let asking = Rng::new(seed ^ 0x7E57_ED00_A5C1_0000).chance(35);
+    let flow = shape(rng.below(4), &mut Rng::new(seed ^ 0xB10C_5EED_0FC3_1150), asking);
     let yes_at_first = rng.chance(40);
     let mut d = Driver::new(flow, rng, seed, stops);
     let mut shape = Shape {
@@ -503,6 +556,7 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
                 seen.lacking += s.lacking;
                 seen.bound_finished += s.bound_finished;
                 seen.released += s.released;
+                seen.results += s.results;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -536,7 +590,8 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
         && seen.retried > 0
         && seen.rested_unpaused > 0
         && seen.paused_rounds > 0
-        && seen.released > 0;
+        && seen.released > 0
+        && seen.results > 0;
     // What the histories reached, said whatever comes of the test: written to the standard error itself, which the
     // test harness does not hold back as it holds back what a test prints.
     let _ = writeln!(std::io::stderr(), "the engine's histories reached: {seen:?}");
