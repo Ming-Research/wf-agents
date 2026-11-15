@@ -135,6 +135,29 @@ fn a_script_run_refuses_play_refuses_in_the_same_words() {
     assert_eq!(by_play, by_run);
 }
 
+// A part is played by a real agent: a play, whose agents are all stood in for, and a run of a script without the
+// settings refuse a script that gives one, in the same words, each part with where it is.
+#[test]
+fn a_script_of_parts_is_refused_by_a_play_and_by_a_run_without_the_settings() {
+    let place = Place::new("[[flows.trial.rounds]]\ncell = \"plan\"\npart = \"Plan it.\"\n");
+    let refused = |out: Output| {
+        assert!(!out.status.success());
+        let (_, errors) = said(&out);
+        errors.lines().map(str::to_string).collect::<Vec<_>>()
+    };
+    let by_run = refused(run(&place.data(), &place.script()).output().expect("the command runs"));
+    let by_play = refused(play(&place.data(), &[trial()], &place.script()));
+    assert_eq!(
+        by_run,
+        vec![format!(
+            "{}: flows.trial.rounds[0]: a part is played by a real agent, which runs with the installation's settings \
+             (`wf-agents run --settings`), and here every agent is stood in for",
+            place.script().display()
+        )]
+    );
+    assert_eq!(by_play, by_run);
+}
+
 // A run of a script that names items checks them and carries none of them out, and says so once, as it starts.
 #[test]
 fn a_run_of_a_script_with_items_says_once_that_it_carries_none_of_them_out() {
@@ -185,13 +208,17 @@ fn the_engineers_case_takes_its_path_and_its_times_are_the_same_on_any_day() {
     assert_eq!(times(), first);
 }
 
-/// Every script kept in `scripts/` beside the flows in this directory, with the directories of the flows it names.
+/// Every script kept in `scripts/` beside the flows in this directory whose agents are all stood in for, with the
+/// directories of the flows it names: a script that gives parts is played by real agents, one round at a time.
 fn scripts_beside(root: &Path) -> Vec<(PathBuf, Vec<PathBuf>)> {
     let mut scripts = Vec::new();
     for entry in std::fs::read_dir(root.join("scripts")).expect("the scripts are read") {
         let path = entry.expect("an entry of it").path();
         let text = std::fs::read_to_string(&path).expect("the script is read");
         let script = service::Script::read(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        if !script.parts().is_empty() {
+            continue;
+        }
         let mut named: Vec<&String> = (script.flows.keys())
             .chain(script.items.iter().map(|item| &item.flow))
             .collect();
