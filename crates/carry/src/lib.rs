@@ -139,7 +139,7 @@ pub fn carry(
             Some(github) => {
                 let env = |name: &str| std::env::var(name).ok();
                 let ci = beside.project.ci.clone();
-                let host = host::GitHub::from_settings(github, &project, &data, env, ci, tool.clone())
+                let host = host::GitHub::from_settings(github, &project, &data, installation, env, ci, tool.clone())
                     .map_err(|why| format!("projects.{name}: {why}"))?;
                 let look = (host_look.get_or_insert_with(|| Arc::new(failure::LookAt(host::github::LOOK.to_string()))))
                     .clone();

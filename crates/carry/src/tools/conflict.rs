@@ -33,9 +33,10 @@ pub(super) async fn found(project: &Project, place: &Place, main: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
+    use decide::CallId;
     use store::WorkNumber;
 
-    use super::super::{Answer, RUN_TESTS, Told, answer};
+    use super::super::{Answer, Call, RUN_TESTS, Told, answer};
     use crate::git::tests::{Repo, commit, run};
     use crate::held::Stop;
     use crate::host::fake::{Asked, Fake, NO_TOOLS};
@@ -70,20 +71,16 @@ mod tests {
             about: "",
             place: &place,
         };
-        match answer(
-            &host,
-            &repo.project,
-            &branch,
-            &Told {
-                unread: None,
-                tools: &[],
-            },
-            RUN_TESTS,
+        let told = Told {
+            unread: None,
+            tools: &[],
+        };
+        let call = Call {
+            id: CallId(1),
+            name: RUN_TESTS,
             input,
-            &mut Stop::never(),
-        )
-        .await
-        {
+        };
+        match answer(&host, &repo.project, &branch, &told, &call, &mut Stop::never()).await {
             Answer::Result(said) => (said, host.asked()),
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
