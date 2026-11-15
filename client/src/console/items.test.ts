@@ -115,7 +115,7 @@ describe('what a card shows of an item', () => {
     const listed = [
       { key: 'call-1', why: 'Which?', ends: { kind: 'reply' as const, call: 1 } },
       { key: 'write-confirmed', why: 'implement requires test = confirmed, which confirmed keeps from holding.', ends: { kind: 'write' as const, block: 'confirmed', value: 'yes' } },
-      { key: 'limit', why: 'The cell ran 3 times in a row for what a cell after it wrote, its limit.', ends: { kind: 'letGo' as const, cell: 'implement' } },
+      { key: 'limit', why: '`review` sent the cell back 3 times since its counts last started anew, its limit.', ends: { kind: 'letGo' as const, cell: 'implement' } },
     ];
     expect(asksOf({ waits: listed })).toBe(3);
     expect(asksOf({ waits: [] })).toBe(0);

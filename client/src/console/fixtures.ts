@@ -438,7 +438,7 @@ export function fixtureItems(start = Date.now()): Items {
           rounds: 70,
           quiet: 300,
           waits: [
-            wait('limit', 'The cell ran 3 times in a row for what a cell after it wrote, its limit.', {
+            wait('limit', '`review` sent the cell back 3 times since its counts last started anew, its limit.', {
               kind: 'letGo',
               cell: 'review_plan',
             }),

@@ -45,7 +45,7 @@ const doing = (now: Now, waits: Wait[] = []): Pick<Summary, 'now' | 'cells' | 'w
 
 const limit: Wait = {
   key: 'limit',
-  why: 'The cell ran 3 times in a row for what a cell after it wrote, its limit.',
+  why: '`review` sent the cell back 3 times since its counts last started anew, its limit.',
   ends: { kind: 'letGo', cell: 'merge' },
 };
 
@@ -75,7 +75,9 @@ describe('what a work does now, in words', () => {
     );
     // The cell is said once, in its place: the reason beside it does not name it.
     const atLimit = nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, { kind: 'limit', by: 'review', runs: 3 }] }, [limit]));
-    expect(atLimit).toBe('Waiting for you · merge · The cell ran 3 times in a row for what a cell after it wrote, its limit.');
+    expect(atLimit).toBe(
+      'Waiting for you · merge · review sent the cell back 3 times since its counts last started anew, its limit.',
+    );
     expect(atLimit.split('merge').length).toBe(2);
     // Two reasons are two sentences, a name in backticks said bare on the line.
     const ruling: Wait = {

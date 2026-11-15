@@ -139,7 +139,7 @@ describe('the System view', () => {
     const s = sources();
     const items = fixtureItems();
     const first = items.items.find((i) => standingOf(i.work) === 'owner') as Item;
-    const extra: Wait = { key: 'limit', why: 'The cell ran 3 times in a row, its limit.', ends: { kind: 'letGo', cell: 'plan' } };
+    const extra: Wait = { key: 'limit', why: '`review` sent the cell back 3 times since its counts last started anew, its limit.', ends: { kind: 'letGo', cell: 'plan' } };
     const more: Items = {
       ...items,
       items: items.items.map((i) => (i === first ? { ...i, work: { ...i.work, waits: [...(i.work.waits ?? []), extra] } } : i)),
