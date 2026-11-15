@@ -120,10 +120,10 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     let (_, c) = h.add(new_item("c", &[], "short"));
     h.let_on(c);
     h.on(c, Event::Cancelled { why: None });
-    // A work whose cell waits for a person's answer to its call, though a person wrote what runs it since.
+    // A work whose cell waits for the result of its call, though a person wrote what runs it since.
     let (_, d) = h.add(new_item("d", &[], "plain"));
     h.let_on(d);
-    h.returns(d, Came::asks(vec![question(Who::Owner)]));
+    h.returns(d, Came::asks(vec![tool("read")]));
     h.on(d, wrote("request", Outsider::Person, None));
     // A work never let on, and a merged one.
     let (_, e) = h.add(new_item("e", &[], "short"));

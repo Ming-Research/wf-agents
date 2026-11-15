@@ -21,7 +21,7 @@ fn a_cancel_stops_the_round_under_way_and_abandons_its_run() {
 #[test]
 fn a_cancel_withdraws_the_calls_a_cell_waits_for_in_the_order_they_were_made() {
     let (mut w, write, _) = W::requested();
-    let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a"), question(Who::Owner), tool("b")])));
+    let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a"), tool("b"), tool("c")])));
     w.done(calls[0].0);
     let withdrawn = vec![
         Effect::Withdraw { call: calls[1].0 },
@@ -34,11 +34,11 @@ fn a_cancel_withdraws_the_calls_a_cell_waits_for_in_the_order_they_were_made() {
     assert_eq!(pending(&w.flow, &w.work), withdrawn);
 }
 
-/// The judge waits for a question for the owner it asked, and the writer, before it, runs again for a new request.
+/// The judge waits for a tool it asked for, and the writer, before it, runs again for a new request.
 fn two_open() -> (W, RunId, CallId, RunId) {
     let (mut w, write, _) = W::requested();
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
-    let call = calls_of(&w.returns(judge, Came::asks(vec![question(Who::Owner)])))[0].0;
+    let call = calls_of(&w.returns(judge, Came::asks(vec![tool("a")])))[0].0;
     let (effects, _) = w.person_writes("request");
     let again = round(&effects).0;
     (w, judge, call, again)
@@ -47,7 +47,7 @@ fn two_open() -> (W, RunId, CallId, RunId) {
 #[test]
 fn a_cancel_ends_every_open_run_in_the_order_the_runs_started() {
     let (mut w, judge, call, again) = two_open();
-    // The open run is stopped as it is abandoned, and the question the judge waits for withdrawn as the work ends.
+    // The open run is stopped as it is abandoned, and the call the judge waits for withdrawn as the work ends.
     let undo = vec![Effect::Stop { run: again }, Effect::Withdraw { call }];
     assert_eq!(w.on(Event::Cancelled { why: None }), undo);
     assert_eq!(abandoned(&w), vec![again]);

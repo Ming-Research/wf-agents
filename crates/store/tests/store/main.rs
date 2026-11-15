@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use decide::{
     CallId, Called, Done, Finished, Outsider, Pauser, PutIn, Returned, Round, RunId, Seq, Started, Who, Write, Written,
 };
-use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
+use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Tool, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -220,9 +220,15 @@ impl Driver {
     /// Takes the event, which the loop must take, and gives what is to be done. Where the work is saved, it is saved
     /// and must load back as it is.
     fn on(&mut self, event: Event) -> Vec<Effect> {
+        self.on_kept_as(event, |_, _| {})
+    }
+
+    /// Takes the event as [`Driver::on`] does, the work changed so, by what is to be done, before it is saved.
+    fn on_kept_as(&mut self, event: Event, kept_as: impl FnOnce(&mut Work, &[Effect])) -> Vec<Effect> {
         self.clock += 1000;
         let now = Time(self.clock);
         let effects = handle(&self.flow, &mut self.work, now, event).expect("the event is taken");
+        kept_as(&mut self.work, &effects);
         if let Some(s) = &mut self.saving {
             s.store.save(s.work, &self.work).expect("the work is saved");
             let loaded = s.db.open().load(s.work).expect("the work loads");
@@ -249,6 +255,15 @@ impl Driver {
         let (run, _) = self.under_way();
         let spent = self.spent();
         self.on(Event::Returned { run, came, spent })
+    }
+
+    /// The round under way ends asking the owner a question by a call, as one work's old records hold it.
+    fn asks_the_owner(&mut self) -> Vec<Effect> {
+        let (run, _) = self.under_way();
+        let spent = self.spent();
+        let came = Came::asks(vec![tool("asked")]);
+        let returned = Event::Returned { run, came, spent };
+        self.on_kept_as(returned, |work, effects| put_to_the_owner(work, made(effects)))
     }
 
     /// The round under way fails, for this reason: the engine pauses the work with it.
@@ -353,17 +368,47 @@ fn wanting() -> Came {
     hands_in(&[("verdict", Some("yes"))])
 }
 
-fn tool(name: &str) -> Ask {
-    Ask::Tool {
+fn tool(name: &str) -> Tool {
+    Tool {
         name: name.to_string(),
         input: format!("what {name} is run on"),
     }
 }
 
-fn question(who: Who) -> Ask {
-    Ask::Person {
-        who,
+/// Makes the call, which the run's last return asked for alone, a question for the owner, as one work's old records
+/// hold it (decision a-return-asks-no-person-by-a-call).
+fn put_to_the_owner(work: &mut Work, call: CallId) {
+    let question = Ask::Person {
+        who: Who::Owner,
         question: "which way?".to_string(),
+    };
+    let called = (work.records.called.iter_mut())
+        .find(|c| c.call == call)
+        .expect("the call is made");
+    called.on = Some(Who::Owner);
+    let run = called.run;
+    work.calls.insert(call, engine::Call::Asked(question.clone()));
+    let back = (work.back.iter_mut())
+        .filter(|((r, _), _)| *r == run)
+        .map(|(_, back)| back)
+        .next_back();
+    let Some(engine::Back::Returned { asks, .. }) = back else {
+        panic!("the run's last return asked for nothing");
+    };
+    *asks = vec![question];
+}
+
+/// The one call among what is to be done.
+fn made(effects: &[Effect]) -> CallId {
+    let calls: Vec<CallId> = (effects.iter())
+        .filter_map(|e| match e {
+            Effect::Call { call, .. } => Some(*call),
+            _ => None,
+        })
+        .collect();
+    match calls[..] {
+        [call] => call,
+        _ => panic!("not one call was made: {effects:?}"),
     }
 }
 
@@ -410,7 +455,7 @@ fn history(d: &mut Driver) {
     }
     d.answer();
     // A return that asks ends the run; the writer is entered again once both calls have their results.
-    d.end(Came::asks(vec![tool("a"), question(Who::Owner)]));
+    d.end(Came::asks(vec![tool("a"), tool("d")]));
     // Two lines begin a new session.
     d.on(Event::Anew {
         line: "main".to_string(),
@@ -437,20 +482,21 @@ fn history(d: &mut Driver) {
     d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
-    // The judge asks the architect during a pause: the call is made, and entering it again waits for the resume.
+    // The judge asks for a tool during a pause: the call is made, and entering it again waits for the resume.
     d.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
     });
-    d.end(Came::asks(vec![question(Who::Architect)]));
+    d.end(Came::asks(vec![tool("e")]));
     d.answer();
     d.on(Event::Resumed);
-    // The judge's round given the architect's answer fails, and the engine pauses the work; let on, the round is given
+    // The judge's round given the tool's result fails, and the engine pauses the work; let on, the round is given
     // again.
     d.fail("The agent's program could not start.");
     d.on(Event::Resumed);
-    // The judge asks the owner, and the writer runs again for a new request while the judge waits for the answer.
-    d.end(Came::asks(vec![question(Who::Owner)]));
+    // The judge asks the owner, as records kept from before hold it, and the writer runs again for a new request while
+    // the judge waits for the answer.
+    d.asks_the_owner();
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
     d.wrote("checks", Outsider::Outside, Some("pass"));
@@ -756,10 +802,10 @@ impl Building {
         });
         self.w.calls.insert(
             call,
-            engine::Call::Asked(Ask::Tool {
+            engine::Call::Asked(Ask::Tool(Tool {
                 name: tool.to_string(),
                 input: format!("what {tool} is run on"),
-            }),
+            })),
         );
         call
     }
