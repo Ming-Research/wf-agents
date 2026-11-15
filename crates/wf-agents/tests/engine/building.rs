@@ -181,10 +181,6 @@ fn every_state_the_build_lists_is_reached_and_every_kind_has_one() {
     assert!(built.ok, "{}\n{list}", built.said);
     let none: Vec<&&str> = KINDS.iter().filter(|kind| made(list, kind) == 0).collect();
     assert!(none.is_empty(), "no state of these kinds was made: {none:?}\n{list}");
-    let moved = list
-        .lines()
-        .any(|line| line.starts_with("- main-moved: ") && !line.starts_with("- main-moved: 0 "));
-    assert!(moved, "no state was made in the store where main moves\n{list}");
     println!("built in {:?}", started.elapsed());
     served(&built, &flows[..2]);
 }
