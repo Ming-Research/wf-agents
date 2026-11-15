@@ -8,10 +8,11 @@
 # cell is given has (`given.toml`): it is sent where the session lacks its latest version, and again when it changes;
 # `context` is each datum of the cell's context, by the kind the cell gives it in. A part with no kind is written anew
 # each time the cell is entered; `only` names when it is sent at all: `after_hand_in`, after a return that handed in
-# blocks; `takes_main`, to a cell that takes main in. `outputs` is the blocks the cell writes, as `[outputs]` in
-# `../return/return.toml` says, where it writes any; how every cell returns is in the system prompt. A part with a kind
-# may say in `held` what is sent in its place where the session holds it already. The data come before what the cell
-# is to do with them, and what ran it, with what to do for each, comes last.
+# blocks; `takes_main`, to a cell that takes main in; `part`, to a round its script gives a part to play. `outputs` is
+# the blocks the cell writes, as `[outputs]` in `../return/return.toml` says, where it writes any; how every cell
+# returns is in the system prompt. A part with a kind may say in `held` what is sent in its place where the session
+# holds it already. The data come before what the cell is to do with them, and what ran it, with what to do for each,
+# comes after them; a test's part, last.
 
 # What a session compacted during a round is told before the round's message is given to it again, whole: a
 # compaction counts as the session reopened.
@@ -93,3 +94,16 @@ each = "\n- `{trigger}`{detail}{do}"
 detail = " ({detail})"
 do = ": {do}"
 after = "\n\nName in `dealt_with` each of these you have dealt with: one you leave out runs this cell again."
+
+# What a round of a test is told, where its script gives it a part (design document `testing`, 12): an agent that
+# plays a part is told once in its session that it is a test agent, and each such round is given its part, `{part}`.
+[[parts]]
+part = "told"
+kind = "latest"
+only = "part"
+text = "This work is a test of the flow, and you are its test agent. Play the part each round gives you. Report in `observations` each thing you find missing, contradicting itself or another input, given twice or though your session already held it, unneeded, or readable another way: in what a round gives you, in what came of your earlier returns, and in what the form and your task's words let you return."
+
+[[parts]]
+part = "part"
+only = "part"
+text = "## Your part in this round\n\n{part}"

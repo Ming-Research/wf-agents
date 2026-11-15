@@ -41,7 +41,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, Cell, Condition};
-use flow::agents::{Agents, Part};
+use flow::agents::{Agents, Only, Part};
 use flow::system::Settings;
 use flow::{CellSpec, Compiled, Kind, Trigger};
 
@@ -462,10 +462,12 @@ impl<'a> Reach<'a> {
         classes
     }
 
-    /// The parts of the message the session keeps, but what came of taking main in, which is the run's.
+    /// The parts of the message the session keeps, but what came of taking main in, which is the run's, and what only
+    /// a round of a test is sent, which no real work's session holds.
     fn kept(&self) -> Vec<String> {
         (self.words.message.parts.iter())
             .filter(|p| p.kind.is_some() && p.part != Part::Context && p.part != Part::Main)
+            .filter(|p| p.only != Some(Only::Part))
             .map(|p| p.part.name().to_string())
             .collect()
     }
@@ -488,6 +490,7 @@ impl<'a> Reach<'a> {
             main: None,
             results: Vec::new(),
             sent_back: false,
+            part: false,
         }
     }
 
@@ -501,8 +504,10 @@ impl<'a> Reach<'a> {
         let as_written = Settings::default();
         let texts = |cell: &CellSpec| kept(self.flow, self.words, cell, Values::Slots(&as_written));
         let theirs = texts(before);
+        let tested =
+            |name: &str| (self.words.message.parts.iter()).any(|p| p.part.name() == name && p.only == Some(Only::Part));
         let alike = (texts(self.cell).into_iter())
-            .filter(|part| theirs.contains(part))
+            .filter(|part| theirs.contains(part) && !tested(&part.0))
             .map(|(part, _)| part)
             .collect();
         let place = self.flow.flow.place(&before.id);

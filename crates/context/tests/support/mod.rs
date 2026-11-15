@@ -322,6 +322,7 @@ impl Sim {
             results: &BTreeMap::new(),
             tested: &BTreeMap::new(),
             places: &BTreeMap::new(),
+            part: None,
         };
         let (run, number) = (round.run, round.number);
         context::enter(flow, words, &self.work, run, number, &carried, anew).expect("the round is entered")

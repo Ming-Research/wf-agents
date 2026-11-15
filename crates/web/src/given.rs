@@ -413,9 +413,13 @@ impl<'a> Build<'a> {
             PartIs::Task => (What::Task, self.task_source(cell)),
             PartIs::Results => (What::Message, self.source("agents/message/results.toml")),
             PartIs::SentBack => (What::Message, self.source("agents/return/sent_back.toml")),
-            PartIs::Taken | PartIs::Heading | PartIs::Work | PartIs::Main | PartIs::Triggers => {
-                (What::Message, self.source("agents/message/message.toml"))
-            }
+            PartIs::Taken
+            | PartIs::Heading
+            | PartIs::Work
+            | PartIs::Main
+            | PartIs::Triggers
+            | PartIs::Told
+            | PartIs::Played => (What::Message, self.source("agents/message/message.toml")),
         }
     }
 }
