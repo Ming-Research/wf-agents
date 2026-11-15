@@ -638,13 +638,13 @@ fn waited_result(
         );
         return;
     };
-    let givers: Vec<&decide::CellId> = givers(flow, asks).map(|(_, c)| &c.id).collect();
+    let giving: Vec<&decide::CellId> = givers(flow, asks).map(|(_, c)| &c.id).collect();
     let applies = givers(flow, asks).any(|(j, _)| reading.applies(flow, j));
-    if !reading.awaits(cell, asks, now) || by.iter().collect::<Vec<_>>() != givers || !applies {
+    if !reading.awaits(cell, asks, now) || by.iter().collect::<Vec<_>>() != giving || !applies {
         v.fail(
             RESULT_WAITS,
             format!(
-                "the work waits at {} for {result}, awaited {}, by {by:?}, which its givers are {givers:?}, one \
+                "the work waits at {} for {result}, awaited {}, by {by:?}, which its givers are {giving:?}, one \
                  applying {applies}",
                 cell.id,
                 reading.awaits(cell, asks, now)
