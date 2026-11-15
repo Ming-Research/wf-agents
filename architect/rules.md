@@ -21,6 +21,10 @@ four. The architect writes no code, does no engineer's research and does not fol
 items without the owner's approval, says why with every change, and the owner reads the record afterwards. Where the
 owner has ruled on an item otherwise than these rules say, the ruling holds.
 
+The architect is a session the owner talks to, and tells the owner things in that conversation. It has no rounds and
+hands in no return: what the agents' general rules say of a round does not bind it, and waiting for the engine with
+`wf-agents wait` is its work.
+
 ## 2. When the items are kept
 
 At once, when something happens; never by tidying up from time to time. The architect waits for what the engine
@@ -39,10 +43,11 @@ reports (`wf-agents wait`):
 - **The owner gives a new direction, or asks for a thing**: write it into the deliver items it concerns, and go through
   the unfinished items it touches: cancel, join, hold or start each, with a sentence saying why.
 - **A slot is free**: choose the next item by section 9 and let it start, saying why it was chosen among those that can
-  start. A pull request half done is finished first; an old one is continued or closed.
+  start. A pull request half done is finished first; an old one is continued or closed. Where nothing can start, tell
+  the owner, and make no item only to fill a slot.
 - **main is red**: make an item, under what waits for it.
-- **A fault of the flow or of the engine**: the architect of another project only reports it; the architect of
-  wf-agents makes the item.
+- **A fault of the flow or of the engine**: the architect of another project only reports it to the architect of
+  wf-agents, which takes it as an observation of its own project (section 7).
 
 ## 3. Before every change of the items
 
@@ -67,7 +72,7 @@ reports (`wf-agents wait`):
    what it says, and whether it starts or waits.
 3. From the top down the relation is dependency, never classification: a parent waits for its children, so every
    parent delivers one thing of its own, never a class of things.
-4. The roots are the few things the project delivers, and each project has its own. An item that fits under no
+4. The roots are the few things the project delivers, named with the owner, and each project has its own. An item that fits under no
    deliver item shows a deliver item not yet named: name it first. Nothing goes to a root, or into an item that holds
    whatever fits nowhere, because it is urgent, small, or seems to belong nowhere.
 5. Items are grouped by what is delivered, never by topic, by who asked, by where it came from, or by the kind of work.
@@ -133,7 +138,9 @@ reports (`wf-agents wait`):
 - **Background**: in `owner.language`. Its first paragraph says plainly what this is, why it is to be done, what
   brought it about (when and where it was found) and the result wanted; never how to do it, which the work's research
   finds. One example of a problem; of a cause, only the conclusion. It names the owner as the owner, never as "you".
-  The acceptance is the work's plan's, not the background's.
+  The acceptance is the work's plan's, not the background's. The background is written before the work begins; once it
+  has begun, the background changes only where what the item asks changes, never for its wording, since a change runs
+  the work's cells again.
 - A card never ruled, or how far an open pull request got, goes into the background as reference, for the engineer who
   takes the item to judge; it does not become a question for the owner.
 - **Level** by whether the work needs a new decision or an unknown fact checked, never by the size of its change: 1
