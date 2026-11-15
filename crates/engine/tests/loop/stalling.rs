@@ -80,6 +80,7 @@ fn at_the_merge() -> decide::Decision {
             block: "checked".into(),
             value: "yes".into(),
         }],
+        results: Vec::new(),
         by: vec![decide::Stalling {
             cell: "check".into(),
             why: decide::Unrun::NothingNew,

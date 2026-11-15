@@ -121,6 +121,7 @@ const RESULT_GIVEN: &str = "the result of an entry is handed in";
 const ENTRY_PUT_AWAY: &str = "the entry of a cell skipped is put away while a cell that gives results runs";
 const ENTRY_TAKEN_UP: &str = "a cell that gives results runs for an entry it put away, its cell applying again";
 const WAITING_HOLDS_A_STOP: &str = "the owner turns to a cell a waiting cell holds back while a round is under way";
+const STALLED_FOR_A_RESULT: &str = "a work is stalled for a result no cell will give";
 
 /// What the histories that draw a cell asking for tests must reach (decisions a-wait-holds-its-cell,
 /// a-wait-of-a-skipped-cell-is-put-away).
@@ -130,6 +131,7 @@ pub const WAITS_REACHED: &[&str] = &[
     ENTRY_PUT_AWAY,
     ENTRY_TAKEN_UP,
     WAITING_HOLDS_A_STOP,
+    STALLED_FOR_A_RESULT,
 ];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
@@ -588,7 +590,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
             }
         }
         Decision::Abandon { run, because, .. } => abandoned(v, flow, reading, *run, because),
-        Decision::Stalled { at, on, by } => stalled(v, flow, reading, at, on, by),
+        Decision::Stalled { at, on, results, by } => stalled(v, flow, reading, at, (on, results), by),
         _ => {}
     }
     let merge_begins = match d {
@@ -655,15 +657,18 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
 /// A further property, of a stalled work (principles decide-purely and no-unseen-spending-loop: a work that cannot go
 /// on by itself says why): nothing the flow lets run before where it stands can run, nor anything after its last cell
 /// where it stands there; what it waits for there does not hold, and no person or source outside the work could make
-/// it hold by writing a block it reads that keeps it from holding; no call waits there; and each cell it names writes a
-/// block it waits for, once, in the order of the walk, with the reason the histories' reading gives: held at or after
+/// it hold by writing a block it reads that keeps it from holding; each result it waits for is that of what the cell
+/// it stands at asked for in a record, still to come, and none of the cells that give it is one a person or a source
+/// outside the work could make run; no call waits there; and each cell it names writes a block it waits for, once, in
+/// the order of the walk, with the reason the histories' reading gives: a cell that gives a result skipped where its
+/// condition does not hold, held where it has something new, and else with nothing new; another held at or after
 /// where the work stands, skipped where its condition does not hold, and else with nothing new.
 fn stalled(
     v: &mut Verdict,
     flow: &Flow,
     reading: &Reading,
     at: &decide::CellId,
-    on: &[Condition],
+    (on, results): (&[Condition], &[BlockId]),
     by: &[decide::Stalling],
 ) {
     v.count(STALLED);
@@ -692,8 +697,42 @@ fn stalled(
             format!("the work is stalled at {at}, where a call waits"),
         );
     }
-    // What it waits for: the blocks the keys read, or, where it waits on none, those that run its last cell.
-    let read: Vec<BlockId> = if on.is_empty() {
+    if !results.is_empty() {
+        v.count(STALLED_FOR_A_RESULT);
+    }
+    // Each result it waits for is that of what the cell it stands at asked for in a record, still to come; and none of
+    // the cells that give it is skipped for a block a person or a source outside the work writes.
+    let asked = |result: &BlockId| (cell.asks.iter()).any(|asks| &asks.result == result);
+    if !results.iter().all(asked) || (!results.is_empty() && !reading.pending(cell, now)) {
+        v.fail(
+            STALLED_RIGHT,
+            format!("the work is stalled at {at} for the results in {results:?}, which it does not wait for"),
+        );
+    }
+    for (j, giver) in cells.iter().enumerate() {
+        if !giver.outputs.iter().any(|b| results.contains(b)) || reading.applies(flow, j) {
+            continue;
+        }
+        let keeping: Vec<BlockId> = (giver.applies.iter())
+            .filter(|key| !reading.key_holds(flow, key, j))
+            .flat_map(|key| match key {
+                Condition::Test(test) => flow.tests()[test].reads.clone(),
+                Condition::Is { block, .. } => vec![block.clone()],
+            })
+            .collect();
+        if let Some(b) = (keeping.iter()).find(|b| flow.outsiders(b).is_some_and(|o| o.people || o.outside.is_some())) {
+            v.fail(
+                STALLED_RIGHT,
+                format!(
+                    "the work is stalled at {at} for a result {} gives, which {b}, written from outside the cells, skips",
+                    giver.id
+                ),
+            );
+        }
+    }
+    // What it waits for: the blocks the keys read and the results, or, where it waits on neither, those that run its
+    // last cell.
+    let read: Vec<BlockId> = if on.is_empty() && results.is_empty() {
         if i != cells.len() - 1 {
             v.fail(
                 STALLED_RIGHT,
@@ -719,6 +758,7 @@ fn stalled(
                 Condition::Test(test) => flow.tests()[test].reads.clone(),
                 Condition::Is { block, .. } => vec![block.clone()],
             })
+            .chain(results.iter().cloned())
             .collect()
     };
     // No person or source outside the work writes a block that keeps a key from holding, as the reading sees it.
@@ -745,14 +785,26 @@ fn stalled(
     }
     for (s, &j) in by.iter().zip(&places) {
         let writes = (cells[j].outputs.iter()).any(|b| read.contains(b));
-        let why = if j >= i {
-            decide::Unrun::Held
-        } else if !reading.applies(flow, j) {
-            let on = (cells[j].applies.iter())
+        let skipped = || decide::Unrun::Skipped {
+            on: (cells[j].applies.iter())
                 .filter(|key| !reading.key_holds(flow, key, j))
                 .cloned()
-                .collect();
-            decide::Unrun::Skipped { on }
+                .collect(),
+        };
+        // A cell that gives a result it waits for is tried wherever the work stands.
+        let gives = (cells[j].outputs.iter()).any(|b| results.contains(b));
+        let why = if gives {
+            if !reading.applies(flow, j) {
+                skipped()
+            } else if !reading.entering(flow, &cells[j], now).is_empty() {
+                decide::Unrun::Held
+            } else {
+                decide::Unrun::NothingNew
+            }
+        } else if j >= i {
+            decide::Unrun::Held
+        } else if !reading.applies(flow, j) {
+            skipped()
         } else {
             decide::Unrun::NothingNew
         };
@@ -970,7 +1022,9 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
             (as_of(records, m.upto), merge)
         }
         Decision::Wait { at, .. } => (records.clone(), place(at)),
-        Decision::Stalled { at, on, .. } if !on.is_empty() => (records.clone(), place(at)),
+        Decision::Stalled { at, on, results, .. } if !on.is_empty() || !results.is_empty() => {
+            (records.clone(), place(at))
+        }
         Decision::Stalled { .. } => (records.clone(), cells.len()),
         Decision::Paused | Decision::GoOn { .. } => {
             let mut let_on = records.clone();
@@ -984,7 +1038,9 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
                 Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Wait { at: cell, .. } => {
                     (records.clone(), place(&cell))
                 }
-                Decision::Stalled { at, on, .. } if !on.is_empty() => (records.clone(), place(&at)),
+                Decision::Stalled { at, on, results, .. } if !on.is_empty() || !results.is_empty() => {
+                    (records.clone(), place(&at))
+                }
                 Decision::Stalled { .. } => (records.clone(), cells.len()),
                 other => {
                     v.fail(REACHES, format!("a paused work let on decides {other:?}"));

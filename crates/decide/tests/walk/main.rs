@@ -89,9 +89,16 @@ fn wait(at: &str, on: Vec<Waited>) -> Decision {
 /// The work stalled at the cell, for these keys of its preconditions, each cell that writes what it waits for not
 /// running for its reason.
 fn stalled(at: &str, on: &[&str], by: &[(&str, Unrun)]) -> Decision {
+    stalled_for(at, on, &[], by)
+}
+
+/// The work stalled at the cell, for these keys of its preconditions and the results of what it asked for in these
+/// blocks, each cell that writes what it waits for not running for its reason.
+fn stalled_for(at: &str, on: &[&str], results: &[&str], by: &[(&str, Unrun)]) -> Decision {
     Decision::Stalled {
         at: at.into(),
         on: on.iter().map(|key| (*key).into()).collect(),
+        results: results.iter().map(|block| (*block).into()).collect(),
         by: (by.iter())
             .map(|(cell, why)| Stalling {
                 cell: (*cell).into(),

@@ -48,6 +48,7 @@ mend = "Sign it in again or install it; the engine lets the work go on once its 
 # `name`, `{name}` it; keys are joined by `and`, cells by `or`, and the parts by `then`.
 [stalled]
 waits = "It waits for {keys}, which {writers} can make hold"
+results = "It waits for the result in {results}, which {writers} can give"
 last = "Nothing new runs this last cell, and {writers} can write what runs it"
 only = "only {cells}"
 none = "no cell"

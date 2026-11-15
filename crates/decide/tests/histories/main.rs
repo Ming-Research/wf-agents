@@ -133,6 +133,8 @@ const SPOKEN: &str = "spoken";
 /// The record a cell asks for tests in, where one does, and the cell that gives their results.
 const TESTS: &str = "tests";
 const GIVER: &str = "giver";
+/// The choice, which only the asking cell writes, of whether the cell that gives results runs, where it runs only so.
+const GIVES: &str = "gives";
 
 /// From this round of a run on, its agent returns what meets everything the flow requires of it.
 const ROUNDS: usize = 3;
@@ -350,6 +352,7 @@ impl History {
         // order.
         let mut asking = Rng::new(seed ^ 0x7E57_ED00_A5C1_0000);
         let mut taking_up = None;
+        let mut gated = false;
         let result = asking.chance(35).then(|| {
             let i = asking.below(cells.len());
             let result = format!("{}_tested", cells[i].id);
@@ -378,6 +381,18 @@ impl History {
                     since: None,
                 });
             }
+            // Now and then the cell that gives results runs only while the asking cell says yes in a choice no person
+            // writes: an entry it asks without saying so waits for a result no cell will give, and the work is stalled
+            // (property `STALLED_RIGHT`).
+            gated = asking.chance(30);
+            if gated {
+                cells[i].outputs.push(GIVES.into());
+                let giver = cells.last_mut().expect("the cell that gives results");
+                giver.applies = vec![Condition::Is {
+                    block: GIVES.into(),
+                    value: "yes".into(),
+                }];
+            }
             result
         });
         let mut w = if judged.is_some() {
@@ -401,6 +416,9 @@ impl History {
         if let Some(result) = &result {
             w.written_by_cells(result);
             w.written_by_cells(TESTS);
+        }
+        if gated {
+            w.written_by_cells(GIVES);
         }
         w.person_writes(BRIEF);
         if rng.chance(40) || judged.is_some() {
@@ -748,7 +766,7 @@ impl History {
             .expect("the run started")
             .clone();
         let cell = flow.cells()[flow.place(&started.cell).expect("a cell of the flow")].clone();
-        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, GATE, "ready", "flip"]
+        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, GATE, "ready", "flip", GIVES]
             .into_iter()
             .map(|b| (b.into(), vec!["yes".to_string(), "no".to_string()]))
             .collect();

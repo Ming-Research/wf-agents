@@ -745,6 +745,7 @@ mod tests {
         let stalled = Decision::Stalled {
             at: "merge".into(),
             on: Vec::new(),
+            results: Vec::new(),
             by: Vec::new(),
         };
         let outside = Waited::Outside {

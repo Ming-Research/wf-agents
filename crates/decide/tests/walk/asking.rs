@@ -101,6 +101,15 @@ fn a_wait_for_a_result_no_cell_will_give_is_stalled_and_one_a_person_can_bring_w
         matches!(&stalled, Decision::Stalled { at, .. } if at.as_str() == "implement"),
         "{stalled:?}"
     );
+    // It says the block the result comes in, and that the cell that gives it is skipped, its condition not holding.
+    let skipped = Unrun::Skipped {
+        on: vec![Condition::Is {
+            block: "gives".into(),
+            value: "yes".into(),
+        }],
+    };
+    let by = [("run tests", skipped)];
+    assert_eq!(stalled, stalled_for("implement", &[], &["implement_tested"], &by));
     let waits = gated(false).decide();
     let result = Waited::Result {
         record: "tests".into(),

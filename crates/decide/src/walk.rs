@@ -88,8 +88,12 @@ pub enum Decision {
         /// The keys of that cell's preconditions that do not hold, each of which only cells make hold; none where it
         /// stands at its last cell for want of anything new to run it.
         on: Vec<Condition>,
+        /// The blocks the results of what that cell asked for in its records come in, for which it waits, each of
+        /// which only the cells its record runs give.
+        results: Vec<BlockId>,
         /// Each cell that writes what the work waits for, in the order of the walk, with why it does not run: a block
-        /// that keeps a key of `on` from holding, or, where `on` has none, a block that runs the last cell.
+        /// that keeps a key of `on` from holding, a result of `results`, or, where it waits for neither, a block that
+        /// runs the last cell.
         by: Vec<Stalling>,
     },
 }
@@ -1089,37 +1093,66 @@ impl<'a> Walk<'a> {
     }
 
     /// What the work does, waiting at the cell at this place for each of these, of which there is at least one: it
-    /// waits for them; or, where each is a precondition that only cells make hold and no call of the cell waits for its
-    /// result, it is stalled there. Every cell before it was passed, with nothing new to it or its condition not
-    /// holding, and every one after it is held, so none of those cells will write what it waits for.
+    /// waits for them; or, where each is what only cells can bring, none of which will, it is stalled there (decision
+    /// a-work-no-cell-can-move-is-stalled): a key of its preconditions that only cells make hold, or the result of what
+    /// it asked for in a record, which only the cells the record runs give, where no person and no source outside the
+    /// work can make one of them run. Every cell before it was passed, with nothing new to it or its condition not
+    /// holding, every one after it is held, and each that gives a result it waits for was tried and did not run, so
+    /// none of those cells will write what it waits for.
     fn waiting(&self, i: usize, on: Vec<Waited>) -> Decision {
         let at = self.flow.cells()[i].id.clone();
-        // A call owed to the cell that has no result, or the result of what it asked for in a record, is still to
-        // come, where the owner turning to the cell left it out of what the work waits for.
-        if !self.owed(i).1.is_empty() || !self.pending(i).is_empty() {
+        // A call owed to the cell that has no result is still to come, from the engine or a person; and so is the
+        // result of what it asked for in a record, where the owner turning to the cell left either out of what the work
+        // waits for.
+        if !self.owed(i).1.is_empty() {
             return Decision::Wait { at, on };
         }
-        let mut keys = Vec::new();
-        let mut cells = Vec::new();
-        for waited in &on {
-            let Waited::Precondition { on: key, by } = waited else {
-                return Decision::Wait { at, on };
-            };
-            let mut only_cells = Vec::new();
-            for maker in by {
-                match maker {
-                    Maker::Cell { cell } => only_cells.push(cell),
-                    Maker::Owner | Maker::Outside { .. } => return Decision::Wait { at, on },
+        let pending: Vec<Waited> = (self.pending(i).into_iter())
+            .filter(|waited| !on.contains(waited))
+            .collect();
+        let (mut keys, mut results) = (Vec::new(), Vec::new());
+        let (mut makers, mut givers) = (Vec::new(), Vec::new());
+        for waited in on.iter().chain(&pending) {
+            match waited {
+                Waited::Precondition { on: key, by } => {
+                    for maker in by {
+                        match maker {
+                            Maker::Cell { cell } => makers.push(cell),
+                            Maker::Owner | Maker::Outside { .. } => return Decision::Wait { at, on },
+                        }
+                    }
+                    keys.push(key.clone());
                 }
+                // A result is only the giving cells' to bring, as a key only cells write is theirs to make hold: unless
+                // a person or the outside can make one of them run.
+                Waited::Result { result, by, .. } => {
+                    if by.iter().any(|cell| self.run_from_outside(cell)) {
+                        return Decision::Wait { at, on };
+                    }
+                    results.push(result.clone());
+                    givers.extend(by);
+                }
+                _ => return Decision::Wait { at, on },
             }
-            keys.push(key.clone());
-            cells.extend(only_cells);
         }
         Decision::Stalled {
             at,
             on: keys,
-            by: self.stalling(i, cells),
+            results,
+            by: self.stalling(i, makers, givers),
         }
+    }
+
+    /// Whether a person or a source outside the work can make the cell run where it does not: its condition does not
+    /// hold, and a block that keeps a key of it from holding is one they write.
+    fn run_from_outside(&self, cell: &CellId) -> bool {
+        let Some(j) = self.flow.place(cell) else {
+            return false;
+        };
+        (self.flow.cells()[j].applies.iter()).any(|key| {
+            let keeping = self.keeping(key, j);
+            !keeping.is_empty() && (self.makers(&keeping).iter()).any(|maker| !matches!(maker, Maker::Cell { .. }))
+        })
     }
 
     /// The work stalled at its last cell, which has no record and which nothing new runs, every cell before it passed:
@@ -1136,28 +1169,51 @@ impl<'a> Walk<'a> {
         Decision::Stalled {
             at: end.id.clone(),
             on: Vec::new(),
-            by: self.stalling(last, writers),
+            results: Vec::new(),
+            by: self.stalling(last, writers, []),
         }
     }
 
-    /// Each of these cells once, in the order of the walk, with why it does not run, the work standing at the cell at
-    /// this place: it is held where it stands at or after that cell, skipped where its condition does not hold, and
-    /// else has nothing new, since the walk passed it.
-    fn stalling<'c>(&self, i: usize, cells: impl IntoIterator<Item = &'c CellId>) -> Vec<Stalling> {
-        let mut places: Vec<usize> = cells.into_iter().filter_map(|cell| self.flow.place(cell)).collect();
+    /// Each of these cells once, the makers of what the work waits for and the givers of the results it waits for, in
+    /// the order of the walk, with why it does not run, the work standing at the cell at this place. A maker is held
+    /// where the work stands at or after it, skipped where its condition does not hold, and else has nothing new, since
+    /// the walk passed it. A giver, which the walk tries wherever it stands, is skipped where its condition does not
+    /// hold, held where it has something new all the same, and else has nothing new.
+    fn stalling<'c>(
+        &self,
+        i: usize,
+        makers: impl IntoIterator<Item = &'c CellId>,
+        givers: impl IntoIterator<Item = &'c CellId>,
+    ) -> Vec<Stalling> {
+        let givers: Vec<usize> = givers.into_iter().filter_map(|cell| self.flow.place(cell)).collect();
+        let mut places: Vec<usize> = (makers.into_iter())
+            .filter_map(|cell| self.flow.place(cell))
+            .chain(givers.iter().copied())
+            .collect();
         places.sort_unstable();
         places.dedup();
         (places.into_iter())
             .map(|j| {
                 let cell = &self.flow.cells()[j];
-                let why = if j >= i {
-                    Unrun::Held
-                } else if !self.applies(j) {
+                let skipped = || {
                     let on = (cell.applies.iter())
                         .filter(|key| !self.keeping(key, j).is_empty())
                         .cloned()
                         .collect();
                     Unrun::Skipped { on }
+                };
+                let why = if givers.contains(&j) {
+                    if !self.applies(j) {
+                        skipped()
+                    } else if !self.needs(j).is_empty() {
+                        Unrun::Held
+                    } else {
+                        Unrun::NothingNew
+                    }
+                } else if j >= i {
+                    Unrun::Held
+                } else if !self.applies(j) {
+                    skipped()
                 } else {
                     Unrun::NothingNew
                 };

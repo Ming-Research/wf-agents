@@ -196,6 +196,7 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         ("owner.agents", &waits.owner.agents),
         ("owner.mend", &waits.owner.mend),
         ("stalled.waits", &waits.stalled.waits),
+        ("stalled.results", &waits.stalled.results),
         ("stalled.last", &waits.stalled.last),
         ("stalled.only", &waits.stalled.only),
         ("stalled.none", &waits.stalled.none),

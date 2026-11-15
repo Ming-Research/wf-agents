@@ -2144,7 +2144,7 @@ impl Now {
             }
             // A stalled work that its own pause holds is shown paused: it is the pauser's to let on.
             Decision::Stalled { .. } if decide::paused(&work.records) => Now::paused(work)?,
-            Decision::Stalled { at, on, by } => {
+            Decision::Stalled { at, on, results, by } => {
                 let on: Vec<CellKey> = (on.iter())
                     .map(|key| key_of(&kept, key))
                     .collect::<Result<_, Broken>>()?;
@@ -2165,7 +2165,8 @@ impl Now {
                         })
                     })
                     .collect::<Result<_, Broken>>()?;
-                let why = stalled_words(&kept.flow.waits.stalled, &on, &by);
+                let results: Vec<String> = results.iter().map(BlockId::to_string).collect();
+                let why = stalled_words(&kept.flow.waits.stalled, &on, &results, &by);
                 Now::Stalled {
                     at: at.to_string(),
                     on,
@@ -2186,10 +2187,11 @@ impl Now {
     }
 }
 
-/// Why a stalled work rests, in one sentence in these words: what the cell it stands at waits for, `on`, and which cells
-/// could make it hold, or that nothing new runs it, the last cell; then why each of the cells, `by`, does not run. The
-/// cell it stands at is said beside it by every reader, and the sentence does not name it.
-fn stalled_words(words: &flow::agents::StalledWords, on: &[CellKey], by: &[Stalling]) -> String {
+/// Why a stalled work rests, in one sentence in these words: what the cell it stands at waits for, the keys `on` and
+/// the results of what it asked for in the blocks `results`, and which cells could make it hold or give it, or that
+/// nothing new runs it, the last cell; then why each of the cells, `by`, does not run. The cell it stands at is said
+/// beside it by every reader, and the sentence does not name it.
+fn stalled_words(words: &flow::agents::StalledWords, on: &[CellKey], results: &[String], by: &[Stalling]) -> String {
     use flow::agents::fill;
     let name = |name: &str| fill(&words.name, &[("name", name)]);
     let keys = |keys: &[CellKey]| {
@@ -2205,10 +2207,17 @@ fn stalled_words(words: &flow::agents::StalledWords, on: &[CellKey], by: &[Stall
             fill(&words.only, &[("cells", &cells.join(&words.or))])
         }
     };
-    let waits = match on.is_empty() {
-        false => fill(&words.waits, &[("keys", &keys(on)), ("writers", &writers)]),
-        true => fill(&words.last, &[("writers", &writers)]),
-    };
+    let mut waits = Vec::new();
+    if !on.is_empty() {
+        waits.push(fill(&words.waits, &[("keys", &keys(on)), ("writers", &writers)]));
+    }
+    if !results.is_empty() {
+        let blocks = (results.iter().map(|block| name(block)).collect::<Vec<_>>()).join(&words.and);
+        waits.push(fill(&words.results, &[("results", &blocks), ("writers", &writers)]));
+    }
+    if waits.is_empty() {
+        waits.push(fill(&words.last, &[("writers", &writers)]));
+    }
     let unrun = (by.iter()).map(|stalling| {
         let why = match &stalling.why {
             Unrun::Skipped { on } => fill(&words.skipped, &[("keys", &keys(on))]),
@@ -2217,7 +2226,7 @@ fn stalled_words(words: &flow::agents::StalledWords, on: &[CellKey], by: &[Stall
         };
         fill(&words.unrun, &[("cell", &name(&stalling.cell)), ("why", &why)])
     });
-    let parts: Vec<String> = std::iter::once(waits).chain(unrun).collect();
+    let parts: Vec<String> = waits.into_iter().chain(unrun).collect();
     flow::agents::sentence(&parts.join(&words.then))
 }
 
@@ -3267,13 +3276,30 @@ mod tests {
             why,
         };
         assert_eq!(
-            stalled_words(words, &[key("checked = yes")], &[stalling("M1", Unrun::NothingNew {})]),
+            stalled_words(
+                words,
+                &[key("checked = yes")],
+                &[],
+                &[stalling("M1", Unrun::NothingNew {})]
+            ),
             "It waits for `checked = yes`, which only `M1` can make hold, and `M1` does not run, as nothing new runs it."
         );
         // The cell it stands at, which every reader says beside it, it does not name.
         assert_eq!(
-            stalled_words(words, &[], &[]),
+            stalled_words(words, &[], &[], &[]),
             "Nothing new runs this last cell, and no cell can write what runs it."
+        );
+        // The result of what it asked for in a record, which only the cell the record runs gives.
+        let skipped = stalling(
+            "T3",
+            Unrun::Skipped {
+                on: vec![key("checks = yes")],
+            },
+        );
+        assert_eq!(
+            stalled_words(words, &[], &["i1_tested".to_string()], &[skipped]),
+            "It waits for the result in `i1_tested`, which only `T3` can give, and `T3` does not run, as it is skipped, \
+             `checks = yes` not holding."
         );
         let by = [
             stalling(
@@ -3285,7 +3311,7 @@ mod tests {
             stalling("check", Unrun::Held {}),
         ];
         assert_eq!(
-            stalled_words(words, &[key("ready"), key("done")], &by),
+            stalled_words(words, &[key("ready"), key("done")], &[], &by),
             "It waits for `ready` and `done`, which only `review` or `check` can make hold, and `review` does not run, \
              as it is skipped, `big = yes` not holding, and `check` does not run, as the cell the work stands at holds it."
         );

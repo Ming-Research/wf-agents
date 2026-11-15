@@ -90,6 +90,9 @@ pub struct Waits {
 pub struct StalledWords {
     /// The cell it stands at waits for `{keys}`, which `{writers}` can make hold.
     pub waits: String,
+    /// The cell it stands at waits for the result of what it asked for in a record, in `{results}`, which `{writers}`
+    /// can give.
+    pub results: String,
     /// It stands at its last cell, which nothing new runs, and `{writers}` can write what runs it.
     pub last: String,
     /// The cells that write what it waits for, `{cells}`.
