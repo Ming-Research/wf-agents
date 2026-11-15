@@ -53,6 +53,14 @@ const NOT_OWNERS: [string, Now][] = [
   ['a fault', { kind: 'fault', words: 'Two entries at 3' }],
   ['a free slot', { kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }],
   [
+    'a check held for main to move',
+    {
+      kind: 'waits',
+      at: 'M2',
+      on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' }],
+    },
+  ],
+  [
     'a question to another',
     {
       kind: 'waits',

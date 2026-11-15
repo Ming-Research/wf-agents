@@ -130,6 +130,8 @@ describe('the list of works', () => {
       summary(10, { kind: 'paused', by: 'engine', why: 'A round failed.' }, 300, true),
       summary(11, { kind: 'everything', by: 'engine' }, 250),
       summary(12, { kind: 'everything', by: 'owner' }, 700),
+      // A work held for main to move goes with what goes on by itself, not with what waits for the owner.
+      summary(13, { kind: 'waits', at: 'M2', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'w' }] }, 1000),
     ];
     const items: Item[] = works.map((w) => ({
       number: w.number,
@@ -141,6 +143,6 @@ describe('the list of works', () => {
       history: { first: { title: `${w.number}`, level: '2', dependsOn: [] }, changes: [] },
       work: w,
     }));
-    expect(orderWorks(items).map((w) => w.work.number)).toEqual([10, 11, 7, 4, 6, 3, 2, 5, 12, 9, 8, 1]);
+    expect(orderWorks(items).map((w) => w.work.number)).toEqual([10, 11, 7, 4, 6, 13, 3, 2, 5, 12, 9, 8, 1]);
   });
 });

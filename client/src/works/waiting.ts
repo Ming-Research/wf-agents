@@ -98,7 +98,9 @@ export function waitsOf(now: Now): Wait[] {
             return [{ key: 'precondition', kind: 'precondition', words: w.words, act: null }];
           case 'agents':
             return [{ key: 'agents', kind: 'agents', words: 'the command line cannot run', act: null }];
+          // A free slot, and a source outside the work such as main moving, are not the owner's to give.
           case 'slot':
+          case 'outside':
             return [];
         }
       });

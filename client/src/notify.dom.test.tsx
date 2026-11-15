@@ -144,11 +144,12 @@ describe("the browser's notifications", () => {
     expect(opens(waiting({ kind: 'limit', runs: 3 }))).toBe('#/console/items/142/waits/limit');
   });
 
-  it('tell nothing of a fault, a pause of the owner, or a pause of everything the owner set', () => {
+  it('tell nothing of a fault, a pause of the owner, a pause of everything the owner set, or a work held for main', () => {
     const draw = drawn(fixtureItems());
     draw(withNow(142, { kind: 'paused', by: 'owner', why: null }));
     draw(withNow(142, { kind: 'everything', by: 'owner' }));
     draw(withNow(142, { kind: 'fault', words: 'Two entries at 3' }));
+    draw(withNow(142, waiting({ kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' })));
     expect(Told.made).toEqual([]);
   });
 
