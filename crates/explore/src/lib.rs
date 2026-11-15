@@ -924,15 +924,37 @@ impl Explorer<'_> {
             reach.insert(i);
             reach.extend(m.reach(&m.cells()[i].outputs));
         }
-        // The runs the write started as the loop took it ran for it.
-        let runs = r.started[before.started.len()..].iter().map(|st| st.run).collect();
-        c.outside = Some(Taint {
+        let mut taint = Taint {
             what: kind,
             blocks,
             reach,
             versions: written.iter().map(|(_, at)| *at).collect(),
-            runs,
-        });
+            runs: BTreeSet::new(),
+        };
+        // The runs the loop started as it took the write, in order, run for it where something new to them is of it,
+        // or of what a run for it wrote; each is checked as any run for it is.
+        let mut steps: Vec<(Seq, Option<&decide::Started>, RunId)> = (r.started[before.started.len()..].iter())
+            .map(|st| (st.at, Some(st), st.run))
+            .chain((r.finished[before.finished.len()..].iter()).map(|f| (f.at, None, f.run)))
+            .collect();
+        steps.sort_by_key(|(at, _, _)| *at);
+        let records = r.clone();
+        for (at, started, run) in steps {
+            match started {
+                Some(st) => {
+                    let i = m.place(&st.cell);
+                    if self.tainted(&records.before(st.at), i, &st.because, &taint) {
+                        taint.runs.insert(run);
+                        self.rerun(&c.trace, &taint, i, &st.cell);
+                    }
+                }
+                None if taint.runs.contains(&run) => {
+                    taint.versions.insert(at);
+                }
+                None => {}
+            }
+        }
+        c.outside = Some(taint);
         Some(c)
     }
 
@@ -1039,7 +1061,7 @@ impl Explorer<'_> {
         let i = m.place(cell);
         let def = &m.cells()[i];
         let trace = &s.trace;
-        self.reach(ran(cell), trace, records);
+        self.reach(ran(cell), trace, &s.work.records);
         self.count(Property::NewToIt);
         // 1: what runs it is its own trigger, new to it, and not its own write; nothing new to it is left out.
         for cause in because {
@@ -1056,9 +1078,9 @@ impl Explorer<'_> {
                     let trigger = m.triggers[i].get(block).cloned();
                     match &trigger {
                         Some(t) => {
-                            self.reach(ran_on(cell, t), trace, records);
+                            self.reach(ran_on(cell, t), trace, &s.work.records);
                             if *behind {
-                                self.reach(ran_back_on(cell, t), trace, records);
+                                self.reach(ran_back_on(cell, t), trace, &s.work.records);
                             }
                         }
                         None => {
@@ -1070,7 +1092,7 @@ impl Explorer<'_> {
                     // The cell that gives results is entered for an entry it put away as well, its cell applying again.
                     let taken_up = new.is_empty() && r.taken_up(flow, def, NOW).contains(block);
                     if taken_up {
-                        self.reach(TAKEN_UP.to_string(), trace, records);
+                        self.reach(TAKEN_UP.to_string(), trace, &s.work.records);
                     } else if new.is_empty() {
                         let own = r
                             .of(block)
@@ -1135,7 +1157,7 @@ impl Explorer<'_> {
         for (j, before) in m.cells().iter().enumerate().take(i) {
             if !r.applies(flow, j) {
                 if !r.reasons(before, NOW).is_empty() {
-                    self.reach(skipped(&before.id), trace, records);
+                    self.reach(skipped(&before.id), trace, &s.work.records);
                 }
                 continue;
             }
@@ -1150,7 +1172,7 @@ impl Explorer<'_> {
             if r.pending(before, NOW) {
                 if (before.asks.iter()).any(|asks| def.runs_on.contains(&asks.record)) {
                     held = true;
-                    self.reach(RAN_FOR_A_WAIT.to_string(), trace, records);
+                    self.reach(RAN_FOR_A_WAIT.to_string(), trace, &s.work.records);
                 } else {
                     let name = format!(
                         "{cell} ran while {} before it waited for the result of its tests",
@@ -1252,20 +1274,25 @@ impl Explorer<'_> {
                         .is_some_and(|f| f.writes.iter().any(|w| w.block == reply))
             });
             if replies && answered {
-                self.reach(reply_loop(&o, &reply), trace, records);
+                self.reach(reply_loop(&o, &reply), trace, &s.work.records);
             }
         }
         // 7: what a write from outside reaches.
         if let Some(t) = &s.outside
             && tainted
         {
-            self.count(Property::Incremental);
-            let what = t.what.clone();
-            self.out.reruns.entry(what.clone()).or_default().insert(cell.clone());
-            if !t.reach.contains(&i) {
-                let name = format!("{what} ran {cell} again, which its change does not reach");
-                self.breach(Property::Incremental, name, trace, String::new());
-            }
+            self.rerun(trace, t, i, cell);
+        }
+    }
+
+    /// 7, of a run for what a write from outside reached: its change reaches the cell.
+    fn rerun(&mut self, trace: &Trace, t: &Taint, i: usize, cell: &CellId) {
+        self.count(Property::Incremental);
+        let what = t.what.clone();
+        self.out.reruns.entry(what.clone()).or_default().insert(cell.clone());
+        if !t.reach.contains(&i) {
+            let name = format!("{what} ran {cell} again, which its change does not reach");
+            self.breach(Property::Incremental, name, trace, String::new());
         }
     }
 
@@ -1409,6 +1436,15 @@ impl Explorer<'_> {
         let Some(t) = &s.outside else {
             return;
         };
+        // A wait for an answer or a result holds its cell and the work (decision a-wait-holds-its-cell): what the
+        // write is new to runs once the wait ends, and is checked at the stop after it.
+        if let Decision::Wait { on, .. } = d
+            && on
+                .iter()
+                .any(|w| matches!(w, Waited::Answer { .. } | Waited::Result { .. }))
+        {
+            return;
+        }
         self.count(Property::Incremental);
         let r = Reading::of_flow(flow, records);
         let upto = match d {

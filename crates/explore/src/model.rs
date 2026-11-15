@@ -631,7 +631,7 @@ impl Model {
         let recorded =
             |b: &BlockId| (self.compiled.blocks.get(b)).is_some_and(|d| d.writers.outside.as_deref() == Some(ANSWER));
         let writes = (cell.outputs.iter())
-            .filter(|block| !recorded(*block))
+            .filter(|block| !recorded(block))
             .filter_map(|block| {
                 let value = values.get(block).cloned();
                 let empty = *variant == Variant::Empty && self.contents.contains(block);
