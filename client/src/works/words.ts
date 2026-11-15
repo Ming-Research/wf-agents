@@ -544,6 +544,8 @@ export function unmetWords(unmet: Unmet): string {
       return `its run changed ${unmet.path}, which is none of the project's tests, the only files its line changes`;
     case 'unanswered':
       return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
+    case 'skipsItsWait':
+      return `it wrote ${unmet.block} so that its cell no longer runs, while the cell waits there`;
   }
 }
 

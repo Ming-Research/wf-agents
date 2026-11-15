@@ -394,7 +394,8 @@ export type Unmet =
   | { kind: 'notAnswered'; name: string }
   | { kind: 'unexplained'; path: string }
   | { kind: 'notATest'; path: string }
-  | { kind: 'unanswered'; block: string };
+  | { kind: 'unanswered'; block: string }
+  | { kind: 'skipsItsWait'; block: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.

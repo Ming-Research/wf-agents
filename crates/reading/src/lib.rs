@@ -586,6 +586,8 @@ pub struct Asked {
     pub withdrawn: bool,
     /// Whether the owner answered that version before the place.
     pub answered: bool,
+    /// Whether the engine asked that version itself, as a round of the cell ended, and not the cell's agent.
+    pub engine: bool,
 }
 
 /// The questions put to the owner before this place, each by its name as its latest version then stands; an answer to
@@ -603,6 +605,7 @@ pub fn questions(records: &Records, place: Seq) -> BTreeMap<String, Asked> {
             waits: q.waits,
             withdrawn: q.withdrawn,
             answered: false,
+            engine: q.engine,
         };
         latest.insert(q.name.clone(), asked);
     }

@@ -685,6 +685,7 @@ impl History {
         let ended: Vec<Seq> = r.returned.iter().filter(|e| e.run == run).map(|e| e.at).collect();
         let began: Vec<Seq> = r.rounds.iter().filter(|e| e.run == run).map(|e| e.at).collect();
         let done = |call: CallId| r.done.iter().find(|d| d.call == call).map(|d| d.at);
+        let last = self.backs.get(&run).map_or(0, Vec::len);
         let rounds = (self.backs.get(&run).into_iter().flatten().enumerate())
             .map(|(i, back)| run::Round {
                 returned: back.as_ref().map(|b| match b {
@@ -700,6 +701,23 @@ impl History {
                         waits: false,
                         questions: Vec::new(),
                         read: Vec::new(),
+                        // As the engine's loop reads it, of the round the run's next step is judged by: what would
+                        // leave its own cell no longer applying while the cell still waits, its run finished with its
+                        // writes, which is all the histories' engine writes as it takes a return in.
+                        skips: match i + 1 == last {
+                            true => decide::skipping(&self.w.flow, r, run, (writes, false), || {
+                                let mut after = r.clone();
+                                after.finished.push(Finished {
+                                    run,
+                                    at: Seq(u64::MAX),
+                                    writes: writes.clone(),
+                                    dealt_with: Some(Vec::new()),
+                                    waits_for: None,
+                                });
+                                after
+                            }),
+                            false => Vec::new(),
+                        },
                     },
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,
