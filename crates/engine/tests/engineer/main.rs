@@ -22,13 +22,16 @@
 //!    committed to, the branch is at the head the check last passed, and each judge that the head runs and that
 //!    applies, a cell that writes a block the check's preconditions read, was told of a version that says that head
 //!    by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
-//! 7. Main never goes back: after every step, no version of the block of main says a head older than an earlier
-//!    version said, in either order the carriers can make of the check's take-in of main and the watch of main
-//!    (decision the-check-tells-its-round-the-main-it-takes-in).
+//! 7. The main the check takes in is what its run read: as a run of the check finishes, the latest version of the
+//!    block of main it was told of says the head its last round took in; while main is still at that head, it is new
+//!    to the check no more; where main moved after the take-in, a version of the newer head is new to the check, and
+//!    the check runs again before any round of the merge begins (decision
+//!    the-check-tells-its-round-the-main-it-takes-in). Both orders the carriers can make of the take-in and the watch
+//!    of main are drawn.
 //!
-//! The first two are judged as each round of the merge begins, the sixth as the merge finishes, and the seventh after
-//! every step, by the histories' own reading of the records as they were then (`reading`), never by the deciding
-//! code's tests.
+//! The first two are judged as each round of the merge begins, the sixth as the merge finishes, and the seventh as the
+//! check's run finishes, by the histories' own reading of the records as they were then (`reading`), never by the
+//! deciding code's tests.
 //!
 //! Main is drawn beside the records as a head named by a number, which the outside's write of main moves on, the watch
 //! of main writing the head it moved to, and which the check takes in for its round as it judges. The check reads main
@@ -151,7 +154,7 @@ const CONTENT_MERGES: &str = "3: a work everyone is content with merges within t
 const RUNS_FOR_NOTHING: &str = "4: runs for nothing stay within the bound";
 const MUST_WRITE_WRITTEN: &str = "5: no finished run lacks a block its cell must write";
 const MERGE_UNSEEN: &str = "6: the work's head the merge merges is a version the review dealt with";
-const MAIN_NEVER_BACK: &str = "7: no version of main says a head older than an earlier version said";
+const MAIN_TAKEN_IN: &str = "7: the check's run read the main it took in, and runs again only for a newer head";
 const DRIVER: &str = "the driver";
 
 /// The source of the block of the work's head, which the carriers read of the work's branch.
@@ -164,7 +167,8 @@ const MAIN: &str = "main";
 /// commit named by a number, none before the work commits; the work head the check last passed, where its record
 /// passes; how often the check failed in passing on a head a judge had not dealt with, and how often the merge on a
 /// head moved since the check passed. And main beside it: its head, named by a number from the one the work branched
-/// from; how many rounds of the check main moved after the check read it, and how many before.
+/// from; the check's latest take-in of it, until its run finishes or is abandoned; and the check's run that finished
+/// with a newer head new to it, with the place it finished at, until the check runs again.
 #[derive(Clone, Copy, Debug, Default)]
 struct Branch {
     head: u64,
@@ -172,8 +176,26 @@ struct Branch {
     gated: u64,
     moved: u64,
     main: u64,
-    after: u64,
-    before: u64,
+    taken: Option<Taken>,
+    owed: Option<(RunId, Seq)>,
+}
+
+/// A round of the check took main in at this head, main having moved as this says.
+#[derive(Clone, Copy, Debug)]
+struct Taken {
+    run: RunId,
+    head: u64,
+    moved: Moved,
+}
+
+/// How main moved about the check's take-in of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Moved {
+    Not,
+    /// After the check read it: the watch wrote the newer head after the take-in.
+    After,
+    /// Before the check read it: the check took in the newer head before the watch wrote it.
+    Before,
 }
 
 impl Branch {
@@ -304,11 +326,14 @@ fn gate(d: &mut Driver, roles: &Roles, branch: &Shared, run: RunId, i: usize, ra
 /// writing the newer head after the take-in; in a third it moves before, the check taking in the newer head, which the
 /// watch then finds said already; otherwise main stays where it is.
 fn take_in_main(d: &mut Driver, main: &BlockId, branch: &Shared, run: RunId, race: bool) {
-    let order = if race { d.rng.below(3) } else { 0 };
+    let moved = match race.then(|| d.rng.below(3)) {
+        Some(1) => Moved::After,
+        Some(2) => Moved::Before,
+        _ => Moved::Not,
+    };
     let mut b = branch.get();
-    if order == 2 {
+    if moved == Moved::Before {
         b.main += 1;
-        b.before += 1;
     }
     let took = Event::WroteForRound {
         run,
@@ -316,12 +341,16 @@ fn take_in_main(d: &mut Driver, main: &BlockId, branch: &Shared, run: RunId, rac
         content: b.main_says(),
     };
     assert!(d.take(took), "the check's take-in of main was refused");
-    if order == 1 {
+    b.taken = Some(Taken {
+        run,
+        head: b.main,
+        moved,
+    });
+    if moved == Moved::After {
         b.main += 1;
-        b.after += 1;
     }
     branch.set(b);
-    if order != 0 {
+    if moved != Moved::Not {
         watch(d, main, b);
     }
 }
@@ -340,32 +369,6 @@ fn watch(d: &mut Driver, main: &BlockId, branch: Branch) {
         value: None,
     };
     assert!(d.take(wrote), "the watch's write of main was refused");
-}
-
-/// Where a version of the block of main says a head older than an earlier version said, by the histories' own reading
-/// of the records, which version and what each said; heads are named by their numbers.
-fn main_went_back(d: &Driver, main: &BlockId) -> Option<String> {
-    let reading = Reading::new(&d.flow.flow, &d.work.records, None);
-    let head = |at: Seq| {
-        let says = d.work.contents.get(&(main.clone(), at))?;
-        says.strip_prefix('m')?.parse::<u64>().ok()
-    };
-    let mut newest: Option<u64> = None;
-    for version in reading.of(main) {
-        let Some(said) = head(version.at) else {
-            continue;
-        };
-        if let Some(before) = newest
-            && said < before
-        {
-            return Some(format!(
-                "the version at {} says m{said}, after one said m{before}",
-                version.at.0
-            ));
-        }
-        newest = Some(newest.map_or(said, |before| before.max(said)));
-    }
-    None
 }
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
@@ -517,8 +520,10 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             MERGED_A_REVIEWED_HEAD,
             CHECK_GATED,
             MERGE_ON_A_MOVED_HEAD,
+            MAIN_TAKEN_IN_AS_IT_STOOD,
             MAIN_MOVED_AFTER_THE_TAKE_IN,
             MAIN_MOVED_BEFORE_THE_CHECK_READ,
+            CHECK_RAN_AGAIN_FOR_MAIN,
         ]
         .map(String::from),
     );
@@ -599,10 +604,12 @@ const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must wri
 const MERGED_A_REVIEWED_HEAD: &str = "the merge merged a head the work committed and the review dealt with";
 const CHECK_GATED: &str = "the check failed in passing on a head a judge of it had not dealt with";
 const MERGE_ON_A_MOVED_HEAD: &str = "the merge failed in passing on a head moved since the check passed";
+const MAIN_TAKEN_IN_AS_IT_STOOD: &str = "a run of the check finished on the main it took in as main stood";
 const MAIN_MOVED_AFTER_THE_TAKE_IN: &str =
-    "main moved after the check took it in, the watch writing the newer head after";
+    "a run of the check finished with main moved after it took main in, the watch writing the newer head after";
 const MAIN_MOVED_BEFORE_THE_CHECK_READ: &str =
-    "main moved before the check read it, the check taking the newer head in first";
+    "a run of the check finished on main moved before it read it, taking the newer head in before the watch wrote it";
+const CHECK_RAN_AGAIN_FOR_MAIN: &str = "the check ran again for main moved after its take-in";
 
 /// The source of the block the driver writes as the owner starts a work, which runs the first cell.
 const START: &str = "start";
@@ -1469,16 +1476,7 @@ impl History {
         if let Some(why) = lacking_a_must_write(&self.d.flow, &self.d.work.records) {
             self.breach(MUST_WRITE_WRITTEN, why);
         }
-        if let Some(why) = self.roles.main.as_ref().and_then(|main| main_went_back(&self.d, main)) {
-            self.breach(MAIN_NEVER_BACK, why);
-        }
-        let branch = self.branch.get();
-        if branch.after > 0 {
-            self.reach(MAIN_MOVED_AFTER_THE_TAKE_IN.to_string());
-        }
-        if branch.before > 0 {
-            self.reach(MAIN_MOVED_BEFORE_THE_CHECK_READ.to_string());
-        }
+        self.judge_take_in();
         // The engine's own properties, on the real flow: the driver's checks.
         self.d.check();
         let mut merges: Vec<Seq> = {
@@ -1545,6 +1543,85 @@ impl History {
         }
         for r in reached {
             self.reach(r);
+        }
+    }
+
+    /// Property 7, after every step: a run of the check that finished since is judged on the main its last round took
+    /// in, by the histories' own reading of the records; a run owed for a newer head is held to running again before
+    /// any round of the merge begins.
+    fn judge_take_in(&mut self) {
+        let Some(main) = self.roles.main.clone() else {
+            return;
+        };
+        let mut b = self.branch.get();
+        let flow = &self.d.flow.flow;
+        let records = &self.d.work.records;
+        let check = &flow.cells()[self.roles.check].id;
+        let last = &flow.cells()[self.roles.last].id;
+        let mut broken = Vec::new();
+        let mut reached = Vec::new();
+        if let Some((owed, since)) = b.owed {
+            let again = (records.started.iter()).any(|s| &s.cell == check && s.run > owed);
+            let merge_began = (records.rounds.iter())
+                .any(|r| r.at > since && records.started.iter().any(|s| s.run == r.run && &s.cell == last));
+            if again {
+                reached.push(CHECK_RAN_AGAIN_FOR_MAIN);
+                b.owed = None;
+            } else if merge_began {
+                broken.push(format!(
+                    "a round of the merge began with main moved after run {} of the check took it in, and the check \
+                     not run again",
+                    owed.0
+                ));
+                b.owed = None;
+            }
+        }
+        if let Some(taken) = b.taken {
+            let finished = records.finished.iter().find(|f| f.run == taken.run).map(|f| f.at);
+            if let Some(at) = finished {
+                b.taken = None;
+                let reading = Reading::new(flow, records, None);
+                let says = |at: Seq| self.d.work.contents.get(&(main.clone(), at)).map(String::as_str);
+                let took = format!("m{}", taken.head);
+                let told = reading.told(taken.run, &main);
+                if told.and_then(says) != Some(took.as_str()) {
+                    let was = told.and_then(says).unwrap_or("nothing");
+                    broken.push(format!(
+                        "run {} of the check took in {took} and was told {was} of main",
+                        taken.run.0
+                    ));
+                }
+                let new = reading.new_to(check, &main).len();
+                let still = reading.current(&main).and_then(|v| says(v.at)) == Some(took.as_str());
+                match taken.moved {
+                    Moved::Not | Moved::Before if still && new > 0 => broken.push(format!(
+                        "main at {took}, which run {} of the check took in, is still new to the check",
+                        taken.run.0
+                    )),
+                    Moved::After if new == 0 => broken.push(format!(
+                        "main moved to m{} after run {} of the check took in {took}, and nothing of it is new to the \
+                         check",
+                        taken.head + 1,
+                        taken.run.0
+                    )),
+                    Moved::After => b.owed = Some((taken.run, at)),
+                    _ => {}
+                }
+                reached.push(match taken.moved {
+                    Moved::Not => MAIN_TAKEN_IN_AS_IT_STOOD,
+                    Moved::After => MAIN_MOVED_AFTER_THE_TAKE_IN,
+                    Moved::Before => MAIN_MOVED_BEFORE_THE_CHECK_READ,
+                });
+            } else if records.abandoned.iter().any(|a| a.run == taken.run) {
+                b.taken = None;
+            }
+        }
+        self.branch.set(b);
+        for why in broken {
+            self.breach(MAIN_TAKEN_IN, why);
+        }
+        for what in reached {
+            self.reach(what.to_string());
         }
     }
 
