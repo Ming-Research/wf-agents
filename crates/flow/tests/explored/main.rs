@@ -110,8 +110,21 @@ fn source(name: &str) -> Source {
 
 /// The flow of this source, compiled against what the engine has.
 fn compiled(source: &Source) -> Compiled {
+    compile(source, &has()).expect("the flow compiles")
+}
+
+/// The flow renamed, compiled against what the engine has: where it does not compile, the renaming missed a name, which
+/// the compiler's faults name.
+fn compiled_renamed(source: &Source) -> Compiled {
+    compile(source, &has()).unwrap_or_else(|faults| {
+        panic!("the flow renamed does not compile: the renaming missed a name each fault names:\n{faults:#?}")
+    })
+}
+
+/// What the engine has, which a flow is compiled against.
+fn has() -> Has {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
-    let has = Has {
+    Has {
         sources: names(&[
             "answer",
             "asked",
@@ -127,8 +140,7 @@ fn compiled(source: &Source) -> Compiled {
         tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
-    };
-    compile(source, &has).expect("the flow compiles")
+    }
 }
 
 fn stats(e: &Explored) -> String {
@@ -295,7 +307,7 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
     // the flow does at a smaller bound, its names following.
     let (names, renamed) = renamed(&source("engineer"));
     let small = explore(&m, RENAMED_BOUNDS);
-    let rm = Model::new(compiled(&renamed));
+    let rm = Model::new(compiled_renamed(&renamed));
     let re = explore(&rm, RENAMED_BOUNDS);
     failed.extend(alike(&m, &small, &re, &names));
     let is_known = |p: &Property, n: &String| KNOWN.iter().any(|(kp, kn, _)| kp == p && kn == n);
@@ -414,7 +426,8 @@ fn replays(m: &Model, e: &Explored) -> Vec<String> {
 
 /// The source with every cell, block, group, line, named test and trigger of the flow given another name, and the names
 /// given, each by the one it replaces: the trigger of a block's or a group's new version (`on_` and its name) follows
-/// its name, and a line's block of its session (`{line}_session`) the line's.
+/// its name, and each block a trigger makes for a cell or a line (`{cell}_tested`, `{line}_session`) its cell's or
+/// its line's.
 fn renamed(source: &Source) -> (BTreeMap<String, String>, Source) {
     let mut names = BTreeMap::new();
     // One prefix for every name, after `on_` for a trigger's, keeps every set of names in the order it had, so that the
@@ -450,6 +463,33 @@ fn renamed(source: &Source) -> (BTreeMap<String, String>, Source) {
             let group = group.trim();
             names.insert(group.to_string(), new(group));
             names.insert(format!("on_{group}"), new(&format!("on_{group}")));
+        }
+    }
+    // The blocks a trigger's file makes, by its `block`, for each cell (`{cell}`, the cell's id in small letters) or
+    // line (`{line}`), as the compiler names them: each renamed as its cell or line is.
+    let cells: Vec<String> = source.cells.keys().cloned().collect();
+    let lines: Vec<String> = (source.files.keys())
+        .filter(|path| path.starts_with("lines/"))
+        .filter_map(|path| Path::new(path).file_stem().and_then(|s| s.to_str()).map(str::to_string))
+        .collect();
+    for (path, text) in &source.files {
+        if !path.starts_with("../triggers/") {
+            continue;
+        }
+        for line in text.lines() {
+            let template = (line.trim().strip_prefix("block = \"")).and_then(|t| t.strip_suffix('"'));
+            let Some(template) = template else {
+                continue;
+            };
+            for (place, of) in [("{cell}", &cells), ("{line}", &lines)] {
+                if template.contains(place) {
+                    for name in of {
+                        let was = template.replace(place, &name.to_lowercase());
+                        let is = template.replace(place, &new(name).to_lowercase());
+                        names.insert(was, is);
+                    }
+                }
+            }
         }
     }
     let file = |path: &String| {
