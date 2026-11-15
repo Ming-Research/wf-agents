@@ -1083,6 +1083,8 @@ pub enum Unmet {
     NotAnswered { name: String },
     /// The work's branch changes this file the project protects, and nothing says why.
     Unexplained { path: String },
+    /// The run of a line that changes only the project's tests changed this file, which is none of them.
+    NotATest { path: String },
     /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question.
     Unanswered { block: String },
 }
@@ -2511,6 +2513,7 @@ impl Unmet {
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
             UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
+            UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
             },

@@ -379,6 +379,29 @@ fn a_return_that_leaves_a_protected_file_changed_and_says_not_why_is_sent_back_n
     assert!(entered.text.contains(said), "{}", entered.text);
 }
 
+// A return the engine found changing, in its run, files that are none of the project's tests, on a line that changes
+// only them, is sent back naming each, in the words of the files beside the flows.
+#[test]
+fn a_return_whose_run_changed_a_file_that_is_no_test_on_a_line_of_tests_is_sent_back_naming_it() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = ["src/greeting.rs", "Cargo.lock"]
+        .map(|path| Unmet::NotATest { path: path.to_string() })
+        .to_vec();
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    assert_eq!((again.run, again.number), (round.run, 2));
+    let entered = sim.enter(&again, false);
+    let said = "## Sent back\n\n- `src/greeting.rs` is no test: take it back.\n- `Cargo.lock` is no test: take it \
+                back.\n";
+    assert!(entered.text.contains(said), "{}", entered.text);
+}
+
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
     let mut sim = Sim::new();

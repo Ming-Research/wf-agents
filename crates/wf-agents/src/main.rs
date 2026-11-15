@@ -779,6 +779,10 @@ fn words(what: &FaultKind, field: &str) -> String {
             format!("a set of rules is named {name}, which is a part the engine places in every system prompt itself")
         }
         F::UnusedRules { name } => format!("no line names the rules {name}, so no agent would be given them"),
+        F::ReadsOnlyAndTestsOnly => {
+            "the line says its agents change only the project's tests, and that they only read, which changes no file"
+                .to_string()
+        }
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),
         F::NoteIsAChoice { block } => format!("{block} is a note, but it is a choice, and a note is words to a cell"),
