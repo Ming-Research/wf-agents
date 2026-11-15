@@ -1,7 +1,12 @@
 //! The project's two workflows, which the engine runs by hand through the project's declaration (`ci` in
-//! `flow/project.toml`), always by their files on main, given the commit to run on, each run found by a value only
-//! its request knows, which the run's name holds; and what each reports, read from the JUnit XML it uploads (`results`)
-//! and never from a log.
+//! `flow/project.toml`), always by their files on main, given the commit to run on, each run found by a value its
+//! name holds, which is worked out from what asked for it; and what each reports, read from the JUnit XML it uploads
+//! (`results`) and never from a log.
+//!
+//! The value is the same each time the same call of `run_tests` or the same round of the check asks for the same
+//! workflow on the same commit, and is had by no other: given again after the engine started again, the request
+//! finds the run it asked for before and waits for it, or reads it where it has ended, and asks for a run again only
+//! where it finds none but runs that were cancelled, which judged nothing.
 //!
 //! - fast: runs only the tests and checks a request names, and builds only what they need; every `run_tests` that
 //!   names tests or checks is run by it.
@@ -15,13 +20,24 @@
 use std::time::Duration;
 
 use flow::agents::{Ci, CiFast, CiFull, ResultWords, Tool, fill};
+use store::WorkNumber;
+use uuid::Uuid;
 
 use super::api::{Api, Check, Outcome, Run};
 use super::results::{self, Became, Case};
 use super::{GitHub, output};
 use crate::held::Stop;
-use crate::host::{Named, Verdict};
+use crate::host::{Asking, Named, Verdict};
 use crate::process;
+
+/// A request for runs of the workflows: the commit they run on, and which of the work's asks it is, by which its runs
+/// are found again.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Request<'a> {
+    pub(super) work: WorkNumber,
+    pub(super) commit: &'a str,
+    pub(super) asking: Asking,
+}
 
 /// The workflow to run, the artifact its results are in, and what it is run with.
 struct Plan<'a> {
@@ -113,11 +129,11 @@ impl<A: Api> GitHub<A> {
     pub(super) async fn run_role(
         &self,
         role: Role<'_>,
-        commit: &str,
+        request: Request<'_>,
         named: &Named,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        let Some(ran) = self.execute_role(&role, commit, named, stop).await? else {
+        let Some(ran) = self.execute_role(&role, request, named, stop).await? else {
             return Ok(None);
         };
         let words = &self
@@ -125,7 +141,21 @@ impl<A: Api> GitHub<A> {
             .result
             .as_ref()
             .ok_or("the words of run_tests have no [result]")?;
-        Ok(Some(said(words, &role, commit, &ran, named, false)))
+        Ok(Some(said(words, &role, request.commit, &ran, named, false)))
+    }
+
+    /// The value the run of the workflow asked for by the request holds in its name: a name-based UUID (version 5) of
+    /// the work, the request, the workflow and the commit, in the namespace of this installation, so that the request
+    /// given again works out the same, and no other request, of this installation or another, has it.
+    pub(super) fn call(&self, request: Request<'_>, workflow: &str) -> String {
+        let name = format!(
+            "work/{}/{}/workflow/{workflow}/commit/{}",
+            request.work.0,
+            request.asking.name(),
+            request.commit
+        );
+        let call = Uuid::new_v5(&self.config.installation, name.as_bytes());
+        call.simple().to_string()
     }
 
     /// Runs the workflows of the role, one after the other, and gives what each came to; none where it was told to
@@ -133,14 +163,15 @@ impl<A: Api> GitHub<A> {
     async fn execute_role(
         &self,
         role: &Role<'_>,
-        commit: &str,
+        request: Request<'_>,
         named: &Named,
         stop: &mut Stop,
     ) -> Result<Option<Vec<Ran>>, String> {
+        let commit = request.commit;
         let mut ran = Vec::new();
         match role {
             Role::Fast(fast) => {
-                let call = uuid::Uuid::new_v4().simple().to_string();
+                let call = self.call(request, &fast.workflow);
                 let tests: String = (named.tests.iter()).map(|t| format!("{}\n", t.trim())).collect();
                 let mut inputs = vec![
                     (fast.commit_input.clone(), commit.to_string()),
@@ -166,7 +197,7 @@ impl<A: Api> GitHub<A> {
             Role::Full(full) => {
                 let limit = span_of(&full.too_long).map_err(|why| format!("ci.full.too_long: {why}"))?;
                 for workflow in &full.workflows {
-                    let call = uuid::Uuid::new_v4().simple().to_string();
+                    let call = self.call(request, workflow);
                     let inputs = vec![
                         (full.commit_input.clone(), commit.to_string()),
                         (full.call_input.clone(), call.clone()),
@@ -192,13 +223,13 @@ impl<A: Api> GitHub<A> {
     /// once, and judged by what they uploaded and by their jobs: it failed where a test failed, where a job did not
     /// pass, or where a run uploaded no JUnit the engine can read, said as `run_tests` says what a run found, of what
     /// did not pass. None where it was told to stop.
-    pub(super) async fn judge_full(&self, commit: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
-        let named = Named::default();
+    pub(super) async fn judge_full(&self, request: Request<'_>, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+        let (commit, named) = (request.commit, Named::default());
         let role = match self.role(self.config.ci.as_ref(), &named)? {
             Ok(role) => role,
             Err(refused) => return Err(refused),
         };
-        let Some(ran) = self.execute_role(&role, commit, &named, stop).await? else {
+        let Some(ran) = self.execute_role(&role, request, &named, stop).await? else {
             return Ok(None);
         };
         let words = &self
@@ -218,19 +249,30 @@ impl<A: Api> GitHub<A> {
         }))
     }
 
-    /// Dispatches the workflow with its inputs, waits for its run, and reads what it uploaded.
+    /// Waits for the run of the workflow the plan asks for, and reads what it uploaded: the run its request asked for
+    /// already, before the engine started again, where one was not cancelled; or, where none was, one the workflow is
+    /// dispatched for now with the plan's inputs. Of two runs of the request, the first asked for is waited for, which
+    /// began first. None where it was told to stop.
     async fn execute(&self, plan: &Plan<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Ran>, String> {
         let workflow = plan.workflow;
         let main = &self.project.main;
-        (self.api.dispatch(workflow, main, &plan.inputs).await)
-            .map_err(|why| format!("GitHub refused to run {workflow} on {main} for {commit}: {why}"))?;
+        let Some(asked) = self.runs_of(plan, stop).await? else {
+            return Ok(None);
+        };
+        // A run cancelled judged nothing, and is passed over: the request asks for another.
+        let cancelled: Vec<u64> = (asked.iter()).filter(|r| r.cancelled).map(|r| r.id).collect();
+        if asked.len() == cancelled.len() {
+            (self.api.dispatch(workflow, main, &plan.inputs).await)
+                .map_err(|why| format!("GitHub refused to run {workflow} on {main} for {commit}: {why}"))?;
+        }
         let began = tokio::time::Instant::now();
         let run = loop {
-            let runs = tokio::select! {
-                runs = self.api.runs(workflow, main) => runs?,
-                () = stop.told() => return Ok(None),
+            let Some(runs) = self.runs_of(plan, stop).await? else {
+                return Ok(None);
             };
-            let mine = runs.into_iter().find(|r| r.title.contains(&plan.call));
+            let mine = (runs.into_iter())
+                .filter(|r| !cancelled.contains(&r.id))
+                .min_by_key(|r| r.id);
             let waited = began.elapsed();
             match mine {
                 Some(run) if run.completed => break run,
@@ -269,6 +311,18 @@ impl<A: Api> GitHub<A> {
             Err(why) => Err(format!("the artifact {} could not be fetched: {why}", plan.results)),
         };
         Ok(Some(Ran { run, jobs, results }))
+    }
+
+    /// The runs by hand of the plan's workflow on main whose name holds the plan's value; none where it was told to
+    /// stop.
+    async fn runs_of(&self, plan: &Plan<'_>, stop: &mut Stop) -> Result<Option<Vec<Run>>, String> {
+        let runs = tokio::select! {
+            runs = self.api.runs(plan.workflow, &self.project.main) => runs?,
+            () = stop.told() => return Ok(None),
+        };
+        Ok(Some(
+            runs.into_iter().filter(|r| r.title.contains(&plan.call)).collect(),
+        ))
     }
 }
 
