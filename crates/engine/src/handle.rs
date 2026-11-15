@@ -1032,6 +1032,10 @@ fn pausing_words(pausing: &Pausing, why: &str) -> String {
         Pausing::Passing { failed } => {
             format!("the round failed in passing {failed} times in a row, and running it again has not helped: {why}")
         }
+        Pausing::Outside { failed } => format!(
+            "the round failed {failed} times in a row for a cause outside every work, tried again each time the \
+             engine's check found the outside well: {why}"
+        ),
         Pausing::FlaggedAgain => {
             format!("the service's safety check flagged the round again, in the new session its line was given: {why}")
         }

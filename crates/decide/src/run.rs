@@ -16,10 +16,11 @@
 //! row and the next pauses the work ([`pausing`]). A return that could not be read is sent back, as any return that
 //! does not meet what the flow requires. A round the service's safety check flagged, and one the run guard stopped for a
 //! context its cell's history does not explain, is tried again in a new session of its line, and the second of the same
-//! kind in a row pauses the work. A cause every work shares (the account's usage limit, a command
-//! line that cannot run, no network) holds the agents' rounds of every work, which is no matter of one run's: the run
-//! only has its next round once they may begin again. Any other failure pauses the work as the round fails, so that the
-//! owner sees the cause first. Once the work is let on, the run has its next round, given what the failed round was
+//! kind in a row pauses the work. A cause outside every work, the same for all (the account's usage limit, a command
+//! line that cannot run, no network, a service that is down), holds the agents' rounds of every work, which is no
+//! matter of one run's: the run only has its next round once they may begin again, and so many failures of the run in
+//! a row for such a cause, each after the engine found the outside well, and the next pauses the work. Any other
+//! failure pauses the work as the round fails, so that the owner sees the cause first. Once the work is let on, the run has its next round, given what the failed round was
 //! given, and the failures counted in a row start anew. A round that failed, or a return that was sent back, deals with
 //! nothing.
 //!
@@ -48,8 +49,8 @@ pub struct Log {
     pub let_on: usize,
 }
 
-/// How many failures in passing in a row are tried again: the next one pauses the work, running again not having
-/// helped.
+/// How many failures in passing in a row are tried again, and as many for a cause outside every work: the next one
+/// pauses the work, running again not having helped.
 pub const PASSING: u32 = 8;
 
 /// How long the engine waits after the first failure in passing in a row before the round is tried again, in
@@ -71,8 +72,8 @@ pub fn wait(failed: u32) -> u64 {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Failure {
-    /// In passing: the service was overloaded, gave an error or took too long, or the command line crashed. The round
-    /// is tried again after a wait.
+    /// In passing, the round's own: the command line crashed after it reached the service, the service's answer to
+    /// it was cut off, or the model gave what could not be taken. The round is tried again after a wait.
     Passing,
     /// What the agent returned could not be read: the command line gave up on it, or it is not of the form of a
     /// return. It is sent back.
@@ -85,11 +86,14 @@ pub enum Failure {
     Guarded,
     /// The account's usage limit was reached: no agent round of any work begins until it resets.
     UsageLimit,
-    /// The agents' command line cannot run at all: its sign-in has expired, or the program is missing. Only the owner
-    /// can mend it: no agent round of any work begins, but one now and then that tries.
+    /// The agents' command line cannot run at all: it is not signed in, its sign-in was refused, or the program is
+    /// missing or ended before it began, having reached nothing. No agent round of any work begins until it runs.
     CannotRun,
     /// The network cannot be reached: no agent round of any work begins until it can be.
     Offline,
+    /// The agents' service did not serve the round: it failed, was overloaded, throttled the account's requests or did
+    /// not answer in time. No agent round of any work begins until it serves again.
+    Unavailable,
     /// The prompt is too long for the model: running it again cannot help, and the work is paused.
     PromptTooLong,
     /// The service has no model of the name the round's level gives: no round on it can run until the installation
@@ -104,9 +108,13 @@ pub enum Failure {
 }
 
 impl Failure {
-    /// Whether every work shares the cause, so that it holds the agents' rounds of every work rather than one run.
+    /// Whether the cause is outside every work and the same for all, so that it holds the agents' rounds of every work
+    /// rather than one run.
     pub fn shared(self) -> bool {
-        matches!(self, Failure::UsageLimit | Failure::CannotRun | Failure::Offline)
+        matches!(
+            self,
+            Failure::UsageLimit | Failure::CannotRun | Failure::Offline | Failure::Unavailable
+        )
     }
 }
 
@@ -117,6 +125,9 @@ pub enum Pausing {
     Failed(Failure),
     /// The round failed in passing this many times in a row, and running it again has not helped.
     Passing { failed: u32 },
+    /// The round failed this many times in a row for a cause outside every work, each try begun once the engine found
+    /// the outside well: what the rounds meet is not what the engine's check finds.
+    Outside { failed: u32 },
     /// The round was flagged once more, in the new session its line was given for the time before.
     FlaggedAgain,
     /// The run guard stopped the round once more, in the new session its line was given for the time before.
@@ -476,11 +487,21 @@ fn passing_in_a_row(log: &Log) -> u32 {
     failures_in_a_row(log).filter(|f| *f == Failure::Passing).count() as u32
 }
 
+/// How many of the run's last rounds in a row failed for a cause outside every work ([`failures_in_a_row`]).
+fn outside_in_a_row(log: &Log) -> u32 {
+    failures_in_a_row(log).filter(|f| f.shared()).count() as u32
+}
+
 /// Why the engine pauses the work as the run's last round fails, if it does: the failure is of a kind running again
-/// cannot help; or it is in passing, and more of the run's last rounds in a row failed so than are tried again
-/// ([`PASSING`]); or the round was flagged, or the run guard stopped it, and another of the run's last rounds in a row
-/// failed so, whatever failed between them, the first having had its line's session begun anew. Any other failure the
-/// run takes up itself ([`next`]). The failures in a row start anew where the owner let the work on.
+/// cannot help; or it is in passing, or of a cause outside every work, and more of the run's last rounds in a row failed
+/// so than are tried again ([`PASSING`]); or the round was flagged, or the run guard stopped it, and another of the
+/// run's last rounds in a row failed so, whatever failed between them, the first having had its line's session begun
+/// anew. Any other failure the run takes up itself ([`next`]). The failures in a row start anew where the owner let the
+/// work on.
+///
+/// A round of the run begins after one that failed for a cause outside every work only once the engine has found the
+/// outside well, so that a row of them says the rounds meet what the engine's check does not find, as a limit of the
+/// model the rounds run on alone; each wrote its message into its session, and the row is bounded as one in passing is.
 pub fn pausing(log: &Log) -> Option<Pausing> {
     let mut row = failures_in_a_row(log);
     match row.next()? {
@@ -491,7 +512,11 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
         }
         Failure::Flagged => row.any(|f| f == Failure::Flagged).then_some(Pausing::FlaggedAgain),
         Failure::Guarded => row.any(|f| f == Failure::Guarded).then_some(Pausing::GuardedAgain),
-        Failure::Unread | Failure::UsageLimit | Failure::CannotRun | Failure::Offline => None,
+        Failure::UsageLimit | Failure::CannotRun | Failure::Offline | Failure::Unavailable => {
+            let failed = outside_in_a_row(log);
+            (failed > PASSING).then_some(Pausing::Outside { failed })
+        }
+        Failure::Unread => None,
     }
 }
 
