@@ -138,15 +138,15 @@ async fn between_two_heads_the_round_is_given_what_the_work_itself_changed() {
     let (repo, place, first) = built().await;
     let second = commit(&place.dir, "farewell.txt", "Goodbye.\n");
     let command = between(&place.dir, MAIN, &first, &second).await.unwrap();
-    assert_eq!(command, format!("`git diff {first} {second}`"));
+    assert_eq!(command, format!("git diff {first} {second}"));
     // Main moves, is taken in, and the work commits again: what main brought is left out.
     commit(&repo.project.repo, "other.txt", "Good day.\n");
     catch_up::take_in(&repo.project, &place, MAIN, RunId(7)).await;
     let third = commit(&place.dir, "weather.txt", "Sunny.\n");
     let command = between(&place.dir, MAIN, &second, &third).await.unwrap();
     let from = command
-        .strip_prefix("`git diff ")
-        .and_then(|rest| rest.strip_suffix(&format!(" {third}`")))
+        .strip_prefix("git diff ")
+        .and_then(|rest| rest.strip_suffix(&format!(" {third}")))
         .unwrap_or_else(|| panic!("{command}"));
     let shown = run(&place.dir, &["diff", "--name-only", from, &third]);
     assert_eq!(shown, "weather.txt", "{command}");
@@ -158,5 +158,5 @@ async fn between_two_heads_the_round_is_given_what_the_work_itself_changed() {
     let (fourth, _, _) = head_of(&place);
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
     let command = between(&place.dir, MAIN, &third, &fourth).await.unwrap();
-    assert_eq!(command, format!("`git diff {main} {fourth}`"));
+    assert_eq!(command, format!("git diff {main} {fourth}"));
 }
