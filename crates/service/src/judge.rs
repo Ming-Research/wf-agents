@@ -128,6 +128,15 @@ impl fmt::Display for Judged {
     }
 }
 
+/// How a work began as its item was added, which is the item's start and no step of its path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Added {
+    /// How many blocks people wrote for it as it was added.
+    pub writes: usize,
+    /// Whether it is held, never let on as it was added.
+    pub held: bool,
+}
+
 /// A step the records hold, with whether the work still stands at it as they end: a wait that has not ended, a pause
 /// not lifted, a cancel that stands; any other step stands once taken.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -138,8 +147,8 @@ pub struct Seen {
 
 /// How the work's records stand against its path: `held` says whether its item is held, never let on as it was added;
 /// `shown` is what the engine shows of the work now, for the end the records do not hold.
-pub fn judge(flow: &Compiled, work: &Work, held: bool, path: &[Step], shown: &Shown) -> Judged {
-    let seen = seen(flow, work, held);
+pub fn judge(flow: &Compiled, work: &Work, added: Added, path: &[Step], shown: &Shown) -> Judged {
+    let seen = seen(flow, work, added.held);
     let (steps, end) = match path.split_last() {
         Some((end, before)) if end.ends_only() => (before, Some(end)),
         _ => (path, None),

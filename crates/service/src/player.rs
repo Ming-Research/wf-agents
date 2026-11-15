@@ -24,7 +24,7 @@ use store::{ItemChange, ItemNumber, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::Time;
 
-use crate::judge::{self, Judged, Shown};
+use crate::judge::{self, Added, Judged, Shown};
 use crate::script::Script;
 use crate::script::items::{ActScript, Does, LEVEL, Step};
 use crate::{Act, Clock, Fault, Inbox, Message, Refusal, Scripted, Service, TokioClock, store_fault_words};
@@ -229,7 +229,7 @@ pub async fn play(
             let work = play.works[k];
             let path: Vec<Step> = item.path.iter().filter_map(|step| step.step().ok()).collect();
             let judged = match (driver.work(work), Shown::of(driver, work)) {
-                (Some(kept), Some(shown)) => judge::judge(kept.flow, kept.work, item.held, &path, &shown),
+                (Some(kept), Some(shown)) => judge::judge(kept.flow, kept.work, added(item), &path, &shown),
                 _ => Judged::Short {
                     step: 1,
                     said: path.first().map(Step::to_string).unwrap_or_default(),
@@ -283,7 +283,7 @@ impl Play<'_> {
         (self.script.items.iter().enumerate()).all(|(k, item)| {
             let path: Vec<Step> = item.path.iter().filter_map(|step| step.step().ok()).collect();
             let judged = (driver.work(self.works[k]).zip(Shown::of(driver, self.works[k])))
-                .map(|(kept, shown)| judge::judge(kept.flow, kept.work, item.held, &path, &shown));
+                .map(|(kept, shown)| judge::judge(kept.flow, kept.work, added(item), &path, &shown));
             match judged {
                 Some(Judged::Took) => self.next[k] == item.acts.len(),
                 Some(Judged::Left { .. }) => true,
@@ -471,5 +471,13 @@ impl Play<'_> {
             Waited::Call { call, on: Some(_) } => Some(*call),
             _ => None,
         })
+    }
+}
+
+/// How the item's work was added.
+fn added(item: &crate::script::items::ItemScript) -> Added {
+    Added {
+        writes: item.writes.len(),
+        held: item.held,
     }
 }

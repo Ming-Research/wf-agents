@@ -1,7 +1,8 @@
-//! The judge of a play, on records of the trial flow built by hand: each thing that happened given in turn to the
-//! engine's own keeping of the records (`engine::handle`), as the loop would give it, and, where the trial flow makes
-//! no such entry, the entry written in. For each kind of step a path names, a path the records hold is taken, and one
-//! wrong at that step left there, the judge saying what the records hold there.
+//! The judge of a play, on records built by hand, of the trial flow and of a flow whose check may wait for main: each
+//! thing that happened given in turn to the engine's own keeping of the records (`engine::handle`), as the loop would
+//! give it, and, where the trial flow makes no such entry, the entry written in. For each kind of step a path names, a
+//! path the records hold is taken, and one wrong at that step left there, the judge saying what the records hold
+//! there.
 
 use decide::run::Failure;
 use decide::{
@@ -9,17 +10,20 @@ use decide::{
 };
 use engine::{Came, Effect, Event};
 use flow::Compiled;
+use service::judge::Added;
 use service::script::items::Step;
 use service::{Judged, Script, Shown};
-use work::{Ask, Handed, Spent, Time, Work};
+use work::{Ask, Call, Handed, Spent, Time, Work};
 
 use crate::{START, trial_flow};
 
-/// A work of the trial flow whose records are built by hand.
+/// A work whose records are built by hand.
 struct Built {
     flow: Compiled,
     work: Work,
     now: Time,
+    /// How many blocks people wrote for its item as it was added.
+    writes: usize,
 }
 
 impl Built {
@@ -33,36 +37,47 @@ impl Built {
 
     /// The work of an item added as [`Built::added`] adds it, with its request where `request`, and never let on.
     fn held(dependencies: &str, request: bool) -> Built {
+        let writes: &[(&str, Option<&str>)] = if request { &[("request", None)] } else { &[] };
+        Built::on(trial_flow(), Some(dependencies), writes)
+    }
+
+    /// The work of an item of this flow as the driver adds it, never let on: paused by the owner, its block of
+    /// dependencies written with this value where the flow has one, and these blocks people write for it, each with its
+    /// value where it is a choice, each a thing that happened to it, and then looked at.
+    fn on(flow: Compiled, dependencies: Option<&str>, writes: &[(&str, Option<&str>)]) -> Built {
         let mut built = Built {
-            flow: trial_flow(),
+            flow,
             work: Work::default(),
             now: START,
+            writes: writes.len(),
         };
         let taking = Room {
             paused: true,
             slot: false,
         };
-        let first = [
-            Event::Paused {
-                by: Pauser::Owner,
-                why: None,
-            },
-            Event::Wrote {
+        let mut first = vec![Event::Paused {
+            by: Pauser::Owner,
+            why: None,
+        }];
+        if let Some(dependencies) = dependencies {
+            first.push(Event::Wrote {
                 block: "dependencies".into(),
                 by: Outsider::Outside,
                 content: format!("The items it depends on: {dependencies}."),
                 matters: true,
                 value: Some(dependencies.to_string()),
-            },
-            Event::Wrote {
-                block: "request".into(),
+            });
+        }
+        for (block, value) in writes {
+            first.push(Event::Wrote {
+                block: (*block).into(),
                 by: Outsider::Person,
-                content: "Greet the user, please.".to_string(),
+                content: format!("The {block} as a person wrote it."),
                 matters: true,
-                value: None,
-            },
-        ];
-        for event in first.into_iter().take(if request { 3 } else { 2 }) {
+                value: value.map(str::to_string),
+            });
+        }
+        for event in first {
             built.take_in(event, taking);
         }
         built.take(Event::Look);
@@ -134,8 +149,8 @@ impl Built {
         });
     }
 
-    /// The round under way fails, of this kind.
-    fn fails(&mut self, failure: Failure) {
+    /// The round under way fails, of this kind, and what is to be done for it.
+    fn fails(&mut self, failure: Failure) -> Vec<Effect> {
         let run = self.under_way();
         self.take(Event::Failed {
             run,
@@ -143,7 +158,7 @@ impl Built {
             failure,
             resets: None,
             spent: Spent::default(),
-        });
+        })
     }
 
     /// The work from its add to the merge, the plan asking the owner first and the build a tool, the review content.
@@ -202,7 +217,11 @@ impl Built {
 
     /// How the records stand against the path of these steps, its item held where `held`, the engine showing this.
     fn judged_as(&self, steps: &str, held: bool, shown: &Shown) -> Judged {
-        service::judge::judge(&self.flow, &self.work, held, &path(steps), shown)
+        let added = Added {
+            writes: self.writes,
+            held,
+        };
+        service::judge::judge(&self.flow, &self.work, added, &path(steps), shown)
     }
 
     /// The next place in the work's records, for an entry written in.
@@ -326,6 +345,41 @@ fn a_round_that_fails_is_a_step_of_its_kind_and_the_engines_pause_another() {
 }
 
 #[test]
+fn a_round_that_fails_in_passing_waits_for_the_engines_retry_and_is_given_again() {
+    let mut built = Built::to_the_build();
+    let effects = built.fails(Failure::Passing);
+    let call = (effects.iter())
+        .find_map(|effect| match effect {
+            Effect::Call {
+                call,
+                what: Call::Wait { .. },
+                ..
+            } => Some(*call),
+            _ => None,
+        })
+        .expect("the engine waits before the round is tried again");
+    let retry = format!(
+        "{TO_THE_BUILD}, {{ fails = \"build\", failure = \"passing\" }}, {{ waits = \"build\", for = \"retry\" }}"
+    );
+    assert_eq!(built.judged(&retry), Judged::Took);
+    let tool = retry.replace(r#"for = "retry""#, r#"for = "tool""#);
+    assert_eq!(
+        built.judged(&tool),
+        left(
+            6,
+            r#"{ waits = "build", for = "tool" }"#,
+            r#"{ waits = "build", for = "retry" }"#
+        )
+    );
+    // A failure of no kind named is one of any kind.
+    let any = retry.replace(r#", failure = "passing""#, "");
+    assert_eq!(built.judged(&any), Judged::Took);
+    built.done(call);
+    let again = format!("{retry}, {{ under_way = \"build\", run = 1, round = 2 }}");
+    assert_eq!(built.judged(&again), Judged::Took);
+}
+
+#[test]
 fn an_answer_where_the_records_hold_the_owners_word_at_a_limit_leaves_the_path() {
     let mut built = Built::to_the_review();
     // The review writes a block not its own three times: the engine sent it back as often as its limit lets, and asks
@@ -400,33 +454,111 @@ fn a_question_that_waits_is_a_wait_for_its_answer_while_it_stands() {
     );
 }
 
+/// A writer of the text a request asks for; a check of the text, which reads main as well and alone writes whether it
+/// passed; and a merge, the engine's own cell, that waits for the check to say yes.
+fn checked() -> Compiled {
+    let flow = r#"
+        name = "checked"
+        order = ["write", "check", "merge"]
+        [limits]
+        again = 2
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.main]
+        outside = "main"
+        [blocks.text]
+        [blocks.checked]
+        values = ["yes", "no"]
+        [blocks.merged]
+        shown = true
+    "#;
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the text the request asks for."
+        inputs = ["request"]
+        outputs = ["text"]
+    "#;
+    let check = r#"
+        title = "Check"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Check the text."
+        inputs = ["text", "main"]
+        outputs = ["checked"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        requires = { checked = "yes" }
+        inputs = ["checked"]
+        outputs = ["merged"]
+    "#;
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: [("write", write), ("check", check), ("merge", merge)]
+            .iter()
+            .map(|(id, text)| (id.to_string(), text.to_string()))
+            .collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        sources: ["main".to_string()].into(),
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the definition compiles")
+}
+
 #[test]
-fn a_wait_for_the_outside_is_one_for_the_block_the_run_waits_for() {
-    let mut built = Built::added("merged");
-    // The plan's run finishes waiting for a new version of a block a source outside the work writes, which only an act
-    // of the engine's says: its entries written in.
-    let run = built.under_way();
-    let at = built.tick();
-    built.work.records.returned.push(Returned { run, at });
-    let at = built.tick();
-    built.work.records.finished.push(Finished {
-        run,
-        at,
-        writes: Vec::new(),
-        dealt_with: None,
-        waits_for: Some("answered".into()),
+fn a_check_whose_run_waits_for_main_has_the_work_wait_for_it_at_the_precondition_it_holds() {
+    let mut built = Built::on(checked(), None, &[("request", None)]);
+    built.take(Event::Resumed);
+    built.hands_in(&[("text", None)]);
+    // The check says no, and that what it wrote waits for main: the merge's precondition, which only the check writes,
+    // waits for main, with the block the check wrote, and not for the owner.
+    let no = Handed {
+        block: "checked".into(),
+        content: "It does not pass, and what fails also fails on main.".to_string(),
+        matters: true,
+        value: Some("no".to_string()),
+    };
+    built.returns(Came {
+        waits_for: Some("main".into()),
+        ..Came::hands_in(vec![no])
     });
-    let outside = r#"{ runs = "plan" }, { waits = "plan", for = "outside", block = "answered" }"#;
+    assert!(
+        matches!(&built.shown().decision, Decision::Wait { at, on }
+            if at.as_str() == "merge" && matches!(on[..], [Waited::Outside { .. }])),
+        "{:?}",
+        built.shown().decision
+    );
+    let outside = r#"{ runs = "write" }, { runs = "check" }, { waits = "merge", for = "outside", block = "checked" }"#;
     assert_eq!(built.judged(outside), Judged::Took);
-    let tool = r#"{ runs = "plan" }, { waits = "plan", for = "tool" }"#;
+    let precondition = r#"{ runs = "write" }, { runs = "check" }, { waits = "merge", for = "precondition" }"#;
     assert_eq!(
-        built.judged(tool),
+        built.judged(precondition),
         left(
-            2,
-            r#"{ waits = "plan", for = "tool" }"#,
-            r#"{ waits = "plan", for = "outside", block = "answered" }"#
+            3,
+            r#"{ waits = "merge", for = "precondition" }"#,
+            r#"{ waits = "merge", for = "outside", block = "checked" }"#
         )
     );
+    // Main moving runs the check again.
+    built.take(Event::Wrote {
+        block: "main".into(),
+        by: Outsider::Outside,
+        content: "The head of main.".to_string(),
+        matters: true,
+        value: None,
+    });
+    let again = format!("{outside}, {{ runs = \"check\" }}");
+    assert_eq!(built.judged(&again), Judged::Took);
 }
 
 #[test]
@@ -459,6 +591,11 @@ fn a_cell_at_its_limit_of_a_sender_waits_where_the_work_rests_until_the_owner_le
     });
     let let_go = format!("{limit}, {{ let_go = \"build\" }}, {{ runs = \"build\" }}");
     assert_eq!(built.judged(&let_go), Judged::Took);
+    let other = let_go.replace(r#"{ let_go = "build" }"#, r#"{ let_go = "review" }"#);
+    assert_eq!(
+        built.judged(&other),
+        left(9, r#"{ let_go = "review" }"#, r#"{ let_go = "build" }"#)
+    );
 }
 
 #[test]
@@ -489,6 +626,11 @@ fn the_owners_pause_and_letting_on_are_steps_and_the_items_start_is_none() {
     assert_eq!(
         built.judged(&by_engine),
         left(5, r#"{ paused = "engine" }"#, r#"{ paused = "owner" }"#)
+    );
+    let never_let_on = paused.replace(r#"{ let_on = true }, "#, "");
+    assert_eq!(
+        built.judged(&never_let_on),
+        left(6, r#"{ runs = "review" }"#, "{ let_on = true }")
     );
     // An item never let on has no step for the pause it was added with.
     let held = Built::held("merged", true);
@@ -529,6 +671,20 @@ fn a_cancel_ends_the_path_while_it_stands() {
         built.judged(&merged),
         left(5, r#"{ ends = "merged" }"#, r#"{ ends = "cancelled" }"#)
     );
+    // Reopened, the work is paused by the owner, as a work added is, and the cancel stands no more.
+    built.take(Event::Reopened {
+        why: "It is needed after all.".to_string(),
+    });
+    let reopened = format!("{cancelled}, {{ reopened = true }}, {{ paused = \"owner\" }}");
+    assert_eq!(built.judged(&reopened), Judged::Took);
+    assert!(matches!(
+        built.judged(&cancelled),
+        Judged::Left {
+            step: 6,
+            said: None,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -563,6 +719,144 @@ fn a_stall_is_read_from_the_view_and_borne_out_by_the_records() {
         requested.judged_as(r#"{ stalled = "merge" }"#, true, &stalled),
         Judged::Left { step: 1, records, .. } if records.contains("plan")
     ));
+}
+
+/// A writer of a text and of whether it is ready, a gate that requires it ready, and a merge of the text and of what the
+/// gate noted, the engine's own cell.
+fn gated() -> Compiled {
+    let flow = r#"
+        name = "gated"
+        order = ["write", "gate", "merge"]
+        [limits]
+        again = 2
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.text]
+        [blocks.ready]
+        values = ["yes", "no"]
+        [blocks.notes]
+        [blocks.merged]
+        shown = true
+    "#;
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the text the request asks for, and say whether it is ready."
+        inputs = ["request"]
+        outputs = ["text", "ready"]
+    "#;
+    let gate = r#"
+        title = "Gate"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Note what the text lacks."
+        requires = { ready = "yes" }
+        inputs = ["text"]
+        outputs = ["notes"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        inputs = ["text", "notes"]
+        outputs = ["merged"]
+    "#;
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: [("write", write), ("gate", gate), ("merge", merge)]
+            .iter()
+            .map(|(id, text)| (id.to_string(), text.to_string()))
+            .collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the definition compiles")
+}
+
+#[test]
+fn a_stall_at_a_middle_cell_holds_what_comes_after_it() {
+    // The writer says the text is not ready, and nothing runs it again: the gate holds the work, though the text is new
+    // to the merge after it.
+    let mut built = Built::on(gated(), None, &[("request", None)]);
+    built.take(Event::Resumed);
+    built.hands_in(&[("text", None), ("ready", Some("no"))]);
+    let shown = built.shown();
+    assert!(
+        matches!(&shown.decision, Decision::Stalled { at, .. } if at.as_str() == "gate"),
+        "{:?}",
+        shown.decision
+    );
+    let stalled = r#"{ runs = "write" }, { stalled = "gate" }"#;
+    assert_eq!(built.judged(stalled), Judged::Took);
+    let at_the_merge = r#"{ runs = "write" }, { stalled = "merge" }"#;
+    assert!(matches!(built.judged(at_the_merge), Judged::Short { step: 2, .. }));
+}
+
+/// A plan that requires the scope its item is added with to be narrow, and a merge, the engine's own cell.
+fn scoped() -> Compiled {
+    let flow = r#"
+        name = "scoped"
+        order = ["plan", "merge"]
+        [limits]
+        again = 2
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.scope]
+        people = true
+        values = ["narrow", "wide"]
+        [blocks.plan]
+        [blocks.merged]
+        shown = true
+    "#;
+    let plan = r#"
+        title = "Plan"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the plan from the request."
+        requires = { scope = "narrow" }
+        inputs = ["request"]
+        outputs = ["plan"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        inputs = ["plan"]
+        outputs = ["merged"]
+    "#;
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: [("plan", plan), ("merge", merge)]
+            .iter()
+            .map(|(id, text)| (id.to_string(), text.to_string()))
+            .collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the definition compiles")
+}
+
+#[test]
+fn what_an_item_is_added_with_is_written_before_the_work_rests() {
+    // Between its request and its scope the item is still being added: the plan never waited for the scope.
+    let mut built = Built::on(scoped(), None, &[("request", None), ("scope", Some("narrow"))]);
+    built.take(Event::Resumed);
+    assert_eq!(
+        built.judged(r#"{ runs = "plan" }, { under_way = "plan" }"#),
+        Judged::Took
+    );
 }
 
 #[test]
