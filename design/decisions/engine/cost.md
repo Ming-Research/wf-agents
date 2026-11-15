@@ -26,3 +26,16 @@ Why: What a round wrote to the cache is no measure: it also holds what the sessi
 ### decision a-round-without-a-result-is-priced-from-its-calls
 A round the run guard stopped, and one whose program ended of itself with no result, as one that crashed, took what its calls to the model cost at their models' prices, as its stream told them, and its record says that what it took is an estimate.
 Why: A program stopped or crashed prints no result to say what the round cost, while the round the guard stops is the costliest kind it sees: recorded as nothing, it would read as no cost and stay out of the budget (principle `nothing-passes-for-normal`). Marked, the estimate is not taken for what the program said.
+
+### decision asking-is-judged-by-its-history
+How many times in a row a cell asks, for calls of tools or for tests in a record, before a run of it hands in its work,
+is a measured quantity, its line drawn from the rows of asking in every work of the flow as every line is (decision
+a-line-comes-from-the-history-of-its-kind): the cell's own rows where at least `history.samples` of them tell it, else
+every cell's of the flow; the row a cell is in now is no part of it. A return that asks and makes its cell's row longer
+than the line pauses the work for the owner, saying the row, the line and what gave it; with too few rows nothing is
+judged, and the work's budget still holds.
+Why: The counts the walk held, of the calls of a run and of runs in a row that only asked, were set by hand and no work
+showed what they should be (principle `judged-by-own-history`); a cell that asks for test runs again and again as it
+should and one that runs away differ only against what such cells do. A count begun anew by a commit was turned down
+with them: a cell that commits between two asks still asks again. Kept beside the walk, the line leaves the walk to
+what the records of a work alone say.

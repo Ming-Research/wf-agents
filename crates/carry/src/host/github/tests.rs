@@ -676,7 +676,7 @@ async fn a_stopped_wait_gives_nothing() {
     };
     let (branch, main) = (branch(&place), hub.main_on_github());
     let (verdict, ()) = tokio::join!(
-        hub.host.verdict(&branch, &head, &main, hub.round(), &mut stop),
+        hub.host.verdict(&branch, &head, &main, (hub.round(), &[]), &mut stop),
         stopping
     );
     assert_eq!(verdict, Ok(None));

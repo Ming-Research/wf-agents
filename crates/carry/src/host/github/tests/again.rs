@@ -1,4 +1,4 @@
-//! A check or a call of `run_tests` given again after the engine started again, on the GitHub host: it finds the run
+//! A check or an entry of `run_tests` given again after the engine started again, on the GitHub host: it finds the run
 //! it asked for by the value the run's name holds, waits for it or reads it where it has ended, and asks for a run
 //! again only where it finds none of its own, or only cancelled ones; for the full workflows and the fast one alike.
 
@@ -191,7 +191,7 @@ fn the_value_of_a_run_is_its_requests_own_and_the_same_whenever_it_is_worked_out
         commit,
         asking,
     };
-    let (call, round) = (Asking::Call(CallId(3)), Asking::Round(RunId(3), 1));
+    let (call, round) = (Asking::Entry(decide::Seq(3)), Asking::Round(RunId(3), 1));
     let value = hub.host.call(request(1, call, "c0ffee"), "ci.yml");
     assert_eq!(value, hub.host.call(request(1, call, "c0ffee"), "ci.yml"));
     assert!(
@@ -200,7 +200,8 @@ fn the_value_of_a_run_is_its_requests_own_and_the_same_whenever_it_is_worked_out
     );
     for other in [
         hub.host.call(request(2, call, "c0ffee"), "ci.yml"),
-        hub.host.call(request(1, Asking::Call(CallId(4)), "c0ffee"), "ci.yml"),
+        hub.host
+            .call(request(1, Asking::Entry(decide::Seq(4)), "c0ffee"), "ci.yml"),
         hub.host.call(request(1, round, "c0ffee"), "ci.yml"),
         hub.host
             .call(request(1, Asking::Round(RunId(3), 2), "c0ffee"), "ci.yml"),

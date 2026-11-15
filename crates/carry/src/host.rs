@@ -24,7 +24,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use decide::run::Failure;
-use decide::{CallId, RunId, Seq};
+use decide::{RunId, Seq};
 use store::WorkNumber;
 
 use crate::git::Place;
@@ -48,13 +48,10 @@ pub struct Branch<'a> {
 }
 
 /// What asks a host to run the project's checks, as the work's records name it: an entry in which a cell asked for
-/// tests, a round of the check before the merge, or, in works kept before tests were asked for so, a call of
-/// `run_tests`. Given again after the engine started again it is the same, and a host that runs the checks elsewhere
-/// finds by it what it began for it there rather than beginning it again.
+/// tests, or a round of the check before the merge. Given again after the engine started again it is the same, and a
+/// host that runs the checks elsewhere finds by it what it began for it there rather than beginning it again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Asking {
-    /// A call of `run_tests`.
-    Call(CallId),
     /// A round of the run of the check, by its run and which round of it it is, the first being one.
     Round(RunId, usize),
     /// An entry of a record in which a cell asked for tests, by its version.
@@ -62,10 +59,9 @@ pub enum Asking {
 }
 
 impl Asking {
-    /// Its name among what the work asks: `call/<call>`, `run/<run>/round/<round>`, or `entry/<version>`.
+    /// Its name among what the work asks: `run/<run>/round/<round>`, or `entry/<version>`.
     pub fn name(&self) -> String {
         match self {
-            Asking::Call(call) => format!("call/{}", call.0),
             Asking::Round(run, round) => format!("run/{}/round/{round}", run.0),
             Asking::Entry(at) => format!("entry/{}", at.0),
         }
@@ -202,7 +198,7 @@ pub trait Host: Send + Sync + 'static {
         branch: &Branch<'_>,
         commit: &str,
         main: &str,
-        (asking, ran): (Asking, &[Asking]),
+        asking: (Asking, &[Asking]),
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<Verdict>, Failed>> + Send;
 

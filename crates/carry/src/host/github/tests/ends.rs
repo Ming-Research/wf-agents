@@ -47,7 +47,13 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     let place = hub.place();
     let branch = about(&place, "Greets the user by name, and by title where one is known.");
     hub.host
-        .verdict(&branch, &head, &hub.main_on_github(), hub.round(), &mut Stop::never())
+        .verdict(
+            &branch,
+            &head,
+            &hub.main_on_github(),
+            (hub.round(), &[]),
+            &mut Stop::never(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -123,7 +129,7 @@ async fn titled(hub: &Hub, commit: &str, name: &str) -> String {
             &named(&place, name),
             commit,
             &hub.main_on_github(),
-            hub.round(),
+            (hub.round(), &[]),
             &mut Stop::never(),
         )
         .await)
@@ -149,7 +155,7 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
             &about(&place, &wrote),
             &head,
             &hub.main_on_github(),
-            hub.round(),
+            (hub.round(), &[]),
             &mut Stop::never(),
         )
         .await
@@ -182,7 +188,7 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
             &about(&place, &long),
             &head,
             &hub.main_on_github(),
-            hub.round(),
+            (hub.round(), &[]),
             &mut Stop::never(),
         )
         .await

@@ -129,3 +129,7 @@ An agent works from its task and the data it is given, and knows nothing of the 
 as, not the other cells, not who reads what it writes. A cell's words name no other cell.
 Why: Carrying what one cell writes to the next is the flow's work (principle mechanical-engine). Words that tell an
 agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
+
+### principle what-takes-time-is-a-cell
+A step of a work that takes time, such as a run of the project's CI, is a cell of the flow, the engine's or an agent's, which the walk enters as it enters every cell; only what answers at once, such as a query of the records, is a tool an agent asks for within its run.
+Why: What is not on the chart the owner cannot see (Article 7), and only a cell's runs have a place on the page and a time with a history of its own (Article 3): the tests the implementation asked for ran 65 minutes in works 4 to 10, against 25 minutes of its own rounds, and were drawn as the implementation at rest.

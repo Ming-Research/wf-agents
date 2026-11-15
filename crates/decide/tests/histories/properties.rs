@@ -246,8 +246,8 @@ fn shuffled(r: &Records, seed: u64) -> Records {
 /// Its reasons are exactly what the records give: each block that runs the cell with a version new to it, `was` being
 /// the version the cell consumed, then the results it is owed where all are in; or, while one has no result, only the
 /// owner turning to it. For each `Changed { block, behind }`, `behind` is true exactly when every new version was
-/// written by a cell after this one (decision every-way-round-has-a-limit), and no cell starts a way round once its
-/// last finished runs since the owner last let it go on, as many in a row as its limit, were each one by this reading.
+/// written by a cell after this one, and no cell after it sends it back once more where it did so as many times in a
+/// row as the cell's limit since its counts last began anew, by this reading (decision the-same-sender-again).
 pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     let i = flow.place(&s.cell).expect("the histories do not change the flow");
     let cell = &flow.cells()[i];

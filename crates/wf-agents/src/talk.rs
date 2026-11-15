@@ -2139,11 +2139,7 @@ mod tests {
             history,
             flow: web::view::Flow {
                 name: "trial".to_string(),
-                limits: web::view::Limits {
-                    runs: 3,
-                    returns: 3,
-                    calls: 3,
-                },
+                limits: web::view::Limits { again: 3 },
                 lines: Vec::new(),
                 tests: Vec::new(),
                 tools: Vec::new(),

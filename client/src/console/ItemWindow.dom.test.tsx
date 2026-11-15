@@ -172,7 +172,7 @@ describe('the panel of the item selected', () => {
     const [itemLine, workLine] = lines(el);
     expect(itemLine).toBe('Open Added 1.1d ago Waits for 11 to merge');
     expect(workLine).toContain(
-      'Waiting for you Review the plan reached its limit: 3 runs in a row for what a cell after it wrote W12',
+      'Waiting for you Review the plan reached its limit: review sent it back 3 times in a row W12',
     );
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
   });

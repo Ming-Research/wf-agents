@@ -9,7 +9,7 @@ use crate::{Shared, edit, get_json, has, serve, tiny};
 #[tokio::test]
 async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
     let router = serve(&Shared::new(Ok(tiny())));
-    let limits = |runs| json!({ "runs": runs, "returns": 2, "calls": 40 });
+    let limits = |again| json!({ "again": again });
     let may_merge = json!({
         "name": "may_merge",
         "words": "The owner let the work merge",
@@ -33,7 +33,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
             "state": "compiled",
             "flow": {
                 "name": "tiny",
-                "limits": limits(3),
+                "limits": limits(2),
                 "lines": [{
                     "name": "engineer",
                     "cells": ["plan", "review"],
@@ -67,7 +67,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "mustWrite": [],
                         "tools": [],
                         "triggers": [trigger("request", true), trigger("opinions", true)],
-                        "limits": limits(3),
+                        "limits": limits(2),
                     },
                     {
                         "id": "review",
@@ -111,7 +111,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "mustWrite": [],
                         "tools": [],
                         "triggers": [trigger("content", false)],
-                        "limits": limits(3),
+                        "limits": limits(2),
                     },
                 ],
                 "blocks": [
