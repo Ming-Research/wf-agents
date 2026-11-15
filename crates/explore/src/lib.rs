@@ -21,11 +21,11 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use decide::{
-    BlockId, Cause, CellId, Condition, Decision, End, Finished, Maker, Outsider, Records, RunId, Seq, Stalling, Unrun,
-    Waited, Who, Write, decide, holds_nothing, told,
+    BlockId, Cause, CellId, Condition, Decision, End, Finished, Maker, Outsider, Questioned, Records, RunId, Seq,
+    Stalling, Unrun, Waited, Who, Write, decide, holds_nothing, told,
 };
 use engine::spoken::To;
-use engine::{Ask, Came, Effect, Event as Given, Handed, Refused, Spent, Time, Work};
+use engine::{Ask, Came, Effect, Event as Given, Handed, Question, Refused, Spent, Time, Work};
 use reading::{Reading, Reason, Writer, questions};
 
 use model::{
@@ -876,19 +876,22 @@ impl Explorer<'_> {
         Some(c)
     }
 
-    /// Whether the return asks to wait itself, by a question that waits or an entry of a record its cell asks in, and
-    /// its writes leave its cell, at this place, no longer applying where it applies now, as the records read apart from
-    /// the deciding code say: such a return is sent back (decision a-return-that-waits-keeps-its-cell).
+    /// Whether the return's writes leave its cell, at this place, no longer applying, where it applies now, while the
+    /// cell, the return taken, still waits: for the answer to a question of its own that waits, asked now or left before
+    /// and neither withdrawn nor asked anew as not waiting, or for the result of an entry of a record it asks in, as the
+    /// records read apart from the deciding code say. Such a return is sent back (decision
+    /// a-return-that-waits-keeps-its-cell).
     fn skips(&self, records: &Records, i: usize, run: RunId, came: &Came) -> bool {
-        let m = self.model;
-        let waits = came.said.waits() || (came.writes.iter()).any(|h| m.asking[i].contains(&h.block));
-        if !waits {
+        let cell = &self.model.cells()[i];
+        if cell.applies.is_empty() {
             return false;
         }
+        // The records as the return would leave them: its run finished with its writes, its questions written after.
+        let n = came.said.questions.len() as u64;
         let mut after = records.clone();
         after.finished.push(Finished {
             run,
-            at: Seq(u64::MAX),
+            at: Seq(u64::MAX - n - 1),
             writes: (came.writes.iter())
                 .map(|h| Write {
                     block: h.block.clone(),
@@ -900,12 +903,29 @@ impl Explorer<'_> {
             dealt_with: Some(Vec::new()),
             waits_for: None,
         });
+        for (k, q) in came.said.questions.iter().enumerate() {
+            after.questions.push(Questioned {
+                name: q.name().to_string(),
+                cell: cell.id.clone(),
+                run,
+                engine: false,
+                waits: matches!(q, Question::Asked { waits: true, .. }),
+                withdrawn: matches!(q, Question::Withdrawn { .. }),
+                at: Seq(u64::MAX - n + k as u64),
+            });
+        }
         let applies = |records: &Records| Reading::of_flow(self.flow(), records).applies(self.flow(), i);
-        applies(records) && !applies(&after)
+        if !applies(records) || applies(&after) {
+            return false;
+        }
+        let now = Seq(u64::MAX);
+        let held = (questions(&after, now).values())
+            .any(|q| q.cell == cell.id && !q.engine && q.waits && !q.withdrawn && !q.answered);
+        held || Reading::of_flow(self.flow(), &after).pending(cell, now)
     }
 
     /// Whether the loop took the return as its variant says it should be taken: one that does not meet the flow sent
-    /// back, or at the run's limit the owner asked, and so one that asks to wait and leaves its own cell (`skips`); one
+    /// back, or at the run's limit the owner asked, and so one that leaves its own cell as it still waits (`skips`); one
     /// that asks for a call, the call made; any other, its run finished, or sent back, or at its limit the owner asked,
     /// only where a block it writes has a version newer than its round was told of, which it would write over unseen
     /// (decision meaning-told-by-the-writer), as the records read apart from the deciding code say.
@@ -1725,4 +1745,4 @@ pub const NO_ONE_SPOKEN_TO: &str = "the engine took the owner's words to no cell
 pub const A_TOOL_ANSWERED: &str = "the engine gave a cell the result of the tool it asked for";
 pub const A_ROUND_STOPPED: &str = "the engine stopped a round under way for the owner turning to a cell before it";
 pub const WAITED_FOR_A_TOOL: &str = "the work waited for the result of a tool alone";
-pub const SKIPPED_ITS_WAIT: &str = "a return that asked to wait and left its own cell was sent back";
+pub const SKIPPED_ITS_WAIT: &str = "a return that left its own cell as it still waited was sent back";

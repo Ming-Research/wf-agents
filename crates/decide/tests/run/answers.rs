@@ -45,11 +45,12 @@ fn answer(dealt_with: &[&str], writes: Vec<Write>, read: &[&str], questions: Vec
     }
 }
 
-/// A question the return asks, or withdraws.
+/// A question the return asks, waiting for no answer, or withdraws.
 fn asking(name: &str, withdrawn: bool) -> Asking {
     Asking {
         name: name.to_string(),
         withdrawn,
+        waits: false,
     }
 }
 

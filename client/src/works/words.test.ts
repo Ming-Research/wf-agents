@@ -310,7 +310,7 @@ describe('why a run ran, in words', () => {
       'it dealt with check, and committed nothing and asked nothing',
     );
     expect(unmetWords({ kind: 'skipsItsWait', block: 'deep_needed' })).toBe(
-      'it asked to wait, and wrote deep_needed so that its cell no longer runs',
+      'it wrote deep_needed so that its cell no longer runs, while the cell waits there',
     );
   });
 });

@@ -967,8 +967,17 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             })
             .collect::<Vec<Write>>()
     };
-    // The blocks that, as the return writes them, would leave its own cell no longer applying, as the records stand.
-    let skips = |writes: &[Write]| decide::skipping(&flow.flow, &work.records, run, writes);
+    // The blocks a return writes so that its cell no longer applies while the cell still waits, as the records would
+    // stand once it is taken: worked out only for the round the run's next step is judged by, the last, and only of an
+    // agent's, as an act never waits.
+    let last = began(work, run);
+    let agent = (work.records.started.iter().find(|s| s.run == run))
+        .and_then(|s| flow.cells.iter().find(|c| c.id == s.cell))
+        .is_some_and(|spec| spec.kind == Kind::Agent);
+    let skips = |i: usize, writes: &[Write], questions: &[run::Asking]| match i + 1 == last && agent {
+        true => decide::skipping(&flow.flow, &work.records, run, writes, questions),
+        false => Vec::new(),
+    };
     let returned = |i: usize, b: &Back| match b {
         Back::Returned {
             dealt_with,
@@ -980,19 +989,21 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             ..
         } => {
             let writes = writes(handed);
+            let questions: Vec<run::Asking> = (said.questions.iter())
+                .map(|q| run::Asking {
+                    name: q.name().to_string(),
+                    withdrawn: matches!(q, work::Question::Withdrawn { .. }),
+                    waits: matches!(q, work::Question::Asked { waits: true, .. }),
+                })
+                .collect();
             run::Return::Came {
                 dealt_with: dealt_with.clone(),
-                skips: skips(&writes),
+                skips: skips(i, &writes, &questions),
                 writes,
                 calls: asks.len(),
                 found: found.clone(),
                 waits: said.waits(),
-                questions: (said.questions.iter())
-                    .map(|q| run::Asking {
-                        name: q.name().to_string(),
-                        withdrawn: matches!(q, work::Question::Withdrawn { .. }),
-                    })
-                    .collect(),
+                questions,
                 // What the round committed, where the block does not say it already.
                 read: (read.iter())
                     .filter(|r| says_now(work, &r.block) != Some(r.content.as_str()))
@@ -1014,7 +1025,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             let writes = writes(handed);
             run::Return::Came {
                 dealt_with: told.ran_by.clone(),
-                skips: skips(&writes),
+                skips: skips(i, &writes, &[]),
                 writes,
                 calls: 0,
                 found: Vec::new(),

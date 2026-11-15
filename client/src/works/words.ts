@@ -547,7 +547,7 @@ export function unmetWords(unmet: Unmet): string {
     case 'unanswered':
       return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
     case 'skipsItsWait':
-      return `it asked to wait, and wrote ${unmet.block} so that its cell no longer runs`;
+      return `it wrote ${unmet.block} so that its cell no longer runs, while the cell waits there`;
   }
 }
 

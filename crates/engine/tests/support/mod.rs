@@ -164,32 +164,30 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
     None
 }
 
-/// The first finished run whose return asked to wait itself, by an entry of a record its cell asks in or a question
-/// that waits for the owner's answer, and whose own writes left its cell no longer applying where it applied as the run
-/// was about to finish (decision a-return-that-waits-keeps-its-cell), said in words; none where there is none. Read by
-/// the reading of the records apart from the deciding code: the cell applying just before the finish and not just
-/// after it, a version of the questions of the run's own that waits.
-pub fn skipping_its_wait(flow: &Compiled, records: &Records) -> Option<String> {
-    for finished in &records.finished {
-        let started = (records.started.iter())
+/// Of the runs that finished as the work went from `before` to `after`, the first whose writes left its cell no longer
+/// applying, where it applied before, while the cell still waits: for the answer to a question of its own that waits,
+/// asked by that run or left before, or for the result of an entry of a record it asks in (decision
+/// a-return-that-waits-keeps-its-cell), said in words; none where there is none. Read by the reading of the records
+/// apart from the deciding code, and only of the runs that finished between the two.
+pub fn skipping_its_wait(flow: &Compiled, before: &Records, after: &Records) -> Option<String> {
+    let now = Seq(u64::MAX);
+    let (was, is) = (reading::Reading::new(before), reading::Reading::new(after));
+    for finished in &after.finished[before.finished.len()..] {
+        let started = (after.started.iter())
             .find(|s| s.run == finished.run)
             .expect("a finished run started");
         let Some(i) = flow.flow.place(&started.cell) else {
             continue;
         };
         let cell = &flow.flow.cells()[i];
-        let entry = (cell.asks.iter()).any(|asks| finished.writes.iter().any(|w| w.block == asks.record));
-        let question =
-            (records.questions.iter()).any(|q| q.run == finished.run && !q.engine && q.waits && !q.withdrawn);
-        if !entry && !question {
+        if cell.applies.is_empty() || !was.applies(&flow.flow, i) || is.applies(&flow.flow, i) {
             continue;
         }
-        let before = records.before(finished.at);
-        let after = records.before(Seq(finished.at.0 + 1));
-        let applies = |records: &Records| reading::Reading::new(records).applies(&flow.flow, i);
-        if applies(&before) && !applies(&after) {
+        let held = (reading::questions(after, now).values())
+            .any(|q| q.cell == cell.id && !q.engine && q.waits && !q.withdrawn && !q.answered);
+        if held || is.pending(cell, now) {
             return Some(format!(
-                "run {:?} of {} asked to wait and finished writing what leaves its cell no longer applying",
+                "run {:?} of {} finished writing what leaves its cell no longer applying while it still waits",
                 finished.run, started.cell
             ));
         }
@@ -409,6 +407,9 @@ impl Driver {
         match handle(&self.flow, &mut self.work, now, event) {
             Ok(effects) => {
                 self.note(format!("effects: {effects:?}"));
+                if let Some(why) = skipping_its_wait(&self.flow, &before.records, &self.work.records) {
+                    panic!("{why}");
+                }
                 // Words taken go to the cell the records say they reach, and to no other: every entry they wrote is
                 // said to it.
                 if let Some(receiver) = &receiver {
@@ -604,9 +605,6 @@ impl Driver {
             "the records are faulty"
         );
         if let Some(why) = lacking_a_must_write(&self.flow, r) {
-            panic!("{why}");
-        }
-        if let Some(why) = skipping_its_wait(&self.flow, r) {
             panic!("{why}");
         }
         for effect in &self.held {
