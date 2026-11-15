@@ -856,7 +856,7 @@ fn a_round_after_one_of_a_run_given_up_is_told_nothing_of_it_was_taken() {
         .push(decide::Abandoned { run: round.run, at });
     sim.hands_in(&round, &[("plan", "Greet by name.", None)]);
     assert!(
-        sim.work.back.get(&(round.run, 1)).is_none(),
+        !sim.work.back.contains_key(&(round.run, 1)),
         "what came back is dropped"
     );
     let again = sim.round().expect("the plan is entered again");

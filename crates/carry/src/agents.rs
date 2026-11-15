@@ -1487,11 +1487,6 @@ impl Keeping {
         &self.stream.own
     }
 
-    /// The uses of tools of the session's own agent the stream has told so far.
-    fn tools(&self) -> &[(String, String, String)] {
-        &self.stream.tools
-    }
-
     /// What the try's calls came to ([`measures`]).
     fn measures(&self, given: u64, before: BTreeMap<String, String>, crossed: bool, priced: bool) -> Option<Measures> {
         measures(&self.stream, given, before, crossed, priced)
