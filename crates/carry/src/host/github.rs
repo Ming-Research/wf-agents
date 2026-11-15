@@ -5,9 +5,10 @@
 //! merge and whose body to what the work says of itself, is what is merged, by GitHub once it is made ready, in a
 //! commit of that name. A work that has ended has, where it did not merge, its pull request closed.
 //!
-//! What it does is found again on GitHub by the work's branch and the commit, never kept by the engine: a check given
-//! again after the engine started again pushes nothing GitHub has, finds the pull request it opened and runs the
-//! workflows on the same commit again; a merge given again finds the pull request merged.
+//! What it does is found again on GitHub, never kept by the engine: the pull request by the work's branch, and a run of
+//! a workflow by the value its name holds, worked out from what asked for it. A check given again after the engine
+//! started again pushes nothing GitHub has, finds the pull request it opened, and waits for the runs it asked for on
+//! the same commit, or reads them where they have ended; a merge given again finds the pull request merged.
 //!
 //! An agent's `run_tests` is run on the last commit of its work's branch, pushed and put in the same pull request:
 //! by the fast workflow where it names tests or checks, by the full ones where it names none (the module `fast`); what
@@ -32,11 +33,12 @@ use std::path::Path;
 
 use flow::agents::fill;
 use std::time::Duration;
+use uuid::Uuid;
 
 pub use api::{Api, Pull, State};
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
-use super::{Branch, Host, Named, NotMerged, Verdict};
+use super::{Asking, Branch, Host, Named, NotMerged, Verdict};
 use crate::git::{self, With};
 use crate::held::Stop;
 use crate::settings::{self, Project};
@@ -83,6 +85,8 @@ pub struct Config {
     /// The paths of this machine that nothing the engine publishes on GitHub names: the data directory, the project's
     /// local repository and the home directory, each said by what it is instead.
     pub withheld: Vec<(String, &'static str)>,
+    /// The installation's id, in whose namespace the value that finds a run of a workflow is worked out.
+    pub installation: Uuid,
 }
 
 impl std::fmt::Debug for Config {
@@ -100,6 +104,7 @@ impl std::fmt::Debug for Config {
             .field("fast_poll", &self.fast_poll)
             .field("token", &self.token.as_ref().map(|_| "(given)"))
             .field("withheld", &self.withheld)
+            .field("installation", &self.installation)
             .finish()
     }
 }
@@ -118,13 +123,14 @@ const TOKEN: &str = "WF_AGENTS_GITHUB_TOKEN";
 const GITHUB: &str = "github.com";
 
 impl GitHub<Gh> {
-    /// GitHub as the installation's settings and the project's declaration say, reached with `gh` and the engine's
-    /// token, which `env` gives from the engine's environment; `gh` keeps its configuration in the data directory, which is an absolute path. Says
-    /// why where the token is not there.
+    /// GitHub as the installation's settings and the project's declaration say, for the installation of this id,
+    /// reached with `gh` and the engine's token, which `env` gives from the engine's environment; `gh` keeps its
+    /// configuration in the data directory, which is an absolute path. Says why where the token is not there.
     pub fn from_settings(
         github: &settings::GitHub,
         project: &Project,
         data: &Path,
+        installation: Uuid,
         env: impl Fn(&str) -> Option<String>,
         ci: Option<flow::agents::Ci>,
         tool: Option<flow::agents::Tool>,
@@ -150,6 +156,7 @@ impl GitHub<Gh> {
             fast_poll: FAST_POLL,
             token: Some(token.clone()),
             withheld: withheld(data, &project.repo, env("HOME")),
+            installation,
         };
         let gh = Gh::new(&github.gh, &github.repository, &token, &dir);
         Ok(GitHub::new(gh, project.clone(), config))
@@ -334,10 +341,21 @@ impl<A: Api> Host for GitHub<A> {
         git::git(&self.project.repo, &["rev-parse", "--verify", &tracking]).await
     }
 
-    async fn verdict(&self, branch: &Branch<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+    async fn verdict(
+        &self,
+        branch: &Branch<'_>,
+        commit: &str,
+        asking: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<Verdict>, String> {
         self.push(branch, commit).await?;
         self.pull_request(branch).await?;
-        self.judge_full(commit, stop).await
+        let request = fast::Request {
+            work: branch.work,
+            commit,
+            asking,
+        };
+        self.judge_full(request, stop).await
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
@@ -424,7 +442,13 @@ impl<A: Api> Host for GitHub<A> {
         kept_main(&self.config.remote, &self.project.main)
     }
 
-    async fn run_tests(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
+    async fn run_tests(
+        &self,
+        branch: &Branch<'_>,
+        named: &Named,
+        asking: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<String>, String> {
         // What the check before the merge refuses, this refuses the same way: the repository's configuration, a
         // worktree off the work's branch, and in the push, connections sent elsewhere and submodules.
         let place = branch.place;
@@ -459,7 +483,12 @@ impl<A: Api> Host for GitHub<A> {
         }
         self.push(branch, &commit).await?;
         self.pull_request(branch).await?;
-        self.run_role(role, &commit, named, stop).await
+        let request = fast::Request {
+            work: branch.work,
+            commit: &commit,
+            asking,
+        };
+        self.run_role(role, request, named, stop).await
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
