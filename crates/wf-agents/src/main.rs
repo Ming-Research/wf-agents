@@ -1007,6 +1007,10 @@ fn a_script_alone_stands_in_and_beside_the_settings_gives_the_parts() {
         With::Settings(s, None) if s == installed
     ));
     assert!(matches!(
+        carried_by(data, None, file("s.toml")),
+        With::Settings(s, None) if s == Path::new("s.toml")
+    ));
+    assert!(matches!(
         carried_by(data, file("p.toml"), file("s.toml")),
         With::Settings(s, Some(p)) if s == Path::new("s.toml") && p == Path::new("p.toml")
     ));

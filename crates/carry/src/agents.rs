@@ -31,7 +31,7 @@
 //! is what the context manager fills into that session (crate `context`): what the session lacks, or, where the
 //! program begins the session under its id, everything from the top, and what each try's message fills is said to the
 //! loop before the program is given it, so that it is recorded; a round a script of parts gives a part to play is
-//! given it there, the round's entry found as the stand-ins find theirs (design document `testing`, 12). A session
+//! given it there, as the script finds it (`service::Script::part`, design document `testing`, 12). A session
 //! the program no longer has is begun again under its id, and that is said to the loop at once, so that it is
 //! recorded with why. Where the program compacts the session during the round, a hook it is given marks the
 //! compaction, which the round counts among what it took and says to the loop as the session reopened, and gives the

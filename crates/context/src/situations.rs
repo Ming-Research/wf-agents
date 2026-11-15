@@ -503,9 +503,9 @@ impl<'a> Reach<'a> {
         };
         let as_written = Settings::default();
         let texts = |cell: &CellSpec| kept(self.flow, self.words, cell, Values::Slots(&as_written));
-        let (theirs, kept) = (texts(before), self.kept());
+        let (theirs, real) = (texts(before), self.kept());
         let alike = (texts(self.cell).into_iter())
-            .filter(|part| theirs.contains(part) && kept.contains(&part.0))
+            .filter(|part| theirs.contains(part) && real.contains(&part.0))
             .map(|(part, _)| part)
             .collect();
         let place = self.flow.flow.place(&before.id);

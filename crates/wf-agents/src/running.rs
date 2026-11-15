@@ -497,8 +497,8 @@ pub fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>
                 }
                 parts
             });
-            match (settings, beside, parts) {
-                (Ok(settings), Ok(beside), parts) if !matches!(parts, Some(None)) => {
+            match (settings, beside) {
+                (Ok(settings), Ok(beside)) => {
                     // What the real acts need of a flow and of their words, checked once the flows compiled; what the
                     // system prompts of its lines are made of, its texts' settings with their values and its places
                     // filled; and the project's files every system prompt holds.
@@ -509,10 +509,16 @@ pub fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>
                     for warning in settings.warnings() {
                         eprintln!("{warning}");
                     }
-                    let parts = parts.flatten().map(Box::new);
-                    Some(Read::Settings(Box::new(settings), Box::new(beside), parts))
+                    match parts {
+                        Some(None) => None,
+                        parts => Some(Read::Settings(
+                            Box::new(settings),
+                            Box::new(beside),
+                            parts.flatten().map(Box::new),
+                        )),
+                    }
                 }
-                (settings, beside, _) => {
+                (settings, beside) => {
                     for why in [settings.err(), beside.err()].into_iter().flatten() {
                         eprintln!("{why}");
                     }
