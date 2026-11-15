@@ -2,7 +2,9 @@
 //!
 //! Each try of a round keeps the message it was told and what the command line printed, in `rounds/<work>` in the
 //! data directory: `<run>-<round>.message.md` and `.stream.jsonl` for its first try, `.message.2.md` and
-//! `.stream.2.jsonl` for the next, and so on; the result is the stream's last line but for the command line's own
+//! `.stream.2.jsonl` for the next, and so on. A try told what an earlier try of its round was told keeps its message
+//! as a second name of that try's file, read as any is; a message file is therefore never written over, which would
+//! change the other try's too. The result is the stream's last line but for the command line's own
 //! `system` lines, such as a `task_summary`, once it printed one. A try kept before the command line was run with a
 //! stream kept its result alone, in `.result.json` (`.result.2.json` for the next try, and so on), which is read for
 //! it. Other files there are not read here. What a try ran on is in the work's records, not here; a try kept before
