@@ -796,6 +796,8 @@ pub struct SentBackFaults {
     pub not_a_test: String,
     /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
     pub unanswered: String,
+    /// `{block}` a block that a return writes so that its cell no longer applies while the cell still waits.
+    pub skips_its_wait: String,
 }
 
 /// Where a field's words go in the part on returning.

@@ -40,6 +40,7 @@ fn answer(dealt_with: &[&str], writes: Vec<Write>, read: &[&str], questions: Vec
             waits: false,
             questions,
             read: read.iter().map(|&b| b.into()).collect(),
+            skips: Vec::new(),
         }),
     }
 }

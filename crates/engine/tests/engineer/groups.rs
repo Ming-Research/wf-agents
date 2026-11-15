@@ -151,6 +151,7 @@ fn each_trigger_of_each_cell_named_as_dealt_with_is_taken_for_any_block_it_stand
                             waits: false,
                             questions: Vec::new(),
                             read: Vec::new(),
+                            skips: Vec::new(),
                         }),
                     }],
                     ..Log::default()

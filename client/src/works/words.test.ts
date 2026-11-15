@@ -297,6 +297,9 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'unanswered', block: 'check' })).toBe(
       'it dealt with check, and committed nothing and asked nothing',
     );
+    expect(unmetWords({ kind: 'skipsItsWait', block: 'deep_needed' })).toBe(
+      'it wrote deep_needed so that its cell no longer runs, while the cell waits there',
+    );
   });
 });
 
