@@ -19,6 +19,8 @@
 //!
 //! [`Event::SaidToRound`]: crate::Event::SaidToRound
 
+use std::borrow::Cow;
+
 use decide::questions::questions;
 use decide::{BlockId, CellId, Decision, Outsider, PutIn, RunId, Seq, Written, decide};
 use flow::agents::fill;
@@ -286,12 +288,12 @@ fn write(work: &mut Work, block: &BlockId, content: String, said_to: Option<&Cel
 /// What a cell's run writes of a block it hands in, as its content: of a record of what is said, which the owner's
 /// words write ([`flow::WORDS`]), the cell's answer as its entry, in the words of that datum's `reply`; of any other
 /// block, what it handed in. The cell is the one whose run writes it.
-pub(crate) fn entry(flow: &Compiled, block: &BlockId, content: String) -> String {
+pub(crate) fn entry<'a>(flow: &Compiled, block: &BlockId, content: &'a str) -> Cow<'a, str> {
     match flow.blocks.get(block) {
-        Some(record) if record.writers.outside.as_deref() == Some(flow::WORDS) => fill(
+        Some(record) if record.writers.outside.as_deref() == Some(flow::WORDS) => Cow::Owned(fill(
             record.writes.get(REPLY).unwrap_or_default(),
-            &[("reply", content.as_str())],
-        ),
-        _ => content,
+            &[("reply", content)],
+        )),
+        _ => Cow::Borrowed(content),
     }
 }

@@ -913,7 +913,11 @@ pub(crate) fn fill_empty(db: &Connection) -> Result<(), Fault> {
     while let Some(row) = rows.next()? {
         let (work, at, block): (i64, i64, String) = (row.get(0)?, row.get(1)?, row.get(2)?);
         let value: Option<String> = row.get(5)?;
-        let content: String = row.get::<_, Option<String>>(7)?.unwrap_or_default();
+        let content: String = row.get::<_, Option<String>>(7)?.ok_or_else(|| {
+            Fault::Database(format!(
+                "migration 18: the content of the version of {block} written at {at} of work {work} is missing"
+            ))
+        })?;
         db.execute(
             "INSERT INTO written (work, at, block, writer, matters, value, said_to, empty) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -940,9 +944,16 @@ pub(crate) fn fill_empty(db: &Connection) -> Result<(), Fault> {
     while let Some(row) = rows.next()? {
         let (work, run, n, block): (i64, i64, i64, String) = (row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?);
         let value: Option<String> = row.get(5)?;
-        let Some(at) = row.get::<_, Option<i64>>(6)? else { continue };
-        let _ = at;
-        let content: String = row.get::<_, Option<String>>(7)?.unwrap_or_default();
+        let at: i64 = row.get::<_, Option<i64>>(6)?.ok_or_else(|| {
+            Fault::Database(format!(
+                "migration 18: the write of {block} by run {run} of work {work} has no finished run to take its place from"
+            ))
+        })?;
+        let content: String = row.get::<_, Option<String>>(7)?.ok_or_else(|| {
+            Fault::Database(format!(
+                "migration 18: the content of the version of {block} written by run {run} at {at} of work {work} is missing"
+            ))
+        })?;
         db.execute(
             "INSERT INTO writes (work, run, n, block, matters, value, empty) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![

@@ -820,7 +820,7 @@ fn finish(
     }
     let at = work.tick();
     for h in handed {
-        let content = spoken::entry(flow, &h.block, h.content);
+        let content = spoken::entry(flow, &h.block, &h.content).into_owned();
         work.contents.insert((h.block, at), content);
     }
     // What the round committed, as the carrier read it of the branch as the round ended, is among what the run writes
@@ -925,7 +925,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
-                empty: decide::holds_nothing(h.value.as_deref(), &h.content),
+                empty: decide::holds_nothing(h.value.as_deref(), &spoken::entry(flow, &h.block, &h.content)),
             })
             .collect()
     };

@@ -11,7 +11,7 @@ generalise-at-the-second-use).
 
 ### decision a-migration-carries-each-row-whole
 A migration that gives the rows kept before a value, such as a column made from what the rows' content says, makes the table anew and carries each row across whole with the value, in the same transaction, then takes the old table out; it never changes a row where it stands. The value is worked out by the code the engine uses as it writes the row, so that the two cannot disagree.
-Why: An `UPDATE` of the rows was tried and refused: the store says nothing that changes a row, and a test reads the code and the migrations for it (decision tables-only-added-to). A `DROP TABLE` of the copy put aside takes out a table the migration made itself, which is no row of a work taken out. Without this, the next migration of the kind is written as an `UPDATE` again.
+Why: Changing a row where it stands is turned down: the store says nothing that changes a row, and a test reads the code and the migrations for it (decision tables-only-added-to). The old table is taken out only once every row of it has been carried whole into the new one, in the same transaction.
 
 ### decision a-message-told-again-is-kept-under-a-second-name
 What a later try of a round is told, where an earlier try of the round was told the same, is kept as a second name of

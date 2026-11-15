@@ -75,8 +75,7 @@ impl Migration {
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
-/// what it does. A migration is SQL, and where the SQL cannot do what it needs, a step of the store that runs after it,
-/// in the same transaction.
+/// what it does.
 const MIGRATIONS: &[Migration] = &[
     Migration::sql(include_str!(
         "../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"
@@ -299,7 +298,12 @@ impl Store {
 /// Brings a database of version `from` of the schema to version `to`, by the migrations between, each with its step.
 /// A test makes a database of an earlier version by it.
 pub fn migrate(db: &Connection, from: u32, to: u32) -> Result<(), Fault> {
-    for migration in &MIGRATIONS[from as usize - 1..to as usize - 1] {
+    let between = (from as usize)
+        .checked_sub(1)
+        .zip((to as usize).checked_sub(1))
+        .and_then(|(start, end)| MIGRATIONS.get(start..end))
+        .ok_or_else(|| Fault::Database(format!("there are no migrations from version {from} to version {to}")))?;
+    for migration in between {
         db.execute_batch(migration.sql)?;
         if let Some(then) = migration.then {
             then(db)?;
