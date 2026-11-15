@@ -133,9 +133,13 @@ pub struct PausedWords {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OwnerWords {
+    /// A sender of the cell's sent it back as often as the flow lets one: `{by}`, said as `sender` or `engine`.
     pub limit: String,
-    pub calls: String,
-    pub returns: String,
+    /// A cell after it, `{cell}`, as a sender.
+    pub sender: String,
+    /// The engine, as the sender of the returns it sent back.
+    pub engine: String,
+    /// A run kept from before at its limit of calls made, which no run reaches now.
     pub made: String,
     pub ruling: String,
     /// A question that stands without the owner's answer, which a cell's precondition waits for.

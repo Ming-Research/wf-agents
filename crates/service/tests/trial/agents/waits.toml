@@ -18,18 +18,19 @@ let_go = "Letting go of what the work held failed. {why}"
 
 # Why a work waits on the owner, by what it waits for, each said beside the cell the work waits at, which none names;
 # a question put to the owner is said by what it asks. Filled in a run: `{cell}` the cell by its id, given to each;
-# `limit` and `calls`, the cell's last `{runs}` runs in a row, each for what a cell after it wrote, or each asking for
-# calls and dealing with nothing; `returns` and `made`, its run at its limit of `{sent_back}` returns sent back or of
-# `{made}` calls made; `ruling`, a block the owner may write, `{block}`, keeping the cell's `requires` key `{key}` from
-# holding; `answer`, why a cell's precondition waits for a question that stands without the owner's answer, said on
-# its card alone, under what it asks; `paused`, the engine's pause, `{why}` its reason, and `no_reason` where it gave
-# none; `held`, the pause of every work the engine set as it started again; `agents`, the agents' command line that
-# cannot run, `{why}` what its check or its round found, and `mend`, what the owner does about it, which the page has
-# no control for.
+# `limit`, one of the cell's senders that sent it back as often as the flow's `again` lets one since its counts last
+# started anew, `{by}` the sender, `sender` with `{cell}` a cell after it for what it wrote, or `engine` for the
+# returns the engine sent back, and `{times}` how often; `made`, a run kept from before at its limit of `{made}`
+# calls made, which no run reaches now; `ruling`, a block the owner may write, `{block}`, keeping the cell's
+# `requires` key `{key}` from holding; `answer`, why a cell's precondition waits for a question that stands without
+# the owner's answer, said on its card alone, under what it asks; `paused`, the engine's pause, `{why}` its reason,
+# and `no_reason` where it gave none; `held`, the pause of every work the engine set as it started again; `agents`,
+# the agents' command line that cannot run, `{why}` what its check or its round found, and `mend`, what the owner does
+# about it, which the page has no control for.
 [owner]
-limit = "The cell ran {runs} times in a row for what a cell after it wrote, its limit."
-calls = "The cell ran {runs} times in a row asking for calls and dealing with nothing, its limit."
-returns = "The cell's run had {sent_back} returns sent back, its limit."
+limit = "{by} sent the cell back {times} times since its counts last started anew, its limit."
+sender = "`{cell}`"
+engine = "The engine"
 made = "The cell's run made {made} calls, its limit."
 ruling = "`{key}` does not hold, as `{block}` says, and the cell requires it."
 answer = "The merge waits for this answer."

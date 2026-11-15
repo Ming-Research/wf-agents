@@ -171,10 +171,12 @@ fn at_cell(
         Waited::Call { call, on } => match kept.work.calls.get(call) {
             Some(Call::AtLimit(limit)) => {
                 let why = match limit {
+                    // The engine is one of the cell's senders, for the returns it sent back.
                     Limit::Returns { sent_back } => {
-                        let sent_back = sent_back.to_string();
-                        fill(&words.returns, &[("cell", cell), ("sent_back", sent_back.as_str())])
+                        let times = sent_back.to_string();
+                        fill(&words.limit, &[("by", &words.engine), ("times", &times)])
                     }
+                    // Of a run kept from before: no run reaches it now.
                     Limit::Calls { made } => {
                         let made = made.to_string();
                         fill(&words.made, &[("cell", cell), ("made", made.as_str())])
@@ -220,9 +222,11 @@ fn at_cell(
                 }
             }
         }
-        Waited::Limit { runs, .. } => {
-            let runs = runs.to_string();
-            let why = fill(&words.limit, &[("cell", cell), ("runs", runs.as_str())]);
+        // A cell after it, as one of its senders, for what it wrote.
+        Waited::Limit { by, runs } => {
+            let sender = fill(&words.sender, &[("cell", by.as_str())]);
+            let times = runs.to_string();
+            let why = fill(&words.limit, &[("by", &sender), ("times", &times)]);
             push(waits, LIMIT.to_string(), why, Ends::LetGo { cell: at.clone() });
         }
         Waited::Answer { question: name } => {
