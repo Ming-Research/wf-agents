@@ -61,7 +61,9 @@
 //!
 //! A round that does its cell's work may say what it committed (`commits`): each block of the work's branch that a
 //! source outside the work writes, such as its head, with what its carrier reads it to say as the round ends, handed in
-//! beside its blocks.
+//! beside its blocks. A round the script says nothing of commits where its cell's line may change the work and it hands
+//! in a block an act of the engine's describes the work by: beside its blocks it hands in a version of the work's head,
+//! saying its cell, run and round, as an agent that wrote the code would have committed it.
 //!
 //! ```toml
 //! [[flows.engineer.rounds]]
@@ -109,6 +111,9 @@ pub const CACHED_TOKENS: u64 = 0;
 pub const OUTPUT_TOKENS: u64 = 100;
 /// How long a tool takes where the script says nothing, in milliseconds.
 pub const TOOL_MS: u64 = 100;
+/// The source outside the work that writes the block of the work's head, as the real carriers read it of the branch.
+const HEAD: &str = "head";
+
 /// How many rounds of agents go on at once where the script says nothing: as many as the installation's sample
 /// settings give.
 pub const SLOTS: usize = 2;
@@ -426,6 +431,7 @@ impl Script {
             let choice = flow.blocks.get(&BlockId::from(block)).and_then(|b| b.values.as_ref());
             choice.and_then(|values| named.or_else(|| values.first().cloned()))
         };
+        let mut said_nothing = false;
         let mut came = match entry {
             Some(RoundScript {
                 fails: Some(why),
@@ -457,6 +463,7 @@ impl Script {
                     .collect(),
             ),
             _ => {
+                said_nothing = true;
                 let place = flow.flow.place(&cell.id);
                 let outputs = place.map_or(&[][..], |place| &flow.flow.cells()[place].outputs);
                 // An output an earlier cell reads is a way back, an opinion on what that cell did: an agent writes one
@@ -488,15 +495,32 @@ impl Script {
             came.said.observations = observations;
         }
         came.said.reply = entry.and_then(|entry| entry.reply.clone());
-        // What it committed is read of the branch as it ends, beside the blocks it hands in.
-        came.read = (entry.and_then(|entry| entry.commits.as_ref()).into_iter().flatten())
-            .map(|commit| Handed {
-                block: BlockId(commit.block.clone()),
-                content: commit.content.clone(),
-                matters: true,
-                value: None,
-            })
-            .collect();
+        // What it committed is read of the branch as it ends, beside the blocks it hands in: what its entry says, or,
+        // of a round the script says nothing of, the work's head where it hands in what an act describes the work by.
+        let read = |block: BlockId, content: String| Handed {
+            block,
+            content,
+            matters: true,
+            value: None,
+        };
+        came.read = match entry.and_then(|entry| entry.commits.as_ref()) {
+            Some(commits) => (commits.iter())
+                .map(|commit| read(BlockId(commit.block.clone()), commit.content.clone()))
+                .collect(),
+            None if said_nothing => {
+                let describes = |block: &BlockId| {
+                    (flow.cells.iter()).any(|c| c.kind == Kind::Engine && c.describes.contains(block))
+                };
+                let commits =
+                    cell.kind == Kind::Agent && !cell.reads_only && came.writes.iter().any(|h| describes(&h.block));
+                let head = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(HEAD));
+                let said = format!("The head as {} committed it in its run {run}, round {number}.", cell.id);
+                (head.filter(|_| commits).into_iter())
+                    .map(|(block, _)| read(block.clone(), said.clone()))
+                    .collect()
+            }
+            None => Vec::new(),
+        };
         Planned {
             ends: Ends::Came(came),
             spent,

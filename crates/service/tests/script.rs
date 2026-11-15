@@ -178,6 +178,29 @@ fn a_round_hands_in_beside_its_blocks_what_its_entry_says_it_committed() {
 }
 
 #[test]
+fn a_round_the_script_says_nothing_of_commits_where_it_hands_in_what_an_act_describes_the_work_by() {
+    let flow = engineer();
+    let Ends::Came(implemented) = Script::default()
+        .round(&flow, cell(&flow, "I1"), 2, 1, &BTreeMap::new())
+        .ends
+    else {
+        panic!("the round hands in");
+    };
+    let head = "The head as I1 committed it in its run 2, round 1.";
+    assert_eq!(implemented.read, [handed("head", head, None)]);
+    // The review only reads, and the research hands in no code.
+    for of in ["T1", "R1"] {
+        let Ends::Came(came) = Script::default()
+            .round(&flow, cell(&flow, of), 1, 1, &BTreeMap::new())
+            .ends
+        else {
+            panic!("the round hands in");
+        };
+        assert!(came.read.is_empty(), "{of}: {:?}", came.read);
+    }
+}
+
+#[test]
 fn a_script_with_a_field_it_does_not_know_is_not_read() {
     assert!(Script::read("[took]\nseconds = 3\n").is_err());
     assert!(

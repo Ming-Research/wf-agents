@@ -71,24 +71,23 @@
 //! own refusal stands. The content continuation is then tried from where the work must go back.
 //!
 //! Unless the work was cancelled or merged, the content continuation follows (`Content`): every round of an agent or
-//! act hands in what its cell must write to go forward and says nothing more, an agent's round that deals with what an
-//! act after its cell wrote committing its fix besides, as its return must. Each verdict is written as a value other
-//! than its refusal; each choice a precondition of kind `all` reads, as the value it looks for (the check says yes);
-//! every other choice as it last was, or as the last of its declared values (no) where it was never written. No opinion
-//! for a cell before it is written,
-//! unless the cell must write it each time, and every other block it may write is written, mattering only where it
-//! was never written before, or where the run runs because an opinion addressed to its cell changed (it fixes what it
-//! was told), or where the cell is an act of the engine's, whose writes always matter; so every hand-in has each block
-//! its cell must write, and none is sent back. Tools answer, the
-//! owner answers every question and lets every run go on at its limits; where nothing is to be done and the work waits,
-//! the owner resumes a paused work, lets the cell it waits at go on at its limit, and makes a precondition it waits on
-//! hold where a person or the outside can: writes a verdict whose refusal stands as a value that is not, and the
-//! outside writes what the first cell's precondition looks for. Where the precondition reads a choice that only cells
-//! write (the check's), the work is stalled: the owner speaks to the line of the cell that writes it, where the
-//! owner's words run that cell, or, where they do not (the check is spoken to by no one), of the nearest cell before it
-//! that they run and that applies (the implementation, of the engineer's line), so that the cell runs again, or the
-//! work goes on from the cell spoken to until it does; in the continuation the check then says yes. Among the random
-//! steps, the owner now and then speaks to a line.
+//! act hands in what its cell must write to go forward and says nothing more, an agent's round on a line that may
+//! change the work committing besides where it fixes what it was told, as a return to what an act wrote must. Each
+//! verdict is written as a value other than its refusal; each choice a precondition of kind `all` reads, as the value
+//! it looks for (the check says yes); every other choice as it last was, or as the last of its declared values (no)
+//! where it was never written. No opinion for a cell before it is written, unless the cell must write it each time, and
+//! every other block it may write is written, mattering only where it was never written before, or where the run runs
+//! because an opinion addressed to its cell changed (it fixes what it was told), or where the cell is an act of the
+//! engine's, whose writes always matter; so every hand-in has each block its cell must write, and none is sent back.
+//! Tools answer, the owner answers every question and lets every run go on at its limits; where nothing is to be done
+//! and the work waits, the owner resumes a paused work, lets the cell it waits at go on at its limit, and makes a
+//! precondition it waits on hold where a person or the outside can: writes a verdict whose refusal stands as a value
+//! that is not, and the outside writes what the first cell's precondition looks for. Where the precondition reads a
+//! choice that only cells write (the check's), the work is stalled: the owner speaks to the line of the cell that
+//! writes it, where the owner's words run that cell, or, where they do not (the check is spoken to by no one), of the
+//! nearest cell before it that they run and that applies (the implementation, of the engineer's line), so that the cell
+//! runs again, or the work goes on from the cell spoken to until it does; in the continuation the check then says yes.
+//! Among the random steps, the owner now and then speaks to a line.
 //!
 //! Every situation the properties are about is counted over all histories (`required`), and the test fails if one was
 //! never reached. A failing case prints its seed and its steps; `one_history(&flow, seed, ..)` replays it.
@@ -1022,8 +1021,8 @@ struct Content {
     /// The value each choice is written with.
     choices: BTreeMap<BlockId, String>,
     roles: Roles,
-    /// The work's branch, which a round of the continuation commits to only as it deals with what an act after its cell
-    /// wrote, and which the carriers read as before.
+    /// The work's branch, which a round of the continuation commits to only as it fixes what it was told, and which the
+    /// carriers read as before.
     branch: Shared,
 }
 
@@ -1068,8 +1067,9 @@ impl Part for Content {
         gate(d, &self.roles, &self.branch, run, place(&d.flow, cell))
     }
 
-    /// What its cell must write to go forward, the branch read as the round ends; the check passes. An agent's round
-    /// that deals with what an act after its cell wrote commits its fix.
+    /// What its cell must write to go forward, the branch read as the round ends; the check passes. An agent's round on
+    /// a line that may change the work commits its fix where it fixes what it was told: an opinion addressed to its
+    /// cell, the owner's words among them, or what an act after its cell wrote.
     fn returns(&mut self, d: &mut Driver, run: RunId, cell: &str) -> Came {
         let i = place(&d.flow, cell);
         let mut came = self.forward(d, run, cell);
@@ -1077,7 +1077,7 @@ impl Part for Content {
             passes_at(&self.branch, true);
         }
         let spec = &d.flow.cells[i];
-        if spec.kind == Kind::Agent && !spec.reads_only && answers_an_act(d, run, i) {
+        if spec.kind == Kind::Agent && !spec.reads_only && (answering(d, run, i) || answers_an_act(d, run, i)) {
             commit(&self.branch);
         }
         round_end(d, &self.roles, self.branch.get(), i, &mut came);
@@ -1097,11 +1097,7 @@ impl Content {
         // An act of the engine's says every write matters, as the real acts do; a run for an opinion addressed to its
         // cell fixes what it was told, and says its writes matter.
         let act = d.flow.cells[i].kind == Kind::Engine;
-        let started = (d.work.records.started.iter())
-            .find(|s| s.run == run)
-            .expect("the run started");
-        let answering =
-            (started.because.iter()).any(|c| matches!(c, Cause::Changed { block, .. } if addressed(&d.flow, block, i)));
+        let answering = answering(d, run, i);
         let handed_in = (d.flow.flow.cells()[i].outputs.iter())
             .filter_map(|b| {
                 if d.flow.blocks[b].values.is_some() {
@@ -1121,20 +1117,40 @@ impl Content {
     }
 }
 
+/// Whether the run of the cell at this place runs for an opinion addressed to its cell, and so fixes what it was told.
+fn answering(d: &Driver, run: RunId, i: usize) -> bool {
+    let started = (d.work.records.started.iter())
+        .find(|s| s.run == run)
+        .expect("the run started");
+    (started.because.iter()).any(|c| matches!(c, Cause::Changed { block, .. } if addressed(&d.flow, block, i)))
+}
+
+/// How many cells write the block: those whose runs hand it in, or, of the work's head, which a source outside the work
+/// writes, the agent cells on lines that may change the work, whose rounds commit it.
+fn writers(d: &Driver, b: &BlockId) -> u64 {
+    let block = &d.flow.blocks[b];
+    if block.writers.outside.as_deref() == Some(HEAD) {
+        let commits = |spec: &&flow::CellSpec| spec.kind == Kind::Agent && !spec.reads_only;
+        return d.flow.cells.iter().filter(commits).count() as u64;
+    }
+    block.writers.cells.len() as u64
+}
+
 /// How many steps the content continuation may take before the work merges.
 ///
-/// In the continuation every round hands in what finishes its run, and nothing is written while a round is under
-/// way, so a run begun in it has one round and is never abandoned. A run that finishes saw what it writes over, its
-/// run being stale otherwise. Every choice is written with one value, the one the owner or the outside also writes
-/// where a precondition waits on it, so it changes its meaning at most once, and the conditions, which read choices,
-/// come out the same throughout. Prose changes its meaning at most `2 + 2 w` times, `w` its writing cells: its first
-/// write; each writer's runs for an opinion addressed to it, which fix and so matter, at most two (one for the opinions
-/// that had changed when the continuation began, one for the owner's word where the work waits on what only that cell
-/// writes: nothing else writes an opinion in the continuation, and a must-write opinion is handed in as it stands); and
-/// one write by the owner or the outside. Acts' writes matter, but every act's prose here is an opinion or read by no
-/// cell, and the acts run as often as any cell. So after one run for whatever had changed when the continuation
-/// began, a cell runs again only for a change of one of its inputs, and the run open as the continuation began may be
-/// abandoned besides: at most `2 + sum of (2 + 2 w)` over its inputs, each taking at most `PER_RUN` steps. Besides
+/// In the continuation every round hands in what finishes its run, and nothing is written while a round is under way,
+/// so a run begun in it has one round and is never abandoned. A run that finishes saw what it writes over, its run
+/// being stale otherwise. Every choice is written with one value, the one the owner or the outside also writes where a
+/// precondition waits on it, so it changes its meaning at most once, and the conditions, which read choices, come out
+/// the same throughout. Prose changes its meaning at most `2 + 2 w` times, `w` its writing cells: its first write; each
+/// writer's runs for an opinion addressed to it, which fix and so matter, at most two (one for the opinions that had
+/// changed when the continuation began, one for the owner's word where the work waits on what only that cell writes:
+/// nothing else writes an opinion in the continuation, and a must-write opinion is handed in as it stands); and one
+/// write by the owner or the outside. Acts' writes matter, but every act's prose here is an opinion or read by no cell,
+/// and the acts run as often as any cell. So after one run for whatever had changed when the continuation began, a cell
+/// runs again only for a change of one of its inputs, and the run open as the continuation began may be abandoned
+/// besides: at most `2 + sum of (2 + 2 w)` over its inputs, each taking at most `PER_RUN` steps. The work's head, which
+/// a run commits where it fixes what it was told, counts as its writers the cells whose rounds may commit. Besides
 /// those, the driver does once what it held as the continuation began, the owner resumes the work once, and the owner
 /// or the outside writes each block a named test reads at most once. A block a named test reads that only cells write
 /// is not written by the owner but asked for: the owner writes once in an opinion for each cell that writes it, which
@@ -1143,7 +1159,7 @@ impl Content {
 /// runs do not enter: the owner lets every cell go on.
 fn content_bound(d: &Driver) -> u64 {
     let flow = &d.flow.flow;
-    let changes = |b: &BlockId| 2 + 2 * d.flow.blocks[b].writers.cells.len() as u64;
+    let changes = |b: &BlockId| 2 + 2 * writers(d, b);
     let runs: u64 = (flow.cells().iter())
         .map(|c| 2 + c.runs_on.iter().map(changes).sum::<u64>())
         .sum();
@@ -1158,12 +1174,12 @@ fn content_bound(d: &Driver) -> u64 {
 
 /// The owner's few words to a cell, where the key reads a block only cells write: to the line of a cell that writes it
 /// that the owner's words run and that applies, so that the cell runs again and writes the block anew; where that cell
-/// is none, to the line of the nearest cell before it that is one and writes a block the writer runs on, whose run,
-/// answering the owner, writes it anew, so that the writer runs again. A cell spoken to that writes nothing the writer
-/// runs on would run again and leave the work where it was. Where no cell the owner's words run has run yet, so that no
-/// line has reached one, the owner writes what the item asks for, the first block only people write that runs a cell,
-/// which begins the lines again; none where no such block is either, or where such a cell ran and the engine still
-/// gives the words to none that would move the work.
+/// is none, to the line of the nearest cell before it that is one and writes a block the writer runs on, or commits the
+/// work's head the writer runs on, whose run, answering the owner, writes it anew, so that the writer runs again. A
+/// cell spoken to that writes nothing the writer runs on would run again and leave the work where it was. Where no cell
+/// the owner's words run has run yet, so that no line has reached one, the owner writes what the item asks for, the
+/// first block only people write that runs a cell, which begins the lines again; none where no such block is either, or
+/// where such a cell ran and the engine still gives the words to none that would move the work.
 fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
     let only_cells = |b: &BlockId| {
         let w = &d.flow.blocks[b].writers;
@@ -1179,7 +1195,14 @@ fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
     };
     // Whether the cell at `j` runs the writer at `w` again by what it writes: it is the writer, or writes a block the
     // writer runs on.
-    let leads_to = |j: usize, w: usize| j == w || cells[j].outputs.iter().any(|b| cells[w].runs_on.contains(b));
+    let head = (d.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(HEAD));
+    let commits_to = |j: usize, w: usize| {
+        let spec = &d.flow.cells[j];
+        spec.kind == Kind::Agent && !spec.reads_only && head.is_some_and(|(h, _)| cells[w].runs_on.contains(h))
+    };
+    let leads_to = |j: usize, w: usize| {
+        j == w || cells[j].outputs.iter().any(|b| cells[w].runs_on.contains(b)) || commits_to(j, w)
+    };
     (key_reads(&d.flow, key).into_iter().filter(|b| only_cells(b)))
         .flat_map(|b| &d.flow.blocks[b].writers.cells)
         .filter_map(|c| d.flow.flow.place(c))
@@ -1504,8 +1527,8 @@ impl History {
 
     /// What the owner or the outside does in the content continuation where nothing is to be done: of a stalled work,
     /// asks the cell that writes what it waits for to write it again, which it says; resumes the work; lets the cell it
-    /// waits at go on at its limit, or makes a precondition it waits on hold, or asks the cell that writes what it reads
-    /// to write it again, which it says; none where none of these moves it on.
+    /// waits at go on at its limit, or makes a precondition it waits on hold, or asks the cell that writes what it
+    /// reads to write it again, which it says; none where none of these moves it on.
     fn resolve(&self, decision: &Decision) -> Option<(Event, bool)> {
         if let Decision::Stalled { on, .. } = decision
             && let Some(asked) = on.iter().find_map(|key| ask_a_cell(&self.d, key))
@@ -1614,9 +1637,7 @@ impl History {
         // The bound of a cell's runs `content_bound` rests on.
         let most = |cell: &CellId| {
             let inputs = &flow.cells()[flow.place(cell).expect("a cell")].runs_on;
-            2 + (inputs.iter())
-                .map(|b| 2 + 2 * self.d.flow.blocks[b].writers.cells.len() as u64)
-                .sum::<u64>()
+            2 + (inputs.iter()).map(|b| 2 + 2 * writers(&self.d, b)).sum::<u64>()
         };
         let over: Vec<String> = (self.verdict.runs.iter())
             .filter(|(cell, (_, nothing))| *nothing > most(cell))
@@ -1734,7 +1755,8 @@ type Case = (u64, String, Vec<String>);
 /// before it fails, and two tests side by side would each take the other's.
 static HOOK: Mutex<()> = Mutex::new(());
 
-/// Runs `f` on each seed below `seeds` on as many threads as the machine has cores, and gives the results in seed order.
+/// Runs `f` on each seed below `seeds` on as many threads as the machine has cores, and gives the results in seed
+/// order.
 fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
     let next = std::sync::atomic::AtomicU64::new(0);
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
