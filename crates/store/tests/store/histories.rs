@@ -4,11 +4,11 @@
 //! What a step is, roughly. In the first 0 to 59 steps people act at a step with a chance of one in four; otherwise,
 //! and always once they stop, one of the things the engine gave to be done is done, each with an equal chance: a round
 //! under way ends, handing in blocks (some its cell may not write, some choices with a wrong value), asking for one to
-//! three calls or asking for nothing; a call has its result (one for a person only while people act); a call to be
-//! withdrawn is said to be; a round to be stopped ends. A person's act is a write by a person or the outside, with a
+//! three tools or asking for nothing; a call has its result (the owner's at a limit only while people act); a call to
+//! be withdrawn is said to be; a round to be stopped ends. A person's act is a write by a person or the outside, with a
 //! value or without, one the loop refuses among them; letting a cell go on; a pause or a resume; the owner's word at
-//! the merge, a choice the merge's named test reads, written the other way; or, in one act in fifty, a cancel. After every step the work is saved, and with
-//! a chance of three in ten it is dropped and loaded back.
+//! the merge, a choice the merge's named test reads, written the other way; or, in one act in fifty, a cancel. After
+//! every step the work is saved, and with a chance of three in ten it is dropped and loaded back.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 
@@ -153,19 +153,7 @@ impl History {
             }
             5..=7 => {
                 let n = 1 + self.rng.below(3);
-                let asks = (0..n)
-                    .map(|i| {
-                        if self.rng.chance(70) {
-                            tool(&format!("tool {i}"))
-                        } else {
-                            question(if self.rng.chance(50) {
-                                Who::Owner
-                            } else {
-                                Who::Architect
-                            })
-                        }
-                    })
-                    .collect();
+                let asks = (0..n).map(|i| tool(&format!("tool {i}"))).collect();
                 Came::asks(asks)
             }
             _ => Came::asks(vec![]),
@@ -274,7 +262,7 @@ impl History {
         }
         let doable: Vec<Effect> = (pending(&self.flow, &self.work).into_iter())
             .filter(|e| match e {
-                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
+                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool(_))),
                 _ => true,
             })
             .collect();
