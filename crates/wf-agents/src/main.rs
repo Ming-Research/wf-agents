@@ -837,6 +837,18 @@ fn words(what: &FaultKind, field: &str) -> String {
                 "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
             )
         }
+        F::TriggerNeverRuns {
+            trigger,
+            block,
+            needs,
+            writers,
+        } => {
+            let writers: Vec<String> = writers.iter().map(|(cell, when)| format!("{cell} ({when})")).collect();
+            format!(
+                "the trigger {trigger} stands on {block}, but the cell runs only where {needs}, and each writer of {block} runs only where it cannot: {}; the trigger can never run the cell",
+                writers.join("; ")
+            )
+        }
         F::UnknownDetail { detail } => format!("the engine fills no place named \"{detail}\""),
         F::EngineIsGiven { block } => {
             format!("an engine's cell says how it is given {block}, but it has no session")

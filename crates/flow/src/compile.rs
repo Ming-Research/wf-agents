@@ -423,6 +423,16 @@ pub enum FaultKind {
     /// The cell writes the block, which holds the work's questions ([`QUESTIONS`]), and no block of the source
     /// [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
     AsksAndCannotBeSpokenTo { block: String },
+    /// A trigger of the cell stands on a block that each of its writers, cells only (no person or outside writes it),
+    /// writes only where a block has a value that the cell's own condition rules out, and that block no cell can
+    /// change from the writer's value to the cell's: the trigger could never run the cell. `needs` is the cell's own
+    /// `when` and `requires`, and each writer is a cell with its own, as written.
+    TriggerNeverRuns {
+        trigger: String,
+        block: String,
+        needs: String,
+        writers: Vec<(String, String)>,
+    },
     /// The trigger says what happened by a place the engine does not fill.
     UnknownDetail { detail: String },
     /// An engine cell says how it is given the block: it has no session to keep supplied with it.
@@ -1235,6 +1245,16 @@ fn keys_of(file: &CellFile) -> impl Iterator<Item = (&str, &str)> {
     (file.when.iter().chain(&file.requires)).flat_map(|keys| keys.0.iter().map(|(k, v)| (k.as_str(), v.as_str())))
 }
 
+/// A cell's `when` and `requires` as the file writes them, `key = "value"`, joined by commas; none where it has none.
+fn written(file: &CellFile) -> String {
+    let keys: Vec<String> = keys_of(file).map(|(k, v)| format!("{k} = \"{v}\"")).collect();
+    if keys.is_empty() {
+        "no condition".to_string()
+    } else {
+        keys.join(", ")
+    }
+}
+
 /// The limit as a count, or why it is none.
 fn count(value: i64) -> Result<u32, FaultKind> {
     match u32::try_from(value) {
@@ -1733,6 +1753,9 @@ impl<'a> Definition<'a> {
                 }
             }
         }
+        if takes.form == Form::Triggers && !unread_triggers {
+            found.extend(self.check_dead_triggers(id, file, &takes.triggers));
+        }
         // Whether a block is declared is said once, where the outputs name it.
         found.extend(check_list(&file.must_write, "must_write", |block| {
             let what = FaultKind::NotAnOutput {
@@ -1813,6 +1836,83 @@ impl<'a> Definition<'a> {
             triggers: takes.triggers,
         };
         (cell, spec)
+    }
+
+    /// The faults of the triggers of a cell that can never run it: a trigger whose every block has only cells for
+    /// writers, each of which writes it only where a block has a value that this cell's `when` or `requires` rules out,
+    /// and which no cell can change from that value. A person or the outside writing a block, or a writer with no
+    /// condition on a block the cell reads, makes the trigger live; so does a test, which is not read here, and a block
+    /// that stands only for a trigger, which the engine fires.
+    fn check_dead_triggers(&self, id: &str, file: &CellFile, triggers: &[Trigger]) -> Vec<(String, FaultKind)> {
+        let needs = keys_of(file).filter(|(k, _)| *k != WHEN_TEST).collect::<Vec<_>>();
+        if needs.is_empty() {
+            return Vec::new();
+        }
+        let mut found = Vec::new();
+        for trigger in triggers {
+            let mut writers: Vec<(&str, &CellFile)> = Vec::new();
+            let dead = trigger.blocks().iter().all(|block| {
+                let Some(declared) = self.flow.blocks.get(block.as_str()) else {
+                    return false;
+                };
+                let cells = &self.uses[block.as_str()].writers;
+                if self.trigger_blocks.contains(block.as_str())
+                    || declared.people
+                    || declared.outside.is_some()
+                    || cells.is_empty()
+                {
+                    return false;
+                }
+                cells.iter().all(|&(_, writer)| {
+                    let Some(writer_file) = self.cells.get(writer) else {
+                        return false;
+                    };
+                    let never = writer != id && self.never_alongside(&needs, writer_file);
+                    if never && !writers.iter().any(|&(w, _)| w == writer) {
+                        writers.push((writer, writer_file));
+                    }
+                    never
+                })
+            });
+            let Some(i) = file.triggers.iter().position(|t| *t == trigger.name).filter(|_| dead) else {
+                continue;
+            };
+            let what = FaultKind::TriggerNeverRuns {
+                trigger: trigger.name.clone(),
+                block: trigger.block.to_string(),
+                needs: written(file),
+                writers: writers.iter().map(|&(w, f)| (w.to_string(), written(f))).collect(),
+            };
+            found.push((format!("triggered_by[{i}]"), what));
+        }
+        found
+    }
+
+    /// Whether the cell with these `needs` (its conditions on the values of blocks) can never run where the writer
+    /// does: a block both name has other values in them, and no cell can change it, from the value the writer needs, to
+    /// the one the cell does.
+    fn never_alongside(&self, needs: &[(&str, &str)], writer: &CellFile) -> bool {
+        let theirs: Vec<(&str, &str)> = keys_of(writer).filter(|(k, _)| *k != WHEN_TEST).collect();
+        needs.iter().any(|&(block, ours)| {
+            theirs
+                .iter()
+                .any(|&(other, value)| other == block && value != ours && self.stays(block, value))
+        })
+    }
+
+    /// Whether a block that holds this value when a cell writes under it can never hold another: no person or outside
+    /// writes it, and every cell that writes it runs only where it holds a different value.
+    fn stays(&self, block: &str, value: &str) -> bool {
+        let Some(declared) = self.flow.blocks.get(block) else {
+            return false;
+        };
+        !declared.people
+            && declared.outside.is_none()
+            && self.uses[block].writers.iter().all(|&(_, w)| {
+                self.cells
+                    .get(w)
+                    .is_some_and(|f| keys_of(f).any(|(k, v)| k == block && v != value))
+            })
     }
 
     /// The fault of naming a block that stands only for a trigger where a block of content is named; none of another

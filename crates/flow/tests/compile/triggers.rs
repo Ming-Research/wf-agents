@@ -656,3 +656,66 @@ fn a_file_of_a_trigger_each_line_has_its_own_of_holds_the_name_that_stands_for_t
         [at("../triggers/of_a_line/reopened.toml", "block", line_missing)]
     );
 }
+
+/// The twin laid out one thing to a file with the check run only where the judge chose no, the design written only
+/// where it chose yes, and the judge, the one writer of the choice, running only where it has chosen no.
+fn check_where_no() -> Source {
+    let source = edit(
+        laid_out(),
+        "cells/check.toml",
+        "triggered_by = [\"on_main\", \"on_design\"]",
+        "when = { needs_design = \"no\" }\ntriggered_by = [\"on_main\", \"on_design\"]",
+    );
+    edit(
+        source,
+        "cells/judge.toml",
+        "triggered_by = [\"on_plan\"]",
+        "when = { needs_design = \"no\" }\ntriggered_by = [\"on_plan\"]",
+    )
+}
+
+#[test]
+fn a_trigger_on_a_block_only_a_cell_that_cannot_run_alongside_writes_is_refused() {
+    let what = TriggerNeverRuns {
+        trigger: "on_design".to_string(),
+        block: "design".to_string(),
+        needs: "needs_design = \"no\"".to_string(),
+        writers: vec![("design".to_string(), "needs_design = \"yes\"".to_string())],
+    };
+    assert_eq!(
+        faults(&check_where_no()),
+        [at("cells/check.toml", "triggered_by[1]", what)]
+    );
+}
+
+#[test]
+fn a_trigger_on_a_block_a_writer_that_can_run_alongside_writes_runs_the_cell() {
+    // The design is written where the cell runs too.
+    let source = edit(
+        check_where_no(),
+        "cells/design.toml",
+        "when = { needs_design = \"yes\" }",
+        "when = { needs_design = \"no\" }",
+    );
+    compiled(&source);
+    // Another cell writes the design, with no condition.
+    let source = edit(
+        check_where_no(),
+        "cells/judge.toml",
+        "outputs = [\"needs_design\", \"opinions\"]",
+        "outputs = [\"needs_design\", \"opinions\", \"design\"]",
+    );
+    compiled(&source);
+}
+
+#[test]
+fn a_trigger_stays_live_where_a_cell_can_change_the_choice_its_writer_waits_for() {
+    // The judge runs whatever the choice is, so it may change yes to no after the design was written.
+    let source = edit(
+        check_where_no(),
+        "cells/judge.toml",
+        "when = { needs_design = \"no\" }\n",
+        "",
+    );
+    compiled(&source);
+}
