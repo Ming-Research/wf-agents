@@ -1394,7 +1394,8 @@ fn words(base: &Path) -> Words {
 }
 
 /// What the owner said to a round under way, as its session is given it: in the words of `said` in the message's
-/// file, with what the cell does for the trigger as the part of the triggers says it.
+/// file, the entry set apart from them as a message sets a datum apart, with what the cell does for the trigger as the
+/// part of the triggers says it.
 fn said(beside: &Beside, told: &Telling) -> String {
     let message = &beside.message;
     let part = message.parts.iter().find(|p| p.part == flow::agents::Part::Triggers);
@@ -1403,8 +1404,9 @@ fn said(beside: &Beside, told: &Telling) -> String {
         _ => String::new(),
     };
     let number = told.number.0.to_string();
+    let entry = flow::system::fenced(&told.entry);
     let places = [
-        ("entry", told.entry.as_str()),
+        ("entry", entry.as_str()),
         ("block", told.block.as_str()),
         ("number", number.as_str()),
         ("trigger", told.trigger.as_str()),
@@ -1729,8 +1731,9 @@ mod tests {
     /// trigger as the part of the triggers says it (`do`).
     fn said_at(at: u64, said: &str) -> String {
         format!(
-            "## `discussion`, version {at}, said while this round runs\n\nThe owner:\n\n{said}\n\nIt is new to this \
-             round as `on_spoken`: Deal with it first.\n\nName `on_spoken` in `dealt_with` once you have dealt with it."
+            "## `discussion`, version {at}, said while this round runs\n\n```\nThe owner:\n\n{said}\n```\n\nIt is new \
+             to this round as `on_spoken`: Deal with it first.\n\nName `on_spoken` in `dealt_with` once you have dealt \
+             with it."
         )
     }
 

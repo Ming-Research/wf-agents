@@ -1,33 +1,35 @@
 //! A text of the flow's files as it is sent: what is written as written, and each place filled in a run apart, so that
 //! one text serves the engine, which fills every place, and the page, which shows the places open. The pieces are the
-//! system prompt's ([`flow::system`]), so that the page shows every text sent alike.
+//! system prompt's ([`flow::system`]), so that the page shows every text sent alike, and a text that is not the flow's
+//! words is set apart as the system prompt sets a file of the project apart ([`fenced`]).
 
-pub use flow::system::{Piece, as_written, fill, join, with_slots, written};
+pub use flow::system::{Piece, as_written, fenced, fill, filled, join, with_slots, written};
 
-/// Pieces with the places these give filled, as [`fill`] fills them.
-pub fn filled(pieces: Vec<Piece>, known: &[(&str, &str)]) -> Vec<Piece> {
-    let pieces = (pieces.into_iter())
-        .map(|piece| match &piece {
-            Piece::Slot { name } => match known.iter().find(|(k, _)| k == name) {
-                Some((_, value)) => Piece::Text {
-                    text: value.to_string(),
-                },
-                None => piece,
-            },
-            Piece::Text { .. } => piece,
-        })
-        .collect();
-    join(pieces)
-}
-
-/// Pieces with each place of this name replaced by these pieces, which are not looked into again.
+/// Pieces with each place of this name replaced by these pieces, which are not looked into again; what follows the
+/// place follows them as a place filled with them would be followed ([`flow::agents::after`]).
 pub fn put(pieces: Vec<Piece>, name: &str, with: &[Piece]) -> Vec<Piece> {
-    let mut out = Vec::new();
+    let mut out: Vec<Piece> = Vec::new();
+    // What the place just before was filled with ends in this text, where it was filled with one.
+    let mut ends: Option<String> = None;
     for piece in pieces {
-        match &piece {
-            Piece::Slot { name: n } if n == name => out.extend(with.iter().cloned()),
-            _ => out.push(piece),
+        match piece {
+            Piece::Slot { name: n } if n == name => {
+                out.extend(with.iter().cloned());
+                ends = match with.last() {
+                    Some(Piece::Text { text }) => Some(text.clone()),
+                    _ => None,
+                };
+                continue;
+            }
+            Piece::Text { text } => out.push(Piece::Text {
+                text: ends
+                    .as_deref()
+                    .map_or(text.as_str(), |value| flow::agents::after(value, &text))
+                    .to_string(),
+            }),
+            piece => out.push(piece),
         }
+        ends = None;
     }
     join(out)
 }

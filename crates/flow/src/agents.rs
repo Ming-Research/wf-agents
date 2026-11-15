@@ -482,7 +482,8 @@ pub struct ProjectFile {
 pub struct Session {
     /// Its parts, in the order they stand in it.
     pub parts: Vec<SessionPart>,
-    /// How a file of the project stands in it: `{path}` its path, `{text}` its text.
+    /// How a file of the project stands in it: `{path}` its path, `{text}` its text, set apart in a fence
+    /// ([`crate::system::fenced`]).
     pub heading: String,
 }
 
@@ -1301,28 +1302,56 @@ pub fn pieces(text: &str) -> Vec<Piece<'_>> {
     pieces
 }
 
+/// What a sentence ends with, in English or in Chinese.
+const SENTENCE_ENDS: [char; 6] = ['.', '?', '!', '。', '？', '！'];
+
 /// A text as a sentence: as it is where it ends as a sentence does, in English or in Chinese, else with a full stop; so
 /// that reasons said one after another each read as one.
 pub fn sentence(text: &str) -> String {
     let text = text.trim_end();
-    match text.is_empty() || text.ends_with(['.', '?', '!', '。', '？', '！']) {
+    match text.is_empty() || text.ends_with(SENTENCE_ENDS) {
         true => text.to_string(),
         false => format!("{text}."),
     }
 }
 
+/// The words that follow a place, as they follow what fills it: where they begin with a full stop that ends a
+/// sentence, and what fills the place ends a sentence already, in English or in Chinese, without that stop, so that
+/// the sentence ends once. A stop that a word follows at once, as a file's extension, ends no sentence and stays.
+/// Every filling of the engine's words joins a place and what follows it so.
+pub fn after<'a>(value: &str, words: &'a str) -> &'a str {
+    match words.strip_prefix('.') {
+        Some(rest)
+            if value.trim_end().ends_with(SENTENCE_ENDS) && rest.chars().next().is_none_or(char::is_whitespace) =>
+        {
+            rest
+        }
+        _ => words,
+    }
+}
+
 /// A text with each place these give filled by its value; a place they do not give stays as it is written. What fills
-/// a place is sent as it is: a place in it is not filled again.
+/// a place is sent as it is: a place in it is not filled again. What follows a place filled follows it as [`after`]
+/// says.
 pub fn fill(text: &str, slots: &[(&str, &str)]) -> String {
-    (pieces(text).into_iter())
-        .map(|piece| match piece {
-            Piece::Text(text) => text.to_string(),
+    let mut out = String::with_capacity(text.len());
+    // What filled the place just before, where one was filled.
+    let mut filled: Option<&str> = None;
+    for piece in pieces(text) {
+        match piece {
+            Piece::Text(text) => out.push_str(filled.map_or(text, |value| after(value, text))),
             Piece::Place(name) => match slots.iter().find(|(n, _)| *n == name) {
-                Some((_, value)) => value.to_string(),
-                None => format!("{{{name}}}"),
+                Some((_, value)) => {
+                    out.push_str(value);
+                    filled = Some(*value);
+                    continue;
+                }
+                None => out.push_str(&format!("{{{name}}}")),
             },
-        })
-        .collect()
+        }
+        filled = None;
+    }
+    out
 }
 
 /// Reads it all from the directory that holds the flows, anew each time, so that an edit of a file shows; or says which

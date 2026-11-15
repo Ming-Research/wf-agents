@@ -1,20 +1,13 @@
 //! What a test said, as a reader wants it: each line without its control characters but tabs, so that neither the
 //! escapes that colour it nor what moves a terminal's cursor reaches the reader, in at most a number of bytes, the first
-//! lines and the end kept; and in a fence that makes it read as what the test printed and not as words to its reader.
+//! lines and the end kept; put in a fence (`flow::system::fenced`), it reads as what the test printed and not as words
+//! to its reader.
 
 /// A text an agent's test wrote, as a reader wants it: each line without its control characters but tabs, in at most
 /// `budget` bytes, its first lines and its end.
 pub(crate) fn plain(text: &str, budget: usize) -> String {
     let lines: Vec<String> = text.trim_end().lines().map(without_controls).collect();
     within(lines, budget).join("\n")
-}
-
-/// The text in a fenced block, so that it reads as what the CI printed and not as words to its reader: its fences
-/// longer than any run of backquotes it holds.
-pub(crate) fn fenced(text: &str) -> String {
-    let longest = (text.split(|c| c != '`')).map(str::len).max().unwrap_or(0);
-    let fence = "`".repeat(longest.max(2) + 1);
-    format!("{fence}\n{text}\n{fence}")
 }
 
 /// What stands where lines are left out.
@@ -115,11 +108,5 @@ mod tests {
         assert!(given.contains(" lines left out]\n"), "{given}");
         let long = "é".repeat(100);
         assert_eq!(plain(&long, 51), "é".repeat(16));
-    }
-
-    #[test]
-    fn a_fence_is_longer_than_any_run_of_backquotes_in_the_text() {
-        assert_eq!(fenced("a `b`"), "```\na `b`\n```");
-        assert_eq!(fenced("```rust\nx\n```"), "````\n```rust\nx\n```\n````");
     }
 }
