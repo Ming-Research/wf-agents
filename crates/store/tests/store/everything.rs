@@ -3,7 +3,7 @@
 
 use store::{EverythingPaused, SCHEMA_VERSION};
 
-use super::opening::{MIGRATIONS, SCHEMA_1, columns, versions};
+use super::opening::{SCHEMA_1, columns, versions};
 use super::*;
 
 #[test]
@@ -42,14 +42,8 @@ fn a_pause_of_everything_kept_before_it_said_who_set_it_is_read_as_the_owners() 
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
-        let this = include_str!("../../../../db/migrations/202611112000-say-who-paused-everything.sql");
-        let at = MIGRATIONS
-            .iter()
-            .position(|m| *m == this)
-            .expect("the migration is listed");
-        for migration in &MIGRATIONS[..at] {
-            file.execute_batch(migration).expect("the migration runs");
-        }
+        // The migration that says who paused everything brings a file to version 7.
+        store::migrate(&file, 1, 7).expect("the migrations run");
         for (paused, at) in [(1, 0), (0, 1000), (1, 2000)] {
             file.execute(
                 "INSERT INTO everything_paused (paused, time) VALUES (?1, ?2)",

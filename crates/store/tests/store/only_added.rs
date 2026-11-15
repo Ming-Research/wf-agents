@@ -1,6 +1,7 @@
 //! The tables are only inserted into: neither the crate's code nor its schema says anything that would change or
 //! take out a row. A migration replaces the one row of the schema's version, which no work's entries are, and nothing
-//! else.
+//! else: where it gives old rows a value, it makes the table anew and carries each row across whole (decision
+//! `a-migration-carries-each-row-whole`).
 
 use std::fs;
 
