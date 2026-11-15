@@ -113,6 +113,7 @@ fn an_entry_written_as_changing_nothing_in_meaning_is_sent_back() {
         latest: None,
         value: None,
         added: true,
+        empty: true,
     };
     s.told.outputs.insert("tests".into(), record);
     let entry = Write {
@@ -135,6 +136,7 @@ fn with_found(mut s: Spec) -> Spec {
         latest: None,
         value: None,
         added: false,
+        empty: true,
     };
     s.told.outputs.insert("found".into(), none);
     s
@@ -168,6 +170,7 @@ fn an_entry_of_a_record_written_holding_nothing_is_no_entry_and_leaves_its_cell_
         latest: None,
         value: None,
         added: true,
+        empty: true,
     };
     s.told.outputs.insert("tests".into(), record);
     let unmet = vec![Unmet::NotHandedIn {
@@ -179,6 +182,28 @@ fn an_entry_of_a_record_written_holding_nothing_is_no_entry_and_leaves_its_cell_
         step(vec![handed_in(writes)], &s),
         finish(vec![valued("verdict", "yes")])
     );
+}
+
+// A block whose latest version holds nothing holds nothing, as one with none does: a write of nothing there takes nothing
+// away and writes over nothing, though another wrote that version since the round was told of the one before it.
+#[test]
+fn a_block_written_holding_nothing_where_its_latest_version_holds_nothing_writes_over_nothing() {
+    let mut s = spec();
+    let emptied = Standing {
+        told: Some(Seq(4)),
+        latest: Some(Seq(7)),
+        value: None,
+        added: false,
+        empty: true,
+    };
+    s.told.outputs.insert("plan".into(), emptied);
+    assert_eq!(step(vec![handed_in(vec![nothing("plan")])], &s), finish(vec![]));
+    // One that holds something would write over it, and is sent back.
+    let unmet = vec![Unmet::WrittenOver {
+        block: "plan".into(),
+        version: Seq(7),
+    }];
+    assert_eq!(step(vec![handed_in(vec![prose("plan")])], &s), send_back(unmet));
 }
 
 // A block that holds something is emptied by a write that holds nothing, which is a write as any other: what a test of

@@ -235,6 +235,8 @@ pub struct Standing {
     /// A version written of it is an entry added to a record ([`crate::Flow::adds_entries`]): it replaces no version
     /// before it, and so writes over none the round was not told of.
     pub added: bool,
+    /// The block holds nothing: its latest version holds nothing, or it has none.
+    pub empty: bool,
 }
 
 /// What the flow requires of what a cell's run returns.
@@ -282,7 +284,9 @@ pub enum Step {
     /// What came back does not meet what the flow requires: it is sent back, the next round being given why.
     SendBack { unmet: Vec<Unmet> },
     /// What came back meets everything the flow requires: the calls it asks for are made, and the run finishes,
-    /// having dealt with these blocks, each once, of what ran its round, and writing these blocks.
+    /// having dealt with these blocks, each once, of what ran its round, and writing these blocks: those it handed in,
+    /// but each that holds nothing where that takes nothing away (decision a-write-of-nothing-only-empties), and those
+    /// its round committed.
     Finish {
         dealt_with: Vec<BlockId>,
         writes: Vec<Write>,
@@ -500,9 +504,10 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
                         // What the carrier read of the branch, a commit, holds something.
                         empty: false,
                     });
+                let written = (writes.iter()).filter(|w| !takes_nothing_away(w, requires)).cloned();
                 return Step::Finish {
                     dealt_with: consumed(dealt_with, requires),
-                    writes: writes.iter().cloned().chain(committed).collect(),
+                    writes: written.chain(committed).collect(),
                 };
             }
             unmet
@@ -599,7 +604,20 @@ fn leaves_waiting(came: &Came<'_>, requires: Requires) -> bool {
     came.calls > 0
         || came.waits
         || requires.told.waits
-        || (came.writes.iter()).any(|w| requires.asking.iter().any(|a| a.record == w.block))
+        || (came.writes.iter())
+            .filter(|w| !takes_nothing_away(w, requires))
+            .any(|w| requires.asking.iter().any(|a| a.record == w.block))
+}
+
+/// Whether the write holds nothing where that takes nothing away, and so is no write: it makes no version, adds no
+/// entry and asks for nothing, though a block its cell must write is handed in so, as it stands (decision
+/// a-write-of-nothing-only-empties). So is a write that holds nothing of a block that is no choice and holds nothing as
+/// the return is taken, or of a record, to which an entry is added and which loses nothing by it. One of a block that
+/// holds something empties it.
+fn takes_nothing_away(write: &Write, requires: Requires) -> bool {
+    write.empty
+        && !requires.choices.contains_key(&write.block)
+        && (requires.told.outputs.get(&write.block)).is_some_and(|s| s.added || s.empty)
 }
 
 /// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
@@ -650,6 +668,10 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             }),
             (None, Some(_)) => unmet.push(Unmet::NotAChoice { block: block() }),
             _ => {}
+        }
+        // A write that takes nothing away writes over nothing and adds no entry.
+        if takes_nothing_away(write, requires) {
+            continue;
         }
         let standing = told.outputs.get(&write.block);
         if let Some(Standing {
@@ -735,7 +757,9 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             let Some(answer) = requires.answered_by.get(&block) else {
                 continue;
             };
-            let written = (writes.iter().map(|w| &w.block))
+            let written = (writes.iter())
+                .filter(|w| !takes_nothing_away(w, requires))
+                .map(|w| &w.block)
                 .chain(read)
                 .any(|b| answer.runs.contains(b));
             if !written && !answer.new && !(answer.question && unanswered) {

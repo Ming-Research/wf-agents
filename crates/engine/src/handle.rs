@@ -842,7 +842,8 @@ fn finish(
         call(work, run, on, Call::Asked(ask), effects);
     }
     let at = work.tick();
-    for h in handed {
+    // A block handed in that takes nothing away is no write, and nothing of it is kept but the return as it came.
+    for h in handed.into_iter().filter(|h| writes.iter().any(|w| w.block == h.block)) {
         let content = spoken::entry(flow, &h.block, &h.content).into_owned();
         work.contents.insert((h.block, at), content);
     }
@@ -955,15 +956,16 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
 /// the cell's counts last began anew. A return of the form before a return said what it dealt with reads as one that
 /// dealt with nothing where it asked, and with everything that ran its round where it handed in.
 pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run::Log {
-    // Whether a write holds nothing is told of the content the engine keeps of it, which of a record of what is said is
-    // the cell's entry of what it handed in ([`spoken::entry`]).
+    // Whether a write holds nothing is told of what the cell handed in: of a record of what is said, the cell's entry of
+    // it ([`spoken::entry`]) holds its words, so that words that hold nothing add no entry, and every entry kept holds
+    // something as they do (decision a-write-of-nothing-only-empties).
     let writes = |handed: &[work::Handed]| {
         (handed.iter())
             .map(|h| Write {
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
-                empty: decide::holds_nothing(h.value.as_deref(), &spoken::entry(flow, &h.block, &h.content)),
+                empty: decide::holds_nothing(h.value.as_deref(), &h.content),
             })
             .collect()
     };
