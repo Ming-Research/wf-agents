@@ -71,8 +71,8 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     // The items it depends on merging, not the owner, let it start.
     assert!(
         list.contains(
-            "\n#3 \"Build on it\" at level 1, project script, W3 on engineer, after #2: waits at S1 for the outside \
-             (dependencies): dependencies = merged\n"
+            "\n#3 \"Build on it\" at level 1, project script, W3 on engineer, after #2: waits at S1 for the items it \
+             depends on to merge: item 2\n"
         ),
         "{list}"
     );
