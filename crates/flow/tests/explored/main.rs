@@ -249,16 +249,6 @@ const NEVER: &[(&str, &str)] = &[
         "As for D3: D2's plan reaches D4 with I1's opinion in acceptance, unless D2 hands in no plan, past the bound.",
     ),
     (
-        "R1 ran back on on_plan_review, written by a cell after it",
-        "As R1 ran on on_plan_review: never.",
-    ),
-    (
-        "R1 ran on on_plan_review",
-        "No path can: plan_review is written only by D3, which runs only while deep_needed is yes, and R1 only while \
-         it is no. Only R1 writes deep_needed, and once it writes yes it is skipped and nothing writes it again. R1's \
-         trigger on_plan_review never fires.",
-    ),
-    (
         "M1 ran on on_asked",
         "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \
          check's own question runs the check again, and the work merges on it, is the engine's test of a work taken \

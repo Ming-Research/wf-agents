@@ -450,6 +450,13 @@ pub enum What {
     AsksWithNoAnswer {
         block: String,
     },
+    /// A trigger of the cell stands on a block whose every writer runs only where the cell cannot.
+    TriggerNeverRuns {
+        trigger: String,
+        block: String,
+        needs: String,
+        writers: Vec<(String, String)>,
+    },
     /// The trigger says what happened by a place the engine does not fill.
     UnknownDetail {
         detail: String,
@@ -811,6 +818,17 @@ impl What {
             F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
             F::UnknownReturnField { field } => What::UnknownReturnField { field },
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
+            F::TriggerNeverRuns {
+                trigger,
+                block,
+                needs,
+                writers,
+            } => What::TriggerNeverRuns {
+                trigger,
+                block,
+                needs,
+                writers,
+            },
             F::UnknownDetail { detail } => What::UnknownDetail { detail },
             F::ReadNotInContext { trigger, block } => What::ReadNotInContext { trigger, block },
             F::NotATrigger { trigger } => What::NotATrigger { trigger },
