@@ -84,8 +84,8 @@ const WHO = { owner: 'you', architect: 'the architect' } as const;
 
 /// Who gives what a work waits for, in words: the person a call names or the engine, you for a run let on at its
 /// limit, and for a precondition the person who can make it hold, or else the cells that can, by their titles; none
-/// for a precondition only sources outside the work can make hold, such as the items it depends on being merged; the
-/// engine for a free slot and for the wait every work shares.
+/// for a precondition only sources outside the work can make hold, such as the items it depends on being merged, or
+/// main moving; the engine for a free slot and for the wait every work shares.
 function whom(w: Waited, page: WorkPage | null): string | null {
   switch (w.kind) {
     case 'limit':
@@ -104,6 +104,8 @@ function whom(w: Waited, page: WorkPage | null): string | null {
       return 'the engine';
     case 'answer':
       return WHO.owner;
+    case 'outside':
+      return null;
   }
 }
 
@@ -169,6 +171,8 @@ function lineWords(w: Waited, cell: string): string {
       return `at ${cell}, for the wait every work shares: ${outageWords(w.outage)}`;
     case 'answer':
       return `at ${cell}, for your answer to ${w.question}`;
+    case 'outside':
+      return `at ${cell}, for ${w.source} to move`;
   }
 }
 

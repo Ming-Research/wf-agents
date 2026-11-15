@@ -9,9 +9,9 @@
 //! where it finds none but runs that were cancelled, which judged nothing.
 //!
 //! - fast: runs only the tests and checks a request names, and builds only what they need; every `run_tests` that
-//!   names tests or checks is run by it.
+//!   names tests or checks is run by it, and so is what the check before a merge runs again of what failed.
 //! - full: the workflows that hold every job required to merge; a `run_tests` that names none is run by them, once, on
-//!   the work's last commit.
+//!   the work's last commit, and so is the check before a merge.
 //!
 //! What is said of a run: each test, with what became of it, how long it took and what a failed one said; and each
 //! job of the workflow, with how it ended and, where it ran to a conclusion, the wall time GitHub records for it. A
@@ -26,6 +26,7 @@ use uuid::Uuid;
 use super::api::{Api, Check, Outcome, Run};
 use super::results::{self, Became, Case};
 use super::{GitHub, output};
+use crate::git;
 use crate::held::Stop;
 use crate::host::{Asking, Failed, Named, Verdict};
 use crate::process;
@@ -53,6 +54,76 @@ struct Ran {
     run: Run,
     jobs: Vec<Check>,
     results: Result<results::Run, String>,
+}
+
+/// The full workflows red with failed tests alone: what they found, said as the check says it, the names of the tests
+/// they failed, and their runs' links.
+struct Failing {
+    first: String,
+    tests: Vec<String>,
+    urls: String,
+}
+
+/// What the tests the full workflows failed came to when they were run again: what fails the commit, or what holds it,
+/// in words, and neither where it passes; and each test that failed and then passed, in words.
+#[derive(Default)]
+struct Again {
+    failed: Option<String>,
+    held: Option<String>,
+    flaky: Vec<String>,
+}
+
+impl Again {
+    /// The commit failed, as these say, each a paragraph of its own.
+    fn failed(said: Vec<String>) -> Again {
+        Again {
+            failed: Some(said.join("\n\n")),
+            ..Again::default()
+        }
+    }
+}
+
+/// The names of the tests the runs failed, each once, in the order the runs give them, where nothing but tests did
+/// not pass: each run's results were read, none has a unit not built, each job that did not pass judged the code and
+/// found it wanting, and each such job reported a failed test of its own in results of its own, or is among the jobs
+/// `accounted` for without ([`GitHub::accounted`]). None where anything else did not pass, as a job of tests red for a
+/// step before or beside them, or one that left no results, or where no test failed.
+fn failed_alone(ran: &[Ran], accounted: &[String]) -> Option<Vec<String>> {
+    let mut tests: Vec<String> = Vec::new();
+    for one in ran {
+        let run = one.results.as_ref().ok()?;
+        let judged = (one.jobs.iter())
+            .filter(|j| red_job(j))
+            .all(|j| matches!(j.outcome, Outcome::Failed(_)));
+        // A job that did not pass and reported no failed test of its own failed for something else, unless the run
+        // again reproduces it or it only sums up the others.
+        let own = (one.jobs.iter())
+            .filter(|j| red_job(j))
+            .all(|j| match run.reported.contains(&j.name) {
+                true => (run.cases.iter()).any(|c| c.job == j.name && c.outcome == results::Outcome::Failed),
+                false => accounted.contains(&j.name),
+            });
+        if !run.unbuilt.is_empty() || !judged || !own {
+            return None;
+        }
+        for case in (run.cases.iter()).filter(|c| c.outcome == results::Outcome::Failed) {
+            if !tests.contains(&case.test.name) {
+                tests.push(case.test.name.clone());
+            }
+        }
+    }
+    (!tests.is_empty()).then_some(tests)
+}
+
+/// What became of each test named on the one run of the fast workflow, where the run judged them: its results were read
+/// and every job of it ran to a conclusion. None where it judged nothing.
+fn judged<'a>(ran: &'a [Ran], tests: &'a [String]) -> Option<Vec<results::Row<'a>>> {
+    let [one] = ran else {
+        return None;
+    };
+    let run = one.results.as_ref().ok()?;
+    let concluded = (one.jobs.iter()).all(|j| !matches!(j.outcome, Outcome::Broken(_) | Outcome::Pending));
+    concluded.then(|| results::rows(tests, run))
 }
 
 /// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none.
@@ -144,6 +215,26 @@ impl<A: Api> GitHub<A> {
         Ok(Some(said(words, &role, request.commit, &ran, named, false)))
     }
 
+    /// The jobs of the full workflows that did not pass may be let through with no failed test of their own, as the
+    /// project's own declaration and workflows say them, the files of them as main holds them at `main`, the head the
+    /// commit checked holds: each check the fast workflow runs by name, which the run again runs and so finds red
+    /// again; and each job of a full workflow that needs every other job of it, which only sums them up
+    /// ([`super::workflow::summing`]). A workflow whose file cannot be read lets none through for summing up.
+    pub(super) async fn accounted(&self, main: &str) -> Vec<String> {
+        let ci = self.config.ci.as_ref();
+        let mut accounted = (ci.and_then(|ci| ci.fast.as_ref())).map_or_else(Vec::new, |fast| fast.checks.clone());
+        let workflows = (ci.and_then(|ci| ci.full.as_ref())).map_or(&[][..], |full| &full.workflows[..]);
+        for workflow in workflows {
+            let file = format!("{main}:.github/workflows/{workflow}");
+            if let Ok(said) = git::said(&self.project.repo, &["show", &file]).await
+                && said.ok
+            {
+                accounted.extend(super::workflow::summing(&said.out));
+            }
+        }
+        accounted
+    }
+
     /// The value the run of the workflow asked for by the request holds in its name: a name-based UUID (version 5) of
     /// the work, the request, the workflow and the commit, in the namespace of this installation, so that the request
     /// given again works out the same, and no other request, of this installation or another, has it.
@@ -219,11 +310,17 @@ impl<A: Api> GitHub<A> {
         Ok(Some(ran))
     }
 
-    /// The verdict of the check before a merge on the commit, pushed already: the project's full workflows run on it,
-    /// once, and judged by what they uploaded and by their jobs: it failed where a test failed, where a job did not
-    /// pass, or where a run uploaded no JUnit the engine can read, said as `run_tests` says what a run found, of what
-    /// did not pass. None where it was told to stop.
-    pub(super) async fn judge_full(&self, request: Request<'_>, stop: &mut Stop) -> Result<Option<Verdict>, Failed> {
+    /// The verdict of the check before a merge on the commit, pushed already, which holds the head of main `main`: the
+    /// project's full workflows run on it, once, and judged by what they uploaded and by their jobs: it failed where a
+    /// test failed, where a job did not pass, or where a run uploaded no JUnit the engine can read, said as `run_tests`
+    /// says what a run found, of what did not pass; but where tests failed and nothing else did, they are run again
+    /// ([`GitHub::again`]). None where it was told to stop.
+    pub(super) async fn judge_full(
+        &self,
+        request: Request<'_>,
+        main: &str,
+        stop: &mut Stop,
+    ) -> Result<Option<Verdict>, Failed> {
         let (commit, named) = (request.commit, Named::default());
         let role = match self.role(self.config.ci.as_ref(), &named)? {
             Ok(role) => role,
@@ -253,10 +350,161 @@ impl<A: Api> GitHub<A> {
         } else {
             vec![fill(&words.verdict_jobs, &[("jobs", &others.join("\n  "))])]
         };
-        Ok(Some(Verdict {
-            failed: red.then(|| said(words, &role, commit, &ran, &named, true)),
+        let mut verdict = Verdict {
             by: Some(fill(&words.verdict_by, &[("urls", &urls.join(", "))])),
             notes,
+            ..Verdict::default()
+        };
+        if !red {
+            return Ok(Some(verdict));
+        }
+        let first = said(words, &role, commit, &ran, &named, true);
+        let accounted = self.accounted(main).await;
+        let Some(tests) = failed_alone(&ran, &accounted) else {
+            verdict.failed = Some(first);
+            return Ok(Some(verdict));
+        };
+        let failed = Failing {
+            first,
+            tests,
+            urls: urls.join(", "),
+        };
+        let Some(again) = self.again(request, main, failed, words, stop).await? else {
+            return Ok(None);
+        };
+        verdict.failed = again.failed;
+        verdict.held = again.held;
+        verdict.notes.extend(again.flaky.iter().cloned());
+        verdict.observations = again.flaky;
+        Ok(Some(verdict))
+    }
+
+    /// Runs again by the fast workflow the tests the full workflows failed, they alone having failed: on the commit,
+    /// beside every check the fast workflow runs by name, so that what else the full workflows found red is found red
+    /// again; and what failed again there, on the head of main `main`. A test that passed on the commit again may be
+    /// flaky, and is said so. Where every test passed there and every check did, the commit passes; where every test
+    /// that failed again failed on main as well, the commit is held, its change not being what fails it; and otherwise
+    /// it failed, said as the full workflows found it, then as each run again found it. A run again that judged
+    /// nothing, as one whose results cannot be read, and tests that could not be run again, fail the commit as the full
+    /// workflows found it, saying why. None where it was told to stop.
+    async fn again(
+        &self,
+        request: Request<'_>,
+        main: &str,
+        failing: Failing,
+        words: &ResultWords,
+        stop: &mut Stop,
+    ) -> Result<Option<Again>, Failed> {
+        let Failing { first, tests, urls } = failing;
+        let check = (self.config.check.as_ref())
+            .ok_or("the words of the check before a merge (agents/acts/check.toml) are not given")?;
+        let ci = self.config.ci.as_ref();
+        let checks = (ci.and_then(|ci| ci.fast.as_ref())).map_or_else(Vec::new, |fast| fast.checks.clone());
+        let named = Named {
+            tests: tests.clone(),
+            checks,
+        };
+        let role = match self.role(ci, &named)? {
+            Ok(role) => role,
+            Err(why) => {
+                return Ok(Some(Again::failed(vec![
+                    first,
+                    fill(&check.again_not_run, &[("why", &why)]),
+                ])));
+            }
+        };
+        let commit = request.commit;
+        let Some(on_commit) = self.execute_role(&role, request, &named, stop).await? else {
+            return Ok(None);
+        };
+        let section = |word: &str, head: &str, ran: &[Ran], named: &Named| {
+            let run = said(words, &role, head, ran, named, false);
+            let slots = [("main", self.project.main.as_str()), ("head", head), ("run", &run)];
+            fill(word, &slots)
+        };
+        let again_on_commit = section(&check.again_on_commit, commit, &on_commit, &named);
+        let Some(rows) = judged(&on_commit, &tests) else {
+            return Ok(Some(Again::failed(vec![first, again_on_commit])));
+        };
+        let again_url: Vec<&str> = on_commit.iter().map(|r| r.run.url.as_str()).collect();
+        let again_url = again_url.join(", ");
+        let flaky: Vec<String> = (rows.iter())
+            .filter(|row| row.became == Became::Passed)
+            .map(|row| {
+                let slots = [
+                    ("test", row.named),
+                    ("commit", commit),
+                    ("failed", &urls),
+                    ("again", &again_url),
+                ];
+                fill(&check.flaky, &slots)
+            })
+            .collect();
+        let red_again: Vec<String> = (rows.iter())
+            .filter(|row| row.became != Became::Passed)
+            .map(|row| row.named.to_string())
+            .collect();
+        let checks_red = (named.checks.iter()).any(|check| {
+            let jobs: Vec<&Check> = (on_commit.iter().flat_map(|r| &r.jobs))
+                .filter(|j| &j.name == check)
+                .collect();
+            jobs.is_empty() || jobs.into_iter().any(red_job)
+        });
+        if checks_red {
+            return Ok(Some(Again {
+                flaky,
+                ..Again::failed(vec![first, again_on_commit])
+            }));
+        }
+        if red_again.is_empty() {
+            return Ok(Some(Again {
+                flaky,
+                ..Again::default()
+            }));
+        }
+        let at_main = Request {
+            work: request.work,
+            commit: main,
+            asking: request.asking,
+        };
+        let named_main = Named {
+            tests: red_again.clone(),
+            checks: Vec::new(),
+        };
+        let Some(on_main) = self.execute_role(&role, at_main, &named_main, stop).await? else {
+            return Ok(None);
+        };
+        let again_on_main = section(&check.again_on_main, main, &on_main, &named_main);
+        let Some(rows) = judged(&on_main, &red_again) else {
+            return Ok(Some(Again {
+                flaky,
+                ..Again::failed(vec![first, again_on_commit, again_on_main])
+            }));
+        };
+        let filled = |word: &str, tests: &[&str]| {
+            let named: Vec<String> = (tests.iter())
+                .map(|t| fill(&check.test_named, &[("test", t)]))
+                .collect();
+            let tests = named.join(&check.tests_between);
+            fill(word, &[("main", &self.project.main), ("head", main), ("tests", &tests)])
+        };
+        let only_here: Vec<&str> = (rows.iter())
+            .filter(|row| row.became != Became::Failed)
+            .map(|row| row.named)
+            .collect();
+        if only_here.is_empty() {
+            let red: Vec<&str> = red_again.iter().map(String::as_str).collect();
+            let held = [filled(&check.on_main_too, &red), first, again_on_commit, again_on_main];
+            return Ok(Some(Again {
+                held: Some(held.join("\n\n")),
+                flaky,
+                ..Again::default()
+            }));
+        }
+        let only = filled(&check.only_here, &only_here);
+        Ok(Some(Again {
+            flaky,
+            ..Again::failed(vec![first, again_on_commit, again_on_main, only])
         }))
     }
 

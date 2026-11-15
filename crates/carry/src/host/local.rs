@@ -80,6 +80,7 @@ impl Host for Local {
         &self,
         branch: &Branch<'_>,
         _: &str,
+        _: &str,
         _: Asking,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
@@ -95,8 +96,7 @@ impl Host for Local {
         };
         Ok(Some(Verdict {
             failed,
-            by: None,
-            notes: Vec::new(),
+            ..Verdict::default()
         }))
     }
 

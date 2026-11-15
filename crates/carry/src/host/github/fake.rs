@@ -29,6 +29,9 @@ struct Kept {
     runs: Vec<Dispatched>,
     /// What a run by hand on each commit gives: its jobs, and the artifact it uploads with its name.
     fast: BTreeMap<String, ByHand>,
+    /// What a run by hand of a workflow on a commit gives, by the workflow and the commit, in place of what the commit's
+    /// runs give.
+    of_workflow: BTreeMap<(String, String), ByHand>,
     /// Why a run by hand is refused, where every one is.
     refuses_dispatch: Option<String>,
     /// Whether another request runs the workflow on the same branch and commit right after each one asked here, as
@@ -43,6 +46,14 @@ struct Kept {
 
 /// What a run by hand gives: its jobs, and the artifact it uploads, with its name, where it uploads one.
 type ByHand = (Vec<Check>, Option<(String, Vec<File>)>);
+
+impl Kept {
+    /// What the run by hand gives: what its workflow on its commit is given, or else what its commit is.
+    fn given(&self, run: &Dispatched) -> Option<&ByHand> {
+        let key = (run.workflow.clone(), run.commit.clone());
+        self.of_workflow.get(&key).or_else(|| self.fast.get(&run.commit))
+    }
+}
 
 /// A run by hand: of which workflow, asked for on which branch, of which commit (its input `commit`), and whether
 /// another request than the host's asked for it.
@@ -109,6 +120,20 @@ impl Fake {
     pub(crate) fn fast(&self, commit: &str, jobs: Vec<Check>, artifact: Option<(&str, Vec<File>)>) {
         let artifact = artifact.map(|(name, files)| (name.to_string(), files));
         self.kept().fast.insert(commit.to_string(), (jobs, artifact));
+    }
+
+    /// Gives a run by hand of the workflow on the commit these jobs, and this artifact where one is given, whatever the
+    /// commit's other runs give.
+    pub(crate) fn of_workflow(
+        &self,
+        workflow: &str,
+        commit: &str,
+        jobs: Vec<Check>,
+        artifact: Option<(&str, Vec<File>)>,
+    ) {
+        let artifact = artifact.map(|(name, files)| (name.to_string(), files));
+        let key = (workflow.to_string(), commit.to_string());
+        self.kept().of_workflow.insert(key, (jobs, artifact));
     }
 
     /// Refuses every run by hand, with these words.
@@ -417,13 +442,13 @@ impl Api for Fake {
                 took: None,
             }]);
         }
-        Ok((kept.fast.get(&asked.commit)).map_or_else(Vec::new, |(jobs, _)| jobs.clone()))
+        Ok((kept.given(asked)).map_or_else(Vec::new, |(jobs, _)| jobs.clone()))
     }
 
     async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, Failed> {
         let kept = self.kept();
         let asked = (kept.runs.iter()).find(|d| d.run.id == run && !d.another && !d.run.cancelled);
-        let artifact = asked.and_then(|d| kept.fast.get(&d.commit).and_then(|(_, a)| a.clone()));
+        let artifact = asked.and_then(|d| kept.given(d).and_then(|(_, a)| a.clone()));
         Ok(artifact.filter(|(n, _)| n == name).map(|(_, files)| files))
     }
 

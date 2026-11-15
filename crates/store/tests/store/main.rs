@@ -739,6 +739,7 @@ impl Building {
                 })
                 .collect(),
             dealt_with: Some(dealt_with.iter().map(|b| (*b).into()).collect()),
+            waits_for: None,
         });
         at
     }

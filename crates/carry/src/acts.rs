@@ -30,7 +30,7 @@ use flow::Compiled;
 use service::{Release, ReleaseReply, Round, RoundReply, Rounds, Teller};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
-use work::{Handed, Question, Spent, Work};
+use work::{Handed, Question, Said, Spent, Work};
 
 #[cfg(test)]
 mod ends;
@@ -67,17 +67,29 @@ pub struct Checked {
     pub commit: String,
     /// The head of the main branch it was checked against.
     pub main: String,
-    /// What failed, with the end of what it said; none where everything passed.
+    /// What failed, with the end of what it said; none where everything passed, or where what failed holds it.
     pub failed: Option<String>,
+    /// What failed and fails on the head of main as well, which holds the work without failing it: the work's change
+    /// is not what fails it, and it waits for main to pass it ([`crate::host::Verdict::held`]).
+    pub held: Option<String>,
     /// What judged it, where the host says.
     pub by: Option<String>,
     /// Whether the engine made the commit, merging main into the branch for the check.
     pub took_in: bool,
     /// What the host says of the checks beside its verdict.
     pub notes: Vec<String>,
+    /// What the host found beyond the work, each worth an item of its own, which the check hands in as observations.
+    pub observations: Vec<String>,
     /// What the engine asks the owner of the work's change under the paths the project protects, where it asks
     /// anything ([`crate::protected`]).
     pub asks: Option<Question>,
+}
+
+impl Checked {
+    /// Whether the work passed: nothing failed, and nothing holds it.
+    pub fn passed(&self) -> bool {
+        self.failed.is_none() && self.held.is_none()
+    }
 }
 
 /// The paths the project protects, and the words of the question the engine asks of a change to them: none protected
@@ -114,9 +126,10 @@ struct Inner<H> {
     look: Option<Arc<dyn service::Network>>,
 }
 
-/// What came of an act: what it hands in, with what the engine asks the owner beside it.
+/// What came of an act: what it hands in, with what the engine asks the owner beside it, what it observed beyond the
+/// work and, of a check that holds the work, the block of main what it wrote waits for.
 enum Done {
-    HandsIn(Vec<Handed>, Vec<Question>),
+    HandsIn(Box<Came>),
     Stopped,
 }
 
@@ -213,13 +226,9 @@ impl<H: Host> Rounds for Acts<H> {
         tokio::spawn(async move {
             let done = inner.act(&round, &teller, &mut stop).await;
             match done {
-                Ok(Done::HandsIn(handed, engine)) => {
+                Ok(Done::HandsIn(came)) => {
                     if let Some(reply) = inner.held.take(key) {
-                        let came = Came {
-                            engine,
-                            ..Came::hands_in(handed)
-                        };
-                        reply.ended(came, Spent::default());
+                        reply.ended(*came, Spent::default());
                     }
                 }
                 Ok(Done::Stopped) => {
@@ -304,7 +313,7 @@ impl<H: Host> Inner<H> {
                         ("main", &project.main),
                     ],
                 );
-                Ok(Done::HandsIn(prose(&outputs, &content), Vec::new()))
+                Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
             }
             "check" => {
                 if !self.take_turn(round.work, stop).await {
@@ -338,15 +347,25 @@ impl<H: Host> Inner<H> {
                 match checked.await {
                     Ok(Some(checked)) => {
                         // A work that passed keeps its turn for its merge.
-                        match checked.failed {
-                            None => self.passed_turn(round.work),
-                            Some(_) => self.end_turn(round.work),
+                        if checked.passed() {
+                            self.passed_turn(round.work);
+                        } else {
+                            self.end_turn(round.work);
                         }
                         // The check may have taken main in.
                         tree::look(&round.flow, &round.kept, &project.tree, &place, teller).await;
-                        let asks = checked.asks.clone().into_iter().collect();
                         let handed = checked_in(&outputs, &checked, &project.main, &words.check)?;
-                        Ok(Done::HandsIn(handed, asks))
+                        // A check that holds the work waits for main to move: the work waits for main, not the owner.
+                        let waits_for = checked.held.as_ref().and_then(|_| main_block(&round.flow));
+                        Ok(Done::HandsIn(Box::new(Came {
+                            engine: checked.asks.into_iter().collect(),
+                            said: Said {
+                                observations: checked.observations,
+                                ..Said::default()
+                            },
+                            waits_for,
+                            ..Came::hands_in(handed)
+                        })))
                     }
                     Ok(None) => {
                         self.end_turn(round.work);
@@ -389,12 +408,12 @@ impl<H: Host> Inner<H> {
                         ("head", &merged),
                     ],
                 );
-                Ok(Done::HandsIn(prose(&outputs, &content), Vec::new()))
+                Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
             }
-            "deliver" => Ok(Done::HandsIn(
-                prose(&outputs, &delivered(&round.item.depends_on, &words.deliver)),
-                Vec::new(),
-            )),
+            "deliver" => {
+                let content = delivered(&round.item.depends_on, &words.deliver);
+                Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
+            }
             other => Err(format!("the engine has no act named {other}").into()),
         }
     }
@@ -675,7 +694,8 @@ pub(crate) struct Gate<'a> {
 /// own change under the paths the project protects is empty or one the owner let merge, which fails the check
 /// otherwise, with what the engine asks of it, and fails it too where it cannot be looked at ([`crate::protected`]);
 /// then the host's verdict on the commit, waited for without the repository, as the round of the check that asks finds
-/// it. The head of main it is checked against is told to `reads` as it is read, the repository held, so that what the
+/// it, which may hold the work where what failed fails on main as well, and may observe what it found beyond the work.
+/// The head of main it is checked against is told to `reads` as it is read, the repository held, so that what the
 /// round read is said before any look at main after it. Says why where it could not check, and gives none where it was
 /// stopped; what failed is what was found, not a reason to fail.
 pub(crate) async fn check(
@@ -700,9 +720,11 @@ pub(crate) async fn check(
             commit: commit.clone(),
             main: main.clone(),
             failed: Some(failed),
+            held: None,
             by: None,
             took_in: false,
             notes: Vec::new(),
+            observations: Vec::new(),
             asks: None,
         };
         if git::merging(&dir).await? {
@@ -746,9 +768,11 @@ pub(crate) async fn check(
         commit,
         main,
         failed: None,
+        held: None,
         by: None,
         took_in,
         notes: Vec::new(),
+        observations: Vec::new(),
         asks: None,
     };
     // The commit's own change under the protected paths waits for the owner's yes: the host is not asked while it
@@ -778,12 +802,17 @@ pub(crate) async fn check(
             return Ok(Some(checked));
         }
     }
-    let Some(verdict) = host.verdict(branch, &checked.commit, asking, stop).await? else {
+    let Some(verdict) = host
+        .verdict(branch, &checked.commit, &checked.main, asking, stop)
+        .await?
+    else {
         return Ok(None);
     };
     checked.failed = verdict.failed;
+    checked.held = verdict.held;
     checked.by = verdict.by;
     checked.notes = verdict.notes;
+    checked.observations = verdict.observations;
     Ok(Some(checked))
 }
 
@@ -824,6 +853,12 @@ async fn unnamed(
     let written = written.join(", ");
     let slots = [("named", written.as_str()), ("head", head)];
     Ok(Some(fill(&words.not_head, &slots)))
+}
+
+/// The block of the flow the watch of main writes ([`MAIN`]); none where the flow has none.
+fn main_block(flow: &Compiled) -> Option<BlockId> {
+    let block = (flow.blocks.iter()).find(|(_, block)| block.writers.outside.as_deref() == Some(MAIN));
+    block.map(|(id, _)| id.clone())
 }
 
 /// What the block of main of the flow says of main's head, as the watch writes it ([`MAIN`]): the block, and its
@@ -927,7 +962,9 @@ fn prose(outputs: &[(BlockId, Option<Vec<String>>)], content: &str) -> Vec<Hande
 }
 
 /// What the check hands in, in the words `agents/acts/check.toml` gives: its choice, passed or failed, with the commit
-/// it checked on the first line and against what; and, where it failed, each other output with what failed.
+/// it checked on the first line and against what; and, where it failed, each other output with what failed. Where what
+/// failed holds the work, failing on main as well, the choice says so, and nothing else is written: no cell is told of
+/// a failure that is not the work's.
 fn checked_in(
     outputs: &[(BlockId, Option<Vec<String>>)],
     checked: &Checked,
@@ -956,13 +993,17 @@ fn checked_in(
         after.push(fill(&words.notes, &[("notes", &notes)]));
     }
     let content = |line: String| [vec![first.clone(), line], after.clone()].concat().join("\n\n");
-    let (value, outcome) = match checked.failed {
-        None => (&words.values.passed, &words.passed),
-        Some(_) => (&words.values.failed, &words.failed),
+    let (value, line) = match (&checked.failed, &checked.held) {
+        (None, None) => (&words.values.passed, fill(&words.passed, &[("checked", &said)])),
+        (None, Some(held)) => {
+            let slots = [slots.as_slice(), &[("checked", said.as_str()), ("why", held.as_str())]].concat();
+            (&words.values.failed, fill(&words.held, &slots))
+        }
+        (Some(_), _) => (&words.values.failed, fill(&words.failed, &[("checked", &said)])),
     };
     let mut handed = vec![Handed {
         block: choice.clone(),
-        content: content(fill(outcome, &[("checked", &said)])),
+        content: content(line),
         matters: true,
         value: Some(value.clone()),
     }];
@@ -1108,9 +1149,11 @@ mod tests {
             commit: "c0ffee".to_string(),
             main: "beef".to_string(),
             failed: failed.map(str::to_string),
+            held: None,
             by: None,
             took_in: false,
             notes: Vec::new(),
+            observations: Vec::new(),
             asks: None,
         }
     }
@@ -1629,8 +1672,10 @@ mod tests {
     fn passes() -> Verdict {
         Verdict {
             failed: None,
+            held: None,
             by: None,
             notes: Vec::new(),
+            observations: Vec::new(),
         }
     }
 
@@ -1805,8 +1850,10 @@ mod tests {
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let verdict = Verdict {
             failed: Some("The check lint failed.".to_string()),
+            held: None,
             by: Some("the CI of the pull request 7".to_string()),
             notes: Vec::new(),
+            observations: Vec::new(),
         };
         let host = Fake::new(&main).judges(Ok(Some(verdict)));
         let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
@@ -1816,9 +1863,11 @@ mod tests {
                 commit: head.clone(),
                 main,
                 failed: Some("The check lint failed.".to_string()),
+                held: None,
                 by: Some("the CI of the pull request 7".to_string()),
                 took_in: false,
                 notes: Vec::new(),
+                observations: Vec::new(),
                 asks: None,
             }
         );
@@ -1872,8 +1921,10 @@ mod tests {
         let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
         let host = Fake::new(&main).judges(Ok(Some(Verdict {
             failed: None,
+            held: None,
             by: None,
             notes: Vec::new(),
+            observations: Vec::new(),
         })));
         let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
         // The commit judged is the branch's new head, which merges main into what was built.
@@ -1936,8 +1987,10 @@ mod tests {
         let judged = || {
             Ok(Some(Verdict {
                 failed: None,
+                held: None,
                 by: None,
                 notes: Vec::new(),
+                observations: Vec::new(),
             }))
         };
         let host = Fake::new(&main).judges(judged()).judges(judged());
@@ -1979,8 +2032,10 @@ mod tests {
         let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let host = Fake::new(&main).judges(Ok(Some(Verdict {
             failed: None,
+            held: None,
             by: None,
             notes: Vec::new(),
+            observations: Vec::new(),
         })));
         let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
         assert_eq!(checked.commit, built, "no commit is made");

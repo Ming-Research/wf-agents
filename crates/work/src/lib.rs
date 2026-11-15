@@ -184,6 +184,10 @@ pub enum Back {
         said: Said,
         #[serde(default)]
         engine: Vec<Question>,
+        /// A block a source outside the work writes, a new version of which what it writes waits for, where the
+        /// engine's own act says so; returns kept before an act said it have none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        waits_for: Option<BlockId>,
     },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate

@@ -256,8 +256,10 @@ async fn the_host_is_asked_by_the_checks_round_and_given_the_name_of_the_works_m
     let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
     let passes = Verdict {
         failed: None,
+        held: None,
         by: None,
         notes: Vec::new(),
+        observations: Vec::new(),
     };
     let acts = acts(&repo, Fake::new(&main).judges(Ok(Some(passes))));
     let code = format!("Greets the user, in commit {head}.");
@@ -307,8 +309,10 @@ async fn the_checks_round_is_told_of_the_head_of_main_it_takes_in() {
     let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
     let passes = Verdict {
         failed: None,
+        held: None,
         by: None,
         notes: Vec::new(),
+        observations: Vec::new(),
     };
     let acts = acts(&repo, Fake::new(&main).judges(Ok(Some(passes))));
     let code = format!("Greets the user, in commit {head}.");
@@ -333,15 +337,61 @@ async fn the_checks_round_is_told_of_the_head_of_main_it_takes_in() {
     assert_eq!(said, [(RunId(4), "main".to_string(), format!("Main is at {main}."))]);
 }
 
+// A verdict that holds the work, what failed failing on main as well, writes the check's choice alone, saying so, and
+// none of the blocks a failure is written into, so that no cell is told of a failure that is not the work's; and what
+// the host found beyond the work is handed in as the check's observations. Well under a second alone: a repository on
+// disk and the fake host; no other test holds what a held check hands in.
+#[tokio::test]
+async fn a_held_check_writes_its_choice_alone_and_hands_in_what_the_host_observed() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+    let held = Verdict {
+        held: Some("Failed on main as well: `b`.".to_string()),
+        observations: vec!["The test `a` may be flaky.".to_string()],
+        ..Verdict::default()
+    };
+    let acts = acts(&repo, Fake::new(&main).judges(Ok(Some(held))));
+    let code = format!("Greets the user, in commit {head}.");
+    let round = checking(item("Greet the user"), written(&[("code", code.as_str())]));
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    acts.give(round, RoundReply::new(WORK, RunId(4), to));
+    let came = loop {
+        if let service::Message::Happened {
+            event: engine::Event::Returned { came, .. },
+            ..
+        } = told.recv().await.expect("the round ends")
+        {
+            break came;
+        }
+    };
+    let written: Vec<(String, Option<String>)> = (came.writes.iter())
+        .map(|h| (h.block.to_string(), h.value.clone()))
+        .collect();
+    assert_eq!(written, [("passed".to_string(), Some("no".to_string()))]);
+    let content = &came.writes[0].content;
+    assert!(
+        content.contains("and what fails also fails on main: the work waits for main to pass, and is checked again")
+            && content.ends_with("Failed on main as well: `b`."),
+        "{content}"
+    );
+    assert_eq!(came.said.observations, ["The test `a` may be flaky."]);
+    // What it wrote waits for main to move, so that the work waits for main and not for the owner.
+    assert_eq!(came.waits_for, Some(BlockId::from("main")));
+}
+
 #[test]
 fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
     let checked = Checked {
         commit: "c0ffee".to_string(),
         main: "beef".to_string(),
         failed: None,
+        held: None,
         by: None,
         took_in: false,
         notes: vec!["test: its latest run on this commit passed; its earlier runs on it: failure.".to_string()],
+        observations: Vec::new(),
         asks: None,
     };
     let outputs = vec![
