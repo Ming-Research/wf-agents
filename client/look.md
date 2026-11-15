@@ -378,7 +378,8 @@ smoothly, and the panel at its right with the item selected. It is the console o
   says what the work waits for, the owner's things in `--orange-text`; its body as sections (`PanelPart`), a passage
   changed since the owner read it marked at its left in the accent; and the **notes**, one under another with a
   hairline between, the owner's own on the ground, and the page's write box (`.write-box`): whom the note goes
-  to, a box to write in, and under it "Goes to" the cells that read it, with the button that sends it. The work holds
+  to, a cell the work has not reached disabled, a box to write in, and under it "Goes to" the cells that read it, with
+  the button that sends it. The work holds
   what the lines do not say of it, as label and value pairs (`.pairs`), and the works page's legend of the strip's
   marks (`StateLegend`). A choice of the plan stays the window's own: a frame in the accent on its tint, its options
   buttons, the one picked ringed in the accent. At the plan's end stands each question put to the owner that has not

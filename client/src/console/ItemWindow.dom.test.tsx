@@ -180,10 +180,13 @@ describe('the panel of the item selected', () => {
 
   it('writes a message into the block that is the owner\'s words to the cell chosen, and names the cells that read it', async () => {
     const sent: Sent = [];
-    const el = draw(12, answered(sent), undefined, true);
+    // A work that has come to the implementation, past the research, and did not go through the deep research.
+    const el = draw(13, answered(sent), undefined, true);
     expect(text(el, '.cw-to .switch-choice')).toEqual(['Research', 'Deep research', 'Implementation']);
-    // Before the work has come to the implementation, a message goes to the research.
-    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Research']);
+    // Once the work has come to the implementation, a message goes there unless the owner picks another.
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Implementation']);
+    expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
+    act(() => button(el, 'Research').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
     act(() => button(el, 'Implementation').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
@@ -191,9 +194,26 @@ describe('the panel of the item selected', () => {
     type(el.querySelector('textarea') as HTMLTextAreaElement, '  Keep it to one table  ');
     expect(button(el, 'Send').disabled).toBe(false);
     await act(async () => button(el, 'Send').click());
-    expect(sent).toEqual([[12, { kind: 'write', block: 'code_opinions', content: 'Keep it to one table', value: null }]]);
+    expect(sent).toEqual([[13, { kind: 'write', block: 'code_opinions', content: 'Keep it to one table', value: null }]]);
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
     expect(text(el, '.cw-done')).toEqual(['Written in code_opinions']);
+  });
+
+  it('offers no cell the work has not reached, one that has never run in it', () => {
+    // A work at the review of its plan: the research and the deep research ran, the implementation never did.
+    const el = draw(12, answered([]), undefined, true);
+    const choice = (name: string) => button(el, name);
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Research']);
+    expect([choice('Research').disabled, choice('Deep research').disabled, choice('Implementation').disabled]).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(choice('Implementation').title).toBe('The work has not reached Implementation');
+    // One that skipped the deep research cannot write to it either.
+    draw(13, answered([]), undefined, true);
+    expect(choice('Deep research').disabled).toBe(true);
+    expect(choice('Deep research').title).toBe('The work did not go through the deep research');
   });
 
   it('keeps what is typed for a block of a work, so that it stands when the panel shows it again', () => {

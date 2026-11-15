@@ -1070,8 +1070,8 @@ function Discussion({ work, page, askers, messages, messageTo, setMessageTo, quo
   const read = pageIn(page);
   const blocks = (read?.flow.blocks ?? []).filter((b) => b.writtenBy.people && b.values === null);
   // Whom a message goes to: the research, the deep research or the implementation, and a cell that asked the owner a
-  // question still to answer, each by the block of the owner's words its cell reads. The deep research cannot be
-  // chosen where the work did not go through it. Once the work has come to the implementation, a message goes there
+  // question still to answer, each by the block of the owner's words its cell reads. A cell the work has not reached,
+  // which has never run in it, cannot be chosen. Once the work has come to the implementation, a message goes there
   // unless the owner picks another; before that, to the research.
   const cells: { cell: MessageCell; name: string }[] = [
     ...MESSAGE_TO,
@@ -1083,7 +1083,7 @@ function Discussion({ work, page, askers, messages, messageTo, setMessageTo, quo
     // does. A block several cells read, such as the background, is no message to one of them and is never written
     // from here.
     block: blocks.find((b) => b.readBy.cells.length === 1 && b.readBy.cells[0] === t.cell),
-    off: t.cell === 'D1' && !went(work, 'D1'),
+    off: !went(work, t.cell),
   }));
   const usable = targets.filter((t) => t.block !== undefined && !t.off);
   const target = usable.find((t) => t.cell === (messageTo ?? (went(work, 'I1') ? 'I1' : 'R1'))) ?? usable[0];
@@ -1119,7 +1119,13 @@ function Discussion({ work, page, askers, messages, messageTo, setMessageTo, quo
                 aria-checked={t.cell === target?.cell}
                 aria-pressed={t.cell === target?.cell}
                 disabled={t.block === undefined || t.off}
-                title={t.off ? 'The work did not go through the deep research' : undefined}
+                title={
+                  !t.off
+                    ? undefined
+                    : t.cell === 'D1'
+                      ? 'The work did not go through the deep research'
+                      : `The work has not reached ${t.name}`
+                }
                 onClick={() => setMessageTo(t.cell)}
               >
                 {t.name}
