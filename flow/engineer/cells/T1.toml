@@ -17,8 +17,8 @@ every place where the same thing happens, not only the one the item names? Does 
 commit, each new test red before the change where its kind needs it and worth its time? Where cost per operation can
 change, is what it can slow measured? Do the entries written into `design/` say what `tree_edits` says, and no more?
 
-List every point at once in `review`. Leave out preferences: the engineer fixes nearly all a review raises, so a wrong
-point makes good code worse.
+List every point at once in `review`: this is your one chance, and nothing is raised later that could be raised now.
+Leave out preferences: the engineer fixes nearly all a review raises, so a wrong point makes good code worse.
 
 With `review_ok` yes write no opinion. Having said yes to `needs_testing`, keep it while the part of the change that
 made you say so is still there.
