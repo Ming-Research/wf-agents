@@ -14,8 +14,9 @@ wf-agents runs coding agents through a defined flow.
   the owner's flow page for the definition in a directory, and `wf-agents run` runs the engine with the owner's pages.
   Its agents run with the `claude` command line and its acts with git, as the installation's settings say
   (`<data>/install.toml`, of which `crates/carry/install.sample.toml` is a sample); given `--script`, they follow the
-  script instead, reading what is written beside the flows as the real ones do. To try it on the trial flow with its
-  script, in `crates/flow/tests/laid_out`, beside what the flows of the tests share:
+  script instead, reading what is written beside the flows as the real ones do, and given `--settings` and, with
+  `--script`, a script of parts, the real ones run and each round the script names is given its part to play. To try it on the trial flow with
+  its script, in `crates/flow/tests/laid_out`, beside what the flows of the tests share:
   `wf-agents run --data <an empty directory> --flow trial --script scripts/trial.toml`; then
   `wf-agents add --title "Greet the user" --flow trial --project trial --write "request=Greet the user."` and
   `wf-agents resume 1`, `wf-agents answer 1 named 9 1` once its plan asks the owner,

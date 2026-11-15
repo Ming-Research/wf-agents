@@ -1,7 +1,8 @@
 //! The script the test carriers follow: a TOML file saying, for each flow, what each cell's agent or act returns, run
 //! by run and round by round, in every work or in one alone, what each tool answers, and what the engine's check of the
 //! agents' outside finds; and, for a play of it, the items it adds, what people and the outside do at states of their
-//! works, and the path each work must take (module [`items`]).
+//! works, and the path each work must take (module [`items`]). Or, for the real carriers, the part each round's real
+//! agent plays (below).
 //!
 //! ```toml
 //! # The one time the script names as a date, in milliseconds since the start of 1970: every other time it names is the
@@ -143,6 +144,19 @@
 //! failure = "passing"
 //! ```
 //!
+//! A round entry may give the round's agent a part to play (`part`), in a run with the installation's settings, whose
+//! every round, act and tool is the real one (design document `testing`, 12): the round is then the real agent's,
+//! given the part after all its cell gives it, and its entry says nothing else of it; a round given again after one
+//! that failed is given what that one was, its part among it. A script that gives parts says nothing that stands in
+//! for a real round, act or tool, and a run without the settings, and a play, whose agents are all stood in for,
+//! refuse it ([`Script::with_settings`], [`Script::without_settings`]).
+//!
+//! ```toml
+//! [[flows.engineer.rounds]]
+//! cell = "R0"
+//! part = "Read what the cell gives you as briefly as it allows, and hand in what it asks."
+//! ```
+//!
 //! A round that fails takes what its entry says, as any round does. Once the owner lets its work on, the run's next
 //! round is given the same, and does what the script says of that round: a script makes a round fail again by saying
 //! so of the next round too.
@@ -171,11 +185,13 @@ pub mod items;
 use flow::agents::Agents;
 use flow::{CellSpec, Compiled, Kind};
 use serde::Deserialize;
-use work::{Ask, Handed, Question, Spent, Time, Way};
+use work::{Ask, Back, Handed, Question, Spent, Time, Way, Work};
 
 use decide::run::Failure;
-use decide::{BlockId, Records, Seq};
+use decide::{BlockId, Records, RunId, Seq};
 use engine::Came;
+
+use crate::carriers::Round;
 
 /// How long a round takes where the script says nothing, in milliseconds.
 pub const ROUND_MS: u64 = 200;
@@ -240,6 +256,30 @@ pub struct Took {
     pub output_tokens: Option<u64>,
     /// The context it ends with, in tokens: what its last call to the model was sent; unknown where it is left out.
     pub context_tokens: Option<u64>,
+}
+
+impl Took {
+    /// Whether it says anything.
+    fn says(&self) -> bool {
+        let Took {
+            ms,
+            usd_micros,
+            input_tokens,
+            cached_tokens,
+            output_tokens,
+            context_tokens,
+        } = self;
+        [
+            ms,
+            usd_micros,
+            input_tokens,
+            cached_tokens,
+            output_tokens,
+            context_tokens,
+        ]
+        .iter()
+        .any(|taken| taken.is_some())
+    }
 }
 
 /// What a tool answers.
@@ -334,6 +374,9 @@ pub struct RoundScript {
     /// For an act of the engine, the link of the CI run it says it runs as: from its begin, or once the turn it waits
     /// for is taken.
     pub at: Option<String>,
+    /// The part the round's agent plays, in a run whose every round is the real one: the round is the real agent's,
+    /// which is given the part after all its cell gives it, and the entry says nothing of what it returns.
+    pub part: Option<String>,
 }
 
 fn first() -> usize {
@@ -708,10 +751,109 @@ impl Script {
                         faults.push(format!("{at}: an act of the engine takes no cost and no tokens"));
                     }
                 }
+                if round.part.as_deref().is_some_and(|part| part.trim().is_empty()) {
+                    faults.push(format!("{at}.part: a part says what the agent plays: give it words"));
+                }
+                if round.part.is_some() && cell.kind == Kind::Engine {
+                    faults.push(format!(
+                        "{at}: only an agent plays a part, and {} is an act of the engine",
+                        cell.id
+                    ));
+                }
+                if round.part.is_some() && round.returns() {
+                    faults.push(format!(
+                        "{at}: a round that plays a part is the real agent's, and its entry says nothing of what it \
+                         returns or takes"
+                    ));
+                }
             }
         }
         faults.extend(items::check(self, flows, words));
         faults
+    }
+
+    /// Where each round entry that gives its agent a part to play is, as `flows.<flow>.rounds[<place>]`.
+    pub fn parts(&self) -> Vec<String> {
+        let mut parts = Vec::new();
+        for (name, script) in &self.flows {
+            for (i, round) in script.rounds.iter().enumerate() {
+                if round.part.is_some() {
+                    parts.push(format!("flows.{name}.rounds[{i}]"));
+                }
+            }
+        }
+        parts
+    }
+
+    /// What is wrong with the script for a run whose agents, acts and tools are all stood in for, as a run with no
+    /// settings and a play are: each round entry that gives a part, which a real agent plays.
+    pub fn without_settings(&self) -> Vec<String> {
+        (self.parts().into_iter())
+            .map(|at| {
+                format!(
+                    "{at}: a part is played by a real agent, which runs with the installation's settings \
+                     (`wf-agents run --settings`), and here every agent is stood in for"
+                )
+            })
+            .collect()
+    }
+
+    /// What is wrong with the script for a run with the settings, whose every round, act and tool is the real one
+    /// (design document `testing`, 12): that it gives no part; a time it starts at, which such a run, on the system's
+    /// clock, would not keep; and each thing it says that stands in for a real one, which such a run would not carry
+    /// out: how many rounds go on at once, what a round takes, what a tool answers, what the check of the outside
+    /// finds, the value a round hands in, and a round entry that gives no part.
+    pub fn with_settings(&self) -> Vec<String> {
+        let mut faults = Vec::new();
+        if self.parts().is_empty() {
+            faults.push(
+                "it gives no part: beside the settings, a script gives only the parts the real agents play".to_string(),
+            );
+        }
+        if self.start.is_some() {
+            faults.push("start: beside the settings, the engine runs on the system's clock, from now".to_string());
+        }
+        let mut stands_in = Vec::new();
+        if self.slots.is_some() {
+            stands_in.push("slots".to_string());
+        }
+        if self.took.says() {
+            stands_in.push("took".to_string());
+        }
+        stands_in.extend(self.tools.keys().map(|tool| format!("tools.{tool}")));
+        if self.outside.finds.is_some() {
+            stands_in.push("outside.finds".to_string());
+        }
+        for (name, script) in &self.flows {
+            stands_in.extend(script.values.keys().map(|block| format!("flows.{name}.values.{block}")));
+            for (i, round) in script.rounds.iter().enumerate() {
+                if round.part.is_none() {
+                    stands_in.push(format!("flows.{name}.rounds[{i}]"));
+                }
+            }
+        }
+        faults.extend(stands_in.into_iter().map(|at| {
+            format!(
+                "{at}: beside the settings, every round, act and tool is the real one, and a script stands in for none"
+            )
+        }));
+        faults
+    }
+
+    /// The part the script gives the agent of this round to play, where it gives one: of the entry of the round as
+    /// [`Script::entry`] finds it, the round's run counted as its cell's nth in its work. A round given again after
+    /// rounds of its run that failed is given what the first of them was given, as the run's next round is given what
+    /// a failed one was: the part of that round's entry.
+    pub fn part(&self, round: &Round) -> Option<&str> {
+        let nth = nth(&round.kept, round.run);
+        let failed = |k: &usize| matches!(round.kept.back.get(&(round.run, *k)), Some(Back::Failed { .. }));
+        let number = (1..round.number)
+            .rev()
+            .take_while(failed)
+            .last()
+            .unwrap_or(round.number);
+        let entry = self.entry(&round.flow.name, round.cell.id.as_str(), round.work.0, nth, number)?;
+        entry.part.as_deref()
     }
 
     /// The entry of the round of this number of the cell's nth run in the flow, for this work: the work's own, else
@@ -947,6 +1089,50 @@ impl Script {
         let ms = (asked.and_then(|ask| ask.ms)).or_else(|| script.and_then(|s| s.ms));
         (answer, ms.unwrap_or(TOOL_MS))
     }
+}
+
+impl RoundScript {
+    /// Whether the entry says anything of what the round returns or takes.
+    fn returns(&self) -> bool {
+        let RoundScript {
+            cell: _,
+            work: _,
+            run: _,
+            round: _,
+            part: _,
+            took,
+            hands_in,
+            asks,
+            observations,
+            questions,
+            engine,
+            reads,
+            fails,
+            failure,
+            resets,
+            turn,
+            at,
+        } = self;
+        took.says()
+            || hands_in.is_some()
+            || asks.is_some()
+            || observations.is_some()
+            || questions.is_some()
+            || engine.is_some()
+            || reads.is_some()
+            || fails.is_some()
+            || failure.is_some()
+            || resets.is_some()
+            || turn.is_some()
+            || at.is_some()
+    }
+}
+
+/// Which run of its cell the run is in the work, counted from one: runs are named in the order they started.
+pub(crate) fn nth(kept: &Work, run: RunId) -> usize {
+    let started = kept.records.started.iter();
+    let cell = (started.clone().find(|s| s.run == run)).map(|s| &s.cell);
+    started.filter(|s| Some(&s.cell) == cell && s.run <= run).count()
 }
 
 /// The options of a question, as the engine keeps them.

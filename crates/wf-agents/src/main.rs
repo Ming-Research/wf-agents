@@ -51,7 +51,9 @@ enum Command {
     /// Runs the engine: drives every work of the store in the data directory on the flows given, and serves the
     /// owner's pages on the loopback address. Its agents run with the command line, its acts with git in the project's
     /// repository, as the installation's settings say; or, with a script, the agents, the acts and the tools follow
-    /// it. It stops when the engine stops, saying why; started again, it goes on from the store.
+    /// it; or, with the settings and a script of parts, the agents run with the command line and each round the script
+    /// gives a part to is given it to play. It stops when the engine stops, saying why; started again, it goes on from
+    /// the store.
     Run {
         /// The data directory, which holds the store.
         #[arg(long)]
@@ -59,8 +61,9 @@ enum Command {
         /// The directory of a flow's definition; given once for each flow.
         #[arg(long = "flow", required = true)]
         flows: Vec<PathBuf>,
-        /// A script the agents, the engine's acts and the tools follow, in place of the real ones.
-        #[arg(long, conflicts_with = "settings")]
+        /// A script the agents, the engine's acts and the tools follow, in place of the real ones; given with
+        /// `--settings`, a script that gives only the parts the real agents play.
+        #[arg(long)]
         script: Option<PathBuf>,
         /// The installation's settings; `install.toml` in the data directory where none is given.
         #[arg(long)]
@@ -532,10 +535,7 @@ fn main() -> ExitCode {
             settings,
             port,
         } => {
-            let carriers = match script {
-                Some(script) => running::With::Script(script),
-                None => running::With::Settings(settings.unwrap_or_else(|| data.join(carry::settings::FILE))),
-            };
+            let carriers = carried_by(&data, script, settings);
             running::run(&data, &flows, carriers, port)
         }
         Command::Play {
@@ -972,6 +972,18 @@ fn words(what: &FaultKind, field: &str) -> String {
     }
 }
 
+/// What carries a run's works out, as its arguments say: a script given alone, in place of the real carriers; else the
+/// real carriers, as the settings say, their file in the data directory where none is given, with the script of the
+/// parts their agents play where one is given beside them.
+fn carried_by(data: &Path, script: Option<PathBuf>, settings: Option<PathBuf>) -> running::With {
+    match (script, settings) {
+        (Some(script), None) => running::With::Script(script),
+        (parts, settings) => {
+            running::With::Settings(settings.unwrap_or_else(|| data.join(carry::settings::FILE)), parts)
+        }
+    }
+}
+
 /// The address the flow page is printed at: the page shows the view its address's hash names, and this server serves
 /// the flow alone.
 fn flow_page(address: SocketAddr) -> String {
@@ -989,6 +1001,54 @@ fn a_name_given_twice_says_where_it_was_given_twice() {
         twice("tools", "tools"),
         "the cell names tools of its own, and the flow already gives its agent cells theirs"
     );
+}
+
+// A run is given the settings and a script of the parts their agents play together, the real carriers carrying the
+// works out and the script giving the parts (design document `testing`, 12).
+#[test]
+fn a_run_takes_the_settings_and_a_script_of_parts_together() {
+    let args = [
+        "wf-agents",
+        "run",
+        "--data",
+        "data",
+        "--flow",
+        "flow",
+        "--settings",
+        "install.toml",
+        "--script",
+        "parts.toml",
+    ];
+    let cli = Cli::try_parse_from(args).expect("the command is taken");
+    let Command::Run { script, settings, .. } = cli.command else {
+        panic!("a run");
+    };
+    assert_eq!(
+        (script, settings),
+        (Some(PathBuf::from("parts.toml")), Some(PathBuf::from("install.toml")))
+    );
+}
+
+// A script given alone carries the works out in place of the real carriers; the settings, given or in the data
+// directory, carry them out with the real ones, and a script given beside them gives the parts their agents play.
+#[test]
+fn a_script_alone_stands_in_and_beside_the_settings_gives_the_parts() {
+    use running::With;
+    let (data, file) = (Path::new("data"), |name: &str| Some(PathBuf::from(name)));
+    let installed = data.join(carry::settings::FILE);
+    assert!(matches!(carried_by(data, file("p.toml"), None), With::Script(s) if s == Path::new("p.toml")));
+    assert!(matches!(
+        carried_by(data, None, None),
+        With::Settings(s, None) if s == installed
+    ));
+    assert!(matches!(
+        carried_by(data, None, file("s.toml")),
+        With::Settings(s, None) if s == Path::new("s.toml")
+    ));
+    assert!(matches!(
+        carried_by(data, file("p.toml"), file("s.toml")),
+        With::Settings(s, Some(p)) if s == Path::new("s.toml") && p == Path::new("p.toml")
+    ));
 }
 
 #[test]

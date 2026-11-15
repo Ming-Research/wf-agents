@@ -1,7 +1,8 @@
 //! `wf-agents run`: the engine as a process. It drives every work the store in the data directory holds, on the flows
 //! it is given, and serves the owner's pages over it. What carries the works out is the real carriers, as the
 //! installation's settings say (the crate `carry`), or, given a script, agents, engine acts and tools that follow it,
-//! reading what is written beside the flows as the real ones do.
+//! reading what is written beside the flows as the real ones do. Given both, the carriers are the real ones, and the
+//! script gives the parts their agents play (design document `testing`, 12).
 //! It stops when the engine's loop stops, saying why; started again, it goes on from the store, every work held where
 //! works were going on, until the owner lets them on (crate `driver`). An item is added at one
 //! of the levels the settings name; with a script, at the one level a script's engine has.
@@ -35,8 +36,9 @@ fn has(dir: &Path) -> Has {
 pub enum With {
     /// Agents, engine acts and tools that follow the script in this file.
     Script(PathBuf),
-    /// The real carriers, as the settings in this file say.
-    Settings(PathBuf),
+    /// The real carriers, as the settings in this file say, and, where one is given, the script in the other that gives
+    /// the parts their agents play.
+    Settings(PathBuf, Option<PathBuf>),
 }
 
 /// What carries the works out, read and checked: a script or the settings, each with what is written beside the flows.
@@ -44,8 +46,9 @@ pub enum Read {
     /// The script, and what is written beside the flows, in whose words its rounds' questions are read.
     Script(Box<Script>, Box<flow::agents::Agents>),
     /// The settings, and what is written beside the flows: what the acts write and the agents' rounds are told, and
-    /// what the form of a return and the system prompts are made of.
-    Settings(Box<carry::Settings>, Box<flow::agents::Agents>),
+    /// what the form of a return and the system prompts are made of; and the script of the parts the agents play, where
+    /// one is given.
+    Settings(Box<carry::Settings>, Box<flow::agents::Agents>, Option<Box<Script>>),
 }
 
 /// The address the works page is printed at.
@@ -59,9 +62,9 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         eprintln!("no flow is given: the engine runs on at least one");
         return ExitCode::FAILURE;
     };
-    // The settings' file, which the page shows and the owner changes there; or the script's.
+    // The settings' file, which the page shows and the owner changes there, and the script's, as either is given.
     let (settings_file, script_file) = match &with {
-        With::Settings(file) => (Some(file.clone()), None),
+        With::Settings(file, parts) => (Some(file.clone()), parts.clone()),
         With::Script(file) => (None, Some(file.clone())),
     };
     // The one project of a script's items, named before what carries the works out is read.
@@ -70,7 +73,11 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         return ExitCode::FAILURE;
     };
     // What a play of the script adds and does is checked as it is read, and a run carries none of it out.
-    if let (Read::Script(script, _), Some(file)) = (&with, &script_file)
+    let script = match &with {
+        Read::Script(script, _) | Read::Settings(_, _, Some(script)) => Some(script),
+        Read::Settings(_, _, None) => None,
+    };
+    if let (Some(script), Some(file)) = (script, &script_file)
         && !script.items.is_empty()
     {
         eprintln!(
@@ -112,9 +119,18 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        // The store is made and migrated here, once and before anything else opens its file: what keeps the copies of
+        // it opens it as it is made, and the loop is opened on this one.
+        let store = match open_store(data) {
+            Ok(store) => store,
+            Err(why) => {
+                eprintln!("{why}");
+                return ExitCode::FAILURE;
+            }
+        };
         let levels = match &with {
             Read::Script(..) => script_levels(),
-            Read::Settings(settings, _) => match settings.levels() {
+            Read::Settings(settings, ..) => match settings.levels() {
                 Ok(levels) => levels,
                 Err(why) => {
                     eprintln!("{why}");
@@ -125,13 +141,13 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         // The projects an item may be added to: the settings'; a script's one, named as its file is.
         let projects = match &with {
             Read::Script(..) => scripted,
-            Read::Settings(settings, _) => Projects::new(settings.projects.keys().cloned()),
+            Read::Settings(settings, ..) => Projects::new(settings.projects.keys().cloned()),
         };
         // The checkout of the project whose repository holds the flows shown, for what the page shows an agent is sent,
         // the declaration beside the flows being that project's; none where no project's does, as with a script.
         let project = match &with {
             Read::Script(..) => None,
-            Read::Settings(settings, _) => holding(settings, shown),
+            Read::Settings(settings, ..) => holding(settings, shown),
         };
         // What the block of main says as a watch reads its head, in the words its definition gives: the same in every
         // flow, whose triggers are shared. Filled with the name of the project's main branch, which the settings give.
@@ -145,7 +161,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         let mut install: Option<web::settings::Install> = None;
         let (carriers, watches): (Carriers, Vec<carry::ProjectWatch>) = match with {
             Read::Script(script, beside) => (script_carriers(*script, *beside), Vec::new()),
-            Read::Settings(settings, beside) => {
+            Read::Settings(settings, beside, parts) => {
                 if let Some(file) = settings_file {
                     match installed(file, &settings) {
                         Ok(made) => install = Some(made),
@@ -162,7 +178,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 }
-                match carry::carry(*settings, data, *beside) {
+                match carry::carry(*settings, data, *beside, parts.map(|parts| *parts)) {
                     Ok((carriers, watches)) => (carriers, watches),
                     Err(why) => {
                         eprintln!("The carriers cannot be made: {why}");
@@ -171,7 +187,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 }
             }
         };
-        let (service, inbox) = match engine(data, flows, carriers, Arc::new(SystemClock)) {
+        let (service, inbox) = match open_engine(store, flows, carriers, Arc::new(SystemClock)) {
             Ok(opened) => opened,
             Err(why) => {
                 eprintln!("{why}");
@@ -229,21 +245,38 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
     })
 }
 
+/// The store in the data directory, made with its schema where there is none and migrated where it is of an earlier
+/// version: the one place that does either, which whatever else opens the file comes after; or why it cannot be
+/// opened, in words.
+pub fn open_store(data: &Path) -> Result<Store, String> {
+    let path = data.join(store::FILE);
+    Store::open(&path).map_err(|fault| {
+        let words = service::store_fault_words(&fault);
+        format!("{}: the store cannot be opened: {words}", path.display())
+    })
+}
+
+/// The engine's loop opened on this store, with these flows and carriers, on this clock; or why it cannot be opened,
+/// in words.
+fn open_engine(
+    store: Store,
+    flows: Vec<Compiled>,
+    carriers: Carriers,
+    clock: Arc<dyn Clock>,
+) -> Result<(Service, Inbox), String> {
+    Service::open(Box::new(store), flows, carriers, clock).map_err(|fault| format!("The engine cannot start: {fault}."))
+}
+
 /// The engine's loop opened on the store in the data directory, with these flows and carriers, on this clock: what
-/// `run` serves and `play` plays, made by one function so that a play is played on the engine a run runs; or why it
-/// cannot be opened, in words.
+/// `run` serves and `play` plays, made by the same two steps so that a play is played on the engine a run runs; or why
+/// it cannot be opened, in words.
 pub fn engine(
     data: &Path,
     flows: Vec<Compiled>,
     carriers: Carriers,
     clock: Arc<dyn Clock>,
 ) -> Result<(Service, Inbox), String> {
-    let path = data.join(store::FILE);
-    let store = Store::open(&path).map_err(|fault| {
-        let words = service::store_fault_words(&fault);
-        format!("{}: the store cannot be opened: {words}", path.display())
-    })?;
-    Service::open(Box::new(store), flows, carriers, clock).map_err(|fault| format!("The engine cannot start: {fault}."))
+    open_engine(open_store(data)?, flows, carriers, clock)
 }
 
 /// The carriers of an engine whose agents, acts and tools follow the script, reading what is written beside the flows
@@ -368,7 +401,7 @@ fn said(out: &backup::Outcome) {
 fn script_projects(with: &With) -> Projects {
     let name = match with {
         With::Script(script) => script_project(script),
-        With::Settings(_) => String::new(),
+        With::Settings(..) => String::new(),
     };
     Projects::one(&name)
 }
@@ -462,10 +495,13 @@ pub fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>
         // its words, and a run that cannot read it does not start.
         With::Script(script) => {
             let beside = beside(dirs, &flows);
-            match (
-                read_script(script, &flows, beside.as_ref().ok(), compiled_all, &mut wrong),
-                beside,
-            ) {
+            let read = read_script(script, &flows, beside.as_ref().ok(), compiled_all, &mut wrong);
+            // A part is played by a real agent, which this run has none of.
+            for fault in read.iter().flat_map(Script::without_settings) {
+                eprintln!("{}: {fault}", script.display());
+                wrong = true;
+            }
+            match (read, beside) {
                 (Some(script), Ok(beside)) => Some(Read::Script(Box::new(script), Box::new(beside))),
                 (_, beside) => {
                     if let Err(why) = beside {
@@ -475,27 +511,47 @@ pub fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>
                 }
             }
         }
-        With::Settings(settings) => match (carry::Settings::load(settings), beside(dirs, &flows)) {
-            (Ok(settings), Ok(beside)) => {
-                // What the real acts need of a flow and of their words, checked once the flows compiled; what the
-                // system prompts of its lines are made of, its texts' settings with their values and its places
-                // filled; and the project's files every system prompt holds.
-                for fault in start_faults(&settings, &beside, &flows) {
-                    eprintln!("{fault}");
+        With::Settings(settings, parts) => {
+            let (settings, beside) = (carry::Settings::load(settings), beside(dirs, &flows));
+            // The parts the real agents play, read whatever else is wrong, in a script that stands in for none of them,
+            // nor for an act or a tool; one that cannot be read keeps the run from starting.
+            let parts = parts.as_ref().map(|file| {
+                let parts = read_script(file, &flows, beside.as_ref().ok(), compiled_all, &mut wrong);
+                for fault in parts.iter().flat_map(Script::with_settings) {
+                    eprintln!("{}: {fault}", file.display());
                     wrong = true;
                 }
-                for warning in settings.warnings() {
-                    eprintln!("{warning}");
+                parts
+            });
+            match (settings, beside) {
+                (Ok(settings), Ok(beside)) => {
+                    // What the real acts need of a flow and of their words, checked once the flows compiled; what the
+                    // system prompts of its lines are made of, its texts' settings with their values and its places
+                    // filled; and the project's files every system prompt holds.
+                    for fault in start_faults(&settings, &beside, &flows) {
+                        eprintln!("{fault}");
+                        wrong = true;
+                    }
+                    for warning in settings.warnings() {
+                        eprintln!("{warning}");
+                    }
+                    match parts {
+                        Some(None) => None,
+                        parts => Some(Read::Settings(
+                            Box::new(settings),
+                            Box::new(beside),
+                            parts.flatten().map(Box::new),
+                        )),
+                    }
                 }
-                Some(Read::Settings(Box::new(settings), Box::new(beside)))
-            }
-            (settings, beside) => {
-                for why in [settings.err(), beside.err()].into_iter().flatten() {
-                    eprintln!("{why}");
+                (settings, beside) => {
+                    for why in [settings.err(), beside.err()].into_iter().flatten() {
+                        eprintln!("{why}");
+                    }
+                    None
                 }
-                None
             }
-        },
+        }
     };
     match read {
         Some(read) if !wrong && compiled_all => Some((flows, read)),
@@ -738,6 +794,36 @@ mod tests {
         assert_eq!(faults[5], format!("projects.same: {cargo}"));
     }
 
+    // Beside the settings, a script that gives parts alone is read with them, for the real agents' rounds to play;
+    // one that stands in for a real round keeps the run from starting.
+    #[test]
+    fn a_script_of_parts_is_read_beside_the_settings_and_one_that_stands_in_is_refused() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let repo = settings(dir.path()).projects["example"].repo.display().to_string();
+        let sample = include_str!("../../carry/install.sample.toml");
+        let file = dir.path().join("install.toml");
+        std::fs::write(&file, sample.replace("/path/to/the/repository", &repo)).unwrap();
+        let data = dir.path().join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let script = |name: &str, text: &str| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, text).unwrap();
+            path
+        };
+        let dirs = [flows().join("engineer")];
+        let read_with = |parts: PathBuf| read(&data, &dirs, &With::Settings(file.clone(), Some(parts)));
+        let parts = script(
+            "parts.toml",
+            "[[flows.engineer.rounds]]\ncell = \"R0\"\npart = \"Read it.\"\n",
+        );
+        assert!(matches!(read_with(parts), Some((_, Read::Settings(_, _, Some(_))))));
+        let standing_in = script(
+            "stands_in.toml",
+            "[[flows.engineer.rounds]]\ncell = \"R0\"\nhands_in = []\n",
+        );
+        assert!(read_with(standing_in).is_none());
+    }
+
     // The flows given are beside one directory, whose files every flow shares; flows from two are refused.
     #[test]
     fn flows_from_more_than_one_directory_are_refused() {
@@ -841,8 +927,9 @@ mod tests {
     }
 
     /// What is wrong with each script kept beside the flows in this directory, in `scripts/`, for the flows there it
-    /// names, each in the directory of its name and compiled as `wf-agents run` compiles it, each fault said with its
-    /// script's file; and how many scripts there are.
+    /// names, each in the directory of its name and compiled as `wf-agents run` compiles it, and, of a script that
+    /// gives parts, what a run with the settings refuses of it, each fault said with its script's file; and how many
+    /// scripts there are.
     fn scripts_beside(root: &Path) -> (usize, Vec<String>) {
         let mut scripts = Vec::new();
         for entry in std::fs::read_dir(root.join("scripts")).expect("the scripts are read") {
@@ -865,11 +952,12 @@ mod tests {
             })
             .collect();
         let words = flow::agents::read(root).expect("what is written beside the flows is read");
+        // A script that gives parts is held as well to what a run with the settings refuses of it.
         let faults = (scripts.iter())
             .flat_map(|(file, script)| {
-                script
-                    .check(&flows, &words)
-                    .into_iter()
+                let beside_settings = (!script.parts().is_empty()).then(|| script.with_settings());
+                (script.check(&flows, &words).into_iter())
+                    .chain(beside_settings.into_iter().flatten())
                     .map(move |fault| format!("{file}: {fault}"))
             })
             .collect();
@@ -877,9 +965,10 @@ mod tests {
     }
 
     // Every script kept beside the repository's flows, and beside the flows of the tests, fits them as a run with it
-    // checks it, so that a change of a flow that a script no longer fits fails at that change, and a script added there
-    // is checked with no test added (design document `testing`, 14). A few milliseconds alone, compiling each flow
-    // once; the only test that holds the scripts kept beside the flows to them.
+    // checks it, a script of parts as a run with the settings does, so that a change of a flow that a script no longer
+    // fits fails at that change, and a script added there is checked with no test added (design document `testing`,
+    // 14). A few milliseconds alone, compiling each flow once; the only test that holds the scripts kept beside the
+    // flows to them.
     #[test]
     fn every_script_beside_the_flows_fits_them() {
         let tests = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");

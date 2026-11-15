@@ -85,7 +85,7 @@ pub use tools::{QUERY, Querying};
 /// Each project's acts and tools are carried out on the host its settings say: GitHub where they have a table for it,
 /// with the engine's token from its environment, and its local repository where they have none.
 pub fn carriers(settings: Settings, data: &Path, beside: flow::agents::Agents) -> Result<Carriers, String> {
-    carry(settings, data, beside).map(|(carriers, _)| carriers)
+    carry(settings, data, beside, None).map(|(carriers, _)| carriers)
 }
 
 /// The watch of main of a project's acts, with the project's name and the name of its main branch.
@@ -97,11 +97,13 @@ pub struct ProjectWatch {
 
 /// The carriers of these settings, as [`carriers`] gives them, and the watch of main of each project's acts, which
 /// whoever runs the loop runs beside it, saying what it finds to the loop as the source [`MAIN`] of that project. The
-/// acts and the commits the engine makes say what is written beside the flows says, as the agents' rounds do.
+/// acts and the commits the engine makes say what is written beside the flows says, as the agents' rounds do. Where a
+/// script gives parts, each round it gives one to is given its part to play (design document `testing`, 12).
 pub fn carry(
     settings: Settings,
     data: &Path,
     beside: flow::agents::Agents,
+    parts: Option<service::Script>,
 ) -> Result<(Carriers, Vec<ProjectWatch>), String> {
     let words = beside.acts.clone();
     // The worktrees are given to git by their path, which git would read against the repository's directory were it
@@ -173,7 +175,7 @@ pub fn carry(
     let outside = outside::Check::of(&settings, &beside.cost)?;
     let carriers = Carriers {
         slots,
-        agents: Arc::new(Agents::new(settings, data.clone(), installation, of)),
+        agents: Arc::new(Agents::new(settings, data.clone(), installation, of, parts)),
         acts: Arc::new(ByProject {
             of: acts,
             said: beside.installation.no_project.clone(),

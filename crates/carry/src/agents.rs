@@ -30,12 +30,14 @@
 //! a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it is sent
 //! is what the context manager fills into that session (crate `context`): what the session lacks, or, where the
 //! program begins the session under its id, everything from the top, and what each try's message fills is said to the
-//! loop before the program is given it, so that it is recorded. A session the program no longer has is begun again
-//! under its id, and that is said to the loop at once, so that it is recorded with why. Where the program compacts the
-//! session during the round, a hook it is given marks the compaction, which the round counts among what it took and
-//! says to the loop as the session reopened, and gives the session the round's whole message again, as a session that
-//! holds nothing is sent it. After each use of a tool another hook gives the session what the owner said to the
-//! round while it runs, where the runner put it in the round's files (`cli::Words`).
+//! loop before the program is given it, so that it is recorded; a round a script of parts gives a part to play is
+//! given it there, as the script finds it (`service::Script::part`, design document `testing`, 12). A session
+//! the program no longer has is begun again under its id, and that is said to the loop at once, so that it is
+//! recorded with why. Where the program compacts the session during the round, a hook it is given marks the
+//! compaction, which the round counts among what it took and says to the loop as the session reopened, and gives the
+//! session the round's whole message again, as a session that holds nothing is sent it. After each use of a tool
+//! another hook gives the session what the owner said to the round while it runs, where the runner put it in the
+//! round's files (`cli::Words`).
 //!
 //! As a round of a line that may change the work ends with a return, the engine looks at what the work's branch changes
 //! under the paths the project protects, and asks the owner by itself where it is a change not asked of yet, beside
@@ -78,7 +80,7 @@ use decide::run::{Failure, Unmet};
 use decide::{BlockId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
-use service::{Clock, Doing, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Told};
+use service::{Clock, Doing, Ping, PingReply, Round, RoundReply, Rounds, Script, SystemClock, Teller, Telling, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::oneshot;
@@ -116,6 +118,8 @@ struct Inner {
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
     /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
     clock: Arc<dyn Clock>,
+    /// The script that gives the rounds of a test their parts to play, where one does (design document `testing`, 12).
+    parts: Option<Script>,
     /// A lock for each work, so that a keep-warm ping of a work never runs beside a round of it: a round waits for a
     /// ping of its work to end, and a ping that finds a round of its work under way is given up.
     in_work: std::sync::Mutex<BTreeMap<WorkNumber, Arc<tokio::sync::Mutex<()>>>>,
@@ -177,9 +181,16 @@ enum Carried {
 
 impl Agents {
     /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, and
-    /// what the rounds of each project's works are run with, by the project's name.
-    pub fn new(settings: Settings, data: PathBuf, installation: Uuid, projects: BTreeMap<String, Of>) -> Self {
-        Self::with_clock(settings, data, installation, projects, Arc::new(SystemClock))
+    /// what the rounds of each project's works are run with, by the project's name; and the script that gives the
+    /// rounds of a test their parts to play, where one does.
+    pub fn new(
+        settings: Settings,
+        data: PathBuf,
+        installation: Uuid,
+        projects: BTreeMap<String, Of>,
+        parts: Option<Script>,
+    ) -> Self {
+        Self::with_clock(settings, data, installation, projects, parts, Arc::new(SystemClock))
     }
 
     /// The agents as [`Agents::new`] gives them, reading the time by this clock.
@@ -188,6 +199,7 @@ impl Agents {
         data: PathBuf,
         installation: Uuid,
         projects: BTreeMap<String, Of>,
+        parts: Option<Script>,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Agents {
@@ -198,6 +210,7 @@ impl Agents {
                 projects,
                 held: Held::new(),
                 clock,
+                parts,
                 in_work: std::sync::Mutex::new(BTreeMap::new()),
                 said: std::sync::Mutex::new(BTreeMap::new()),
             }),
@@ -416,6 +429,7 @@ impl Inner {
             results: &results,
             tested: &tested,
             places: &places,
+            part: self.parts.as_ref().and_then(|parts| parts.part(round)),
         };
         let enter = |anew| context::enter(flow, &of.beside, work, round.run, round.number, &carried, anew);
         let (going_on, anew) = (enter(false)?, enter(true)?);
@@ -1668,7 +1682,7 @@ mod tests {
         let (flow, beside) = engineer();
         let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
         let projects = [("example".to_string(), of)].into();
-        let agents = Agents::new(settings, dir.to_path_buf(), Uuid::nil(), projects);
+        let agents = Agents::new(settings, dir.to_path_buf(), Uuid::nil(), projects, None);
         let first = store::First {
             title: "Greet the user".to_string(),
             level: None,

@@ -88,18 +88,25 @@ and the scripts that stand in for agents are built; what is not is said at the e
 12. **An agent that plays a part.** What a round is given can be wrong only at one moment, such as an input that
     contradicts itself in one state of the work, and only an agent given it at that moment can see it. So a round can
     run the agents' real program as any round does, in a session of its line, its message carrying, after all its cell
-    gives it, the part the script says the agent plays in that round. The agent is told that it is a test agent, there
-    to find what is wrong: it plays its part, and reports in its `observations` each thing it found wrong in what the
-    round gave it (missing, contradicting itself or another input, given twice or though the session already held it,
-    out of the order the flow declares, unneeded, or readable another way), in what came of its earlier returns, and in
-    what the form and the cell's words let it return. A part only carried out is what a script in its place does at no
-    cost (11). The run goes one round at a time (26). Such a run also shows what only that program does: what the
-    context manager filled into a real session, how that session's cache was read and written, what the program printed
-    for a session lost, a compaction or a refusal, and what it all cost. What the agent does shows nothing of how an
-    agent acts in real work, since it knows it is in a test; only a trial shows that, whose agents are not told they are
-    tested: they report what they meet in their `observations` in the same way (28), and a fork of a round's session,
-    made after the round, is asked about its cell's text (27). It runs on an installation apart from the real one, in a
-    repository made for it, so that nothing it does reaches a project.
+    gives it and as the flow's file of the message lays them out, the part the script says the agent plays in that
+    round and, where its session lacks them, the words that tell it it is a test agent. The agent is told that it is a
+    test agent, there to find what is wrong: it plays its part, and reports in its `observations` each thing it found
+    wrong in what the round gave it (missing, contradicting itself or another input, given twice or though the session
+    already held it, unneeded, or readable another way), in what came of its earlier returns, and in what the form and
+    the cell's words let it return. A part only carried out is what a script in its place does at no cost (11). The run
+    goes one round at a time (26). Such a run also shows what only that program does: what the context manager filled
+    into a real session, how that session's cache was read and written, what the program printed for a session lost, a
+    compaction or a refusal, and what it all cost. What the agent does shows nothing of how an agent acts in real work,
+    since it knows it is in a test; only a trial shows that, whose agents are not told they are tested: they report what
+    they meet in their `observations` in the same way (28), and a fork of a round's session, made after the round, is
+    asked about its cell's text (27). It runs on an installation apart from the real one, in a repository made for it,
+    so that nothing it does reaches a project. Every round of such a run is the real one, the engine's acts and the
+    tools too. A round stood in for would hand the next part blocks made up as if a cell had written them, to review as
+    inputs, and its made-up numbers would enter the history its line's real rounds are judged by (decision
+    a-session-is-replaced-past-its-limit). An act stood in for would leave the repository other than what the agent
+    finds in its worktree, and a tool's made-up result would be one more input to review; on a repository made for the
+    run, the real acts and a check that runs something real cost nothing a stand-in would save. That a run mixing both
+    would mislead more than it saves is a judgment.
 
 13. **What a script says**, for one case: the items it adds; what each round of each cell returns (what it hands in,
     asks or fails with, and what it takes) and what it read of the work's branch, which writes the work's tree and head
@@ -120,7 +127,7 @@ and the scripts that stand in for agents are built; what is not is said at the e
     suite, so that a change of the flow it no longer fits fails at that change, not when someone next runs it. A case
     met in a real run that no script reaches becomes a script, and a fault it showed gets its test at its layer (2).
 
-15. Not built: agents that play a part.
+15. Not built: judging a run the player did not play, such as one whose agents played parts.
 
 ## Every state of the page
 
