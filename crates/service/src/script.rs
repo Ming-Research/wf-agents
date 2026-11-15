@@ -717,6 +717,18 @@ impl Script {
                         faults.push(format!("{at}: an act of the engine takes no cost and no tokens"));
                     }
                 }
+                if round.part.is_some() && cell.kind == Kind::Engine {
+                    faults.push(format!(
+                        "{at}: only an agent plays a part, and {} is an act of the engine",
+                        cell.id
+                    ));
+                }
+                if round.part.is_some() && round.returns() {
+                    faults.push(format!(
+                        "{at}: a round that plays a part is the real agent's, and its entry says nothing of what it \
+                         returns or takes"
+                    ));
+                }
             }
         }
         faults.extend(items::check(self, flows, words));
@@ -739,7 +751,7 @@ impl Script {
     /// What is wrong with the script for a run whose agents, acts and tools are all stood in for, as a run with no
     /// settings and a play are: each round entry that gives a part, which a real agent plays.
     pub fn without_settings(&self) -> Vec<String> {
-        (Vec::<String>::new().into_iter())
+        (self.parts().into_iter())
             .map(|at| {
                 format!(
                     "{at}: a part is played by a real agent, which runs with the installation's settings \
@@ -755,7 +767,7 @@ impl Script {
     /// answers, what the check of the outside finds, the value a round hands in, and a round entry that gives no part.
     pub fn with_settings(&self) -> Vec<String> {
         let mut faults = Vec::new();
-        if false {
+        if self.parts().is_empty() {
             faults.push(
                 "it gives no part: beside the settings, a script gives only the parts the real agents play".to_string(),
             );
@@ -779,7 +791,7 @@ impl Script {
                 }
             }
         }
-        faults.extend(stands_in.into_iter().take(0).map(|at| {
+        faults.extend(stands_in.into_iter().map(|at| {
             format!(
                 "{at}: beside the settings, every round, act and tool is the real one, and a script stands in for none"
             )
@@ -798,7 +810,7 @@ impl Script {
             nth,
             round.number,
         )?;
-        entry.part.as_deref().filter(|_| false)
+        entry.part.as_deref()
     }
 
     /// The entry of the round of this number of the cell's nth run in the flow, for this work: the work's own, else

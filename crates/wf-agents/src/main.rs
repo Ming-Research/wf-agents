@@ -61,7 +61,7 @@ enum Command {
         flows: Vec<PathBuf>,
         /// A script the agents, the engine's acts and the tools follow, in place of the real ones; given with
         /// `--settings`, a script that gives only the parts the real agents play.
-        #[arg(long, conflicts_with = "settings")]
+        #[arg(long)]
         script: Option<PathBuf>,
         /// The installation's settings; `install.toml` in the data directory where none is given.
         #[arg(long)]

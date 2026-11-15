@@ -429,7 +429,7 @@ impl Inner {
             results: &results,
             tested: &tested,
             places: &places,
-            part: None,
+            part: self.parts.as_ref().and_then(|parts| parts.part(round)),
         };
         let enter = |anew| context::enter(flow, &of.beside, work, round.run, round.number, &carried, anew);
         let (going_on, anew) = (enter(false)?, enter(true)?);
