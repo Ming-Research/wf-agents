@@ -1,7 +1,8 @@
 //! The script the test carriers follow: a TOML file saying, for each flow, what each cell's agent or act returns, run
 //! by run and round by round, in every work or in one alone, what each tool answers, and what the engine's check of the
 //! agents' outside finds; and, for a play of it, the items it adds, what people and the outside do at states of their
-//! works, and the path each work must take (module [`items`]).
+//! works, and the path each work must take (module [`items`]). Or, for the real carriers, the part each round's real
+//! agent plays (below).
 //!
 //! ```toml
 //! # The one time the script names as a date, in milliseconds since the start of 1970: every other time it names is the
@@ -140,9 +141,10 @@
 //!
 //! A round entry may give the round's agent a part to play (`part`), in a run with the installation's settings, whose
 //! every round, act and tool is the real one (design document `testing`, 12): the round is then the real agent's,
-//! given the part after all its cell gives it, and its entry says nothing else of it. A script that gives parts says
-//! nothing that stands in for a real round, act or tool, and a run without the settings, and a play, whose agents are
-//! all stood in for, refuse it ([`Script::with_settings`], [`Script::without_settings`]).
+//! given the part after all its cell gives it, and its entry says nothing else of it; a round given again after one
+//! that failed is given what that one was, its part among it. A script that gives parts says nothing that stands in
+//! for a real round, act or tool, and a run without the settings, and a play, whose agents are all stood in for,
+//! refuse it ([`Script::with_settings`], [`Script::without_settings`]).
 //!
 //! ```toml
 //! [[flows.engineer.rounds]]
@@ -178,7 +180,7 @@ pub mod items;
 use flow::agents::Agents;
 use flow::{CellSpec, Compiled, Kind};
 use serde::Deserialize;
-use work::{Ask, Handed, Question, Spent, Time, Way, Work};
+use work::{Ask, Back, Handed, Question, Spent, Time, Way, Work};
 
 use decide::run::Failure;
 use decide::{BlockId, Records, RunId, Seq};
@@ -717,6 +719,9 @@ impl Script {
                         faults.push(format!("{at}: an act of the engine takes no cost and no tokens"));
                     }
                 }
+                if round.part.as_deref().is_some_and(|part| part.trim().is_empty()) {
+                    faults.push(format!("{at}.part: a part says what the agent plays: give it words"));
+                }
                 if round.part.is_some() && cell.kind == Kind::Engine {
                     faults.push(format!(
                         "{at}: only an agent plays a part, and {} is an act of the engine",
@@ -762,15 +767,19 @@ impl Script {
     }
 
     /// What is wrong with the script for a run with the settings, whose every round, act and tool is the real one
-    /// (design document `testing`, 12): that it gives no part, and each thing it says that stands in for a real
-    /// one, which such a run would not carry out: how many rounds go on at once, what a round takes, what a tool
-    /// answers, what the check of the outside finds, the value a round hands in, and a round entry that gives no part.
+    /// (design document `testing`, 12): that it gives no part; a time it starts at, which such a run, on the system's
+    /// clock, would not keep; and each thing it says that stands in for a real one, which such a run would not carry
+    /// out: how many rounds go on at once, what a round takes, what a tool answers, what the check of the outside
+    /// finds, the value a round hands in, and a round entry that gives no part.
     pub fn with_settings(&self) -> Vec<String> {
         let mut faults = Vec::new();
         if self.parts().is_empty() {
             faults.push(
                 "it gives no part: beside the settings, a script gives only the parts the real agents play".to_string(),
             );
+        }
+        if self.start.is_some() {
+            faults.push("start: beside the settings, the engine runs on the system's clock, from now".to_string());
         }
         let mut stands_in = Vec::new();
         if self.slots.is_some() {
@@ -800,16 +809,18 @@ impl Script {
     }
 
     /// The part the script gives the agent of this round to play, where it gives one: of the entry of the round as
-    /// [`Script::entry`] finds it, the round's run counted as its cell's nth in its work.
+    /// [`Script::entry`] finds it, the round's run counted as its cell's nth in its work. A round given again after
+    /// rounds of its run that failed is given what the first of them was given, as the run's next round is given what
+    /// a failed one was: the part of that round's entry.
     pub fn part(&self, round: &Round) -> Option<&str> {
         let nth = nth(&round.kept, round.run);
-        let entry = self.entry(
-            &round.flow.name,
-            round.cell.id.as_str(),
-            round.work.0,
-            nth,
-            round.number,
-        )?;
+        let failed = |k: &usize| matches!(round.kept.back.get(&(round.run, *k)), Some(Back::Failed { .. }));
+        let number = (1..round.number)
+            .rev()
+            .take_while(failed)
+            .last()
+            .unwrap_or(round.number);
+        let entry = self.entry(&round.flow.name, round.cell.id.as_str(), round.work.0, nth, number)?;
         entry.part.as_deref()
     }
 
@@ -1045,6 +1056,11 @@ impl RoundScript {
     /// Whether the entry says anything of what the round returns or takes.
     fn returns(&self) -> bool {
         let RoundScript {
+            cell: _,
+            work: _,
+            run: _,
+            round: _,
+            part: _,
             took,
             hands_in,
             asks,
@@ -1057,7 +1073,6 @@ impl RoundScript {
             resets,
             turn,
             at,
-            ..
         } = self;
         took.says()
             || hands_in.is_some()

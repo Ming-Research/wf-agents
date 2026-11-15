@@ -514,12 +514,7 @@ fn main() -> ExitCode {
             settings,
             port,
         } => {
-            let carriers = match (script, settings) {
-                (Some(script), None) => running::With::Script(script),
-                (parts, settings) => {
-                    running::With::Settings(settings.unwrap_or_else(|| data.join(carry::settings::FILE)), parts)
-                }
-            };
+            let carriers = carried_by(&data, script, settings);
             running::run(&data, &flows, carriers, port)
         }
         Command::Play { data, flows, script } => playing::play(&data, &flows, &script),
@@ -942,6 +937,18 @@ fn words(what: &FaultKind, field: &str) -> String {
     }
 }
 
+/// What carries a run's works out, as its arguments say: a script given alone, in place of the real carriers; else the
+/// real carriers, as the settings say, their file in the data directory where none is given, with the script of the
+/// parts their agents play where one is given beside them.
+fn carried_by(data: &Path, script: Option<PathBuf>, settings: Option<PathBuf>) -> running::With {
+    match (script, settings) {
+        (Some(script), None) => running::With::Script(script),
+        (parts, settings) => {
+            running::With::Settings(settings.unwrap_or_else(|| data.join(carry::settings::FILE)), parts)
+        }
+    }
+}
+
 /// The address the flow page is printed at: the page shows the view its address's hash names, and this server serves
 /// the flow alone.
 fn flow_page(address: SocketAddr) -> String {
@@ -985,6 +992,24 @@ fn a_run_takes_the_settings_and_a_script_of_parts_together() {
         (script, settings),
         (Some(PathBuf::from("parts.toml")), Some(PathBuf::from("install.toml")))
     );
+}
+
+// A script given alone carries the works out in place of the real carriers; the settings, given or in the data
+// directory, carry them out with the real ones, and a script given beside them gives the parts their agents play.
+#[test]
+fn a_script_alone_stands_in_and_beside_the_settings_gives_the_parts() {
+    use running::With;
+    let (data, file) = (Path::new("data"), |name: &str| Some(PathBuf::from(name)));
+    let installed = data.join(carry::settings::FILE);
+    assert!(matches!(carried_by(data, file("p.toml"), None), With::Script(s) if s == Path::new("p.toml")));
+    assert!(matches!(
+        carried_by(data, None, None),
+        With::Settings(s, None) if s == installed
+    ));
+    assert!(matches!(
+        carried_by(data, file("p.toml"), file("s.toml")),
+        With::Settings(s, Some(p)) if s == Path::new("s.toml") && p == Path::new("p.toml")
+    ));
 }
 
 #[test]

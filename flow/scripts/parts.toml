@@ -1,11 +1,12 @@
-# The parts the real agents play in the first pass of tests whose agents play parts (design document `testing`, 12),
-# run with the parts installation's settings (`wf-agents run --settings --script`), one round at a time (26). Every
+# The parts the real agents play in tests whose agents play parts (design document `testing`, 12), run with an
+# installation's settings beside this script (`wf-agents run --settings --script`), one round at a time (26). Every
 # round, act and tool is the real one; each item is added, and each act of a person done, by hand. A round named here
-# is given its part; a later run of a cell, or a later round, that is not named plays none and is read the same way.
+# is given its part; a later run of a cell, or a later round, that is not named plays none, and what it was given is
+# read as any round's is (28).
 
 # The items, in order, so that the kth item's work is the kth work.
 
-# The plain path: every round does its cell's work briefly.
+# The plain path: every round does its task briefly.
 [[items]]
 title = "Greet by name"
 flow = "engineer"
@@ -30,56 +31,56 @@ flow = "engineer"
 writes = [{ block = "background", content = "There is greet() and no farewell; farewell() should say \"Goodbye.\"" }]
 
 # Every work's: the first round of each agent's cell, and of the implementation's and the review's second run, does
-# its cell's work as briefly as it allows.
+# its task as briefly as it allows.
 [[flows.engineer.rounds]]
 cell = "R0"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "R1"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "R2"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "D1"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "D2"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "D3"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "D4"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "I1"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "I1"
 run = 2
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "T1"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "T1"
 run = 2
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 [[flows.engineer.rounds]]
 cell = "T2"
-part = "Do this cell's work on the item as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as briefly as it allows, and return what it asks."
 
 # The second work's research asks the owner one question it waits for.
 [[flows.engineer.rounds]]
@@ -91,7 +92,7 @@ part = "Ask the owner one question with two options that the work needs answered
 cell = "R1"
 work = 2
 run = 2
-part = "Do this cell's work on the item as the owner answered, as briefly as it allows, and return what your task asks."
+part = "Do your task on the item as the owner answered, as briefly as it allows, and return what it asks."
 
 # The third work's review objects to one thing in the change, as a review that finds it not yet right does.
 [[flows.engineer.rounds]]

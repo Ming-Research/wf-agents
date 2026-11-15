@@ -496,18 +496,16 @@ impl<'a> Reach<'a> {
 
     /// What the session holds of the message's kept parts on the cell's first entry, and whether the last return in it
     /// handed in blocks: nothing, where the cell is the first of its line; else what the cell of the line before it
-    /// was sent alike, and whether that cell writes any block.
+    /// was sent alike, of the parts a real work's session keeps, and whether that cell writes any block.
     fn after_the_line(&self) -> (Vec<String>, bool) {
         let Some(before) = self.before.last() else {
             return (Vec::new(), false);
         };
         let as_written = Settings::default();
         let texts = |cell: &CellSpec| kept(self.flow, self.words, cell, Values::Slots(&as_written));
-        let theirs = texts(before);
-        let tested =
-            |name: &str| (self.words.message.parts.iter()).any(|p| p.part.name() == name && p.only == Some(Only::Part));
+        let (theirs, kept) = (texts(before), self.kept());
         let alike = (texts(self.cell).into_iter())
-            .filter(|part| theirs.contains(part) && !tested(&part.0))
+            .filter(|part| theirs.contains(part) && kept.contains(&part.0))
             .map(|(part, _)| part)
             .collect();
         let place = self.flow.flow.place(&before.id);

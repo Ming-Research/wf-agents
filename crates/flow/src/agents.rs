@@ -1073,7 +1073,7 @@ impl Part {
     }
 }
 
-/// When a part written anew each time is sent at all.
+/// When a part is sent at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Only {

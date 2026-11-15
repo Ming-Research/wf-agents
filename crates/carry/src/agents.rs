@@ -32,12 +32,12 @@
 //! program begins the session under its id, everything from the top, and what each try's message fills is said to the
 //! loop before the program is given it, so that it is recorded; a round a script of parts gives a part to play is
 //! given it there, the round's entry found as the stand-ins find theirs (design document `testing`, 12). A session
-//! the program no longer has is begun again
-//! under its id, and that is said to the loop at once, so that it is recorded with why. Where the program compacts the
-//! session during the round, a hook it is given marks the compaction, which the round counts among what it took and
-//! says to the loop as the session reopened, and gives the session the round's whole message again, as a session that
-//! holds nothing is sent it. After each use of a tool another hook gives the session what the owner said to the
-//! round while it runs, where the runner put it in the round's files (`cli::Words`).
+//! the program no longer has is begun again under its id, and that is said to the loop at once, so that it is
+//! recorded with why. Where the program compacts the session during the round, a hook it is given marks the
+//! compaction, which the round counts among what it took and says to the loop as the session reopened, and gives the
+//! session the round's whole message again, as a session that holds nothing is sent it. After each use of a tool
+//! another hook gives the session what the owner said to the round while it runs, where the runner put it in the
+//! round's files (`cli::Words`).
 //!
 //! As a round of a line that may change the work ends with a return, the engine looks at what the work's branch changes
 //! under the paths the project protects, and asks the owner by itself where it is a change not asked of yet, beside
