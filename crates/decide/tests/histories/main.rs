@@ -670,6 +670,9 @@ impl History {
                         waits: false,
                         questions: Vec::new(),
                         read: Vec::new(),
+                        // As the engine's loop reads it: what of its writes would leave its own cell no longer
+                        // applying, as the records stand.
+                        skips: decide::skipping(&self.w.flow, r, run, writes),
                     },
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,

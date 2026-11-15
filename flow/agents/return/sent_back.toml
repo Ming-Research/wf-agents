@@ -61,6 +61,9 @@ asks_nothing = "The return asks for calls, and for none."
 # A block an act of the engine's after the cell wrote, `{block}`, dealt with by a return that leaves new nothing that
 # runs the act again: no block it writes or commits, and no question that stands.
 unanswered = "`{block}` is dealt with, and nothing is committed and no question asked: commit the fix, or ask the owner."
+# A block, `{block}`, that a return asking to wait writes, by a question that waits or an entry asking for tests, so
+# that its cell no longer runs: the wait of a cell that does not run holds nothing.
+skips_its_wait = "`{block}` as written stops this cell from running again, while the return waits here for an answer or for tests, which would then hold nothing: leave `{block}` out until they have come, or do not wait."
 
 # Why what came back could not be read as a return, said in `{why}` of `unreadable`: `{error}` what the reading of its
 # JSON says, `{name}` a tool's name.

@@ -21,8 +21,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use decide::{
-    BlockId, Cause, CellId, Condition, Decision, End, Maker, Outsider, Records, RunId, Seq, Stalling, Unrun, Waited,
-    Who, decide, told,
+    BlockId, Cause, CellId, Condition, Decision, End, Finished, Maker, Outsider, Records, RunId, Seq, Stalling, Unrun,
+    Waited, Who, Write, decide, holds_nothing, told,
 };
 use engine::spoken::To;
 use engine::{Ask, Came, Effect, Event as Given, Handed, Refused, Spent, Time, Work};
@@ -862,6 +862,7 @@ impl Explorer<'_> {
             self.reach(GAVE_RESULTS.to_string(), &trace, &work);
         }
         let writes: Vec<BlockId> = came.writes.iter().map(|h| h.block.clone()).collect();
+        let skips = self.skips(&c.work.records, i, run, &came);
         let returned = Given::Returned {
             run,
             came,
@@ -871,22 +872,50 @@ impl Explorer<'_> {
         if !self.give(&mut c, returned) {
             return None;
         }
-        self.judge_return(&c, &before, cell, run, &v, &writes);
+        self.judge_return(&c, &before, cell, run, (&v, skips), &writes);
         Some(c)
     }
 
+    /// Whether the return asks to wait itself, by a question that waits or an entry of a record its cell asks in, and
+    /// its writes leave its cell, at this place, no longer applying where it applies now, as the records read apart from
+    /// the deciding code say: such a return is sent back (decision a-return-that-waits-keeps-its-cell).
+    fn skips(&self, records: &Records, i: usize, run: RunId, came: &Came) -> bool {
+        let m = self.model;
+        let waits = came.said.waits() || (came.writes.iter()).any(|h| m.asking[i].contains(&h.block));
+        if !waits {
+            return false;
+        }
+        let mut after = records.clone();
+        after.finished.push(Finished {
+            run,
+            at: Seq(u64::MAX),
+            writes: (came.writes.iter())
+                .map(|h| Write {
+                    block: h.block.clone(),
+                    meaning_unchanged: !h.matters,
+                    value: h.value.clone(),
+                    empty: holds_nothing(h.value.as_deref(), &h.content),
+                })
+                .collect(),
+            dealt_with: Some(Vec::new()),
+            waits_for: None,
+        });
+        let applies = |records: &Records| Reading::of_flow(self.flow(), records).applies(self.flow(), i);
+        applies(records) && !applies(&after)
+    }
+
     /// Whether the loop took the return as its variant says it should be taken: one that does not meet the flow sent
-    /// back, or at the run's limit the owner asked; one that asks for a call, the call made; any other, its run
-    /// finished, or sent back, or at its limit the owner asked, only where a block it writes has a version newer than
-    /// its round was told of, which it would write over unseen (decision meaning-told-by-the-writer), as the records
-    /// read apart from the deciding code say.
+    /// back, or at the run's limit the owner asked, and so one that asks to wait and leaves its own cell (`skips`); one
+    /// that asks for a call, the call made; any other, its run finished, or sent back, or at its limit the owner asked,
+    /// only where a block it writes has a version newer than its round was told of, which it would write over unseen
+    /// (decision meaning-told-by-the-writer), as the records read apart from the deciding code say.
     fn judge_return(
         &mut self,
         s: &State,
         before: &Records,
         cell: &CellId,
         run: RunId,
-        v: &Variant,
+        (v, skips): (&Variant, bool),
         writes: &[BlockId],
     ) {
         let r = &s.work.records;
@@ -907,8 +936,12 @@ impl Explorer<'_> {
         let right = match v {
             Variant::SentBack => (again || at_limit) && !finished,
             Variant::Calls => asked,
+            _ if skips => (again || at_limit) && !finished,
             _ => finished || ((again || at_limit) && written_over),
         };
+        if skips && right {
+            self.reach(SKIPPED_ITS_WAIT.to_string(), &s.trace, &s.work);
+        }
         if !right {
             let name = format!("the engine's check of a return of {cell} judged {v} otherwise");
             let what =
@@ -1692,3 +1725,4 @@ pub const NO_ONE_SPOKEN_TO: &str = "the engine took the owner's words to no cell
 pub const A_TOOL_ANSWERED: &str = "the engine gave a cell the result of the tool it asked for";
 pub const A_ROUND_STOPPED: &str = "the engine stopped a round under way for the owner turning to a cell before it";
 pub const WAITED_FOR_A_TOOL: &str = "the work waited for the result of a tool alone";
+pub const SKIPPED_ITS_WAIT: &str = "a return that asked to wait and left its own cell was sent back";

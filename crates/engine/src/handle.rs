@@ -965,8 +965,10 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
                 value: h.value.clone(),
                 empty: decide::holds_nothing(h.value.as_deref(), &spoken::entry(flow, &h.block, &h.content)),
             })
-            .collect()
+            .collect::<Vec<Write>>()
     };
+    // The blocks that, as the return writes them, would leave its own cell no longer applying, as the records stand.
+    let skips = |writes: &[Write]| decide::skipping(&flow.flow, &work.records, run, writes);
     let returned = |i: usize, b: &Back| match b {
         Back::Returned {
             dealt_with,
@@ -976,24 +978,28 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             said,
             read,
             ..
-        } => run::Return::Came {
-            dealt_with: dealt_with.clone(),
-            writes: writes(handed),
-            calls: asks.len(),
-            found: found.clone(),
-            waits: said.waits(),
-            questions: (said.questions.iter())
-                .map(|q| run::Asking {
-                    name: q.name().to_string(),
-                    withdrawn: matches!(q, work::Question::Withdrawn { .. }),
-                })
-                .collect(),
-            // What the round committed, where the block does not say it already.
-            read: (read.iter())
-                .filter(|r| says_now(work, &r.block) != Some(r.content.as_str()))
-                .map(|r| r.block.clone())
-                .collect(),
-        },
+        } => {
+            let writes = writes(handed);
+            run::Return::Came {
+                dealt_with: dealt_with.clone(),
+                skips: skips(&writes),
+                writes,
+                calls: asks.len(),
+                found: found.clone(),
+                waits: said.waits(),
+                questions: (said.questions.iter())
+                    .map(|q| run::Asking {
+                        name: q.name().to_string(),
+                        withdrawn: matches!(q, work::Question::Withdrawn { .. }),
+                    })
+                    .collect(),
+                // What the round committed, where the block does not say it already.
+                read: (read.iter())
+                    .filter(|r| says_now(work, &r.block) != Some(r.content.as_str()))
+                    .map(|r| r.block.clone())
+                    .collect(),
+            }
+        }
         Back::Asked(asks) => run::Return::Came {
             dealt_with: Vec::new(),
             writes: Vec::new(),
@@ -1002,16 +1008,21 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             waits: false,
             questions: Vec::new(),
             read: Vec::new(),
+            skips: Vec::new(),
         },
-        Back::HandedIn(handed) => run::Return::Came {
-            dealt_with: told.ran_by.clone(),
-            writes: writes(handed),
-            calls: 0,
-            found: Vec::new(),
-            waits: false,
-            questions: Vec::new(),
-            read: Vec::new(),
-        },
+        Back::HandedIn(handed) => {
+            let writes = writes(handed);
+            run::Return::Came {
+                dealt_with: told.ran_by.clone(),
+                skips: skips(&writes),
+                writes,
+                calls: 0,
+                found: Vec::new(),
+                waits: false,
+                questions: Vec::new(),
+                read: Vec::new(),
+            }
+        }
         Back::Failed { why, failure, .. } => run::Return::Failed {
             failure: *failure,
             why: why.clone(),

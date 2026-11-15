@@ -168,6 +168,9 @@ pub enum Return {
         /// The blocks of the work's branch the carrier read new as the round ended, as what the round committed: the
         /// run writes each as it finishes, beside the blocks it writes itself.
         read: Vec<BlockId>,
+        /// The blocks that, as it writes them, would keep its cell's condition from holding, which holds as the round
+        /// ends: taken, the return would leave its own cell no longer applying ([`crate::skipping`]).
+        skips: Vec<BlockId>,
     },
     /// The round failed: nothing came back, for this kind of cause, said so.
     Failed {
@@ -380,6 +383,11 @@ pub enum Unmet {
     /// runs that act, neither by what it hands in, the work's head it committed among it, nor by a question that
     /// stands for the owner ([`Answer`]): the act reads no words, and would never run again.
     Unanswered { block: BlockId },
+    /// The return leaves its cell waiting by what it asks itself, a question that waits for the owner's answer or an
+    /// entry of a record its cell asks in, and the block, as it writes it, keeps the cell's condition from holding:
+    /// the cell would no longer apply, and a wait of a cell that does not apply holds nothing (decision
+    /// a-return-that-waits-keeps-its-cell).
+    SkipsItsWait { block: BlockId },
 }
 
 /// What runs an act of the engine's again, of a block it wrote that runs a cell before it: the blocks that run the
@@ -478,6 +486,7 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             waits,
             questions,
             read,
+            skips,
         } => {
             let came = Came {
                 dealt_with,
@@ -487,6 +496,7 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
                 waits: *waits,
                 questions,
                 read,
+                skips,
             };
             let unmet = unmet(&came, requires);
             if unmet.is_empty() {
@@ -607,9 +617,10 @@ fn leaves_waiting(came: &Came<'_>, requires: Requires) -> bool {
 /// each write, in the order of the writes; then whether it asks for calls beside doing the cell's work; then, of a
 /// return that does not leave its cell waiting ([`leaves_waiting`]) and wrote in its shape every block that would,
 /// whether it deals with nothing while something ran its round, and each block the cell must hand in and did not, in
-/// the order the cell lists them, but one found written in a shape it does not take; then each question it writes that
-/// it may not, in the order it wrote them; then, of such a return, each block an act wrote that it deals with and
-/// leaves unanswered, in the order it dealt with them.
+/// the order the cell lists them, but one found written in a shape it does not take; then, of a return that leaves its
+/// cell waiting by what it asks itself, each block that as it writes it would leave the cell no longer applying; then
+/// each question it writes that it may not, in the order it wrote them; then, of a return that does not leave its cell
+/// waiting, each block an act wrote that it deals with and leaves unanswered, in the order it dealt with them.
 fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     let Came {
         dealt_with,
@@ -619,6 +630,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         waits,
         questions,
         read,
+        skips,
     } = *came;
     let told = requires.told;
     let mut unmet = found.to_vec();
@@ -705,6 +717,8 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             }
         }
     }
+    // The rule a-return-that-waits-keeps-its-cell is not yet held: its tests come first.
+    let _ = skips;
     // A question is one cell's: its agent alone writes it anew or withdraws it, under a name no other question has.
     for (i, q) in questions.iter().enumerate() {
         let name = || q.name.clone();
@@ -756,4 +770,5 @@ struct Came<'r> {
     waits: bool,
     questions: &'r [Asking],
     read: &'r [BlockId],
+    skips: &'r [BlockId],
 }

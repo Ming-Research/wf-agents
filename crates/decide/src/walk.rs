@@ -37,6 +37,7 @@ use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
 use crate::questions::{self, Standing as Question};
 use crate::records::{
     CallId, Called, Cause, Finished, Outsider, Pause, Pauser, PutIn, RecordFault, Records, RunId, Seq, Started, Who,
+    Write,
 };
 use crate::room::Room;
 use crate::run::{Asked, Hold, Standing, Told};
@@ -348,6 +349,53 @@ pub fn reached(flow: &Flow, records: &Records, cells: &[CellId]) -> Option<CellI
 pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
     let walk = Walk::new(flow, records);
     flow.place(cell).is_some_and(|i| walk.applies(i))
+}
+
+/// The blocks that would keep the condition of the run's cell from holding once the run finished writing these, where
+/// it holds as the records stand: by its own writes the run would leave its cell no longer applying. Of those, the ones
+/// the run writes, where it writes any; the others only where its writes skip the cell through another, as through
+/// whether a version that a test of what stands reads still stands. None where the cell still applies with them, where
+/// it does not apply now, so that the writes are not what skips it, or where the run never started.
+pub fn skipping(flow: &Flow, records: &Records, run: RunId, writes: &[Write]) -> Vec<BlockId> {
+    let Some(i) = (records.started.iter())
+        .find(|s| s.run == run)
+        .and_then(|s| flow.place(&s.cell))
+    else {
+        return Vec::new();
+    };
+    // Only a block some cell's condition reads changes whether a cell applies, its own or one before it whose writes
+    // a test of what stands reads; other writes are not walked.
+    let read = |block: &BlockId| {
+        (flow.cells().iter().flat_map(|c| &c.applies)).any(|key| match key {
+            Condition::Is { block: b, .. } => b == block,
+            Condition::Test(name) => flow.tests().get(name).is_some_and(|t| t.reads.contains(block)),
+        })
+    };
+    if !writes.iter().any(|w| read(&w.block)) || !Walk::new(flow, records).applies(i) {
+        return Vec::new();
+    }
+    let mut after = records.clone();
+    after.finished.push(Finished {
+        run,
+        at: Seq(u64::MAX),
+        writes: writes.to_vec(),
+        dealt_with: Some(Vec::new()),
+        waits_for: None,
+    });
+    let walk = Walk::new(flow, &after);
+    let mut keeping: Vec<BlockId> = Vec::new();
+    for key in &flow.cells()[i].applies {
+        for block in walk.keeping(key, i) {
+            if !keeping.contains(block) {
+                keeping.push(block.clone());
+            }
+        }
+    }
+    let written: Vec<BlockId> = (keeping.iter())
+        .filter(|block| writes.iter().any(|w| &w.block == *block))
+        .cloned()
+        .collect();
+    if written.is_empty() { keeping } else { written }
 }
 
 /// The blocks that keep this key of the cell's preconditions from holding now, by the value each has: a write of any of

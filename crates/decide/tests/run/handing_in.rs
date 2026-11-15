@@ -229,6 +229,61 @@ fn a_return_with_a_question_that_waits_is_held_to_no_block_its_cell_must_write_a
     );
 }
 
+/// A round whose return asked a question that waits or none, wrote these, and, as it wrote them, would leave its cell
+/// no longer applying by these.
+fn skipping(waits: bool, writes: Vec<Write>, skips: &[&str]) -> Round {
+    Round {
+        returned: Some(Return::Came {
+            dealt_with: vec!["request".into(), "opinions".into()],
+            writes,
+            calls: 0,
+            found: Vec::new(),
+            waits,
+            questions: Vec::new(),
+            read: Vec::new(),
+            skips: skips.iter().map(|&b| b.into()).collect(),
+        }),
+    }
+}
+
+// A return that asks to wait, by a question that waits or by an entry asking for tests, and whose writes leave its own
+// cell no longer applying, is sent back naming each block that does: the wait of a cell that does not apply would hold
+// nothing (decision a-return-that-waits-keeps-its-cell). The research that waits on a question and writes that the
+// deep research is needed is the case. Well under a millisecond alone; no other test holds the run's check to it.
+#[test]
+fn a_return_that_asks_to_wait_and_leaves_its_own_cell_is_sent_back_naming_what_leaves_it() {
+    let s = asking_for_tests(&["verdict"]);
+    let skips = vec![Unmet::SkipsItsWait {
+        block: "verdict".into(),
+    }];
+    let asks = skipping(true, vec![valued("verdict", "no")], &["verdict"]);
+    assert_eq!(step(vec![asks], &s), send_back(skips.clone()));
+    let tests = skipping(false, vec![prose("tests"), valued("verdict", "no")], &["verdict"]);
+    assert_eq!(step(vec![tests], &s), send_back(skips));
+    // Leaving its cell as it waits on nothing, or waiting as it leaves nothing, is no fault.
+    let leaves = skipping(false, vec![valued("verdict", "no")], &["verdict"]);
+    assert!(matches!(step(vec![leaves], &s), Step::Finish { .. }));
+    let waits = skipping(true, vec![valued("verdict", "yes")], &[]);
+    assert!(matches!(step(vec![waits], &s), Step::Finish { .. }));
+}
+
+// A round entered for the owner while its cell waits, asking nothing itself, may leave its cell: what the owner said may
+// have turned it, and the earlier wait is put away as a skipped cell's is (decision a-return-that-waits-keeps-its-cell).
+// Well under a millisecond alone.
+#[test]
+fn a_round_entered_for_the_owner_while_its_cell_waits_may_leave_its_cell() {
+    let mut s = asking_for_tests(&["verdict"]);
+    s.told.waits = true;
+    let leaves = skipping(false, vec![valued("verdict", "no")], &["verdict"]);
+    assert!(matches!(step(vec![leaves], &s), Step::Finish { .. }));
+    // One that asks to wait anew is held to the rule as any other.
+    let asks = skipping(true, vec![valued("verdict", "no")], &["verdict"]);
+    let skips = vec![Unmet::SkipsItsWait {
+        block: "verdict".into(),
+    }];
+    assert_eq!(step(vec![asks], &s), send_back(skips));
+}
+
 #[test]
 fn what_was_found_as_a_return_was_read_is_said_first_with_everything_else_wrong_with_it() {
     let found = vec![

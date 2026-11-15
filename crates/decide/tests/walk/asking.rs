@@ -275,9 +275,10 @@ fn a_newer_entry_of_the_same_cell_replaces_the_one_whose_tests_have_not_run() {
     );
 }
 
-// A cell that asks for tests and skips itself in the same return has its entry put away: it holds nothing, the cell
-// that runs the tests gives none for it, and once it applies again it waits for it again, where no run of that cell
-// passed over it meanwhile.
+// A cell that asked for tests and is then skipped, by the owner's word here, has its entry put away: it holds nothing,
+// the cell that runs the tests gives none for it, and once it applies again it waits for it again, where no run of
+// that cell passed over it meanwhile. Its own return cannot skip it so: one that asks to wait and leaves its cell is
+// sent back (decision a-return-that-waits-keeps-its-cell).
 #[test]
 fn a_skipped_cells_entry_is_put_away_and_waits_again_as_the_cell_applies_again() {
     let mut w = testing();

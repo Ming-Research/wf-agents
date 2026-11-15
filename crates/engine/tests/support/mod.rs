@@ -6,9 +6,9 @@
 
 use std::collections::BTreeSet;
 
-use decide::run::Failure;
+use decide::run::{Failure, Unmet};
 use decide::{CallId, Cause, CellId, Decision, Outsider, Pauser, Records, RunId, Seq, Started, decide};
-use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
+use engine::{Ask, Back, Call, Came, Effect, Event, Given, Spent, Time, Work, handle, pending};
 use flow::Compiled;
 
 /// A small deterministic generator (xorshift), so that a seed gives the same history every time.
@@ -76,6 +76,9 @@ pub struct Seen {
     pub told: usize,
     /// Results of what a cell asked for in a record, handed in by a cell that gives them.
     pub results: usize,
+    /// Hand-ins sent back for asking to wait, by a question that waits or an entry asking for tests, and leaving their
+    /// own cell no longer applying.
+    pub skipping: usize,
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
@@ -112,6 +115,39 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
                     finished.run, started.cell
                 ));
             }
+        }
+    }
+    None
+}
+
+/// The first finished run whose return asked to wait itself, by an entry of a record its cell asks in or a question
+/// that waits for the owner's answer, and whose own writes left its cell no longer applying where it applied as the run
+/// was about to finish (decision a-return-that-waits-keeps-its-cell), said in words; none where there is none. Read by
+/// the reading of the records apart from the deciding code: the cell applying just before the finish and not just
+/// after it, a version of the questions of the run's own that waits.
+pub fn skipping_its_wait(flow: &Compiled, records: &Records) -> Option<String> {
+    for finished in &records.finished {
+        let started = (records.started.iter())
+            .find(|s| s.run == finished.run)
+            .expect("a finished run started");
+        let Some(i) = flow.flow.place(&started.cell) else {
+            continue;
+        };
+        let cell = &flow.flow.cells()[i];
+        let entry = (cell.asks.iter()).any(|asks| finished.writes.iter().any(|w| w.block == asks.record));
+        let question =
+            (records.questions.iter()).any(|q| q.run == finished.run && !q.engine && q.waits && !q.withdrawn);
+        if !entry && !question {
+            continue;
+        }
+        let before = records.before(finished.at);
+        let after = records.before(Seq(finished.at.0 + 1));
+        let applies = |records: &Records| reading::Reading::new(records).applies(&flow.flow, i);
+        if applies(&before) && !applies(&after) {
+            return Some(format!(
+                "run {:?} of {} asked to wait and finished writing what leaves its cell no longer applying",
+                finished.run, started.cell
+            ));
         }
     }
     None
@@ -496,6 +532,9 @@ impl Driver {
         if let Some(why) = lacking_a_must_write(&self.flow, r) {
             panic!("{why}");
         }
+        if let Some(why) = skipping_its_wait(&self.flow, r) {
+            panic!("{why}");
+        }
         for effect in &self.held {
             match effect {
                 Effect::Tell { .. } => panic!("words told to a round are held"),
@@ -656,11 +695,22 @@ impl Driver {
                     && hand_in
                     && !came.said.waits()
                     && must.iter().any(|b| !came.writes.iter().any(|h| h.block == *b));
+                let rounds = |r: &Records| r.rounds.iter().filter(|e| e.run == run).count();
+                let began = rounds(&self.work.records);
                 self.returned(run, came);
                 let r = &self.work.records;
                 let open = !r.finished.iter().any(|f| f.run == run) && !r.abandoned.iter().any(|a| a.run == run);
                 if lacks && open {
                     self.seen.lacking += 1;
+                }
+                // Sent back for asking to wait as it left its own cell: the round after it is told so.
+                let next = rounds(r);
+                let skipping = |unmet: &Unmet| matches!(unmet, Unmet::SkipsItsWait { .. });
+                if next > began
+                    && let Some(Given::SentBack(unmet)) = self.work.given.get(&(run, next))
+                    && unmet.iter().any(skipping)
+                {
+                    self.seen.skipping += 1;
                 }
             }
             Effect::Call { call, .. } => self.give_result(call),

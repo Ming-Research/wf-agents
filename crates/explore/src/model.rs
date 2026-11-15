@@ -485,7 +485,8 @@ impl Model {
             sets = more;
         }
         // A question, only of a cell that may ask the owner: one it waits on, with its content's choices or with
-        // choices that skip the cell itself, which it leaves behind; and one it goes on past.
+        // choices that skip the cell itself, which the engine sends back, as the wait of a cell that leaves itself
+        // would hold nothing (decision a-return-that-waits-keeps-its-cell); and one it goes on past.
         if self.asks_owner[i] {
             let own: Vec<BlockId> = cell.applies.iter().flat_map(|k| self.key_reads(k)).collect();
             for set in sets.iter().filter(|set| set.keys().all(|b| own.contains(b))) {

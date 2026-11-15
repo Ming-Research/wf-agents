@@ -151,3 +151,38 @@ fn a_condition_on_a_block_a_later_cell_writes_is_met_once_that_cell_wrote_it() {
         runs("first", first(&["brief"]), &[("brief", Some(brief)), ("x", None)])
     );
 }
+
+// What a run's writes would leave keeping its own cell's condition from holding, were the run to finish with them: the
+// research that writes that the deep research is needed leaves itself, which the run's check holds a return that asks
+// to wait to (decision a-return-that-waits-keeps-its-cell). Writes that keep it applying, and those no condition reads,
+// leave nothing. Well under a millisecond alone; the only test of what a run's own writes skip.
+#[test]
+fn the_writes_that_would_leave_a_run_s_own_cell_no_longer_applying_are_named() {
+    let mut w = World::with_gate(vec![
+        when("deep", "no", cell("research", &["brief"], &["deep", "plan"])),
+        when("deep", "yes", cell("deep research", &["brief"], &["plan"])),
+    ]);
+    w.flow = (w.flow.clone()).with_defaults(BTreeMap::from([("deep".into(), "no".to_string())]));
+    w.person_writes("brief");
+    let run = w.start("research");
+    let deep = |value: &str| Write {
+        block: "deep".into(),
+        meaning_unchanged: false,
+        value: Some(value.to_string()),
+        empty: false,
+    };
+    let plan = Write {
+        block: "plan".into(),
+        meaning_unchanged: false,
+        value: None,
+        empty: false,
+    };
+    let skips = |writes: &[Write]| decide::skipping(&w.flow, &w.records, run, writes);
+    assert_eq!(skips(&[deep("yes"), plan.clone()]), vec![BlockId::from("deep")]);
+    assert_eq!(skips(&[deep("no"), plan.clone()]), Vec::<BlockId>::new());
+    assert_eq!(skips(std::slice::from_ref(&plan)), Vec::<BlockId>::new());
+    assert_eq!(
+        decide::skipping(&w.flow, &w.records, RunId(99), &[deep("yes")]),
+        Vec::<BlockId>::new()
+    );
+}
