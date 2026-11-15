@@ -2145,7 +2145,7 @@ impl Now {
             // A stalled work that its own pause holds is shown paused: it is the pauser's to let on.
             Decision::Stalled { .. } if decide::paused(&work.records) => Now::paused(work)?,
             Decision::Stalled { at, on, results, by } => {
-                let (making, giving) = writers_of(&kept.flow.flow, on, results, by);
+                let (making, giving) = parts_of(by);
                 let on: Vec<CellKey> = (on.iter())
                     .map(|key| key_of(&kept, key))
                     .collect::<Result<_, Broken>>()?;
@@ -2188,30 +2188,13 @@ impl Now {
     }
 }
 
-/// Of the cells a stall names, those that write a block one of its keys `on` reads, and those that write a block one
-/// of its `results` comes in, each in the order of `by`, as the flow's outputs say: the cells each part of why it rests
-/// names.
-fn writers_of(
-    flow: &decide::Flow,
-    on: &[Applies],
-    results: &[BlockId],
-    by: &[decide::Stalling],
-) -> (Vec<String>, Vec<String>) {
-    let read: Vec<&BlockId> = (on.iter())
-        .flat_map(|key| match key {
-            Applies::Test(test) => (flow.tests().get(test).into_iter()).flat_map(|t| &t.reads).collect(),
-            Applies::Is { block, .. } => vec![block],
-        })
-        .collect();
-    let writing = |blocks: &[&BlockId]| -> Vec<String> {
-        (by.iter())
-            .filter(|s| {
-                (flow.place(&s.cell)).is_some_and(|j| flow.cells()[j].outputs.iter().any(|b| blocks.contains(&b)))
-            })
-            .map(|s| s.cell.to_string())
-            .collect()
+/// Of the cells a stall names, those that make its keys hold and those that give its results, each in the order of
+/// `by`, as the decision says: the cells each part of why it rests names.
+fn parts_of(by: &[decide::Stalling]) -> (Vec<String>, Vec<String>) {
+    let of = |part: fn(&decide::Stalling) -> bool| -> Vec<String> {
+        (by.iter()).filter(|s| part(s)).map(|s| s.cell.to_string()).collect()
     };
-    (writing(&read), writing(&results.iter().collect::<Vec<_>>()))
+    (of(|s| s.makes), of(|s| s.gives))
 }
 
 /// Why a stalled work rests, in one sentence in these words: what the cell it stands at waits for, the keys `on`, which
@@ -3366,49 +3349,30 @@ mod tests {
         );
     }
 
-    // A stall on a key and on a result at once: each part names the cells of its own alone, as the flow's outputs say,
-    // the check the key and the tests the result, and the second part goes on the sentence of the first. Well under a
+    // A stall on a key and on a result at once: each part names the cells of its own alone, as the decision says, the
+    // check the key and the tests the result, and the second part goes on the sentence of the first. Well under a
     // millisecond alone; no other test says such a stall.
     #[test]
     fn a_stall_on_a_key_and_a_result_at_once_names_in_each_part_the_cells_of_its_own() {
-        let checked = Applies::Is {
-            block: "checked".into(),
-            value: "yes".into(),
-        };
         let checks = Applies::Is {
             block: "checks".into(),
             value: "yes".into(),
         };
-        let mut implement = decide::Cell::new("I1");
-        implement.runs_on = vec!["i1_tested".into()];
-        implement.outputs = vec!["tests".into()];
-        implement.requires = vec![checked.clone()];
-        implement.asks = vec![decide::Asks {
-            record: "tests".into(),
-            result: "i1_tested".into(),
-        }];
-        let mut check = decide::Cell::new("M1");
-        check.runs_on = vec!["tests".into()];
-        check.outputs = vec!["checked".into()];
-        let mut tests = decide::Cell::new("T3");
-        tests.applies = vec![checks.clone()];
-        tests.runs_on = vec!["tests".into()];
-        tests.outputs = vec!["i1_tested".into()];
-        let cells = vec![implement, check, tests, decide::Cell::new("M2")];
-        let flow = decide::Flow::new(cells, BTreeMap::new(), BTreeMap::new()).expect("the flow is one");
         let by = [
             decide::Stalling {
                 cell: "M1".into(),
+                makes: true,
+                gives: false,
                 why: UnrunOf::Held,
             },
             decide::Stalling {
                 cell: "T3".into(),
-                why: UnrunOf::Skipped {
-                    on: vec![checks.clone()],
-                },
+                makes: false,
+                gives: true,
+                why: UnrunOf::Skipped { on: vec![checks] },
             },
         ];
-        let (making, giving) = writers_of(&flow, &[checked], &["i1_tested".into()], &by);
+        let (making, giving) = parts_of(&by);
         assert_eq!(
             (&making[..], &giving[..]),
             (&["M1".to_string()][..], &["T3".to_string()][..])
@@ -3430,7 +3394,7 @@ mod tests {
             },
         ];
         let words = stalled_words(
-            &self::flow().waits.stalled,
+            &flow().waits.stalled,
             &[key("checked = yes")],
             &["i1_tested".to_string()],
             (&making, &giving),

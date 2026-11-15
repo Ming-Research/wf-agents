@@ -819,6 +819,8 @@ fn a_stall_is_read_from_the_view_and_borne_out_by_the_records() {
             results: Vec::new(),
             by: vec![Stalling {
                 cell: CellId::from("review"),
+                makes: true,
+                gives: false,
                 why: Unrun::NothingNew,
             }],
         },

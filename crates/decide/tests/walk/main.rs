@@ -93,7 +93,8 @@ fn stalled(at: &str, on: &[&str], by: &[(&str, Unrun)]) -> Decision {
 }
 
 /// The work stalled at the cell, for these keys of its preconditions and the results of what it asked for in these
-/// blocks, each cell that writes what it waits for not running for its reason.
+/// blocks, each cell that writes what it waits for not running for its reason: where it waits for results, each gives
+/// one, and else each makes what it waits for.
 fn stalled_for(at: &str, on: &[&str], results: &[&str], by: &[(&str, Unrun)]) -> Decision {
     Decision::Stalled {
         at: at.into(),
@@ -102,6 +103,8 @@ fn stalled_for(at: &str, on: &[&str], results: &[&str], by: &[(&str, Unrun)]) ->
         by: (by.iter())
             .map(|(cell, why)| Stalling {
                 cell: (*cell).into(),
+                makes: results.is_empty(),
+                gives: !results.is_empty(),
                 why: why.clone(),
             })
             .collect(),

@@ -83,6 +83,8 @@ fn at_the_merge() -> decide::Decision {
         results: Vec::new(),
         by: vec![decide::Stalling {
             cell: "check".into(),
+            makes: true,
+            gives: false,
             why: decide::Unrun::NothingNew,
         }],
     }

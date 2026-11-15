@@ -1442,8 +1442,8 @@ impl Explorer<'_> {
     /// and its results those of what that cell asked for in its records and still awaits, or, with neither, it stands
     /// at its last cell; nothing before where it stands, or anywhere where it stands at its last cell, has anything
     /// new; no question of the cell it stands at waits; every cell that gives a result it waits for is skipped, and
-    /// named; and each cell it names writes what a key reads, a result, or what runs its last cell, and does not run for
-    /// the reason it gives.
+    /// named; and each cell it names writes what a key reads, a result, or what runs its last cell, is said to make a key
+    /// hold or give a result as it does, and does not run for the reason it gives.
     fn shown_wrongly(
         &self,
         s: &State,
@@ -1534,6 +1534,22 @@ impl Explorer<'_> {
             };
             if stalling.why != why || !cells[j].outputs.iter().any(|b| read.contains(b)) {
                 wrong.push(format!("{} is said {:?}, and is {why:?}", stalling.cell, stalling.why));
+            }
+            // Which of what it waits for the cell writes: a block that keeps a key from holding, or, waiting for neither
+            // keys nor results, one that runs the last cell; and a result.
+            let makes = if on.is_empty() && results.is_empty() {
+                cells[j].outputs.iter().any(|b| read.contains(b))
+            } else {
+                (on.iter()).any(|key| (r.keeping(flow, key, i).iter()).any(|b| cells[j].outputs.contains(b)))
+            };
+            if stalling.makes != makes || stalling.gives != giving.contains(&j) {
+                wrong.push(format!(
+                    "{} is said to make it hold {} and to give a result {}, and does {makes} and {}",
+                    stalling.cell,
+                    stalling.makes,
+                    stalling.gives,
+                    giving.contains(&j)
+                ));
             }
         }
         wrong

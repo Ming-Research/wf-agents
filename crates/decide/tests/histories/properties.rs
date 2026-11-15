@@ -122,10 +122,13 @@ const ENTRY_PUT_AWAY: &str = "the entry of a cell skipped is put away while a ce
 const ENTRY_TAKEN_UP: &str = "a cell that gives results runs for an entry it put away, its cell applying again";
 const WAITING_HOLDS_A_STOP: &str = "the owner turns to a cell a waiting cell holds back while a round is under way";
 const STALLED_FOR_A_RESULT: &str = "a work is stalled for a result no cell will give";
-/// Not required: a cell that gives a result and applies runs while its asking cell waits, so a wait names none.
+/// Not required: a wait names a result only while a run of its cell goes first, which is rare.
 const RESULT_WAITED: &str = "a work waits for a result a cell that gives it applies to";
 const RESULT_LEFT_OUT: &str = "a work waits at a cell for other than a result no cell that gives it applies to";
-pub const RESULT_WAITS: &str = "a work waits for a result only while a cell that gives it applies";
+const RESULT_RUN_FIRST: &str = "a cell whose run has not finished goes on while a cell that gives its result applies";
+/// Not required: the owner turning to a waiting cell while no slot is free is rare.
+const RESULT_FOR_A_SLOT: &str = "a cell entered but for a slot waits for it while a cell that gives its result applies";
+pub const RESULT_WAITS: &str = "a work waits at a cell for its result only while no cell that gives it would run";
 pub const OUTSIDE: &str = "a work waits for the outside only for what the latest run of a cell said it waits for";
 const OUTSIDE_WAITED: &str = "a work waits for main to move, as a check said what it wrote waits for";
 
@@ -142,6 +145,7 @@ pub const WAITS_REACHED: &[&str] = &[
     WAITING_HOLDS_A_STOP,
     STALLED_FOR_A_RESULT,
     RESULT_LEFT_OUT,
+    RESULT_RUN_FIRST,
 ];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
@@ -572,15 +576,12 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                             v.fail(HELD, format!("the work waits at {at} on {on:?}, which holds"));
                         }
                     }
-                    Waited::Result { record, result, by } => {
-                        v.count(RESULT_WAITED);
-                        waited_result(v, flow, reading, i, (record, result, by));
-                    }
+                    Waited::Result { .. } => v.count(RESULT_WAITED),
                     Waited::Outside { source, run, block } => outside(v, flow, reading, i, (source, *run, block)),
                     Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } => {}
                 }
             }
-            left_out(v, flow, reading, i, on);
+            result_waits(v, flow, reading, i, on);
             first_entered(v, flow, reading, i);
         }
         Decision::Run { cell, .. } => {
@@ -622,65 +623,61 @@ fn givers<'f>(flow: &'f Flow, asks: &'f decide::Asks) -> impl Iterator<Item = (u
         .filter(move |(_, c)| c.runs_on.contains(&asks.record) && c.outputs.contains(&asks.result))
 }
 
-/// Property a-wait-holds-its-cell, of results: a work waits at the cell at this place for a result only where the cell
-/// asked for it in the record named, still awaits it by the histories' reading, the cells named are those that give it,
-/// and one of them applies, which the walk tries while the cell waits (decision a-work-no-cell-can-move-is-stalled).
-fn waited_result(
-    v: &mut Verdict,
-    flow: &Flow,
-    reading: &Reading,
-    i: usize,
-    (record, result, by): (&BlockId, &BlockId, &[decide::CellId]),
-) {
+/// Property a-wait-holds-its-cell, of results, by the histories' own reading, where a work waits at the cell at this
+/// place: each result the wait names is one the cell asked for in the record named and still awaits, named with the
+/// cells that give it; a result the cell awaits that no cell giving it applies to is named by no wait, nothing being
+/// able to bring it; and one that a cell giving it applies to is awaited where the work waits at the cell only while
+/// the walk lets the cell go first on purpose: entered but for a slot, or with a run that has not finished, which goes
+/// on to hand its return in before a cell that gives a result begins. Anywhere else such a giver would have been tried
+/// while the cell waits, and run.
+fn result_waits(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, on: &[Waited]) {
     let now = Seq(u64::MAX);
     let cell = &flow.cells()[i];
-    let Some(asks) = (cell.asks.iter()).find(|a| &a.record == record && &a.result == result) else {
-        v.fail(
-            RESULT_WAITS,
-            format!(
-                "the work waits at {} for {result} of {record}, which it does not ask in",
-                cell.id
-            ),
-        );
-        return;
-    };
-    let giving: Vec<&decide::CellId> = givers(flow, asks).map(|(_, c)| &c.id).collect();
-    let applies = givers(flow, asks).any(|(j, _)| reading.applies(flow, j));
-    if !reading.awaits(cell, asks, now) || by.iter().collect::<Vec<_>>() != giving || !applies {
-        v.fail(
-            RESULT_WAITS,
-            format!(
-                "the work waits at {} for {result}, awaited {}, by {by:?}, which its givers are {giving:?}, one \
-                 applying {applies}",
-                cell.id,
-                reading.awaits(cell, asks, now)
-            ),
-        );
-    }
-}
-
-/// Property a-wait-holds-its-cell, of results, the other way: a work that waits at the cell at this place names no
-/// result the cell awaits by the histories' reading that no cell giving it applies to, which nothing can bring.
-fn left_out(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, on: &[Waited]) {
-    let now = Seq(u64::MAX);
-    let cell = &flow.cells()[i];
-    for asks in cell.asks.iter().filter(|asks| reading.awaits(cell, asks, now)) {
-        if givers(flow, asks).any(|(j, _)| reading.applies(flow, j)) {
+    let records = reading.records;
+    for waited in on {
+        let Waited::Result { record, result, by } = waited else {
             continue;
-        }
-        let named = on
-            .iter()
-            .any(|w| matches!(w, Waited::Result { result, .. } if *result == asks.result));
-        if named {
+        };
+        let asks = (cell.asks.iter()).find(|a| &a.record == record && &a.result == result);
+        let right = asks.is_some_and(|asks| {
+            reading.awaits(cell, asks, now) && by.iter().eq(givers(flow, asks).map(|(_, c)| &c.id))
+        });
+        if !right {
             v.fail(
+                RESULT_WAITS,
+                format!(
+                    "the work waits at {} for {result} of {record} by {by:?}, which it does not await by the cells \
+                     that give it",
+                    cell.id
+                ),
+            );
+        }
+    }
+    let unfinished = (records.started.iter()).any(|s| {
+        s.cell == cell.id && !reading.finished.contains_key(&s.run) && !records.abandoned.iter().any(|a| a.run == s.run)
+    });
+    let for_a_slot = matches!(on, [Waited::Slot]);
+    for asks in cell.asks.iter().filter(|asks| reading.awaits(cell, asks, now)) {
+        let named = (on.iter()).any(|w| matches!(w, Waited::Result { result, .. } if *result == asks.result));
+        let applies = givers(flow, asks).any(|(j, _)| reading.applies(flow, j));
+        match (applies, named) {
+            (false, true) => v.fail(
                 RESULT_WAITS,
                 format!(
                     "the work waits at {} for {}, which no cell that gives it applies to",
                     cell.id, asks.result
                 ),
-            );
-        } else {
-            v.count(RESULT_LEFT_OUT);
+            ),
+            (false, false) => v.count(RESULT_LEFT_OUT),
+            (true, _) if for_a_slot => v.count(RESULT_FOR_A_SLOT),
+            (true, _) if unfinished => v.count(RESULT_RUN_FIRST),
+            (true, _) => v.fail(
+                RESULT_WAITS,
+                format!(
+                    "the work waits at {} for {:?} while a cell that gives {} applies, which the walk did not run",
+                    cell.id, on, asks.result
+                ),
+            ),
         }
     }
 }
@@ -951,6 +948,26 @@ fn stalled(
             v.fail(
                 FIRST,
                 format!("the work is stalled at {at}, and {} has something new", s.cell),
+            );
+        }
+        // Which of what it waits for the cell writes, as the reading finds it: a block that keeps a key from holding,
+        // or, waiting for neither keys nor results, one that runs the last cell; and a result.
+        let makes = if on.is_empty() && results.is_empty() {
+            writes
+        } else {
+            (on.iter()).any(|key| (reading.keeping(flow, key, i).iter()).any(|b| cells[j].outputs.contains(b)))
+        };
+        if s.makes != makes || s.gives != giving.contains(&j) {
+            v.fail(
+                STALLED_RIGHT,
+                format!(
+                    "the work is stalled at {at}, naming {} as making it hold {} and giving a result {}, which it \
+                     does {makes} and {}",
+                    s.cell,
+                    s.makes,
+                    s.gives,
+                    giving.contains(&j)
+                ),
             );
         }
     }

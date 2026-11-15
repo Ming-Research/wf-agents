@@ -168,6 +168,33 @@ fn the_owner_turning_to_a_waiting_cell_its_preconditions_hold_runs_the_cell_that
     );
 }
 
+// The owner speaks to a cell that waits for its tests, and the round entered for the words rests at a call, as for a
+// tool: the run goes on to hand its return in before the cell that runs the tests begins, the call coming back long
+// before a run of the tests would end (decision a-wait-holds-its-cell: a run of it that is at rest still goes on to
+// hand its return in). Once it has, the tests run. Well under a millisecond alone; no other test has the run of a
+// waiting cell rest at a call.
+#[test]
+fn a_run_of_a_waiting_cell_at_rest_at_a_call_goes_on_before_the_cell_that_gives_its_result_begins() {
+    let mut w = testing();
+    asks_for_tests(&mut w);
+    w.outside_writes("implement_spoken");
+    assert_eq!(reasons(&w.decide()).0, "implement");
+    w.start("implement");
+    let call = w.calls("implement", None);
+    let Decision::Wait { at, on } = w.decide() else {
+        panic!("the walk does not wait: {:?}", w.decide());
+    };
+    assert_eq!(at.as_str(), "implement");
+    assert!(on.contains(&Waited::Call { call, on: None }), "{on:?}");
+    w.done(call);
+    w.go_on("implement");
+    w.finish_dealing("implement", &["implement_spoken"], &[]);
+    assert_eq!(
+        reasons(&w.decide()),
+        ("run tests".into(), vec![("tests".into(), false)])
+    );
+}
+
 // A cell the record runs that gives no result is no giver: it does not run while the asking cell waits, as no later
 // cell does but those that give the result, and where none of those applies the stall names none but them. Well under
 // a millisecond alone; no other test has a record run a cell that gives nothing.
