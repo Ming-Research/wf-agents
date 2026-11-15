@@ -7,21 +7,22 @@
 // - `GET  /api/v1/backup`: how the copies of the database stand (`Copies`).
 // - `GET  /api/v1/items`: every item with its work in brief (`Items`).
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
-// - `POST /api/v1/items/{item}/level`: puts an item at another level (`{ level }`), and says whether that changed it
-//   (`ItemChanged`).
-// - `POST /api/v1/items/{item}/title`: gives an item another title (`{ title }`), and says whether that changed it
-//   (`ItemChanged`).
-// - `POST /api/v1/items/{item}/dependencies`: makes an item depend on another or no longer (`DependencyChange`), while
-//   its work has started no run, and says whether that changed it (`ItemChanged`).
+// - `POST /api/v1/items/changes`: changes items, several at once for one reason, all or none (`ItemChanges`), and says
+//   whether each changed its item (`ItemsChanged`).
 // - `GET  /api/v1/levels`: the levels an item may be given, with what each is for (`Levels`).
+// - `GET  /api/v1/projects`: the projects the installation names, in order of their names (`Projects`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
 // - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/told`: what the round was told and what came back of it, as
 //   its carrier kept them (`ToldPage`); no try where it kept nothing.
+// - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/doing`: what the round's agent was last seen doing, as its
+//   carrier keeps it as it comes (`DoingPage`); read again every few seconds while the round is under way.
+// - `GET  /api/v1/works/{work}/lines/{line}/sessions/{session}/system`: the system prompt the line's session of this
+//   number, the line's first being none, began with (`SystemPage`).
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
-// - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
-//   was refused (`Refusal`) and a status of 4xx.
+// - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, words said with
+//   the cell the engine gave them to (`Said`), or with why it was refused (`Refusal`) and a status of 4xx.
 // - `GET  /api/v1/engine`: the engine as a whole, its slots and the pause of everything (`Engine`).
 // - `POST /api/v1/engine/acts`: what the owner does to the engine as a whole (`EngineAct`); answers as an act on a work.
 // - `GET  /api/v1/changes`: a stream of server-sent events, one each time something happened (`Changed`), on which a
@@ -51,33 +52,49 @@ export type Failure =
   | 'passing'
   | 'unread'
   | 'flagged'
+  | 'guarded'
   | 'usageLimit'
   | 'cannotRun'
   | 'offline'
+  | 'unavailable'
   | 'promptTooLong'
+  | 'noModel'
   | 'other';
 
-/// When the agents' rounds may begin again: at a time, every work's; or one round tries at a time, where `look` once
-/// a look at the network every half minute reaches it, at the latest at `latest`; or once the round trying now ends.
-export type Until =
-  | { kind: 'at'; at: number }
-  | { kind: 'trial'; at: number; look: boolean; latest: number }
-  | { kind: 'tried' };
+/// When the rounds a wait holds may begin again: once a check of the outside of the agents' rounds, which the engine
+/// takes at a time (at a usage limit whose reset was said, at the reset), finds it well; now, the check at a time having
+/// found it well; or every act once a look at the host, every half minute from a time, reaches it.
+export type Until = { kind: 'checked'; at: number } | { kind: 'well'; at: number } | { kind: 'looked'; at: number };
 
-/// A wait every work shares: a round of an agent failed for a cause no one work has, and no agent's round of any work
-/// begins while it stands.
+/// What a check of the outside found: everything well, or what is down, as a failed round's kind of cause, and why.
+export type Found = { kind: 'well' } | { kind: 'down'; failure: Failure; why: string };
+
+/// The latest check of the outside of the agents' rounds in a wait: when, how many were taken in it, and what it found.
+export interface Checked {
+  at: number;
+  taken: number;
+  found: Found;
+}
+
+/// A wait every work shares: a round of an agent failed for a cause outside every work, and no agent's round of any
+/// work begins while it holds; the engine checks the outside by itself meanwhile.
 export interface Outage {
+  /// The service whose rounds it holds: the agents', or the host's the engine's acts reach.
+  service: 'agents' | 'host';
+  /// The kind of cause the latest round that failed so met, and why.
   failure: Failure;
   why: string;
-  /// The round that failed so, the latest that did.
+  /// That round.
   work: number;
   run: number;
   round: number;
-  /// When it ended.
+  /// Since when what the rounds need is down: when the first round that failed so in the wait ended.
   since: number;
+  /// The latest check of the outside in the wait, where one was taken.
+  checked: Checked | null;
   until: Until;
-  /// Whether it holds rounds now: past its time it stands only until a round that began after it comes back, and
-  /// holds nothing meanwhile.
+  /// Whether it holds rounds now: once a check found the outside well it stands only until a round that began after
+  /// the latest that failed so comes back, and holds nothing meanwhile.
   holds: boolean;
 }
 
@@ -100,7 +117,12 @@ export type Waited =
   /// in its order.
   | { kind: 'slot' }
   /// The wait every work shares: the cell's agent's round does not begin until it is over.
-  | { kind: 'agents'; outage: Outage };
+  | { kind: 'agents'; outage: Outage }
+  /// The owner's answer to the latest version of this question, which the cell asked and waits for.
+  | { kind: 'answer'; question: string }
+  /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
+  /// wrote, `why` in its own words, waits for that source before the cell runs again.
+  | { kind: 'outside'; source: string; cell: string; why: string };
 
 /// What a work does now.
 export type Now =
@@ -118,8 +140,25 @@ export type Now =
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
   | { kind: 'next'; cell: string }
-  /// Nothing new runs a cell, and nothing of it is under way or waited for: it goes on once someone writes what runs one.
-  | { kind: 'idle' };
+  /// It can go on by itself no further at this cell, and nothing pauses it: each key of the cell's `requires` that does
+  /// not hold, none where it stands at its last cell for want of anything new to run it; and each cell that writes what
+  /// it waits for, none of which runs, with why. It goes on once the owner, or a source outside the work, writes what
+  /// runs a cell.
+  | { kind: 'stalled'; at: string; on: CellKey[]; by: Stalling[] };
+
+/// A key of a cell's `when` or `requires`: the named test, or the block's key as the cell's file writes it
+/// (`checked = yes`); and the words shown for it, the test's or the same key.
+export interface CellKey {
+  test: string;
+  words: string;
+}
+
+/// A cell that writes what a stalled work waits for, and why it does not run: its `when` does not hold, by these keys;
+/// nothing new runs it; or it stands at or after the cell the work stands at, whose `requires` hold it.
+export interface Stalling {
+  cell: string;
+  why: { kind: 'skipped'; on: CellKey[] } | { kind: 'nothingNew' } | { kind: 'held' };
+}
 
 /// How a cell stands for a work: a round of its run is under way; its run is at rest; its run's last round failed,
 /// and is given again once the work is let on; its condition is not met; it never finished a run; it has a record and
@@ -162,6 +201,8 @@ export interface Summary {
   /// In the order of the walk.
   cells: CellNow[];
   spent: Spent;
+  /// What the keep-warm pings of its sessions took, each counted as a round. Absent from an engine that keeps none.
+  pinged?: Spent;
   /// When something last happened to it.
   last: number | null;
   /// When its first round began; none before it has one. Absent from an engine that does not give it yet.
@@ -181,8 +222,13 @@ export interface Item {
   /// The level it was given as it was added, which chooses what its agents' rounds run on; none for an item added
   /// before items had levels, whose rounds run at the default level.
   level: string | null;
+  /// The project it belongs to, by the name the installation's settings give it; none for an item added before items
+  /// had projects.
+  project: string | null;
   added: number;
   dependsOn: number[];
+  /// The tags it carries, which classify it; absent from an engine that does not give them yet.
+  tags?: string[];
   /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
   history: ItemHistory;
   /// The one work done for it, which was added with it.
@@ -191,16 +237,26 @@ export interface Item {
 
 /// An item as it was added, and each change made to it since, in the order they were made.
 export interface ItemHistory {
-  first: { title: string; level: string | null; dependsOn: number[] };
+  first: { title: string; level: string | null; dependsOn: number[]; tags?: string[] };
   changes: ItemChange[];
 }
 
-/// A change made to an item, at this time.
-export type ItemChange =
-  | { kind: 'title'; time: number; title: string }
-  | { kind: 'level'; time: number; level: string }
-  | { kind: 'dependsOn'; time: number; item: number }
-  | { kind: 'noLongerDependsOn'; time: number; item: number };
+/// A change made to an item, at this time, and why, as whoever made it said; none for a change kept before changes
+/// said why.
+export interface ItemChange {
+  time: number;
+  why: string | null;
+  what: ItemChanged;
+}
+
+/// What a change made to an item did.
+export type ItemChanged =
+  | { kind: 'title'; title: string }
+  | { kind: 'level'; level: string }
+  | { kind: 'dependsOn'; item: number }
+  | { kind: 'noLongerDependsOn'; item: number }
+  | { kind: 'tagged'; tag: string }
+  | { kind: 'untagged'; tag: string };
 
 export interface Items {
   items: Item[];
@@ -241,6 +297,8 @@ export interface Version {
   /// The version at which the meaning it has last changed: itself, or an earlier one.
   meaning: number;
   value: string | null;
+  /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
+  saidTo: string | null;
   /// How long its content is, in characters.
   chars: number;
 }
@@ -267,7 +325,15 @@ export type Unmet =
   | { kind: 'asksAndWorks' }
   | { kind: 'notATrigger'; name: string }
   | { kind: 'notATool'; name: string }
-  | { kind: 'unchangedNotWritten'; block: string };
+  | { kind: 'unchangedNotWritten'; block: string }
+  | { kind: 'questionTaken'; name: string }
+  | { kind: 'noSuchQuestion'; name: string }
+  | { kind: 'questionTwice'; name: string }
+  | { kind: 'notAnOption'; name: string }
+  | { kind: 'notAnswerable'; name: string }
+  | { kind: 'notAnswered'; name: string }
+  | { kind: 'unexplained'; path: string }
+  | { kind: 'unanswered'; block: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
@@ -305,7 +371,77 @@ export interface Round {
   context: number | null;
   /// How often its session was compacted during it.
   compactions: number;
+  /// The session of its line it runs in; none for a round of a cell on no line, as an engine's act is.
+  session: RoundSession | null;
+  /// Each try of it the records hold, in order; none for a try that began before tries were recorded.
+  tries: RoundTry[];
+  /// How it missed its session's prompt cache, where it did.
+  missed: Missed | null;
+  /// Whether what it took was worked out from its calls at the models' prices, no result saying it: an estimate.
+  estimated: boolean;
+  /// What it cost and how long it took, or has taken so far while it is under way, against the lines of their history.
+  judged: Judged;
 }
+
+/// What a round cost and how long it took against the lines of their history, as they stood when it began: `cost` none
+/// while it is under way, for a round of an act and where too few rounds tell the line; `time` none where too few do.
+export interface Judged {
+  cost: Against | null;
+  time: Against | null;
+}
+
+/// A measure against the line of its history: millionths of a dollar for a cost, milliseconds for a time.
+export interface Against {
+  value: number;
+  line: Line;
+  /// Whether the measure is past its line.
+  past: boolean;
+}
+
+/// The line of a measure's history, in the measure's units: how many values gave it, and what they were of.
+export interface Line {
+  value: number;
+  samples: number;
+  scope: Scope;
+}
+
+/// What gave a line: the rounds of the cell, every agent's round of the flow, the calls of the tool, the flow's other
+/// works, the rounds of the line.
+export type Scope = 'cell' | 'flow' | 'tool' | 'works' | 'line';
+
+/// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
+/// call read less than half of what the session held from the cache. `differs` names what comes before the session's
+/// messages and differs from the call before, the cause by design; none where nothing does, a fault of wf-agents.
+export interface Missed {
+  read: number;
+  held: number;
+  differs: string[];
+}
+
+/// The session of its line a round runs in: which of the line's sessions, as the records count them, the line's first
+/// being none.
+export interface RoundSession {
+  line: string;
+  number: number;
+}
+
+/// A try of a round, as the records hold it: what it ran on, and each time something was filled into its session,
+/// what was.
+export interface RoundTry {
+  attempt: number;
+  ran: RanOn;
+  filled: Fill[][];
+}
+
+/// One thing filled into a session, as the flow's files name it: a part of the message the session keeps, by its
+/// `part`; a version of a datum of the cell's context, whole, or as what changed since an earlier one; the results of
+/// calls; why what a round of the run returned was sent back.
+export type Fill =
+  | { kind: 'part'; part: string }
+  | { kind: 'whole'; block: string; version: number }
+  | { kind: 'change'; block: string; version: number; since: number }
+  | { kind: 'results'; calls: number[] }
+  | { kind: 'sentBack'; round: number };
 
 export interface CallRow {
   call: number;
@@ -314,6 +450,9 @@ export interface CallRow {
   done: number | null;
   /// How long its result is, in characters.
   chars: number | null;
+  /// How long a call of a tool took, or has taken so far while it has no result, against the line of the calls of its
+  /// tool as it stood when it was made.
+  time: Against | null;
 }
 
 export type RunEnd =
@@ -357,18 +496,23 @@ export type Step =
   | { kind: 'resumed'; at: number; time: number }
   /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
   | { kind: 'cancelled'; at: number; time: number; why: string | null }
+  /// The work's item, cancelled, was reopened, for this reason: the work is paused until it is let on.
+  | { kind: 'reopened'; at: number; time: number; why: string }
   /// A new session of the line began, or begins with the line's next round.
   | { kind: 'session'; at: number; time: number; line: string; why: SessionWhy };
 
-/// Why a line began a new session: its context was past the limit; its rounds run on another model or under another
-/// account than its session's ran on; the owner asked; the service's safety check flagged the line's last round; the
-/// agents' program had lost the one before; the agents' program compacted it during a round.
+/// Why a line began a new session: its context was past the limit of its line; its rounds run on another
+/// model or under another account than its session's ran on; the owner asked; the service's safety check flagged the
+/// line's last round; the run guard stopped it; the agents' program had lost the one before; the agents' program
+/// compacted it during a round.
 export type SessionWhy =
   | { kind: 'limit'; context: number; limit: number }
   | { kind: 'model'; was: string }
   | { kind: 'account' }
   | { kind: 'owner' }
   | { kind: 'flagged' }
+  | { kind: 'guarded' }
+  | { kind: 'tooLong' }
   | { kind: 'lost' }
   | { kind: 'compacted' };
 
@@ -379,6 +523,10 @@ export interface WorkPage {
   title: string;
   /// The level of its item, as `Item` has it.
   level: string | null;
+  /// The project of its item, as `Item` has it.
+  project: string | null;
+  /// The tags of its item, as `Item` has them; absent from an engine that does not give them yet.
+  tags?: string[];
   /// What its item was as it was added, and each change made to it since, as `Item` has them.
   history: ItemHistory;
   /// The flow it runs on.
@@ -389,6 +537,20 @@ export interface WorkPage {
   blocks: Block[];
   /// In the order it happened.
   steps: Step[];
+  /// Where the owner's words would go now, as the engine chooses it: to each line of the flow, then about each question
+  /// that stands; absent from an engine that does not give it.
+  speaking?: Speaking[];
+}
+
+/// What the owner's words are said to: a line of the work's flow, or a question of the work they are about.
+export type SpokenTo = { kind: 'line'; line: string } | { kind: 'question'; name: string };
+
+/// What the owner's words said to a line, or about a question, would reach now, as the engine chooses it: the cell, or
+/// why no cell can take them, when they are not sent.
+export interface Speaking {
+  to: SpokenTo;
+  cell: string | null;
+  refused: string | null;
 }
 
 export interface VersionPage {
@@ -426,6 +588,9 @@ export type TryBack =
       durationMs: number | null;
       /// The models it was answered by, by name.
       models: string[];
+      /// The tokens it wrote to the prompt cache, as the program printed them; the records count them among those
+      /// not read from the cache. Absent from an engine that does not give it yet.
+      cacheCreationInputTokens?: number | null;
     }
   | { kind: 'failed'; why: string }
   | { kind: 'unreadable'; why: string };
@@ -456,13 +621,33 @@ export interface Levels {
   highest: string;
 }
 
-/// Whether a change of an item changed it: it was so already where not, as when it was at that level already.
-export interface ItemChanged {
-  changed: boolean;
+/// The projects the installation names, in order of their names.
+export interface Projects {
+  names: string[];
 }
 
-/// A change of what an item depends on.
-export type DependencyChange = { kind: 'add'; item: number } | { kind: 'remove'; item: number };
+/// Changes of items asked together, for one reason: made in the order given, each judged against what those before it
+/// make, all of them or none.
+export interface ItemChanges {
+  why: string;
+  changes: ChangeAsked[];
+}
+
+/// A change of an item, as whoever plans the work asks for it.
+export type ChangeAsked =
+  | { kind: 'title'; item: number; title: string }
+  | { kind: 'level'; item: number; level: string }
+  | { kind: 'dependsOn'; item: number; on: number }
+  | { kind: 'noLongerDependsOn'; item: number; on: number }
+  | { kind: 'tag'; item: number; tag: string }
+  | { kind: 'untag'; item: number; tag: string }
+  | { kind: 'cancel'; item: number }
+  | { kind: 'reopen'; item: number };
+
+/// Whether each change asked together changed its item, in the order asked.
+export interface ItemsChanged {
+  changed: boolean[];
+}
 
 /// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
 /// nothing, as of a round of the engine's own acts or of a script. Tries past what is read of a round are left out,
@@ -470,6 +655,24 @@ export type DependencyChange = { kind: 'add'; item: number } | { kind: 'remove';
 export interface ToldPage {
   tries: Try[];
   leftOut: number;
+}
+
+/// The system prompt a line's session began with, as it was kept with the session.
+export interface SystemPage {
+  line: string;
+  session: number;
+  text: string;
+}
+
+/// A thing an agent was seen doing: a tool it used, on what its input names; what it said; a compaction of its session.
+export type Doing =
+  | { kind: 'tool'; name: string; on: string | null }
+  | { kind: 'said'; text: string }
+  | { kind: 'compacting' };
+
+/// What the agent of a round was last seen doing: the last few things its latest try did, the latest last.
+export interface DoingPage {
+  doing: Doing[];
 }
 
 /// What the owner does to a work.
@@ -482,15 +685,29 @@ export type Act =
   /// Cancels the work's item, saying why where a reason is given, such as the item it was joined into.
   | { kind: 'cancel'; why?: string | null }
   /// Gives a call that waits for a person its result.
-  | { kind: 'answer'; call: number; result: string }
+  | { kind: 'result'; call: number; result: string }
+  /// Answers a version of a question, taking an option counted from one, saying why where the owner does.
+  | { kind: 'answer'; question: string; version: number; option: number; why?: string | null }
   /// Has the line begin a new session at its next round.
-  | { kind: 'newSession'; line: string };
+  | { kind: 'newSession'; line: string }
+  /// Says words to a line of the work's flow, or about a question of it: to the cell the engine chooses, which the
+  /// work's page shows (`speaking`).
+  | { kind: 'say'; to: SpokenTo; words: string };
+
+/// What the act that says the owner's words answers with: the cell the engine gave them to.
+export interface Said {
+  reached: string;
+}
 
 export interface NewItem {
   title: string;
   /// The level it is given; with none, the level the installation adds an item at where it is given none.
   level?: string | null;
+  /// The project it belongs to, one the installation names.
+  project: string;
   dependsOn: number[];
+  /// The tags it carries; none where none is given.
+  tags?: string[];
   /// The flow its work runs on.
   flow: string;
   /// What is written for it as it is added, each a block people write.
@@ -582,13 +799,15 @@ export const loadRound = (work: number, run: number, round: number) =>
   read<RoundPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}`);
 export const loadTold = (work: number, run: number, round: number) =>
   read<ToldPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/told`);
+export const loadDoing = (work: number, run: number, round: number) =>
+  read<DoingPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/doing`);
+export const loadSystem = (work: number, line: string, session: number) =>
+  read<SystemPage>(`/api/v1/works/${work}/lines/${encodeURIComponent(line)}/sessions/${session}/system`);
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
 export const loadLevels = () => read<Levels>('/api/v1/levels');
-export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
+export const loadProjects = () => read<Projects>('/api/v1/projects');
+export const act = (work: number, what: Act) => send<Said>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
-export const setLevel = (item: number, level: string) => send<ItemChanged>(`/api/v1/items/${item}/level`, { level });
-export const setTitle = (item: number, title: string) => send<ItemChanged>(`/api/v1/items/${item}/title`, { title });
-export const changeDependencies = (item: number, change: DependencyChange) =>
-  send<ItemChanged>(`/api/v1/items/${item}/dependencies`, change);
+export const changeItems = (changes: ItemChanges) => send<ItemsChanged>('/api/v1/items/changes', changes);
 export const loadEngine = () => read<Engine>('/api/v1/engine');
 export const actOnEngine = (what: EngineAct) => send<null>('/api/v1/engine/acts', what);

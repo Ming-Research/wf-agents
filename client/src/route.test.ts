@@ -13,6 +13,8 @@ describe('the route', () => {
     expect(routeOf('#/works/12/runs/3')).toEqual({ view: 'work', work: 12, run: 3 });
     expect(routeOf('#/works/12/runs/three')).toEqual({ view: 'console' });
     expect(routeOf('#/console')).toEqual({ view: 'console' });
+    expect(routeOf('#/console/items/141')).toEqual({ view: 'console', item: 141 });
+    expect(routeOf('#/console/items/one')).toEqual({ view: 'console' });
     expect(routeOf('#/flow')).toEqual({ view: 'flow' });
     expect(routeOf('#/observations')).toEqual({ view: 'observations' });
     expect(routeOf('#/system')).toEqual({ view: 'system' });
@@ -30,6 +32,8 @@ describe('the route', () => {
     expect(hashOf({ view: 'work', work: 7, run: 3 })).toBe('#/works/7/runs/3');
     expect(tabOf({ view: 'work', work: 7, run: 3 })).toBe('#/works');
     expect(tabOf({ view: 'console' })).toBe('#/console');
+    expect(hashOf({ view: 'console', item: 141 })).toBe('#/console/items/141');
+    expect(tabOf({ view: 'console', item: 141 })).toBe('#/console');
     expect(hashOf({ view: 'system', period: '4w' })).toBe('#/system/4w');
     expect(hashOf({ view: 'system', period: 'week' })).toBe('#/system');
     expect(tabOf({ view: 'system', period: 'all' })).toBe('#/system');

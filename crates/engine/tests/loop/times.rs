@@ -15,7 +15,7 @@ fn places(work: &Work) -> Vec<Seq> {
         .chain(r.written.iter().map(|e| e.at))
         .chain(r.let_go.iter().map(|e| e.at))
         .chain(r.pauses.iter().map(|e| e.at))
-        .chain(r.cancelled)
+        .chain(r.cancels.iter().copied())
         .collect()
 }
 

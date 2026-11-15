@@ -17,10 +17,12 @@ mod named_tests;
 mod paused_answers;
 mod pausing;
 mod pending;
+mod questions;
 mod rebuilt;
 mod refused;
 mod room;
 mod sessions;
+mod stalling;
 mod times;
 
 use std::collections::BTreeMap;

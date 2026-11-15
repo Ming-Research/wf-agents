@@ -22,8 +22,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::agents::{
-    AGENTS_DIR, Agents, InForm, LinePart, OUTPUTS, OfTheLine, PROJECT_FILE, Project, ProjectPart, RULES_FILE,
-    ReturnKind, ReturnsPart, SessionPart, ToldAs, WordsPart, YOUR_LINE_FILE,
+    AGENTS_DIR, Agents, Installation, LinePart, OUTPUTS, OfTheLine, PROJECT_FILE, Project, ProjectPart, RULES_FILE,
+    ReturnsPart, SessionPart, ToldAs, WordsPart, YOUR_LINE_FILE,
 };
 use crate::{CellSpec, Compiled, Kind};
 
@@ -234,22 +234,6 @@ fn rules(agents: &Agents, flow: &Compiled, name: &str) -> Result<Part, String> {
     })
 }
 
-/// The names of the fields of a kind of return, in the order of the form.
-fn fields_of(agents: &Agents, kind: ReturnKind) -> Vec<&str> {
-    let form = &agents.returns.form;
-    let order = match kind {
-        ReturnKind::Calls => &form.calls,
-        ReturnKind::Outcome => &form.outcome,
-    };
-    (order.iter())
-        .filter_map(|place| match place {
-            InForm::Field(name) => Some(name.as_str()),
-            InForm::Group(_) => None,
-        })
-        .filter(|name| agents.fields.get(*name).is_some_and(|f| f.kinds.contains(&kind)))
-        .collect()
-}
-
 /// How a cell returns, the part on returning of a line's system prompt: the same for every cell of the flow, each field
 /// and each tool the flow names with its words, in the order `[how_you_return]` of `return.toml` sets. Or that the flow
 /// names a tool that `agents/tools/` does not define.
@@ -281,12 +265,11 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<Str
             places: true,
         });
     };
-    let mut in_order = fields_of(agents, ReturnKind::Outcome);
-    for name in fields_of(agents, ReturnKind::Calls) {
-        if !in_order.contains(&name) {
-            in_order.push(name);
-        }
-    }
+    // The fields of the form, in its order.
+    let in_order: Vec<&str> = (agents.returns.form.outcome.iter())
+        .map(String::as_str)
+        .filter(|name| agents.fields.contains_key(*name))
+        .collect();
     let told_as = |as_: ToldAs| {
         (in_order.iter())
             .filter(move |name| agents.fields[**name].told == as_)
@@ -334,7 +317,6 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<Str
     // The tools of the flow's form, which every agent cell of it has.
     let tools = crate::form::tools(flow);
     if !tools.is_empty() {
-        put(ret.clone(), "\n\n", told.calls.trim_end());
         put(ret.clone(), "\n\n", told.tools.trim_end());
         let mut first = true;
         for name in tools {
@@ -393,7 +375,8 @@ pub fn check(parts: &[Part], settings: &Settings, fills: impl Fn(&str) -> bool) 
 }
 
 /// The flow's own texts that a message sends its agent cells, each with what of the flow it is: each agent cell's
-/// task, what each of its triggers says it does, and the words of each block it writes.
+/// task, what each of its triggers says it does, and the words of each block, what it is and what a cell that writes
+/// it is told of writing it.
 pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
     let mut out = Vec::new();
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
@@ -423,6 +406,13 @@ pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
                 places: false,
             });
         }
+        if let Some(words) = &block.words {
+            out.push(Said {
+                source: format!("block {}, what its writer is told", name.as_str()),
+                text: words.clone(),
+                places: false,
+            });
+        }
     }
     out
 }
@@ -443,18 +433,20 @@ pub fn reserved(agents: &Agents) -> Vec<String> {
 
 /// The settings a text sent to an agent may name, each by its name, with its value, or with none where the
 /// installation has none for it: the project's, in `[project]` of `project.toml`, each as `project.<name>`; and the
-/// installation's that `[installation] names` there lists, whose values the installation holds.
+/// installation's that `names` in `agents/installation.toml` beside the flows lists, whose values the installation
+/// holds.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Settings(BTreeMap<String, Option<String>>);
 
 impl Settings {
-    /// The settings `project.toml` gives and names, the installation's each with the value `installation` gives it.
-    pub fn of(project: &Project, installation: impl Fn(&str) -> Option<String>) -> Settings {
+    /// The settings `project.toml` gives, and those of the installation `names` lists, each with the value `value`
+    /// gives it.
+    pub fn of(project: &Project, names: &Installation, installation: impl Fn(&str) -> Option<String>) -> Settings {
         let mut values = BTreeMap::new();
         for (name, value) in &project.project {
             values.insert(format!("project.{name}"), Some(value.clone()));
         }
-        for name in &project.installation.names {
+        for name in &names.names {
             values.entry(name.clone()).or_insert_with(|| installation(name));
         }
         Settings(values)
@@ -686,11 +678,16 @@ mod tests {
     /// `agents.subagents.most` and `github.checks`, the last with no value.
     fn settings() -> Settings {
         let project: Project = toml::from_str(
-            "tree = \"design/\"\n[files]\n[installation]\nnames = [\"owner.language\", \"agents.subagents.most\", \"github.checks\"]\n\
-             [project]\nresearch = \"research/\"\ntest_names = \"By its own name.\"\n",
+            "tree = \"design/\"\n[files]\n[project]\nresearch = \"research/\"\ntest_names = \"By its own name.\"\n",
         )
         .unwrap();
-        Settings::of(&project, |name| match name {
+        let names = Installation {
+            names: ["owner.language", "agents.subagents.most", "github.checks"]
+                .map(String::from)
+                .to_vec(),
+            ..Default::default()
+        };
+        Settings::of(&project, &names, |name| match name {
             "owner.language" => Some("Chinese".to_string()),
             "agents.subagents.most" => Some("3".to_string()),
             _ => None,

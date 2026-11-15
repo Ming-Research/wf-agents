@@ -13,9 +13,10 @@ export function listed(names: string[]): string {
   return `[${names.join(', ')}]`;
 }
 
-/// A named test by its attributes, as its file writes them.
+/// A named test by its attributes, as its file writes them: a test of content has no `is`.
 export function readsWords(test: Test): string {
-  return `kind ${snake(test.kind)}, reads ${listed(test.reads)}, is ${test.is}`;
+  const is = test.is === null ? '' : `, is ${test.is}`;
+  return `kind ${snake(test.kind)}, reads ${listed(test.reads)}${is}`;
 }
 
 /// A line's keys as its file writes them, each with its value, in the order the files write them. A key it leaves out
@@ -45,8 +46,8 @@ export function keyWords(key: Condition): string {
   return key.on === 'block' ? `${key.block} = ${key.value}` : `test = ${testWords(key.test)}`;
 }
 
-/// A cell's `when` or `requires` as its file writes it, every key of it: `deep_needed = yes, edits_tree = yes`;
-/// nothing where it has none.
+/// A cell's `when` or `requires` as its file writes it, every key of it: `deep_needed = no, test = settled`; nothing
+/// where it has none.
 export function conditionWords(keys: Condition[]): string {
   return keys.map(keyWords).join(', ');
 }
@@ -140,8 +141,6 @@ export function faultWords(fault: Fault): string {
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
-    case 'describedNotRunOn':
-      return `The cell says what the work is by ${w.block}, but ${w.block} does not run it.`;
     case 'takenNotRead':
       return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'twoForms':
@@ -160,8 +159,10 @@ export function faultWords(fault: Fault): string {
       return 'The cell names triggered_by and context, which only a flow laid out one thing to a file has.';
     case 'missingPlaceholder':
       return `This must hold ${w.placeholder}.`;
-    case 'unknownReturnField':
-      return `The engine's return has no field named "${w.field}".`;
+    case 'asksWithNoAnswer':
+      return `The cell writes ${w.block}, the work's questions, but no answer runs it: the owner's answer would run no cell.`;
+    case 'asksAndCannotBeSpokenTo':
+      return `The cell writes ${w.block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell.`;
     case 'unknownDetail':
       return `The engine fills no place named "${w.detail}".`;
     case 'readNotInContext':
@@ -200,6 +201,10 @@ export function faultWords(fault: Fault): string {
       return `The test ${w.test} is not declared in flow.toml.`;
     case 'readsEmpty':
       return `The test ${w.test} reads no block.`;
+    case 'testNamesNoValue':
+      return `The test ${w.test} names no value to look for: it has no is.`;
+    case 'contentTestNamesValue':
+      return `The test ${w.test} looks for content, and names a value to look for, which it does not read.`;
     case 'unusedTest':
       return `No cell uses the test ${w.test}.`;
     case 'testOnOwnOutput':

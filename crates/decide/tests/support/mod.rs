@@ -5,9 +5,9 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Abandoning, BlockId, CallId, Called, Cause, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Maker,
-    Outsider, Outsiders, Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName,
-    Waited, Who, Write, Written, decide,
+    Abandoned, Abandoning, Answered, BlockId, CallId, Called, Cause, Cell, CellId, Decision, Done, Finished, Flow,
+    LetGo, Maker, Outsider, Outsiders, Pause, Pauser, Questioned, Records, Returned, Round, RunId, Seq, Started, Test,
+    TestKind, TestName, Waited, Who, Write, Written, decide,
 };
 
 /// The owner's word of this name: a named test of the choice of the same name, which people write, that holds unless
@@ -16,7 +16,7 @@ pub fn word(name: &str) -> Test {
     Test {
         kind: TestKind::None,
         reads: vec![name.into()],
-        is: "no".to_string(),
+        is: Some("no".to_string()),
     }
 }
 
@@ -26,7 +26,7 @@ pub fn gate_word() -> Test {
     Test {
         kind: TestKind::All,
         reads: vec![GATE.into()],
-        is: "yes".to_string(),
+        is: Some("yes".to_string()),
     }
 }
 
@@ -68,13 +68,14 @@ fn flow_of(
     Flow::new(cells, tests, outsiders).expect("the cells make a flow")
 }
 
-/// What a run writes of a block: a change that matters to the cells that read it, one that does not, or a value a
-/// condition reads (which matters).
+/// What a run writes of a block: a change that matters to the cells that read it, one that does not, a value a
+/// condition reads (which matters), or a version that holds nothing (which matters).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Says {
     Matters,
     DoesNotMatter,
     Value(&'static str),
+    Nothing,
 }
 
 #[derive(Clone)]
@@ -356,6 +357,7 @@ impl World {
             .map(|(block, says)| Write {
                 block: (*block).into(),
                 meaning_unchanged: *says == Says::DoesNotMatter,
+                empty: *says == Says::Nothing,
                 value: match says {
                     Says::Value(v) => Some((*v).to_string()),
                     _ => None,
@@ -367,6 +369,7 @@ impl World {
             at,
             writes,
             dealt_with: Some(dealt_with.iter().map(|b| (*b).into()).collect()),
+            waits_for: None,
         });
         at
     }
@@ -382,6 +385,15 @@ impl World {
         self.records.called.push(Called { call, run, on, at });
         self.finish_dealing(cell, &[], &[]);
         call
+    }
+
+    /// Starts and finishes the cell, what it wrote waiting for a new version of this block, which a source outside the
+    /// work writes, as the engine's own check says where what fails also fails on main.
+    pub fn run_waiting_for(&mut self, cell: &str, writes: &[(&str, Says)], block: &str) -> Seq {
+        let at = self.run(cell, writes);
+        let finished = (self.records.finished.iter_mut()).find(|f| f.at == at);
+        finished.expect("the run finished").waits_for = Some(block.into());
+        at
     }
 
     /// Starts and finishes the cell; the place of its finish names the versions it wrote.
@@ -434,6 +446,8 @@ impl World {
             by: Outsider::Person,
             matters: false,
             value: None,
+            said_to: None,
+            empty: false,
             at,
         });
         at
@@ -448,6 +462,8 @@ impl World {
             by: Outsider::Outside,
             matters: false,
             value: None,
+            said_to: None,
+            empty: false,
             at,
         });
         at
@@ -460,6 +476,8 @@ impl World {
             by,
             matters: true,
             value,
+            said_to: None,
+            empty: false,
             at,
         });
         at
@@ -473,6 +491,8 @@ impl World {
             by: Outsider::Person,
             matters: false,
             value: Some(value.to_string()),
+            said_to: None,
+            empty: false,
             at,
         });
         at
@@ -526,6 +546,49 @@ impl World {
 
     pub fn cancel(&mut self) {
         let at = self.tick();
-        self.records.cancelled = Some(at);
+        self.records.cancels.push(at);
+    }
+
+    /// The cell's latest run asks the owner the question of this name, which its cell waits for or not: a version of
+    /// it, named by the place given.
+    pub fn questions(&mut self, cell: &str, name: &str, waits: bool) -> Seq {
+        self.question(cell, name, waits, false)
+    }
+
+    /// The cell's latest run withdraws the question of this name: a version of it, named by the place given.
+    pub fn withdraws(&mut self, cell: &str, name: &str) -> Seq {
+        self.question(cell, name, false, true)
+    }
+
+    fn question(&mut self, cell: &str, name: &str, waits: bool, withdrawn: bool) -> Seq {
+        let id: CellId = cell.into();
+        let run = (self.records.started.iter().rev())
+            .find(|s| s.cell == id)
+            .expect("the cell has run")
+            .run;
+        let at = self.tick();
+        self.records.questions.push(Questioned {
+            name: name.to_string(),
+            cell: id,
+            run,
+            engine: false,
+            waits,
+            withdrawn,
+            at,
+        });
+        at
+    }
+
+    /// The owner answers this version of the question, taking this option.
+    pub fn answers(&mut self, name: &str, version: Seq, option: u64) -> Seq {
+        let at = self.tick();
+        self.records.answers.push(Answered {
+            question: name.to_string(),
+            version,
+            option,
+            why: None,
+            at,
+        });
+        at
     }
 }

@@ -60,25 +60,23 @@ fn an_item_keeps_the_level_it_is_added_at_when_the_driver_opens_again() {
 fn an_item_put_at_another_level_keeps_it_when_the_driver_opens_again() {
     let mut h = H::new();
     let (item, work) = h.add(new_item("a", &[], "judged"));
-    let now = h.now();
+    let level = |item: ItemNumber| vec![(item, driver::Asked::Item(ItemChange::Level("2".into())))];
+    assert_eq!(h.changes(level(item)).map(|(changed, _)| changed), Ok(vec![true]));
     assert_eq!(
-        h.dm()
-            .change(now, item, ItemChange::Level("2".into()))
-            .map(|(changed, _)| changed),
-        Ok(true)
-    );
-    assert_eq!(
-        h.dm()
-            .change(now, item, ItemChange::Level("2".into()))
-            .map(|(changed, _)| changed),
-        Ok(false),
+        h.changes(level(item)).map(|(changed, _)| changed),
+        Ok(vec![false]),
         "it is at that level already"
     );
     assert_eq!(
-        h.dm()
-            .change(now, ItemNumber(9), ItemChange::Level("2".into()))
-            .map(|(changed, _)| changed),
-        Err(Failed::NoSuchItem(ItemNumber(9)))
+        h.changes(level(ItemNumber(9))).map(|(changed, _)| changed),
+        Err(Failed::NotChanged {
+            asked: 1,
+            refused: vec![driver::NotMade {
+                at: 0,
+                item: ItemNumber(9),
+                why: driver::changes::Refused::NoSuchItem(ItemNumber(9)),
+            }],
+        })
     );
     let level = |h: &H| h.d().work(work).expect("the work is there").item.level.clone();
     assert_eq!(level(&h).as_deref(), Some("2"));
@@ -200,14 +198,17 @@ fn the_work_is_paused_from_its_first_entry_and_holds_its_dependencies_block_and_
         assert_eq!(deps_write.by, Outsider::Outside);
         assert_eq!(deps_write.value.as_deref(), Some(deps));
         assert_eq!(h.dependencies(work).as_deref(), Some(deps));
-        // With nothing written that runs its first cell, nothing is to be done; with the request written, it waits
-        // before its first cell for its dependencies.
-        let decision = if deps == MERGED {
-            Decision::Idle
+        // With nothing written that runs its first cell, nothing is to be done, and its own pause holds it; with the
+        // request written, it waits before its first cell for its dependencies.
+        if deps == MERGED {
+            assert!(
+                matches!(h.decision(work), Decision::Stalled { .. }),
+                "{:?}",
+                h.decision(work)
+            );
         } else {
-            waits_for_dependencies("write")
-        };
-        assert_eq!(h.decision(work), decision);
+            assert_eq!(h.decision(work), waits_for_dependencies("write"));
+        }
     }
     // What people wrote first follows, in order.
     let kept = h.d().work(wb).expect("the work is there");

@@ -1,5 +1,5 @@
-// Where the page is, by its address's hash: the console, the list of works, one work with one of its runs chosen or
-// none, the flow, the observations, the system over a span of time, or the settings. The hash keeps the view in the
+// Where the page is, by its address's hash: the console, with one of its items selected or none, the list of works,
+// one work with one of its runs chosen or none, the flow, the observations, the system over a span of time, or the settings. The hash keeps the view in the
 // address, so that the browser's back and forward, a reload and a link all show the same view, and the one binary that
 // serves the page needs no route of its own for each view.
 
@@ -13,9 +13,13 @@ export type Plain = (typeof PLAIN)[number];
 export const PERIODS = ['week', '4w', 'all'] as const;
 export type Period = (typeof PERIODS)[number];
 
-/// A plain view; the system's over a span other than the week under way; or one work, with one of its runs chosen
-/// where the address names it.
-export type Route = { view: Plain } | { view: 'system'; period: Period } | { view: 'work'; work: number; run?: number };
+/// A plain view; the console with an item selected; the system's over a span other than the week under way; or one
+/// work, with one of its runs chosen where the address names it.
+export type Route =
+  | { view: Plain }
+  | { view: 'console'; item: number }
+  | { view: 'system'; period: Period }
+  | { view: 'work'; work: number; run?: number };
 
 const pathOf = (hash: string): string => hash.replace(/^#/, '').replace(/\/+$/, '');
 
@@ -30,6 +34,8 @@ function named(hash: string): Route | null {
       ? { view: 'work', work: Number(work[1]) }
       : { view: 'work', work: Number(work[1]), run: Number(work[2]) };
   }
+  const item = /^\/console\/items\/(\d+)$/.exec(path);
+  if (item) return { view: 'console', item: Number(item[1]) };
   const period = PERIODS.find((p) => p !== 'week' && path === `/system/${p}`);
   return period ? { view: 'system', period } : null;
 }
@@ -50,6 +56,7 @@ export function hashOf(route: Route): string {
   if (route.view === 'work') {
     return route.run === undefined ? `#/works/${route.work}` : `#/works/${route.work}/runs/${route.run}`;
   }
+  if ('item' in route) return `#/console/items/${route.item}`;
   if ('period' in route && route.period !== 'week') return `#/system/${route.period}`;
   return `#/${route.view}`;
 }

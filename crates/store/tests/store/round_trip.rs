@@ -10,7 +10,7 @@ use super::*;
 fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry_of_every_kind() {
     let mut d = Driver::saved();
     // The driver saves and loads back after each event, and compares.
-    history(&mut d);
+    reopened_after(&mut d);
     let w = &d.work;
     let r = &w.records;
 
@@ -91,11 +91,18 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     // A run is abandoned only as its cell is skipped, a round is stopped, or the work is cancelled: here once.
     assert!(!r.abandoned.is_empty(), "no run abandoned: {:?}", r.abandoned);
     assert_eq!(r.let_go.len(), 1);
+    // The last pause is the reopen's: a work reopened is paused until it is let on.
     assert_eq!(
         r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(),
-        [true, false, true, false]
+        [true, false, true, false, true]
     );
-    assert!(r.cancelled.is_some());
+    assert!(r.cancelled().is_some());
+    assert_eq!((r.cancels.len(), r.reopens.len(), r.releases.len()), (2, 1, 2));
+    assert_eq!(
+        (r.questions.len(), r.answers.len()),
+        (1, 1),
+        "the question and its answer"
+    );
     assert_eq!(w.spent.len(), d.ended as usize, "a round's cost was not kept");
     assert_eq!(r.returned.len(), d.ended as usize);
     // Each round that began was given something, and each that ended came back with something: no round is under way
@@ -118,6 +125,34 @@ fn a_new_work_loads_with_nothing_kept_of_it() {
 }
 
 #[test]
+fn a_write_said_to_a_cell_loads_back_said_to_it() {
+    // As the owner's entry of the record of what is said is kept: with the cell the words were given to, beside a write
+    // said to none.
+    let mut store = Store::in_memory().expect("the store opens");
+    let number = first_work(&mut store);
+    let mut work = Work::default();
+    for said_to in [Some("judge"), None] {
+        let at = work.tick();
+        (work.contents).insert(("discussion".into(), at), "The owner:\n\nShorter.".to_string());
+        work.records.written.push(Written {
+            block: "discussion".into(),
+            by: Outsider::Outside,
+            matters: true,
+            value: None,
+            said_to: said_to.map(Into::into),
+            empty: false,
+            at,
+        });
+    }
+    store.save(number, &work).expect("the work is saved");
+    let loaded = store.load(number).expect("the work loads");
+    let said: Vec<Option<&str>> = (loaded.records.written.iter())
+        .map(|w| w.said_to.as_ref().map(|c| c.as_str()))
+        .collect();
+    assert_eq!(said, [Some("judge"), None]);
+}
+
+#[test]
 fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_what_filled_their_sessions() {
     let new = of_the_new_form();
     // They are records a work can have.
@@ -131,7 +166,7 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
     let mut store = db.open();
     let before = first_work(&mut store);
     let (_, work) = store
-        .add("second", "2", &[], "judged", Time(START), &Work::default())
+        .add(&first("second", "2", &[]), "judged", Time(START), &Work::default())
         .expect("the item is added");
     store.save(before, &d.work).expect("the work is saved");
     store.save(work, &new).expect("the work is saved");

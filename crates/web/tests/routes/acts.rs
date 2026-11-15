@@ -54,7 +54,7 @@ async fn an_act_that_cannot_be_taken_is_refused_with_why() {
     greeted(router).await;
     let error = |words: &str| json!({ "error": words });
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
-    let answer = |call: u64| json!({ "kind": "answer", "call": call, "result": "Yes." });
+    let answer = |call: u64| json!({ "kind": "result", "call": call, "result": "Yes." });
     assert_eq!(
         post(router, "/api/v1/works/9/acts", &json!({ "kind": "pause" })).await,
         (StatusCode::NOT_FOUND, error("There is no work 9."))

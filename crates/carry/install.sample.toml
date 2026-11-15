@@ -4,28 +4,70 @@
 #
 # A text the agents are given (the engine's own words, the rules for the agents, the words of the return's fields and
 # of the tools, all beside the flows) may name by its key between backticks, as `owner.language`, a setting of these
-# that `[installation] names` in the flows' `project.toml` lists: the agent is given its value beside the name. A flow
-# whose texts given to a line name one these settings have no value for is refused as the engine starts.
+# that `names` in `agents/installation.toml` beside the flows lists: the agent is given its value beside the name. A
+# flow whose texts given to a line name one these settings have no value for is refused as the engine starts.
 
 [owner]
 # The language the agents write in what the owner reads, technical terms in their English original.
 language = "Chinese"
 
-[project]
+# The projects the works are done in, each a table named by the name the installation gives it, by which items and the
+# page know it: an item belongs to one project, and its works run in that project's repository, with what the project
+# declares in flow/project.toml on its main branch (its design tree, its files the agents are given, its settings, its
+# tests and workflows). Item numbers are one sequence across the projects, and an item may depend on an item of another
+# project, waited for as any other. Two projects never name one repository.
+[projects.example]
 # The local git repository the works are done in: its own checkout, which stays on the main branch. Each work has a
 # branch `work-<n>` and a worktree `<data>/worktrees/<n>` made from the main branch's head, and is merged here; with
-# [github] below, the repository is a clone of the one on GitHub, and the works are merged there.
+# [projects.example.github] below, the repository is a clone of the one on GitHub, and the works are merged there.
 repo = "/path/to/the/repository"
 # The repository's main branch.
 main = "main"
 # A shell command whose exit with 0 means the work passes. Where the local repository is the host, it is run in a
-# work's worktree by the check before the merge and by the agents' tool `run_tests`. With [github] below, the CI is run
-# instead, and this command is not.
+# work's worktree by the check before the merge and by the agents' tool `run_tests`. With [projects.example.github]
+# below, the CI is run instead, and this command is not.
 check = "./test.sh"
 # The acts refuse a repository whose own configuration could make git run a program (a filter, a merge driver, a
 # hooks directory, an included file and the like). A key the repository needs is allowed here, whole or as a beginning
 # followed by `*`.
 # allowed_config = ["filter.lfs.*"]
+
+# The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge and the agents'
+# tool `run_tests` push the work's branch to GitHub, open its pull request into the main branch where it has none, and
+# run the project's workflows on the pushed commit; nothing is run on this machine. A request of `run_tests` that names
+# tests or checks has only those run, by the project's fast workflow, and one that names none is run by the project's
+# full workflows, as is the check before the merge, on the commit to merge, once; both are declared in the project's
+# flow/project.toml. The merge merges the work's pull request. Without this table, the local repository is the host.
+# The engine needs `git` and `gh`, and its own token for GitHub in its environment: a fine-grained token for the
+# project's repository, with Contents and Pull requests read and write, Checks and Commit statuses read, and Actions
+# read and write, for the workflows it runs by hand. The engine itself never pushes a change to the project's workflow
+# files; a work's commit that changes them is pushed only with Workflows read and write (the `workflow` scope of a
+# classic token), and without it GitHub refuses that push, which the agent is told. Each project's table names its
+# own repository, and may name a token of its own.
+# [projects.example.github]
+# # The repository on github.com, as owner/name.
+# repository = "owner/name"
+# # The clone's name for the repository on GitHub: main's head is fetched to refs/remotes/<remote>/<main>.
+# remote = "origin"
+# # The variable of the engine's environment that holds its token. No agent is given it.
+# token_env = "WF_GITHUB_TOKEN"
+# # A run of a workflow that is not listed, or never leaves the queue, after this many minutes: the CI never started.
+# # The engine cancels the run it asked for, and the check fails its round in passing and is tried again after a wait,
+# # or the agents' tool says so.
+# start_minutes = 10
+# # A run of the fast workflow not complete after this many minutes is cancelled, and said as what it found; the full
+# # workflows take the time flow/project.toml gives them (`ci.full.too_long`).
+# timeout_minutes = 120
+# # How a pull request is merged: squash, merge or rebase.
+# merge_method = "squash"
+# # Whether a work's branch on GitHub is deleted once it is merged.
+# delete_branch = false
+# # The gh command line, or a path to it.
+# gh = "gh"
+# # The runners the project's repository has: `github` for GitHub's own machines, and the label of each self-hosted
+# # runner registered for it. A workflow of the project (its `ci.fast` and `ci.full` in flow/project.toml) names the
+# # runner it runs on, and is not run where the repository lacks it.
+# runners = ["github"]
 
 [agents]
 # The command line program that runs an agent's round.
@@ -85,47 +127,37 @@ default_level = "2"
 # The highest level an item may be at: an item above it is refused as it is added, and no line of the flow runs above
 # it. Left out, the top level.
 highest_level = "3"
+# The most words an item's title may have, a Chinese character counting as a word: 20 allows 20 English words or 20
+# Chinese characters. A title is held to it when it is made or changed. There is no default.
+title_max = 20
 
 [sessions]
-# A line of a work keeps one session of the program from round to round. Once a round of the line ends with a context
-# of more tokens than this, the line's next round begins a new session; a line also begins one where the model or the
-# config_dir is no longer the one its session was begun with. Left out, it is 500000.
+# A line of a work keeps one session of the program from round to round. It begins a new one where the model or the
+# config_dir is no longer the one its session was begun with, and where a round of the line ends with more context than
+# the limit: the line its own history gives ([history] below), but never more than this many tokens, which is the limit
+# while the history is too short to give a line. The program compacts a session near its model's window, so a line
+# drawn from history stands past the window once one session came near it, and only this number still bounds what each
+# call of a long session reads. Left out, it is 500000.
 context_limit = 500000
+#
+# How long the program keeps a session in its prompt cache after its last call, in minutes: an hour for `claude`, whose
+# usage says each write to the cache is kept an hour. 0 for a program that keeps none. Left out, it is 60.
+cache_minutes = 60
+# A session whose line waits is sent a keep-warm ping this many minutes after its last call, so that the cache does not
+# let it go: five before it would, time for the ping and four tries again a minute apart. A wait is sent as many as
+# cost, each reading the session, no more than writing it again would beyond reading it, at its model's prices: 39 on
+# Opus and Sonnet 5.5, 19 on Haiku 5.5, 79 on Fable 5.1. Left out, it is 55.
+warm_minutes = 55
+# Whether sessions are kept warm while the owner holds everything, so that they are not written again whole when the
+# owner lets everything on. Left out, they are.
+warm_while_paused = true
 
-# The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge and the agents'
-# tool `run_tests` push the work's branch to GitHub, open its pull request into the main branch where it has none, and
-# run the project's workflows on the pushed commit; nothing is run on this machine. A request of `run_tests` that names
-# tests or checks has only those run, by the project's fast workflow, and one that names none is run by the project's
-# full workflows, as is the check before the merge, on the commit to merge, once; both are declared in the project's
-# flow/project.toml. The merge merges the work's pull request. Without this table, the local repository is the host. The engine needs `git` and `gh`, and its own token for GitHub in its environment: a
-# fine-grained token for the one repository, with Contents and Pull requests read and write, Checks and Commit
-# statuses read, and Actions read and write, for the workflows it runs by hand. The engine
-# itself never pushes a change to the project's workflow files; a work's commit that changes them is pushed only with
-# Workflows read and write (the `workflow` scope of a classic token), and without it GitHub refuses that push, which
-# the agent is told.
-# [github]
-# # The repository on github.com, as owner/name.
-# repository = "owner/name"
-# # The clone's name for the repository on GitHub: main's head is fetched to refs/remotes/<remote>/<main>.
-# remote = "origin"
-# # The variable of the engine's environment that holds its token. No agent is given it.
-# token_env = "WF_GITHUB_TOKEN"
-# # A run of a workflow that is not listed, or never leaves the queue, after this many minutes: the CI never started,
-# # and the check fails its round, or the agents' tool says so.
-# start_minutes = 10
-# # The CI not complete after this many minutes is given up, and the check fails its round, or the agents' tool says
-# # so.
-# timeout_minutes = 120
-# # How a pull request is merged: squash, merge or rebase.
-# merge_method = "squash"
-# # Whether a work's branch on GitHub is deleted once it is merged.
-# delete_branch = false
-# # The gh command line, or a path to it.
-# gh = "gh"
-# # The runners this installation has: `github` for GitHub's own machines, and the label of each self-hosted runner. A
-# # workflow of the project (its `ci.fast` and `ci.full` in flow/project.toml) names the runner it runs on, and is not
-# # run where this installation lacks it.
-# runners = ["github"]
+[history]
+# A measured quantity (a round's growth of context, its cost and time, a session's context, a work's spend) is judged
+# against the history of its own kind: its line stands past the largest value by as much as that is past the median.
+# A history gives a line once it has at least this many values: 19, of which a value of the same kind is the largest
+# one time in twenty. Left out, it is 19.
+samples = 19
 
 # The agents' tool `query`: one read-only SQL query on the engine's store, which the engine runs and answers in the next
 # message. Off until the owner has settled what the agents see: with it off, a request is answered that the store is

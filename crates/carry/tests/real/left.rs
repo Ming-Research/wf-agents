@@ -1,6 +1,8 @@
 //! A program a process of the engine left running is stopped before its round is run again, so that a session has
 //! one program at a time.
 
+use std::os::unix::fs::MetadataExt;
+
 use service::Act;
 
 use crate::{Fake, Real, ended};
@@ -28,6 +30,16 @@ async fn a_round_left_running_by_an_engine_that_stopped_is_stopped_before_it_run
         "the plan's first program was stopped before its second began"
     );
     assert!(calls.iter().all(|call| !call.overlapped));
+    // The plan's first try never reached the model, so its second is told the same, whole: it is stored once, as one
+    // file under two names.
+    let base = real.data.join(format!("rounds/1/{}-1", plan.0));
+    let told = |name: &str| base.with_extension(name);
+    assert_eq!(
+        std::fs::read_to_string(told("message.2.md")).unwrap(),
+        std::fs::read_to_string(told("message.md")).unwrap()
+    );
+    let file = |name: &str| std::fs::metadata(told(name)).unwrap().ino();
+    assert_eq!(file("message.2.md"), file("message.md"));
 }
 
 #[tokio::test]

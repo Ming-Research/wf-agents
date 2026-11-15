@@ -7,6 +7,7 @@ import type {
   Call,
   CallRow,
   Cause,
+  CellKey,
   CellState,
   Failure,
   Given,
@@ -19,6 +20,8 @@ import type {
   Run,
   SessionWhy,
   Spent,
+  Stalling,
+  Step,
   Summary,
   Unmet,
   Waited,
@@ -75,6 +78,42 @@ export function tokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+/// A count in full, its thousands apart: `12,345`.
+export function count(n: number): string {
+  return n.toLocaleString('en');
+}
+
+/// What share of a whole a part is, in whole percent: `89%`; a dash where the whole is nothing.
+export function share(part: number, whole: number): string {
+  return whole > 0 ? `${Math.round((100 * part) / whole)}%` : '–';
+}
+
+/// A key of what was taken, or what the page works out from them, said plainly, with its value.
+export type Key = [string, string];
+
+/// The key the page shows a cost under: the records keep it in millionths of a dollar, and the page says it in dollars.
+export const DOLLARS = 'usd_micros in dollars';
+
+/// The share of what was sent that was read from the cache, as the page works it out from the records' keys.
+export const CACHED_SHARE = 'cached_tokens / (input_tokens + cached_tokens)';
+
+/// What a round, or rounds together, took, by each key the records keep it under, with its value, and the share read
+/// from the cache.
+export function spentKeys(spent: Spent): Key[] {
+  return [
+    [DOLLARS, dollars(spent.usdMicros)],
+    ['input_tokens', count(spent.inputTokens)],
+    ['cached_tokens', count(spent.cachedTokens)],
+    ['output_tokens', count(spent.outputTokens)],
+    [CACHED_SHARE, share(spent.cachedTokens, spent.inputTokens + spent.cachedTokens)],
+  ];
+}
+
+/// Keys with their values in a line, for the pointer's tip: `rounds 3, calls 2`.
+export function keysLine(keys: Key[]): string {
+  return keys.map(([key, value]) => `${key} ${value}`).join(', ');
+}
+
 /// Every token a round took: what it was given, what it read from the cache, and what it gave back.
 export function allTokens(spent: Spent): number {
   return spent.inputTokens + spent.cachedTokens + spent.outputTokens;
@@ -110,6 +149,10 @@ export function sessionWords(why: SessionWhy): string {
       return 'a new one, as the owner asked';
     case 'flagged':
       return "a new one, the service's safety check having flagged its last round";
+    case 'guarded':
+      return 'a new one, the run guard having stopped its last round';
+    case 'tooLong':
+      return "a new one, its last round's prompt having been too long for the model";
     case 'lost':
       return "begun again, the agents' program having lost it";
     case 'compacted':
@@ -161,32 +204,51 @@ export function failureWords(failure: Failure): string {
       return 'what came back could not be read';
     case 'flagged':
       return "the service's safety check flagged it";
+    case 'guarded':
+      return "the run guard stopped it, its context growing past what its cell's history explains";
     case 'usageLimit':
       return "the account's usage limit was reached";
     case 'cannotRun':
       return "the agents' command line cannot run";
     case 'offline':
       return 'the network cannot be reached';
+    case 'unavailable':
+      return "the agents' service is down, overloaded or not answering";
     case 'promptTooLong':
       return 'the prompt is too long for the model';
+    case 'noModel':
+      return "the service has no model of the name the round's level gives";
     case 'other':
       return 'a cause no kind tells apart';
   }
 }
 
-/// A wait every work shares, in a line: its cause, when it is over, and the round that met it.
+/// What is down in a wait every work shares: as the latest check of the outside found it while the wait holds, or else
+/// as the round that met it did.
+export function outageDown(outage: Outage): { failure: Failure; why: string } {
+  const found = outage.checked?.found;
+  return outage.holds && found?.kind === 'down' ? found : { failure: outage.failure, why: outage.why };
+}
+
+/// A wait every work shares, in a line: what is down and since when, what the engine does next, and the round that
+/// met it.
 export function outageWords(outage: Outage): string {
   const until = outage.until;
   const when =
-    until.kind === 'at'
-      ? `until ${clock(until.at)}`
-      : until.kind === 'tried'
-        ? 'one round tries now'
-        : until.look
-          ? `one round tries once the network is reached, looked at from ${clock(until.at)}, at the latest at ${clock(until.latest)}`
-          : `one round tries at ${clock(until.at)}`;
-  const mend = outage.failure === 'cannotRun' ? ': sign the command line in again or install it' : '';
-  return `${failureWords(outage.failure)}${mend}; no agent's round of any work begins, ${when} (work ${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
+    until.kind === 'checked'
+      ? `the engine checks the outside itself at ${clock(until.at)}, touching no work's session`
+      : until.kind === 'well'
+        ? `the engine's check at ${clock(until.at)} found it well, and every work goes on`
+        : `once the host is reached, looked at from ${clock(until.at)}`;
+  const down = outageDown(outage);
+  const mend = down.failure === 'cannotRun' ? ': sign the command line in again or install it' : '';
+  const held =
+    outage.service === 'host' ? "no act of the engine's of any work begins" : "no agent's round of any work begins";
+  const checked =
+    outage.checked && outage.holds && outage.checked.found.kind === 'down'
+      ? `; the check at ${clock(outage.checked.at)} found: ${outage.checked.found.why}`
+      : '';
+  return `${failureWords(down.failure)}${mend}, since ${clock(outage.since)}; ${held}, ${when}${checked} (work ${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
 }
 
 /// What a round asked for.
@@ -207,7 +269,11 @@ export function waitsForOwner(waited: Waited): boolean {
     case 'slot':
       return false;
     case 'agents':
-      return waited.outage.failure === 'cannotRun';
+      return outageDown(waited.outage).failure === 'cannotRun';
+    case 'answer':
+      return true;
+    case 'outside':
+      return false;
   }
 }
 
@@ -237,6 +303,10 @@ export function waitedWords(waited: Waited): string {
       return 'a free slot, which the engine gives in its order';
     case 'agents':
       return `the agents' rounds to begin again: ${outageWords(waited.outage)}`;
+    case 'answer':
+      return `the owner's answer to the question ${waited.question}`;
+    case 'outside':
+      return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
   }
 }
 
@@ -261,9 +331,30 @@ export function nowWords(now: Now): string {
       return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':
       return `About to go on at ${now.cell}`;
-    case 'idle':
-      return 'At rest: nothing new runs a cell, until someone writes what runs one';
+    case 'stalled':
+      return `Stalled at ${now.at}: ${stalledWords(now)}`;
   }
+}
+
+/// What a stalled work waits for, which cells write it and why none of them runs, in a line.
+export function stalledWords(now: Extract<Now, { kind: 'stalled' }>): string {
+  const keys = (keys: CellKey[]) => keys.map((k) => k.words).join(' and ');
+  const writers = now.by.length === 0 ? 'no cell' : `only ${now.by.map((s) => `cell ${s.cell}`).join(' or ')}`;
+  const waits =
+    now.on.length > 0
+      ? `it waits for ${keys(now.on)}, which ${writers} can make hold`
+      : `nothing new runs this last cell, and what runs it ${writers} can write`;
+  const why = (s: Stalling) => {
+    switch (s.why.kind) {
+      case 'skipped':
+        return `it is skipped, ${keys(s.why.on)} not holding`;
+      case 'nothingNew':
+        return 'nothing new runs it';
+      case 'held':
+        return `${now.at} holds it`;
+    }
+  };
+  return [waits, ...now.by.map((s) => `cell ${s.cell} does not run: ${why(s)}`)].join('; ');
 }
 
 /// The word of what a work does now, for its tag, and the tone the tag takes.
@@ -283,10 +374,11 @@ export function nowTone(now: Now): Tone {
       return 'running';
     case 'waits':
       return now.on.some(waitsForOwner) ? 'owner' : 'quiet';
+    case 'stalled':
+      return 'owner';
     case 'cancelled':
     case 'everything':
     case 'next':
-    case 'idle':
       return 'quiet';
   }
 }
@@ -348,6 +440,22 @@ export function unmetWords(unmet: Unmet): string {
       return `it asked for ${unmet.name}, which is not a tool the cell may ask for`;
     case 'unchangedNotWritten':
       return `it named ${unmet.block} as unchanged in meaning, and did not write it`;
+    case 'questionTaken':
+      return `it wrote the question ${unmet.name}, which is not its cell's own`;
+    case 'noSuchQuestion':
+      return `it withdrew the question ${unmet.name}, of which none of its cell's stands`;
+    case 'questionTwice':
+      return `it wrote the question ${unmet.name} twice`;
+    case 'notAnOption':
+      return `its question ${unmet.name} recommends none of its options`;
+    case 'notAnswerable':
+      return `it asked the question ${unmet.name}, and no answer runs its cell`;
+    case 'notAnswered':
+      return `it dealt with the owner's words by ${unmet.name}, and gave no reply`;
+    case 'unexplained':
+      return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
+    case 'unanswered':
+      return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
   }
 }
 
@@ -425,7 +533,21 @@ export function callState(row: CallRow, abandoned = false): string {
   return abandoned ? `${made}, withdrawn with its run` : `${made}, no result yet`;
 }
 
+/// What a cancel does, said before the owner makes one.
+export const CANCEL_DOES = 'Nothing of it goes on until its item is reopened, and then it goes on from where it stopped';
+
+/// What the owner is asked for as they cancel a work, which is kept with the cancel.
+export const CANCEL_WHY = 'Why it is cancelled, in a sentence, such as the item it was joined into';
+
 /// Whether a work has ended: merged, or its item cancelled.
 export function hasEnded(summary: Pick<Summary, 'now'>): boolean {
   return summary.now.kind === 'merged' || summary.now.kind === 'cancelled';
+}
+
+/// Why letting go of what an ended work held failed, where the engine paused the work for it and it is not let on
+/// since: letting it on tries again. None otherwise.
+export function letGoFailed(summary: Pick<Summary, 'now' | 'paused'>, steps: Step[]): string | null {
+  if (!hasEnded(summary) || !summary.paused) return null;
+  const last = [...steps].reverse().find((s) => s.kind === 'paused' || s.kind === 'resumed');
+  return last?.kind === 'paused' && last.by === 'engine' ? (last.why ?? 'the engine gave no reason') : null;
 }

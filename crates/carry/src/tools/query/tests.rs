@@ -412,20 +412,21 @@ fn a_result_too_long_to_give_is_kept_whole_and_given_cut_with_its_size_and_the_q
     let whole = ask(&kept.querying, sql);
     assert_eq!(rows(&whole).len(), 40, "the whole is what the engine keeps");
     let input = json!({ "sql": sql }).to_string();
-    let given = Querying::cut(&whole, &input, 300);
+    let given = Querying::cut(&whole, &input, 300, "/t/1.txt");
     let cut: Value = serde_json::from_str(&given).unwrap();
     let first = rows(&given);
     assert!(first.len() < 40 && !first.is_empty(), "{}", first.len());
     assert!(given.len() < whole.len());
     assert_eq!(cut["cut"]["bytes"], whole.len());
     assert_eq!(cut["cut"]["count"], first.len());
+    assert_eq!(cut["cut"]["file"], "/t/1.txt");
     let rest = rows(&ask(&kept.querying, cut["cut"]["rest"].as_str().unwrap()));
     assert_eq!(rest.len(), 40 - first.len());
     assert_eq!(rest[0]["id"], first.len() + 1);
     // One short enough is given whole, and what is no rows as it is.
-    assert_eq!(Querying::cut(&whole, &input, whole.len()), whole);
+    assert_eq!(Querying::cut(&whole, &input, whole.len(), "/t/1.txt"), whole);
     let said = kept.querying.unavailable();
-    assert_eq!(Querying::cut(&said, &input, 3), said);
+    assert_eq!(Querying::cut(&said, &input, 3, "/t/1.txt"), said);
 }
 
 #[test]
@@ -435,7 +436,7 @@ fn a_first_row_longer_than_what_a_message_gives_is_given_shortened_and_the_rest_
     let whole = ask(&kept.querying, &sql);
     assert!(whole.len() > 60_000);
     let input = json!({ "sql": sql }).to_string();
-    let given = Querying::cut(&whole, &input, 1000);
+    let given = Querying::cut(&whole, &input, 1000, "/t/1.txt");
     let cut: Value = serde_json::from_str(&given).unwrap();
     assert!(given.len() < 2500, "{}", given.len());
     assert_eq!(rows(&given).len(), 1);
@@ -449,7 +450,12 @@ fn a_first_row_longer_than_what_a_message_gives_is_given_shortened_and_the_rest_
     // The rest is from the row after, which is the next to be given: each cut moves on.
     let rest = ask(&kept.querying, cut["cut"]["rest"].as_str().unwrap());
     assert_eq!(rows(&rest)[0]["id"], 2);
-    let next = Querying::cut(&rest, &json!({ "sql": cut["cut"]["rest"] }).to_string(), 1000);
+    let next = Querying::cut(
+        &rest,
+        &json!({ "sql": cut["cut"]["rest"] }).to_string(),
+        1000,
+        "/t/2.txt",
+    );
     let next: Value = serde_json::from_str(&next).unwrap();
     assert!(next["cut"]["rest"].as_str().unwrap().ends_with("OFFSET 1"));
 }
@@ -501,7 +507,7 @@ fn the_real_schema_is_read_table_by_table() {
     );
     assert_eq!(
         items.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-        ["number", "title", "added", "level"]
+        ["number", "title", "added", "level", "project"]
     );
     assert!(all.iter().all(|t| !t.columns.is_empty()));
 }

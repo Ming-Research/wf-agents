@@ -83,60 +83,11 @@
   margin-left: auto;
 }
 
-/* Where the work's time went: a model's stretches in blue, the tools' in orange, those no round ran in grey, on a muted
-   ground, as the page on `old-main` drew it from Primer's data colours. They have no token: no other view draws them. */
+/* Where the work's time went, in the track the works page's usage draws too (styles/parts.css). */
 .cw-track {
-  --track-ground: #818b981f;
-  --track-model: var(--accent);
-  --track-tool: #eb670f;
-  --track-gap: #e8ecf2;
-
   display: block;
   width: 140px;
 }
-
-:root[data-theme='dark'] .cw-track {
-  --track-ground: #656c7633;
-  --track-model: var(--accent);
-  --track-tool: #984b10;
-  --track-gap: #2a2d33;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .cw-track {
-    --track-ground: #656c7633;
-    --track-model: var(--accent);
-    --track-tool: #984b10;
-    --track-gap: #2a2d33;
-  }
-}
-
-.us-track {
-  position: relative;
-  height: var(--space-8);
-  border-radius: var(--corner);
-  background: var(--track-ground);
-}
-
-.us-block {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border-radius: var(--corner);
-}
-
-.us-model {
-  background: var(--track-model);
-}
-
-.us-tool {
-  background: var(--track-tool);
-}
-
-.us-gap {
-  background: var(--track-gap);
-}
-
 
 /* What the owner does to the work: the works page's buttons (`.acts`), under the lines. */
 .cw-acts {

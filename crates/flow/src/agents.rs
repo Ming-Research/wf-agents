@@ -21,6 +21,11 @@ pub const AGENTS_DIR: &str = "agents";
 /// The file beside the flows that names the project's files and settings.
 pub const PROJECT_FILE: &str = "project.toml";
 
+/// A project's declaration, the same file as [`PROJECT_FILE`], by its path from the root of the project's repository:
+/// each project an installation names declares its files, its settings, its tests and its workflows there, and the
+/// works of its items are run with it in place of the one beside the flows.
+pub const DECLARATION: &str = "flow/project.toml";
+
 /// The file, from the directory that holds the flows, that names the sets of rules for the agents, each by its name
 /// with its file beside it. A line names those it takes.
 pub const RULES_FILE: &str = "agents/rules/rules.toml";
@@ -31,6 +36,10 @@ pub const ACTS_DIR: &str = "acts";
 
 /// The file, in `agents/`, of who the engine's commits are by and the words of each.
 pub const COMMITS_FILE: &str = "commits.toml";
+
+/// The file, in `agents/`, of what the texts beside the flows take from the installation: the settings of it they may
+/// name, and what a tool's result says where the work's item belongs to no project the installation names.
+pub const INSTALLATION_FILE: &str = "installation.toml";
 
 /// The file, in `agents/`, of what the place `{your_line}` in the engine's words says: what the line may do in the
 /// worktree.
@@ -54,8 +63,12 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
     ],
 )];
 
-/// The field of a return that holds the blocks a cell writes, each under its name. The form does not list them: the
-/// cell is told its own with its task, and the engine checks what it writes against them.
+/// The file, in `agents/`, of the questions the engine itself asks the owner.
+pub const ASKS_FILE: &str = "asks.toml";
+
+/// The field of a return that holds the blocks a cell writes, each under its name, in its own shape. The form of a
+/// line lists the blocks of the line's cells there; the cell is told its own with its task, and the engine sends back
+/// a block that is not among them.
 pub const OUTPUTS: &str = "outputs";
 
 /// All of it, read from the directory that holds the flows.
@@ -68,6 +81,8 @@ pub struct Agents {
     /// The text of each file of the engine's own words that the session names, by its name in `agents/`.
     pub words: BTreeMap<String, String>,
     pub your_line: YourLine,
+    /// What the texts take from the installation: `agents/installation.toml`.
+    pub installation: Installation,
     /// The sets of rules for the agents, by name, as `agents/rules/rules.toml` names them, each with its text.
     pub rules: BTreeMap<String, RuleSet>,
     pub returns: Return,
@@ -83,9 +98,89 @@ pub struct Agents {
     pub results: Results,
     pub acts: Acts,
     pub commits: Commits,
+    /// What the engine itself asks the owner: `agents/asks.toml`.
+    pub asks: Asks,
+    /// What the engine says as it guards what rounds cost and keeps their sessions' caches: `agents/cost.toml`.
+    pub cost: Cost,
+}
+
+/// `agents/cost.toml`: what the engine says as it guards what the agents' rounds cost and keeps their sessions' prompt
+/// caches.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cost {
+    pub ping: PingWords,
+    pub guard: GuardWords,
+    pub work: WorkWords,
+}
+
+/// What a keep-warm ping sends, and why one failed.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PingWords {
+    /// The whole message it sends.
+    pub message: String,
+    pub under_way: String,
+    pub no_round: String,
+    pub no_system: String,
+    pub stopped: String,
+    pub exited: String,
+}
+
+/// Where a line the run guard judges by comes from, by the scope of its history.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScopeWords {
+    pub cell: String,
+    pub flow: String,
+    pub works: String,
+    pub line: String,
+}
+
+/// Why the run guard stopped a round.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GuardWords {
+    pub growth: String,
+    pub jump: String,
+    pub again: String,
+    pub from: String,
+    pub scope: ScopeWords,
+    pub tool: String,
+    pub between: String,
+    pub no_tools: String,
+}
+
+/// Why the engine paused a work whose spend or time is past the line of the flow's other works.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkWords {
+    pub spent: String,
+    pub time: String,
+    pub started: String,
+    pub let_on: String,
+    pub between: String,
 }
 
 impl Agents {
+    /// These, with the project's declaration, the text of a `project.toml` read at `at`, in place of the one beside the
+    /// flows; or why it cannot be read, or lacks a file the session names, said with where it was read.
+    pub fn declared(&self, text: &str, at: &str) -> Result<Agents, String> {
+        let project: Project = toml::from_str(text).map_err(|e| format!("{at}: {}", e.to_string().trim_end()))?;
+        for part in &self.session.parts {
+            if let SessionPart::Project(ProjectPart { project: name }) = part
+                && !project.files.contains_key(name)
+            {
+                let session = self.root.join(AGENTS_DIR).join("session.toml");
+                return Err(format!("{at}: has no file {name}, which {} names", session.display()));
+            }
+        }
+        Ok(Agents {
+            project,
+            ..self.clone()
+        })
+    }
+
     /// The path of a file of these, from the directory that holds the flows, with that directory's name before it, as
     /// a part names the file it comes from.
     pub fn source(&self, path: &str) -> String {
@@ -94,8 +189,8 @@ impl Agents {
     }
 }
 
-/// `project.toml`: the project's files the engine gives every agent, and the settings the words sent to the agents may
-/// name.
+/// `project.toml`: what is the project's: its design tree, its files the engine gives every agent, its settings the words
+/// sent to the agents may name, its tests and its workflows.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
@@ -103,9 +198,6 @@ pub struct Project {
     pub tree: String,
     /// The project's files, by the name a part of a session gives them.
     pub files: BTreeMap<String, ProjectFile>,
-    /// The installation's settings the words sent to the agents may name.
-    #[serde(default)]
-    pub installation: Installation,
     /// The project's settings, which the words sent to the agents name as `project.<name>`.
     #[serde(default)]
     pub project: BTreeMap<String, String>,
@@ -113,6 +205,19 @@ pub struct Project {
     pub tests: Option<Tests>,
     /// The project's two workflows, which the engine runs tests and checks through.
     pub ci: Option<Ci>,
+    /// The paths the project protects; none where it protects none.
+    #[serde(default)]
+    pub protected: Protected,
+}
+
+/// The paths of the project's checkout that govern its agents, which the owner changes (principles
+/// `protected-files-are-the-owners`, `named-paths-wait-for-the-owner`): where a work's own change touches one, the
+/// check before the merge holds it until the owner lets it merge, asking in the words of [`Asks`].
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Protected {
+    /// Each path from the root of the checkout: a file, or a directory, ending in `/`, and everything in it.
+    pub paths: Vec<String>,
 }
 
 /// `[tests]` of `project.toml`.
@@ -170,7 +275,8 @@ pub struct CiFull {
     pub workflows: Vec<String>,
     /// Where they run, as for the fast workflow.
     pub runner: String,
-    /// How long a run may take before it is given up, such as `2h`, `90m` or `30s`.
+    /// How long a run may take, such as `2h`, `90m` or `30s`: one not complete by then is cancelled, and the check
+    /// before the merge fails, its jobs not complete said so.
     pub too_long: String,
     /// The input that takes the commit to check out and test.
     #[serde(default = "commit_input")]
@@ -203,12 +309,26 @@ fn results() -> String {
     "test-results".to_string()
 }
 
-/// The installation's settings the words sent to the agents may name, whose values the engine fills in from the
-/// installation.
+/// `agents/installation.toml`: the installation's settings the words sent to the agents may name, whose values the
+/// engine fills in from the installation, read once for every project; and what a tool's result says where a work's item
+/// belongs to no project the installation names.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Installation {
     pub names: Vec<String>,
+    /// What a tool's result says where the work's item belongs to no project the installation names.
+    #[serde(default)]
+    pub no_project: NoProject,
+}
+
+/// What a tool's result says where nothing is run, the work's item belonging to no project the installation names:
+/// `unnamed` where it belongs to one the installation does not name, `{project}` its name; `none` where it belongs to
+/// none.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NoProject {
+    pub unnamed: String,
+    pub none: String,
 }
 
 /// A file of the project.
@@ -306,6 +426,10 @@ pub struct YourLine {
     /// with, each between backticks, joined by commas, and the last by `or`.
     pub locks: String,
     pub or: String,
+    /// Of a line that writes, where the project protects paths, after the rest: `{paths}` those paths, each between
+    /// backticks, joined by commas, and the last by `and`.
+    pub protected: String,
+    pub and: String,
 }
 
 /// A set of rules for the agents as [`RULES_FILE`] names it, by its name.
@@ -333,46 +457,56 @@ pub struct Return {
     pub form: Form,
     pub how_you_return: Told,
     pub outputs: Outputs,
-    pub asked: Asked,
 }
 
-/// How a question a return asks and waits for is put to the owner, as the call the work waits at its cell for: `{ask}`
-/// what it asks and `{options}` its options, each as `option` says, or `recommended` for the one it recommends, one to
-/// a line; in those, `{number}` counts the options from one, `{does}` and `{follows}` are the option's.
+/// `agents/asks.toml`: the questions the engine itself asks the owner, by what it found of a work.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Asked {
-    pub text: String,
-    pub option: String,
-    pub recommended: String,
+pub struct Asks {
+    pub protected: AskProtected,
 }
 
-/// The form: the order of the fields of each kind of return, the same for every cell of a flow. The blocks a cell
-/// writes go in the field [`OUTPUTS`], under their names, which the form does not list.
+/// The question the engine asks where a work's own change touches a path the project protects ([`Protected`]): asked
+/// again under its name where that change is another, or the work gives another reason for it before the owner
+/// answered, or it was answered with another option than `merges`; withdrawn once the work touches none. It waits, and
+/// recommends none of its options. `ask` is what it asks, `{files}` the files the change touches, each as `file` says,
+/// a blank line between two: `{path}` its path, `{change}` how it changes (`added`, `changed` or `deleted`), `{why}`
+/// why the work says the change is needed, or `no_reason` where it says nothing, and `{diff}` the file's change itself.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AskProtected {
+    pub name: String,
+    pub ask: String,
+    pub file: String,
+    pub added: String,
+    pub changed: String,
+    pub deleted: String,
+    /// What stands for why, of a file the work changes and says nothing of.
+    pub no_reason: String,
+    pub options: Vec<AskOption>,
+    /// The number of the option, counted from 1, by which the owner lets the change merge: the check before the merge
+    /// passes a change under the protected paths only where its question was answered so.
+    pub merges: u64,
+    /// Why it is withdrawn, once the work's change touches no path the project protects.
+    pub withdrawn: String,
+}
+
+/// An option of a question the engine asks: what the work does by it, and what follows from it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AskOption {
+    pub does: String,
+    pub follows: String,
+}
+
+/// The form: the fields of the kind of return that does the cell's work, in their order, the same for every cell of
+/// a line; the blocks of the line's cells go in the field [`OUTPUTS`]. The kind that asks for tools holds each tool
+/// the flow names, and nothing else.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Form {
-    /// What a return that asks for calls holds, in order.
-    pub calls: Vec<InForm>,
-    /// What a return that does the cell's work holds, in order.
-    pub outcome: Vec<InForm>,
-}
-
-/// What stands at a place of the form: a group the form makes of what the flow has, or a field of the engine's by its
-/// name.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
-pub enum InForm {
-    Group(Group),
-    Field(String),
-}
-
-/// A group the form makes of what the flow has.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Group {
-    /// Each tool the flow names.
-    Tools,
+    /// The engine's fields a return that does the cell's work holds, by name, in order.
+    pub outcome: Vec<String>,
 }
 
 /// What holds together the part on returning of a line's system prompt, the same for every cell of the flow.
@@ -393,7 +527,7 @@ pub struct Told {
     /// The fields the owner reads, in the order `owner_reads` names them.
     pub reads: Vec<String>,
     pub and: String,
-    pub calls: String,
+    /// What heads the tools and says how the kind of return that asks for them holds them, where the flow names any.
     pub tools: String,
 }
 
@@ -410,16 +544,16 @@ pub struct Outputs {
     pub must_write: String,
     /// What stands in place of the list where the cell writes no block.
     pub none: String,
+    /// What follows the list, once, where a block of it is one the owner reads.
+    pub owner_reads: String,
 }
 
-/// A field of a return that is the engine's, which every agent cell has: `agents/return/fields/<name>.toml`.
+/// A field of a return that is the engine's, which every agent cell has: `agents/return/fields/<name>.toml`. It is a
+/// field of the kind of return that does the cell's work.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Field {
-    /// The kinds of return it is a field of.
-    #[serde(rename = "in")]
-    pub kinds: Vec<ReturnKind>,
-    /// Every return of those kinds holds it.
+    /// Every return of that kind holds it.
     #[serde(default)]
     pub required: bool,
     pub told: ToldAs,
@@ -430,11 +564,10 @@ pub struct Field {
 }
 
 /// A kind of return.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReturnKind {
-    /// A return that asks the engine for calls.
-    Calls,
+    /// A return that asks the engine for tools.
+    Tools,
     /// A return that does the cell's work.
     Outcome,
 }
@@ -443,7 +576,7 @@ impl ReturnKind {
     /// Its name, as the files write it, which is its field in a return.
     pub fn name(self) -> &'static str {
         match self {
-            ReturnKind::Calls => "calls",
+            ReturnKind::Tools => "tools",
             ReturnKind::Outcome => "outcome",
         }
     }
@@ -506,6 +639,17 @@ pub struct SentBackFaults {
     pub not_a_trigger: String,
     pub not_a_tool: String,
     pub unchanged_not_written: String,
+    pub question_taken: String,
+    pub no_such_question: String,
+    pub question_twice: String,
+    pub not_an_option: String,
+    /// Of a return read before a cell could ask only where it writes the work's questions.
+    pub not_answerable: String,
+    pub not_answered: String,
+    /// `{path}` a file the project protects that the work changes, and of which it says not why.
+    pub unexplained: String,
+    /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
+    pub unanswered: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -525,11 +669,16 @@ pub enum ToldAs {
 #[serde(deny_unknown_fields)]
 pub struct Tool {
     pub words: String,
+    /// The names its words use that the tool itself defines, such as the keys of what it gives and the SQL function it
+    /// points to: the Flow page counts them as defined among the names between backticks in the texts sent to agents.
+    /// Nothing is filled in for them, as for the settings that `names` in `agents/installation.toml` lists.
+    #[serde(default)]
+    pub defines: Vec<String>,
     /// What the tool says of its own answers, by name, `{name}` places in each filled where it is said.
     #[serde(default)]
     pub texts: BTreeMap<String, String>,
     /// How many bytes of a result of the tool `query` a message gives; a result longer is given cut and kept whole in
-    /// the records. Only `query` has its results cut. With none, a result is given whole.
+    /// the records and in a file. Only `query` has its results cut. With none, a result is given whole.
     pub given_bytes: Option<usize>,
     /// The shape of a request of it.
     pub request: toml::Value,
@@ -564,10 +713,12 @@ pub struct ResultWords {
     pub came_tests: String,
     pub came_checks: String,
     pub came_join: String,
-    /// The title of the tests, and of the checks.
+    /// The title of the tests that did not pass, of those that passed, and of the jobs.
     pub tests_title: String,
-    pub checks_title: String,
-    /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one.
+    pub passed_title: String,
+    pub jobs_title: String,
+    /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one; the
+    /// time of a job is said the same way.
     pub test: String,
     pub time: String,
     pub passed: String,
@@ -579,19 +730,27 @@ pub struct ResultWords {
     pub not_built: String,
     /// What a test that failed said, as the results hold it: `{said}`.
     pub output: String,
-    /// A check, a job of the workflow: `{name}`, `{how}` one of the following, `{link}` as `link` says it.
+    /// A job of the workflow: `{name}`, `{how}` one of the following, `{time}` as `time` says it for a job that ran to a
+    /// conclusion, or as `job_untimed` says where GitHub gives no time for it, and `{link}` as `link` says it.
     pub job: String,
     pub link: String,
     pub job_passed: String,
     pub job_failed: String,
     pub job_broken: String,
     pub job_pending: String,
+    /// A job that did not run.
+    pub job_skipped: String,
+    /// A job that ran to a conclusion and has no time to give.
+    pub job_untimed: String,
     /// A check named that the run has no job of.
     pub job_missing: String,
     /// The run uploaded no JUnit it can read, so no test's result is known: `{why}`.
     pub no_junit: String,
     /// What the check before a merge was judged by: `{urls}` the runs.
     pub verdict_by: String,
+    /// What the check before a merge says of the jobs of its runs that are not said as what failed: `{jobs}` each as
+    /// a line of `job`, joined by a line break and the indent that sets them under it.
+    pub verdict_jobs: String,
     /// A unit not built: `{unit}`, `{why}`.
     pub unit_not_built: String,
     /// A name asked for that no test of the run has; and the same where a unit was not built, so that the test may be
@@ -643,7 +802,8 @@ pub struct LocalWords {
 pub struct ResultGiven {
     /// The most bytes of a result a round is given.
     pub bound: usize,
-    /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole.
+    /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole, `{file}` the file
+    /// that holds it whole.
     pub cut: String,
 }
 
@@ -654,6 +814,10 @@ pub struct Message {
     pub parts: Vec<MessagePart>,
     /// What a session compacted during a round is told before the round's message is given again, whole.
     pub compacted: String,
+    /// What the owner says to a round while it runs, as its session is given it after its next use of a tool: `{entry}`
+    /// the owner's entry of the record of what is said, `{block}` the record's name, `{number}` the entry's version,
+    /// `{trigger}` the trigger it is new to the round as, `{do}` what the cell does for it.
+    pub said: String,
 }
 
 /// A part of a message.
@@ -761,8 +925,10 @@ impl Only {
 pub struct Given {
     /// What a text says of a datum that is a choice.
     pub choice: String,
-    /// What stands in place of a datum's content where the session holds its latest version already.
+    /// What stands in place of a datum's content where the session holds its latest version already: `held` where the
+    /// cell worked from an earlier version, `held_new` where it never worked from it.
     pub held: String,
+    pub held_new: String,
     pub latest: GivenKind,
     pub last_and_latest: GivenKind,
     pub all: GivenKind,
@@ -817,6 +983,8 @@ pub struct Commits {
     pub check: String,
     /// The merge of the work's branch into main.
     pub merge: String,
+    /// The name of a work's merge, where the work has written none.
+    pub unnamed: String,
 }
 
 /// What the engine's acts write into the blocks their cells write: `agents/acts/<act>.toml`.
@@ -840,6 +1008,9 @@ pub struct Start {
 #[serde(deny_unknown_fields)]
 pub struct Merge {
     pub text: String,
+    pub moved: String,
+    /// The work's head moved since the check passed: the merge fails in passing, and the review and the check run first.
+    pub unreviewed: String,
 }
 
 /// `agents/acts/deliver.toml`.
@@ -862,9 +1033,25 @@ pub struct Check {
     pub passed: String,
     pub failed: String,
     pub why: String,
+    /// What fails the work fails on the head of main as well: the choice alone is written, and the work waits for main.
+    pub held: String,
     pub took_in: String,
     pub notes: String,
     pub note: String,
+    /// What the check before a merge says where its full workflows failed tests alone, which it runs again by the fast
+    /// workflow: why they were not run again, `{why}`; what the run on the commit found, `{run}` as a result says it;
+    /// what the run on the head of main found of what failed again, `{main}` the main branch's name, `{head}` its head,
+    /// `{run}`; a test that failed and then passed on the commit, `{test}`, `{commit}`, `{failed}` the links of the
+    /// full workflows' runs and `{again}` of the run again; the tests that failed again and not on main, and those that
+    /// failed on main as well, `{tests}` each as `test_named` says it, `{test}` its name, joined by `tests_between`.
+    pub again_not_run: String,
+    pub again_on_commit: String,
+    pub again_on_main: String,
+    pub flaky: String,
+    pub only_here: String,
+    pub on_main_too: String,
+    pub test_named: String,
+    pub tests_between: String,
     pub values: CheckValues,
     pub found: Found,
 }
@@ -884,6 +1071,14 @@ pub struct Found {
     pub merging: String,
     pub uncommitted: String,
     pub conflict: String,
+    /// The work's own change touches paths the project protects, and the owner has not let it merge.
+    pub protected: String,
+    /// The change under the paths the project protects could not be looked at.
+    pub protected_unread: String,
+    /// The work's head is not one the review dealt with: the check fails in passing, and the review runs first.
+    pub unreviewed: String,
+    /// The commit checked changes nothing against main: there is nothing to merge.
+    pub empty: String,
 }
 
 /// A piece of a text of the engine's words: what is sent as written, or a place filled in a run, by its name.
@@ -971,13 +1166,9 @@ pub fn read(root: &Path) -> Result<Agents, String> {
     let return_file = at.join("return").join("return.toml");
     let returns: Return = file(&return_file)?;
     let fields: BTreeMap<String, Field> = each(&at.join("return").join("fields"))?;
-    let in_form = (returns.form.calls.iter()).chain(&returns.form.outcome);
-    let named = (in_form.filter_map(|f| match f {
-        InForm::Field(name) => Some(name),
-        InForm::Group(_) => None,
-    }))
-    .chain(&returns.how_you_return.listed)
-    .chain(&returns.how_you_return.reads);
+    let named = (returns.form.outcome.iter())
+        .chain(&returns.how_you_return.listed)
+        .chain(&returns.how_you_return.reads);
     for name in named {
         if !fields.contains_key(name) {
             let what = format!("names the field {name}, which return/fields/ does not have");
@@ -1005,6 +1196,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         session,
         words,
         your_line: file(&at.join(YOUR_LINE_FILE))?,
+        installation: file(&at.join(INSTALLATION_FILE))?,
         rules,
         returns,
         sent_back: file(&at.join("return").join("sent_back.toml"))?,
@@ -1015,7 +1207,25 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         results: file(&at.join("message").join("results.toml"))?,
         acts: writes.acts,
         commits: writes.commits,
+        asks: asks(&at.join(ASKS_FILE))?,
+        cost: file(&at.join("cost.toml"))?,
     })
+}
+
+/// The questions the engine asks, read from their file, whose option that lets a change merge must be one of the
+/// question's options.
+fn asks(path: &Path) -> Result<Asks, String> {
+    let asks: Asks = file(path)?;
+    let protected = &asks.protected;
+    let count = protected.options.len() as u64;
+    if !(1..=count).contains(&protected.merges) {
+        let what = format!(
+            "[protected] merges is {}, which is not the number of one of its {count} options",
+            protected.merges
+        );
+        return Err(format!("{}: {what}", path.display()));
+    }
+    Ok(asks)
 }
 
 /// What the engine writes as it works, read from the directory that holds the flows, as [`read`] reads it.

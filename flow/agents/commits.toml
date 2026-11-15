@@ -5,7 +5,7 @@ name = "wf-agents"
 email = "wf-agents@localhost"
 
 # The words of each. Filled in a run: `{main}` the main branch's name, `{head}` the head of main merged, `{run}` the
-# run's number, `{branch}` the work's branch.
+# run's number, `{branch}` the work's branch, `{name}` the name of the work's merge.
 #
 # A run of a cell that takes main in merges main's head into the work's branch as it starts.
 run = "Merge {main} at {head} into the work's branch as run {run} starts"
@@ -13,4 +13,8 @@ run = "Merge {main} at {head} into the work's branch as run {run} starts"
 # are not a run's, so that neither takes the other's merge for its own.
 check = "Merge {main} at {head} into the work's branch"
 # The merge of the work's branch into main, where no host merges it.
-merge = "Merge {branch}"
+merge = "{name}"
+
+# The name of a work's merge, which its pull request and the commit its merge makes take, where the work has written
+# nothing in the block its flow's merge is named by. Filled in a run: `{work}` the work's number.
+unnamed = "Work {work}"

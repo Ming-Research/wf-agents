@@ -17,12 +17,12 @@ use std::time::{Duration, Instant};
 
 use decide::run::{self, Hold, Requires, Step};
 use decide::{
-    Abandoned, BlockId, CallId, Called, Cause, CellId, Decision, Done, End, Finished, LetGo, Maker, PutIn, Records,
-    Returned, Round, RunId, Seq, Started, Waited, Who, decide, told,
+    Abandoned, BlockId, CallId, Called, Cause, CellId, Condition, Decision, Done, End, Finished, LetGo, Maker, PutIn,
+    Records, Returned, Round, RunId, Seq, Stalling, Started, Unrun, Waited, Who, decide, told,
 };
 
 use crate::model::{
-    ANSWERS, BACKGROUND, DEPENDENCIES, DISCUSSION, Event, MAIN, Model, SESSION, START, TREE, Variant, ran, ran_back_on,
+    BACKGROUND, DEPENDENCIES, DISCUSSION, Event, HEAD, MAIN, Model, Q_AND_A, START, TREE, Variant, ran, ran_back_on,
     ran_on, reply_loop, show_key, skipped, waited_at_gate,
 };
 use crate::reading::{Reading, Reason, Writer};
@@ -48,6 +48,9 @@ pub enum Property {
     Gates = 6,
     /// 7. A write from outside runs again only the cells its change reaches, and reaches each cell it runs.
     Incremental = 7,
+    /// 8. Every stall is shown as waiting for the owner, with where it stands, what it waits for and why each cell that
+    ///    writes that does not run, as the reading finds them.
+    Shown = 8,
     /// What the exploration itself could not do as the engine does: a step the engine's own code refused.
     Engine = 0,
 }
@@ -285,14 +288,15 @@ impl Explorer<'_> {
         }
     }
 
-    /// The work as the owner starts it: the start written, the background written, and the items the work depends on
-    /// not yet merged.
+    /// The work as the owner starts it: the start written, the background written, the items the work depends on not
+    /// yet merged, and main written, as the watch of main writes it into every work that has not ended.
     fn first(&self) -> State {
         let m = self.model;
         let mut world = World::of(m.compiled.flow.clone());
         world.outside_writes(m.sources[&START].as_str());
         world.person_writes(BACKGROUND);
         world.outside_sets(m.sources[&DEPENDENCIES].as_str(), "waiting");
+        world.outside_writes(m.sources[&MAIN].as_str());
         State {
             world,
             logs: BTreeMap::new(),
@@ -464,10 +468,12 @@ impl Explorer<'_> {
         let spec = &m.compiled.cells[i];
         let requires = Requires {
             outputs: &m.cells()[i].outputs,
+            groups: &m.cells()[i].groups,
             must_write: &spec.must_write,
             choices: &m.choices,
             returns: spec.returns,
             told: &told,
+            answered_by: &m.answered_by[i],
         };
         let step = run::next(log, requires, Hold::Nothing);
         let sent_back = variant.as_ref() == Some(&Variant::SentBack);
@@ -506,6 +512,7 @@ impl Explorer<'_> {
                     at,
                     writes,
                     dealt_with: Some(dealt_with),
+                    waits_for: None,
                 });
                 if let Some(t) = s.outside.as_mut()
                     && t.runs.contains(&run)
@@ -609,8 +616,13 @@ impl Explorer<'_> {
                     if s.spent == 0 {
                         events.push(Event::Background);
                         for (source, block) in &m.sources {
-                            if [MAIN, SESSION].contains(source) && cells[i].runs_on.contains(block) {
+                            if (*source == MAIN || *source == HEAD) && cells[i].runs_on.contains(block) {
                                 events.push(Event::Source(source));
+                            }
+                        }
+                        for (line, block) in &m.sessions {
+                            if cells[i].runs_on.contains(block) {
+                                events.push(Event::Session(line.clone()));
                             }
                         }
                     }
@@ -619,7 +631,7 @@ impl Explorer<'_> {
                     }
                 }
             }
-            Decision::Wait { .. } | Decision::Idle => {
+            Decision::Wait { .. } | Decision::Stalled { .. } => {
                 let waiting = (s.world.records.written.iter())
                     .rev()
                     .find(|w| w.block == m.sources[&DEPENDENCIES])
@@ -689,10 +701,13 @@ impl Explorer<'_> {
                 events.push(Event::Speaks(cell.id.clone()));
             }
         }
-        events.extend([MAIN, SESSION].map(Event::Source));
-        // The tree runs no cell: once is enough to show it.
+        events.push(Event::Source(MAIN));
+        events.extend(m.sessions.keys().map(|line| Event::Session(line.clone())));
+        // The tree runs no cell: once is enough to show it. A commit no round made moves the work's head, as a
+        // person's, once.
         if s.spent == 0 {
             events.push(Event::Source(TREE));
+            events.push(Event::Source(HEAD));
         }
         for c in r.called.iter().filter(|c| c.on == Some(Who::Owner)) {
             if !r.done.iter().any(|d| d.call == c.call) {
@@ -751,7 +766,7 @@ impl Explorer<'_> {
                 match c.questions.get(call).cloned() {
                     Some(asker) => {
                         entered = Some(m.place(&asker));
-                        person(w, &ANSWERS.into(), &mut written);
+                        person(w, &Q_AND_A.into(), &mut written);
                         if let Some(block) = m.answered[m.place(&asker)].clone() {
                             person(w, &block, &mut written);
                         }
@@ -766,7 +781,7 @@ impl Explorer<'_> {
                 }
             }
             Event::OtherOption(cell) => {
-                person(w, &ANSWERS.into(), &mut written);
+                person(w, &Q_AND_A.into(), &mut written);
                 let block = m.answered[m.place(cell)].clone().expect("the cell is answered");
                 person(w, &block, &mut written);
             }
@@ -776,6 +791,11 @@ impl Explorer<'_> {
             }
             Event::Source(source) => {
                 let block = m.sources[source].clone();
+                let at = w.outside_writes(block.as_str());
+                written.push((block, at));
+            }
+            Event::Session(line) => {
+                let block = m.sessions[line].clone();
                 let at = w.outside_writes(block.as_str());
                 written.push((block, at));
             }
@@ -900,7 +920,7 @@ impl Explorer<'_> {
     fn check(&mut self, s: &State, d: &Decision) {
         match d {
             Decision::Run { cell, because, .. } => self.check_run(s, cell, because),
-            Decision::Wait { .. } | Decision::Idle | Decision::Ended(_) => self.check_stop(s, d),
+            Decision::Wait { .. } | Decision::Stalled { .. } | Decision::Ended(_) => self.check_stop(s, d),
             _ => {}
         }
     }
@@ -1049,6 +1069,25 @@ impl Explorer<'_> {
                 self.breach(Property::Gates, name, trace, String::new());
             }
         }
+        // The check runs only once the review of the change said yes: each judge that runs on a block the check
+        // describes the work by has, as the current version of its verdict, another value than the refusal. Main is
+        // written from the start, as the watch writes it, so that the check could run at any step.
+        if i == m.check {
+            let describes = &m.compiled.cells[i].describes;
+            for judge in m
+                .cells()
+                .iter()
+                .filter(|c| c.runs_on.iter().any(|b| describes.contains(b)))
+            {
+                for (verdict, refusal) in m.refusals.iter().filter(|(b, _)| judge.outputs.contains(b)) {
+                    let said = r.current(verdict).and_then(|v| v.value.clone());
+                    if said.is_none() || said.as_ref() == Some(refusal) {
+                        let name = format!("{cell} ran before {} said yes to the change in {verdict}", judge.id);
+                        self.breach(Property::Gates, name, trace, String::new());
+                    }
+                }
+            }
+        }
         if i == m.check {
             for (call, asker) in &s.questions {
                 if !r.done(*call, NOW) {
@@ -1105,7 +1144,64 @@ impl Explorer<'_> {
         }
     }
 
-    /// 3, and 7 where the outside wrote: the work waits, rests or has ended.
+    /// What is wrong with how a stall is shown, by the reading: its keys are those of where it stands that do not hold,
+    /// or, with none, it stands at its last cell; nothing before where it stands, or anywhere where it stands at its
+    /// last cell, has anything new; and each cell it names writes what a key reads, or what runs its last cell, and
+    /// does not run for the reason it gives.
+    fn shown_wrongly(&self, s: &State, at: &CellId, on: &[Condition], by: &[Stalling]) -> Vec<String> {
+        let m = self.model;
+        let flow = &m.compiled.flow;
+        let cells = m.cells();
+        let r = Reading::new(&s.world.records);
+        let i = m.place(at);
+        let mut wrong = Vec::new();
+        let unmet: Vec<&Condition> = (cells[i].requires.iter())
+            .filter(|key| !r.key_holds(flow, key, i))
+            .collect();
+        if unmet.len() != on.len() || !on.iter().all(|key| unmet.contains(&key)) {
+            wrong.push(format!("the keys that do not hold are {unmet:?}"));
+        }
+        if on.is_empty() && i != cells.len() - 1 {
+            wrong.push("it waits on nothing short of its last cell".to_string());
+        }
+        let upto = if on.is_empty() { cells.len() } else { i };
+        for (j, cell) in cells.iter().enumerate().take(upto) {
+            if r.applies(flow, j) && !r.entering(flow, cell, NOW).is_empty() {
+                wrong.push(format!("{} has something new", cell.id));
+            }
+        }
+        let read: Vec<BlockId> = if on.is_empty() {
+            cells[i].runs_on.clone()
+        } else {
+            (on.iter())
+                .flat_map(|key| match key {
+                    Condition::Test(test) => flow.tests()[test].reads.clone(),
+                    Condition::Is { block, .. } => vec![block.clone()],
+                })
+                .collect()
+        };
+        for stalling in by {
+            let j = m.place(&stalling.cell);
+            let why = if j >= i {
+                Unrun::Held
+            } else if !r.applies(flow, j) {
+                let on = (cells[j].applies.iter())
+                    .filter(|key| !r.key_holds(flow, key, j))
+                    .cloned()
+                    .collect();
+                Unrun::Skipped { on }
+            } else {
+                Unrun::NothingNew
+            };
+            if stalling.why != why || !cells[j].outputs.iter().any(|b| read.contains(b)) {
+                wrong.push(format!("{} is said {:?}, and is {why:?}", stalling.cell, stalling.why));
+            }
+        }
+        wrong
+    }
+
+    /// 3, and 7 where the outside wrote: the work waits, is stalled, which is shown as waiting for the owner, or has
+    /// ended.
     fn check_stop(&mut self, s: &State, d: &Decision) {
         let m = self.model;
         let flow = &m.compiled.flow;
@@ -1113,10 +1209,21 @@ impl Explorer<'_> {
         let (stop, on_purpose) = match d {
             Decision::Ended(End::Merged) => ("the work merged".to_string(), true),
             Decision::Ended(End::Cancelled) => ("the work was cancelled".to_string(), true),
-            Decision::Idle => (
-                "the work rests with nothing new to any cell, not merged".to_string(),
-                false,
-            ),
+            Decision::Stalled { at, on, by } => {
+                for key in on {
+                    self.reach(waited_at_gate(at, key));
+                }
+                self.reach(STALLED_SHOWN.to_string());
+                let stop = format!(
+                    "the work is stalled at {at} on {:?}, its writers {by:?}",
+                    on.iter().map(show_key).collect::<Vec<_>>()
+                );
+                let wrong = self.shown_wrongly(s, at, on, by);
+                if !wrong.is_empty() {
+                    self.breach(Property::Shown, stop.clone(), trace, wrong.join("; "));
+                }
+                (stop, true)
+            }
             Decision::Wait { at, on } => {
                 for w in on {
                     if let Waited::Precondition { on: key, .. } = w {
@@ -1126,10 +1233,11 @@ impl Explorer<'_> {
                 let shown: Vec<String> = on.iter().map(show_waited).collect();
                 let on_purpose = on.iter().any(|w| match w {
                     Waited::Call { on, .. } => on.is_some(),
-                    Waited::Limit { .. } | Waited::Calls { .. } => true,
+                    Waited::Limit { .. } | Waited::Calls { .. } | Waited::Answer { .. } => true,
                     Waited::Precondition { by, .. } => by
                         .iter()
                         .any(|maker| matches!(maker, Maker::Owner | Maker::Outside { .. })),
+                    Waited::Outside { .. } => true,
                     Waited::Slot => false,
                 });
                 (
@@ -1170,6 +1278,7 @@ impl Explorer<'_> {
         let r = Reading::new(&s.world.records);
         let upto = match d {
             Decision::Wait { at, .. } => m.place(at),
+            Decision::Stalled { at, on, .. } if !on.is_empty() => m.place(at),
             _ => m.cells().len(),
         };
         for (j, cell) in m.cells().iter().enumerate().take(upto) {
@@ -1235,6 +1344,8 @@ fn show_waited(w: &Waited) -> String {
         }
         Waited::Limit { runs } => format!("the owner, at its limit of {runs} runs"),
         Waited::Calls { runs } => format!("the owner, at its limit of {runs} runs that asked"),
+        Waited::Answer { question } => format!("the owner's answer to {question}"),
+        Waited::Outside { source, block, .. } => format!("the outside ({source}), of which {block} waits"),
         Waited::Slot => "a slot".to_string(),
     }
 }
@@ -1250,5 +1361,6 @@ fn kind_of(e: &Event) -> String {
 /// The items of coverage that are no cell's.
 pub const MAIN_WHILE_THE_CHECK_WAITS: &str = "main moved while the check waited at its gate";
 pub const WAITED_FOR_THE_OWNER: &str = "the work waited for the owner or the outside";
+pub const STALLED_SHOWN: &str = "a stalled work was shown as waiting for the owner";
 pub const A_QUESTION_WAITED: &str = "a question waited for the owner";
 pub const WRITTEN_OVER: &str = "a return was sent back as it would write over what its round was not told of";

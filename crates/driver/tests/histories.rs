@@ -8,7 +8,9 @@
 //! and nothing is given twice unless it was pending across an opening; the stored records walk to the decision shown;
 //! every dependencies block agrees with which of the items its item depends on have merged; no work whose
 //! dependencies have not all merged has started a run; and a work never let on has started none. When the driver
-//! stops, what it says was kept is what the store holds.
+//! stops, what it says was kept is what the store holds. A round or a call of a tool that ended is judged against the
+//! lines of its history as it was when first seen, however the history grew since (decision
+//! `judged-by-the-history-as-it-began`).
 //!
 //! Once people stop, the works left paused are let on as their last act, and the rounds, the tools' calls, the
 //! withdrawals and the stops are answered until nothing more is given: within a bound each work then waits, saying for
@@ -48,11 +50,11 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{self, AssertUnwindSafe};
 
-use decide::{CallId, Decision, Outsider, Pauser, RunId, Waited, Who};
-use driver::{FirstWrite, NewItem, Todo};
+use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited, Who};
+use driver::{Asked, FirstWrite, NewItem, Todo};
 use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work};
 use store::{ItemChange, ItemNumber, WorkHead, WorkNumber};
 use support::*;
@@ -133,8 +135,40 @@ struct Seen {
     /// Changes of an item the driver made, and those it refused or that changed nothing.
     changed: usize,
     change_refused: usize,
+    /// Works reopened, their items cancelled before.
+    reopened: usize,
     /// Openings on works going on, at which the driver paused everything until the owner lifted it.
     held_at_start: usize,
+    /// Keep-warm pings given.
+    pinged: usize,
+    /// Judgments of a round or a call of a tool that ended, seen again unchanged after a later step.
+    judged: usize,
+}
+
+/// The model every agent's round of the histories runs on.
+const MODEL: &str = "the model";
+
+/// The policy the histories' driver is opened with: each line's session kept warm, at most twice in a wait, and while
+/// the owner holds everything too.
+fn warm() -> driver::Policy {
+    driver::Policy {
+        samples: 3,
+        limit: 500_000,
+        on: Box::new(|_, _| {
+            Some(engine::RanOn {
+                level: "1".to_string(),
+                model: MODEL.to_string(),
+                effort: None,
+                account: None,
+            })
+        }),
+        warm: Some(driver::Warm {
+            life_ms: 3_600_000,
+            after_ms: 3_300_000,
+            most: [(MODEL.to_string(), 2)].into(),
+            while_paused: true,
+        }),
+    }
 }
 
 /// A history: the harness, the draws of the history and, apart, of its stops.
@@ -152,10 +186,19 @@ struct History {
     /// Draws when an item is changed, and how, alone, so that the other draws keep the order they had before.
     changes: Rng,
     step: usize,
+    /// How far the history waited ahead for the driver's wakes, in milliseconds.
+    waited: u64,
+    /// Draws when the history waits for what the driver waits for, alone, so that the other draws keep the order they
+    /// had before.
+    wakes: Rng,
+    /// Whether the lines' sessions are kept warm, and the history waits for the driver's wakes.
+    warming: bool,
     /// The calls that have their result, each with its work.
     done: Vec<(WorkNumber, CallId)>,
     log: Vec<String>,
     seen: Seen,
+    /// What each round and call of a tool that ended was judged as when first seen, by its name.
+    judged: BTreeMap<String, String>,
 }
 
 /// How a history ended: every work with its head and all that is kept of it, what each does next, and every round and
@@ -177,24 +220,32 @@ fn every_flow() -> Vec<flow::Compiled> {
 }
 
 impl History {
-    fn new(seed: u64, faults: bool) -> Self {
+    /// A history of the seed, with stops and failures where `faults`, and with the lines' sessions kept warm and the
+    /// time waited for now and then where `warming`, which no stop is drawn in: a ping is of the time and lost in a
+    /// stop, so a history with stops would not end as one without.
+    fn new(seed: u64, faults: bool, warming: bool) -> Self {
         Self {
-            h: H::with_slots(every_flow(), 2),
+            h: H::with_policy(every_flow(), 2, warming.then_some(warm as fn() -> driver::Policy)),
             rng: Rng::new(seed),
             faults: faults.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
             delivers: Rng::new(seed ^ 0xDE11_7E2A_B1E5_0F00),
             room: Rng::new(seed ^ 0x0000_5107_5A0F_A11D),
             changes: Rng::new(seed ^ 0x00C4_A93E_D17E_0000),
             step: 0,
+            waited: 0,
+            wakes: Rng::new(seed ^ 0x0000_00A1_A2B3_C4D5),
+            warming,
             done: Vec::new(),
             log: Vec::new(),
             seen: Seen::default(),
+            judged: BTreeMap::new(),
         }
     }
 
-    /// The time of the step: a second after the one before, the same however often the step is told.
+    /// The time of the step: a second after the one before, the same however often the step is told, and later by as
+    /// much as the history waited for the driver's wakes.
     fn time(&self) -> Time {
-        Time(START + 1_000_000 + self.step as u64 * 1000)
+        Time(START + 1_000_000 + self.step as u64 * 1000 + self.waited)
     }
 
     /// Does the act, opening the driver anew where it or the process stopped.
@@ -220,6 +271,7 @@ impl History {
                     what: Call::AtLimit(_), ..
                 } => self.seen.limits += 1,
                 Effect::Withdraw { .. } => self.seen.withdrawn += 1,
+                Effect::Ping { .. } => self.seen.pinged += 1,
                 Effect::Stop { .. } => self.seen.stopped += 1,
                 Effect::Round { number: 1, .. } => {
                     if let Act::On(work, _) = act
@@ -245,9 +297,13 @@ impl History {
         of[self.rng.below(of.len())].clone()
     }
 
-    /// Adds an item, depending on some of those there, on a random flow, with a first write or none.
+    /// Adds an item, depending on some of those there that are not cancelled, on a random flow, with a first write or
+    /// none.
     fn add(&mut self, title: &str) {
-        let numbers: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
+        let numbers: Vec<ItemNumber> = (self.h.d().works())
+            .filter(|k| self.h.decision(k.head.number) != Decision::Ended(End::Cancelled))
+            .map(|k| k.head.item)
+            .collect();
         let depends_on: Vec<ItemNumber> = numbers.into_iter().filter(|_| self.rng.chance(35)).collect();
         let flow = ["judged", "short", "plain"][self.rng.below(3)];
         let flow = if self.delivers.chance(20) { "deliver" } else { flow };
@@ -260,7 +316,9 @@ impl History {
         let new = NewItem {
             title: title.to_string(),
             level: "1".to_string(),
+            project: "one".to_string(),
             depends_on,
+            tags: Vec::new(),
             flow: flow.to_string(),
             writes,
         };
@@ -276,41 +334,56 @@ impl History {
         }
     }
 
-    /// Whoever plans the work changes an item: its title or level, or what it depends on, which may be refused.
+    /// Whoever plans the work changes items, one or two together: a title or a level, what one depends on, a cancel
+    /// or the reopening of a cancelled one, which may be refused.
     fn change(&mut self) {
         let items: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
         if items.is_empty() {
             return;
         }
-        let item = items[self.changes.below(items.len())];
-        let on = items[self.changes.below(items.len())];
-        let depends_on = (self.h.d().works())
-            .find(|k| k.head.item == item)
-            .map(|k| k.item.depends_on.clone())
-            .unwrap_or_default();
-        let change = match self.changes.below(10) {
-            0..=2 => ItemChange::Title(format!("retitled at step {}", self.step)),
-            3 => ItemChange::Level(["1", "2"][self.changes.below(2)].to_string()),
-            4..=6 => ItemChange::DependsOn(on),
-            _ => ItemChange::NoLongerDependsOn(match depends_on.as_slice() {
-                [] => on,
-                some => some[self.changes.below(some.len())],
-            }),
-        };
-        let before = self
-            .h
-            .d()
-            .works()
-            .find(|k| k.head.item == item)
-            .map(|k| k.item.changes.len());
-        if self.act(Act::Change(item, change)).is_some() {
-            let after = self
-                .h
-                .d()
-                .works()
+        let cancelled: Vec<ItemNumber> = (self.h.d().works())
+            .filter(|k| self.h.decision(k.head.number) == Decision::Ended(End::Cancelled))
+            .map(|k| k.head.item)
+            .collect();
+        let mut asked = Vec::new();
+        for _ in 0..1 + usize::from(self.changes.chance(25)) {
+            let item = items[self.changes.below(items.len())];
+            let on = items[self.changes.below(items.len())];
+            let depends_on = (self.h.d().works())
                 .find(|k| k.head.item == item)
-                .map(|k| k.item.changes.len());
-            if after > before {
+                .map(|k| k.item.depends_on.clone())
+                .unwrap_or_default();
+            let change = match self.changes.below(12) {
+                0..=2 => Asked::Item(ItemChange::Title(format!("retitled at step {}", self.step))),
+                3 => Asked::Item(ItemChange::Level(["1", "2"][self.changes.below(2)].to_string())),
+                4..=6 => Asked::Item(ItemChange::DependsOn(on)),
+                7 | 8 => Asked::Item(ItemChange::NoLongerDependsOn(match depends_on.as_slice() {
+                    [] => on,
+                    some => some[self.changes.below(some.len())],
+                })),
+                9 => Asked::Cancel,
+                _ => match cancelled.as_slice() {
+                    [] => Asked::Reopen,
+                    some => {
+                        asked.push((some[self.changes.below(some.len())], Asked::Reopen));
+                        continue;
+                    }
+                },
+            };
+            asked.push((item, change));
+        }
+        let counts = |h: &H| -> (usize, usize) {
+            (h.d().works()).fold((0, 0), |(changes, reopens), k| {
+                (changes + k.item.changes.len(), reopens + k.work.records.reopens.len())
+            })
+        };
+        let before = counts(&self.h);
+        if self.act(Act::Change(asked)).is_some() {
+            let after = counts(&self.h);
+            if after.1 > before.1 {
+                self.seen.reopened += after.1 - before.1;
+            }
+            if after.0 > before.0 {
                 self.seen.changed += 1;
             } else {
                 self.seen.change_refused += 1;
@@ -361,6 +434,20 @@ impl History {
         if people && self.changes.chance(8) {
             self.change();
         }
+        // Now and then the history waits for what the driver waits for, as the time it asks to be told comes.
+        if self.warming && self.wakes.chance(10) && !self.h.dead() {
+            if let Some(wake) = self.h.d().wake()
+                && wake.at > self.time()
+            {
+                self.waited += wake.at.0 - self.time().0;
+            }
+            self.h.clock = self.time().0;
+            if let Some(todos) = self.h.wake_up() {
+                self.seen.pinged += (todos.iter())
+                    .filter(|t| matches!(t.effect, Effect::Ping { .. }))
+                    .count();
+            }
+        }
         let done = if people && self.rng.chance(25) {
             self.person_acts();
             true
@@ -379,9 +466,33 @@ impl History {
         done
     }
 
-    /// Counts what the step left.
+    /// Counts what the step left, and holds that what ended is judged as it was when first seen.
     fn after(&mut self) {
+        let now = self.time();
         let d = self.h.d();
+        let judged = d.judged(None, now);
+        let rounds = (judged.rounds.iter()).filter_map(|((work, run, number), round)| {
+            let kept = d.work(*work)?;
+            let ended = (kept.work.records.returned.iter()).filter(|r| r.run == *run).count() >= *number;
+            let name = format!("W{} run {} round {number}", work.0, run.0);
+            ended.then(|| (name, format!("{:?} {:?}", round.cost, round.time)))
+        });
+        let calls = (judged.calls.iter()).filter_map(|((work, call), time)| {
+            let kept = d.work(*work)?;
+            let done = kept.work.records.done.iter().any(|done| done.call == *call);
+            done.then(|| (format!("W{} call {}", work.0, call.0), format!("{time:?}")))
+        });
+        for (name, judged) in rounds.chain(calls) {
+            match self.judged.get(&name) {
+                Some(first) => {
+                    assert_eq!(*first, judged, "{name} is judged otherwise than when it was first seen");
+                    self.seen.judged += 1;
+                }
+                None => {
+                    self.judged.insert(name, judged);
+                }
+            }
+        }
         for kept in d.works() {
             let number = kept.head.number;
             if matches!(self.h.decision(number), Decision::Ended(_)) {
@@ -414,6 +525,21 @@ impl History {
         let todo = self.pick(&doable);
         let event = match todo.effect {
             Effect::Round { run, cell, .. } => {
+                // An agent's round says what it ran on, so that its session is kept warm as its model makes worth it.
+                let agent = (self.h.d().work(todo.work).expect("the work").flow.cells.iter())
+                    .any(|c| c.id.as_str() == cell.as_str() && c.kind == flow::Kind::Agent);
+                if agent && self.warming {
+                    let on = engine::RanOn {
+                        level: "1".to_string(),
+                        model: MODEL.to_string(),
+                        effort: None,
+                        account: None,
+                    };
+                    let ran = Event::Ran { run, attempt: 1, on };
+                    if self.act(Act::On(todo.work, ran)).is_none() {
+                        return true;
+                    }
+                }
                 let came = self.came(todo.work, cell.as_str());
                 Event::Returned {
                     run,
@@ -435,6 +561,13 @@ impl History {
                 spent: self.spent(run),
             },
             Effect::Release { .. } => Event::Released,
+            Effect::Ping { line, session } => Event::Pinged {
+                line,
+                session,
+                spent: self.spent(RunId(0)),
+                failed: self.rng.chance(20).then(|| "no network".to_string()),
+            },
+            Effect::Tell { .. } => unreachable!("words told to a round are not held"),
         };
         self.act(Act::On(todo.work, event));
         true
@@ -682,8 +815,8 @@ impl History {
 }
 
 /// One history, with or without stops and failures: how it ended and what it saw.
-fn one_history(seed: u64, faults: bool, log: &mut Vec<String>) -> (Ending, Seen) {
-    let mut x = History::new(seed, faults);
+fn one_history(seed: u64, faults: bool, warming: bool, log: &mut Vec<String>) -> (Ending, Seen) {
+    let mut x = History::new(seed, faults, warming);
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         let first = 2 + x.rng.below(3);
         for i in 0..first {
@@ -730,8 +863,8 @@ fn one_history(seed: u64, faults: bool, log: &mut Vec<String>) -> (Ending, Seen)
                     }
                     x.seen.rested_waiting += 1;
                 }
-                // Nothing new runs any of its cells: it rests until someone writes what runs one.
-                Decision::Idle => x.seen.rested_waiting += 1,
+                // It can go on by itself no further, and is shown as waiting for the owner.
+                Decision::Stalled { .. } => x.seen.rested_waiting += 1,
                 other => panic!("work {} rests deciding {other:?}", number.0),
             }
         }
@@ -762,10 +895,14 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
     for seed in 0..SEEDS {
         let mut log = Vec::new();
         let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
-            let (stopped, s) = one_history(seed, true, &mut log);
+            let (stopped, mut s) = one_history(seed, true, false, &mut log);
             let mut quiet = Vec::new();
-            let (straight, _) = one_history(seed, false, &mut quiet);
+            let (straight, _) = one_history(seed, false, false, &mut quiet);
             assert_eq!(stopped, straight, "the history with stops ended otherwise than without");
+            // The same history with the lines' sessions kept warm, the time waited for now and then.
+            let (_, warm) = one_history(seed, false, true, &mut log);
+            s.pinged += warm.pinged;
+            s.judged += warm.judged;
             s
         }));
         match outcome {
@@ -791,7 +928,10 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.given_again += s.given_again;
                 seen.changed += s.changed;
                 seen.change_refused += s.change_refused;
+                seen.reopened += s.reopened;
                 seen.held_at_start += s.held_at_start;
+                seen.pinged += s.pinged;
+                seen.judged += s.judged;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -818,6 +958,8 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("opened anew between steps", seen.reopens),
         ("given again by an opening", seen.given_again),
         ("openings that paused everything for works going on", seen.held_at_start),
+        ("keep-warm pings given", seen.pinged),
+        ("judgments of what ended seen again unchanged", seen.judged),
         ("refused", seen.refused),
         ("added while people acted", seen.added),
         ("cancelled", seen.cancels),
@@ -834,6 +976,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("works waiting at rest", seen.rested_waiting),
         ("works ended at rest", seen.rested_ended),
         ("items changed", seen.changed),
+        ("items reopened", seen.reopened),
         ("changes of items refused or changing nothing", seen.change_refused),
     ];
     let never: Vec<&str> = counts.iter().filter(|(_, n)| *n == 0).map(|(what, _)| *what).collect();

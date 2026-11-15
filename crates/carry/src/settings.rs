@@ -1,16 +1,17 @@
-//! The installation's settings: the owner, the project the works are done in, where its repository is hosted, and how
-//! its agents are run. They are read from a TOML file, `install.toml` in the data directory unless another is named;
-//! `install.sample.toml` beside this crate's manifest says what each key is. A key the file does not know is refused,
-//! as the flow's files refuse one, so that a misspelt key is not silently left at nothing.
+//! The installation's settings: the owner, the projects the works are done in, each by its name with its repository
+//! and where it is hosted, and how the agents are run. They are read from a TOML file, `install.toml` in the data
+//! directory unless another is named; `install.sample.toml` beside this crate's manifest says what each key is. A key
+//! the file does not know is refused, as the flow's files refuse one, so that a misspelt key is not silently left at
+//! nothing.
 //!
 //! A text the agents are given names a setting by its key between backticks, as `` `owner.language` ``, and is given
-//! with the setting's value written beside the name: the files beside the flows name, in `project.toml`, the
-//! installation's settings their texts may name, and the installation holds each one's value ([`Settings::value`]).
+//! with the setting's value written beside the name: `agents/installation.toml` beside the flows names the
+//! installation's settings the texts may name, and the installation holds each one's value ([`Settings::value`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use driver::Policy;
+use driver::{Policy, Warm};
 use flow::CellSpec;
 use serde::{Deserialize, Serialize};
 use service::{Levels, LevelsFault};
@@ -24,18 +25,21 @@ use crate::permissions::{HEAVY, NEVER_A_LOCK, falls_under};
 pub struct Settings {
     /// The owner, for whom the agents write what the owner reads.
     pub owner: Owner,
-    pub project: Project,
+    /// The projects the works are done in, by the name the installation gives each: an item belongs to one of them,
+    /// and its works run in that project's repository. Left out, there is none, which is refused with words.
+    #[serde(default)]
+    pub projects: BTreeMap<String, Project>,
     pub agents: Agents,
     pub items: Items,
-    /// Where the project's repository is on GitHub, which then carries out the acts; with none, the local repository
-    /// does.
-    pub github: Option<GitHub>,
     /// Where the copies of the database are kept off the machine, and how many are kept; with none, the copies stay
     /// on the machine alone, which shares the disk they are kept against losing.
     pub backup: Option<Backup>,
-    /// When a line of a work begins a new session.
+    /// How a line's session is kept: its program's prompt cache, and the pings that keep it warm while the line waits.
     #[serde(default)]
     pub sessions: Sessions,
+    /// What a measured quantity is judged by: the history of its own kind.
+    #[serde(default)]
+    pub history: History,
     /// Whether the store is open to the agents' tool `query`, and its bounds.
     #[serde(default)]
     pub query: Query,
@@ -134,7 +138,7 @@ fn backup_keep() -> usize {
 
 impl Backup {
     /// What is wrong with these settings, each in words with its key.
-    fn wrong(&self, agents: &Agents, github: Option<&GitHub>) -> Vec<String> {
+    fn wrong(&self, agents: &Agents, projects: &BTreeMap<String, Project>) -> Vec<String> {
         let mut wrong = Vec::new();
         let parts: Vec<&str> = self.repository.split('/').collect();
         if !(parts.len() == 2 && parts.iter().all(|p| !p.is_empty())) {
@@ -155,30 +159,51 @@ impl Backup {
                 self.token_env
             ));
         }
-        if github.is_some_and(|g| g.token_env == self.token_env) {
-            wrong.push(
-                "backup.token_env: the copies have a token of their own, not the one of the project's repository"
-                    .to_string(),
-            );
+        for (name, project) in projects {
+            if project.github.as_ref().is_some_and(|g| g.token_env == self.token_env) {
+                wrong.push(format!(
+                    "backup.token_env: the copies have a token of their own, not the one of the repository of the \
+                     project {name}"
+                ));
+            }
         }
         wrong
     }
 }
 
-/// When a line of a work begins a new session, beyond its first, a lost one, and one the owner asks for.
+/// How a line's session is kept between its rounds. A session whose context, as a round of its line ends, is past the
+/// lower of the line its line's history gives (`history`) and `context_limit` is replaced at the line's next round, and
+/// so is one on another model or account.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
-    /// The context in tokens past which a line's session is replaced by a new one: once a round of the line ends with
-    /// more, the line's next round begins a new session.
+    /// The most context a line's session holds as a round of it ends, in tokens, before the line begins a new session:
+    /// the limit where the line's history is too short to give one, and above it the line's history only lowers it.
     #[serde(default = "context_limit")]
     pub context_limit: u64,
+    /// How long the agents' program keeps a session in its prompt cache after its last call, in minutes: an hour for
+    /// `claude`, whose usage says every write to the cache is one kept an hour (`ephemeral_1h_input_tokens`); 0 for a
+    /// program that keeps none, whose sessions are not kept warm. How many keep-warm pings a wait is worth is not set
+    /// here: it follows from the prices of the session's model.
+    #[serde(default = "cache_minutes")]
+    pub cache_minutes: u64,
+    /// How long after a session's last call a line that waits has it sent a keep-warm ping, in minutes: five before the
+    /// cache lets it go, time for the ping and four tries again a minute apart.
+    #[serde(default = "warm_minutes")]
+    pub warm_minutes: u64,
+    /// Whether the sessions of works are kept warm while the owner holds everything: a session waits out the pause
+    /// warm, at a ping an hour, and is not written again whole when the owner lets everything on.
+    #[serde(default = "warm_while_paused")]
+    pub warm_while_paused: bool,
 }
 
 impl Default for Sessions {
     fn default() -> Self {
         Sessions {
             context_limit: context_limit(),
+            cache_minutes: cache_minutes(),
+            warm_minutes: warm_minutes(),
+            warm_while_paused: warm_while_paused(),
         }
     }
 }
@@ -187,7 +212,44 @@ fn context_limit() -> u64 {
     500_000
 }
 
-/// The project whose works are done: a local git repository, its main branch and the command that checks it.
+fn cache_minutes() -> u64 {
+    60
+}
+
+fn warm_minutes() -> u64 {
+    55
+}
+
+fn warm_while_paused() -> bool {
+    true
+}
+
+/// What a measured quantity is judged by: the history of its own kind, never a number set by hand (principle
+/// `judged-by-own-history`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct History {
+    /// How many values a history needs at least before it gives a line: 19, of which a value of the same kind is the
+    /// largest one time in twenty, so that a line from fewer would stand on too little.
+    #[serde(default = "samples")]
+    pub samples: usize,
+}
+
+impl Default for History {
+    fn default() -> Self {
+        History { samples: samples() }
+    }
+}
+
+fn samples() -> usize {
+    19
+}
+
+/// A minute, in milliseconds.
+const MINUTE: u64 = 60_000;
+
+/// A project whose works are done: a local git repository, its main branch, the command that checks it, and where it is
+/// hosted.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
@@ -201,12 +263,15 @@ pub struct Project {
     /// be, each a whole key or a beginning followed by `*`: `filter.lfs.*` for a repository that needs Git LFS.
     #[serde(default)]
     pub allowed_config: Vec<String>,
+    /// Where the repository is on GitHub, which then carries out the acts of the project's works; with none, the local
+    /// repository does.
+    pub github: Option<GitHub>,
     /// Who the engine's commits are by, and the words of each: not in the settings, but in `agents/commits.toml`
     /// beside the flows, put here as the carriers are made ([`crate::carry`]).
     #[serde(skip)]
     pub commits: flow::agents::Commits,
-    /// The directory of the repository that holds the project's design tree: not in the settings, but in
-    /// `project.toml` beside the flows, put here as the carriers are made.
+    /// The directory of the repository that holds the project's design tree: not in the settings, but in the
+    /// project's declaration, `flow/project.toml` on its main, put here as the carriers are made.
     #[serde(skip)]
     pub tree: String,
 }
@@ -216,7 +281,7 @@ pub struct Project {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitHub {
-    /// The repository on github.com, as `owner/name`; `project.repo` is a clone of it.
+    /// The repository on github.com, as `owner/name`; the project's `repo` is a clone of it.
     pub repository: String,
     /// The clone's name for the repository on GitHub: main's head is fetched to `refs/remotes/<remote>/<main>`.
     #[serde(default = "origin")]
@@ -224,11 +289,12 @@ pub struct GitHub {
     /// The variable of the engine's environment that holds the engine's token for GitHub.
     #[serde(default = "token_env")]
     pub token_env: String,
-    /// How many minutes a named check may have no run on a pushed commit before the CI is taken never to have
-    /// started.
+    /// How many minutes a run of a workflow may be unlisted or queued before the CI is taken never to have started:
+    /// the engine cancels the run it asked for, and the check fails its round in passing, or the agents' tool says so.
     #[serde(default = "start_minutes")]
     pub start_minutes: u64,
-    /// How many minutes the CI of a commit may take before it is given up.
+    /// How many minutes a run of the fast workflow may take: one not complete by then is cancelled, and said as what
+    /// it found. The full workflows take the time the project's declaration gives them.
     #[serde(default = "timeout_minutes")]
     pub timeout_minutes: u64,
     /// How a pull request is merged: `squash`, `merge` or `rebase`.
@@ -240,9 +306,9 @@ pub struct GitHub {
     /// The `gh` command line, or a path to it.
     #[serde(default = "gh")]
     pub gh: String,
-    /// The runners this installation has, by the name a workflow's `runner` in the project's declaration gives them:
-    /// `github` for GitHub's own machines, and the label of each self-hosted runner. A workflow that runs on another is
-    /// not run.
+    /// The runners the repository has, by the name a workflow's `runner` in the project's declaration gives them:
+    /// `github` for GitHub's own machines, and the label of each self-hosted runner registered for it. A workflow that
+    /// runs on another is not run.
     #[serde(default = "runners")]
     pub runners: Vec<String>,
 }
@@ -496,6 +562,10 @@ pub struct Items {
     /// The highest level an item may be at, by its name among the levels: an item above it is refused as it is added,
     /// and no line runs above it; with none, the top level.
     pub highest_level: Option<String>,
+    /// The most words an item's title may have, as `service::title_words` counts them: a Chinese character counts as a
+    /// word. A title is held to it when it is made or changed; a title already there is not counted again. There is no
+    /// default: the installation names the number.
+    pub title_max: u32,
 }
 
 /// What the settings are told where they name `github.runs_on_before_branches`, which the engine no longer reads.
@@ -517,6 +587,12 @@ const CHECKS_MOVED: &str = "github.checks: the checks that count are the jobs of
      the project's flow/project.toml as [ci.full] (workflows, runner, too_long), which the check before a merge runs \
      on the commit to merge; delete the line";
 
+/// What the settings are told where they hold `[project]` or `[github]`, the tables of the one project an installation
+/// once had, `{key}` the one they hold.
+const ONE_PROJECT: &str = "{key}: an installation names each of its projects now, and [{key}] is a project's: write \
+     [project] as [projects.<name>] and [github] as [projects.<name>.github], <name> the name the project is known \
+     by; install.sample.toml shows them.";
+
 /// What the settings are told where they name `agents.model`, the one model every round once ran on.
 const ONE_MODEL: &str = "agents.model: rounds no longer run on one model: each item has a level, and each level names \
      its model. Take out agents.model; add a table [agents.levels.<name>] with desc and model for each level, and a \
@@ -531,35 +607,36 @@ const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the
 pub const FILE: &str = "install.toml";
 
 impl GitHub {
-    /// What is wrong with these settings, each in words with its key.
-    fn wrong(&self, agents: &Agents) -> Vec<String> {
+    /// What is wrong with these settings of the project of this name, each in words with its key.
+    fn wrong(&self, project: &str, agents: &Agents) -> Vec<String> {
         let mut wrong = Vec::new();
         let parts: Vec<&str> = self.repository.split('/').collect();
         if !(parts.len() == 2 && parts.iter().all(|p| !p.is_empty())) {
             wrong.push(format!(
-                "github.repository: a repository is named as owner/name, not {:?}",
+                "projects.{project}.github.repository: a repository is named as owner/name, not {:?}",
                 self.repository
             ));
         }
         if self.start_minutes == 0 || self.timeout_minutes < self.start_minutes {
-            wrong.push(
-                "github.start_minutes, github.timeout_minutes: the CI is given at least a minute to start, and no \
-                 less time to end"
-                    .to_string(),
-            );
+            wrong.push(format!(
+                "projects.{project}.github.start_minutes, projects.{project}.github.timeout_minutes: the CI is \
+                     given at least a minute to start, and no less time to end"
+            ));
         }
         if !MERGE_METHODS.contains(&self.merge_method.as_str()) {
             wrong.push(format!(
-                "github.merge_method: one of {}, not {:?}",
+                "projects.{project}.github.merge_method: one of {}, not {:?}",
                 MERGE_METHODS.join(", "),
                 self.merge_method
             ));
         }
         if self.runners.iter().any(|r| r.trim().is_empty()) {
-            wrong.push("github.runners: each runner is named".to_string());
+            wrong.push(format!("projects.{project}.github.runners: each runner is named"));
         }
         if self.token_env.is_empty() {
-            wrong.push("github.token_env: the token's variable has a name".to_string());
+            wrong.push(format!(
+                "projects.{project}.github.token_env: the token's variable has a name"
+            ));
         }
         if agents.env.contains(&self.token_env) {
             wrong.push(format!(
@@ -589,18 +666,33 @@ impl Settings {
         if agents.is_some_and(|agents| agents.contains_key("owner_language")) {
             return Err(OWNER_LANGUAGE.to_string());
         }
-        let github = table.as_ref().and_then(|t| t.get("github")).and_then(|g| g.as_table());
-        if github.is_some_and(|github| github.contains_key("runs_on_before_branches")) {
-            return Err(BEFORE_BRANCHES.to_string());
+        // Settings of the one project an installation once had are told where its tables went.
+        let moved: Vec<&str> = (["project", "github"].into_iter())
+            .filter(|key| table.as_ref().is_some_and(|t| t.contains_key(*key)))
+            .collect();
+        if !moved.is_empty() {
+            return Err(moved
+                .iter()
+                .map(|key| ONE_PROJECT.replace("{key}", key))
+                .collect::<Vec<_>>()
+                .join("\n"));
         }
-        if github.is_some_and(|github| github.contains_key("fast")) {
-            return Err(FAST_MOVED.to_string());
-        }
-        if github.is_some_and(|github| github.contains_key("log")) {
-            return Err(LOG_GONE.to_string());
-        }
-        if github.is_some_and(|github| github.contains_key("checks")) {
-            return Err(CHECKS_MOVED.to_string());
+        let projects = table
+            .as_ref()
+            .and_then(|t| t.get("projects"))
+            .and_then(|p| p.as_table());
+        for (name, project) in projects.into_iter().flatten() {
+            let github = project.get("github").and_then(|g| g.as_table());
+            for (key, words) in [
+                ("runs_on_before_branches", BEFORE_BRANCHES),
+                ("fast", FAST_MOVED),
+                ("log", LOG_GONE),
+                ("checks", CHECKS_MOVED),
+            ] {
+                if github.is_some_and(|github| github.contains_key(key)) {
+                    return Err(format!("projects.{name}.{words}"));
+                }
+            }
         }
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
@@ -615,11 +707,37 @@ impl Settings {
         {
             wrong.push("agents.work_budget_usd: a budget is a number of dollars, none below nothing".to_string());
         }
-        if settings.sessions.context_limit == 0 {
+        let sessions = &settings.sessions;
+        if sessions.context_limit == 0 {
             wrong.push("sessions.context_limit: a session may hold some context".to_string());
         }
-        if settings.project.main.is_empty() {
-            wrong.push("project.main: the main branch has a name".to_string());
+        if sessions.cache_minutes > 0 && sessions.warm_minutes >= sessions.cache_minutes {
+            wrong.push(
+                "sessions.warm_minutes: a session is pinged before the cache lets it go, within sessions.cache_minutes"
+                    .to_string(),
+            );
+        }
+        if settings.history.samples == 0 {
+            wrong.push("history.samples: a line is worked out from at least one value".to_string());
+        }
+        if settings.projects.is_empty() {
+            wrong.push(
+                "projects: the installation names at least one project, as a table [projects.<name>]".to_string(),
+            );
+        }
+        for (name, project) in &settings.projects {
+            if name.trim() != name || name.is_empty() || name.chars().any(char::is_control) {
+                wrong.push(format!(
+                    "projects.{name:?}: a project's name is some text, with no space around it and no control \
+                     character"
+                ));
+            }
+            if project.main.is_empty() {
+                wrong.push(format!("projects.{name}.main: the main branch has a name"));
+            }
+            if let Some(github) = &project.github {
+                wrong.extend(github.wrong(name, &settings.agents));
+            }
         }
         if settings.owner.language.trim().is_empty() {
             wrong.push("owner.language: the owner's language has a name".to_string());
@@ -635,11 +753,8 @@ impl Settings {
                 ));
             }
         }
-        if let Some(github) = &settings.github {
-            wrong.extend(github.wrong(&settings.agents));
-        }
         if let Some(backup) = &settings.backup {
-            wrong.extend(backup.wrong(&settings.agents, settings.github.as_ref()));
+            wrong.extend(backup.wrong(&settings.agents, &settings.projects));
         }
         if wrong.is_empty() {
             Ok(settings)
@@ -684,14 +799,18 @@ impl Settings {
             name: name.clone(),
             desc: level.desc.clone(),
         });
-        Levels::new(levels, &items.default_level, items.highest_level.as_deref()).map_err(|fault| match fault {
-            LevelsFault::None => "agents.levels: there is at least one level".to_string(),
-            LevelsFault::NoSuchDefault(name) => format!("items.default_level: there is no level {name:?}"),
-            LevelsFault::NoSuchHighest(name) => format!("items.highest_level: there is no level {name:?}"),
-            LevelsFault::DefaultAboveHighest { default, highest } => {
-                format!("items.default_level: {default:?} is above {highest:?}, the highest level an item may be at")
-            }
-        })
+        let made = Levels::new(levels, &items.default_level, items.highest_level.as_deref());
+        made.map(|levels| levels.with_title_max(items.title_max as usize))
+            .map_err(|fault| match fault {
+                LevelsFault::None => "agents.levels: there is at least one level".to_string(),
+                LevelsFault::NoSuchDefault(name) => format!("items.default_level: there is no level {name:?}"),
+                LevelsFault::NoSuchHighest(name) => format!("items.highest_level: there is no level {name:?}"),
+                LevelsFault::DefaultAboveHighest { default, highest } => {
+                    format!(
+                        "items.default_level: {default:?} is above {highest:?}, the highest level an item may be at"
+                    )
+                }
+            })
     }
 
     /// What a round of this cell, for an item at this level, runs on: the level of its item, or above it as far as the
@@ -710,14 +829,31 @@ impl Settings {
         })
     }
 
-    /// When a line begins a new session: past the context limit, and where the model or the account its session's
-    /// rounds ran on is not the one its rounds run on now.
+    /// When a line begins a new session, where the model or the account its session's rounds ran on is not the one its
+    /// rounds run on now, and past the limit of its context; and how its sessions are kept warm while it waits.
     pub fn policy(&self) -> Policy {
         let settings = self.clone();
+        let sessions = &self.sessions;
+        let warm = self.cache_ms().map(|life_ms| Warm {
+            life_ms,
+            after_ms: sessions.warm_minutes.saturating_mul(MINUTE),
+            most: (self.agents.levels.values())
+                .filter_map(|level| Some((level.model.clone(), crate::cost::pings_worth(&level.model)?)))
+                .collect(),
+            while_paused: sessions.warm_while_paused,
+        });
         Policy {
-            limit: self.sessions.context_limit,
+            samples: self.history.samples,
+            limit: sessions.context_limit,
             on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell).ok()),
+            warm,
         }
+    }
+
+    /// How long the agents' program keeps a session in its prompt cache after its last call, in milliseconds; none
+    /// where it keeps none.
+    pub fn cache_ms(&self) -> Option<u64> {
+        (self.sessions.cache_minutes > 0).then(|| self.sessions.cache_minutes.saturating_mul(MINUTE))
     }
 
     /// The value of the setting this key names, its parts joined by dots, as an agent is given it beside the key: a
@@ -736,6 +872,11 @@ impl Settings {
         }
     }
 
+    /// The project of this name, where these settings name one so.
+    pub fn project(&self, name: &str) -> Option<&Project> {
+        self.projects.get(name)
+    }
+
     /// The budget of a work in millionths of a dollar, where there is one.
     pub fn budget_micros(&self) -> Option<u64> {
         // The budget was checked to be a finite number of no less than nothing; a larger one than a u64 holds is none.
@@ -752,7 +893,8 @@ mod tests {
     #[test]
     fn the_sample_reads() {
         let settings = Settings::read(SAMPLE).expect("the sample reads");
-        assert_eq!(settings.project.main, "main");
+        assert_eq!(settings.projects.keys().collect::<Vec<_>>(), ["example"]);
+        assert_eq!(settings.projects["example"].main, "main");
         assert_eq!(settings.agents.command, "claude");
         assert_eq!(settings.agents.slots, 2);
         assert_eq!(settings.agents.config_dir, None);
@@ -763,51 +905,86 @@ mod tests {
         );
         assert_eq!(settings.agents.setting_sources, "user");
         assert!(settings.agents.env.is_empty());
-        assert_eq!(settings.sessions.context_limit, 500_000);
+        assert_eq!(settings.sessions, Sessions::default());
+        assert_eq!(settings.history.samples, 19);
     }
 
     #[test]
-    fn a_session_is_given_a_context_limit_of_500000_tokens_where_none_is_set() {
+    fn a_session_is_kept_warm_from_55_minutes_after_its_last_call_to_the_hour_as_often_as_its_models_prices_make_worth()
+    {
+        let without = SAMPLE
+            .replace("cache_minutes = 60\n", "")
+            .replace("warm_minutes = 55\n", "");
+        let without = without.replace("warm_while_paused = true\n", "");
+        assert_ne!(without, SAMPLE, "the sample sets them");
+        let settings = Settings::read(&without).expect("it reads without");
+        let warm = settings.policy().warm.expect("kept warm");
+        assert_eq!(
+            (warm.life_ms, warm.after_ms, warm.while_paused),
+            (3_600_000, 3_300_000, true)
+        );
+        // The sample's levels run on Haiku, Sonnet and Opus 5.5 and on Fable 5.1.
+        let most: Vec<(&str, u32)> = warm.most.iter().map(|(m, n)| (m.as_str(), *n)).collect();
+        assert_eq!(
+            most,
+            [
+                ("claude-fable-5-1", 79),
+                ("claude-haiku-5-5", 19),
+                ("claude-opus-5-5", 39),
+                ("claude-sonnet-5-5", 39)
+            ]
+        );
+        let none = Settings::read(&SAMPLE.replace("cache_minutes = 60", "cache_minutes = 0")).unwrap();
+        assert_eq!(none.policy().warm, None, "a program that keeps no cache");
+        let late = SAMPLE.replace("warm_minutes = 55", "warm_minutes = 60");
+        assert!(
+            Settings::read(&late)
+                .expect_err("refused")
+                .contains("sessions.warm_minutes")
+        );
+    }
+
+    #[test]
+    fn a_session_is_given_a_context_limit_of_500000_tokens_where_none_is_set_and_a_history_of_nothing_is_refused() {
         let without = SAMPLE.replace("context_limit = 500000\n", "");
         assert_ne!(without, SAMPLE, "the sample sets it");
         let settings = Settings::read(&without).expect("it reads without");
         assert_eq!(settings.policy().limit, 500_000);
         let set = Settings::read(&SAMPLE.replace("context_limit = 500000", "context_limit = 200000")).unwrap();
         assert_eq!(set.policy().limit, 200_000);
-        let none = SAMPLE.replace("context_limit = 500000", "context_limit = 0");
+        let nothing = SAMPLE.replace("context_limit = 500000", "context_limit = 0");
         assert!(
-            Settings::read(&none)
+            Settings::read(&nothing)
                 .expect_err("refused")
                 .contains("sessions.context_limit")
         );
+        let none = SAMPLE.replace("samples = 19", "samples = 0");
+        assert!(Settings::read(&none).expect_err("refused").contains("history.samples"));
     }
 
     #[test]
     fn the_fast_ci_of_the_installation_is_refused_in_words_that_say_where_it_went_and_the_runners_are_read() {
-        let github = "\n[github]\nrepository = \"owner/name\"\n";
+        let github = "\n[projects.example.github]\nrepository = \"owner/name\"\n";
         let settings = Settings::read(&format!("{SAMPLE}{github}")).expect("it reads");
-        assert_eq!(settings.github.expect("github").runners, ["github"]);
+        let of = |settings: Settings| settings.projects["example"].github.clone().expect("github");
+        assert_eq!(of(settings).runners, ["github"]);
         let runners = format!("{SAMPLE}{github}runners = [\"github\", \"14900K\"]\n");
-        let both = Settings::read(&runners)
-            .expect("it reads")
-            .github
-            .expect("github")
-            .runners;
+        let both = of(Settings::read(&runners).expect("it reads")).runners;
         assert_eq!(both, ["github", "14900K"]);
         let checks = format!("{SAMPLE}{github}checks = [\"check\"]\n");
         let refused = Settings::read(&checks).expect_err("refused");
         assert!(
-            refused.starts_with("github.checks: the checks that count are the jobs of the project's full"),
+            refused.starts_with("projects.example.github.checks: the checks that count are the jobs of the project's"),
             "{refused}"
         );
         assert!(
             refused.contains("[ci.full]") && refused.ends_with("delete the line"),
             "{refused}"
         );
-        let fast = format!("{SAMPLE}{github}[github.fast]\nworkflow = \"fast.yml\"\n");
+        let fast = format!("{SAMPLE}{github}[projects.example.github.fast]\nworkflow = \"fast.yml\"\n");
         let refused = Settings::read(&fast).expect_err("refused");
         assert!(
-            refused.starts_with("github.fast: the fast workflow is the project's"),
+            refused.starts_with("projects.example.github.fast: the fast workflow is the project's"),
             "{refused}"
         );
         assert!(
@@ -869,6 +1046,7 @@ mod tests {
             act: None,
             must_write: Vec::new(),
             describes: Vec::new(),
+            named_by: None,
             runs_on: Vec::new(),
             given: Vec::new(),
             tools: Vec::new(),
@@ -905,6 +1083,21 @@ mod tests {
     }
 
     #[test]
+    fn the_words_of_a_title_are_the_settings_and_have_no_default() {
+        let levels = Settings::read(SAMPLE).unwrap().levels().unwrap();
+        assert_eq!(levels.title_fits("word ".repeat(20).trim()), Ok(()));
+        assert_eq!(levels.title_fits(&"\u{4e2d}".repeat(20)), Ok(()));
+        let why = levels.title_fits(&"\u{4e2d}".repeat(21)).unwrap_err();
+        assert!(
+            why.starts_with("the title has 21 words and a title has 20 at most"),
+            "{why}"
+        );
+        let without = SAMPLE.replace("title_max = 20\n", "");
+        let refused = Settings::read(&without).expect_err("refused");
+        assert!(refused.contains("title_max"), "{refused}");
+    }
+
+    #[test]
     fn levels_that_cannot_be_and_models_the_command_line_does_not_take_are_refused_all_at_once() {
         let text = (SAMPLE.replace("model = \"claude-haiku-5-5\"", "model = \"gpt-5\""))
             .replace("default_level = \"2\"", "default_level = \"5\"");
@@ -929,10 +1122,11 @@ mod tests {
 
     #[test]
     fn the_removed_setting_of_the_branches_before_a_change_is_refused_in_words_that_say_it_can_go() {
-        let text = format!("{SAMPLE}\n[github]\nrepository = \"o/n\"\nruns_on_before_branches = true\n");
+        let text =
+            format!("{SAMPLE}\n[projects.example.github]\nrepository = \"o/n\"\nruns_on_before_branches = true\n");
         let refused = Settings::read(&text).expect_err("refused");
         assert!(
-            refused.starts_with("github.runs_on_before_branches: this setting was removed")
+            refused.starts_with("projects.example.github.runs_on_before_branches: this setting was removed")
                 && refused.ends_with("delete the line"),
             "{refused}"
         );
@@ -1054,7 +1248,7 @@ mod tests {
     /// The sample with its table for GitHub written in.
     fn on_github() -> String {
         let table = (SAMPLE.lines())
-            .skip_while(|line| *line != "# [github]")
+            .skip_while(|line| *line != "# [projects.example.github]")
             .take_while(|line| line.starts_with('#'))
             .map(|line| line.strip_prefix("# ").unwrap_or(line))
             .collect::<Vec<_>>()
@@ -1064,15 +1258,15 @@ mod tests {
 
     #[test]
     fn the_local_repository_is_the_host_where_no_github_is_given() {
-        assert_eq!(Settings::read(SAMPLE).unwrap().github, None);
+        assert_eq!(Settings::read(SAMPLE).unwrap().projects["example"].github, None);
     }
 
     #[test]
     fn the_samples_table_for_github_reads() {
-        let github = Settings::read(&on_github())
-            .expect("it reads")
+        let github = (Settings::read(&on_github()).expect("it reads").projects["example"]
             .github
-            .expect("GitHub is the host");
+            .clone())
+        .expect("GitHub is the host");
         assert_eq!(github.repository, "owner/name");
         assert_eq!(github.url(), "https://github.com/owner/name.git");
         assert_eq!(github.remote, "origin");
@@ -1090,8 +1284,8 @@ mod tests {
             .replace("# env = [\"ANTHROPIC_API_KEY\"]", "env = [\"WF_GITHUB_TOKEN\"]");
         let refused = Settings::read(&text).expect_err("refused");
         assert_eq!(refused.lines().count(), 3, "{refused}");
-        assert!(refused.contains("github.repository"), "{refused}");
-        assert!(refused.contains("github.merge_method"), "{refused}");
+        assert!(refused.contains("projects.example.github.repository"), "{refused}");
+        assert!(refused.contains("projects.example.github.merge_method"), "{refused}");
         assert!(refused.contains("agents.env: WF_GITHUB_TOKEN"), "{refused}");
         let unknown = on_github().replace("delete_branch = false", "delete_branches = false");
         assert!(
@@ -1205,7 +1399,110 @@ mod tests {
             assert_eq!(settings.value(none), None, "{none}");
         }
         let listed = Settings::read(&on_github()).unwrap();
-        assert_eq!(listed.value("github.runners").as_deref(), Some("[\"github\"]"));
+        assert_eq!(
+            listed.value("projects.example.github.runners").as_deref(),
+            Some("[\"github\"]")
+        );
+    }
+
+    /// The sample with a second project, `other`, in a repository of its own on GitHub.
+    fn two_projects() -> String {
+        let other = "[projects.other]\nrepo = \"/path/to/the/other\"\nmain = \"trunk\"\ncheck = \"true\"\n\n\
+                     [projects.other.github]\nrepository = \"owner/other\"\nrunners = [\"github\", \"14900k\"]\n";
+        format!("{SAMPLE}\n{other}")
+    }
+
+    // An installation names its projects, each with its own repository, main branch, check and host.
+    #[test]
+    fn an_installation_names_several_projects_each_with_its_repository_and_host() {
+        let settings = Settings::read(&two_projects()).expect("it reads");
+        assert_eq!(settings.projects.keys().collect::<Vec<_>>(), ["example", "other"]);
+        let (example, other) = (&settings.projects["example"], &settings.projects["other"]);
+        assert_eq!(example.repo, Path::new("/path/to/the/repository"));
+        assert_eq!(example.github, None, "the local repository is its host");
+        assert_eq!(
+            (other.repo.as_path(), other.main.as_str()),
+            (Path::new("/path/to/the/other"), "trunk")
+        );
+        let github = other.github.as_ref().expect("GitHub is its host");
+        assert_eq!(github.repository, "owner/other");
+        assert_eq!(github.runners, ["github", "14900k"]);
+        assert_eq!(settings.project("other"), Some(other));
+        assert_eq!(settings.project("elsewhere"), None);
+    }
+
+    // What is wrong with a project's settings is said with the project's key, every project's at once; an installation
+    // with no project is refused.
+    #[test]
+    fn what_a_project_cannot_be_given_is_said_with_its_name() {
+        let text = (two_projects().replace("main = \"trunk\"", "main = \"\""))
+            .replace("repository = \"owner/other\"", "repository = \"other\"")
+            .replace("main = \"main\"", "main = \"\"");
+        let refused = Settings::read(&text).expect_err("refused");
+        assert_eq!(refused.lines().count(), 3, "{refused}");
+        assert!(
+            refused.contains("projects.example.main: the main branch has a name"),
+            "{refused}"
+        );
+        assert!(
+            refused.contains("projects.other.main: the main branch has a name"),
+            "{refused}"
+        );
+        assert!(refused.contains("projects.other.github.repository"), "{refused}");
+        let start = SAMPLE.find("[projects.example]").unwrap();
+        let end = SAMPLE.find("[agents]").unwrap();
+        let none = format!("{}{}", &SAMPLE[..start], &SAMPLE[end..]);
+        let refused = Settings::read(&none).expect_err("refused");
+        assert!(
+            refused.starts_with("projects: the installation names at least one project"),
+            "{refused}"
+        );
+        let spaced = SAMPLE.replace("[projects.example]", "[projects.\" example\"]");
+        assert!(
+            Settings::read(&spaced)
+                .expect_err("refused")
+                .contains("a project's name is some text")
+        );
+    }
+
+    // Settings written when an installation had one project, in [project] and [github], are told where each went,
+    // both at once: the one edit an installation of one project needs.
+    #[test]
+    fn the_tables_of_the_one_project_are_told_where_they_went() {
+        let one = SAMPLE.replace("[projects.example]", "[project]");
+        let refused = Settings::read(&one).expect_err("refused");
+        assert!(
+            refused.starts_with("project: an installation names each of its projects now"),
+            "{refused}"
+        );
+        assert!(refused.contains("write [project] as [projects.<name>]"), "{refused}");
+        let both = format!("{one}\n[github]\nrepository = \"owner/name\"\n");
+        let refused = Settings::read(&both).expect_err("refused");
+        assert_eq!(refused.lines().count(), 2, "{refused}");
+        assert!(
+            refused.lines().nth(1).is_some_and(|l| l.starts_with("github: ")),
+            "{refused}"
+        );
+        // Moved as it says, it reads.
+        let moved = both
+            .replace("[project]", "[projects.example]")
+            .replace("[github]", "[projects.example.github]");
+        assert!(
+            Settings::read(&moved).expect("it reads").projects["example"]
+                .github
+                .is_some()
+        );
+    }
+
+    // The copies' token is none of the projects' tokens.
+    #[test]
+    fn the_copies_token_is_no_projects_token() {
+        let same = format!(
+            "{}\n[backup]\nrepository = \"o/n\"\ntoken_env = \"WF_GITHUB_TOKEN\"\n",
+            two_projects()
+        );
+        let refused = Settings::read(&same).expect_err("refused");
+        assert!(refused.contains("the repository of the project other"), "{refused}");
     }
 
     // The subagents an agent may start are three where the settings give none, as on `old-main`, or as they say.

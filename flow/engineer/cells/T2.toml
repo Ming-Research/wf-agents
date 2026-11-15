@@ -10,11 +10,12 @@ project's test files: where you think the implementation wrong, write a test tha
 Meet each condition of `acceptance` that a test can show by a test, the engineer's where it really tests it, else
 yours; then dig for corner cases. Each test of yours names the independent reference its verdict rests on, such as a
 specification or an established implementation; what you think should hold does not count. A new-behaviour test fails
-without the change; an old-behaviour test passes with it and without. Run every test new in this work on the commit
-`code` names. One red after the change, check against its reference first; hand on only what stays red. Commit your
-tests on the work's branch.
+without the change; an old-behaviour test passes with it and without. Run every test new in this work on the change.
+One red after the change, check against its reference first; hand on only what stays red. Commit your tests on the
+work's branch.
 
-Hand in `tests`, and what stays red or stays suspect in `testing`.
+Hand in `tests`, and what stays red or stays suspect in `testing`. With `testing_ok` yes, leave `testing` out of your
+return.
 '''
 when = { needs_testing = "yes" }
 # Run when the review asks for it, and again when the implementation answers its red tests, not on every version of

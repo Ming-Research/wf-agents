@@ -46,7 +46,7 @@ impl Fill {
     pub fn part(part: &str, text: &str) -> Fill {
         Fill::Part {
             part: part.to_string(),
-            digest: sha1_smol::Sha1::from(text).digest().to_string(),
+            digest: crate::digest(text),
         }
     }
 }
@@ -111,6 +111,8 @@ mod tests {
                 by: Outsider::Person,
                 matters: true,
                 value: None,
+                said_to: None,
+                empty: false,
                 at: Seq(at),
             });
         }

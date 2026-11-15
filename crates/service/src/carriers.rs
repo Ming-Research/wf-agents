@@ -16,22 +16,27 @@
 //! carrier keeps nothing of a failed round, and tries nothing again itself: when a round is tried again is the engine's
 //! to say, as its records show, and whatever made the round fail is shown on the page.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
-use driver::Policy;
+use driver::history::Lines;
+use driver::{Found, Policy};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
 use tokio::sync::mpsc;
-use work::{Fill, Given, RanOn, Spent, Time, Why, Work};
+use work::{Fill, Given, Measures, RanOn, Spent, Time, Why, Work};
 
 use crate::Message;
 
 /// The result a withdrawn call has: given by the loop to a person's call, and by what runs a tool to a tool's call it
 /// stopped.
 pub const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its result.";
+
+pub use engine::spoken::Telling;
 
 /// What carries out the rounds of cells of one kind: an agent's rounds, or the engine's own acts.
 ///
@@ -48,12 +53,44 @@ pub trait Rounds: Send + Sync {
     /// still held, that one is used and this one dropped, and where the round has ended already this one is dropped.
     fn stop(&self, round: Round, reply: RoundReply);
 
+    /// Tells the round, which is under way, what the owner said to it, to be handed to its session after its program's
+    /// next use of one of its own tools; once it was, the carrier says so by its teller
+    /// ([`Teller::said_to_round`]), and words that reached the round before it ended are said before its end. Rounds
+    /// carried out in no session are told nothing, as by default, and their cells take the words in their next round.
+    fn tell(&self, round: Round, told: Telling) {
+        let _ = (round, told);
+    }
+
+    /// Says whether a pause holds the work back now, its own or the owner's pause of everything: of every work as the
+    /// loop opens, before any round is given, and again whenever it may have changed, the same said again changing
+    /// nothing. What a carrier holds a round back for itself, as the acts the check for the project's turn to check
+    /// and merge, a pause holds back too, as the walk holds back what would begin a round; by default nothing is held.
+    fn paused(&self, work: WorkNumber, paused: bool) {
+        let _ = (work, paused);
+    }
+
     /// What the round of this number of the run was told and what came back of it, each try in order, as far as
     /// this carrier keeps them; no try where it keeps nothing, as by default. Unlike the others, this is called off
     /// the loop, on a thread that may wait on the disk; an error says why what was kept could not be read.
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
         let _ = (work, run, round);
         Ok(Told::default())
+    }
+
+    /// The system prompt the line's session of this number, the line's first being none, began with, as this carrier
+    /// kept it for the work; none where it kept none, as by default and for rounds carried out in no session. It is
+    /// called off the loop, as [`Rounds::told`] is.
+    fn system(&self, work: WorkNumber, line: &str, session: u32) -> Result<Option<String>, String> {
+        let _ = (work, line, session);
+        Ok(None)
+    }
+
+    /// What the agent of the round of this number of the run was last seen doing, as this carrier keeps it as it
+    /// comes: the last few things its latest try did, the latest last; nothing where it keeps none, as by default. It
+    /// is called off the loop, as [`Rounds::told`] is.
+    fn doing(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
+        let _ = (work, run, round);
+        Ok(Vec::new())
     }
 
     /// When a line begins a new session, for rounds carried out in sessions: what they run on, and how far a session
@@ -63,6 +100,17 @@ pub trait Rounds: Send + Sync {
         None
     }
 
+    /// Sends the session a keep-warm ping, which only keeps its prompt cache from letting it go while its line waits:
+    /// the reply says once what it took, or why it failed. Rounds carried out in no session are given none; by default
+    /// a ping fails, saying so.
+    fn ping(&self, ping: Ping, reply: PingReply) {
+        let _ = ping;
+        reply.failed(
+            "these rounds are carried out in no session".to_string(),
+            Spent::default(),
+        );
+    }
+
     /// Lets go of what the rounds of this kind made for the work outside the engine, the work having ended and nothing
     /// of it being under way; the reply says once that it is let go. Given again after the process started again, it is
     /// the same letting go, and what was let go already is found let go. Rounds that make nothing outside the engine
@@ -70,6 +118,62 @@ pub trait Rounds: Send + Sync {
     fn release(&self, release: Release, reply: ReleaseReply) {
         let _ = release;
         reply.released();
+    }
+}
+
+/// A keep-warm ping of the session of this number of a line of the work.
+#[derive(Clone, Debug)]
+pub struct Ping {
+    pub work: WorkNumber,
+    /// The flow the work runs on.
+    pub flow: Arc<Compiled>,
+    pub line: String,
+    /// Which of the line's sessions, counted from none.
+    pub session: u32,
+    /// The item the work is done for.
+    pub item: Item,
+    /// The work as it was kept when the ping was handed out.
+    pub kept: Arc<Work>,
+}
+
+/// The way to say once what came of a keep-warm ping.
+#[derive(Debug)]
+pub struct PingReply {
+    work: WorkNumber,
+    line: String,
+    session: u32,
+    to: mpsc::UnboundedSender<Message>,
+}
+
+impl PingReply {
+    pub(crate) fn new(work: WorkNumber, line: String, session: u32, to: mpsc::UnboundedSender<Message>) -> Self {
+        PingReply {
+            work,
+            line,
+            session,
+            to,
+        }
+    }
+
+    /// The ping ended, having taken this.
+    pub fn ended(self, spent: Spent) {
+        self.send(spent, None);
+    }
+
+    /// The ping failed, for this reason, having taken this.
+    pub fn failed(self, why: String, spent: Spent) {
+        self.send(spent, Some(why));
+    }
+
+    fn send(self, spent: Spent, failed: Option<String>) {
+        let event = Event::Pinged {
+            line: self.line,
+            session: self.session,
+            spent,
+            failed,
+        };
+        // Where the loop has ended, the process is stopping: a ping still due is given again when it starts again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
     }
 }
 
@@ -95,7 +199,9 @@ pub struct ReleaseReply {
 }
 
 impl ReleaseReply {
-    pub(crate) fn new(work: WorkNumber, to: mpsc::UnboundedSender<Message>) -> Self {
+    /// The reply that says what came of it down this channel, as the loop makes it; whoever tests a carrier makes one
+    /// to read what the carrier says.
+    pub fn new(work: WorkNumber, to: mpsc::UnboundedSender<Message>) -> Self {
         ReleaseReply { work, to }
     }
 
@@ -167,6 +273,19 @@ pub struct Returned {
     pub duration_ms: Option<u64>,
     /// The models it was answered by, by name.
     pub models: Vec<String>,
+    /// The tokens it wrote to the prompt cache, which the records count among those not read from it.
+    pub cache_creation_input_tokens: Option<u64>,
+}
+
+/// A thing an agent was seen doing during its round, as its program said it as it went.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Doing {
+    /// It used a tool by this name, on this where the tool's input names what: a command, a path, a pattern.
+    Tool { name: String, on: Option<String> },
+    /// It said this; the start of it where it is long.
+    Said(String),
+    /// Its session was being compacted.
+    Compacting,
 }
 
 /// What runs the tools that agents ask for.
@@ -184,13 +303,23 @@ pub trait Tools: Send + Sync {
     fn withdraw(&self, call: ToolCall, reply: CallReply);
 }
 
-/// What looks at the network while the agents' rounds wait for it to be reached: whether the agents' service can be
-/// reached from here, as far as a look that costs no round and writes nothing in a session can tell.
+/// What looks at the network while the rounds of a service wait for it to be reached: whether the service, the agents'
+/// or the acts' host, can be reached from here, as far as a look that costs no round and writes nothing can tell.
 ///
 /// It is called off the loop, on a thread that may wait on the network for a few seconds.
 pub trait Network: Send + Sync {
-    /// Whether the network reaches the agents' service now.
+    /// Whether the network reaches the service now.
     fn reached(&self) -> bool;
+}
+
+/// What checks the outside the agents' rounds need while they wait for it, by itself and with no round: the sign-in of
+/// their command line, the network to their service and a short request the service answers, each in turn, so that
+/// what is down is said by the first that is. It touches no work's session, and costs at most that short request.
+///
+/// It is called off the loop, and may take as long as the short request may.
+pub trait Outside: Send + Sync {
+    /// What the outside is now.
+    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
 }
 
 /// What carries out each kind of todo.
@@ -204,7 +333,10 @@ pub struct Carriers {
     /// How many rounds of agents may go on at once: the engine gives the agents no more than this, and the others wait
     /// for a slot in the engine's order. The engine's own acts take none.
     pub slots: usize,
-    pub network: Arc<dyn Network>,
+    /// The check of the outside the agents' rounds need, while they wait for it.
+    pub outside: Arc<dyn Outside>,
+    /// The look at the network to the host the acts reach; none where no network reaches it, as the local repository.
+    pub host: Option<Arc<dyn Network>>,
 }
 
 impl Carriers {
@@ -232,6 +364,29 @@ impl Carriers {
         }
         Ok(told)
     }
+
+    /// The system prompt the line's session of this number, the line's first being none, began with, as the agents'
+    /// carrier kept it. It waits on the disk.
+    pub fn system(&self, work: WorkNumber, line: &str, session: u32) -> Result<Option<String>, String> {
+        self.agents.system(work, line, session)
+    }
+
+    /// What the agent of the round was last seen doing, as the carrier of its cell's kind keeps it, or, for a cell of
+    /// no kind known, as the first carrier that keeps anything of it. It waits on the disk.
+    pub fn doing(&self, kind: Option<Kind>, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
+        let carriers = match kind {
+            Some(kind) => vec![self.rounds(kind)],
+            None => vec![&self.agents, &self.acts],
+        };
+        let mut doing = Vec::new();
+        for rounds in carriers {
+            doing = rounds.doing(work, run, round)?;
+            if !doing.is_empty() {
+                break;
+            }
+        }
+        Ok(doing)
+    }
 }
 
 /// A round of a run, to give or to stop.
@@ -249,6 +404,9 @@ pub struct Round {
     pub item: Item,
     /// The work as it was kept when the round was handed out.
     pub kept: Arc<Work>,
+    /// What the round is judged by while it runs: the lines the history of its cell and its flow give, in every work
+    /// on the flow (crate `driver`, module `history`).
+    pub lines: Lines,
 }
 
 /// A call of a run that a tool answers, to make or to withdraw.
@@ -285,7 +443,9 @@ pub struct CallReply {
 }
 
 impl RoundReply {
-    pub(crate) fn new(work: WorkNumber, run: RunId, to: mpsc::UnboundedSender<Message>) -> Self {
+    /// The reply that says what came of it down this channel, as the loop makes it; whoever tests a carrier makes one
+    /// to read what the carrier says.
+    pub fn new(work: WorkNumber, run: RunId, to: mpsc::UnboundedSender<Message>) -> Self {
         RoundReply { work, run, to }
     }
 
@@ -395,6 +555,16 @@ impl Teller {
         });
     }
 
+    /// What the calls to the model of the try of this number of the round came to, as the carrier read them: said
+    /// before the round's end, so that it is in the records with the round.
+    pub fn measured(&self, attempt: usize, measures: Measures) {
+        self.tell(Event::Measured {
+            run: self.run,
+            attempt,
+            measures,
+        });
+    }
+
     /// The line's session was reopened during the round, for this reason: the agents' program had lost the one the
     /// round was to go on in, or compacted it.
     pub fn session_began(&self, line: String, why: Why) {
@@ -415,12 +585,31 @@ impl Teller {
     }
 
     /// As [`Teller::outside_wrote`], for the round: the version is put into it, so that the round is told of it and its
-    /// run consumes it. The carrier does it for what it did before its program began, as taking main in.
+    /// run consumes it; where the block says it already, the version that says it is put in, and none is written. The
+    /// carrier does it for what it did or read itself for the round, as taking main in.
     pub fn outside_wrote_for_round(&self, block: BlockId, content: String) {
         self.tell(Event::WroteForRound {
             run: self.run,
             block,
             content,
+        });
+    }
+
+    /// The round was given what the owner said to it, which the engine gave to be told it ([`Rounds::tell`]): these
+    /// versions are put into it. Said before the round's end.
+    pub fn said_to_round(&self, versions: Vec<(BlockId, decide::Seq)>) {
+        self.tell(Event::SaidToRound {
+            run: self.run,
+            versions,
+        });
+    }
+
+    /// The service of the agents answered the round with a message that is no error: it serves the round, which a wait
+    /// every work shares for it may be over by.
+    pub fn answered(&self) {
+        let _ = self.to.send(Message::Answered {
+            work: self.work,
+            run: self.run,
         });
     }
 
@@ -431,7 +620,9 @@ impl Teller {
 }
 
 impl CallReply {
-    pub(crate) fn new(work: WorkNumber, call: CallId, to: mpsc::UnboundedSender<Message>) -> Self {
+    /// The reply that says what came of it down this channel, as the loop makes it; whoever tests a carrier makes one
+    /// to read what the carrier says.
+    pub fn new(work: WorkNumber, call: CallId, to: mpsc::UnboundedSender<Message>) -> Self {
         CallReply { work, call, to }
     }
 
@@ -479,11 +670,11 @@ mod tests {
         fn withdraw(&self, _: ToolCall, _: CallReply) {}
     }
 
-    struct Reached;
+    struct Well;
 
-    impl Network for Reached {
-        fn reached(&self) -> bool {
-            true
+    impl Outside for Well {
+        fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+            Box::pin(async { Found::Well })
         }
     }
 
@@ -493,7 +684,8 @@ mod tests {
             acts: Arc::new(Keeps(acts)),
             tools: Arc::new(NoTools),
             slots: 1,
-            network: Arc::new(Reached),
+            outside: Arc::new(Well),
+            host: None,
         }
     }
 

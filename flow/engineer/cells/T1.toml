@@ -5,31 +5,34 @@ kind = "agent"
 line = "code_reviewer"
 effort = "high"
 task = '''
-Review the change in `code`, in a session of your own, and change no file. Read the diff from main to the last commit
-`code` or `tests` names, and whole each file of decisions whose topic it touches. Judge only by what the implementation
+Review the change in `code`, in a session of your own, and change no file. Read the diff from main to `head`, and
+whole each file of decisions whose topic it touches. Judge only by what the implementation
 was asked to do (`plan_owner`, `acceptance`) and the repository's rules.
 
 Does the code do what the plan says, to the standard the tree sets? The work is done once it does; old code that lagged
 behind a decision before this work is no point. A short cut, another method, more than the work needs or a change of
 direction is a point; so is code that breaks a decision of the tree, or a decision that neither the plan nor the tree
 records and `decisions` does not give a reason that holds for. Is it sound in structure and lines? Does the change reach
-every place where the same thing happens, not only the one the item names? Does `evidence` show each condition on that
-commit? Would each new test fail without the change, where its kind needs it, and is it worth its time? Where cost
-per operation can change, is what it can slow measured? Do the entries written into `design/` say what `tree_edits`
-says, and no more?
+every place where the same thing happens, not only the one the item names? Does `evidence` show each condition on the
+change? Would each new test fail without the change, where its kind needs it, and is it worth its time? Is each
+exception or expected value the change gives a check a choice of the design, not a fault it hides? Where cost per
+operation can change, is what it can slow measured? Do the entries written into `design/` say what `tree_edits` says,
+and no more?
 
-List every point at once in `review`. Leave out preferences: the engineer fixes nearly all a review raises, so a wrong
-point makes good code worse.
+List every point at once in `review`: this is your one chance, and nothing is raised later that could be raised now.
+Leave out preferences: the engineer fixes nearly all a review raises, so a wrong point makes good code worse.
 
-With `review_ok` yes write no opinion. Having said yes to `needs_testing`, keep it while the part of the change that
-made you say so is still there.
+With `review_ok` yes, leave `review` out of your return. Having said yes to `needs_testing`, keep it while the part of
+the change that made you say so is still there.
 '''
-triggered_by = ["on_change", "on_reply_review", "on_spoken"]
+triggered_by = ["on_change", "on_reply_review"]
 context = [
   "code",
+  "title",
   "decisions",
   "evidence",
   "tests",
+  "head",
   "discussion",
   "plan_owner",
   "plan_agent",
@@ -37,12 +40,11 @@ context = [
   "tree_edits",
   "reply_review",
   "background",
-  "questions",
-  "answers",
+  "q_and_a",
   "review",
   "tree",
 ]
-outputs = ["review", "review_ok", "needs_testing", "discussion"]
+outputs = ["review", "review_ok", "needs_testing"]
 must_write = ["review_ok", "needs_testing"]
 
 # What the cell does when each trigger fires; a trigger with none is the task's alone.
@@ -58,6 +60,7 @@ on_reply_review = """Look at what changed: accept each answer in `reply_review` 
 tree = "last_and_latest"
 review = "latest"
 code = "last_and_latest"
+title = "latest"
 decisions = "last_and_latest"
 evidence = "latest"
 plan_owner = "last_and_latest"
@@ -65,8 +68,8 @@ plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
 tree_edits = "last_and_latest"
 tests = "last_and_latest"
+head = "last_and_latest"
 discussion = "all"
 reply_review = "latest"
 background = "latest"
-questions = "latest"
-answers = "all"
+q_and_a = "all"

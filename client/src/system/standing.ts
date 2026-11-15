@@ -7,10 +7,10 @@ import { waitsForOwner } from '../works/words';
 import type { Merged } from './api';
 
 /// Where a work stands now, as the owner acts on it, each work in one place: the engine halted it, at a fault or with
-/// its pause for a round that failed; it waits for the owner; a round of it runs; its next round is due, as soon as a
-/// slot is free or the pause of everything is lifted; it waits for what another gives; the owner paused it; nothing
-/// runs a cell of it. What needs the owner comes first.
-export const STANDINGS = ['halted', 'owner', 'running', 'due', 'others', 'paused', 'idle'] as const;
+/// its pause for a round that failed; it waits for the owner, or is stalled, no cell able to write what it waits for;
+/// a round of it runs; its next round is due, as soon as a slot is free or the pause of everything is lifted; it waits
+/// for what another gives; the owner paused it. What needs the owner comes first.
+export const STANDINGS = ['halted', 'owner', 'running', 'due', 'others', 'paused'] as const;
 export type Standing = (typeof STANDINGS)[number];
 
 export const STANDING_WORDS: Record<Standing, { name: string; title: string }> = {
@@ -20,7 +20,8 @@ export const STANDING_WORDS: Record<Standing, { name: string; title: string }> =
   },
   owner: {
     name: 'Waits for the owner',
-    title: 'Waits for an answer, a let-go at a limit, or a test only the owner can make hold',
+    title:
+      'Waits for an answer, a let-go at a limit, or a test only the owner can make hold, or is stalled, no cell able to write what it waits for',
   },
   running: { name: 'Running', title: 'A round of it is under way' },
   due: {
@@ -32,7 +33,6 @@ export const STANDING_WORDS: Record<Standing, { name: string; title: string }> =
     title: 'Waits for what the owner does not give: a tool, the items it depends on, a cell, or the wait every work shares',
   },
   paused: { name: 'Paused', title: 'Paused by the owner: only a note to a cell is answered until it is let on' },
-  idle: { name: 'At rest', title: 'Nothing new runs a cell, until someone writes what runs one' },
 };
 
 /// Where a work stands now; none once it has ended.
@@ -54,8 +54,8 @@ export function standingOf(work: Summary): Standing | null {
     case 'everything':
     case 'next':
       return 'due';
-    case 'idle':
-      return work.paused ? 'paused' : 'idle';
+    case 'stalled':
+      return 'owner';
   }
 }
 

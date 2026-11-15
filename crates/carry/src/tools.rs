@@ -5,25 +5,26 @@
 //! GitHub is. A tool's result is all an agent learns of it, so what goes wrong in running it is said in its result,
 //! once: it is not tried again here, and the agent may ask again. Withdrawn, what runs it is stopped. A `run_tests` of
 //! a branch that does not merge into main's head is answered at once with the files in conflict (the module
-//! `conflict`). The result is kept whole in the records; what a message gives of it is cut as the tool's words say
+//! `conflict`). The result is kept whole in the records, and a result too long for a message in a file of the
+//! temporary directory ([`keep_wholes`], removed by [`sweep`]); what a message gives of it is cut as the tool's words say
 //! ([`given`]).
 
 mod conflict;
 mod query;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::CallId;
-use flow::agents::{Agents, ResultGiven, fill};
+use flow::agents::{ResultGiven, Tool, fill};
 use serde::Deserialize;
 use service::{CallReply, ToolCall, Tools as ToolsTrait, WITHDRAWN};
 use store::WorkNumber;
 
 use crate::git;
 use crate::held::{Held, Stop};
-use crate::host::{Branch, Host, Named};
+use crate::host::{Asking, Branch, Host, Named};
 use crate::settings::Project;
 
 pub use query::{QUERY, Querying};
@@ -107,12 +108,13 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 }
             } else {
                 let place = git::place(&inner.data, &inner.tag, call.work);
-                // What the work says of itself, as the acts work it out, so that the pull request the tool brings up
-                // to date says what the check before the merge has it say.
+                // What the work says of itself and the name of its merge, as the acts work them out, so that the pull
+                // request the tool brings up to date says what the check before the merge has it say.
                 let about = crate::acts::about(&call.flow, &call.kept);
+                let name = crate::acts::name(&call.flow, &call.kept, call.work, &inner.project.commits);
                 let branch = Branch {
                     work: call.work,
-                    title: &call.item.title,
+                    title: &name,
                     about: &about,
                     place: &place,
                 };
@@ -121,16 +123,12 @@ impl<H: Host> ToolsTrait for Tools<H> {
                     unread: inner.unread.as_deref(),
                     tools: &tools,
                 };
-                answer(
-                    &inner.host,
-                    &inner.project,
-                    &branch,
-                    &told,
-                    &call.name,
-                    &call.input,
-                    &mut stop,
-                )
-                .await
+                let asked = Call {
+                    id: call.call,
+                    name: &call.name,
+                    input: &call.input,
+                };
+                answer(&inner.host, &inner.project, &branch, &told, &asked, &mut stop).await
             };
             let result = match answered {
                 Answer::Result(result) => result,
@@ -160,28 +158,108 @@ impl<H> Tools<H> {
 
 /// Each result of the work a message gives otherwise than the records hold it, the records holding each whole: a
 /// result of the tool `query` longer than its file says a message gives, cut as the tool cuts it; one of a tool whose
-/// file gives a bound, cut at it, with the words that follow a cut one; and any, its end of whitespace left off.
-pub fn given(work: &work::Work, words: &Agents) -> BTreeMap<CallId, String> {
+/// file gives a bound, cut at it, with the words that follow a cut one; and any, its end of whitespace left off. A
+/// cut one says which file of `dir` holds its whole ([`keep_wholes`]).
+pub fn given(work: &work::Work, tools: &BTreeMap<String, Tool>, dir: &Path) -> BTreeMap<CallId, String> {
     (work.calls.iter())
         .filter_map(|(call, asked)| {
             let work::Call::Asked(work::Ask::Tool { name, input }) = asked else {
                 return None;
             };
             let result = work.results.get(call)?;
-            let tool = words.tools.get(name);
+            let tool = tools.get(name);
+            let file = file_of(dir, *call).display().to_string();
             let given = match tool.and_then(|t| t.given_bytes) {
-                Some(bytes) if name == QUERY => Querying::cut(result.trim_end(), input, bytes),
-                _ => cut(result, tool.and_then(|t| t.given.as_ref())),
+                Some(bytes) if name == QUERY => Querying::cut(result.trim_end(), input, bytes, &file),
+                _ => cut(result, tool.and_then(|t| t.given.as_ref()), &file),
             };
             Some((*call, given))
         })
         .collect()
 }
 
+/// How many days a file of a cut result is kept after it was last written ([`sweep`]).
+pub const KEPT_DAYS: u64 = 7;
+
+/// Where the whole results of a work are kept for its agent to read: a directory of the temporary directory, which the
+/// agents' command line is let read, and never of a worktree, so that nothing of it can be committed. The
+/// installation's tag keeps two installations of a machine apart.
+pub fn files_dir(temp: &Path, tag: &str, work: WorkNumber) -> PathBuf {
+    temp.join(format!("wf-agents-{tag}-results")).join(work.0.to_string())
+}
+
+/// The file the whole result of a call is kept in.
+fn file_of(dir: &Path, call: CallId) -> PathBuf {
+    dir.join(format!("{}.txt", call.0))
+}
+
+/// Whether a message gives this result of the tool cut.
+fn is_cut(name: &str, result: &str, tool: Option<&Tool>) -> bool {
+    let Some(tool) = tool else { return false };
+    match (name == QUERY, tool.given_bytes, &tool.given) {
+        (true, Some(bytes), _) => result.trim_end().len() > bytes,
+        (_, _, Some(given)) => result.len() > given.bound,
+        _ => false,
+    }
+}
+
+/// The results a message gives cut, each with the file of `dir` that [`given`] says holds its whole.
+pub fn wholes<'a>(work: &'a work::Work, tools: &BTreeMap<String, Tool>, dir: &Path) -> Vec<(PathBuf, &'a str)> {
+    (work.calls.iter())
+        .filter_map(|(call, asked)| {
+            let work::Call::Asked(work::Ask::Tool { name, .. }) = asked else {
+                return None;
+            };
+            let result = work.results.get(call)?;
+            is_cut(name, result, tools.get(name)).then(|| (file_of(dir, *call), result.as_str()))
+        })
+        .collect()
+}
+
+/// Writes each whole result [`wholes`] names, each time a round is made ready, so that the files of a work going on are
+/// as young as its last round.
+pub async fn keep_wholes(work: &work::Work, tools: &BTreeMap<String, Tool>, dir: &Path) -> Result<(), String> {
+    let wholes = wholes(work, tools, dir);
+    if wholes.is_empty() {
+        return Ok(());
+    }
+    tokio::fs::create_dir_all(dir)
+        .await
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    for (file, result) in wholes {
+        tokio::fs::write(&file, result)
+            .await
+            .map_err(|e| format!("{}: {e}", file.display()))?;
+    }
+    Ok(())
+}
+
+/// Removes, from `root` (the directory [`files_dir`] puts each work's directory in), each file written more than
+/// [`KEPT_DAYS`] days before `now`, and each work's directory left empty. What cannot be removed is left.
+pub async fn sweep(root: &Path, now: std::time::SystemTime) {
+    let old = std::time::Duration::from_secs(KEPT_DAYS * 24 * 3600);
+    let Ok(mut works) = tokio::fs::read_dir(root).await else {
+        return;
+    };
+    while let Ok(Some(work)) = works.next_entry().await {
+        let Ok(mut files) = tokio::fs::read_dir(work.path()).await else {
+            continue;
+        };
+        while let Ok(Some(file)) = files.next_entry().await {
+            let written = file.metadata().await.and_then(|m| m.modified());
+            if written.is_ok_and(|at| now.duration_since(at).is_ok_and(|age| age > old)) {
+                let _ = tokio::fs::remove_file(file.path()).await;
+            }
+        }
+        // Fails where a file is left, which is what keeps it.
+        let _ = tokio::fs::remove_dir(work.path()).await;
+    }
+}
+
 /// A result as it is given: its end of whitespace left off, and cut at the most bytes the tool's words allow, at a
-/// whole character, with the words that follow a cut one saying how much was given and how many bytes the record
-/// holds; as it is where they allow it all.
-fn cut(result: &str, given: Option<&ResultGiven>) -> String {
+/// whole character, with the words that follow a cut one saying how much was given, how many bytes the record holds,
+/// and the `file` that holds it whole; as it is where they allow it all.
+fn cut(result: &str, given: Option<&ResultGiven>, file: &str) -> String {
     let Some(given) = given.filter(|g| result.len() > g.bound) else {
         return result.trim_end().to_string();
     };
@@ -190,7 +268,7 @@ fn cut(result: &str, given: Option<&ResultGiven>) -> String {
         at -= 1;
     }
     let (kept, size) = (at.to_string(), result.len().to_string());
-    let words = fill(&given.cut, &[("given", &kept), ("size", &size)]);
+    let words = fill(&given.cut, &[("given", &kept), ("size", &size), ("file", file)]);
     format!("{}\n\n{words}", &result[..at])
 }
 
@@ -201,25 +279,32 @@ struct Told<'a> {
     tools: &'a [&'a str],
 }
 
-/// Runs the tool named, other than `query`, on the work's branch, with this input, and gives its result.
+/// A call of a tool, other than `query`, as it is run: which call of the work it is, the tool, and what it is run on.
+struct Call<'a> {
+    id: CallId,
+    name: &'a str,
+    input: &'a str,
+}
+
+/// Runs the tool the call names on the work's branch, with the call's input, and gives its result.
 async fn answer(
     host: &impl Host,
     project: &Project,
     branch: &Branch<'_>,
     told: &Told<'_>,
-    name: &str,
-    input: &str,
+    call: &Call<'_>,
     stop: &mut Stop,
 ) -> Answer {
+    let name = call.name;
     if name != RUN_TESTS {
         let tools = told.tools.join(", ");
         return Answer::Result(format!("No such tool: {name}. The tools are: {tools}."));
     }
-    let checked = match asked(input) {
+    let checked = match asked(call.input) {
         Err(why) => Ok(Some(
             told.unread.map_or(why.clone(), |words| fill(words, &[("error", &why)])),
         )),
-        Ok(named) => run_tests(host, project, branch, &named, stop).await,
+        Ok(named) => run_tests(host, project, branch, &named, Asking::Call(call.id), stop).await,
     };
     match checked {
         Ok(Some(said)) | Err(said) => Answer::Result(said),
@@ -234,6 +319,7 @@ async fn run_tests(
     project: &Project,
     branch: &Branch<'_>,
     named: &Named,
+    asking: Asking,
     stop: &mut Stop,
 ) -> Result<Option<String>, String> {
     let could_not = |why: String| format!("The check could not be run: {why}");
@@ -241,7 +327,7 @@ async fn run_tests(
     if let Some(said) = found.map_err(could_not)? {
         return Ok(Some(said));
     }
-    host.run_tests(branch, named, stop).await.map_err(could_not)
+    host.run_tests(branch, named, asking, stop).await.map_err(could_not)
 }
 
 /// A request of `run_tests`: the tests and the checks it names, each list left out where it names none.
@@ -281,7 +367,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-    use crate::git::tests::Repo;
+    use crate::git::tests::{Repo, TAG};
     use crate::host::Local;
     use crate::host::fake::{Asked, Fake};
 
@@ -316,33 +402,132 @@ mod tests {
             about: "",
             place: &place,
         };
-        match answer(host, &repo.project, &branch, &TOLD, name, input, &mut Stop::never()).await {
+        let call = Call {
+            id: CallId(1),
+            name,
+            input,
+        };
+        match answer(host, &repo.project, &branch, &TOLD, &call, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
     }
 
     #[test]
-    fn a_result_longer_than_its_tool_s_words_allow_is_given_cut_with_its_size_and_one_within_it_whole() {
+    fn a_result_longer_than_its_tool_s_words_allow_is_given_cut_with_its_size_its_file_and_one_within_it_whole() {
         let words = ResultGiven {
             bound: 40,
-            cut: "(Cut: {given} of {size} bytes.)".to_string(),
+            cut: "(Cut: {given} of {size} bytes; whole in {file}.)".to_string(),
         };
         let long = format!("{}é{}", "a".repeat(39), "b".repeat(60));
         // The 40th byte is inside a character, so the cut is before it.
         let size = long.len();
         assert_eq!(
-            cut(&long, Some(&words)),
-            format!("{}\n\n(Cut: 39 of {size} bytes.)", "a".repeat(39))
+            cut(&long, Some(&words), "/t/1.txt"),
+            format!("{}\n\n(Cut: 39 of {size} bytes; whole in /t/1.txt.)", "a".repeat(39))
         );
         let short = "b".repeat(40);
-        assert_eq!(cut(&short, Some(&words)), short);
+        assert_eq!(cut(&short, Some(&words), "/t/1.txt"), short);
         // The size is the bytes the record holds, the whitespace at its end among them.
         let padded = format!("{}\n\n\n", "c".repeat(41));
-        let said = format!("(Cut: 40 of {} bytes.)", padded.len());
-        assert!(cut(&padded, Some(&words)).ends_with(&said));
+        let said = format!("(Cut: 40 of {} bytes;", padded.len());
+        assert!(cut(&padded, Some(&words), "/t/1.txt").contains(&said));
         // A tool whose words give no bound is given whole, its end of whitespace left off.
-        assert_eq!(cut(&format!("{long}\n"), None), long);
+        assert_eq!(cut(&format!("{long}\n"), None, "/t/1.txt"), long);
+    }
+
+    /// A work that asked `run_tests` and `query` once each, with these results.
+    fn work_with(tests: &str, query: &str) -> work::Work {
+        let ask = |name: &str, input: &str| {
+            work::Call::Asked(work::Ask::Tool {
+                name: name.to_string(),
+                input: input.to_string(),
+            })
+        };
+        let mut work = work::Work::default();
+        work.calls.insert(CallId(1), ask(RUN_TESTS, "{}"));
+        work.calls.insert(CallId(2), ask(QUERY, "{\"sql\": \"SELECT 1\"}"));
+        work.results.insert(CallId(1), tests.to_string());
+        work.results.insert(CallId(2), query.to_string());
+        work
+    }
+
+    /// The tools' files as the flow has them, `run_tests` given cut at 30 bytes and `query` at 20.
+    fn bounded() -> BTreeMap<String, Tool> {
+        let run_tests = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../flow/agents/tools/run_tests.toml"
+        ));
+        let mut run_tests: Tool = toml::from_str(run_tests).expect("the file of run_tests reads");
+        run_tests.given.as_mut().expect("run_tests is given cut").bound = 30;
+        let query = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../flow/agents/tools/query.toml"
+        ));
+        let mut query: Tool = toml::from_str(query).expect("the file of query reads");
+        query.given_bytes = Some(20);
+        BTreeMap::from([(RUN_TESTS.to_string(), run_tests), (QUERY.to_string(), query)])
+    }
+
+    #[tokio::test]
+    async fn a_cut_result_is_kept_whole_in_a_file_the_message_names_outside_the_worktree() {
+        let repo = Repo::new("true");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = files_dir(temp.path(), TAG, WORK);
+        let whole = format!("head\n{}\nthe last line\n", "a line of the result\n".repeat(10));
+        let query = format!("{{\"rows\": [{}{{\"n\": 1}}]}}", "{\"n\": 1},".repeat(8));
+        let work = work_with(&whole, &query);
+        let tools = bounded();
+        keep_wholes(&work, &tools, &dir).await.unwrap();
+        let file = dir.join("1.txt");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            whole,
+            "the file holds the whole result"
+        );
+        assert!(dir.join("2.txt").is_file(), "a cut query result has its file too");
+        let given = given(&work, &tools, &dir);
+        assert!(
+            given[&CallId(1)].contains(&file.display().to_string()),
+            "{}",
+            given[&CallId(1)]
+        );
+        assert!(!given[&CallId(1)].contains("the last line"), "the message is cut");
+        let cut: serde_json::Value = serde_json::from_str(&given[&CallId(2)]).unwrap();
+        assert_eq!(cut["cut"]["file"], dir.join("2.txt").display().to_string());
+        // Nothing of it is in the data directory the works' worktrees are in.
+        assert!(!file.starts_with(&repo.data) && !file.starts_with(&repo.place(WORK).dir));
+    }
+
+    #[tokio::test]
+    async fn a_result_given_whole_has_no_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = files_dir(temp.path(), TAG, WORK);
+        let work = work_with("short", "{\"rows\": []}");
+        keep_wholes(&work, &bounded(), &dir).await.unwrap();
+        assert!(!dir.exists());
+        assert_eq!(given(&work, &bounded(), &dir)[&CallId(1)], "short");
+    }
+
+    #[tokio::test]
+    async fn the_sweep_removes_the_files_older_than_the_days_they_are_kept_and_the_directories_left_empty() {
+        let temp = tempfile::tempdir().unwrap();
+        let old = files_dir(temp.path(), TAG, WorkNumber(1));
+        let young = files_dir(temp.path(), TAG, WorkNumber(2));
+        for dir in [&old, &young] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("1.txt"), "x").unwrap();
+        }
+        let root = old.parent().unwrap();
+        let now = std::time::SystemTime::now();
+        sweep(root, now).await;
+        assert!(
+            old.join("1.txt").is_file() && young.join("1.txt").is_file(),
+            "young files stay"
+        );
+        let later = now + std::time::Duration::from_secs((KEPT_DAYS + 1) * 24 * 3600);
+        sweep(root, later).await;
+        assert!(!old.exists() && !young.exists());
     }
 
     /// The words an unreadable request is told in, as a file of the flow gives them.
@@ -433,10 +618,55 @@ mod tests {
             about: "",
             place: &place,
         };
-        let asked = answer(&host, &repo.project, &branch, &TOLD, RUN_TESTS, "", &mut stop);
+        let call = Call {
+            id: CallId(1),
+            name: RUN_TESTS,
+            input: "",
+        };
+        let asked = answer(&host, &repo.project, &branch, &TOLD, &call, &mut stop);
         let (answer, ()) = tokio::join!(asked, withdrawing);
         assert!(matches!(answer, Answer::Withdrawn));
         assert!(began.elapsed() < Duration::from_secs(20), "the command was stopped");
+    }
+
+    // The pull request the tool brings up to date is named as the work's merge is: by the work's number before the work
+    // wrote a name for it, and never by the title of its item, which is in the owner's language. The host is asked by
+    // the call, which it finds what it ran for again by after the engine started again.
+    #[tokio::test]
+    async fn the_host_is_asked_by_the_call_and_given_the_name_of_the_works_merge_never_its_items_title() {
+        let repo = Repo::new("true");
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let host = Fake::new("unused").runs("The tests passed.");
+        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), None);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
+        let has = flow::Has {
+            sources: ["tree", "main"].map(str::to_string).into(),
+            acts: ["start", "check", "merge"].map(str::to_string).into(),
+            ..Default::default()
+        };
+        let flow = flow::compile(&flow::read(&dir).unwrap(), &has).unwrap();
+        let first = store::First {
+            title: "向用户问好".to_string(),
+            level: None,
+            project: None,
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+        };
+        let call = ToolCall {
+            work: WORK,
+            flow: Arc::new(flow),
+            run: decide::RunId(1),
+            call: CallId(2),
+            name: RUN_TESTS.to_string(),
+            input: String::new(),
+            item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
+            kept: Arc::new(work::Work::default()),
+        };
+        let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+        tools.call(call, CallReply::new(WORK, CallId(2), to));
+        said.recv().await.expect("the call is answered");
+        assert_eq!(tools.inner.host.titles(), ["Work 1"]);
+        assert_eq!(tools.inner.host.askings(), [Asking::Call(CallId(2))]);
     }
 
     #[test]

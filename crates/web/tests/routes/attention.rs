@@ -63,7 +63,7 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
         .as_str()
         .unwrap()
         .to_string();
-    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
@@ -89,6 +89,7 @@ async fn a_request_held_open_is_answered_as_soon_as_something_comes() {
     let item = json!({
         "title": "Greet the user",
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
     });
@@ -121,6 +122,7 @@ async fn a_request_held_open_with_no_mark_gives_a_work_that_ended_while_it_was_h
     let item = json!({
         "title": "Greet the user",
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
     });

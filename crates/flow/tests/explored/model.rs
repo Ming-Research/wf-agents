@@ -6,29 +6,34 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use decide::run::{Return, Told};
+use decide::run::{Answer, Return, Told};
 use decide::{BlockId, CallId, Cell, CellId, Condition, TestKind, Write};
 use flow::{Compiled, Kind};
 
-/// The data of the engine's that people write: what the item asks, what the owner says to the work, and the answers.
+/// The data of the engine's that the owner's acts write: what the item asks, what the owner says to the work, and the
+/// record of the questions and the answers.
 pub const BACKGROUND: &str = "background";
 pub const DISCUSSION: &str = "discussion";
-pub const ANSWERS: &str = "answers";
+pub const Q_AND_A: &str = "q_and_a";
 
 /// The triggers of a cell's own that the owner fires: speaking to it, and answering one of its questions.
 const SPOKEN: &str = "on_spoken";
 const ANSWERED: &str = "on_answer";
 
-/// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines and the
-/// design tree.
+/// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines, each line
+/// writing a block of its own, the design tree, and the work's head, as a commit no round made moves it.
 pub const START: &str = "start";
 pub const DEPENDENCIES: &str = "dependencies";
 pub const MAIN: &str = "main";
 pub const SESSION: &str = "session";
 pub const TREE: &str = "tree";
+pub const HEAD: &str = "head";
 
 /// The engine's act that checks the work before the merge.
 const CHECK: &str = "check";
+
+/// The source of the questions' standing, which the engine writes.
+const ASKED: &str = "asked";
 
 /// What a round of a cell returns.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -54,6 +59,8 @@ pub enum Variant {
     /// The content with these choices, each another than the content's, and a question that waits for the owner's
     /// answer.
     Asks(BTreeMap<BlockId, String>),
+    /// The content, with each block of its that a test of content reads written holding nothing.
+    Empty,
     /// The check's act, the work not passing: each choice a precondition waits on with another value, and every
     /// other block it writes.
     Fails(&'static str),
@@ -81,6 +88,7 @@ impl fmt::Display for Variant {
                 write!(f, "its content{}, and a question it waits on", values.concat())
             }
             Variant::Fails(why) => write!(f, "{why}"),
+            Variant::Empty => write!(f, "its content, with what a test of content reads holding nothing"),
         }
     }
 }
@@ -100,8 +108,10 @@ pub enum Event {
     OtherOption(CellId),
     /// The owner lets the cell go on at its limit.
     LetsGo(CellId),
-    /// The source outside the work writes its block: main moves, a line begins a new session, the tree changes.
+    /// The source outside the work writes its block: main moves, the tree changes.
     Source(&'static str),
+    /// The line begins a new session, which writes its own block of the source `session`.
+    Session(String),
     /// The items the work depends on have all merged.
     Dependencies,
 }
@@ -115,8 +125,8 @@ impl fmt::Display for Event {
             Event::OtherOption(cell) => write!(f, "the owner takes another option for a question of {cell}"),
             Event::LetsGo(cell) => write!(f, "the owner lets {cell} go on at its limit"),
             Event::Source(MAIN) => write!(f, "main moves"),
-            Event::Source(SESSION) => write!(f, "a session is begun anew"),
             Event::Source(source) => write!(f, "the outside writes {source}"),
+            Event::Session(line) => write!(f, "a session of {line} is begun anew"),
             Event::Dependencies => write!(f, "the items the work depends on merge"),
         }
     }
@@ -131,6 +141,8 @@ pub struct Model {
     pub refusals: BTreeMap<BlockId, String>,
     /// Each choice a precondition waits on, with the value it waits for.
     pub passing: BTreeMap<BlockId, String>,
+    /// Each block a test of content reads.
+    pub contents: BTreeSet<BlockId>,
     /// Of each cell by its place, the blocks it writes that are no choice: those only cells after it run, those a
     /// cell before it runs, and those that run no cell. A cell whose condition wants another value of a block than
     /// the writer's does is no reader, unless the writer writes that block itself: the two never run one after the
@@ -147,10 +159,15 @@ pub struct Model {
     pub answered: Vec<Option<BlockId>>,
     /// Each pair of cells whose conditions want another value of a block, by their places, with the block.
     pub contradicting: Vec<(usize, usize, BlockId)>,
-    /// The block each source outside the work writes.
+    /// The block each source outside the work but `session` writes.
     pub sources: BTreeMap<&'static str, BlockId>,
+    /// The block of the source `session` of each line whose cells read one, by the line.
+    pub sessions: BTreeMap<String, BlockId>,
     /// The place of the check's cell.
     pub check: usize,
+    /// Of each cell by its place, of each block that runs it and that an act of the engine's after it writes, what
+    /// runs that act again, as the engine reads it of the graph.
+    pub answered_by: Vec<BTreeMap<BlockId, Answer>>,
     /// Of each cell by its place, a block that is no choice and that it does not write: what a return sent back
     /// writes.
     stray: Vec<BlockId>,
@@ -165,10 +182,15 @@ impl Model {
             .collect();
         let mut refusals = BTreeMap::new();
         for test in flow.tests().values().filter(|t| t.kind == TestKind::NoneStanding) {
+            let Some(is) = &test.is else { continue };
             for b in &test.reads {
-                refusals.insert(b.clone(), test.is.clone());
+                refusals.insert(b.clone(), is.clone());
             }
         }
+        let contents = (flow.tests().values())
+            .filter(|t| t.kind == TestKind::AnyContent)
+            .flat_map(|t| t.reads.iter().cloned())
+            .collect();
         let mut passing = BTreeMap::new();
         for key in cells.iter().flat_map(|c| &c.requires) {
             match key {
@@ -176,8 +198,9 @@ impl Model {
                     passing.insert(block.clone(), value.clone());
                 }
                 Condition::Test(name) if flow.tests()[name].kind == TestKind::All => {
+                    let Some(is) = &flow.tests()[name].is else { continue };
                     for b in &flow.tests()[name].reads {
-                        passing.insert(b.clone(), flow.tests()[name].is.clone());
+                        passing.insert(b.clone(), is.clone());
                     }
                 }
                 Condition::Test(_) => {}
@@ -248,7 +271,7 @@ impl Model {
             spoken.push(own(SPOKEN));
             answered.push(own(ANSWERED));
         }
-        let sources = [START, DEPENDENCIES, MAIN, SESSION, TREE]
+        let sources = [START, DEPENDENCIES, MAIN, TREE, HEAD]
             .into_iter()
             .filter_map(|source| {
                 (compiled.blocks.iter())
@@ -256,9 +279,36 @@ impl Model {
                     .map(|(block, _)| (source, block.clone()))
             })
             .collect();
+        let line_of = |cell: &CellId| {
+            (compiled.cells.iter())
+                .find(|c| &c.id == cell)
+                .and_then(|c| c.line.clone())
+        };
+        let sessions = (compiled.blocks.iter())
+            .filter(|(_, b)| b.writers.outside.as_deref() == Some(SESSION))
+            .flat_map(|(block, b)| {
+                (b.readers.cells.iter()).filter_map(move |cell| line_of(cell).map(|line| (line, block.clone())))
+            })
+            .collect();
         let check = (compiled.cells.iter())
             .position(|c| c.act.as_deref() == Some(CHECK))
             .expect("the flow has a check");
+        let asked = (compiled.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(ASKED));
+        let answered_by = (0..cells.len())
+            .map(|i| {
+                let mut answers: BTreeMap<BlockId, Answer> = BTreeMap::new();
+                for block in &cells[i].runs_on {
+                    let acts = (compiled.cells.iter().zip(cells)).skip(i + 1);
+                    for (_, act) in acts.filter(|(spec, act)| spec.kind == Kind::Engine && act.outputs.contains(block))
+                    {
+                        let answer = answers.entry(block.clone()).or_default();
+                        answer.runs.extend(act.runs_on.iter().cloned());
+                        answer.question |= asked.is_some_and(|(id, _)| act.runs_on.contains(id));
+                    }
+                }
+                answers
+            })
+            .collect();
         let stray = (cells.iter())
             .map(|cell| {
                 (compiled.blocks.keys())
@@ -272,6 +322,7 @@ impl Model {
             choices,
             refusals,
             passing,
+            contents,
             forward,
             backward,
             silent,
@@ -281,7 +332,9 @@ impl Model {
             answered,
             contradicting,
             sources,
+            sessions,
             check,
+            answered_by,
             stray,
         }
     }
@@ -308,7 +361,7 @@ impl Model {
     }
 
     /// The cells, by their places, a write of these blocks can run again: each that one of them runs, or whose
-    /// condition or preconditions read one, and so on through what each of those writes.
+    /// condition or preconditions read one, and so on through what each of those writes or commits.
     pub fn reach(&self, from: &[BlockId]) -> BTreeSet<usize> {
         let cells = self.cells();
         let mut blocks: Vec<BlockId> = from.to_vec();
@@ -323,10 +376,19 @@ impl Model {
                     || (cell.applies.iter().chain(&cell.requires)).any(|k| self.key_reads(k).contains(&block));
                 if reads && reached.insert(j) {
                     blocks.extend(cell.outputs.iter().cloned());
+                    blocks.extend(self.commits(j).cloned());
                 }
             }
         }
         reached
+    }
+
+    /// The work's head, of the agent cell at this place that answers an act of the engine's by it: a round of it that
+    /// deals with what the act wrote commits its fix, which moves the head.
+    pub fn commits(&self, i: usize) -> Option<&BlockId> {
+        let head = self.sources.get(HEAD)?;
+        let answers = self.agent(i) && self.answered_by[i].values().any(|a| a.runs.contains(head));
+        answers.then_some(head)
     }
 
     /// The value the content of a cell writes into the choice, which has this value now.
@@ -388,6 +450,9 @@ impl Model {
         if !self.forward[i].is_empty() {
             out.push((Variant::Bare, false));
         }
+        if self.forward[i].iter().any(|b| self.contents.contains(b)) {
+            out.push((Variant::Empty, false));
+        }
         if !self.backward[i].is_empty() {
             out.push((Variant::Opinions, true));
         }
@@ -403,23 +468,41 @@ impl Model {
         out
     }
 
+    /// What the return of the round of the cell at this place deals with, with what the round was told: of an agent's,
+    /// each trigger the round was told ran it, named as its agent names it and read as the agents' rounds read a return
+    /// (`CellSpec::dealt_with`); of an act of the engine's, which names none, everything that ran the round.
+    pub fn dealt_with(&self, i: usize, told: &Told) -> Vec<BlockId> {
+        let spec = &self.compiled.cells[i];
+        if !self.agent(i) {
+            return told.ran_by.clone();
+        }
+        let names: Vec<String> = spec.ran(&told.ran_by).map(|t| t.name.clone()).collect();
+        let (dealt_with, none) = spec.dealt_with(&names);
+        assert!(none.is_empty(), "{} names no trigger {none:?}", spec.id);
+        dealt_with
+    }
+
     /// What the round of the cell at this place returns as this variant, with what it was told: the return as the
     /// engine's check of it reads it, and whether a question of it waits for the owner.
     pub fn hand_in(&self, i: usize, variant: &Variant, told: &Told) -> (Return, bool) {
         let cell = &self.cells()[i];
         let ran_by = told.ran_by.clone();
+        let dealt_with = self.dealt_with(i, told);
         if *variant == Variant::SentBack {
             let stray = Write {
                 block: self.stray[i].clone(),
                 meaning_unchanged: false,
+                empty: false,
                 value: None,
             };
             let ret = Return::Came {
-                dealt_with: ran_by,
+                dealt_with,
                 writes: vec![stray],
                 calls: 0,
                 found: Vec::new(),
                 waits: false,
+                questions: Vec::new(),
+                read: Vec::new(),
             };
             return (ret, false);
         }
@@ -452,7 +535,7 @@ impl Model {
                     }
                     prose.extend(self.backward[i].iter().cloned());
                 }
-                Variant::Content | Variant::SentBack | Variant::Fails(_) => {}
+                Variant::Content | Variant::Empty | Variant::SentBack | Variant::Fails(_) => {}
             }
         } else {
             let fails = matches!(variant, Variant::Fails(_));
@@ -476,17 +559,29 @@ impl Model {
                 (value.is_some() || prose.contains(block)).then(|| Write {
                     block: block.clone(),
                     meaning_unchanged: false,
+                    empty: *variant == Variant::Empty && self.contents.contains(block),
                     value,
                 })
             })
             .collect();
         let asks = matches!(variant, Variant::Asks(_));
+        // A round that deals with what an act after its cell wrote commits its fix, which moves the work's head, read
+        // as the round ends; where it asks as well it commits all the same, since the exploration keeps no question in
+        // the records and never writes the questions' standing, which would run the act on the answer.
+        let read = (self.commits(i).filter(|head| {
+            (dealt_with.iter())
+                .filter_map(|block| self.answered_by[i].get(block))
+                .any(|a| a.runs.contains(head))
+        }))
+        .cloned();
         let ret = Return::Came {
-            dealt_with: ran_by,
+            dealt_with,
             writes,
             calls: 0,
             found: Vec::new(),
             waits: asks,
+            questions: Vec::new(),
+            read: read.into_iter().collect(),
         };
         (ret, asks)
     }

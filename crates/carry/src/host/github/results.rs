@@ -1,7 +1,7 @@
 //! What a run of a project's workflow reports of its tests, read from the JUnit XML files of the artifact the project's
 //! declaration names (`ci.fast.results`, `ci.full.results`): each test it reported, with what became of it, how long
 //! it took and what it said, and each unit it did not build; and what became of each test an agent named. Brought over
-//! from the old engine (`crates/engine/src/results.rs` on `old-main`). The workflow and the engine hold to three
+//! from the old engine (`crates/engine/src/results.rs` on `old-main`). The workflow and the engine hold to four
 //! conventions:
 //!
 //! - The results are JUnit XML: the artifact holds one or more files ending in `.xml`. Each `testsuite` is a unit (a
@@ -13,6 +13,10 @@
 //!   `error` element, whose text (or, when it has none, its `message`) says why.
 //! - A test's name is the `name` its results give it, and the one string an agent asks for it by and the project's fast
 //!   workflow takes to run it: the engine treats it as it is, and decides nothing by its parts.
+//! - A file of the full workflows is named by the job that ran its tests, `<job>.xml`, the job's name as GitHub gives
+//!   it, so that what each job reported is told apart; a job that runs tests writes its file whatever became of them,
+//!   and says a step of its own that failed beside its tests as a testsuite of the job's name with an error naming the
+//!   step, as a unit not built is said.
 
 /// A test as a run reported it: the unit it is in (a test binary, a test file) and its name.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +57,8 @@ impl Outcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Case {
     pub test: Reported,
+    /// The job that reported it, as the name of its file gives it ([`job_of`]).
+    pub job: String,
     pub outcome: Outcome,
     /// The element that says it did not pass (`failure` or `error`), for a test that failed.
     pub ended: Option<String>,
@@ -70,11 +76,19 @@ pub struct Unbuilt {
     pub why: String,
 }
 
-/// What a run reported: every test, in the order its files hold them, and every unit it did not build.
+/// What a run reported: every test, in the order its files hold them, every unit it did not build, and each job that
+/// reported a file of its own, as the names of its files give them ([`job_of`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Run {
     pub cases: Vec<Case>,
     pub unbuilt: Vec<Unbuilt>,
+    pub reported: Vec<String>,
+}
+
+/// The job that reported a file: its name, of the path's last part, without `.xml`.
+pub fn job_of(path: &str) -> &str {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.strip_suffix(".xml").unwrap_or(name)
 }
 
 /// Reads the files of a run's artifact, each as its path in the artifact and its bytes: every file whose path ends in
@@ -85,6 +99,10 @@ pub fn read(files: &[(String, Vec<u8>)]) -> Result<Run, String> {
     let mut any = false;
     for (path, bytes) in files.iter().filter(|(p, _)| p.ends_with(".xml")) {
         any = true;
+        let job = job_of(path);
+        if !run.reported.iter().any(|j| j == job) {
+            run.reported.push(job.to_string());
+        }
         let text = std::str::from_utf8(bytes).map_err(|e| format!("{path} is not UTF-8: {e}"))?;
         let doc = roxmltree::Document::parse(text).map_err(|e| format!("{path} is not XML the engine reads: {e}"))?;
         let root = doc.root_element();
@@ -128,6 +146,7 @@ pub fn read(files: &[(String, Vec<u8>)]) -> Result<Run, String> {
                     unit: unit.to_string(),
                     name: name.to_string(),
                 },
+                job: job.to_string(),
                 outcome,
                 ended: failed.map(|f| f.tag_name().name().to_string()),
                 said,
@@ -316,6 +335,26 @@ error[E0599]: no method named `rounds_mark` found
                 why: "error[E0599]: no method named `rounds_mark` found".to_string(),
             }]
         );
+    }
+
+    // Each test is of the job its file is named by, the file's name without its directories and `.xml`, and each job
+    // that reported a file is said once, in the order of the files.
+    #[test]
+    fn each_test_is_of_the_job_its_file_is_named_by() {
+        let xml = |name: &str| {
+            format!(r#"<testsuites><testsuite name="u"><testcase name="{name}"/></testsuite></testsuites>"#)
+        };
+        let files = [
+            file("page.xml", &xml("a")),
+            file("test 1 of 3.xml", &xml("b")),
+            file("more/test 1 of 3.xml", &xml("c")),
+        ];
+        let run = read(&files).unwrap();
+        let jobs: Vec<(&str, &str)> = (run.cases.iter())
+            .map(|c| (c.test.name.as_str(), c.job.as_str()))
+            .collect();
+        assert_eq!(jobs, [("a", "page"), ("b", "test 1 of 3"), ("c", "test 1 of 3")]);
+        assert_eq!(run.reported, ["page", "test 1 of 3"]);
     }
 
     // A testcase is of the innermost testsuite it is in, and an outer testsuite that holds testcases only in inner

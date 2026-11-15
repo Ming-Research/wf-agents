@@ -267,18 +267,39 @@ mod tests {
         };
         let lock = tokio::sync::Mutex::new(());
         let mut stop = crate::held::Stop::never();
+        // The review saw the work's own commit, under the run's merge.
+        let built = run(&place.dir, &["rev-parse", &format!("{merge}^1")]);
+        let (protecting, work) = (crate::acts::Protecting::default(), work::Work::default());
+        let reading = crate::branch::Reading {
+            tree: repo.project.tree.clone(),
+            main: "refs/heads/main".to_string(),
+        };
+        let mut looking = crate::branch::Looking::head_only(reading, Some(&built));
+        let seen = [Some(built.clone())];
+        let mut gate = crate::acts::Gate {
+            branch: &mut looking,
+            wrote: &|_, _| {},
+            reviewed: Some(&seen),
+            protecting: &protecting,
+            work: &work,
+        };
         let checked = crate::acts::check(
             &repo.project,
             &host,
             &branch,
             &lock,
-            &mut stop,
+            (crate::host::Asking::Round(RunId(1), 1), &mut stop, &|_| {}),
             &crate::acts::words().check,
+            &mut gate,
         )
         .await
         .expect("the work is checked")
         .expect("nothing stopped it");
         assert_eq!(checked.commit, merge, "the run's merge is what is judged");
+        assert_eq!(
+            checked.failed, None,
+            "the run's merge brings only main's code, over the commit the review saw"
+        );
         assert!(!checked.took_in, "the check merged nothing of its own");
     }
 

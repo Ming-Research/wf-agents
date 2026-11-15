@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use flow::InputKind;
-use flow::agents::{self, Group, InForm, OfTheLine, OfTheReturn, Only, Part, ReturnKind, SessionPart, ToldAs};
+use flow::agents::{self, OfTheLine, OfTheReturn, Only, Part, SessionPart, ToldAs};
 
 /// The directory of the tests' flows, beside which the files are.
 fn beside() -> PathBuf {
@@ -37,7 +37,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(read.root, beside());
     assert_eq!(read.project.files["guide"].path, "AGENTS.md");
     assert_eq!(read.project.files["constitution"].path, "design/constitution.md");
-    assert_eq!(read.project.installation.names, ["owner.language"]);
+    assert_eq!(read.installation.names, ["owner.language"]);
     assert_eq!(read.project.project["research"], "research/");
 
     let parts: Vec<String> = (read.session.parts.iter())
@@ -80,29 +80,33 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     );
 
     assert_eq!(
-        read.returns.form.calls,
-        [InForm::Group(Group::Tools), InForm::Field("summary".to_string())]
+        read.returns.form.outcome,
+        ["dealt_with", "summary", "meaning_unchanged", agents::OUTPUTS]
     );
-    assert_eq!(read.returns.form.outcome[4], InForm::Field(agents::OUTPUTS.to_string()));
-    assert_eq!(read.returns.how_you_return.listed, ["reply", "summary"]);
-    assert_eq!(read.returns.how_you_return.reads, ["reply", "summary"]);
+    assert_eq!(read.returns.how_you_return.listed, ["summary"]);
+    assert_eq!(read.returns.how_you_return.reads, ["summary"]);
+    assert_eq!(read.returns.how_you_return.tools, "## What you may ask the engine for");
     assert_eq!(read.returns.outputs.none, "This cell writes no block.");
     assert_eq!(read.sent_back.heading, "## Sent back");
     assert_eq!(read.sent_back.item, "- {text}");
     assert_eq!(read.sent_back.faults.not_a_trigger, "`{name}` does not run this cell.");
     assert_eq!(read.sent_back.unread.requests_not_a_list, "`{name}` has no list");
-    assert_eq!(read.returns.asked.recommended, "{number}. {does}, {follows} (yes)");
+    assert_eq!(
+        read.sent_back.faults.not_answerable,
+        "`{name}` cannot be answered here."
+    );
+    assert_eq!(read.project.protected.paths, ["AGENTS.md", "flow/"]);
+    assert_eq!(read.asks.protected.name, "protected_files");
+    assert_eq!(read.asks.protected.options.len(), 2);
     assert_eq!(
         read.fields.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["dealt_with", "meaning_unchanged", "outputs", "reply", "summary"]
+        ["dealt_with", "meaning_unchanged", "outputs", "summary"]
     );
     let dealt_with = &read.fields["dealt_with"];
-    assert_eq!(dealt_with.kinds, [ReturnKind::Outcome]);
     assert!(dealt_with.required);
     assert_eq!(dealt_with.told, ToldAs::Alone);
     assert_eq!(dealt_with.shape["type"].as_str(), Some("array"));
     let summary = &read.fields["summary"];
-    assert_eq!(summary.kinds, [ReturnKind::Calls, ReturnKind::Outcome]);
     assert!(!summary.required);
     assert_eq!(read.fields["meaning_unchanged"].told, ToldAs::WithOutputs);
 
@@ -111,6 +115,8 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         ["answers", "query"]
     );
     assert_eq!(read.tools["query"].request["required"][0].as_str(), Some("sql"));
+    assert_eq!(read.tools["query"].defines, ["rows", "cut", "substr"]);
+    assert!(read.tools["answers"].defines.is_empty());
     let given = read.tools["answers"]
         .given
         .as_ref()
@@ -268,19 +274,11 @@ fn a_file_of_the_project_the_session_names_is_one_project_toml_has() {
 }
 
 #[test]
-fn each_field_the_form_and_told_name_is_a_field_of_the_return_and_the_form_s_groups_are_its_own() {
+fn each_field_the_form_and_told_name_is_a_field_of_the_return() {
     for (name, from, to) in [
-        ("form", "\"reply\", \"outputs\"", "\"answer\", \"outputs\""),
-        (
-            "listed",
-            "listed = [\"reply\", \"summary\"]",
-            "listed = [\"reply\", \"summary\", \"notes\"]",
-        ),
-        (
-            "reads",
-            "reads = [\"reply\", \"summary\"]",
-            "reads = [\"reply\", \"words\"]",
-        ),
+        ("form", "\"meaning_unchanged\", \"outputs\"", "\"answer\", \"outputs\""),
+        ("listed", "listed = [\"summary\"]", "listed = [\"summary\", \"notes\"]"),
+        ("reads", "reads = [\"summary\"]", "reads = [\"words\"]"),
     ] {
         let dir = copy(name);
         let returns = dir.join("agents/return/return.toml");

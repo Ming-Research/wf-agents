@@ -1,7 +1,8 @@
 // Made-up items for looking at the console with no server behind it (`console.html?fixtures`), and for its tests: some
 // twenty items, each with its one work, depending on each other in four layers, their works in every state a work can
-// be in, on one made-up flow of an engineer's work. What the owner does to a work changes it here, and the console is
-// told as the interface's stream of changes would tell it.
+// be in, on one made-up flow of an engineer's work; most of the project `wf-agents`, two of another, and one, added
+// before items had projects, of none. What the owner does to a work changes it here, and the console is told as the
+// interface's stream of changes would tell it.
 
 import type { Block, Cell, Flow, Limits, Test } from '../api';
 import type {
@@ -251,7 +252,8 @@ const BARS = [
 const begun = (now: Now, cells: CellNow[]) =>
   now.kind === 'round' || cells.some((c) => c.state !== 'notYet' && c.state !== 'skipped');
 
-type Made = { title: string; dependsOn: number[]; work: Omit<Summary, 'item' | 'flow'> };
+/// A made-up item: its project is `wf-agents` where it names none.
+type Made = { title: string; project?: string | null; dependsOn: number[]; work: Omit<Summary, 'item' | 'flow'> };
 
 /// The made-up items, as they stand when the page opens; `start` is the time it is taken from.
 export function fixtureItems(start = Date.now()): Items {
@@ -360,6 +362,7 @@ export function fixtureItems(start = Date.now()): Items {
     },
     8: {
       title: 'Draw the items as a tree',
+      project: 'Whitefoot',
       dependsOn: [17, 22],
       work: work(round('deep_research', 2), cellsAt('deep_research', 'running'), { hours: 0.4, dollars: 0.62, rounds: 5 }),
     },
@@ -433,6 +436,7 @@ export function fixtureItems(start = Date.now()): Items {
     },
     17: {
       title: 'Snap the columns as they scroll',
+      project: 'Whitefoot',
       dependsOn: [],
       work: work(round('test', 31, 4), cellsAt('test', 'running'), { hours: 4, dollars: 3.75, rounds: 33 }),
     },
@@ -469,6 +473,8 @@ export function fixtureItems(start = Date.now()): Items {
     },
     21: {
       title: 'Store the versions of each block',
+      // Added before items had projects.
+      project: null,
       dependsOn: [],
       work: work({ kind: 'merged' }, cellsAt(null, 'done'), { hours: 90, dollars: 8.1, rounds: 59 }),
     },
@@ -507,6 +513,7 @@ export function fixtureItems(start = Date.now()): Items {
         number: Number(n),
         title: m.title,
         level: '2',
+        project: m.project === undefined ? 'wf-agents' : m.project,
         added: m.work.added,
         dependsOn: m.dependsOn,
         history: { first: { title: m.title, level: '2', dependsOn: m.dependsOn }, changes: [] },
@@ -523,7 +530,17 @@ function pageOf(item: Item, summary: Summary): WorkPage {
     needs: [],
     inputs: c.inputs.map((block) => ({ block, current: null, known: null, changed: false })),
   }));
-  return { summary, title: item.title, level: item.level, history: item.history, flow: FLOW, cells, blocks: [], steps: [] };
+  return {
+    summary,
+    title: item.title,
+    level: item.level,
+    project: item.project,
+    history: item.history,
+    flow: FLOW,
+    cells,
+    blocks: [],
+    steps: [],
+  };
 }
 
 /// The made-up items as a source the console reads: what the owner does changes them, and the console is told.

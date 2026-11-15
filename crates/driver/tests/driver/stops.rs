@@ -149,6 +149,8 @@ fn answer(h: &H, s: usize) -> Option<Act> {
             spent: spent(s as u64),
         },
         Effect::Release { .. } => Event::Released,
+        Effect::Ping { .. } => unreachable!("no policy here keeps sessions warm"),
+        Effect::Tell { .. } => unreachable!("no words are said"),
     };
     Some(Act::On(todo.work, event))
 }

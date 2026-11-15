@@ -54,6 +54,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     not_yet("merge"),
                 ],
                 "spent": spent(1),
+                // No ping of its sessions was sent.
+                "pinged": { "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
                 "last": asked,
                 // Its first round began as it was resumed, and an agent has run the whole of its time since.
                 "from": resumed,
@@ -62,10 +64,12 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             },
             "title": "Greet the user",
             "level": "2",
+            "tags": [],
             "history": {
-                "first": { "title": "Greet the user", "level": "2", "dependsOn": [] },
+                "first": { "title": "Greet the user", "level": "2", "dependsOn": [], "tags": [] },
                 "changes": [],
             },
+            "project": "trial",
             "flow": flow,
             "cells": [
                 {
@@ -76,7 +80,11 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 {
                     "cell": "build",
                     "needs": [],
-                    "inputs": [input("plan", Value::Null), input("opinions", Value::Null)],
+                    "inputs": [
+                        input("plan", Value::Null),
+                        input("opinions", Value::Null),
+                        input("answered", Value::Null),
+                    ],
                 },
                 { "cell": "review", "needs": [], "inputs": [input("code", Value::Null)] },
                 { "cell": "merge", "needs": [], "inputs": [input("code", Value::Null)] },
@@ -90,6 +98,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "by": { "kind": "outside" },
                         "meaning": 2,
                         "value": "merged",
+                        "saidTo": null,
                         "chars": 42,
                     }],
                 },
@@ -101,6 +110,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "by": { "kind": "person" },
                         "meaning": 3,
                         "value": null,
+                        "saidTo": null,
                         "chars": 23,
                     }],
                 },
@@ -145,11 +155,35 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "spent": spent(1),
                         "context": null,
                         "compactions": 0,
+                        // The engineer's first session, which the records count as none; the script records no
+                        // try.
+                        "session": { "line": "engineer", "number": 0 },
+                        "tries": [],
+                        "missed": null,
+                        "estimated": false,
+                        // The engine's loop runs with no policy, which a line is worked out by: nothing is judged.
+                        "judged": { "cost": null, "time": null },
                     }],
-                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null }],
+                    // A question is no call of a tool, whose time alone is judged.
+                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null, "time": null }],
                     // A return that asks ends its run, having dealt with nothing.
                     "end": { "kind": "finished", "at": 9, "time": asked, "writes": [] },
                     "spent": spent(1),
+                },
+            ],
+            // The plan's question is a call of the earlier form: no question of the work's own is asked.
+            "questions": [],
+            // The owner's words run no cell of the trial flow.
+            "speaking": [
+                {
+                    "to": { "kind": "line", "line": "engineer" },
+                    "cell": null,
+                    "refused": "the owner's words run no cell of the line engineer",
+                },
+                {
+                    "to": { "kind": "line", "line": "reviewer" },
+                    "cell": null,
+                    "refused": "the owner's words run no cell of the line reviewer",
                 },
             ],
         })
@@ -174,7 +208,7 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
         json!({ "call": 2, "what": question(), "result": null })
     );
 
-    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT

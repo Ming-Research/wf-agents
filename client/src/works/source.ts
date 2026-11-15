@@ -19,10 +19,14 @@ import type {
   CallPage,
   Changed,
   Copies,
+  DoingPage,
   Engine,
   EngineAct,
   Items,
+  Projects,
   RoundPage,
+  Said,
+  SystemPage,
   ToldPage,
   VersionPage,
   WorkPage,
@@ -31,12 +35,18 @@ import type {
 export interface Source {
   loadCopies(): Promise<Copies>;
   loadItems(): Promise<Items>;
+  /// The projects the installation names.
+  loadProjects(): Promise<Projects>;
   loadWork(work: number): Promise<WorkPage>;
   loadVersion(work: number, block: string, at: number): Promise<VersionPage>;
   loadRound(work: number, run: number, round: number): Promise<RoundPage>;
   loadTold(work: number, run: number, round: number): Promise<ToldPage>;
+  loadDoing(work: number, run: number, round: number): Promise<DoingPage>;
+  loadSystem(work: number, line: string, session: number): Promise<SystemPage>;
   loadCall(work: number, call: number): Promise<CallPage>;
-  act(work: number, what: Act): Promise<null>;
+  /// What the owner does to a work: words said answer with the cell the engine gave them to, every other act with
+  /// nothing.
+  act(work: number, what: Act): Promise<Said | null>;
   /// How the engine stands as a whole, and the owner's pause of everything; a source that has no engine has neither.
   loadEngine?(): Promise<Engine>;
   actOnEngine?(what: EngineAct): Promise<null>;
@@ -49,10 +59,13 @@ export interface Source {
 export const INTERFACE: Source = {
   loadCopies: api.loadCopies,
   loadItems: api.loadItems,
+  loadProjects: api.loadProjects,
   loadWork: api.loadWork,
   loadVersion: api.loadVersion,
   loadRound: api.loadRound,
   loadTold: api.loadTold,
+  loadDoing: api.loadDoing,
+  loadSystem: api.loadSystem,
   loadCall: api.loadCall,
   act: api.act,
   loadEngine: api.loadEngine,
@@ -67,10 +80,13 @@ export const INTERFACE: Source = {
 export const FIXTURES: Source = {
   loadCopies: async () => (await import('./fixtures')).fixtureCopies(),
   loadItems: async () => (await import('./fixtures')).fixtureItems(),
+  loadProjects: async () => (await import('./fixtures')).fixtureProjects(),
   loadWork: async (work) => (await import('./fixtures')).fixtureWork(work),
   loadVersion: async (work, block, at) => (await import('./fixtures')).fixtureVersion(work, block, at),
   loadRound: async (work, run, round) => (await import('./fixtures')).fixtureRound(work, run, round),
   loadTold: async (work, run, round) => (await import('./fixtures')).fixtureTold(work, run, round),
+  loadDoing: async (work, run, round) => (await import('./fixtures')).fixtureDoing(work, run, round),
+  loadSystem: async (work, line, session) => (await import('./fixtures')).fixtureSystem(work, line, session),
   loadCall: async (work, call) => (await import('./fixtures')).fixtureCall(work, call),
   act: async (work, what) => {
     console.info(`works/${work}/acts`, what);

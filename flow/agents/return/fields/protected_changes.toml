@@ -1,0 +1,13 @@
+# Why the work changes each file the project protects (`[protected]` of `../../../project.toml`), by its path: what
+# the question the engine asks the owner of the change says of each file, above its change (`../../asks.toml`). As a
+# round of a line that may change the work ends, a return that does the cell's work is sent back for each such file
+# the work's branch changes and that neither this field nor the question that stands of the file as it is says why
+# (`unexplained` in `../sent_back.toml`).
+told = "listed"
+words = '''
+`protected_changes`: of each file the project protects that a round of yours changes, or changes again, why the
+  change is needed, under the file's path; a reason stands for the file as it then is.'''
+
+[shape]
+type = "object"
+additionalProperties = { type = "string" }

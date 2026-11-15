@@ -9,27 +9,32 @@
 //!
 //! What happens to one work reaches another only as a write of a block of the other. The driver is itself what writes
 //! one such block: the block of a flow whose source is [`DEPENDENCIES`] says whether the items the work's item
-//! depends on have merged. The driver writes it as the item is added, whenever one of those items merges or is
-//! cancelled, and, on opening, wherever the block and what it stands for have come apart; it writes no block of a
-//! work that has ended. A work whose flow has no such block waits for no item. An item that depends on a cancelled
-//! one waits for good, its block saying which: the owner cancels it, takes that dependency away, or leaves it.
+//! depends on have merged. The driver writes it as the item is added, whenever one of those items merges, is cancelled
+//! or is reopened, and, on opening, wherever the block and what it stands for have come apart; it writes no block of a
+//! work that has ended. A work whose flow has no such block waits for no item. No item is cancelled while an item
+//! that has not ended depends on it, and none comes to depend on a cancelled one; an item that depends on a cancelled
+//! one, as one kept before that held, waits for good, its block saying which.
 //!
-//! Whoever plans the work changes an item after it was added: its title, its level, and, while its work has started no
-//! run, what it depends on ([`Driver::change`], module [`changes`]). Each change is kept as a record of the item's own;
-//! a change of what it depends on writes the work's block of [`DEPENDENCIES`] anew, as an add does.
+//! Whoever plans the work changes items after they were added, several at once all or none, each change saying why:
+//! an item's title, level and tags, and, while its work has started no run, what it depends on; its cancel; and the
+//! reopening of a cancelled item ([`Driver::change`], module [`changes`]). A change of an item is kept as a record of
+//! the item's own, a cancel and a reopen as the work's; a change of what an item depends on writes the work's block of
+//! [`DEPENDENCIES`] anew, as an add does.
 //!
 //! The driver writes the block of a flow whose source is [`START`] as the owner starts the work: as the work, added
-//! paused, is first let on with nothing of it started, so that the cell it runs, the work's start, is entered.
+//! paused, is first let on with nothing of it started, or, reopened, is first let on since, so that the cell it runs,
+//! the work's start, is entered and makes the place the work is done in again.
 //!
-//! The driver writes one more block of a work: the block of a flow whose source is [`SESSION`], which a cell reads that
-//! loads into a line's session what the line's other cells work from. As a line of a work begins a new session, the
-//! driver records it and writes the block, so that the cell runs again before the line goes on; when a line begins one
-//! is the installation's [`Policy`], worked out of the work's records after each thing that happens and before the walk
-//! (module [`sessions`]).
+//! The driver writes one more kind of block of a work: a block of a flow whose source is [`SESSION`], which a cell reads
+//! that loads into a line's session what the line's other cells work from, each line its own. As a line of a work
+//! begins a new session, the driver records it and writes the block its cells read, so that the cell runs again before
+//! the line goes on; when a line begins one is the installation's [`Policy`], worked out of the work's records after
+//! each thing that happens and before the walk (module [`sessions`]).
 //!
-//! What another source outside the works says, such as the head of the project's main branch, the driver is told
-//! ([`Driver::outside`]), and writes into the block of that source of each work that has not ended, where the block
-//! does not say it already.
+//! What another source outside the works says of a project, such as the head of the project's main branch, the driver
+//! is told ([`Driver::outside`]), and writes into the block of that source of each work of that project's items that
+//! has not ended, where the block does not say it already. An item belongs to one project, and may depend on an item
+//! of another: the block of [`DEPENDENCIES`] waits for it as for any other.
 //!
 //! The driver is also the scheduler: it alone sees every work, and so it works out what holds back every work at once
 //! and gives each work's loop that room ([`Room`]). The pause of everything is kept in the store, so that it holds
@@ -43,12 +48,12 @@
 //! while one is free: each call gives away what came free before it returns. A work is added paused, and goes on once
 //! the owner lets it on, so that whoever plans orders what runs.
 //!
-//! What happens to one work also reaches every other where a round of an agent failed for a cause every work shares,
+//! What happens to one work also reaches every other where a round of an agent failed for a cause outside every work,
 //! such as the account's usage limit: no agent's round of any work begins while that wait stands ([`outage`]). It is
 //! worked out from the records of every work, and given to the engine's loop for each work as a [`Gate`]; once it
-//! changes, every work is looked at again. When it is over by itself, at a time, is the driver's to say
-//! ([`Driver::wake`]) and its caller's, which reads the clock, to tell it ([`Driver::tick`]), with what a look at the
-//! network found where the driver asks for one.
+//! changes, every work is looked at again. When the outside is to be checked, and the acts' host looked at, is the
+//! driver's to say ([`Driver::wake`]) and its caller's, which reads the clock and reaches the outside, to tell it with
+//! what the check or the look found ([`Driver::tick`]).
 //!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
@@ -58,28 +63,44 @@
 //! (principle `nothing-passes-for-normal`).
 //!
 //! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`].
+//!
+//! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
+//! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
+//! by as it runs, and each line of a work the context past which its session begins anew. It gives the keep-warm pings
+//! of the sessions of lines that wait as their time comes, the time being among what it asks to be told ([`warm`]);
+//! it tells a round that missed its session's prompt cache from the records ([`cache`]); and it tells how each round
+//! and each call of a tool went against the lines of its history, which stops nothing ([`judged`]).
 
 pub mod attention;
 
+pub mod cache;
+
 pub mod changes;
 
+pub mod history;
+
+pub mod judged;
+
 pub mod sessions;
+
+pub mod warm;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub mod outage;
 
+use decide::run::Failure;
 use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 use flow::agents::fill;
-pub use outage::{Outage, Until};
+pub use outage::{Checked, Found, Outage, Service, Until};
 use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
 
-pub use changes::{Gone, Unchangeable};
-pub use sessions::{Policy, SESSION};
+pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
+pub use sessions::{Limits, Policy, SESSION, Warm};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
 /// is a choice of [`WAITING`] and [`MERGED`].
@@ -93,22 +114,37 @@ pub const MERGED: &str = "merged";
 /// of it started. The block has no content to speak of; its version is what runs the cell that starts the work.
 pub const START: &str = "start";
 
-/// What is wrong with the flow for what the driver writes, each in words with the file that says what the driver writes
-/// into the block: a block of [`DEPENDENCIES`], of [`SESSION`] or of [`START`] gives in its `writes` each text the
-/// driver fills, so that none is written empty. A flow with any of these is not run.
+/// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
+/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`], and each record
+/// a trigger of the owner's words or of an answer has its agent read, which that source writes entries of
+/// ([`flow::Trigger::records`]), gives in its `writes` each text the engine fills, so that none is written empty. A
+/// flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
+    use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
-    let needs: [(&str, &[&str]); 3] = [
+    let needs: [(&str, &[&str]); 4] = [
         (DEPENDENCIES, &[MERGED, WAITING, "cancelled", "between"]),
         (SESSION, &session),
         (START, &["text"]),
+        (ASKED, &[ANSWERED, UNANSWERED, "between"]),
+    ];
+    // The records the sources of the owner's turning write entries of: of what is said, the owner's entries and the
+    // cells' answers; of the questions and the answers, each kind of entry.
+    let records: [(&str, &[&str]); 2] = [
+        (flow::WORDS, &[engine::spoken::OWNER, engine::spoken::REPLY]),
+        (flow::ANSWER, &engine::asked::ENTRIES),
     ];
     let mut faults = Vec::new();
     for (name, block) in &flow.blocks {
-        let Some((source, keys)) = needs
+        let found = needs
             .iter()
-            .find(|(source, _)| block.writers.outside.as_deref() == Some(*source))
-        else {
+            .find(|(source, _)| block.writers.outside.as_deref() == Some(*source));
+        let read = |source: &str| {
+            (flow.cells.iter().flat_map(|c| &c.triggers)).any(|t| t.records(flow, source).any(|b| b == name))
+        };
+        let record =
+            (records.iter()).find(|(source, _)| block.writers.outside.as_deref() == Some(*source) && read(source));
+        let Some((source, keys)) = found.or(record) else {
             continue;
         };
         let missing: Vec<&str> = keys
@@ -143,19 +179,29 @@ pub struct Driver {
     fault: Option<Fault>,
     /// When a line begins a new session; with none, only what others record of sessions is followed.
     policy: Option<Policy>,
-    /// The latest look at the network, while the agents' rounds wait for it: when, and whether it was reached.
-    looked: Option<(Time, bool)>,
+    /// The checks of the outside taken while the agents' rounds wait for it, with when the wait they were taken in
+    /// began ([`Outage::since`]): checks of a wait that ended are of no other.
+    checked: Option<(Time, Checked)>,
+    /// The latest look at the acts' host, while the acts' rounds wait for it: when, and whether it was reached.
+    looked_at_host: Option<(Time, bool)>,
     /// When the driver was last told the time it asked for: a wake at or before it has been acted on. Lost in a stop,
     /// when a wake whose time has come is acted on again.
     ticked: Option<Time>,
+    /// Each round, of a work and run by its number, that the agents' service answered while it was under way. What
+    /// the outside says at a moment, kept only in memory: lost in a stop, the round is given again and answers again.
+    answered: BTreeSet<(WorkNumber, decide::RunId, usize)>,
+    /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a work is,
+    /// no round of the work begins. Lost in a stop, when a ping still due is given again.
+    pinging: BTreeSet<(WorkNumber, String)>,
 }
 
-/// When the driver is to be told the time again: the agents' rounds may begin then, or, where `look`, the network is
-/// to be looked at then, and what the look found told with the time.
+/// When the driver is to be told the time again: where `check`, the outside of the agents' rounds is to be checked
+/// then, and where `look_at_host`, the network to the acts' host looked at; what each found is told with the time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Wake {
     pub at: Time,
-    pub look: bool,
+    pub check: bool,
+    pub look_at_host: bool,
 }
 
 /// The slots, as they stand.
@@ -169,6 +215,7 @@ pub struct Slots {
 }
 
 /// A work as the driver holds it: what the store holds of it, with its item and its flow at hand.
+#[derive(Clone)]
 struct Held {
     head: WorkHead,
     item: Item,
@@ -176,6 +223,9 @@ struct Held {
     work: Work,
     /// How the work stands. Worked out again each time the work grows.
     standing: Standing,
+    /// The work's rounds that are history, which later rounds of every work on its flow are judged by. Worked out
+    /// again each time the work grows.
+    samples: Vec<history::Sample>,
 }
 
 /// How a work stands, for the driver: whether it is still to be written to and looked at.
@@ -221,8 +271,12 @@ pub struct NewItem {
     pub title: String,
     /// The name of the level it is given, which whoever adds it has checked against the installation's levels.
     pub level: String,
-    /// The items it depends on.
+    /// The name of the project it belongs to, which whoever adds it has checked against the installation's projects.
+    pub project: String,
+    /// The items it depends on, of its own project or another.
     pub depends_on: Vec<ItemNumber>,
+    /// The tags it carries.
+    pub tags: Vec<String>,
     /// The name of the flow its work runs on.
     pub flow: String,
     /// What people write for it as it is added, in order.
@@ -263,10 +317,15 @@ pub enum Fault {
 pub enum Failed {
     /// The driver has no such item. Nothing was changed.
     NoSuchItem(ItemNumber),
-    /// An item was to be added, or given a title, with a title of no words. Nothing was changed.
+    /// An item was to be added with a title of no words. Nothing was changed.
     BlankTitle,
-    /// The item may not be changed so, for this reason. Nothing was changed.
-    Unchangeable { item: ItemNumber, why: Unchangeable },
+    /// An item was to be added carrying a tag that is no name an item may carry. Nothing was changed.
+    BadTag(String),
+    /// An item was to be added depending on these items, which are cancelled: it would wait for them for good.
+    /// Nothing was changed.
+    OnCancelled(Vec<ItemNumber>),
+    /// Changes asked together were refused, each of these for its reason. None of them was made.
+    NotChanged { asked: usize, refused: Vec<NotMade> },
     /// The driver has no such work. Nothing was changed.
     NoSuchWork(WorkNumber),
     /// The driver was given no flow of this name. Nothing was changed.
@@ -283,7 +342,9 @@ pub enum Failed {
 impl Driver {
     /// Opens the driver on a store, with the flows the works run on, this many slots and the policy of when a line
     /// begins a new session, and gives everything that is to be done: what was to be done before and is not known as
-    /// done, and what follows from looking at every work now, the free slots given in the engine's order.
+    /// done, and what follows from looking at every work now, the free slots given in the engine's order. A work kept
+    /// with the owner's words in a cell's block of them, as they were written before the record of what is said held
+    /// them, has them carried into the record first (`engine::spoken::carry`).
     ///
     /// Where a work is going on, one that has not ended and that its own pause does not hold, and nothing pauses
     /// everything, the driver pauses everything itself before it looks at any work, and keeps that it did: nothing
@@ -331,8 +392,11 @@ impl Driver {
             paused,
             fault: None,
             policy,
-            looked: None,
+            checked: None,
+            looked_at_host: None,
             ticked: None,
+            answered: BTreeSet::new(),
+            pinging: BTreeSet::new(),
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
@@ -349,14 +413,21 @@ impl Driver {
             if driver.of_item.insert(head.item, head.number).is_some() {
                 return Err(Fault::NotOneWork(head.item));
             }
-            let work = driver.store.load(head.number).map_err(Fault::Store)?;
+            let mut work = driver.store.load(head.number).map_err(Fault::Store)?;
+            // The owner's words a work kept before the record of what is said held them are carried into it, once; a
+            // work at fault is written nothing.
+            if standing_of(&flow, &work) != Standing::AtFault && engine::spoken::carry(&flow, &mut work) {
+                driver.store.save(head.number, &work).map_err(Fault::Store)?;
+            }
             let standing = standing_of(&flow, &work);
+            let samples = history::samples(&flow, &work);
             let held = Held {
                 head,
                 item,
                 flow,
                 work,
                 standing,
+                samples,
             };
             driver.works.insert(held.head.number, held);
         }
@@ -387,14 +458,15 @@ impl Driver {
             .collect();
         for (number, write) in wanted {
             for event in write.into_iter().chain([Event::Look]) {
-                let (room, gate) = (driver.room(Some(number), driver.trial(now)), driver.gate(now));
+                let (room, gate) = (driver.room(Some(number), false), driver.gate_of(number));
+                let limits = driver.limits(number);
                 let Driver {
                     store, works, policy, ..
                 } = &mut driver;
                 let Some(held) = works.get_mut(&number).filter(|held| held.standing == Standing::Going) else {
                     continue;
                 };
-                match step(store.as_mut(), held, policy.as_ref(), now, event, room, gate) {
+                match step(store.as_mut(), held, policy.as_ref(), &limits, now, event, room, gate) {
                     Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                     Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
                     Err(Halt::Refused(refused)) => return Err(Fault::Refused { work: number, refused }),
@@ -424,12 +496,24 @@ impl Driver {
         if let Some(on) = new.depends_on.iter().find(|on| !self.of_item.contains_key(*on)) {
             return Err(Failed::NoSuchItem(*on));
         }
+        if let Some(tag) = new.tags.iter().find(|tag| changes::tag_fault(tag).is_some()) {
+            return Err(Failed::BadTag(tag.clone()));
+        }
         let Some(flow) = self.flows.get(&new.flow).cloned() else {
             return Err(Failed::NoSuchFlow(new.flow));
         };
         let mut depends_on = new.depends_on;
         depends_on.sort();
         depends_on.dedup();
+        let cancelled: Vec<ItemNumber> = (depends_on.iter().copied())
+            .filter(|on| self.standing_of_item(*on) == Some(Standing::Ended(End::Cancelled)))
+            .collect();
+        if !cancelled.is_empty() {
+            return Err(Failed::OnCancelled(cancelled));
+        }
+        let mut tags = new.tags;
+        tags.sort();
+        tags.dedup();
         let mut work = Work::default();
         let mut first = vec![Event::Paused {
             by: Pauser::Owner,
@@ -451,14 +535,21 @@ impl Driver {
             paused: true,
             slot: false,
         };
-        let gate = self.gate(now);
+        let gate = self.gate();
         for event in first {
             effects.extend(handle_held(&flow, &mut work, now, event, taking, gate).map_err(Failed::Refused)?);
         }
         let room = self.room(None, true);
         effects.extend(handle_held(&flow, &mut work, now, Event::Look, room, gate).map_err(Failed::Refused)?);
+        let first = First {
+            title: new.title,
+            level: Some(new.level),
+            project: Some(new.project),
+            depends_on,
+            tags,
+        };
         let (item, number) = (self.store)
-            .add(&new.title, &new.level, &depends_on, &new.flow, now, &work)
+            .add(&first, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
         let held = Held {
             head: WorkHead {
@@ -467,17 +558,9 @@ impl Driver {
                 flow: new.flow,
                 added: now,
             },
-            item: Item::new(
-                item,
-                now,
-                First {
-                    title: new.title,
-                    level: Some(new.level),
-                    depends_on,
-                },
-                Vec::new(),
-            ),
+            item: Item::new(item, now, first, Vec::new()),
             standing: standing_of(&flow, &work),
+            samples: history::samples(&flow, &work),
             flow,
             work,
         };
@@ -487,52 +570,133 @@ impl Driver {
         Ok((item, number, todos))
     }
 
-    /// Changes an item, as whoever plans the work asks, and says whether that changed it, with what is to be done: a
-    /// change that leaves the item as it is keeps nothing. A change is refused where [`changes::judge`] refuses it,
-    /// and a level is one whoever asks has checked against the installation's levels. The change is kept as the item's
-    /// own record before anything follows from it. Where the item comes to depend on another or no longer does, its
-    /// work's block of [`DEPENDENCIES`] is written to say what it now waits for, and the work is looked at; a level or
-    /// a title decides nothing now: the work's rounds handed out from now on run on the new level, and where it gives a
-    /// line another model, the line begins a new session as the next thing that happens to the work is taken.
-    pub fn change(&mut self, now: Time, item: ItemNumber, change: ItemChange) -> Result<(bool, Vec<Todo>), Failed> {
+    /// Makes changes of items asked together, for one reason, as whoever plans the work asks, all of them or none, and
+    /// says whether each changed its item, with what is to be done: a change that leaves its item as it is keeps
+    /// nothing. The changes are refused where [`changes::judge`] refuses any, and a level is one whoever asks has
+    /// checked against the installation's levels. Everything the changes keep is kept in one transaction before
+    /// anything follows from it: the changes of the items, as their own records, and each cancel and reopen, as the
+    /// records of the item's work, the work cancelled ending and abandoning what it had under way, the work reopened
+    /// being paused by the owner, as a work added is. Then each work whose item came to depend on another or no longer
+    /// does, or that was reopened, and each that waits for an item that was cancelled or reopened, has its block of
+    /// [`DEPENDENCIES`] written to say what it now waits for, and is looked at; a level, a title or a tag decides
+    /// nothing now: the work's rounds handed out from now on run on the new level, and where it gives a line another
+    /// model, the line begins a new session as the next thing that happens to the work is taken.
+    pub fn change(
+        &mut self,
+        now: Time,
+        why: Option<&str>,
+        asked: Vec<(ItemNumber, Asked)>,
+    ) -> Result<(Vec<bool>, Vec<Todo>), Failed> {
         self.going()?;
-        let Some(work) = self.of_item.get(&item).copied() else {
-            return Err(Failed::NoSuchItem(item));
-        };
-        let held = self.works.get(&work).ok_or(Failed::NoSuchItem(item))?;
-        let gone = match held.standing {
-            Standing::Ended(end) => Gone::Ended(end),
-            _ if held.work.records.started.is_empty() => Gone::NotStarted,
-            _ => Gone::Started,
-        };
-        let depends_on = |on: ItemNumber| {
-            let work = self.of_item.get(&on)?;
-            self.works.get(work).map(|held| held.item.depends_on.clone())
-        };
-        let changes = changes::judge(&held.item, gone, &change, depends_on).map_err(|refused| match refused {
-            changes::Refused::NoSuchItem(on) => Failed::NoSuchItem(on),
-            changes::Refused::BlankTitle => Failed::BlankTitle,
-            changes::Refused::Unchangeable(why) => Failed::Unchangeable { item, why },
+        let planned: BTreeMap<ItemNumber, Planned> = (self.works.values())
+            .map(|held| {
+                let planned = Planned {
+                    item: held.item.clone(),
+                    started: !held.work.records.started.is_empty(),
+                    ended: match held.standing {
+                        Standing::Ended(end) => Some(end),
+                        _ => None,
+                    },
+                    letting_go: engine::letting_go(&held.flow, &held.work),
+                };
+                (held.item.number, planned)
+            })
+            .collect();
+        let changed = (changes::judge(&planned, &asked)).map_err(|refused| Failed::NotChanged {
+            asked: asked.len(),
+            refused,
         })?;
-        if !changes {
-            return Ok((false, Vec::new()));
+        // What the changes make, worked out on copies of what is held before anything is kept: the changes of the
+        // items, and each work as its cancels and reopens leave it, with what is to be done for it.
+        let mut items: Vec<(ItemNumber, ItemChange)> = Vec::new();
+        let mut works: BTreeMap<WorkNumber, Held> = BTreeMap::new();
+        let mut effects: Vec<Todo> = Vec::new();
+        for ((item, asked), changes) in asked.into_iter().zip(&changed) {
+            if !changes {
+                continue;
+            }
+            let work = self.of_item[&item];
+            let event = match asked {
+                Asked::Item(change) => {
+                    items.push((item, change));
+                    continue;
+                }
+                Asked::Cancel => Event::Cancelled {
+                    why: why.map(str::to_string),
+                },
+                Asked::Reopen => Event::Reopened {
+                    why: why.unwrap_or_default().to_string(),
+                },
+            };
+            let (room, gate) = (self.room(Some(work), true), self.gate_of(work));
+            let limits = self.limits(work);
+            let held = works.entry(work).or_insert_with(|| self.works[&work].clone());
+            let (item, policy) = (&held.item, self.policy.as_ref());
+            let then = |flow: &Compiled, work: &Work| {
+                let mut events = sessions::follow(flow, work, item, policy, &limits);
+                events.extend(start(flow, work));
+                events
+            };
+            let done =
+                handle_then(&held.flow, &mut held.work, now, event, room, gate, &then).map_err(Failed::Refused)?;
+            held.standing = standing_of(&held.flow, &held.work);
+            held.samples = history::samples(&held.flow, &held.work);
+            effects.extend(done.into_iter().map(|effect| held.todo(effect)));
         }
-        if let Err(fault) = self.store.change(item, &change, now) {
+        if items.is_empty() && works.is_empty() {
+            return Ok((changed, Vec::new()));
+        }
+        let saved: Vec<(WorkNumber, &Work)> = works.iter().map(|(number, held)| (*number, &held.work)).collect();
+        if let Err(fault) = self.store.change(now, why, &items, &saved) {
             return Err(self.stop(Fault::Store(fault), false));
         }
-        let dependencies = matches!(change, ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_));
-        let Some(held) = self.works.get_mut(&work) else {
-            return Err(Failed::NoSuchItem(item));
-        };
-        held.item.changed(Change { at: now, what: change });
-        let mut todos = Vec::new();
-        if dependencies && let Some(event) = self.wanted(&self.works[&work]) {
-            // The change is kept by now, whatever becomes of what follows from it.
-            if let Err(fault) = self.step_one(now, work, event, false, &mut todos) {
+        // Kept: what is held is made what was kept.
+        let mut touched: BTreeSet<ItemNumber> = BTreeSet::new();
+        let mut dependencies: BTreeSet<WorkNumber> = BTreeSet::new();
+        for (number, held) in works {
+            touched.insert(held.item.number);
+            dependencies.insert(number);
+            self.works.insert(number, held);
+        }
+        for (item, change) in items {
+            let work = self.of_item[&item];
+            if matches!(change, ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_)) {
+                dependencies.insert(work);
+            }
+            let why = why.map(str::to_string);
+            if let Some(held) = self.works.get_mut(&work) {
+                held.item.changed(Change {
+                    at: now,
+                    what: change,
+                    why,
+                });
+            }
+        }
+        // What follows, the changes being kept by now whatever becomes of it: each work whose item depends on an item
+        // cancelled or reopened, and each whose own dependencies changed or that was reopened, has its block written
+        // where it says otherwise.
+        let mut todos = effects;
+        let waiting: Vec<WorkNumber> = (self.works.iter())
+            .filter(|(number, held)| {
+                dependencies.contains(number) || held.item.depends_on.iter().any(|on| touched.contains(on))
+            })
+            .map(|(number, _)| *number)
+            .collect();
+        for number in waiting {
+            let Some(event) = self.works.get(&number).and_then(|held| self.wanted(held)) else {
+                continue;
+            };
+            if let Err(fault) = self.step_one(now, number, event, false, &mut todos) {
                 return Err(self.stop(fault, true));
             }
         }
-        self.filled_after(now, todos).map(|todos| (true, todos))
+        self.filled_after(now, todos).map(|todos| (changed, todos))
+    }
+
+    /// How the work of this item stands, where the driver has the item.
+    fn standing_of_item(&self, item: ItemNumber) -> Option<Standing> {
+        let work = self.of_item.get(&item)?;
+        self.works.get(work).map(|held| held.standing)
     }
 
     /// Takes one thing that happened to a work, at the time the caller's clock gives, and gives what is to be done:
@@ -549,33 +713,64 @@ impl Driver {
         // is held by it as every other's.
         let begins_a_wait = match &event {
             Event::Failed { run, failure, .. } if failure.shared() => {
-                let r = &self.works[&work].work.records;
+                let held = &self.works[&work];
+                let r = &held.work.records;
                 let open = r.started.iter().any(|s| s.run == *run)
                     && !r.finished.iter().any(|f| f.run == *run)
                     && !r.abandoned.iter().any(|a| a.run == *run);
-                open.then_some(*failure)
+                let cell = r.started.iter().find(|s| s.run == *run).map(|s| &s.cell);
+                let act = cell.is_some_and(|cell| {
+                    (held.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == flow::Kind::Engine)
+                });
+                open.then_some(if act { Gate::Acts } else { Gate::Agents })
             }
             _ => None,
         };
-        let outage = self.outage();
-        let gate = match begins_a_wait {
-            Some(failure) => held_by(failure),
-            None => self.gate(now),
+        // A round that fails for a model the service does not have stops every round on that model: what its try ran
+        // on, as the try recorded it, with why.
+        let no_model = match &event {
+            Event::Failed {
+                run,
+                why,
+                failure: Failure::NoModel,
+                ..
+            } => (self.works[&work].work.ran.iter().rev())
+                .find(|ran| ran.run == *run)
+                .map(|ran| (ran.on.clone(), why.clone())),
+            _ => None,
         };
+        let outages = self.outages();
+        if let Event::Pinged { line, .. } = &event {
+            self.pinging.remove(&(work, line.clone()));
+        }
+        let gate = match begins_a_wait {
+            Some(held) => self.gate_of(work).and(held),
+            None => self.gate_of(work),
+        };
+        let limits = self.limits(work);
         let Some(held) = self.works.get_mut(&work) else {
             return Err(Failed::NoSuchWork(work));
         };
         let was = held.standing;
         let item = held.head.item;
         let mut todos = Vec::new();
-        match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
+        match step(
+            self.store.as_mut(),
+            held,
+            self.policy.as_ref(),
+            &limits,
+            now,
+            event,
+            room,
+            gate,
+        ) {
             Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
             Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
             Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
         }
         // A wait every work shares began, ended or moved with it: every work is looked at again. What happened is
         // kept by now, whatever becomes of what follows from it.
-        if self.outage() != outage {
+        if self.outages() != outages {
             match self.look(now) {
                 Ok(more) => todos.extend(more),
                 Err(fault) => return Err(self.stop(fault, true)),
@@ -585,6 +780,26 @@ impl Driver {
             // things stand, so that nothing of it is left held for nothing.
             if let Err(fault) = self.step_one(now, work, Event::Look, true, &mut todos) {
                 return Err(self.stop(fault, true));
+            }
+        }
+        // The round's own work is paused by its failure; every other that runs a round on the model is paused with it.
+        if let Some((on, why)) = no_model {
+            let why = format!(
+                "the service has no model {}, which the level {} runs on, as a round of work {} found: {why}",
+                on.model, on.level, work.0
+            );
+            let numbers: Vec<WorkNumber> = (self.works.iter())
+                .filter(|(number, held)| **number != work && runs_on(held, self.policy.as_ref(), &on.model))
+                .map(|(number, _)| *number)
+                .collect();
+            for number in numbers {
+                let paused = Event::Paused {
+                    by: Pauser::Engine,
+                    why: Some(why.clone()),
+                };
+                if let Err(fault) = self.step_one(now, number, paused, false, &mut todos) {
+                    return Err(self.stop(fault, true));
+                }
             }
         }
         let held = &self.works[&work];
@@ -637,53 +852,151 @@ impl Driver {
         }
     }
 
-    /// The wait every work shares, if one stands: worked out from the records of every work ([`outage`]).
-    pub fn outage(&self) -> Option<Outage> {
-        outage::outage((self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work)))
+    /// The history of the rounds of every work on the flow of this name ([`history`]).
+    pub fn history(&self, flow: &str) -> Vec<history::Sample> {
+        (self.works.values())
+            .filter(|held| held.head.flow == flow)
+            .flat_map(|held| held.samples.iter().cloned())
+            .collect()
     }
 
-    /// When the driver is to be told the time again, where the wait every work shares is over then by itself, or the
-    /// network is to be looked at; none where nothing waits for a time. A wake whose time has come is given until the
-    /// driver is told that time, and none at or before the time it was last told: the works were looked at then, and
-    /// what still waits waits for a round to end.
-    pub fn wake(&self) -> Option<Wake> {
-        let ticked = self.ticked;
-        self.next_wake().filter(|wake| ticked.is_none_or(|at| wake.at > at))
-    }
-
-    /// When the driver is to be told the time next, as the wait every work shares says, whether or not it has come.
-    fn next_wake(&self) -> Option<Wake> {
-        let outage = self.outage()?;
-        match outage.until() {
-            Until::At(at) => Some(Wake { at, look: false }),
-            Until::Tried => None,
-            Until::Trial { at, look: false, .. } => Some(Wake { at, look: false }),
-            Until::Trial {
-                at, look: true, latest, ..
-            } => {
-                let from = outage.last.unwrap_or(outage.since);
-                let next = match self.looked {
-                    Some((looked, _)) if looked >= from => Time(looked.0.saturating_add(outage::PROBE)),
-                    _ => at,
-                };
-                Some(Wake {
-                    at: next.min(latest),
-                    look: next < latest,
-                })
-            }
+    /// The rounds of the work that missed their session's prompt cache ([`cache`]); none for a work the driver does not
+    /// hold, or where the agents' program keeps no cache.
+    pub fn misses(&self, work: WorkNumber) -> Vec<cache::Miss> {
+        let life = (self.policy.as_ref())
+            .and_then(|policy| policy.warm.as_ref())
+            .map(|warm| warm.life_ms);
+        match (life, self.works.get(&work)) {
+            (Some(life), Some(held)) => cache::misses(&held.flow, &held.work, life),
+            _ => Vec::new(),
         }
     }
 
-    /// Takes the time, at which the driver asked to be told it ([`Driver::wake`]), and, where it asked for a look at
-    /// the network, whether the look reached it: every work is looked at again, and what is to be done is given.
-    pub fn tick(&mut self, now: Time, reached: Option<bool>) -> Result<Vec<Todo>, Fault> {
+    /// How the rounds and the calls of tools of the work, or of every work where none is named, went against the lines
+    /// of their history, what is under way as of `now` ([`judged`]): nothing without a policy, which says how many
+    /// values a line is worked out from, as no round is judged while it runs without one.
+    pub fn judged(&self, work: Option<WorkNumber>, now: Time) -> judged::Judged {
+        let Some(policy) = &self.policy else {
+            return judged::Judged::default();
+        };
+        let works: Vec<judged::Of<'_>> = (self.shown())
+            .map(|held| judged::Of {
+                number: held.head.number,
+                flow: &held.head.flow,
+                compiled: &held.flow,
+                work: &held.work,
+                samples: &held.samples,
+            })
+            .collect();
+        judged::judged(&works, |number| work.is_none_or(|w| w == number), policy.samples, now)
+    }
+
+    /// The lines a round of the cell of the work is judged by while it runs: from the history of the rounds of every
+    /// work on its flow, its cost among those on the model it runs on now ([`history::Lines`]). None are given without
+    /// a policy, as for rounds carried out in no session.
+    pub fn lines(&self, work: WorkNumber, cell: &flow::CellSpec) -> history::Lines {
+        let (Some(policy), Some(held)) = (&self.policy, self.works.get(&work)) else {
+            return history::Lines::default();
+        };
+        let model = (policy.on)(&held.item, cell).map(|on| on.model).unwrap_or_default();
+        let mut lines = history::Lines::of(&self.history(&held.head.flow), &cell.id, &model, policy.samples);
+        // What the flow's other works have come to in all, which a work is judged by as each of its rounds ends.
+        let others: Vec<(f64, f64)> = (self.works.iter())
+            .filter(|(number, other)| **number != work && other.head.flow == held.head.flow)
+            .map(|(_, other)| history::totals(&other.work))
+            .filter(|(spent, _)| *spent > 0.0)
+            .collect();
+        let spent: Vec<f64> = others.iter().map(|(spent, _)| *spent).collect();
+        let time: Vec<f64> = others.iter().map(|(_, ms)| *ms).collect();
+        lines.work_spent = history::works_line(&spent, policy.samples);
+        lines.work_time = history::works_line(&time, policy.samples);
+        lines
+    }
+
+    /// The line of the context each line of the work's flow ends its rounds with, where the history gives one: past it,
+    /// the line's session begins anew ([`sessions`]). The rounds of the session judged, the line's in the work now, are
+    /// no part of the history it is judged by, so that a session growing as it goes does not set its own line. None
+    /// for a work the driver does not hold.
+    fn limits(&self, work: WorkNumber) -> Limits {
+        let Some(held) = self.works.get(&work) else {
+            return Limits::new();
+        };
+        let (Some(policy), Some(compiled)) = (&self.policy, self.flows.get(&held.head.flow)) else {
+            return Limits::new();
+        };
+        let mut limits = Limits::new();
+        for line in compiled.cells.iter().filter_map(|cell| cell.line.as_deref()) {
+            let judged = work::sessions::number_at(&held.work, line, held.work.tick());
+            let others = (self.works.iter())
+                .filter(|(_, other)| other.head.flow == held.head.flow)
+                .flat_map(|(number, other)| {
+                    let own = *number == work;
+                    (other.samples.iter()).filter(move |s| !(own && s.session == Some(judged)))
+                });
+            if let Some(found) = history::context_line(others, line, policy.samples) {
+                limits.insert(line.to_string(), found);
+            }
+        }
+        limits
+    }
+
+    /// The wait every work shares for the agents' service, if one stands: worked out from the records of every work
+    /// and the rounds the service answered while under way ([`outage`]), with the checks of the outside taken in it.
+    pub fn outage(&self) -> Option<Outage> {
+        self.outage_of(Service::Agents)
+    }
+
+    /// The wait every work shares for the acts' host, if one stands: worked out from the records of every work, with
+    /// when a look at the host last reached it.
+    pub fn host_outage(&self) -> Option<Outage> {
+        self.outage_of(Service::Host)
+    }
+
+    /// The wait of the service every work shares, if one stands, with what the outside said of it since it began.
+    fn outage_of(&self, service: Service) -> Option<Outage> {
+        let works = (self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work));
+        let mut outage = outage::outage(service, works, &self.answered)?;
+        match service {
+            Service::Agents => {
+                outage.checked = (self.checked.clone())
+                    .filter(|(of, _)| *of == outage.since)
+                    .map(|(_, checked)| checked);
+            }
+            Service::Host => {
+                outage.reached = (self.looked_at_host)
+                    .filter(|(at, reached)| *reached && *at >= outage.met)
+                    .map(|(at, _)| at);
+            }
+        }
+        Some(outage)
+    }
+
+    /// The waits of every service, as they stand.
+    fn outages(&self) -> (Option<Outage>, Option<Outage>) {
+        (self.outage(), self.host_outage())
+    }
+
+    /// Takes, at the time the caller's clock gives, that the agents' service answered the round under way of the run:
+    /// where the round began after the latest that failed for a cause outside every work, the wait is over, and every
+    /// work is looked at again; what is to be done is given. A round no longer under way is passed over.
+    pub fn answered(&mut self, now: Time, work: WorkNumber, run: decide::RunId) -> Result<Vec<Todo>, Fault> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
         }
-        if let Some(reached) = reached {
-            self.looked = Some((now, reached));
+        let Some(held) = self.works.get(&work) else {
+            return Ok(Vec::new());
+        };
+        let records = &held.work.records;
+        let began = records.rounds.iter().filter(|r| r.run == run).count();
+        let ended = records.returned.iter().filter(|r| r.run == run).count();
+        if began == 0 || ended >= began {
+            return Ok(Vec::new());
         }
-        self.ticked = Some(self.ticked.map_or(now, |at| at.max(now)));
+        let outage = self.outage();
+        self.answered.insert((work, run, began));
+        if self.outage() == outage {
+            return Ok(Vec::new());
+        }
         match self.look(now) {
             Ok(todos) => self.filled(now, todos),
             Err(fault) => {
@@ -693,23 +1006,163 @@ impl Driver {
         }
     }
 
-    /// Whether the wait every work shares holds rounds now.
-    pub fn holds(&self, now: Time) -> bool {
-        self.gate(now) != Gate::Open
+    /// When the driver is to be told the time again, where the outside of the agents' rounds is to be checked, the
+    /// acts' host looked at, or a session kept warm; none where nothing waits for a time. A wake whose time has come is
+    /// given until the driver is told that time, and none at or before the time it was last told: the works were
+    /// looked at then, and what still waits waits for a round to end.
+    pub fn wake(&self) -> Option<Wake> {
+        let ticked = self.ticked;
+        self.next_wake().filter(|wake| ticked.is_none_or(|at| wake.at > at))
     }
 
-    /// Which rounds may begin now, as the wait every work shares says.
-    fn gate(&self, now: Time) -> Gate {
-        let reached = self.looked.filter(|(_, reached)| *reached).map(|(at, _)| at);
-        match self.outage() {
-            Some(outage) if outage.holds(now, reached) => held_by(outage.failure),
-            _ => Gate::Open,
+    /// When the driver is to be told the time next, as the waits every work shares say, whether or not it has come:
+    /// the earliest of each wait's and of the next keep-warm ping's, with each check and look that is due then.
+    fn next_wake(&self) -> Option<Wake> {
+        let agents = self.outage().and_then(|outage| wake_of(&outage, None));
+        let host = self
+            .host_outage()
+            .and_then(|outage| wake_of(&outage, self.looked_at_host));
+        // A keep-warm ping waits as the agents' rounds do: while their wait stands, its own wakes serve.
+        let ping = match self.outage() {
+            None => self.next_ping(),
+            Some(_) => None,
+        };
+        let at = [agents.map(|(at, _)| at), host.map(|(at, _)| at), ping]
+            .into_iter()
+            .flatten()
+            .min()?;
+        Some(Wake {
+            at,
+            check: agents.is_some_and(|(a, _)| a == at),
+            look_at_host: host.is_some_and(|(h, look)| look && h == at),
+        })
+    }
+
+    /// Takes the time, at which the driver asked to be told it ([`Driver::wake`]), and, where it asked for a check of
+    /// the outside of the agents' rounds, what the check found, and for a look at the acts' host, whether the look
+    /// reached it: every work is looked at again, and what is to be done is given. A check taken while no wait of the
+    /// agents' rounds stands is of none, and is passed over.
+    pub fn tick(&mut self, now: Time, found: Option<Found>, host_reached: Option<bool>) -> Result<Vec<Todo>, Fault> {
+        if let Some(fault) = &self.fault {
+            return Err(fault.clone());
+        }
+        if let (Some(found), Some(outage)) = (found, self.outage()) {
+            let taken = outage.checked.map_or(0, |checked| checked.taken) + 1;
+            self.checked = Some((outage.since, Checked { taken, at: now, found }));
+        }
+        if let Some(reached) = host_reached {
+            self.looked_at_host = Some((now, reached));
+        }
+        self.ticked = Some(self.ticked.map_or(now, |at| at.max(now)));
+        match self.look(now) {
+            Ok(mut todos) => {
+                todos.extend(self.pings(now));
+                self.filled(now, todos)
+            }
+            Err(fault) => {
+                self.stop(fault.clone(), true);
+                Err(fault)
+            }
         }
     }
 
+    /// The keep-warm pings due at `now` and not under way, each given once: none while the wait every work shares
+    /// holds the agents' rounds, whose pings would fail as they do, nor while the engine holds everything as it
+    /// opened, until the owner has seen how things stand ([`warm`]).
+    fn pings(&mut self, now: Time) -> Vec<Todo> {
+        let Some(policy) = (self.policy.as_ref()).filter(|_| !self.gate().holds_agents() && self.warming()) else {
+            return Vec::new();
+        };
+        let mut todos = Vec::new();
+        for (number, held) in &self.works {
+            if held.standing != Standing::Going {
+                continue;
+            }
+            let limits = self.limits(*number);
+            for due in warm::due(&held.flow, &held.work, &held.item, policy, &limits, now) {
+                if self.pinging.contains(&(*number, due.line.clone())) {
+                    continue;
+                }
+                todos.push(held.todo(Effect::Ping {
+                    line: due.line,
+                    session: due.session,
+                }));
+            }
+        }
+        for todo in &todos {
+            if let Effect::Ping { line, .. } = &todo.effect {
+                self.pinging.insert((todo.work, line.clone()));
+            }
+        }
+        todos
+    }
+
+    /// Whether sessions are kept warm now: not while the engine holds everything as it opened on works going on, which
+    /// spends nothing before the owner has seen how things stand (principle `no-unseen-spending-loop`); while the owner
+    /// holds everything, as the settings say (`sessions.warm_while_paused`).
+    fn warming(&self) -> bool {
+        let keeps = (self.policy.as_ref())
+            .and_then(|p| p.warm.as_ref())
+            .is_some_and(|w| w.while_paused);
+        match &self.paused {
+            None => true,
+            Some(paused) => paused.by == Pauser::Owner && keeps,
+        }
+    }
+
+    /// When the next keep-warm ping not under way is due, of every work that has not ended, as of the time the driver
+    /// was last told: a ping due then and not given waits for no later time than the next moment, and one whose
+    /// session's cache will have let it go by then is due at no time, so that the driver is never woken for a ping it
+    /// will not give.
+    fn next_ping(&self) -> Option<Time> {
+        let policy = self.policy.as_ref().filter(|_| self.warming())?;
+        let now = self.ticked.unwrap_or(Time(0));
+        let soonest = Time(now.0.saturating_add(1));
+        (self.works.iter())
+            .filter(|(_, held)| held.standing == Standing::Going)
+            .flat_map(|(number, held)| {
+                let limits = self.limits(*number);
+                (warm::kept(&held.flow, &held.work, &held.item, policy, &limits, now).into_iter())
+                    .filter(|kept| !self.pinging.contains(&(*number, kept.due.line.clone())))
+                    .map(|kept| (kept.at.max(soonest), kept.life))
+                    .filter(|(at, life)| at < life)
+                    .map(|(at, _)| at)
+                    .collect::<Vec<_>>()
+            })
+            .min()
+    }
+
+    /// The gate a work is stepped with: the wait every work shares, and while a keep-warm ping of the work is under
+    /// way, every round of it, so that its next round begins once the ping has ended, after whatever the ping did to
+    /// its sessions, and is filled as they then stand.
+    pub fn gate_of(&self, work: WorkNumber) -> Gate {
+        match self.pinging.iter().any(|(w, _)| *w == work) {
+            true => Gate::Every,
+            false => self.gate(),
+        }
+    }
+
+    /// Whether a wait every work shares holds rounds now.
+    pub fn holds(&self) -> bool {
+        self.gate() != Gate::Open
+    }
+
+    /// Which rounds may begin now, as the waits every work shares say: the agents' wait holds the agents' rounds until
+    /// a check of the outside finds it well, and the acts' wait the acts' until a look at their host reaches it.
+    pub fn gate(&self) -> Gate {
+        let agents = match self.outage() {
+            Some(outage) if outage.holds() => Gate::Agents,
+            _ => Gate::Open,
+        };
+        let acts = match self.host_outage() {
+            Some(outage) if outage.holds() => Gate::Acts,
+            _ => Gate::Open,
+        };
+        agents.and(acts)
+    }
+
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and
-    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at; but of
-    /// a wait that lets one round try, the first work to begin one takes it ([`Driver::trial`]).
+    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at.
     fn look(&mut self, now: Time) -> Result<Vec<Todo>, Fault> {
         let mut todos = Vec::new();
         let numbers: Vec<WorkNumber> = (self.works.iter())
@@ -717,19 +1170,9 @@ impl Driver {
             .map(|(number, _)| *number)
             .collect();
         for number in numbers {
-            let trial = self.trial(now);
-            self.step_one(now, number, Event::Look, trial, &mut todos)?;
+            self.step_one(now, number, Event::Look, false, &mut todos)?;
         }
         Ok(todos)
-    }
-
-    /// Whether the wait every work shares lets one round try now and none has taken it: the first work looked at that
-    /// begins a round takes it, with a slot where its round takes one and one is free, so that a work that needs none,
-    /// or comes after, does not take it in that work's stead.
-    fn trial(&self, now: Time) -> bool {
-        self.outage()
-            .is_some_and(|outage| matches!(outage.until(), Until::Trial { .. }))
-            && !self.holds(now)
     }
 
     /// Gives one thing that happened to a work that has not ended to the engine's loop, with the gate as it is now, in
@@ -742,7 +1185,8 @@ impl Driver {
         slot: bool,
         todos: &mut Vec<Todo>,
     ) -> Result<(), Fault> {
-        let (room, gate) = (self.room(Some(number), slot), self.gate(now));
+        let (room, gate) = (self.room(Some(number), slot), self.gate_of(number));
+        let limits = self.limits(number);
         let Some(held) = self
             .works
             .get_mut(&number)
@@ -750,7 +1194,16 @@ impl Driver {
         else {
             return Ok(());
         };
-        match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
+        match step(
+            self.store.as_mut(),
+            held,
+            self.policy.as_ref(),
+            &limits,
+            now,
+            event,
+            room,
+            gate,
+        ) {
             Ok(effects) => {
                 todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
                 Ok(())
@@ -760,12 +1213,13 @@ impl Driver {
         }
     }
 
-    /// Takes what a source outside the works says now, at the time the caller's clock gives: it is written into the
-    /// block of that source of each work that has not ended, where the block does not say it already, as a change of
-    /// its meaning; and gives what is to be done. A work whose flow has no block of the source is written nothing, and
-    /// [`DEPENDENCIES`] and [`START`], the driver's own sources, are written by the driver alone. Fails only where the
-    /// driver is stopped, or stops on it.
-    pub fn outside(&mut self, now: Time, source: &str, content: &str) -> Result<Vec<Todo>, Fault> {
+    /// Takes what a source outside the works says now of the project of this name, such as the head of its main
+    /// branch, at the time the caller's clock gives: it is written into the block of that source of each work of an
+    /// item of that project that has not ended, where the block does not say it already, as a change of its meaning;
+    /// and gives what is to be done. A work of another project's item, or of an item of none, is written nothing, nor
+    /// is a work whose flow has no block of the source; [`DEPENDENCIES`] and [`START`], the driver's own sources, are
+    /// written by the driver alone. Fails only where the driver is stopped, or stops on it.
+    pub fn outside(&mut self, now: Time, project: &str, source: &str, content: &str) -> Result<Vec<Todo>, Fault> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
         }
@@ -774,11 +1228,15 @@ impl Driver {
         }
         let mut todos = Vec::new();
         let (mut failed, mut written) = (None, false);
-        let (room, gate) = (self.room(None, false), self.gate(now));
+        let room = self.room(None, false);
+        let gates: BTreeMap<WorkNumber, Gate> = (self.works.keys()).map(|n| (*n, self.gate_of(*n))).collect();
+        let limits: BTreeMap<WorkNumber, Limits> = (self.works.keys()).map(|n| (*n, self.limits(*n))).collect();
         for (number, held) in &mut self.works {
-            if held.standing != Standing::Going {
+            let gate = gates.get(number).copied().unwrap_or_default();
+            if held.standing != Standing::Going || held.item.project.as_deref() != Some(project) {
                 continue;
             }
+            let limits = limits.get(number).cloned().unwrap_or_default();
             let ours = (held.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(source));
             let Some((block, _)) = ours else {
                 continue;
@@ -797,7 +1255,16 @@ impl Driver {
                 matters: true,
                 value: None,
             };
-            match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
+            match step(
+                self.store.as_mut(),
+                held,
+                self.policy.as_ref(),
+                &limits,
+                now,
+                event,
+                room,
+                gate,
+            ) {
                 Ok(effects) => {
                     written = true;
                     todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
@@ -845,11 +1312,17 @@ impl Driver {
     /// every block.
     pub fn view(&self, number: WorkNumber) -> Option<View> {
         let kept = self.work(number)?;
-        Some(decide::view_in(
-            &kept.flow.flow,
-            &kept.work.records,
-            self.room(Some(number), true),
-        ))
+        let mut view = decide::view_in(&kept.flow.flow, &kept.work.records, self.room(Some(number), true));
+        // A work held at fault by the driver, though the walk finds its records sound, is one the deciding code goes
+        // round on without end ([`step`]): it shows as that fault.
+        let at_fault = self
+            .works
+            .get(&number)
+            .is_some_and(|held| held.standing == Standing::AtFault);
+        if at_fault && !matches!(view.decision, Decision::Fault(_)) {
+            view.decision = Decision::Fault(decide::RecordFault::WithoutEnd);
+        }
+        Some(view)
     }
 
     /// What holds back the round the work would begin next: its own pause, the owner's pause of everything, or a slot;
@@ -952,7 +1425,8 @@ impl Driver {
                 break;
             };
             looked.insert(number);
-            let (room, gate) = (self.room(Some(number), true), self.gate(now));
+            let (room, gate) = (self.room(Some(number), true), self.gate_of(number));
+            let limits = self.limits(number);
             let Some(held) = self.works.get_mut(&number) else {
                 break;
             };
@@ -960,6 +1434,7 @@ impl Driver {
                 self.store.as_mut(),
                 held,
                 self.policy.as_ref(),
+                &limits,
                 now,
                 Event::Look,
                 room,
@@ -1053,10 +1528,12 @@ impl Held {
 /// Gives one thing that happened to the engine's loop for the work, in the room the engine leaves it and with the gate
 /// of the wait every work shares, with what follows from it for the sessions of its lines, and keeps what the loop
 /// added before giving back what is to be done.
+#[allow(clippy::too_many_arguments)]
 fn step(
     store: &mut dyn Storage,
     held: &mut Held,
     policy: Option<&Policy>,
+    limits: &Limits,
     now: Time,
     event: Event,
     room: Room,
@@ -1065,26 +1542,54 @@ fn step(
     let before = held.work.tick();
     let item = &held.item;
     let then = |flow: &Compiled, work: &Work| {
-        let mut events = sessions::follow(flow, work, item, policy);
+        let mut events = sessions::follow(flow, work, item, policy, limits);
         events.extend(start(flow, work));
         events
     };
-    let effects = handle_then(&held.flow, &mut held.work, now, event, room, gate, &then).map_err(Halt::Refused)?;
+    let effects = match handle_then(&held.flow, &mut held.work, now, event, room, gate, &then) {
+        Ok(effects) => effects,
+        // The deciding code goes round without end on the work's records: what was done to the work for this is let
+        // go, the work is held at fault as the store keeps it, nothing more is decided of it, and the rest go on.
+        Err(engine::Refused::WithoutEnd(_)) => {
+            held.work = store.load(held.head.number).map_err(Halt::Store)?;
+            held.standing = Standing::AtFault;
+            return Ok(Vec::new());
+        }
+        Err(refused) => return Err(Halt::Refused(refused)),
+    };
     if held.work.tick() != before {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
         held.standing = standing_of(&held.flow, &held.work);
+        held.samples = history::samples(&held.flow, &held.work);
     }
     Ok(effects)
 }
 
+/// Whether the work, going and not paused, has an agent's cell whose round runs on the model, as the policy says.
+fn runs_on(held: &Held, policy: Option<&Policy>, model: &str) -> bool {
+    let Some(policy) = policy else {
+        return false;
+    };
+    held.standing == Standing::Going
+        && !decide::paused(&held.work.records)
+        && (held.flow.cells.iter())
+            .filter(|cell| cell.kind != flow::Kind::Engine)
+            .any(|cell| (policy.on)(&held.item, cell).is_some_and(|on| on.model == model))
+}
+
 /// The write of the work's block of [`START`], where its flow has one and the owner has just started the work: the work
-/// is not paused, was let on since it was added paused, has started no run and has no version of the block. What it
-/// writes is the block's `text`, as the flow says it ([`faults`]).
+/// is not paused, was let on since it was added paused, and holds no place to be done in: it has started no run and
+/// has no version of the block, or it was reopened since the block's latest version, its cancel having let go of
+/// that place. What it writes is the block's `text`, as the flow says it ([`faults`]).
 fn start(flow: &Compiled, work: &Work) -> Option<Event> {
     let (block, declared) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(START))?;
     let r = &work.records;
     let started = !decide::paused(r) && r.pauses.iter().any(|p| !p.paused);
-    let fresh = r.started.is_empty() && !r.written.iter().any(|w| w.block == *block);
+    let last = (r.written.iter()).filter(|w| w.block == *block).map(|w| w.at).max();
+    let fresh = match last {
+        None => r.started.is_empty(),
+        Some(last) => r.reopens.iter().any(|at| *at > last),
+    };
     (started && fresh).then(|| Event::Wrote {
         block: block.clone(),
         by: Outsider::Outside,
@@ -1094,12 +1599,17 @@ fn start(flow: &Compiled, work: &Work) -> Option<Event> {
     })
 }
 
-/// The rounds a wait for a cause of this kind holds: without the network every round, the engine's own acts' too, which
-/// may reach it; otherwise the agents'.
-fn held_by(failure: decide::run::Failure) -> Gate {
-    match failure {
-        decide::run::Failure::Offline => Gate::Every,
-        _ => Gate::Agents,
+/// When the driver is to be told the time for a wait, as its kind says, with whether a look at the acts' host is then
+/// due: the next check of the outside of the agents' rounds, none once one found it well; the next look at the acts'
+/// host, half a minute after the last since the latest act that failed so.
+fn wake_of(outage: &Outage, looked: Option<(Time, bool)>) -> Option<(Time, bool)> {
+    match outage.until() {
+        Until::Checked { at } => Some((at, false)),
+        Until::Well { .. } => None,
+        Until::Looked { at } => match looked {
+            Some((looked, _)) if looked >= outage.met => Some((Time(looked.0.saturating_add(outage::PROBE)), true)),
+            _ => Some((at, true)),
+        },
     }
 }
 

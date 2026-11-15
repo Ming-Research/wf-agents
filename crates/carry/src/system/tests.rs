@@ -22,17 +22,19 @@ fn engineer() -> Compiled {
     let source = flow::read(&root().join("engineer")).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&["dependencies", "main", "session", "start", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
-        fields: names(&[
-            "dealt_with",
-            "meaning_unchanged",
-            "observations",
-            "questions",
-            "reply",
-            "summary",
-        ]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -43,7 +45,7 @@ fn engineer() -> Compiled {
 fn settings() -> Settings {
     let mut settings = Settings::read(include_str!("../../install.sample.toml")).expect("the sample reads");
     let github = "repository = \"owner/name\"\n";
-    settings.github = Some(toml::from_str(github).unwrap());
+    settings.projects.get_mut("example").unwrap().github = Some(toml::from_str(github).unwrap());
     settings
 }
 
@@ -78,7 +80,8 @@ fn cell<'a>(flow: &'a Compiled, line: &str) -> &'a CellSpec {
 fn of(line: &str) -> String {
     let (settings, beside, flow) = (settings(), beside(), engineer());
     let cell = cell(&flow, line);
-    let your_line = Permissions::of(cell.reads_only, &[], &Default::default()).told(&beside.your_line);
+    let protected = &beside.project.protected.paths;
+    let your_line = Permissions::of(cell.reads_only, &[], &Default::default()).told(&beside.your_line, protected);
     of_line(&beside, &filling(&settings, &beside), &flow, cell, &your_line, project).expect("it is made")
 }
 
@@ -93,7 +96,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "# `AGENTS.md`\n\n# Working here\n\nThe guide.",
         "# `design/constitution.md`\n\n# The constitution",
         "# `design/README.md`\n\n# The design tree",
-        "How every agent works, whatever its cell",
+        "- Check each fact when you write it",
         "How an engineer works",
         "# How you work here",
         "## How you return",
@@ -102,7 +105,15 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
     assert!(places.windows(2).all(|w| w[0] < w[1]), "{engineer}");
     assert!(engineer.starts_with(order[0]), "{engineer}");
     assert!(
-        engineer.contains("worktree of the work's own branch. Make your changes there and commit them there. Never"),
+        engineer.contains(
+            "worktree of the work's own branch. Make your changes there and commit them there. The project protects \
+             `AGENTS.md`, "
+        ),
+        "{engineer}"
+    );
+    assert!(engineer.contains("`.github/workflows/`: change what is there only where the work needs it. Never"));
+    assert!(
+        engineer.contains("\n- `protected_changes`: of each file the project protects"),
         "{engineer}"
     );
     for named in [
@@ -123,19 +134,32 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
     assert!(!reviewer.contains("Make your changes there"), "{reviewer}");
 }
 
-// A session keeps the system prompt it began with: made and kept where it has none, and the kept one given whenever
-// it has one, whatever the files it was made of became since and however the round begins in it.
+// A session keeps the system prompt and the form it began with, each alike: made and kept where it has none, and the
+// kept one given whenever it has one, whatever it was made of became since and however the round begins in it.
 #[test]
-fn a_session_keeps_the_system_prompt_it_began_with() {
+fn a_session_keeps_the_system_prompt_and_the_form_it_began_with() {
     let dir = tempfile::tempdir().expect("a directory");
-    let at = kept_at(dir.path(), Uuid::nil());
     let made = |text: &'static str| move || Ok::<_, String>(text.to_string());
-    assert_eq!(of_session(&at, made("as it began")).unwrap(), "as it began");
-    assert_eq!(of_session(&at, made("changed since")).unwrap(), "as it began");
-    // Another session, under an id of its own, is made anew.
-    let other = kept_at(dir.path(), Uuid::max());
-    assert_eq!(of_session(&other, made("another")).unwrap(), "another");
-    assert_eq!(of_session(&at, made("changed again")).unwrap(), "as it began");
+    for what in [Begun::System, Begun::Form] {
+        let at = kept_at(dir.path(), Uuid::nil(), what);
+        assert_eq!(of_session(&at, made("as it began")).unwrap(), "as it began", "{what:?}");
+        assert_eq!(
+            of_session(&at, made("changed since")).unwrap(),
+            "as it began",
+            "{what:?}"
+        );
+        // Another session, under an id of its own, is made anew.
+        let other = kept_at(dir.path(), Uuid::max(), what);
+        assert_eq!(of_session(&other, made("another")).unwrap(), "another", "{what:?}");
+        assert_eq!(
+            of_session(&at, made("changed again")).unwrap(),
+            "as it began",
+            "{what:?}"
+        );
+    }
+    // Each is kept apart: the form the session began with is not its system prompt.
+    let form = kept_at(dir.path(), Uuid::nil(), Begun::Form);
+    assert_ne!(form, kept_at(dir.path(), Uuid::nil(), Begun::System));
 }
 
 // A session whose first round was cut off before the program began it is begun again under its id, and one the
@@ -155,7 +179,7 @@ fn a_session_cut_off_and_begun_again_keeps_its_prompt() {
         let read = |path: &str| read_within(&worktree, path);
         of_line(&beside, &filling, &flow, cell, "", read)
     };
-    let at = kept_at(&dir.path().join("data"), Uuid::nil());
+    let at = kept_at(&dir.path().join("data"), Uuid::nil(), Begun::System);
     // The first try begins the session, and is cut off before the program runs.
     let began = of_session(&at, make).unwrap();
     // The work changes its guide; the round is tried again, the session begun again under its id, then gone on in.
@@ -213,7 +237,7 @@ fn every_text_sent_naming_a_setting_with_no_value_is_refused_as_the_engine_start
     assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
     // A setting the rules and two tasks name has no value.
     beside.project.project.remove("research");
-    beside.project.installation.names.push("project.research".to_string());
+    beside.installation.names.push("project.research".to_string());
     let lines = lines(&flow);
     assert_eq!(
         lines,
@@ -281,7 +305,7 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
     );
     assert!(!whole.contains("{named_checks}"), "{whole}");
     let mut local = settings();
-    local.github = None;
+    local.projects.get_mut("example").unwrap().github = None;
     assert_eq!(faults(&local, &beside, &flow), Vec::<String>::new());
 }
 
@@ -321,36 +345,34 @@ fn every_place_rule_set_and_tool_that_cannot_be_made_is_said_at_once() {
 #[test]
 fn a_project_file_main_lacks_or_links_is_said() {
     let repo = crate::git::tests::Repo::new("true");
-    let mut settings = settings();
-    settings.github = None;
-    settings.project = repo.project.clone();
+    let project = repo.project.clone();
     let mut beside = beside();
-    let missing = project_files(&settings, &beside);
+    let missing = project_files(&project, &beside);
     assert_eq!(missing.len(), 3, "{missing:?}");
     assert_eq!(
         missing[0],
         "project.toml: the file guide, AGENTS.md, is not on main, refs/heads/main, where works branch from"
     );
-    let dir = &settings.project.repo;
+    let dir = &project.repo;
     std::fs::create_dir_all(dir.join("design")).unwrap();
     crate::git::tests::commit(dir, "AGENTS.md", "The guide.\n");
     crate::git::tests::commit(dir, "design/constitution.md", "The constitution.\n");
     assert_eq!(
-        project_files(&settings, &beside),
+        project_files(&project, &beside),
         [
             "project.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, where works branch from"
         ]
     );
     // A file in the checkout that main does not hold is missing all the same.
     std::fs::write(dir.join("design/README.md"), "Not committed.\n").unwrap();
-    assert_eq!(project_files(&settings, &beside).len(), 1);
+    assert_eq!(project_files(&project, &beside).len(), 1);
     // A link on main, the file itself or a directory above it, is refused.
     std::fs::remove_file(dir.join("design/README.md")).unwrap();
     std::os::unix::fs::symlink("constitution.md", dir.join("design/README.md")).unwrap();
     crate::git::tests::run(dir, &["add", "design/README.md"]);
     crate::git::tests::run(dir, &["commit", "-q", "-m", "Link the tree's rules"]);
     assert_eq!(
-        project_files(&settings, &beside),
+        project_files(&project, &beside),
         [
             "project.toml: the file tree_rules, design/README.md: design/README.md is a symbolic link on main, \
              refs/heads/main, which no file of the project is read through"
@@ -363,7 +385,7 @@ fn a_project_file_main_lacks_or_links_is_said() {
     crate::git::tests::run(dir, &["commit", "-q", "-m", "Link a directory"]);
     beside.project.files.get_mut("tree_rules").unwrap().path = "linked/rules.md".to_string();
     assert_eq!(
-        project_files(&settings, &beside),
+        project_files(&project, &beside),
         [
             "project.toml: the file tree_rules, linked/rules.md: linked is a symbolic link on main, refs/heads/main, \
              which no file of the project is read through"
@@ -372,7 +394,7 @@ fn a_project_file_main_lacks_or_links_is_said() {
     // A file not named within the repository is refused before main is looked at.
     beside.project.files.get_mut("tree_rules").unwrap().path = "../outside.md".to_string();
     assert_eq!(
-        project_files(&settings, &beside),
+        project_files(&project, &beside),
         ["project.toml: the file tree_rules is named by its path within the repository, not \"../outside.md\""]
     );
 }
@@ -382,17 +404,17 @@ fn a_project_file_main_lacks_or_links_is_said() {
 #[test]
 fn the_project_files_are_looked_for_where_works_branch_from() {
     let repo = crate::git::tests::Repo::new("true");
-    let mut settings = settings();
-    settings.project = repo.project.clone();
-    let dir = &settings.project.repo;
+    let mut project = repo.project.clone();
+    project.github = settings().projects["example"].github.clone();
+    let dir = &project.repo;
     std::fs::create_dir_all(dir.join("design")).unwrap();
     for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
         crate::git::tests::commit(dir, path, "Some text.\n");
     }
-    let remote = settings.github.as_ref().unwrap().remote.clone();
+    let remote = project.github.as_ref().unwrap().remote.clone();
     let fetched = format!("refs/remotes/{remote}/main");
     assert_eq!(
-        project_files(&settings, &beside()),
+        project_files(&project, &beside()),
         [format!(
             "{fetched}, main's head where works branch from, is not in the project's repository: the files \
              project.toml names are not looked for there"
@@ -401,9 +423,9 @@ fn the_project_files_are_looked_for_where_works_branch_from() {
     // Main as GitHub last gave it, before the files were committed on the local branch.
     let first = crate::git::tests::run(dir, &["rev-list", "--max-parents=0", "HEAD"]);
     crate::git::tests::run(dir, &["update-ref", &fetched, &first]);
-    assert_eq!(project_files(&settings, &beside()).len(), 3);
+    assert_eq!(project_files(&project, &beside()).len(), 3);
     crate::git::tests::run(dir, &["update-ref", &fetched, "HEAD"]);
-    assert_eq!(project_files(&settings, &beside()), Vec::<String>::new());
+    assert_eq!(project_files(&project, &beside()), Vec::<String>::new());
 }
 
 // The place `{store}` in the words of `query` is filled by `crate::store`: the file's words that the store is not open
@@ -471,4 +493,19 @@ fn the_real_store_opened_to_agents_is_described_in_the_system_prompt_without_the
             "{table}.{hidden}:\n{section}"
         );
     }
+}
+
+// The words of what a cell returns are sent in a message, which gives each setting they name with its value: one with no
+// value is refused as the engine starts, as in any other text sent.
+#[test]
+fn the_words_of_what_a_cell_returns_naming_a_setting_with_no_value_are_refused_as_the_engine_starts() {
+    let (mut beside, flow) = (beside(), engineer());
+    beside.returns.outputs.none = "This cell writes no block; it reads `project.research`.".to_string();
+    assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
+    beside.project.project.remove("research");
+    beside.installation.names.push("project.research".to_string());
+    let said = "flow engineer: flow/agents/return/return.toml, [outputs]: names the setting `project.research`, which \
+                has no value";
+    let faults = faults(&settings(), &beside, &flow);
+    assert!(faults.iter().any(|f| f == said), "{faults:#?}");
 }

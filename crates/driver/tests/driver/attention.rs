@@ -133,6 +133,40 @@ fn the_engine_pausing_a_work_for_its_reason_is_a_line_and_the_owner_pausing_one_
 }
 
 #[test]
+fn a_work_that_stalls_is_a_line_until_what_runs_a_cell_moves_it_on() {
+    let mut h = H::new();
+    let (_, w) = h.add(new_item("a", &[], "plain"));
+    let mark = since(&h, None).mark;
+    h.let_on(w);
+    // The writer deals with what ran it and hands in nothing: nothing runs the merge, and nothing will.
+    h.hands_in(w, &[]);
+    let stalled = Time(h.clock);
+    let at_the_merge = Decision::Stalled {
+        at: "merge".into(),
+        on: Vec::new(),
+        by: vec![decide::Stalling {
+            cell: "write".into(),
+            why: decide::Unrun::NothingNew,
+        }],
+    };
+    assert_eq!(h.decision(w), at_the_merge);
+    let kept = h.d().work(w).expect("the work is there");
+    assert!(!decide::paused(&kept.work.records), "nothing pauses a stalled work");
+    let answer = since(&h, Some(&mark));
+    assert_eq!(
+        answer.lines,
+        vec![Line {
+            heed: Heed::ForAPerson { work: w },
+            since: stalled,
+        }]
+    );
+    // The owner writes a request: the writer runs, and the work stands so no longer.
+    h.on(w, wrote("request", Outsider::Person, None));
+    assert!(matches!(h.decision(w), Decision::Busy { .. }), "{:?}", h.decision(w));
+    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![]);
+}
+
+#[test]
 fn a_run_at_its_limit_is_a_line() {
     let mut h = H::new();
     let (_, w) = h.add(new_item("a", &[], "plain"));
@@ -333,8 +367,9 @@ fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_when_the_ot
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (b, wb) = h.add(new_item("b", &[], "short"));
-    h.on(wb, Event::Cancelled { why: None });
+    // As a store kept before an item could not be cancelled under one that depends on it: b is cancelled anyway.
     let (_, ww) = h.add(new_item("w", &[a, b], "judged"));
+    h.on(wb, Event::Cancelled { why: None });
     h.let_on(wa);
     h.let_on(ww);
     let mark = since(&h, None).mark;

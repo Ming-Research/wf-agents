@@ -132,9 +132,21 @@ impl Db {
 /// The item and the work a store of the tests holds first, added at fixed times so that two stores can be compared.
 fn first_work(store: &mut Store) -> WorkNumber {
     let (_, work) = store
-        .add("the item", "2", &[], "judged", Time(START), &Work::default())
+        .add(&first("the item", "2", &[]), "judged", Time(START), &Work::default())
         .expect("the item is added");
     work
+}
+
+/// An item as it is added: this title, at this level, of the project `one`, depending on these items, and carrying no
+/// tag.
+fn first(title: &str, level: &str, depends_on: &[store::ItemNumber]) -> store::First {
+    store::First {
+        title: title.to_string(),
+        level: Some(level.to_string()),
+        project: Some("one".to_string()),
+        depends_on: depends_on.to_vec(),
+        tags: Vec::new(),
+    }
 }
 
 /// Every row of every table of the database, each table's rows in a fixed order: what the file holds, however the
@@ -358,15 +370,42 @@ fn question(who: Who) -> Ask {
 }
 
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
-/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a run's limit of returns let
-/// go by the owner, a pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a
-/// cancel with a run at rest at the owner's call.
+/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a question asked and the
+/// owner's answer to it, a run's limit of returns let go by the owner, a pause and a resume, a round that failed and
+/// the engine's pause for it, a cell let go, and a cancel with a run at rest at the owner's call.
 fn history(d: &mut Driver) {
     d.wrote("request", Outsider::Person, None);
     // The outside writes while the writer's first round is under way: its return deals with the request it was told
-    // of, and the writer runs again for what the outside wrote.
+    // of, and the writer runs again for what the outside wrote. The return asks the owner a question beside, which the
+    // owner answers.
     d.wrote("main", Outsider::Outside, None);
-    d.end(hands_in(&[("text", None)]));
+    let mut came = hands_in(&[("text", None)]);
+    came.said.questions = vec![engine::Question::Asked {
+        name: "which".to_string(),
+        waits: false,
+        recommends: Some(1),
+        ask: "Which way?".to_string(),
+        options: vec![
+            engine::Way {
+                does: "the short way".to_string(),
+                follows: "less to read".to_string(),
+            },
+            engine::Way {
+                does: "the long way".to_string(),
+                follows: "more to read".to_string(),
+            },
+        ],
+        about: None,
+        reasons: BTreeMap::new(),
+    }];
+    d.end(came);
+    let version = d.work.records.questions.last().expect("the question is kept").at;
+    d.on(Event::Answer {
+        question: "which".to_string(),
+        version,
+        option: 2,
+        why: Some("The long way reads better.".to_string()),
+    });
     // Sent back twice, then the owner is called at the limit of returns and lets the run go on.
     for _ in 0..3 {
         d.end(wanting());
@@ -443,7 +482,28 @@ fn history(d: &mut Driver) {
     d.withdraw();
     // Nothing of it is under way then: what it held is let go.
     d.on(Event::Released);
-    assert!(d.work.records.released.is_some(), "what the work held was not let go");
+    assert!(d.work.records.released().is_some(), "what the work held was not let go");
+}
+
+/// The [`history`], and then the work reopened, cancelled again and letting go again: what no store before items were
+/// reopened could hold.
+fn reopened_after(d: &mut Driver) {
+    history(d);
+    d.on(Event::Reopened {
+        why: "the item it was joined into was too big".into(),
+    });
+    assert!(
+        d.work.records.released().is_none(),
+        "a work reopened holds its place again"
+    );
+    d.on(Event::Cancelled {
+        why: Some("joined after all".into()),
+    });
+    d.on(Event::Released);
+    assert!(
+        d.work.records.released().is_some(),
+        "what the work held was not let go again"
+    );
 }
 
 /// A work on the judged flow whose returns are of the form every cell's return takes (design document
@@ -579,6 +639,8 @@ impl Building {
             by: Outsider::Person,
             matters: true,
             value: None,
+            said_to: None,
+            empty: false,
             at,
         });
         at
@@ -674,10 +736,12 @@ impl Building {
                 .map(|(block, meaning_unchanged, value)| Write {
                     block: (*block).into(),
                     meaning_unchanged: *meaning_unchanged,
+                    empty: false,
                     value: value.map(str::to_string),
                 })
                 .collect(),
             dealt_with: Some(dealt_with.iter().map(|b| (*b).into()).collect()),
+            waits_for: None,
         });
         at
     }

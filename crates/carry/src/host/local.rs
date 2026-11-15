@@ -6,7 +6,7 @@ use std::path::Path;
 
 use flow::agents::{LocalWords, Tool, fill};
 
-use super::{Branch, Host, Named, Verdict};
+use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::git;
 use crate::held::Stop;
 use crate::process::{self, Ran};
@@ -76,7 +76,14 @@ impl Host for Local {
         git::git(&self.project.repo, &["rev-parse", "--verify", &self.kept_main()]).await
     }
 
-    async fn verdict(&self, branch: &Branch<'_>, _: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+    async fn verdict(
+        &self,
+        branch: &Branch<'_>,
+        _: &str,
+        _: &str,
+        _: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<Verdict>, Failed> {
         let dir = git::worktree(branch.place)?;
         let check = &self.project.check;
         let failed = match process::run(process::shell(check, &dir, &self.env), None, None, stop).await? {
@@ -89,20 +96,25 @@ impl Host for Local {
         };
         Ok(Some(Verdict {
             failed,
-            by: None,
-            notes: Vec::new(),
+            ..Verdict::default()
         }))
     }
 
-    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
-        git::merge(&self.project, branch.place, checked).await
+    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
+        git::merge(&self.project, branch.place, branch.title, checked).await
     }
 
     fn kept_main(&self) -> String {
         kept_main(&self.project.main)
     }
 
-    async fn run_tests(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
+    async fn run_tests(
+        &self,
+        branch: &Branch<'_>,
+        named: &Named,
+        _: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<String>, String> {
         let words = self.words()?;
         let ran = match git::worktree(branch.place) {
             Ok(dir) => self.run(&dir, stop).await,
@@ -123,6 +135,11 @@ impl Host for Local {
 
     /// The local repository holds nothing for a work beside its branch and its worktrees, which the acts let go.
     async fn end(&self, _: &Branch<'_>, _: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// A local host holds nothing for a work but its branch, which the work keeps.
+    async fn reopen(&self, _: &Branch<'_>) -> Result<(), String> {
         Ok(())
     }
 }

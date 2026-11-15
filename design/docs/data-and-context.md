@@ -15,7 +15,8 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
 
 2. A new version comes from outside or from a cell. From outside: a person writes, the branch the works merge into
    moves, a file of the project that the cells work under changes (`AGENTS.md`, the design tree), a session is
-   reopened. From a cell: what it hands in when a round of it ends.
+   reopened. From a cell: what it hands in when a round of it ends. The code a round commits is handed in by that
+   round, read from the branch as it ends.
 
 3. A file's version is its content. It has a new version whenever its content changed, whoever changed it and
    wherever: on the branch the works merge into, or in the work itself.
@@ -140,3 +141,46 @@ run next all the same, and the note would be filled, since the new session lacks
     charge: where there is one place to write, nothing can be written to the wrong one.
 
 29. A round is not told who wrote a version: nothing in this design needs it.
+
+## What is said to a work
+
+30. A question and a message are two channels. A question is asked by a cell and answered on it, where it is asked
+    (26). A message is what the owner says to a work, and the cell's answer: it may be said at any time, wherever the
+    work stands, and may go back and forth. Words said about a question, as remarks on it, are a message, not its
+    answer.
+
+31. What the owner says and what the cells say back are kept as one record, `discussion`, each entry with who spoke
+    and to which cell, in the order they were said: the owner adds to it, and so do the cells that answer, and no
+    entry is changed. Every cell that can be spoken to is given the record, all of it (16), so that the owner's words
+    are in the very message of the round that answers them, and a session reopened holds everything that was said.
+    The record runs no cell.
+
+32. What runs a cell that is spoken to is a datum of its own, `{cell}_spoken_to`, with no content, which has a new
+    version when the owner speaks to that cell. Words about a question go to the cell that asked it. Other words go to
+    a line the owner chooses, and reach the cell that line has reached: the one running or holding the work on that
+    line, or else the one of that line that ran last. The page shows the cell the words will reach, as the engine
+    decides it; where no cell can take them they are not sent, and the page says so: they never go to another cell
+    unsaid.
+
+33. A cell that can ask a question can be spoken to (principle who-asks-can-be-spoken-to): every cell that may write a
+    question has both the datum an answer writes (26) and its own `{cell}_spoken_to`. A flow without them is refused as
+    it loads.
+
+34. The cell answers at once and goes on with its work. It hands in its answer as it hands in any block, as the
+    record's, and the answer is added to the record; with it the round says that it has dealt with the owner's words. What else
+    ran the cell is still new, so the cell is entered again and goes on with the rest (9). No tool is needed for
+    answering.
+
+35. While a round of the cell spoken to is under way, the words are put into its session right after its next use of
+    one of its program's own tools, so that they do not wait for the round's end. This is done for what the owner says
+    and for nothing else. Words that did not reach the round before it ended are still new to the cell, and it runs
+    again.
+
+36. While the cell spoken to has no round under way and waits for the result of a call, the engine enters it for the
+    words, and it goes on waiting for the result.
+
+37. While a round of a cell later in the flow is under way, that round is told to stop, the cell spoken to runs, and
+    the flow comes back to the cell that stopped: a round that stopped so has dealt with nothing (8), and its cell runs
+    again.
+
+38. A round that says it has dealt with the owner's words and has handed in no answer has its return sent back.

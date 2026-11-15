@@ -4,13 +4,13 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, BlockId, CallId, Called, CellId, Done, Finished, LetGo, Pause, PutIn, Returned, Round, RunId, Seq,
-    Started, Write, Written,
+    Abandoned, Answered, BlockId, CallId, Called, CellId, Done, Finished, LetGo, Pause, PutIn, Questioned, Returned,
+    Round, RunId, Seq, Started, Write, Written,
 };
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::{Filled, Moment, Observed, Ran, RanOn, Session, Spent, Time, Work};
+use work::{Filled, Measured, Measures, Moment, Observed, Pinged, Ran, RanOn, Session, Spent, Time, Work};
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
 
@@ -99,13 +99,14 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     let mut writes: BTreeMap<RunId, Vec<Write>> = BTreeMap::new();
     for (run, write) in rows(
         db,
-        "SELECT run, block, matters, value FROM writes WHERE work = ?1 ORDER BY run, n",
+        "SELECT run, block, matters, value, empty FROM writes WHERE work = ?1 ORDER BY run, n",
         w,
         |row| {
             let write = Write {
                 block: BlockId(row.get(1)?),
                 meaning_unchanged: !row.get::<_, bool>(2)?,
                 value: row.get(3)?,
+                empty: row.get(4)?,
             };
             Ok((RunId(row.get(0)?), write))
         },
@@ -114,11 +115,18 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     }
     let finished = rows(
         db,
-        "SELECT at, run, dealt_with FROM finished WHERE work = ?1 ORDER BY at",
+        "SELECT at, run, dealt_with, waits_for FROM finished WHERE work = ?1 ORDER BY at",
         w,
-        |row| Ok((Seq(row.get(0)?), RunId(row.get(1)?), row.get::<_, Option<String>>(2)?)),
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                RunId(row.get(1)?),
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        },
     )?;
-    for (at, run, dealt_with) in finished {
+    for (at, run, dealt_with, waits_for) in finished {
         let writes = writes.remove(&run).unwrap_or_default();
         let dealt_with = dealt_with.map(|names| parse("finished", &names)).transpose()?;
         r.finished.push(Finished {
@@ -126,6 +134,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             at,
             writes,
             dealt_with,
+            waits_for: waits_for.map(BlockId),
         });
     }
 
@@ -157,7 +166,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
 
     let written = rows(
         db,
-        "SELECT at, block, writer, matters, value FROM written WHERE work = ?1 ORDER BY at",
+        "SELECT at, block, writer, matters, value, said_to, empty FROM written WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok((
@@ -166,18 +175,53 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 row.get::<_, String>(2)?,
                 row.get::<_, bool>(3)?,
                 row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?.map(CellId),
+                row.get::<_, bool>(6)?,
             ))
         },
     )?;
-    for (at, block, writer, matters, value) in written {
+    for (at, block, writer, matters, value, said_to, empty) in written {
         r.written.push(Written {
             block,
             by: from_name("written", writer)?,
             matters,
             value,
+            empty,
+            said_to,
             at,
         });
     }
+
+    r.questions = rows(
+        db,
+        "SELECT at, name, cell, run, engine, waits, withdrawn FROM questions WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Questioned {
+                at: Seq(row.get(0)?),
+                name: row.get(1)?,
+                cell: CellId(row.get(2)?),
+                run: RunId(row.get(3)?),
+                engine: row.get(4)?,
+                waits: row.get(5)?,
+                withdrawn: row.get(6)?,
+            })
+        },
+    )?;
+    r.answers = rows(
+        db,
+        "SELECT at, question, version, option, why FROM answers WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Answered {
+                at: Seq(row.get(0)?),
+                question: row.get(1)?,
+                version: Seq(row.get(2)?),
+                option: row.get(3)?,
+                why: row.get(4)?,
+            })
+        },
+    )?;
 
     r.let_go = rows(
         db,
@@ -211,18 +255,31 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             why,
         });
     }
-    let cancelled = rows(db, "SELECT at, why FROM cancelled WHERE work = ?1", w, |row| {
-        Ok((Seq(row.get(0)?), row.get::<_, Option<String>>(1)?))
-    })?
-    .into_iter()
-    .next();
-    r.cancelled = cancelled.as_ref().map(|(at, _)| *at);
-    out.why_cancelled = cancelled.and_then(|(_, why)| why);
-    r.released = rows(db, "SELECT at FROM released WHERE work = ?1", w, |row| {
+    let cancels = rows(
+        db,
+        "SELECT at, why FROM cancelled WHERE work = ?1 ORDER BY at",
+        w,
+        |row| Ok((Seq(row.get(0)?), row.get::<_, Option<String>>(1)?)),
+    )?;
+    for (at, why) in cancels {
+        r.cancels.push(at);
+        if let Some(why) = why {
+            out.why_cancelled.insert(at, why);
+        }
+    }
+    let reopens = rows(
+        db,
+        "SELECT at, why FROM reopened WHERE work = ?1 ORDER BY at",
+        w,
+        |row| Ok((Seq(row.get(0)?), row.get::<_, String>(1)?)),
+    )?;
+    for (at, why) in reopens {
+        r.reopens.push(at);
+        out.why_reopened.insert(at, why);
+    }
+    r.releases = rows(db, "SELECT at FROM released WHERE work = ?1 ORDER BY at", w, |row| {
         Ok(Seq(row.get(0)?))
-    })?
-    .into_iter()
-    .next();
+    })?;
 
     out.contents = rows(
         db,
@@ -332,6 +389,65 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
+    for (measured, before) in rows(
+        db,
+        "SELECT at, run, round, attempt, input_tokens, cache_read_tokens, cache_written_tokens, thinking_tokens, turns, \
+         calls, first_read, first_context, added, given, before, received, crossed, priced FROM measured WHERE work = ?1 \
+         ORDER BY at",
+        w,
+        |row| {
+            let measures = Measures {
+                input_tokens: row.get(4)?,
+                cache_read_tokens: row.get(5)?,
+                cache_written_tokens: row.get(6)?,
+                thinking_tokens: row.get(7)?,
+                turns: row.get(8)?,
+                calls: row.get(9)?,
+                first_read: row.get(10)?,
+                first_context: row.get(11)?,
+                added: row.get(12)?,
+                given: row.get(13)?,
+                before: Default::default(),
+                received: row.get(15)?,
+                crossed: row.get(16)?,
+                priced: row.get(17)?,
+            };
+            let measured = Measured {
+                at: Seq(row.get(0)?),
+                run: RunId(row.get(1)?),
+                round: row.get(2)?,
+                attempt: row.get(3)?,
+                measures,
+            };
+            Ok((measured, row.get::<_, String>(14)?))
+        },
+    )? {
+        let mut measured = measured;
+        measured.measures.before = parse("measured", &before)?;
+        out.measured.push(measured);
+    }
+    out.pinged = rows(
+        db,
+        "SELECT at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, \
+         compactions, failed FROM pinged WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Pinged {
+                at: Seq(row.get(0)?),
+                line: row.get(1)?,
+                session: row.get(2)?,
+                spent: Spent {
+                    usd_micros: row.get(3)?,
+                    input_tokens: row.get(4)?,
+                    cached_tokens: row.get(5)?,
+                    output_tokens: row.get(6)?,
+                    context_tokens: row.get(7)?,
+                    compactions: row.get(8)?,
+                },
+                failed: row.get(9)?,
+            })
+        },
+    )?;
 
     out.moments = rows(
         db,
@@ -376,20 +492,25 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let abandoned = grown("abandoned", &h.abandoned, &g.abandoned, |e| Entry::At(e.at))?;
     let put_in = grown("put_in", &h.put_in, &g.put_in, |e| Entry::At(e.at))?;
     let written = grown("written", &h.written, &g.written, |e| Entry::At(e.at))?;
+    let questions = grown("questions", &h.questions, &g.questions, |e| Entry::At(e.at))?;
+    let answers = grown("answers", &h.answers, &g.answers, |e| Entry::At(e.at))?;
     let let_go = grown("let_go", &h.let_go, &g.let_go, |e| Entry::At(e.at))?;
     let pauses = grown("pauses", &h.pauses, &g.pauses, |e| Entry::At(e.at))?;
-    let cancelled = match (h.cancelled, g.cancelled) {
-        (None, new) => new,
-        (Some(h), Some(g)) if h == g && held.why_cancelled == given.why_cancelled => None,
-        (Some(h), Some(_)) => return Err(diverged("cancelled", Entry::At(h), Divergence::Changed)),
-        (Some(h), None) => return Err(diverged("cancelled", Entry::At(h), Divergence::Missing)),
+    // A cancel and a reopen are kept with why, which is theirs as much as their place.
+    let with_why = |places: &[Seq], why: &BTreeMap<Seq, String>| -> Vec<(Seq, Option<String>)> {
+        places.iter().map(|at| (*at, why.get(at).cloned())).collect()
     };
-    let released = match (h.released, g.released) {
-        (None, new) => new,
-        (Some(h), Some(g)) if h == g => None,
-        (Some(h), Some(_)) => return Err(diverged("released", Entry::At(h), Divergence::Changed)),
-        (Some(h), None) => return Err(diverged("released", Entry::At(h), Divergence::Missing)),
-    };
+    let (held_cancels, given_cancels) = (
+        with_why(&h.cancels, &held.why_cancelled),
+        with_why(&g.cancels, &given.why_cancelled),
+    );
+    let cancels = grown("cancelled", &held_cancels, &given_cancels, |(at, _)| Entry::At(*at))?;
+    let (held_reopens, given_reopens) = (
+        with_why(&h.reopens, &held.why_reopened),
+        with_why(&g.reopens, &given.why_reopened),
+    );
+    let reopens = grown("reopened", &held_reopens, &given_reopens, |(at, _)| Entry::At(*at))?;
+    let releases = grown("released", &h.releases, &g.releases, |at| Entry::At(*at))?;
     let contents = gained("contents", &held.contents, &given.contents, |(block, at)| {
         Entry::Version {
             block: block.clone(),
@@ -409,6 +530,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         run: o.run,
         round: o.round,
     })?;
+    let measured = grown("measured", &held.measured, &given.measured, |m| Entry::At(m.at))?;
+    let pinged = grown("pinged", &held.pinged, &given.pinged, |p| Entry::At(p.at))?;
 
     // Each table after those its rows name.
     for s in started {
@@ -451,14 +574,23 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     }
     for f in finished {
         let dealt_with = f.dealt_with.as_ref().map(|names| json("finished", names)).transpose()?;
+        let waits_for = f.waits_for.as_ref().map(|block| block.0.as_str());
         db.execute(
-            "INSERT INTO finished (work, at, run, dealt_with) VALUES (?1, ?2, ?3, ?4)",
-            params![w, f.at.0, f.run.0, dealt_with],
+            "INSERT INTO finished (work, at, run, dealt_with, waits_for) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![w, f.at.0, f.run.0, dealt_with, waits_for],
         )?;
         for (n, write) in (1..).zip(&f.writes) {
             db.execute(
-                "INSERT INTO writes (work, run, n, block, matters, value) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![w, f.run.0, n, write.block.0, !write.meaning_unchanged, write.value],
+                "INSERT INTO writes (work, run, n, block, matters, value, empty) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    w,
+                    f.run.0,
+                    n,
+                    write.block.0,
+                    !write.meaning_unchanged,
+                    write.value,
+                    write.empty
+                ],
             )?;
         }
     }
@@ -477,8 +609,31 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     for e in written {
         let writer = name("written", &e.by)?;
         db.execute(
-            "INSERT INTO written (work, at, block, writer, matters, value) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![w, e.at.0, e.block.0, writer, e.matters, e.value],
+            "INSERT INTO written (work, at, block, writer, matters, value, said_to, empty) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                w,
+                e.at.0,
+                e.block.0,
+                writer,
+                e.matters,
+                e.value,
+                e.said_to.as_ref().map(|c| c.0.as_str()),
+                e.empty
+            ],
+        )?;
+    }
+    for q in questions {
+        db.execute(
+            "INSERT INTO questions (work, at, name, cell, run, engine, waits, withdrawn) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![w, q.at.0, q.name, q.cell.0, q.run.0, q.engine, q.waits, q.withdrawn],
+        )?;
+    }
+    for a in answers {
+        db.execute(
+            "INSERT INTO answers (work, at, question, version, option, why) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![w, a.at.0, a.question, a.version.0, a.option, a.why],
         )?;
     }
     for e in let_go {
@@ -494,13 +649,19 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             params![w, e.at.0, e.paused, pauser, e.why],
         )?;
     }
-    if let Some(at) = cancelled {
+    for (at, why) in cancels {
         db.execute(
             "INSERT INTO cancelled (work, at, why) VALUES (?1, ?2, ?3)",
-            params![w, at.0, given.why_cancelled],
+            params![w, at.0, why],
         )?;
     }
-    if let Some(at) = released {
+    for (at, why) in reopens {
+        db.execute(
+            "INSERT INTO reopened (work, at, why) VALUES (?1, ?2, ?3)",
+            params![w, at.0, why],
+        )?;
+    }
+    for at in releases {
         db.execute("INSERT INTO released (work, at) VALUES (?1, ?2)", params![w, at.0])?;
     }
     for ((block, version), content) in contents {
@@ -583,6 +744,56 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 r.on.model,
                 r.on.effort,
                 r.on.account
+            ],
+        )?;
+    }
+    for m in measured {
+        let n = &m.measures;
+        db.execute(
+            "INSERT INTO measured (work, at, run, round, attempt, input_tokens, cache_read_tokens, \
+             cache_written_tokens, thinking_tokens, turns, calls, first_read, first_context, added, given, before, \
+             received, crossed, priced) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+            params![
+                w,
+                m.at.0,
+                m.run.0,
+                m.round,
+                m.attempt,
+                n.input_tokens,
+                n.cache_read_tokens,
+                n.cache_written_tokens,
+                n.thinking_tokens,
+                n.turns,
+                n.calls,
+                n.first_read,
+                n.first_context,
+                n.added,
+                n.given,
+                json("measured", &n.before)?,
+                n.received,
+                n.crossed,
+                n.priced
+            ],
+        )?;
+    }
+    for p in pinged {
+        let s = &p.spent;
+        db.execute(
+            "INSERT INTO pinged (work, at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, \
+             context_tokens, compactions, failed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                w,
+                p.at.0,
+                p.line,
+                p.session,
+                s.usd_micros,
+                s.input_tokens,
+                s.cached_tokens,
+                s.output_tokens,
+                s.context_tokens,
+                s.compactions,
+                p.failed
             ],
         )?;
     }

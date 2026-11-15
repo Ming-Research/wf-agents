@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 37);
+    assert_eq!(tables.len(), 43);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -40,9 +40,7 @@ fn a_file_made_before_is_opened_with_what_it_holds() {
         let work = first_work(&mut store);
         store
             .add(
-                "second",
-                "2",
-                &[ItemNumber(1)],
+                &first("second", "2", &[ItemNumber(1)]),
                 "judged",
                 Time(START + 1),
                 &Work::default(),
@@ -223,7 +221,7 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 }
 
 /// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
-pub(crate) const MIGRATIONS: [&str; 10] = [
+pub(crate) const MIGRATIONS: [&str; 17] = [
     include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
     include_str!("../../../../db/migrations/202611102304-give-items-a-level.sql"),
     include_str!("../../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
@@ -236,6 +234,17 @@ pub(crate) const MIGRATIONS: [&str; 10] = [
         "../../../../db/migrations/202611131500-keep-what-a-return-dealt-with-what-reached-a-round-and-what-filled-it.sql"
     ),
     include_str!("../../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"),
+    include_str!("../../../../db/migrations/202611141700-give-items-a-project.sql"),
+    include_str!("../../../../db/migrations/202611141900-keep-the-questions-put-to-the-owner-and-the-answers.sql"),
+    include_str!(
+        "../../../../db/migrations/202611142000-say-why-each-change-of-an-item-was-made-tag-items-and-reopen-them.sql"
+    ),
+    include_str!(
+        "../../../../db/migrations/202611142100-keep-what-the-calls-of-a-round-came-to-and-the-pings-of-sessions.sql"
+    ),
+    include_str!("../../../../db/migrations/202611142300-keep-the-cell-an-entry-of-what-is-said-is-said-to.sql"),
+    include_str!("../../../../db/migrations/202611151200-say-what-a-finished-run-waits-for-from-outside.sql"),
+    include_str!("../../../../db/migrations/202611151600-say-whether-a-version-holds-anything.sql"),
 ];
 
 #[test]
@@ -249,6 +258,9 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
         finished.dealt_with = None;
     }
     work.records.finished[0].writes[0].meaning_unchanged = true;
+    // Nor were its questions and answers entries of their own.
+    work.records.questions.clear();
+    work.records.answers.clear();
     let (old, new) = kept_in(9, &work);
     let mut store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
@@ -265,7 +277,7 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     // A work of the new form is kept in it beside, as in a file made at this version.
     let new = of_the_new_form();
     let (_, number) = store
-        .add("second", "2", &[], "judged", Time(START), &Work::default())
+        .add(&first("second", "2", &[]), "judged", Time(START), &Work::default())
         .expect("the item is added");
     store.save(number, &new).expect("the work is saved");
     let opened = old.open();
@@ -315,6 +327,50 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
         ]
     );
     assert!(migrated.iter().all(|o| o.read.is_none()));
+}
+
+#[test]
+fn a_file_of_version_17_is_migrated_and_its_writes_read_as_holding_something() {
+    // A work as one kept at version 17 holds it: a request a person wrote holding only whitespace, and the writer's
+    // text handed in empty.
+    let mut d = Driver::new();
+    d.on(Event::Wrote {
+        block: "request".into(),
+        by: Outsider::Person,
+        content: " \n".to_string(),
+        matters: true,
+        value: None,
+    });
+    d.end(Came::hands_in(vec![Handed {
+        block: "text".into(),
+        content: String::new(),
+        matters: true,
+        value: None,
+    }]));
+    let work = d.work;
+    let request = (work.records.written.iter()).find(|w| w.block.as_str() == "request");
+    assert!(request.is_some_and(|w| w.empty), "the request holds nothing");
+    assert!(work.records.finished[0].writes[0].empty, "the text holds nothing");
+    let (old, new) = kept_in(17, &work);
+    let store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    // A file of this version keeps what each says; in the migrated one each reads as holding something, as kept before.
+    assert_eq!(new.open().load(WorkNumber(1)), Ok(work.clone()));
+    let mut before = work;
+    for w in &mut before.records.written {
+        w.empty = false;
+    }
+    for f in &mut before.records.finished {
+        for w in &mut f.writes {
+            w.empty = false;
+        }
+    }
+    assert_eq!(store.load(WorkNumber(1)), Ok(before));
 }
 
 #[test]
@@ -383,9 +439,49 @@ fn an_item_kept_before_items_had_levels_is_opened_at_none() {
     );
     // An item added now has its level.
     store
-        .add("added now", "1", &[], "judged", Time(START), &Work::default())
+        .add(&first("added now", "1", &[]), "judged", Time(START), &Work::default())
         .expect("the item is added");
     assert_eq!(store.items().unwrap()[1].level.as_deref(), Some("1"));
+}
+
+// An item kept before items had projects belonged to the installation's one project, which had no name: it is opened
+// with none, and an item added beside it has the project it is added to.
+#[test]
+fn an_item_kept_before_items_had_projects_is_opened_with_none() {
+    let db = Db::new();
+    {
+        let file = Connection::open(&db.path).expect("the database opens");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+        for migration in &MIGRATIONS[..10] {
+            file.execute_batch(migration).expect("the migration runs");
+        }
+        assert_eq!(versions(&db.path), [11]);
+        file.execute(
+            "INSERT INTO items (title, added, level) VALUES ('kept before', 5, '2')",
+            [],
+        )
+        .expect("an item is kept");
+    }
+    let mut store = db.open();
+    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
+    store
+        .add(
+            &store::First {
+                project: Some("two".to_string()),
+                ..first("added now", "1", &[ItemNumber(1)])
+            },
+            "judged",
+            Time(START),
+            &Work::default(),
+        )
+        .expect("the item is added, depending on the one kept before");
+    let items = store.items().expect("the items are read");
+    assert_eq!(items[0].project, None);
+    assert_eq!(items[1].project.as_deref(), Some("two"));
+    assert_eq!(items[1].first.project.as_deref(), Some("two"));
+    assert_eq!(items[1].depends_on, [ItemNumber(1)]);
 }
 
 #[test]

@@ -4,8 +4,9 @@
 use std::fmt;
 
 use decide::{End, Outsider, RecordFault};
-use driver::{Failed, Unchangeable};
+use driver::{Failed, NotMade, Unchangeable};
 use engine::Refused;
+use engine::spoken::NoOne;
 use store::ItemNumber;
 
 use crate::{Fault, Missing, Refusal};
@@ -70,15 +71,59 @@ impl fmt::Display for Refusal {
 /// Why the driver did not do what it was asked, as a clause.
 fn failed_words(failed: &Failed) -> String {
     match failed {
-        Failed::NoSuchItem(item) => format!("there is no item {}", item.0),
-        Failed::Unchangeable { item, why } => unchangeable_words(*item, why),
-        Failed::BlankTitle => {
-            "a title says what the item is to deliver, and one of no words says nothing: give it words".to_string()
+        Failed::NoSuchItem(item) => format!("there is no item #{}", item.0),
+        // One change asked is refused in its own words; of several, each refused is named by its place, and none was
+        // made.
+        Failed::NotChanged { asked: 1, refused } if refused.len() == 1 => why_not_made(&refused[0]),
+        Failed::NotChanged { refused, .. } => {
+            let said: Vec<String> = (refused.iter())
+                .map(|refused| format!("change {}: {}", refused.at + 1, why_not_made(refused)))
+                .collect();
+            format!("{}; so none of the changes was made", said.join("; "))
         }
+        Failed::BlankTitle => blank_title().to_string(),
+        Failed::BadTag(tag) => bad_tag(tag),
+        Failed::OnCancelled(on) => format!(
+            "the item would depend on {}, cancelled, and wait for good: reopen it first, or leave it out",
+            items(on)
+        ),
         Failed::NoSuchWork(work) => format!("there is no work {}", work.0),
         Failed::NoSuchFlow(flow) => format!("there is no flow named {flow}"),
         Failed::Refused(refused) => refused_words(refused),
         Failed::Stopped { fault, .. } => format!("the engine stopped: {}", driver_fault(fault)),
+    }
+}
+
+/// Why a title of no words is refused, as a clause.
+fn blank_title() -> &'static str {
+    "a title says what the item is to deliver, and one of no words says nothing: give it words"
+}
+
+/// Why a tag is refused, as a clause.
+fn bad_tag(tag: &str) -> String {
+    format!(
+        "{tag:?} is no tag: a tag is a name of 1 to {} characters with no space and no comma",
+        driver::changes::TAG_CHARS
+    )
+}
+
+/// Items by number, in words: `#3`, `#3 and #5`, `#3, #5 and #9`.
+fn items(numbers: &[ItemNumber]) -> String {
+    let named: Vec<String> = numbers.iter().map(|n| format!("#{}", n.0)).collect();
+    match named.as_slice() {
+        [] => "no item".to_string(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// Why a change was refused, as a clause.
+fn why_not_made(refused: &NotMade) -> String {
+    match &refused.why {
+        driver::changes::Refused::NoSuchItem(item) => format!("there is no item #{}", item.0),
+        driver::changes::Refused::BlankTitle => blank_title().to_string(),
+        driver::changes::Refused::BadTag(tag) => bad_tag(tag),
+        driver::changes::Refused::Unchangeable(why) => unchangeable_words(refused.item, why),
     }
 }
 
@@ -87,25 +132,50 @@ fn unchangeable_words(item: ItemNumber, why: &Unchangeable) -> String {
     let item = item.0;
     match why {
         Unchangeable::Ended(End::Merged) => {
-            format!("item {item} has merged: an item that has ended takes no change, and is what it ended as")
+            format!("#{item} has merged: an item that has ended takes no change, and is what it ended as")
         }
-        Unchangeable::Ended(End::Cancelled) => {
-            format!("item {item} is cancelled: an item that has ended takes no change, and is what it ended as")
-        }
+        Unchangeable::Ended(End::Cancelled) => format!(
+            "#{item} is cancelled: an item that has ended takes no change, and is what it ended as; reopen it first"
+        ),
         Unchangeable::Started => format!(
-            "the work of item {item} has started, and what an item depends on changes only until its work starts: \
+            "the work of #{item} has started, and what an item depends on changes only until its work starts: \
              what it depends on is what its work started on. What turns up for it is a new item, which may depend on it"
         ),
-        Unchangeable::Circle(way) if way.len() == 1 => format!("item {item} cannot depend on itself"),
+        Unchangeable::Circle(way) if way.len() == 1 => format!("#{item} cannot depend on itself"),
         Unchangeable::Circle(way) => {
-            let way: Vec<String> = way.iter().map(|on| on.0.to_string()).collect();
+            let way: Vec<String> = way.iter().map(|on| format!("#{}", on.0)).collect();
             format!(
-                "item {item} cannot depend on item {}, which depends on it already: {}",
+                "#{item} cannot depend on {}, which depends on it already: {}",
                 way[0],
                 way.join(" depends on ")
             )
         }
-        Unchangeable::NotDependent(on) => format!("item {item} does not depend on item {}", on.0),
+        Unchangeable::NotDependent(on) => format!("#{item} does not depend on #{}", on.0),
+        Unchangeable::NotTagged(tag) => format!("#{item} does not carry the tag {tag}"),
+        Unchangeable::OpenDependants(open) => {
+            let (depend, have, them) = match open.len() {
+                1 => ("depends", "has", "it"),
+                _ => ("depend", "have", "them"),
+            };
+            format!(
+                "{} {depend} on #{item} and {have} not ended, and would wait for it for good: cancel {them} first, in \
+                 the same change before it, or take that dependency away",
+                items(open)
+            )
+        }
+        Unchangeable::OnCancelled(on) => format!(
+            "#{item} would depend on {}, cancelled, and wait for good: reopen {} first",
+            items(on),
+            if on.len() == 1 { "it" } else { "them" }
+        ),
+        Unchangeable::MergedDependants(merged) => format!(
+            "{} merged depending on #{item}, and a merged item depends on nothing that is not done",
+            items(merged)
+        ),
+        Unchangeable::NotCancelled => format!("#{item} is not cancelled: only a cancelled item is reopened"),
+        Unchangeable::LettingGo => {
+            format!("the cancel of #{item} is still letting go of what its work held: reopen it once that is done")
+        }
     }
 }
 
@@ -132,6 +202,35 @@ pub fn refused_words(refused: &Refused) -> String {
         Refused::NotToRelease => {
             "the work has not ended, or something of it is under way: it has nothing to let go".to_string()
         }
+        Refused::NoSuchQuestion(question) => format!("the work has no question {question}"),
+        Refused::NoSuchVersion { question, version } => {
+            format!("the question {question} has no version {} that asks it", version.0)
+        }
+        Refused::NotAnOption { question, option } => {
+            format!("the version of the question {question} answered has no option {option}")
+        }
+        Refused::WithoutEnd(decision) => {
+            format!("what is decided on the work's records leads to deciding again without end, last {decision:?}")
+        }
+        Refused::NotCancelled => "the work's item is not cancelled: there is no cancel to reopen".to_string(),
+        Refused::NoOneSpokenTo(why) => no_one_words(why),
+    }
+}
+
+/// Why no cell can take the owner's words, in words: the words go to no other cell.
+pub fn no_one_words(why: &NoOne) -> String {
+    match why {
+        NoOne::Ended => "the work has ended: no cell of it takes words now".to_string(),
+        NoOne::NoSuchLine(line) => format!("the flow has no cell on the line {line}"),
+        NoOne::NoSuchQuestion(question) => format!("the work has no question {question} that stands"),
+        NoOne::NoneOfTheLine(line) => format!("the owner's words run no cell of the line {line}"),
+        NoOne::NotReached(line) => {
+            format!(
+                "no cell of the line {line} that the owner's words run has run, and the work stands at none of them"
+            )
+        }
+        NoOne::NotSpokenTo(cell) => format!("the words would reach {cell}, which the owner's words do not run"),
+        NoOne::Skipped(cell) => format!("the words would reach {cell}, which does not apply now"),
     }
 }
 
@@ -166,6 +265,18 @@ pub fn record_fault_words(fault: &RecordFault) -> String {
         }
         RecordFault::DealtWithTwice(run) => format!("run {} names one block twice as dealt with", run.0),
         RecordFault::CalledAfterEnd(call) => format!("call {} was made after its run had ended", call.0),
+        RecordFault::AnswerNoVersion(at) => format!(
+            "the answer at place {} names no version of its question that asks it, written before it",
+            at.0
+        ),
+        RecordFault::WithoutEnd => {
+            "what is decided on the work's records leads to deciding again without end, and the \
+                                    engine decides nothing more of it"
+                .to_string()
+        }
+        RecordFault::ReopenedNotCancelled(at) => {
+            format!("the work was reopened at place {} with no cancel to reopen", at.0)
+        }
     }
 }
 

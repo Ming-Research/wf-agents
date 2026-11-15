@@ -7,7 +7,8 @@
 // screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item go while the
 // tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the items are read again and
 // drawn where they stand, the item selected and the panel as they were; when the stream opens again after a cut,
-// everything is. An answer older than the one shown is dropped. The page's shell mounts it lazily (`lazy.tsx`).
+// everything is. An answer older than the one shown is dropped. An item the address names is selected once the tree
+// shows it, as from a notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
 // the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel is too).
@@ -25,7 +26,7 @@ import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
 import { type Heard, type Source, inOrder, pageSource } from './source';
 
-export function ConsolePage({ source: given }: { source?: Source } = {}) {
+export function ConsolePage({ source: given, named }: { source?: Source; named?: number } = {}) {
   const source = useMemo(() => given ?? pageSource(), [given]);
   const panel = useRef<HTMLElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -86,6 +87,7 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
           });
         };
         if (latestData.current !== undefined) s.show(shownTree(latestData.current));
+        selectNamed();
         // To try the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
         Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
       },
@@ -101,10 +103,24 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
 
   // The items as last read, for a scene made after they came.
   const latestData = useRef<Items | undefined>(undefined);
+  // The item the address names, until the tree shows it and it is selected.
+  const toSelect = useRef<number | undefined>(named);
+  const selectNamed = () => {
+    const id = toSelect.current;
+    if (id === undefined || scene.current === null) return;
+    if (!latestData.current?.items.some((i) => i.number === id)) return;
+    toSelect.current = undefined;
+    scene.current.select(id);
+  };
   useEffect(() => {
     latestData.current = data;
     if (data !== undefined) scene.current?.show(shownTree(data));
+    selectNamed();
   }, [data]);
+  useEffect(() => {
+    toSelect.current = named;
+    selectNamed();
+  }, [named]);
 
   /// The width of the tree that the window leaves to be seen: all of it while the window is in.
   const room = (out: boolean) => {

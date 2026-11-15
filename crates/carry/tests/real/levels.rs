@@ -118,31 +118,20 @@ async fn a_try_keeps_what_it_ran_on_after_the_settings_give_its_level_another_mo
     let mut real = Real::trial(fake);
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| real.owners_call(work).is_some()).await;
+    real.until(|real| real.waited_question(work).is_some()).await;
     // The settings change while the build waits for the owner's answer: level 1 runs on another model from now on.
     let level = real.settings.agents.levels.get_mut("1").expect("level 1");
     level.model = "claude-opus-5-5".to_string();
     real.restart();
     let waits = |real: &Real| {
         let decision = real.decision(work);
-        let on_the_owner = |on: &[decide::Waited]| {
-            on.iter().any(|w| {
-                matches!(
-                    w,
-                    decide::Waited::Call {
-                        on: Some(decide::Who::Owner),
-                        ..
-                    }
-                )
-            })
-        };
+        let on_the_owner = |on: &[decide::Waited]| on.iter().any(|w| matches!(w, decide::Waited::Answer { .. }));
         matches!(&decision, decide::Decision::Wait { at, on } if at.as_str() == "build" && on_the_owner(on))
     };
-    // The engine started again holds the work at the build for the owner, the call made before it stopped.
+    // The engine started again holds the work at the build for the owner's answer to the question asked before it
+    // stopped.
     assert!(waits(&real), "{:?}", real.decision(work));
-    let call = real.owners_call(work).expect("the build asks the owner");
-    let result = "By their first name.".to_string();
-    real.act(work, Act::Answer { call, result });
+    real.answer(work, "By their first name.");
     real.until(|real| ended(&real.decision(work))).await;
     assert_eq!(
         kept(&real, work, "plan", 1, 1),

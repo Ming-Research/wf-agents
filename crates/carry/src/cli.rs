@@ -22,16 +22,15 @@
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
-use decide::run::Failure;
 use flow::Compiled;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 use work::{RanOn, Spent, Work, sessions};
 
-use crate::failure;
 use crate::permissions::Permissions;
 use crate::settings::Agents;
+use crate::{cost, failure};
 
 /// What the command line says on its standard error when a session is begun under an id that has one already.
 pub const IN_USE: &str = "is already in use";
@@ -111,13 +110,13 @@ impl Words {
 
     /// Puts what is said where the hook reads it, as the hook is to print it: what the program adds to the session
     /// after a use of a tool. What waits there still is taken back first and given before it, so that one file holds
-    /// everything said: a rename either takes it back whole or finds that the hook has moved it. One writer puts at a
-    /// time.
-    pub async fn put(&self, said: &str) -> std::result::Result<(), String> {
+    /// everything said: a rename either takes it back whole or finds that the hook has moved it. Gives whether it took
+    /// back what waited there, the hook not having given it. One writer puts at a time.
+    pub async fn put(&self, said: &str) -> std::result::Result<bool, String> {
         let named = |path: &Path, e: std::io::Error| format!("{}: {e}", path.display());
         let taking = self.waiting.with_extension("json.taking");
         let mut context = String::new();
-        match tokio::fs::rename(&self.waiting, &taking).await {
+        let took_back = match tokio::fs::rename(&self.waiting, &taking).await {
             Ok(()) => {
                 let bytes = tokio::fs::read(&taking).await.map_err(|e| named(&taking, e))?;
                 let waited: Value = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", taking.display()))?;
@@ -126,10 +125,11 @@ impl Words {
                     context.push_str("\n\n");
                 }
                 tokio::fs::remove_file(&taking).await.map_err(|e| named(&taking, e))?;
+                true
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
             Err(e) => return Err(named(&self.waiting, e)),
-        }
+        };
         context.push_str(said);
         let output = json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": context } });
         // Written whole beside it and renamed into place, so that the hook never moves a file half written.
@@ -139,7 +139,22 @@ impl Words {
             .map_err(|e| named(&part, e))?;
         tokio::fs::rename(&part, &self.waiting)
             .await
-            .map_err(|e| named(&self.waiting, e))
+            .map_err(|e| named(&self.waiting, e))?;
+        Ok(took_back)
+    }
+
+    /// Takes back what waits for the hook, once the program has ended and its hook runs no more: gives whether
+    /// something waited there, which the hook never gave.
+    pub async fn take_back(&self) -> std::result::Result<bool, String> {
+        let taking = self.waiting.with_extension("json.taking");
+        match tokio::fs::rename(&self.waiting, &taking).await {
+            Ok(()) => tokio::fs::remove_file(&taking)
+                .await
+                .map(|()| true)
+                .map_err(|e| format!("{}: {e}", taking.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!("{}: {e}", self.waiting.display())),
+        }
     }
 }
 
@@ -278,8 +293,9 @@ pub struct InSession {
 }
 
 /// The session the round of this number of the run of a cell on the line runs in: it goes on in it where an earlier
-/// round of the line in the same session ended having spent tokens, which a round that never reached the model has
-/// not; and the session cost before it what those earlier rounds cost.
+/// round of the line in the same session put its message into it, having reached the model or its program having said
+/// it took the message in (`work::sessions::wrote_into`); and the session cost before it what those earlier rounds
+/// cost, and the keep-warm pings it was sent before it.
 pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize) -> InSession {
     let on_line = |run: RunId| {
         let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
@@ -295,7 +311,11 @@ pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: 
             b < at && sessions::number_at(work, line, b) == session
         })
         .map(|(_, spent)| spent.usd_micros)
-        .sum();
+        .sum::<u64>()
+        + (work.pinged.iter())
+            .filter(|p| p.line == line && p.session == session && p.at < at)
+            .map(|p| p.spent.usd_micros)
+            .sum::<u64>();
     InSession {
         number: session,
         begin: if begins { Begin::New } else { Begin::Resume },
@@ -359,11 +379,14 @@ pub struct Read {
 
 /// Why what the command line printed is no result to take, with what the round took where the result could be read:
 /// an error, or a result with no structured return, still says what the call cost, and the call is paid for all the
-/// same. Where nothing could be read, what the round took is not known.
+/// same. Where the stream holds no result to be read, what the round took is what its calls' tokens cost at their
+/// model's prices; none where it made none. What the stream said of the service's errors in its own fields comes with
+/// it, whatever was read.
 #[derive(Debug)]
 pub struct NoResult {
     pub why: String,
     pub spent: Option<Spent>,
+    pub said: failure::Said,
 }
 
 /// The tool the command line hands a return in with, under `--json-schema`.
@@ -373,7 +396,9 @@ pub const STRUCTURED_OUTPUT: &str = "StructuredOutput";
 const PARTIAL: &str = r#"{"type":"stream_event""#;
 
 /// The command line's stream as it comes, line by line: its result, and each attempt at a return, rebuilt from the
-/// partial messages, with what the command line said of those it refused.
+/// partial messages, with what the command line said of those it refused; and the calls of the session's own agent to
+/// the model, each as its first partial message tells its prompt, with the tools the agent used, and the program's
+/// version, as its first line tells it.
 #[derive(Debug, Default)]
 pub struct Stream {
     /// Whether it gave any line.
@@ -383,7 +408,57 @@ pub struct Stream {
     attempts: Attempts,
     /// What the command line said of each use of a tool of the agent's own that it refused, by the use's id.
     refusals: Vec<(String, String)>,
+    /// What it said of the service's errors, in its own fields.
+    said: failure::Said,
+    /// Each call to the model, by its message's id, in the order they came, with its model and its tokens as its
+    /// latest message gave them: the pieces of one call each give the usage so far.
+    calls: Vec<(String, String, cost::Tokens)>,
+    /// Whether the service has answered a call of the main loop with a message that is no error.
+    answered: bool,
+    /// The calls of the session's own agent.
+    pub own: Calls,
+    /// The uses of tools of the session's own agent, by the use's id, in order: the tool and what it was used on, cut.
+    pub tools: Vec<(String, String, String)>,
+    /// The program's version, where its first line told it.
+    pub program: Option<String>,
 }
+
+/// The calls of the session's own agent to the model, as their first partial messages tell their prompts: a call made
+/// by a subagent is left out, its context not being the session's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Calls {
+    /// How many.
+    pub count: u32,
+    /// The first's prompt: what it read from the cache, and its whole, in tokens.
+    pub first: Option<(u64, u64)>,
+    /// The latest's whole prompt.
+    pub last: Option<u64>,
+    /// The tokens the prompt rose by from each call to the next, each rise counted, a fall taking none back.
+    pub added: u64,
+    /// The tokens of the prompts sent fresh, read from the cache and written to it, over the calls.
+    pub fresh: u64,
+    pub read: u64,
+    pub written: u64,
+}
+
+impl Calls {
+    /// Takes a call whose prompt was sent fresh, read from the cache and written to it in these tokens.
+    fn take(&mut self, fresh: u64, read: u64, written: u64) {
+        let whole = fresh + read + written;
+        (self.fresh, self.read, self.written) = (self.fresh + fresh, self.read + read, self.written + written);
+        self.count += 1;
+        if self.first.is_none() {
+            self.first = Some((read, whole));
+        }
+        if let Some(last) = self.last {
+            self.added += whole.saturating_sub(last);
+        }
+        self.last = Some(whole);
+    }
+}
+
+/// How much of what a tool was used on is kept to say what the agent was doing, in characters.
+const ON: usize = 160;
 
 impl Stream {
     /// Takes one line of the stream, without its newline, and says whether the line is kept with the round: every
@@ -394,19 +469,55 @@ impl Stream {
         let Ok(text) = std::str::from_utf8(line) else {
             return true;
         };
-        if text.starts_with(PARTIAL) && !self.attempts.wants(text) {
+        // The first partial message of each call tells its prompt, whether or not it rebuilds an attempt at a return.
+        let starts = text.starts_with(PARTIAL) && text.contains(r#""message_start""#);
+        if text.starts_with(PARTIAL) && !starts && !self.attempts.wants(text) {
             return false;
         }
         let Ok(v) = serde_json::from_str::<Value>(text) else {
             return true;
         };
+        self.said.line(&v);
+        self.called(&v);
         match v["type"].as_str() {
-            Some("stream_event") => return self.attempts.event(&v),
+            Some("stream_event") => {
+                if starts && v["parent_tool_use_id"].is_null() {
+                    let usage = &v["event"]["message"]["usage"];
+                    let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
+                    let (fresh, read) = (tokens("input_tokens"), tokens("cache_read_input_tokens"));
+                    self.own.take(fresh, read, tokens("cache_creation_input_tokens"));
+                }
+                return self.attempts.event(&v);
+            }
             Some("result") => self.result = Some(v),
             Some("user") if v["parent_tool_use_id"].is_null() => self.refusals.extend(refusals(&v)),
+            Some("assistant") if v["parent_tool_use_id"].is_null() => self.used(&v),
+            Some("system") if v["subtype"] == "init" => {
+                self.program = v["claude_code_version"].as_str().map(str::to_string);
+            }
             _ => {}
         }
         true
+    }
+
+    /// Takes the uses of tools a whole message of the agent's own holds, each once by its id.
+    fn used(&mut self, message: &Value) {
+        let content = message["message"]["content"].as_array().into_iter().flatten();
+        for used in content.filter(|c| c["type"] == "tool_use") {
+            let id = used["id"].as_str().unwrap_or_default().to_string();
+            if self.tools.iter().any(|(seen, ..)| *seen == id) {
+                continue;
+            }
+            let name = used["name"].as_str().unwrap_or_default().to_string();
+            let on: String = used["input"].to_string().chars().take(ON).collect();
+            self.tools.push((id, name, on));
+        }
+    }
+
+    /// Whether the program said, as its stream began, that it had taken its message in and opened its session: its
+    /// first line, which it prints once it has read its input.
+    pub fn began(&self) -> bool {
+        self.program.is_some()
     }
 
     /// Whether the stream gave any line.
@@ -419,6 +530,63 @@ impl Stream {
         self.result.is_some()
     }
 
+    /// Whether the service has answered a call of the round's main loop with a message that is no error: it serves
+    /// the round, whatever comes of it.
+    pub fn answered(&self) -> bool {
+        self.answered
+    }
+
+    /// Takes what a message of the model's says of its call: its tokens, and whether the service answered.
+    fn called(&mut self, v: &Value) {
+        if v["type"] != "assistant" {
+            return;
+        }
+        let message = &v["message"];
+        if v["parent_tool_use_id"].is_null() && v["error"].is_null() && v["api_error"].is_null() {
+            self.answered = true;
+        }
+        let (Some(id), Some(usage)) = (message["id"].as_str(), message.get("usage")) else {
+            return;
+        };
+        let model = message["model"].as_str().unwrap_or_default().to_string();
+        let tokens = cost::Tokens::of(usage);
+        match self.calls.iter_mut().find(|(call, ..)| call == id) {
+            Some(call) => *call = (id.to_string(), model, tokens),
+            None => self.calls.push((id.to_string(), model, tokens)),
+        }
+    }
+
+    /// What the stream's calls cost at their models' prices, and their tokens; none where it made none.
+    pub fn priced(&self) -> Option<Spent> {
+        let last = self.calls.last()?;
+        let mut spent = Spent {
+            context_tokens: Some(last.2.prompt()),
+            ..Spent::default()
+        };
+        for (_, model, tokens) in &self.calls {
+            spent.usd_micros += cost::of_call(model, tokens);
+            spent.input_tokens += tokens.input;
+            spent.cached_tokens += tokens.read;
+            spent.output_tokens += tokens.output;
+        }
+        Some(spent)
+    }
+
+    /// What the try's prompts came to as the program's result says: the tokens sent fresh, read from the cache and
+    /// written to it, those thought in, where it says, and the turns; none where it printed no result.
+    pub fn printed(&self) -> Option<(u64, u64, u64, Option<u64>, u64)> {
+        let result = self.result.as_ref()?;
+        let usage = &result["usage"];
+        let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
+        Some((
+            tokens("input_tokens"),
+            tokens("cache_read_input_tokens"),
+            tokens("cache_creation_input_tokens"),
+            usage["output_tokens_details"]["thinking_tokens"].as_u64(),
+            result["num_turns"].as_u64().unwrap_or(0),
+        ))
+    }
+
     /// Reads the stream, for a round that began its session or went on in it with the session having cost `before`:
     /// the return the command line took, or, where it gave up on the return, its last attempt at it, rebuilt; or says
     /// why there is no return to take, with what the round took where the result could be read. A round that began
@@ -426,14 +594,27 @@ impl Stream {
     /// cost, or the whole total where that is less (measured: the total is the whole session's, even where two lines
     /// take turns in one worktree).
     pub fn read(self, begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
+        let fields = self.said;
+        let priced = self.priced();
         let Some(result) = self.result else {
             let why = "the command line's stream holds no result".to_string();
-            return Err(NoResult { why, spent: None });
+            return Err(NoResult {
+                why,
+                spent: priced,
+                said: fields,
+            });
         };
-        let result: Result = serde_json::from_value(result).map_err(|e| NoResult {
-            why: format!("the command line's result cannot be read: {e}"),
-            spent: None,
-        })?;
+        let result: Result = match serde_json::from_value(result) {
+            Ok(result) => result,
+            Err(e) => {
+                let why = format!("the command line's result cannot be read: {e}");
+                return Err(NoResult {
+                    why,
+                    spent: priced,
+                    said: fields,
+                });
+            }
+        };
         let spent = spent(&result, begin, before);
         if !result.is_error {
             return match result.structured_output {
@@ -441,6 +622,7 @@ impl Stream {
                 None => Err(NoResult {
                     why: "the command line's result holds no structured return".to_string(),
                     spent: Some(spent),
+                    said: fields,
                 }),
             };
         }
@@ -458,7 +640,7 @@ impl Stream {
         };
         // The command line gave up on the return, having refused every attempt at it: the last is read as any return
         // is, by the engine's own reading, which sends it back where it cannot be read.
-        if failure::kind(&why) == Failure::Unread
+        if failure::gave_up(&why, &fields)
             && let Some((id, raw)) = self.attempts.last()
         {
             return match serde_json::from_str::<Value>(&raw) {
@@ -474,6 +656,7 @@ impl Stream {
                     Err(NoResult {
                         why: format!("{why}; its last attempt at the return is no JSON ({e}){refused}"),
                         spent: Some(spent),
+                        said: fields,
                     })
                 }
             };
@@ -481,6 +664,7 @@ impl Stream {
         Err(NoResult {
             why,
             spent: Some(spent),
+            said: fields,
         })
     }
 }
@@ -634,6 +818,8 @@ fn spent(result: &Result, begin: Begin, before: u64) -> Spent {
 mod tests {
     use std::path::PathBuf;
 
+    use decide::run::Failure;
+
     use super::*;
 
     /// A stream the command line printed for a session's first round, what named the machine and the account replaced:
@@ -725,6 +911,29 @@ mod tests {
             }
         );
         assert_eq!(read.structured["hands_in"][0]["content"], "BANANA");
+    }
+
+    #[test]
+    fn the_stream_tells_each_call_of_the_agents_own_its_tools_and_the_programs_version_and_the_result_what_it_took() {
+        let mut stream = Stream::default();
+        for line in STREAM.lines() {
+            stream.line(line.as_bytes());
+        }
+        // Two calls, each as its first partial message tells its prompt: fresh, read from the cache, written to it.
+        let calls = &stream.own;
+        assert_eq!(calls.count, 2);
+        assert_eq!(calls.first, Some((27_199, 2 + 27_199 + 8_950)));
+        assert_eq!(calls.last, Some(2 + 36_149 + 140));
+        assert_eq!(calls.added, (2 + 36_149 + 140) - (2 + 27_199 + 8_950));
+        assert_eq!(
+            (calls.fresh, calls.read, calls.written),
+            (4, 27_199 + 36_149, 8_950 + 140)
+        );
+        assert_eq!(stream.program.as_deref(), Some("2.1.323"));
+        let tools: Vec<&str> = stream.tools.iter().map(|(_, tool, _)| tool.as_str()).collect();
+        assert_eq!(tools, ["Bash", STRUCTURED_OUTPUT]);
+        // The result says the cache writes apart from the fresh tokens and the reads, the thinking and the turns.
+        assert_eq!(stream.printed(), Some((4, 63_348, 9_090, Some(153), 3)));
     }
 
     #[test]
@@ -825,7 +1034,11 @@ mod tests {
             "the attempt itself is not quoted: {}",
             no.why
         );
-        assert_eq!(failure::kind(&no.why), Failure::Unread, "it is sent back");
+        assert_eq!(
+            failure::of(&no.why, &no.said, no.spent.as_ref()),
+            Failure::Unread,
+            "it is sent back"
+        );
         assert_eq!(no.spent.map(|s| s.usd_micros), Some(400_000));
         // Given up on with no attempt in the stream, the result's own words say why, without the quote.
         let no = read(gave_up(&said).as_bytes(), Begin::New, 0).expect_err("nothing to take");
@@ -868,6 +1081,65 @@ mod tests {
                        "content_block": { "type": "tool_use", "id": "x", "name": STRUCTURED_OUTPUT } } });
         assert!(!stream.line(sub.to_string().as_bytes()), "a subagent's is not kept");
         assert!(stream.attempts.last().is_none());
+    }
+
+    // A round that crashed before its result spent what its calls' tokens cost: each call once, at its latest usage,
+    // a subagent's among them; and the service answered it, with a message that is no error.
+    #[test]
+    fn a_stream_cut_off_before_its_result_says_what_its_calls_cost() {
+        let call = |id: &str, parent: Value, output: u64| {
+            json!({ "type": "assistant", "parent_tool_use_id": parent, "message": { "id": id,
+                "model": "claude-opus-5-5", "usage": { "input_tokens": 100, "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 1000, "output_tokens": output } } })
+            .to_string()
+        };
+        let mut stream = Stream::default();
+        assert!(!stream.answered());
+        for line in [
+            call("msg_1", Value::Null, 10),
+            call("msg_1", Value::Null, 50),
+            call("msg_2", json!("toolu_1"), 20),
+        ] {
+            stream.line(line.as_bytes());
+        }
+        assert!(stream.answered());
+        let no = stream.read(Begin::New, 0).expect_err("no result");
+        let spent = no.spent.expect("its calls are priced");
+        assert_eq!(
+            (spent.input_tokens, spent.cached_tokens, spent.output_tokens),
+            (200, 2000, 70)
+        );
+        // Opus 5.5: 200 × 4 + 2000 × 0.2 + 70 × 20 millionths.
+        assert_eq!(spent.usd_micros, 800 + 400 + 1400);
+        // An error the service gave is no answer.
+        let mut refused = Stream::default();
+        let error = json!({ "type": "assistant", "parent_tool_use_id": null, "error": "overloaded", "message": {} });
+        refused.line(error.to_string().as_bytes());
+        assert!(!refused.answered());
+    }
+
+    // A weekly limit as version 2.1.323 reports it: the result's words and fields as a real round kept them, and the
+    // refusal's message as the command line's schema gives it, resetting at 11pm in Los Angeles. The stream's fields
+    // say the kind and the day of the reset, which the words alone give as a time of day.
+    #[test]
+    fn what_the_stream_says_of_a_refusal_comes_with_the_failure() {
+        let refused = json!({ "type": "assistant", "parent_tool_use_id": null, "error": "rate_limit",
+            "api_error": "usage_limit_reached", "api_error_status": 429,
+            "api_error_params": { "rate_limit_info": { "status": "rejected", "resetsAt": 1_794_380_400_u64,
+                "rateLimitType": "seven_day", "isUsingOverage": false } },
+            "message": { "content": [{ "type": "text",
+                "text": "You've hit your weekly limit · resets 11pm (America/Los_Angeles)" }] } });
+        let result = json!({ "type": "result", "subtype": "success", "is_error": true, "api_error_status": 429,
+            "api_error": "usage_limit_reached", "terminal_reason": "api_error", "total_cost_usd": 9.62,
+            "result": "You've hit your weekly limit · resets 11pm (America/Los_Angeles)" });
+        let stream = [refused.to_string(), result.to_string()].join("\n");
+        let no = read(stream.as_bytes(), Begin::Resume, 9_620_000).expect_err("a refusal is not taken");
+        assert_eq!(no.said.kind(), Some(Failure::UsageLimit));
+        assert_eq!(no.said.resets, Some(1_794_380_400_000));
+        assert_eq!(failure::of(&no.why, &no.said, no.spent.as_ref()), Failure::UsageLimit);
+        // A stream cut off before its result says what it said all the same.
+        let cut = read(refused.to_string().as_bytes(), Begin::New, 0).expect_err("no result");
+        assert_eq!((cut.spent, cut.said.kind()), (None, Some(Failure::UsageLimit)));
     }
 
     #[test]
@@ -1102,6 +1374,26 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(left.len(), 2, "nothing else is left: {left:?}");
+    }
+
+    #[tokio::test]
+    async fn what_waits_for_the_hook_is_told_apart_from_what_the_hook_gave() {
+        let dir = tempfile::tempdir().unwrap();
+        let words = Words {
+            waiting: dir.path().join("1-1.words.json"),
+            delivered: dir.path().join("1-1.delivered"),
+        };
+        assert_eq!(words.put("First.").await, Ok(false), "nothing waited");
+        assert_eq!(
+            words.put("Second.").await,
+            Ok(true),
+            "the first waited, the hook not having given it"
+        );
+        assert_ne!(after(&words, "Bash", dir.path()), "");
+        assert_eq!(words.put("Third.").await, Ok(false), "the hook gave the first two");
+        assert_eq!(words.take_back().await, Ok(true), "the third waited");
+        assert!(!words.waiting.exists(), "taken back, for no hook to give");
+        assert_eq!(words.take_back().await, Ok(false), "nothing waits");
     }
 
     #[test]

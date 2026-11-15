@@ -29,6 +29,7 @@ function sources(engine: Engine = { slots: 2, taken: 1, paused: null }) {
   const works: Source = {
     loadCopies: async () => fixtureCopies(),
     loadItems: async () => fixtureItems(),
+    loadProjects: async () => ({ names: [] }),
     loadWork: async (n) => fixtureWork(n),
     loadVersion: async () => {
       throw new Error('not read here');
@@ -37,6 +38,12 @@ function sources(engine: Engine = { slots: 2, taken: 1, paused: null }) {
       throw new Error('not read here');
     },
     loadTold: async () => {
+      throw new Error('not read here');
+    },
+    loadDoing: async () => {
+      throw new Error('not read here');
+    },
+    loadSystem: async () => {
       throw new Error('not read here');
     },
     loadCall: async () => {

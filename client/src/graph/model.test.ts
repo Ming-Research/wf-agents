@@ -56,9 +56,9 @@ describe('the flowchart of the engineer flow', () => {
     expect(chart.nodes.filter((n) => n.kind === 'cell').map((n) => n.cell)).toEqual(engineer.cells.map((c) => c.id));
   });
 
-  it('draws one fork for each decision on deep_needed, named by the block, a branch for each value', () => {
-    const forks = chart.nodes.filter((n) => n.kind === 'fork').map((n) => `${n.id} ${n.name}`);
-    expect(forks).toEqual(['f:R1 deep_needed', 'f:R2 deep_needed', 'f:D4 edits_tree', 'f:T2 needs_testing']);
+  it('draws one fork for each decision, one on a block named by it, a branch for each value', () => {
+    const forks = chart.nodes.filter((n) => n.kind === 'fork').map((n) => `${n.id} ${n.name ?? 'test'}`);
+    expect(forks).toEqual(['f:R1 deep_needed', 'f:R2 deep_needed', 'f:D4 test', 'f:T2 needs_testing']);
     // After R0: deep_needed may hold either, as a walk again after R1 wrote it finds it.
     expect(step(chart, cellNode('R0'), forkNode('R1'))).toBeDefined();
     expect(step(chart, forkNode('R1'), cellNode('R1'))?.branch).toBe('no');
@@ -114,9 +114,9 @@ describe('the flowchart of the engineer flow', () => {
         'c:D1 > c:D2',
         'c:D2 > c:D3',
         'c:D3 > f:D4',
-        // The ways join at the fork on edits_tree: through D4 or past it, joining again at I1.
-        'f:D4 yes > c:D4',
-        'f:D4 no > c:I1',
+        // The ways join at the fork on the test changes_tree: through D4 or past it, joining again at I1.
+        'f:D4 ✓ > c:D4',
+        'f:D4 ✗ > c:I1',
         'c:D4 > c:I1',
         'c:I1 > c:T1',
         // T1 writes needs_testing: through T2 or past it, to M1's gate.
@@ -134,6 +134,8 @@ describe('the flowchart of the engineer flow', () => {
   it('keeps each requires as a gate on the path into its cell, with what the outside writes of it', () => {
     expect(nodeOf(chart, wayInNode('M1'))?.requires.map((k) => (k.on === 'test' ? k.test.name : k.block))).toEqual([
       'settled',
+      'asked',
+      'review_ok',
     ]);
     expect(nodeOf(chart, wayInNode('M2'))?.requires).toEqual([{ on: 'block', block: 'checked', value: 'yes' }]);
     expect(nodeOf(chart, wayInNode('S1'))?.requires).toEqual([{ on: 'block', block: 'dependencies', value: 'merged' }]);
@@ -171,7 +173,7 @@ describe('the flowchart of the engineer flow', () => {
       { name: 'reply_review', group: false },
     ]);
     expect(all['I1>T2']).toBe('acceptance, reply_testing');
-    expect(all['I1>M1']).toBe('code, reply_check');
+    expect(all['I1>M1']).toBe('code');
     expect(all['M1>M2']).toBe('checked');
     const pairs = everyArrow(chart).map((e) => `${e.from}>${e.to}`);
     expect(new Set(pairs).size).toBe(pairs.length);
@@ -241,11 +243,16 @@ describe('the flowchart of the engineer flow', () => {
         .filter((e) => e.kind === 'outside' && e.target === cellNode(id))
         .map((e) => nodeOf(chart, e.source))
         .map((n) => `${n?.name} ${n?.outside?.people ? 'people' : ''}${n?.outside?.sources.join(' ') ?? ''}`);
-    expect(tags('R1')).toEqual(['background people', 'r1_spoken_to people', 'r1_answered people']);
-    expect(tags('D1')).toEqual(['background people', 'session session', 'd1_spoken_to people', 'd1_answered people']);
-    expect(tags('M1')).toEqual(['main main']);
-    expect(tags('R2')).toEqual([]);
-    expect(nodeOf(chart, outsideNode('R0', 'session'))?.cell).toBe('R0');
+    expect(tags('R1')).toEqual(['background people', 'r1_spoken_to people', 'r1_answered answer']);
+    expect(tags('D1')).toEqual([
+      'background people',
+      'deep_researcher_session session',
+      'd1_spoken_to people',
+      'd1_answered answer',
+    ]);
+    expect(tags('M1')).toEqual(['main main', 'asked asked']);
+    expect(tags('R2')).toEqual(['r2_answered answer']);
+    expect(nodeOf(chart, outsideNode('R0', 'engineer_session'))?.cell).toBe('R0');
   });
 
   it('needs no tie where the main path reaches every cell', () => {

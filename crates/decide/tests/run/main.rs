@@ -3,6 +3,7 @@
 //! design, never from its code. The tests are kept in modules by subject, so that a new test goes into the module of
 //! what it tests.
 
+mod answers;
 mod calls;
 mod failing;
 mod handing_in;
@@ -14,26 +15,32 @@ mod rounds;
 
 use std::collections::BTreeMap;
 
-use decide::run::{Call, Failure, Hold, Limit, Log, Requires, Return, Round, Standing, Step, Told, Unmet, next};
+use decide::run::{
+    Answer, Asked, Asking, Call, Failure, Hold, Limit, Log, Requires, Return, Round, Standing, Step, Told, Unmet, next,
+};
 use decide::{BlockId, CallId, Seq, Write};
 
 /// What the flow requires of a cell, owned so that tests can lend it as `Requires`.
 struct Spec {
     outputs: Vec<BlockId>,
+    groups: BTreeMap<BlockId, Vec<BlockId>>,
     must_write: Vec<BlockId>,
     choices: BTreeMap<BlockId, Vec<String>>,
     returns: u32,
     told: Told,
+    answered_by: BTreeMap<BlockId, Answer>,
 }
 
 impl Spec {
     fn requires(&self) -> Requires<'_> {
         Requires {
             outputs: &self.outputs,
+            groups: &self.groups,
             must_write: &self.must_write,
             choices: &self.choices,
             returns: self.returns,
             told: &self.told,
+            answered_by: &self.answered_by,
         }
     }
 }
@@ -46,9 +53,11 @@ fn spec() -> Spec {
         told: Some(Seq(at)),
         latest: Some(Seq(at)),
         value: value.map(str::to_string),
+        added: false,
     };
     Spec {
         outputs: vec!["plan".into(), "verdict".into()],
+        groups: BTreeMap::new(),
         must_write: vec![],
         choices: BTreeMap::from([("verdict".into(), vec!["yes".to_string(), "no".to_string()])]),
         returns: 2,
@@ -58,8 +67,10 @@ fn spec() -> Spec {
                 ("plan".into(), standing(4, None)),
                 ("verdict".into(), standing(5, Some("yes"))),
             ]),
-            waits_for_calls: false,
+            waits: false,
+            questions: BTreeMap::new(),
         },
+        answered_by: BTreeMap::new(),
     }
 }
 
@@ -131,6 +142,7 @@ fn prose(block: &str) -> Write {
     Write {
         block: block.into(),
         meaning_unchanged: false,
+        empty: false,
         value: None,
     }
 }
@@ -140,6 +152,7 @@ fn valued(block: &str, value: &str) -> Write {
     Write {
         block: block.into(),
         meaning_unchanged: false,
+        empty: false,
         value: Some(value.to_string()),
     }
 }
@@ -191,6 +204,8 @@ fn came(dealt_with: &[&str], writes: Vec<Write>, found: Vec<Unmet>, waits: bool)
             calls: 0,
             found,
             waits,
+            questions: Vec::new(),
+            read: Vec::new(),
         }),
     }
 }
@@ -222,6 +237,8 @@ fn asks(calls: usize) -> Round {
             calls,
             found: vec![],
             waits: false,
+            questions: Vec::new(),
+            read: Vec::new(),
         }),
     }
 }

@@ -6,6 +6,14 @@ use store::WorkNumber;
 
 use super::*;
 
+/// Why a merge was refused, where it was refused for another cause than a moved main.
+fn failed(refused: NotMerged) -> String {
+    match refused {
+        NotMerged::Failed(failed) => failed.why,
+        moved => panic!("refused for a moved main: {moved:?}"),
+    }
+}
+
 /// A repository with one commit on `main`, a data directory beside it, and the project they make.
 pub(crate) struct Repo {
     _dir: tempfile::TempDir,
@@ -65,6 +73,7 @@ impl Repo {
                 main: "main".to_string(),
                 check: check.to_string(),
                 allowed_config: Vec::new(),
+                github: None,
                 commits: crate::acts::writes().commits,
                 tree: "design/".to_string(),
             },
@@ -74,6 +83,9 @@ impl Repo {
 }
 
 const WORK: WorkNumber = WorkNumber(1);
+
+/// The name of the work's merge.
+const NAME: &str = "Say goodbye as well";
 
 #[test]
 fn a_place_is_named_by_the_work_and_the_installation() {
@@ -98,7 +110,9 @@ async fn start_twice_gives_one_worktree() {
     let again = start(&repo.project, &repo.place(WORK), "main")
         .await
         .expect("the work starts again");
-    assert_eq!(again, first);
+    assert_eq!((&again.place, &again.from), (&first.place, &first.from));
+    // The branch was there already the second time.
+    assert!(!first.kept && again.kept);
     let worktrees = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
     assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 2);
 }
@@ -108,7 +122,7 @@ async fn the_merge_puts_the_checked_commit_on_main_once() {
     let repo = Repo::new("true");
     let started = start(&repo.project, &repo.place(WORK), "main").await.unwrap();
     let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
-    let merged = merge(&repo.project, &repo.place(WORK), Some(&head))
+    let merged = merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
         .await
         .expect("the work merges");
     assert_eq!(merged, run(&repo.project.repo, &["rev-parse", "main"]));
@@ -118,8 +132,13 @@ async fn the_merge_puts_the_checked_commit_on_main_once() {
         Some(head.as_str()),
         "a merge commit of the work's head"
     );
+    assert_eq!(
+        run(&repo.project.repo, &["log", "-1", "--format=%s", "main"]),
+        NAME,
+        "named by the work's merge"
+    );
     assert!(repo.project.repo.join("farewell.txt").is_file());
-    let again = merge(&repo.project, &repo.place(WORK), Some(&head))
+    let again = merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
         .await
         .expect("merged again");
     assert_eq!(again, merged);
@@ -131,9 +150,10 @@ async fn the_merge_refuses_a_branch_moved_on_from_what_was_checked() {
     let started = start(&repo.project, &repo.place(WORK), "main").await.unwrap();
     let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
     commit(&started.place.dir, "later.txt", "Later.\n");
-    let refused = merge(&repo.project, &repo.place(WORK), Some(&checked))
+    let refused = merge(&repo.project, &repo.place(WORK), NAME, Some(&checked))
         .await
         .expect_err("refused");
+    let refused = failed(refused);
     assert!(refused.contains("the commit the check passed"), "{refused}");
     assert!(!repo.project.repo.join("farewell.txt").exists(), "nothing was merged");
 }
@@ -149,7 +169,7 @@ async fn the_merge_runs_no_hook_of_the_repository() {
     std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    merge(&repo.project, &repo.place(WORK), Some(&head))
+    merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
         .await
         .expect("the hook is not run");
 }
@@ -159,9 +179,10 @@ async fn the_merge_needs_the_checkout_on_main() {
     let repo = Repo::new("true");
     start(&repo.project, &repo.place(WORK), "main").await.unwrap();
     run(&repo.project.repo, &["switch", "-q", "-c", "elsewhere"]);
-    let refused = merge(&repo.project, &repo.place(WORK), None)
+    let refused = merge(&repo.project, &repo.place(WORK), NAME, None)
         .await
         .expect_err("the merge is refused");
+    let refused = failed(refused);
     assert!(refused.contains("not on the main branch"), "{refused}");
 }
 
@@ -197,9 +218,10 @@ async fn the_merge_refuses_a_repository_whose_configuration_names_a_program() {
         let started = start(&repo.project, &repo.place(WORK), "main").await.unwrap();
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         run(&repo.project.repo, &["config", key, value]);
-        let refused = merge(&repo.project, &repo.place(WORK), Some(&head))
+        let refused = merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
             .await
             .expect_err(key);
+        let refused = failed(refused);
         assert!(refused.contains(&key.to_ascii_lowercase()), "{key}: {refused}");
         assert!(
             !repo.project.repo.join("farewell.txt").exists(),
@@ -248,7 +270,7 @@ async fn an_allowed_key_lets_the_work_start_and_merge() {
     repo.project.allowed_config = vec!["filter.lfs.*".to_string()];
     let started = start(&repo.project, &repo.place(WORK), "main").await.expect("allowed");
     let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
-    merge(&repo.project, &repo.place(WORK), Some(&head))
+    merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
         .await
         .expect("allowed");
 }

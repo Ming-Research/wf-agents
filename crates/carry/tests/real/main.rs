@@ -17,6 +17,8 @@ mod going;
 mod left;
 mod levels;
 mod permissions;
+mod projects;
+mod protected;
 mod query;
 mod sessions;
 mod stopping;
@@ -52,6 +54,9 @@ pub struct Fake {
     /// Whether its first call prints a result that is an error, as when it ran out of retries of its structured
     /// return, the session having cost eighty cents by then, and exits with 1.
     pub error_first: bool,
+    /// Whether its first call crashes after one call to Opus 5.5, of 100 tokens sent, 1,000 read from the cache and 10
+    /// back, printing no result, and exits with 1.
+    pub crashes_first: bool,
     /// Whether the build asks for the query of the check in its first run, and its run entered for the result, going
     /// on in the session, is told the first time that the session is not found.
     pub lose_session: bool,
@@ -76,8 +81,15 @@ pub struct Fake {
     pub plan_edits_guide: bool,
     /// Whether the build commits a file of the design tree.
     pub design: bool,
+    /// Whether the build, once, commits a line to the project's guide, which the project protects, saying why only in
+    /// a round told its return was sent back for it.
+    pub build_changes_guide: bool,
     /// Whether the build, once, commits a file of the design tree to main.
     pub moves_main: bool,
+    /// The context each call ends with, in tokens, by the call's number, the first being one: each call then says, as
+    /// its stream begins, that it took its message in, and that its one call to the model was sent this; a call past
+    /// the last given ends with the last. None given, the calls say neither.
+    pub contexts: &'static [u64],
 }
 
 impl Default for Fake {
@@ -87,6 +99,7 @@ impl Default for Fake {
             fail_first: false,
             flag_first: false,
             error_first: false,
+            crashes_first: false,
             lose_session: false,
             question_first: false,
             plan_sleeps: 0,
@@ -96,10 +109,15 @@ impl Default for Fake {
             refuses_first: false,
             plan_edits_guide: false,
             design: false,
+            build_changes_guide: false,
             moves_main: false,
+            contexts: &[],
         }
     }
 }
+
+/// The name the fake's build gives the work's merge, where its flow has a block for it, as it hands in its code.
+pub const NAMED: &str = "Greet the user by name";
 
 /// What the command line says of a return it gave up on, as it says it, the last refusal at its end.
 pub const GAVE_UP: &str = "Failed to provide valid structured output after 3 attempts — last StructuredOutput error: \
@@ -216,7 +234,7 @@ pub struct Real {
     pub repo: PathBuf,
     /// Where the fake keeps what it was given.
     calls: PathBuf,
-    settings: Settings,
+    pub settings: Settings,
     flow: Compiled,
     service: Service,
     inbox: Inbox,
@@ -225,6 +243,10 @@ pub struct Real {
     pub holds: usize,
     /// The level the items added from now on are given.
     pub level: String,
+    /// The project the items added from now on belong to.
+    pub project: String,
+    /// The title the items added from now on are given.
+    pub title: String,
 }
 
 /// Runs git in the directory, which must pass, and gives its output.
@@ -262,9 +284,30 @@ fn compiled(on: On) -> Compiled {
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");
     }
+    // A build the owner's answer runs may ask the owner: the record of the work's questions, which the engine's source
+    // of answers writes, is among its outputs, and the owner's words run it as well, as they run every cell that may ask.
+    if let Some(build) = source
+        .cells
+        .get_mut("build")
+        .filter(|build| build.contains("\"answered\"]"))
+    {
+        *build = (build.replace("\"answered\"]", "\"answered\", \"build_spoken_to\"]"))
+            .replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
+        source.flow.push_str(
+            "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n\n\
+             [blocks.build_spoken_to]\noutside = \"words\"\n",
+        );
+    }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&[driver::DEPENDENCIES, driver::SESSION, carry::tree::TREE]),
+        sources: names(&[
+            driver::DEPENDENCIES,
+            driver::SESSION,
+            carry::tree::TREE,
+            flow::ANSWER,
+            flow::WORDS,
+            "main",
+        ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
         // the tree.
@@ -311,6 +354,10 @@ if [ '{error}' = yes ] && [ "$n" = 1 ]; then
     printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["{gave_up}"],"total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
     exit 1
 fi
+if [ '{crash}' = yes ] && [ "$n" = 1 ]; then
+    printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+    exit 1
+fi
 if [ '{flag}' = yes ] && [ "$n" = 1 ]; then
     printf '%s\n' '{{"type":"result","subtype":"success","is_error":true,"result":"API Error: the safeguards flagged this message.","total_cost_usd":0.3,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}}'
     exit 1
@@ -325,7 +372,7 @@ dealt=$(printf '%s\n' "$text" | sed -n '/^## Why you are run$/,$p' | sed -n 's/^
 calls=''
 out=''
 unchanged=''
-asked=''
+protected=''
 case "$first" in
     Plan)
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
@@ -345,10 +392,12 @@ case "$first" in
         grep -q 'The results of what you asked for' "$log/$n.stdin" && results=yes
         checked=no
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
-        if [ "$results" = no ] && [ '{question}' = yes ]; then
+        answered=no
+        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `answered`' && answered=yes
+        if [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
             # It leaves all that ran it for after the answer.
             dealt=''
-            asked='{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}'
+            out='"q_and_a":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
         elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
             calls='"query":[{{"sql":"select the check"}}]'
         else
@@ -370,22 +419,47 @@ case "$first" in
                 git -C "$r" add design/main.md
                 git -C "$r" -c user.name=Tester -c user.email=tester@example.com commit -q -m 'Main moved'
             fi
-            git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
-            out='"code":"A greeting."'
+            if [ '{changes_guide}' = yes ] && [ ! -f "$log/guided" ]; then
+                touch "$log/guided"
+                printf 'A line the build added.\n' >> '{guide}'
+                git add '{guide}'
+            fi
+            if [ '{changes_guide}' = yes ] && grep -q 'is a file the project protects' "$log/$n.stdin"; then
+                protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
+            fi
+            echo "$n" >> built.txt
+            git add built.txt
+            git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Build the greeting'
+            head=$(git rev-parse HEAD)
+            out="\"code\":\"A greeting, in commit $head.\""
+            # Where the cell writes the name of the work's merge, it names it.
+            if printf '%s\n' "$text" | grep -q '^- `title`'; then
+                out="$out,\"title\":\"{name}\""
+            fi
         fi ;;
     Review) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
 if [ -n "$calls" ]; then
-    structured="{{\"calls\":{{$calls}}}}"
+    structured="{{\"tools\":{{$calls}}}}"
 else
-    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],\"questions\":[$asked],\"outputs\":{{$out}}}}}}"
+    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],$protected\"outputs\":{{$out}}}}}}"
 fi
-printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20{iterations}}},"structured_output":%s}}\n' "$structured"
+contexts='{contexts}'
+iterations='{iterations}'
+if [ -n "$contexts" ]; then
+    ctx=$(printf '%s\n' $contexts | sed -n "${{n}}p")
+    [ -z "$ctx" ] && ctx=$(printf '%s\n' $contexts | tail -n 1)
+    printf '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}\n'
+    printf '{{"type":"stream_event","event":{{"type":"message_start","message":{{"usage":{{"input_tokens":%s,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}},"parent_tool_use_id":null}}\n' "$ctx"
+    iterations=",\"iterations\":[{{\"input_tokens\":$ctx,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}]"
+fi
+printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$iterations" "$structured"
 "#,
         calls = calls.display(),
         fail = yes(fake.fail_first),
         flag = yes(fake.flag_first),
         error = yes(fake.error_first),
+        crash = yes(fake.crashes_first),
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
@@ -396,9 +470,12 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         edits_guide = yes(fake.plan_edits_guide),
         guide = PROJECT_FILES[0].0,
         design = yes(fake.design),
+        changes_guide = yes(fake.build_changes_guide),
         moves = yes(fake.moves_main),
         gave_up = GAVE_UP,
+        name = NAMED,
         refused = refused.display(),
+        contexts = (fake.contexts.iter().map(u64::to_string).collect::<Vec<_>>()).join(" "),
         iterations = fake.context.map_or_else(String::new, |context| {
             format!(r#","iterations":[{{"input_tokens":{context},"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}]"#)
         }),
@@ -433,6 +510,35 @@ fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Servi
     Service::open(Box::new(store), vec![flow.clone()], carriers, Arc::new(SystemClock)).expect("the loop opens")
 }
 
+/// The project the tests' items belong to where a test names none.
+pub const PROJECT: &str = "test";
+
+/// Makes a project's repository at `repo`, on its main branch, with a greeting, the project's files and its declaration:
+/// the one beside this repository's flows.
+pub fn made_repository(repo: &Path) {
+    std::fs::create_dir_all(repo).unwrap();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    git_in(repo, &["config", "user.name", "Tester"]);
+    git_in(repo, &["config", "user.email", "tester@example.com"]);
+    git_in(repo, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(repo.join("greeting.txt"), "Hello.\n").unwrap();
+    // The project's files every line's system prompt holds, where its declaration names them.
+    std::fs::create_dir_all(repo.join("design")).unwrap();
+    for (path, text) in PROJECT_FILES {
+        std::fs::write(repo.join(path), text).unwrap();
+    }
+    let declaration = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../")
+        .join(flow::agents::DECLARATION);
+    std::fs::create_dir_all(repo.join("flow")).unwrap();
+    std::fs::copy(declaration, repo.join(flow::agents::DECLARATION)).expect("the declaration is copied");
+    git_in(repo, &["add", "."]);
+    git_in(repo, &["commit", "-q", "-m", "Greet"]);
+    std::fs::write(repo.join("design/readme.md"), "The tree.\n").unwrap();
+    git_in(repo, &["add", "design/readme.md"]);
+    git_in(repo, &["commit", "-q", "-m", "Design"]);
+}
+
 /// The project's guide, constitution and tree rules, by their paths in the test repository, which `project.toml`
 /// beside the repository's flows names, with their texts.
 pub const PROJECT_FILES: [(&str, &str); 3] = [
@@ -441,6 +547,19 @@ pub const PROJECT_FILES: [(&str, &str); 3] = [
     ("design/README.md", "# The rules of its tree\n"),
 ];
 
+/// A project in the repository at `repo`, on its local repository, with this check.
+fn project(repo: &Path, check: &str) -> Project {
+    Project {
+        repo: repo.to_path_buf(),
+        main: "main".to_string(),
+        check: check.to_string(),
+        allowed_config: Vec::new(),
+        github: None,
+        commits: Default::default(),
+        tree: "design/".to_string(),
+    }
+}
+
 impl Real {
     /// The loop on an empty store of the flow, with the fake answering as given and the budget given, the project's
     /// check being `check`.
@@ -448,37 +567,16 @@ impl Real {
         let dir = tempfile::tempdir().expect("a directory");
         let root = std::fs::canonicalize(dir.path()).expect("the directory is there");
         let (repo, data, calls) = (root.join("repo"), root.join("data"), root.join("calls"));
-        for made in [&repo, &data, &calls] {
+        for made in [&data, &calls] {
             std::fs::create_dir_all(made).unwrap();
         }
-        git_in(&repo, &["init", "-q", "-b", "main"]);
-        git_in(&repo, &["config", "user.name", "Tester"]);
-        git_in(&repo, &["config", "user.email", "tester@example.com"]);
-        git_in(&repo, &["config", "commit.gpgsign", "false"]);
-        std::fs::write(repo.join("greeting.txt"), "Hello.\n").unwrap();
-        // The project's files every line's system prompt holds, where `project.toml` names them.
-        std::fs::create_dir_all(repo.join("design")).unwrap();
-        for (path, text) in PROJECT_FILES {
-            std::fs::write(repo.join(path), text).unwrap();
-        }
-        git_in(&repo, &["add", "."]);
-        git_in(&repo, &["commit", "-q", "-m", "Greet"]);
-        std::fs::write(repo.join("design/readme.md"), "The tree.\n").unwrap();
-        git_in(&repo, &["add", "design/readme.md"]);
-        git_in(&repo, &["commit", "-q", "-m", "Design"]);
+        made_repository(&repo);
         let command = fake(&root, &calls, &answers);
         let settings = Settings {
             owner: Owner {
                 language: "Chinese".to_string(),
             },
-            project: Project {
-                repo: repo.clone(),
-                main: "main".to_string(),
-                check: check.to_string(),
-                allowed_config: Vec::new(),
-                commits: Default::default(),
-                tree: "design/".to_string(),
-            },
+            projects: [(PROJECT.to_string(), project(&repo, check))].into(),
             agents: Agents {
                 command: command.display().to_string(),
                 levels: [("1", "claude-haiku-5-5"), ("2", "claude-sonnet-5-5")]
@@ -506,10 +604,11 @@ impl Real {
             items: Items {
                 default_level: "1".to_string(),
                 highest_level: None,
+                title_max: 20,
             },
-            github: None,
             backup: None,
             sessions: Default::default(),
+            history: Default::default(),
             query: Default::default(),
         };
         let flow = compiled(on);
@@ -526,7 +625,20 @@ impl Real {
             failures: 0,
             holds: 0,
             level: "1".to_string(),
+            project: PROJECT.to_string(),
+            title: "Greet the user".to_string(),
         }
+    }
+
+    /// Adds a project of this name to the installation, in a repository of its own beside the first, whose check is
+    /// the first's, and starts the loop again with it; gives the repository.
+    pub fn add_project(&mut self, name: &str) -> PathBuf {
+        let repo = self.repo.with_file_name(name);
+        made_repository(&repo);
+        let check = self.settings.projects[PROJECT].check.clone();
+        self.settings.projects.insert(name.to_string(), project(&repo, &check));
+        self.restart();
+        repo
     }
 
     /// The trial flow, with the fake answering as given, no budget and a check that passes.
@@ -566,6 +678,27 @@ impl Real {
         answer.try_recv().expect("answered").expect("the pause is lifted");
     }
 
+    /// The question the work waits for the owner's answer to, by its name, with the version to answer, where there is
+    /// one, as its records keep it.
+    pub fn waited_question(&self, work: WorkNumber) -> Option<(String, decide::Seq)> {
+        let records = self.work(work).records;
+        (decide::questions::questions(&records).into_iter())
+            .find(|(_, q)| q.holds())
+            .map(|(name, q)| (name.to_string(), q.latest.at))
+    }
+
+    /// The owner answers the question the work waits for with its first option, saying why.
+    pub fn answer(&mut self, work: WorkNumber, why: &str) {
+        let (question, version) = self.waited_question(work).expect("the work waits for an answer");
+        let act = Act::Answer {
+            question,
+            version,
+            option: 1,
+            why: Some(why.to_string()),
+        };
+        self.act(work, act);
+    }
+
     /// The owner's call the work waits for, where there is one, as its records keep it.
     pub fn owners_call(&self, work: WorkNumber) -> Option<CallId> {
         let records = self.work(work).records;
@@ -579,9 +712,9 @@ impl Real {
         std::fs::read_to_string(self.calls.join(format!("{n}.schema"))).expect("the form given is kept")
     }
 
-    /// The form of return of the flow, as what is beside the flows makes it.
-    pub fn form(&self) -> String {
-        flow::form::form(&self.flow, &beside()).expect("the form is made")
+    /// The form of return of the line, as what is beside the flows makes it.
+    pub fn form(&self, line: &str) -> String {
+        flow::form::form(&self.flow, &beside(), line).expect("the form is made")
     }
 
     /// The work's place, as the installation names it.
@@ -605,9 +738,11 @@ impl Real {
             value: None,
         });
         let item = NewItem {
-            title: "Greet the user".to_string(),
+            title: self.title.clone(),
             level: self.level.clone(),
+            project: self.project.clone(),
             depends_on: depends_on.to_vec(),
+            tags: Vec::new(),
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
         };
@@ -619,12 +754,23 @@ impl Real {
         let starts = (self.flow.cells.iter()).any(|cell| cell.act.as_deref() == Some("start"));
         let agents = (self.flow.cells.iter()).any(|cell| cell.kind == flow::Kind::Agent);
         if !starts && agents {
-            let project = self.settings.project.clone();
+            let project = self.settings.projects[&self.project].clone();
             git::start(&project, &self.place(work), &project.main)
                 .await
                 .expect("the work's place is made");
         }
         work
+    }
+
+    /// A source outside the works says this now of the project the items are added to, as the watch of main says
+    /// main's head.
+    pub fn outside(&mut self, source: &str, content: &str) {
+        let message = Message::Outside {
+            project: self.project.clone(),
+            source: source.to_string(),
+            content: content.to_string(),
+        };
+        self.service.take(message).expect("the loop takes it");
     }
 
     /// Does what the owner does to the work, which the loop takes.
@@ -636,13 +782,22 @@ impl Real {
         answer.try_recv().expect("answered").expect("the act is taken");
     }
 
-    /// Takes what comes until `wanted` holds of the loop; fails where nothing comes for a minute before.
+    /// Takes what comes until `wanted` holds of the loop; fails where nothing comes for half a minute, or it does not
+    /// hold within 40 seconds, saying how each work stands, before the harness gives the test up.
     pub async fn until(&mut self, wanted: impl Fn(&Real) -> bool) {
+        let began = Instant::now();
+        let mut taken = 0;
         while !wanted(self) {
-            let message = tokio::time::timeout(Duration::from_secs(60), self.inbox.recv())
-                .await
-                .expect("something comes within a minute")
-                .expect("the loop's channel is open");
+            let message = match tokio::time::timeout(Duration::from_secs(30), self.inbox.recv()).await {
+                Ok(message) => message.expect("the loop's channel is open"),
+                Err(_) => panic!("nothing came within half a minute:\n{}", self.standing()),
+            };
+            taken += 1;
+            assert!(
+                began.elapsed() < Duration::from_secs(40),
+                "it does not come within 40 seconds, {taken} things taken:\n{}",
+                self.standing()
+            );
             match &message {
                 Message::Happened {
                     event: Event::Failed { .. },
@@ -670,6 +825,22 @@ impl Real {
     /// What the work does next.
     pub fn decision(&self, work: WorkNumber) -> Decision {
         self.service.driver().view(work).expect("the work").decision
+    }
+
+    /// How each work stands, for a test that fails: what it does next, and what came back of each of its rounds.
+    fn standing(&self) -> String {
+        let driver = self.service.driver();
+        (driver.works())
+            .map(|kept| {
+                let number = kept.head.number;
+                let decision = driver.view(number).map(|view| view.decision);
+                let back: Vec<String> = (kept.work.back.iter())
+                    .map(|(round, back)| format!("{round:?}: {back:?}"))
+                    .collect();
+                format!("work {}: {decision:?}\n{}", number.0, back.join("\n"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Everything kept of the work.

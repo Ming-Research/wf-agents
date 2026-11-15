@@ -3,6 +3,8 @@
 
 use flow::{Compiled, Has, Source, compile};
 
+use driver::NewItem;
+
 use super::*;
 
 /// A look at what the source `main` says, then the merge.
@@ -97,6 +99,24 @@ fn a_work_let_on_runs_the_cell_that_reads_the_block_and_one_that_ended_is_writte
     assert_eq!(h.decision(work), Decision::Ended(End::Merged));
     assert_eq!(h.outside("main", "Main is at 2."), vec![]);
     assert_eq!(said(&h, work, "main"), (Some("Main is at 1.".to_string()), 1));
+}
+
+// What the outside says of a project, such as the head of its main branch, is written only into the works of that
+// project's items: each project's main is its own.
+#[test]
+fn what_the_outside_says_of_a_project_is_written_only_into_the_works_of_its_items() {
+    let mut h = H::with(vec![watched()]);
+    let (_, ours) = h.add(new_item("a", &[], "watched"));
+    let (_, theirs) = h.add(NewItem {
+        project: "two".to_string(),
+        ..new_item("b", &[], "watched")
+    });
+    h.outside_of("two", "main", "Main of two is at 1.");
+    assert_eq!(said(&h, ours, "main"), (None, 0));
+    assert_eq!(said(&h, theirs, "main"), (Some("Main of two is at 1.".to_string()), 1));
+    h.outside("main", "Main of one is at 1.");
+    assert_eq!(said(&h, ours, "main"), (Some("Main of one is at 1.".to_string()), 1));
+    assert_eq!(said(&h, theirs, "main").1, 1);
 }
 
 #[test]

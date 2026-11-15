@@ -8,7 +8,7 @@
 // the engine because a round failed; one merged; one cancelled after a let-go; one with a fault; and one long history, waiting at the merge for the owner, with a
 // return sent back, tool calls and their results, a round with what it was told and returned, a run abandoned because
 // the owner wrote an opinion for an earlier cell, a review's opinions sending the implementation round twice, and a
-// write by the outside.
+// write by the outside. The items belong to two projects, and one, added before items had projects, to none.
 
 import type { Flow } from '../api';
 import { cell, flowOf, test, tested } from '../testing';
@@ -22,15 +22,19 @@ import type {
   CellNow,
   CellState,
   Copies,
+  DoingPage,
+  Fill,
   Handed,
   Item,
   Items,
   Now,
+  Projects,
   Round,
   RoundPage,
   Run,
   Spent,
   Step,
+  SystemPage,
   ToldPage,
   Unmet,
   Version,
@@ -40,6 +44,16 @@ import type {
 } from '../works-api';
 
 const MINUTE = 60_000;
+
+/// The projects the fixtures' installation names, in order of their names.
+const PROJECTS = ['Whitefoot', 'wf-agents'];
+
+/// The project of each work's item: three of `Whitefoot`; none for the work with a fault in its records, whose item
+/// was added before items had projects; `wf-agents` for the rest.
+function projectOf(work: number): string | null {
+  if (work === 49) return null;
+  return [43, 45, 47].includes(work) ? PROJECTS[0] : PROJECTS[1];
+}
 
 /// The flow the works run on: a plan, deep research when the plan asks for it, the implementation and its review, a
 /// check with the latest main, and the merge, which waits for the owner's approval.
@@ -156,6 +170,8 @@ class History {
   private place = 0;
   private runs = 0;
   private calls = 0;
+  /// The lines a round has run on: each line's first round begins its one session.
+  private readonly lines = new Set<string>();
   time: number;
   readonly steps: Step[] = [];
   readonly versions = new Map<string, Version[]>();
@@ -186,7 +202,7 @@ class History {
     const was = this.current(block);
     const choice = FLOW.blocks.find((b) => b.name === block)?.values !== null;
     const changed = !was || (choice ? was.value !== value : matters);
-    const v: Version = { at: this.place, time: this.time, by, meaning: changed ? this.place : was.meaning, value, chars: content.length };
+    const v: Version = { at: this.place, time: this.time, by, meaning: changed ? this.place : was.meaning, value, saidTo: null, chars: content.length };
     this.versions.set(block, [...(this.versions.get(block) ?? []), v]);
     this.contents.set(`${block}@${v.at}`, content);
     return v;
@@ -258,8 +274,25 @@ class History {
           ? { kind: 'results', calls: run.calls.slice(-before.back.asks.length).map((c) => c.call) }
           : { kind: 'task' };
     const minutes = spec.minutes ?? 3;
+    const number = run.rounds.length + 1;
+    const defined = FLOW.cells.find((c) => c.id === run.cell);
+    const line = defined?.line ?? null;
+    const begins = line !== null && !this.lines.has(line);
+    if (line !== null) this.lines.add(line);
+    // What was filled into the session: the parts it keeps where it begins, and each datum the cell is given that has
+    // a version, with the task; the results of calls; why the round before was sent back.
+    const data = (defined?.given ?? []).flatMap((block): Fill[] => {
+      const v = this.current(block);
+      return v ? [{ kind: 'whole', block, version: v.at }] : [];
+    });
+    const fills: Fill[] =
+      given.kind === 'results'
+        ? [{ kind: 'results', calls: given.calls }]
+        : given.kind === 'sentBack'
+          ? [{ kind: 'sentBack', round: number - 1 }]
+          : [...(begins ? [{ kind: 'part' as const, part: 'work' }, { kind: 'part' as const, part: 'outputs' }] : []), ...data, { kind: 'part', part: 'task' }];
     const round: Round = {
-      number: run.rounds.length + 1,
+      number,
       began: this.time,
       ended: null,
       given,
@@ -267,6 +300,14 @@ class History {
       spent: null,
       context: null,
       compactions: 0,
+      session: line === null ? null : { line, number: 0 },
+      tries:
+        line === null
+          ? []
+          : [{ attempt: 1, ran: { level: '2', model: 'claude-sonnet-5-5', effort: defined?.effort ?? null }, filled: [fills] }],
+      missed: null,
+      estimated: false,
+      judged: { cost: null, time: null },
     };
     run.rounds.push(round);
     const results = given.kind === 'results' ? given.calls.map((c) => this.callPages.get(c) as CallPage) : [];
@@ -310,6 +351,7 @@ class History {
           made: this.time,
           done: result === null ? null : this.time + Math.round((ask.after ?? 0.2) * MINUTE),
           chars: result === null ? null : result.length,
+          time: null,
         };
         run.calls.push(row);
         this.callPages.set(row.call, { call: row.call, what, result });
@@ -333,7 +375,7 @@ class History {
   /// The run rests at a call the engine makes for it: the owner letting it go on at its limit.
   atLimit(run: RunStep, limit: CallRow['what'] & { kind: 'atLimit' }) {
     this.calls += 1;
-    const row: CallRow = { call: this.calls, what: limit, made: this.time, done: null, chars: null };
+    const row: CallRow = { call: this.calls, what: limit, made: this.time, done: null, chars: null, time: null };
     run.calls.push(row);
     this.callPages.set(row.call, { call: row.call, what: limit, result: null });
     return row.call;
@@ -453,6 +495,7 @@ class History {
       },
       title,
       level: '2',
+      project: projectOf(number),
       history: { first: { title, level: '2', dependsOn: [] }, changes: [] },
       flow: FLOW,
       cells: details,
@@ -475,7 +518,7 @@ const REQUEST_TEXT = (what: string) =>
 function upToReview(h: History, what: string, deepResearch: boolean) {
   h.wrote('request', 'person', REQUEST_TEXT(what));
   h.ran('plan', [
-    { block: 'plan', content: prose('Plan', [what, 'Add the part to look.md', 'Test it in happy-dom']) },
+    { block: 'plan', content: prose('Plan', [what, 'Add the part to parts.tsx', 'Test it in happy-dom']) },
     { block: 'needs_deep_research', content: '', value: deepResearch ? 'yes' : 'no' },
   ]);
   if (deepResearch) h.ran('deep_research', [{ block: 'solution', content: prose('Solution', ['One table, sticky heads']) }]);
@@ -515,7 +558,7 @@ const PLAN_TOLD: ToldPage = {
         '## Results of your calls',
         '',
         '- call 1, `read` `{"block":"request"}`: Show what each round of a work cost…',
-        "- call 2, `read` `{\"path\":\"client/look.md\"}`: # The page's look…",
+        "- call 2, `read` `{\"path\":\"client/src/parts.tsx\"}`: // The page's parts…",
       ].join('\n'),
       cut: null,
       back: {
@@ -534,9 +577,10 @@ const PLAN_TOLD: ToldPage = {
         ),
         turns: 4,
         durationMs: 118_000,
-        models: ['claude-haiku-5-5'],
+        models: ['claude-sonnet-5-5'],
+        cacheCreationInputTokens: 21_400,
       },
-      ran: { level: '1', model: 'claude-haiku-5-5', effort: 'high' },
+      ran: { level: '2', model: 'claude-sonnet-5-5', effort: 'high' },
     },
   ],
   leftOut: 0,
@@ -555,7 +599,7 @@ function long(start: number): Built {
     minutes: 2,
     asks: [
       { kind: 'tool', name: 'read', input: '{"block":"request"}', result: 'Show what each round of a work cost…' },
-      { kind: 'tool', name: 'read', input: '{"path":"client/look.md"}', result: '# The page\'s look\n\nThe owner\'s page is an instrument panel…' },
+      { kind: 'tool', name: 'read', input: '{"path":"client/src/parts.tsx"}', result: '// The page\'s parts, its own small design system…' },
     ],
   });
   const handed = h.round(plan, {
@@ -646,8 +690,8 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   const keep = (built: Built) => {
     works.set(built.page.summary.number, built);
     const s = built.page.summary;
-    const { title, level, history } = built.page;
-    items.push({ number: s.item, title, level, added: s.added, dependsOn: [], history, work: s });
+    const { title, level, project, history } = built.page;
+    items.push({ number: s.item, title, level, project, added: s.added, dependsOn: [], history, work: s });
   };
 
   keep(long(hours(30)));
@@ -804,6 +848,10 @@ export function fixtureItems(): Items {
   return { items: fixtures().items, outage: null };
 }
 
+export function fixtureProjects(): Projects {
+  return { names: [...PROJECTS] };
+}
+
 /// The copies of the database as they stand when all is well: the newest taken three hours ago and kept off the machine.
 export function fixtureCopies(): Copies {
   const now = Date.now();
@@ -838,6 +886,28 @@ export function fixtureTold(n: number, run: number, round: number): ToldPage {
   const history = work(n).history;
   if (!history.rounds.has(`${run}/${round}`)) throw new Error(`no round ${round} of run ${run}`);
   return history.told.get(`${run}/${round}`) ?? { tries: [], leftOut: 0 };
+}
+
+/// What the agent of a round under way was last seen doing; nothing for a round that ended.
+export function fixtureDoing(n: number, run: number, round: number): DoingPage {
+  const found = work(n).page.steps.find((s) => s.kind === 'run' && s.run === run);
+  const r = found?.kind === 'run' ? found.rounds.find((x) => x.number === round) : undefined;
+  if (!r) throw new Error(`no round ${round} of run ${run}`);
+  if (r.ended !== null) return { doing: [] };
+  return {
+    doing: [
+      { kind: 'tool', name: 'Read', on: 'client/src/sizes.ts' },
+      { kind: 'said', text: 'The width is kept under the key the panel names; I will read it back as the page loads.' },
+      { kind: 'tool', name: 'Edit', on: 'client/src/sizes.ts' },
+      { kind: 'tool', name: 'Bash', on: 'npm run typecheck' },
+    ],
+  };
+}
+
+/// The system prompt a line's session began with.
+export function fixtureSystem(n: number, line: string, session: number): SystemPage {
+  work(n);
+  return { line, session, text: `# How you work here\n\nYou are the ${line} of this work.` };
 }
 
 export function fixtureCall(n: number, call: number): CallPage {

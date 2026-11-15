@@ -15,7 +15,7 @@ use crate::agents::RuleSetFile;
 use crate::source::{
     BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, DATA_DIR, Effort, FLOW_FILE, FlowFile, InputKind, Keys, Kind,
     LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL, OF_A_DATUM, OF_A_GROUP,
-    OfADatumFile, RULES_DIR, Source, TESTS_DIR, TRIGGERS_DIR, Task, TestFile, Texts, TriggerFile, WHEN_TEST,
+    OF_A_LINE, OfADatumFile, RULES_DIR, Source, TESTS_DIR, TRIGGERS_DIR, Task, TestFile, Texts, TriggerFile, WHEN_TEST,
     rules_file, who_writes,
 };
 
@@ -75,10 +75,21 @@ pub struct Limits {
     pub calls: u32,
 }
 
+/// The source of the block a new version of which is the owner speaking to the cell it runs (design document
+/// `data-and-context`, 39).
+pub const WORDS: &str = "words";
+
+/// The source of the block a new version of which is the owner answering a question of the cell it runs with another
+/// option than the one the work goes by, or one the cell waits for (design document `data-and-context`, 35, 36). The
+/// engine writes it as the owner answers; and the record of the work's questions and the owner's answers, which the
+/// trigger of an answer has its agent read ([`Trigger::records`]): a block of this source a cell writes holds the
+/// questions it asks, and the cells that write one are those that may ask.
+pub const ANSWER: &str = "answer";
+
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
-/// to a cell, and an answer that takes another option than the one the work goes by (design document
-/// `data-and-context`, 35, 39). Such a block stops a round under way of a later cell ([`decide::Outsiders`]).
-pub const TURNING: [&str; 2] = ["words", "answer"];
+/// to a cell, and an answer ([`WORDS`], [`ANSWER`]). Such a block stops a round under way of a later cell
+/// ([`decide::Outsiders`]).
+pub const TURNING: [&str; 2] = [WORDS, ANSWER];
 
 /// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -92,8 +103,6 @@ pub struct Has {
     /// The parts that the engine places in the system prompt of every line's session itself. A line names none of
     /// them, and no set of the flow's rules has the name of one.
     pub system: BTreeSet<String>,
-    /// The fields of a return that are the engine's: a block written through a field names one of them.
-    pub fields: BTreeSet<String>,
     /// The places the engine fills in a run with what happened: a trigger that says what happened names one of them.
     pub details: BTreeSet<String>,
 }
@@ -119,8 +128,11 @@ pub struct CellSpec {
     /// The blocks among its outputs that every hand-in of the cell includes, in the order written: a hand-in that lacks
     /// one is sent back.
     pub must_write: Vec<BlockId>,
-    /// The blocks among those that run it that say what the work is where the host shows it, in the order written.
+    /// The blocks that say what the work is where the host shows it, in the order written: blocks of the flow with
+    /// content, whether or not they run the cell.
     pub describes: Vec<BlockId>,
+    /// The block whose first line names the work's merge where the host shows it; none where the cell names none.
+    pub named_by: Option<BlockId>,
     /// The blocks whose new version runs the cell, in the order it names them.
     pub runs_on: Vec<RunsOn>,
     /// The blocks the cell is given, its session kept supplied with their content, in the order it names them; none
@@ -169,6 +181,74 @@ pub struct Trigger {
     pub does: Option<String>,
 }
 
+impl Trigger {
+    /// The blocks it stands on, a new version of any of which runs the cell: of a group's trigger, the group's; of
+    /// another, its block.
+    pub fn blocks(&self) -> &[BlockId] {
+        match self.group.is_empty() {
+            true => std::slice::from_ref(&self.block),
+            false => &self.group,
+        }
+    }
+
+    /// Whether it ran a round these blocks ran: any block it stands on did (`decide::flow::ran`).
+    pub fn ran(&self, ran_by: &[BlockId]) -> bool {
+        decide::flow::ran(self.blocks(), ran_by).next().is_some()
+    }
+
+    /// The block it stands on that this source outside the work writes, where one is: of the trigger of an answer, the
+    /// block the engine writes as the owner answers ([`ANSWER`]); of the owner's words, the one it writes as the owner
+    /// speaks to the cell ([`WORDS`]).
+    pub fn of_source<'f>(&'f self, flow: &Compiled, source: &str) -> Option<&'f BlockId> {
+        let writes = |b: &&BlockId| flow.blocks.get(*b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
+        self.blocks().iter().find(writes)
+    }
+
+    /// Of the trigger of this source outside the work, the records its agent reads for it that the same source writes
+    /// entries of, but the block it stands on: of the owner's words ([`WORDS`]), the record of what is said, where the
+    /// owner's entries are written and the cell answers them; of an answer ([`ANSWER`]), the record of the work's
+    /// questions and the owner's answers. None of another trigger.
+    pub fn records<'f>(&'f self, flow: &'f Compiled, source: &'f str) -> impl Iterator<Item = &'f BlockId> + 'f {
+        let of = move |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
+        self.reads_of(of)
+    }
+
+    /// The same records, `of` saying whether the source writes a block.
+    fn reads_of<'f>(&'f self, of: impl Fn(&BlockId) -> bool + Copy + 'f) -> impl Iterator<Item = &'f BlockId> + 'f {
+        let own = self.blocks().iter().find(move |b| of(b));
+        (self.read.iter()).filter(move |b| own.is_some_and(|own| *b != own) && of(b))
+    }
+}
+
+impl CellSpec {
+    /// The cell's triggers that ran a round these blocks ran, in the order the cell names them: what its agent is told
+    /// ran it, and may name as dealt with.
+    pub fn ran<'a>(&'a self, ran_by: &'a [BlockId]) -> impl Iterator<Item = &'a Trigger> + 'a {
+        self.triggers.iter().filter(move |t| t.ran(ran_by))
+    }
+
+    /// What a return that names these as dealt with dealt with, in the records' terms, in the order it names them:
+    /// each a trigger of the cell, as the block it stands on, a group's trigger by the group's name, which the run's
+    /// check reads as the group's blocks (`decide::flow::stands_on`). A name written twice stands twice, which the
+    /// run's check finds; two triggers that stand on one block, each named once, stand on it once. Beside them, each
+    /// name that is none of the cell's triggers, in the order written.
+    pub fn dealt_with(&self, names: &[String]) -> (Vec<BlockId>, Vec<String>) {
+        let mut blocks: Vec<BlockId> = Vec::new();
+        let mut none = Vec::new();
+        for (i, name) in names.iter().enumerate() {
+            let Some(trigger) = self.triggers.iter().find(|t| &t.name == name) else {
+                none.push(name.clone());
+                continue;
+            };
+            let again = names[..i].contains(name);
+            if again || !blocks.contains(&trigger.block) {
+                blocks.push(trigger.block.clone());
+            }
+        }
+        (blocks, none)
+    }
+}
+
 /// A block whose new version runs a cell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunsOn {
@@ -199,8 +279,11 @@ pub struct Block {
     pub default: Option<String>,
     /// What the block is, in a sentence, where the definition says it.
     pub what: Option<String>,
-    /// The field of a return that a cell writes the block through, where it writes it through one.
-    pub field: Option<String>,
+    /// What a cell that writes the block is told of writing it, after the list of what it returns; none where its
+    /// file says nothing.
+    pub words: Option<String>,
+    /// The shape a return holds the block to, where its file gives one: neither a text nor a choice.
+    pub shape: Option<Shape>,
     /// The block stands only for a trigger, which declares it: no cell is given it, writes it or describes the work by
     /// it. A source of the engine's that fires the trigger may write words into it, as its `writes` give them.
     pub trigger: bool,
@@ -212,6 +295,18 @@ pub struct Block {
     /// Who reads it.
     pub readers: Readers,
 }
+
+/// The shape a return holds a block to, as its file gives it. Two are the same where they are written the same.
+#[derive(Clone, Debug)]
+pub struct Shape(pub toml::Value);
+
+impl PartialEq for Shape {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_string() == other.0.to_string()
+    }
+}
+
+impl Eq for Shape {}
 
 /// Who writes a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -268,7 +363,8 @@ pub enum FaultKind {
     Twice { name: String },
     /// A limit is not a whole number from one to the largest count the engine keeps.
     LimitOutOfRange { value: i64 },
-    /// An agent cell names no line to run in.
+    /// The cell names no line, and needs one: an agent cell runs in its line's session, and a trigger that every line
+    /// has its own of stands on the block of its cell's line.
     NoLine,
     /// An engine cell names a line: it runs in no session.
     EngineHasLine { line: String },
@@ -316,9 +412,6 @@ pub enum FaultKind {
     NoSuchBlock { block: String },
     /// The cell must write the block each time, and it is not among its outputs.
     NotAnOutput { block: String },
-    /// The cell says what the work is by the block, and the block does not run it: a change of it would not run the
-    /// cell again, and what the host shows would fall behind.
-    DescribedNotRunOn { block: String },
     /// In the old form, the cell says how or why it takes the block, and the block is not among its `inputs`.
     TakenNotRead { block: String },
     /// The cell names what it takes in two forms of three: `inputs`; `runs_on` and `given`; `triggered_by` and `context`.
@@ -346,8 +439,22 @@ pub enum FaultKind {
     /// A value of a file beside the flows that stands for each cell, each datum or each group does not hold the name
     /// that stands for it, `{cell}`, `{datum}` or `{group}`.
     MissingPlaceholder { placeholder: String },
-    /// The block is written through a field of a return that the engine does not have.
-    UnknownReturnField { field: String },
+    /// The cell writes the block, which holds the work's questions (one the source [`ANSWER`] writes), and no block of
+    /// that source runs it: the owner's answer to a question it asks would run no cell.
+    AsksWithNoAnswer { block: String },
+    /// The cell writes the block, which holds the work's questions (one the source [`ANSWER`] writes), and no block of
+    /// the source [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
+    AsksAndCannotBeSpokenTo { block: String },
+    /// A trigger of the cell stands on a block that each of its writers, cells only (no person or outside writes it),
+    /// writes only where a block has a value that the cell's own condition rules out, and that block no cell can
+    /// change from the writer's value to the cell's: the trigger could never run the cell. `needs` is the cell's own
+    /// `when` and `requires`, and each writer is a cell with its own, as written.
+    TriggerNeverRuns {
+        trigger: String,
+        block: String,
+        needs: String,
+        writers: Vec<(String, String)>,
+    },
     /// The trigger says what happened by a place the engine does not fill.
     UnknownDetail { detail: String },
     /// An engine cell says how it is given the block: it has no session to keep supplied with it.
@@ -398,6 +505,10 @@ pub enum FaultKind {
     UndeclaredTest { test: String },
     /// A declared test reads no block.
     ReadsEmpty { test: String },
+    /// A declared test of a value names none to look for: it has no `is`.
+    TestNamesNoValue { test: String },
+    /// A declared test of content names a value to look for, which it does not read.
+    ContentTestNamesValue { test: String },
     /// A declared test is used by no cell.
     UnusedTest { test: String },
     /// A cell's precondition is a test that reads a block the cell itself writes, or its condition one that reads a
@@ -479,6 +590,13 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
             (TestName(name.clone()), test)
         })
         .collect();
+    // A block a trigger of its source has its agent read, but the one it stands on, is a record that source adds
+    // entries to ([`Trigger::records`]).
+    let source_of = |b: &BlockId| flow_file.blocks.get(b.as_str()).and_then(|d| d.outside.as_deref());
+    let record = |name: &str, source: &str| {
+        let of = |b: &BlockId| source_of(b) == Some(source);
+        (specs.iter().flat_map(|s| &s.triggers)).any(|t| t.reads_of(of).any(|b| b.as_str() == name))
+    };
     let outsiders = (flow_file.blocks.iter())
         .filter(|(_, b)| b.people || b.outside.is_some())
         .map(|(name, b)| {
@@ -487,6 +605,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 note: b.note,
                 outside: b.outside.clone(),
                 interrupts: b.outside.as_deref().is_some_and(|source| TURNING.contains(&source)),
+                entries: b.outside.as_deref().is_some_and(|source| record(name, source)),
             };
             (BlockId(name.clone()), outsiders)
         })
@@ -545,8 +664,8 @@ struct Parsed {
     /// Of a flow laid out one thing to a file, the names of the sets of rules a line may take, as
     /// [`crate::agents::RULES_FILE`] names them.
     rule_sets: BTreeSet<String>,
-    /// The triggers beside the flows, by their files, each with whether every cell naming it has its own of it.
-    trigger_files: Vec<(String, TriggerFile, bool)>,
+    /// The triggers beside the flows, by their files, each with whose own it is.
+    trigger_files: Vec<(String, TriggerFile, Whose)>,
     /// What is wrong with how the files make one definition, found as they are gathered: a thing defined twice, a
     /// datum of the engine's the flow names that is not there, and a file beside the flows that lacks the name that
     /// stands for each cell or each datum.
@@ -700,6 +819,32 @@ type Resolved = BTreeMap<String, Vec<(usize, Result<Trigger, FaultKind>)>>;
 /// What stands for the id of a cell, in small letters, in a trigger each cell has its own of.
 const CELL: &str = "{cell}";
 
+/// What stands for the name of a line in a trigger each line has its own of.
+const LINE: &str = "{line}";
+
+/// Whose own a trigger beside the flows is, by where its file is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Whose {
+    /// Its own: it stands on the one block it declares, whichever cell names it.
+    Its,
+    /// Each cell's that names it, in `of_a_cell/`: `{cell}` stands for the cell's id in small letters.
+    Cell,
+    /// Each line's, in `of_a_line/`: `{line}` stands for the line of the cell that names it, and the cells of one line
+    /// share it.
+    Line,
+}
+
+impl Whose {
+    /// What stands in its texts for whose own it is, where it is not its own.
+    fn placeholder(self) -> Option<&'static str> {
+        match self {
+            Whose::Its => None,
+            Whose::Cell => Some(CELL),
+            Whose::Line => Some(LINE),
+        }
+    }
+}
+
 /// What stands for the name of a datum in a rule that makes a trigger of each datum.
 const DATUM: &str = "{datum}";
 
@@ -742,8 +887,8 @@ struct LaidOut {
     blocks: Vec<(String, LaidOutBlockFile)>,
     tests: Vec<(String, TestFile)>,
     data: Vec<(String, LaidOutBlockFile)>,
-    /// The triggers by their files, each with whether every cell naming it has its own of it.
-    triggers: Vec<(String, TriggerFile, bool)>,
+    /// The triggers by their files, each with whose own it is.
+    triggers: Vec<(String, TriggerFile, Whose)>,
     of_a_datum: Vec<(String, OfADatumFile)>,
     /// The rules that make a trigger of each group of the flow's blocks, by their files.
     of_a_group: Vec<(String, OfADatumFile)>,
@@ -771,8 +916,15 @@ impl LaidOut {
             } else if under(&path, &format!("{TRIGGERS_DIR}/{OF_A_GROUP}")) {
                 laid.of_a_group.extend(shape(&path, text, faults).map(|f| (path, f)));
             } else if under(&path, TRIGGERS_DIR) {
-                let own = under(&path, &format!("{TRIGGERS_DIR}/{OF_A_CELL}"));
-                laid.triggers.extend(shape(&path, text, faults).map(|f| (path, f, own)));
+                let whose = if under(&path, &format!("{TRIGGERS_DIR}/{OF_A_CELL}")) {
+                    Whose::Cell
+                } else if under(&path, &format!("{TRIGGERS_DIR}/{OF_A_LINE}")) {
+                    Whose::Line
+                } else {
+                    Whose::Its
+                };
+                laid.triggers
+                    .extend(shape(&path, text, faults).map(|f| (path, f, whose)));
             } else if path == rules {
                 laid.rule_sets = shape(&path, text, faults);
             }
@@ -783,9 +935,9 @@ impl LaidOut {
     /// Gathers the lines, blocks and named tests into the flow, each by the name of its file, with the data of the
     /// engine's the flow names among `data`, where it is laid out one thing to a file; and gives the names of the sets
     /// of rules a line may take. A fault is each second file of one name, on it, naming the first; a datum the flow
-    /// names that `../data/` does not define, or that the flow defines as well; a trigger each cell has its own of
-    /// whose block does not hold `{cell}`; and a rule of a datum whose name does not hold `{datum}`, or that makes the
-    /// names another rule makes.
+    /// names that `../data/` does not define, or that the flow defines as well; a trigger each cell or each line has
+    /// its own of whose block does not hold `{cell}` or `{line}`; and a rule of a datum whose name does not hold
+    /// `{datum}`, or that makes the names another rule makes.
     fn gather(
         &self,
         flow: &mut FlowFile,
@@ -848,18 +1000,20 @@ impl LaidOut {
                 }
             }
         }
-        // A trigger of its own and one each cell has its own of are named alike, by their files' names.
+        // A trigger of its own and one each cell or each line has its own of are named alike, by their files' names.
         let mut named: BTreeMap<&str, &str> = BTreeMap::new();
-        for (path, trigger, own) in &self.triggers {
+        for (path, trigger, whose) in &self.triggers {
             match named.entry(stem(path)) {
                 Entry::Occupied(first) => faults.push(twice(stem(path), path, first.get())),
                 Entry::Vacant(entry) => {
                     entry.insert(path);
                 }
             }
-            if *own && !trigger.block.contains(CELL) {
+            if let Some(placeholder) = whose.placeholder()
+                && !trigger.block.contains(placeholder)
+            {
                 let what = FaultKind::MissingPlaceholder {
-                    placeholder: CELL.to_string(),
+                    placeholder: placeholder.to_string(),
                 };
                 faults.push(fault(path, "block", what));
             }
@@ -932,7 +1086,8 @@ impl LaidOut {
     }
 
     /// Works out each trigger each cell names: a trigger of `../triggers/` by its name, which declares the block that
-    /// stands only for it; one of `of_a_cell/`, whose block each cell naming it has its own of; one a rule of
+    /// stands only for it; one of `of_a_cell/`, whose block each cell naming it has its own of; one of `of_a_line/`,
+    /// whose block each line has its own of, which a cell on no line cannot name; one a rule of
     /// `of_a_group/` makes of a group of the flow's blocks, standing on each of them; or one a rule of `of_a_datum/`
     /// makes of a datum of the flow, standing on the datum. Gives what each is worked out to, by its
     /// place in the cell's `triggered_by`, and the blocks the triggers declare. The agent of an engine cell reads nothing.
@@ -948,7 +1103,7 @@ impl LaidOut {
         places: &mut Places,
         faults: &mut Vec<Fault>,
     ) -> (Resolved, BTreeSet<String>) {
-        let mut named: BTreeMap<&str, &(String, TriggerFile, bool)> = BTreeMap::new();
+        let mut named: BTreeMap<&str, &(String, TriggerFile, Whose)> = BTreeMap::new();
         for trigger in &self.triggers {
             named.entry(stem(&trigger.0)).or_insert(trigger);
         }
@@ -963,7 +1118,8 @@ impl LaidOut {
                 faults.push(fault(path, "", what));
             }
         }
-        // The first file to declare each block, with the cell whose own it is where every cell has its own.
+        // The first file to declare each block, with the cell whose own it is where every cell has its own: of a block
+        // each line has its own of, the cells of the line share the declarer.
         let mut declarers: BTreeMap<String, (&str, Option<&str>)> = BTreeMap::new();
         // Each block a fault was given for, with the file it was given on.
         let mut told: BTreeSet<(String, String)> = BTreeSet::new();
@@ -977,16 +1133,19 @@ impl LaidOut {
                     continue;
                 }
                 let does = cell.does.get(name).cloned();
-                let trigger = if let Some((path, file, own)) = named.get(name.as_str()).copied() {
-                    let fill = |text: &str| {
-                        if *own {
-                            text.replace(CELL, &small)
-                        } else {
-                            text.to_string()
-                        }
+                let line = cell.line.as_deref();
+                let trigger = if let Some((path, file, whose)) = named.get(name.as_str()).copied() {
+                    if *whose == Whose::Line && line.is_none() {
+                        worked.push((i, Err(FaultKind::NoLine)));
+                        continue;
+                    }
+                    let fill = |text: &str| match whose {
+                        Whose::Its => text.to_string(),
+                        Whose::Cell => text.replace(CELL, &small),
+                        Whose::Line => text.replace(LINE, line.unwrap_or_default()),
                     };
                     let block = fill(&file.block);
-                    let declarer = (path.as_str(), own.then_some(id.as_str()));
+                    let declarer = (path.as_str(), (*whose == Whose::Cell).then_some(id.as_str()));
                     let twice = if data.contains(&block) {
                         let what = FaultKind::DefinedTwice {
                             name: block.clone(),
@@ -1120,6 +1279,16 @@ fn keys_of(file: &CellFile) -> impl Iterator<Item = (&str, &str)> {
     (file.when.iter().chain(&file.requires)).flat_map(|keys| keys.0.iter().map(|(k, v)| (k.as_str(), v.as_str())))
 }
 
+/// A cell's `when` and `requires` as the file writes them, `key = "value"`, joined by commas; none where it has none.
+fn written(file: &CellFile) -> String {
+    let keys: Vec<String> = keys_of(file).map(|(k, v)| format!("{k} = \"{v}\"")).collect();
+    if keys.is_empty() {
+        "no condition".to_string()
+    } else {
+        keys.join(", ")
+    }
+}
+
 /// The limit as a count, or why it is none.
 fn count(value: i64) -> Result<u32, FaultKind> {
     match u32::try_from(value) {
@@ -1238,9 +1407,11 @@ impl<'a> Definition<'a> {
                 }
             }
             let takes = def.takes(id, file);
-            let named = (takes.runs_on.iter().map(|r| &r.block)).chain(takes.given.iter().map(|g| &g.block));
-            for block in named {
-                if let Some(u) = uses.get_mut(block.as_str())
+            let named =
+                (takes.runs_on.iter().map(|r| r.block.as_str())).chain(takes.given.iter().map(|g| g.block.as_str()));
+            // The act of a cell reads the block the cell names the work's merge by.
+            for block in named.chain(file.named_by.as_deref()) {
+                if let Some(u) = uses.get_mut(block)
                     && !u.readers.contains(&id)
                 {
                     u.readers.push(id);
@@ -1294,8 +1465,8 @@ impl<'a> Definition<'a> {
             || !uses.tests.is_empty()
     }
 
-    /// The faults of the declared blocks: values that make no choice, a source or a field of a return the engine does
-    /// not have, a block with no writer, and one with no reader.
+    /// The faults of the declared blocks: values that make no choice, a source the engine does not have, a block with
+    /// no writer, and one with no reader.
     fn check_blocks(&self, has: &Has, faults: &mut Vec<Fault>) {
         for (name, block) in &self.flow.blocks {
             let at = |field: &str, what| self.places.fault("blocks", name, field, what);
@@ -1338,9 +1509,6 @@ impl<'a> Definition<'a> {
                 // Laid out one thing to a file, who writes a block from outside the cells is said by `from`.
                 faults.push(at(if self.places.laid_out { "from" } else { "outside" }, what));
             }
-            if let Some(field) = block.field.as_ref().filter(|f| !has.fields.contains(*f)) {
-                faults.push(at("field", FaultKind::UnknownReturnField { field: field.clone() }));
-            }
             if !self.written(name) {
                 let what = FaultKind::NoWriter { block: name.clone() };
                 faults.push(self.places.use_fault(name, what));
@@ -1382,15 +1550,24 @@ impl<'a> Definition<'a> {
         }
     }
 
-    /// The faults of the declared tests: one that reads no block; a block read that is not declared, is no choice or
-    /// does not offer the value looked for; and a test that no cell of the order uses.
+    /// The faults of the declared tests: one that reads no block; a test of a value that names none, and one of
+    /// content that names one; a block read that is not declared, or, of a test of a value, is no choice or does not
+    /// offer the value looked for; and a test that no cell of the order uses.
     fn check_tests(&self, faults: &mut Vec<Fault>) {
         for (test, declared) in &self.flow.tests {
             let at = |field: &str, what| self.places.fault("tests", test, field, what);
             if declared.reads.is_empty() {
                 faults.push(at("reads", FaultKind::ReadsEmpty { test: test.clone() }));
             }
-            for (field, what) in check_list(&declared.reads, "reads", |block| self.check_read(block, &declared.is)) {
+            let content = declared.kind == TestKind::AnyContent;
+            match (content, &declared.is) {
+                (false, None) => faults.push(at("is", FaultKind::TestNamesNoValue { test: test.clone() })),
+                (true, Some(_)) => faults.push(at("is", FaultKind::ContentTestNamesValue { test: test.clone() })),
+                _ => {}
+            }
+            // A test of content reads its blocks for content, a value it names besides being its fault alone.
+            let is = declared.is.as_deref().filter(|_| !content);
+            for (field, what) in check_list(&declared.reads, "reads", |block| self.check_read(block, is)) {
                 faults.push(at(&field, what));
             }
             if declared.kind == TestKind::NoneStanding {
@@ -1412,18 +1589,19 @@ impl<'a> Definition<'a> {
         }
     }
 
-    /// The fault of a block a named test reads, looking for this value: not declared, not a choice, or not offering
-    /// the value.
-    fn check_read(&self, block: &str, is: &str) -> Option<FaultKind> {
+    /// The fault of a block a named test reads, looking for this value, or, with none, for content: not declared, or,
+    /// looking for a value, not a choice or not offering the value.
+    fn check_read(&self, block: &str, is: Option<&str>) -> Option<FaultKind> {
         let name = block.to_string();
-        match self.flow.blocks.get(block).map(|b| &b.values) {
-            None => Some(FaultKind::NoSuchBlock { block: name }),
-            Some(None) => Some(FaultKind::NotAChoice { block: name }),
-            Some(Some(values)) if !values.iter().any(|v| v == is) => Some(FaultKind::NotAValue {
+        match (self.flow.blocks.get(block).map(|b| &b.values), is) {
+            (None, _) => Some(FaultKind::NoSuchBlock { block: name }),
+            (Some(_), None) => None,
+            (Some(None), Some(_)) => Some(FaultKind::NotAChoice { block: name }),
+            (Some(Some(values)), Some(is)) if !values.iter().any(|v| v == is) => Some(FaultKind::NotAValue {
                 block: name,
                 is: is.to_string(),
             }),
-            Some(Some(_)) => None,
+            (Some(Some(_)), Some(_)) => None,
         }
     }
 
@@ -1596,6 +1774,29 @@ impl<'a> Definition<'a> {
             Form::Triggers => found.extend(self.check_triggers(id, file)),
         }
         found.extend(check_list(&file.outputs, "outputs", with_content));
+        // A cell that may ask the owner is run by the answer and by the owner's words, which may be about what it
+        // asks; where its triggers could not be read, what runs it is not known.
+        let source = |block: &str| self.flow.blocks.get(block).and_then(|b| b.outside.as_deref());
+        let run_by = |of: &str| takes.runs_on.iter().any(|r| source(r.block.as_str()) == Some(of));
+        let (answered, spoken_to) = (run_by(ANSWER), run_by(WORDS));
+        if !unread_triggers {
+            for (i, block) in file.outputs.iter().enumerate() {
+                if self.flow.blocks.get(block).and_then(|b| b.outside.as_deref()) != Some(ANSWER) {
+                    continue;
+                }
+                if !answered {
+                    let what = FaultKind::AsksWithNoAnswer { block: block.clone() };
+                    found.push((format!("outputs[{i}]"), what));
+                }
+                if !spoken_to {
+                    let what = FaultKind::AsksAndCannotBeSpokenTo { block: block.clone() };
+                    found.push((format!("outputs[{i}]"), what));
+                }
+            }
+        }
+        if takes.form == Form::Triggers && !unread_triggers {
+            found.extend(self.check_dead_triggers(id, file, &takes.triggers));
+        }
         // Whether a block is declared is said once, where the outputs name it.
         found.extend(check_list(&file.must_write, "must_write", |block| {
             let what = FaultKind::NotAnOutput {
@@ -1603,14 +1804,12 @@ impl<'a> Definition<'a> {
             };
             (!file.outputs.iter().any(|o| o == block)).then_some(what)
         }));
-        let describes = if unread_triggers { &[][..] } else { &file.describes[..] };
-        found.extend(check_list(describes, "describes", |block| {
-            let what = FaultKind::DescribedNotRunOn {
-                block: block.to_string(),
-            };
-            let run_on = takes.runs_on.iter().any(|r| r.block.as_str() == block);
-            self.trigger_only(block).or_else(|| (!run_on).then_some(what))
-        }));
+        // The work is described by blocks of the flow with content, whether or not they run the cell: what merges is
+        // described again from them before the merge (decision blocks-that-describe-the-work-need-not-run-the-check).
+        found.extend(check_list(&file.describes, "describes", with_content));
+        if let Some(what) = file.named_by.as_deref().and_then(with_content) {
+            found.push(("named_by".to_string(), what));
+        }
         for (block, how) in file.input.iter().filter(|_| takes.form == Form::Inputs) {
             if !file.inputs.iter().any(|i| i == block) {
                 let what = FaultKind::TakenNotRead { block: block.clone() };
@@ -1627,6 +1826,10 @@ impl<'a> Definition<'a> {
             applies,
             requires,
             runs_on: takes.runs_on.iter().map(|r| r.block.clone()).collect(),
+            groups: (takes.triggers.iter())
+                .filter(|t| !t.group.is_empty())
+                .map(|t| (t.block.clone(), t.group.clone()))
+                .collect(),
             outputs: file.outputs.iter().map(|b| BlockId(b.clone())).collect(),
             limit: runs,
             calls: limits.calls,
@@ -1648,6 +1851,7 @@ impl<'a> Definition<'a> {
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
             describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
+            named_by: file.named_by.as_ref().map(|b| BlockId(b.clone())),
             runs_on: takes.runs_on,
             given: takes.given,
             tools: if flow_tools {
@@ -1668,6 +1872,83 @@ impl<'a> Definition<'a> {
             triggers: takes.triggers,
         };
         (cell, spec)
+    }
+
+    /// The faults of the triggers of a cell that can never run it: a trigger whose every block has only cells for
+    /// writers, each of which writes it only where a block has a value that this cell's `when` or `requires` rules out,
+    /// and which no cell can change from that value. A person or the outside writing a block, or a writer with no
+    /// condition on a block the cell reads, makes the trigger live; so does a test, which is not read here, and a block
+    /// that stands only for a trigger, which the engine fires.
+    fn check_dead_triggers(&self, id: &str, file: &CellFile, triggers: &[Trigger]) -> Vec<(String, FaultKind)> {
+        let needs = keys_of(file).filter(|(k, _)| *k != WHEN_TEST).collect::<Vec<_>>();
+        if needs.is_empty() {
+            return Vec::new();
+        }
+        let mut found = Vec::new();
+        for trigger in triggers {
+            let mut writers: Vec<(&str, &CellFile)> = Vec::new();
+            let dead = trigger.blocks().iter().all(|block| {
+                let Some(declared) = self.flow.blocks.get(block.as_str()) else {
+                    return false;
+                };
+                let cells = &self.uses[block.as_str()].writers;
+                if self.trigger_blocks.contains(block.as_str())
+                    || declared.people
+                    || declared.outside.is_some()
+                    || cells.is_empty()
+                {
+                    return false;
+                }
+                cells.iter().all(|&(_, writer)| {
+                    let Some(writer_file) = self.cells.get(writer) else {
+                        return false;
+                    };
+                    let never = writer != id && self.never_alongside(&needs, writer_file);
+                    if never && !writers.iter().any(|&(w, _)| w == writer) {
+                        writers.push((writer, writer_file));
+                    }
+                    never
+                })
+            });
+            let Some(i) = file.triggers.iter().position(|t| *t == trigger.name).filter(|_| dead) else {
+                continue;
+            };
+            let what = FaultKind::TriggerNeverRuns {
+                trigger: trigger.name.clone(),
+                block: trigger.block.to_string(),
+                needs: written(file),
+                writers: writers.iter().map(|&(w, f)| (w.to_string(), written(f))).collect(),
+            };
+            found.push((format!("triggered_by[{i}]"), what));
+        }
+        found
+    }
+
+    /// Whether the cell with these `needs` (its conditions on the values of blocks) can never run where the writer
+    /// does: a block both name has other values in them, and no cell can change it, from the value the writer needs, to
+    /// the one the cell does.
+    fn never_alongside(&self, needs: &[(&str, &str)], writer: &CellFile) -> bool {
+        let theirs: Vec<(&str, &str)> = keys_of(writer).filter(|(k, _)| *k != WHEN_TEST).collect();
+        needs.iter().any(|&(block, ours)| {
+            theirs
+                .iter()
+                .any(|&(other, value)| other == block && value != ours && self.stays(block, value))
+        })
+    }
+
+    /// Whether a block that holds this value when a cell writes under it can never hold another: no person or outside
+    /// writes it, and every cell that writes it runs only where it holds a different value.
+    fn stays(&self, block: &str, value: &str) -> bool {
+        let Some(declared) = self.flow.blocks.get(block) else {
+            return false;
+        };
+        !declared.people
+            && declared.outside.is_none()
+            && self.uses[block].writers.iter().all(|&(_, w)| {
+                self.cells
+                    .get(w)
+                    .is_some_and(|f| keys_of(f).any(|(k, v)| k == block && v != value))
+            })
     }
 
     /// The fault of naming a block that stands only for a trigger where a block of content is named; none of another
@@ -1980,7 +2261,8 @@ impl<'a> Definition<'a> {
                     values: declared.values.clone(),
                     default: declared.default.clone(),
                     what: declared.what.clone(),
-                    field: declared.field.clone(),
+                    words: declared.words.clone(),
+                    shape: declared.shape.clone().map(|shape| Shape(toml::Value::Table(shape))),
                     trigger: self.trigger_blocks.contains(name),
                     writes: declared.writes.clone(),
                     writers: Writers {
@@ -2042,12 +2324,7 @@ fn takes(file: &CellFile, triggers: Vec<Trigger>) -> Takes {
         let mut runs_on: Vec<RunsOn> = Vec::new();
         for trigger in &triggers {
             // A group's trigger runs the cell on each of the group's blocks.
-            let blocks = if trigger.group.is_empty() {
-                std::slice::from_ref(&trigger.block)
-            } else {
-                trigger.group.as_slice()
-            };
-            for block in blocks {
+            for block in trigger.blocks() {
                 if !runs_on.iter().any(|r| &r.block == block) {
                     runs_on.push(RunsOn {
                         block: block.clone(),

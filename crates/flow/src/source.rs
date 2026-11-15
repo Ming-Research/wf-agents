@@ -42,10 +42,12 @@ pub const DATA_DIR: &str = "../data";
 
 /// The directory beside the flows, from a flow's directory, that holds what runs a cell: in it, as deep as is useful,
 /// each a trigger standing on a block that stands only for it, which it declares; in `of_a_cell/`, each a trigger that every
-/// cell naming it has its own of; in `of_a_datum/`, each a rule that makes a trigger of each datum of a flow; in
-/// `of_a_group/`, each a rule that makes a trigger of each group of a flow's blocks.
+/// cell naming it has its own of; in `of_a_line/`, each a trigger that every line has its own of, which each cell of the
+/// line naming it shares; in `of_a_datum/`, each a rule that makes a trigger of each datum of a flow; in `of_a_group/`,
+/// each a rule that makes a trigger of each group of a flow's blocks.
 pub const TRIGGERS_DIR: &str = "../triggers";
 pub const OF_A_CELL: &str = "of_a_cell";
+pub const OF_A_LINE: &str = "of_a_line";
 pub const OF_A_DATUM: &str = "of_a_datum";
 pub const OF_A_GROUP: &str = "of_a_group";
 
@@ -367,9 +369,10 @@ pub struct BlockFile {
     /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
     /// each cell that reads or writes it.
     pub what: Option<String>,
-    /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
-    /// under the block's name: a name of a field of the engine's.
-    pub field: Option<String>,
+    /// What a cell that writes the block is told of writing it, after the list of what it returns.
+    pub words: Option<String>,
+    /// The shape a return holds the block to, where it is neither a text nor a choice.
+    pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
     /// `{name}` in it a place the engine fills in a run.
     #[serde(default)]
@@ -399,9 +402,10 @@ pub struct LaidOutBlockFile {
     /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
     /// each cell that reads or writes it.
     pub what: Option<String>,
-    /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
-    /// under the block's name: a name of a field of the engine's.
-    pub field: Option<String>,
+    /// What a cell that writes the block is told of writing it, after the list of what it returns.
+    pub words: Option<String>,
+    /// The shape a return holds the block to, where it is neither a text nor a choice.
+    pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
     /// `{name}` in it a place the engine fills in a run. The words are the flow's, so the code holds none of them.
     #[serde(default)]
@@ -429,16 +433,18 @@ impl From<LaidOutBlockFile> for BlockFile {
             shown: block.shown,
             default: block.default,
             what: block.what,
-            field: block.field,
+            words: block.words,
+            shape: block.shape,
             writes: block.writes,
         }
     }
 }
 
 /// A trigger as written in a file of `../triggers/`, by the name of its file: one standing on a block that stands only for
-/// it, which it declares, which the owner or a source outside the work writes; or, in `of_a_cell/`, one that every cell
+/// it, which it declares, which the owner or a source outside the work writes; in `of_a_cell/`, one that every cell
 /// naming it has its own of, `{cell}` standing for the id of the cell in small letters in `block`, which must hold it,
-/// and in `read`, `detail` and `do`.
+/// and in `read`, `detail` and `do`; or, in `of_a_line/`, one that every line has its own of, `{line}` standing so for
+/// the name of the line of the cell naming it, so that the cells of one line share it.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriggerFile {
@@ -479,18 +485,19 @@ pub struct OfADatumFile {
     pub does: Option<String>,
 }
 
-/// A named test as written: a test of the values of blocks of the work itself.
+/// A named test as written: a test of the blocks of the work itself.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TestFile {
     /// The words shown for the test.
     pub says: String,
-    /// How the blocks it reads make it hold: `all`, `any`, `none` or `none_standing`; another is refused.
+    /// How the blocks it reads make it hold: `all`, `any`, `none`, `none_standing` or `any_content`; another is
+    /// refused.
     pub kind: TestKind,
-    /// The blocks it reads, each a choice.
+    /// The blocks it reads: each a choice, or, of a test of content, any block.
     pub reads: Vec<String>,
-    /// The value it looks for in each block it reads.
-    pub is: String,
+    /// The value it looks for in each block it reads; none of a test of content, which looks for no value.
+    pub is: Option<String>,
 }
 
 /// The file of one cell.
@@ -512,8 +519,8 @@ pub struct CellFile {
     /// What must hold before the cell: every key; the work waits before the cell while one does not.
     pub requires: Option<Keys>,
     /// What runs the cell, written `triggered_by`: each a trigger by its name, in the order it names them, a trigger of
-    /// `../triggers/` or of its `of_a_cell/` by the name of its file, or one a rule of `../triggers/of_a_datum/` makes
-    /// of a datum of the flow. A file names these and its `context`, or one of the forms before them, not two.
+    /// `../triggers/` or of its `of_a_cell/` or `of_a_line/` by the name of its file, or one a rule of
+    /// `../triggers/of_a_datum/` makes of a datum of the flow. A file names these and its `context`, or one of the forms before them, not two.
     #[serde(default, rename = "triggered_by")]
     pub triggers: Vec<String>,
     /// What the cell does for a trigger, by the trigger's name: each among `triggered_by`.
@@ -555,10 +562,13 @@ pub struct CellFile {
     /// The blocks among its outputs that every hand-in of the cell includes.
     #[serde(default)]
     pub must_write: Vec<String>,
-    /// The blocks among those that run it that say what the work is where the host of the project's repository shows
-    /// the work, as the body of its pull request; an engine cell's act reads them.
+    /// The blocks that say what the work is where the host of the project's repository shows the work, as the body of
+    /// its pull request, whether or not they run the cell; an engine cell's act reads them.
     #[serde(default)]
     pub describes: Vec<String>,
+    /// The block whose first line names the work's merge where the host shows it, as the title of its pull request
+    /// and of the commit the merge makes; the act of an engine cell that merges reads it.
+    pub named_by: Option<String>,
     /// How many runs of the cell in a row may be ways round, if not the flow's limit.
     pub limit: Option<i64>,
     /// The reasoning effort an agent cell's rounds run at, whatever the model; every agent cell sets one.

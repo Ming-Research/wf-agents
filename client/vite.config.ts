@@ -8,7 +8,10 @@
 // the files that need it:
 //   unit     - the tests in Node, and in happy-dom for a file that says so (`// @vitest-environment happy-dom`);
 //   browser  - the tests in `*.browser.test.tsx`, which draw the page in a real Chromium: WebGL, layout, the pointer and
-//              the keyboard are the browser's own, which happy-dom does not have.
+//              the keyboard are the browser's own, which happy-dom does not have. It runs after the unit project has
+//              finished (`sequence.groupOrder`): a browser test waits on frames drawn in software WebGL, which a runner
+//              busy with the unit tests stretches until a test nears its time limit, as the console's scroll test did
+//              (#231).
 // Both brought over from the page on `old-main`, which had a third, `ui`, for a check of the page against its UI spec,
 // which this page has no such spec for yet.
 import { playwright } from '@vitest/browser-playwright';
@@ -39,6 +42,9 @@ export default defineConfig({
         test: {
           name: 'browser',
           include: [BROWSER_TESTS],
+          // After the `unit` project, which has the default 0: the groups run from the lowest number to the highest,
+          // and a project of a group starts when the one before has finished.
+          sequence: { groupOrder: 1 },
           browser: {
             enabled: true,
             headless: true,

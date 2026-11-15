@@ -1,13 +1,15 @@
 //! GitHub as the host: main is the repository's main branch on GitHub, fetched into the local repository; the verdict
 //! on a commit is the project's full workflows run by hand on it, once, and judged by the JUnit they upload and by
-//! their jobs' conclusions, never by the pull request's checks or a log; the work's pull request, which the check
-//! pushes the commit to and opens where the branch has none, as a draft whose title and body it keeps to what the work
-//! says of itself, is what is merged, by GitHub once it is made ready. A work that has ended has, where it did not
-//! merge, its pull request closed.
+//! their jobs' conclusions, never by the pull request's checks or a log, where only tests failed the fast workflow
+//! running them again, on the commit and on main's head; the work's pull request, which the check
+//! pushes the commit to and opens where the branch has none, as a draft whose title it keeps to the name of the work's
+//! merge and whose body to what the work says of itself, is what is merged, by GitHub once it is made ready, in a
+//! commit of that name. A work that has ended has, where it did not merge, its pull request closed.
 //!
-//! What it does is found again on GitHub by the work's branch and the commit, never kept by the engine: a check given
-//! again after the engine started again pushes nothing GitHub has, finds the pull request it opened and runs the
-//! workflows on the same commit again; a merge given again finds the pull request merged.
+//! What it does is found again on GitHub, never kept by the engine: the pull request by the work's branch, and a run of
+//! a workflow by the value its name holds, worked out from what asked for it. A check given again after the engine
+//! started again pushes nothing GitHub has, finds the pull request it opened, and waits for the runs it asked for on
+//! the same commit, or reads them where they have ended; a merge given again finds the pull request merged.
 //!
 //! An agent's `run_tests` is run on the last commit of its work's branch, pushed and put in the same pull request:
 //! by the fast workflow where it names tests or checks, by the full ones where it names none (the module `fast`); what
@@ -22,6 +24,7 @@ mod fast;
 mod gh;
 mod output;
 mod results;
+mod workflow;
 
 #[cfg(test)]
 mod fake;
@@ -32,11 +35,12 @@ use std::path::Path;
 
 use flow::agents::fill;
 use std::time::Duration;
+use uuid::Uuid;
 
 pub use api::{Api, Pull, State};
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
-use super::{Branch, Host, Named, Verdict};
+use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::git::{self, With};
 use crate::held::Stop;
 use crate::settings::{self, Project};
@@ -44,6 +48,13 @@ use crate::settings::{self, Project};
 /// How often GitHub is asked how a run of a workflow goes: a run takes from half a minute to some minutes, and is waited
 /// for while an agent or the check before a merge waits, so it is seen done within a few seconds, for a call a time.
 pub const FAST_POLL: Duration = Duration::from_secs(5);
+
+/// What GitHub says where it refuses a merge because main moved as it was to merge (`HTTP 405`).
+const BASE_MODIFIED: &str = "Base branch was modified";
+
+/// Where a look at the network to GitHub connects: whether it resolves and takes a connection tells whether the acts'
+/// host can be reached.
+pub const LOOK: &str = "github.com:443";
 
 /// How the GitHub host reaches the repository and judges its CI.
 #[derive(Clone)]
@@ -68,6 +79,8 @@ pub struct Config {
     pub runners: Vec<String>,
     /// The words of the tool `run_tests`, from its file beside the flows.
     pub tool: Option<flow::agents::Tool>,
+    /// The words of the check before a merge, from its file beside the flows, which say what it ran again.
+    pub check: Option<flow::agents::Check>,
     /// How often GitHub is asked how a run of a workflow goes.
     pub fast_poll: Duration,
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
@@ -76,6 +89,8 @@ pub struct Config {
     /// The paths of this machine that nothing the engine publishes on GitHub names: the data directory, the project's
     /// local repository and the home directory, each said by what it is instead.
     pub withheld: Vec<(String, &'static str)>,
+    /// The installation's id, in whose namespace the value that finds a run of a workflow is worked out.
+    pub installation: Uuid,
 }
 
 impl std::fmt::Debug for Config {
@@ -93,6 +108,7 @@ impl std::fmt::Debug for Config {
             .field("fast_poll", &self.fast_poll)
             .field("token", &self.token.as_ref().map(|_| "(given)"))
             .field("withheld", &self.withheld)
+            .field("installation", &self.installation)
             .finish()
     }
 }
@@ -111,16 +127,17 @@ const TOKEN: &str = "WF_AGENTS_GITHUB_TOKEN";
 const GITHUB: &str = "github.com";
 
 impl GitHub<Gh> {
-    /// GitHub as the installation's settings and the project's declaration say, reached with `gh` and the engine's
-    /// token, which `env` gives from the engine's environment; `gh` keeps its configuration in the data directory, which is an absolute path. Says
-    /// why where the token is not there.
+    /// GitHub as the installation's settings and the project's declaration say, for the installation of this id,
+    /// reached with `gh` and the engine's token, which `env` gives from the engine's environment; `gh` keeps its
+    /// configuration in the data directory, which is an absolute path. Says why where the token is not there.
     pub fn from_settings(
         github: &settings::GitHub,
         project: &Project,
         data: &Path,
+        installation: Uuid,
         env: impl Fn(&str) -> Option<String>,
         ci: Option<flow::agents::Ci>,
-        tool: Option<flow::agents::Tool>,
+        (tool, check): (Option<flow::agents::Tool>, Option<flow::agents::Check>),
     ) -> Result<GitHub<Gh>, String> {
         let token = (env(&github.token_env).filter(|token| !token.is_empty())).ok_or_else(|| {
             format!(
@@ -140,9 +157,11 @@ impl GitHub<Gh> {
             ci,
             runners: github.runners.clone(),
             tool,
+            check,
             fast_poll: FAST_POLL,
             token: Some(token.clone()),
             withheld: withheld(data, &project.repo, env("HOME")),
+            installation,
         };
         let gh = Gh::new(&github.gh, &github.repository, &token, &dir);
         Ok(GitHub::new(gh, project.clone(), config))
@@ -243,21 +262,18 @@ impl<A: Api> GitHub<A> {
 
     /// The work's open pull request into main, opened where the branch has none; or why the work cannot be checked
     /// through one: its pull request was closed or merged by someone, or goes into another branch.
-    async fn pull_request(&self, branch: &Branch<'_>) -> Result<Pull, String> {
+    async fn pull_request(&self, branch: &Branch<'_>) -> Result<Pull, Failed> {
         let main = &self.project.main;
         let name = &branch.place.branch;
         let pulls = self.api.pulls(name).await?;
         if let Some(open) = pulls.iter().find(|p| p.state == State::Open) {
             if open.base != *main {
-                return Err(format!(
+                return Err(Failed::refused(format!(
                     "the pull request {} of the branch {name} goes into {}, not into {main}",
                     open.url, open.base
-                ));
+                )));
             }
-            let body = self.body(branch);
-            if open.title != branch.title || open.body != body {
-                self.api.edit(open.number, branch.title, &body).await?;
-            }
+            self.follow(open, branch).await?;
             return Ok(open.clone());
         }
         if let Some(ended) = pulls.first() {
@@ -266,14 +282,14 @@ impl<A: Api> GitHub<A> {
             } else {
                 "closed"
             };
-            return Err(format!(
+            return Err(Failed::refused(format!(
                 "the pull request {} of the branch {name} was {how} on GitHub: the work is checked through no other; \
                  reopen it to go on, or cancel the work",
                 ended.url
-            ));
+            )));
         }
-        let body = self.body(branch);
-        match self.api.open(name, main, branch.title, &body).await {
+        let (title, body) = (self.title(branch), self.body(branch));
+        match self.api.open(name, main, &title, &body).await {
             Ok(opened) => Ok(opened),
             // Another check of the work, which found none either, opened it meanwhile: that one is the work's.
             Err(why) => {
@@ -284,8 +300,18 @@ impl<A: Api> GitHub<A> {
         }
     }
 
+    /// Gives the work's open pull request the title and the body the work's branch has it say now, where it says
+    /// other.
+    async fn follow(&self, open: &Pull, branch: &Branch<'_>) -> Result<(), Failed> {
+        let (title, body) = (self.title(branch), self.body(branch));
+        if open.title != title || open.body != body {
+            self.api.edit(open.number, &title, &body).await?;
+        }
+        Ok(())
+    }
+
     /// Deletes the work's branch on GitHub, where the settings say to.
-    async fn delete(&self, branch: &Branch<'_>) -> Result<(), String> {
+    async fn delete(&self, branch: &Branch<'_>) -> Result<(), Failed> {
         if self.config.delete_branch {
             self.api.delete(&branch.place.branch).await?;
         }
@@ -320,28 +346,40 @@ impl<A: Api> Host for GitHub<A> {
         git::git(&self.project.repo, &["rev-parse", "--verify", &tracking]).await
     }
 
-    async fn verdict(&self, branch: &Branch<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+    async fn verdict(
+        &self,
+        branch: &Branch<'_>,
+        commit: &str,
+        main: &str,
+        asking: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<Verdict>, Failed> {
         self.push(branch, commit).await?;
         self.pull_request(branch).await?;
-        self.judge_full(commit, stop).await
+        let request = fast::Request {
+            work: branch.work,
+            commit,
+            asking,
+        };
+        self.judge_full(request, main, stop).await
     }
 
-    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
+    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         let Some(checked) = checked else {
-            return Err(
+            return Err(NotMerged::refused(
                 "the flow has no check before its merge: on GitHub, what is merged is the pull request the check opens"
                     .to_string(),
-            );
+            ));
         };
         let (main, name) = (&self.project.main, &branch.place.branch);
         let pulls = self.api.pulls(name).await?;
         // Only a pull request into main can be the work's merge: one merged into another branch put nothing on main.
         if let Some(merged) = pulls.iter().find(|p| p.state == State::Merged && p.base == *main) {
             if merged.head != checked {
-                return Err(format!(
+                return Err(NotMerged::refused(format!(
                     "the pull request {} was merged at {}, not at {checked}, the commit the check passed",
                     merged.url, merged.head
-                ));
+                )));
             }
             let commit = (merged.merge_commit.clone()).ok_or_else(|| {
                 format!(
@@ -353,34 +391,57 @@ impl<A: Api> Host for GitHub<A> {
             return Ok(commit);
         }
         let Some(open) = pulls.iter().find(|p| p.state == State::Open) else {
-            return Err(format!(
+            return Err(NotMerged::refused(format!(
                 "the branch {name} has no open pull request on GitHub: the check opens it, and the merge merges it"
-            ));
+            )));
         };
         if open.base != *main {
-            return Err(format!(
+            return Err(NotMerged::refused(format!(
                 "the pull request {} goes into {}, not into {main}",
                 open.url, open.base
-            ));
+            )));
         }
         if open.head != checked {
-            return Err(format!(
+            return Err(NotMerged::refused(format!(
                 "the pull request {} is at {}, not at {checked}, the commit the check passed: the work is checked \
                  again before it merges",
                 open.url, open.head
-            ));
+            )));
         }
         let now = self.main().await?;
         let holds = git::said(&self.project.repo, &["merge-base", "--is-ancestor", &now, checked]).await?;
         if !holds.ok {
-            return Err(super::moved(main, &now, checked));
+            return Err(NotMerged::Moved {
+                main: now,
+                checked: checked.to_string(),
+            });
         }
+        (self.follow(open, branch).await).map_err(|failed| {
+            failed.said(|why| format!("GitHub did not name the pull request {} as its merge: {why}", open.url))
+        })?;
         if open.draft {
-            (self.api.ready(&open.node).await)
-                .map_err(|why| format!("GitHub did not make the pull request {} ready: {why}", open.url))?;
+            (self.api.ready(&open.node).await).map_err(|failed| {
+                failed.said(|why| format!("GitHub did not make the pull request {} ready: {why}", open.url))
+            })?;
         }
-        let commit = (self.api.merge(open.number, checked, &self.config.merge_method).await)
-            .map_err(|why| format!("GitHub did not merge the pull request {}: {why}", open.url))?;
+        // Titled as GitHub titles a squash by default, with the pull request's number, whatever the method.
+        let title = format!("{} (#{})", self.title(branch), open.number);
+        let method = &self.config.merge_method;
+        let commit = match self.api.merge(open.number, checked, method, &title).await {
+            Ok(commit) => commit,
+            // GitHub's own word that main moved as it was to merge.
+            Err(failed) if failed.why.contains(BASE_MODIFIED) => {
+                let main = self.main().await?;
+                return Err(NotMerged::Moved {
+                    main,
+                    checked: checked.to_string(),
+                });
+            }
+            Err(failed) => {
+                let failed = failed.said(|why| format!("GitHub did not merge the pull request {}: {why}", open.url));
+                return Err(NotMerged::Failed(failed));
+            }
+        };
         self.delete(branch).await?;
         Ok(commit)
     }
@@ -389,7 +450,13 @@ impl<A: Api> Host for GitHub<A> {
         kept_main(&self.config.remote, &self.project.main)
     }
 
-    async fn run_tests(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
+    async fn run_tests(
+        &self,
+        branch: &Branch<'_>,
+        named: &Named,
+        asking: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<String>, String> {
         // What the check before the merge refuses, this refuses the same way: the repository's configuration, a
         // worktree off the work's branch, and in the push, connections sent elsewhere and submodules.
         let place = branch.place;
@@ -424,7 +491,12 @@ impl<A: Api> Host for GitHub<A> {
         }
         self.push(branch, &commit).await?;
         self.pull_request(branch).await?;
-        self.run_role(role, &commit, named, stop).await
+        let request = fast::Request {
+            work: branch.work,
+            commit: &commit,
+            asking,
+        };
+        self.run_role(role, request, named, stop).await
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
@@ -438,6 +510,20 @@ impl<A: Api> Host for GitHub<A> {
                 .map_err(|why| format!("GitHub did not close the pull request {}: {why}", open.url))?;
         }
         Ok(())
+    }
+
+    async fn reopen(&self, branch: &Branch<'_>) -> Result<(), String> {
+        let pulls = self.api.pulls(&branch.place.branch).await?;
+        if pulls.iter().any(|p| p.state == State::Open) {
+            return Ok(());
+        }
+        // The newest of the work's pull requests into main, as GitHub lists them, the newest first.
+        let latest = (pulls.iter()).find(|p| p.base == self.project.main);
+        match latest {
+            Some(closed) if closed.state == State::Closed => (self.api.reopen(closed.number).await)
+                .map_err(|why| format!("GitHub did not open the pull request {} again: {why}", closed.url)),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -523,7 +609,23 @@ fn fence(text: &str) -> String {
     "`".repeat((longest + 1).max(3))
 }
 
+/// How many characters of the name of a work's merge its pull request and its merge's commit take: GitHub refuses a
+/// title of more than 256, and the name is one line.
+const TITLE: usize = 200;
+
 impl<A: Api> GitHub<A> {
+    /// The title of the work's pull request: the name of its merge, made [`neutral`] as what the work writes is, cut
+    /// to [`TITLE`] characters, saying so.
+    fn title(&self, branch: &Branch<'_>) -> String {
+        let title = neutral(branch.title.trim(), &self.config.withheld);
+        if title.chars().count() <= TITLE {
+            return title;
+        }
+        let mut cut: String = title.chars().take(TITLE - 1).collect();
+        cut.push('…');
+        cut
+    }
+
     /// What the pull request of the work says of itself: what the work wrote of itself, as a block of plain text made
     /// [`neutral`], then what the pull request is. A person's edit of the body is written over at the next check.
     fn body(&self, branch: &Branch<'_>) -> String {
@@ -563,6 +665,8 @@ fn span(time: Duration) -> String {
     let seconds = time.as_secs();
     if seconds >= 120 && seconds.is_multiple_of(60) {
         format!("{} minutes", seconds / 60)
+    } else if seconds == 1 {
+        "1 second".to_string()
     } else {
         format!("{seconds} seconds")
     }
