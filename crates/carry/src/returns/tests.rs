@@ -316,8 +316,9 @@ fn a_block_that_is_not_among_the_cell_s_outputs_is_found_the_questions_and_the_r
 }
 
 // The option a question recommends, a whole number, is read where it is written as a float with nothing after the point,
-// as the shape of the questions takes it; with a part after the point it is not of the shape. Well under a millisecond
-// alone; no other test holds the reading of a question to its shape's numbers.
+// as the shape of the questions takes it; with a part after the point it is not of the shape; a negative one, which is
+// of the shape, is no option, and is found so. Well under a millisecond alone; no other test holds the reading of a
+// question to its shape's numbers.
 #[test]
 fn a_recommended_option_written_as_a_whole_float_is_read_as_its_number() {
     let asked = |recommends: Value| {
@@ -340,7 +341,11 @@ fn a_recommended_option_written_as_a_whole_float_is_read_as_its_number() {
         came.said.questions
     );
     questions_not_of_their_shape(&asked(json!(1.5)));
-    questions_not_of_their_shape(&asked(json!(-1.0)));
+    for negative in [json!(-1), json!(-1.0)] {
+        let came = read(&asked(negative.clone())).expect("it is read");
+        let found = vec![Unmet::NotAnOption { name: "q".to_string() }];
+        assert_eq!(came.found, found, "{negative}");
+    }
 }
 
 // The work's questions are a list of questions: written as anything else, as a text, they are not of their shape, as

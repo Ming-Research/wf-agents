@@ -84,19 +84,25 @@ struct AskedIn {
     name: String,
     waits: bool,
     #[serde(deserialize_with = "whole")]
-    recommends: u64,
+    recommends: Option<u64>,
     ask: String,
     options: Vec<WayIn>,
 }
 
-/// A whole number, written as one or as a float with nothing after the point, as the shape's `integer` takes it
-/// ([`flow::form::fits`]).
-fn whole<'de, D: serde::Deserializer<'de>>(written: D) -> Result<u64, D::Error> {
+/// The option a question recommends, a whole number written as one or as a float with nothing after the point, as the
+/// shape's `integer` takes it ([`flow::form::fits`]); a negative one is no option, none, which the check of the
+/// question's options finds. A number that is not whole is not of the shape.
+fn whole<'de, D: serde::Deserializer<'de>>(written: D) -> Result<Option<u64>, D::Error> {
     let n = serde_json::Number::deserialize(written)?;
-    let float = n
-        .as_f64()
-        .filter(|f| f.fract() == 0.0 && *f >= 0.0 && *f <= u64::MAX as f64);
-    (n.as_u64().or(float.map(|f| f as u64))).ok_or_else(|| serde::de::Error::custom(format!("{n} is no whole number")))
+    if let Some(n) = n.as_u64() {
+        return Ok(Some(n));
+    }
+    match (n.as_i64(), n.as_f64()) {
+        (Some(_), _) => Ok(None),
+        (None, Some(f)) if f.fract() == 0.0 && f < 0.0 => Ok(None),
+        (None, Some(f)) if f.fract() == 0.0 && f <= u64::MAX as f64 => Ok(Some(f as u64)),
+        _ => Err(serde::de::Error::custom(format!("{n} is no whole number"))),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -460,7 +466,7 @@ fn question(q: QuestionIn) -> Question {
         QuestionIn::Asked(q) => Question::Asked {
             name: q.name,
             waits: q.waits,
-            recommends: Some(q.recommends),
+            recommends: q.recommends,
             ask: q.ask,
             options: (q.options.into_iter())
                 .map(|o| Way {

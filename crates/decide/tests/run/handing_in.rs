@@ -149,6 +149,10 @@ fn a_block_that_would_leave_its_cell_waiting_written_in_another_shape_is_sent_ba
         let round = came(&[], vec![], unmet.clone(), false);
         assert_eq!(step(vec![round], &s), send_back(unmet), "{block}");
     }
+    // Dealing with what an act wrote, and answering it with nothing, is no fault while it is not known to wait.
+    let unmet = vec![Unmet::NotOfItsShape { block: "tests".into() }];
+    let round = came(&["request"], vec![], unmet.clone(), false);
+    assert_eq!(step(vec![round], &s), send_back(unmet));
     // A block of a shape that would not leave it waiting leaves the other checks as they were.
     let unmet = vec![Unmet::NotOfItsShape { block: "plan".into() }];
     let round = came(&["request"], vec![], unmet.clone(), false);
