@@ -347,10 +347,10 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
 
     // Each cell after it whose version runs it sends it back once more, which its limit allows only so often since its
     // counts last began anew (decision the-same-sender-again).
-    if let Some(senders) = sent_by(flow, reading, i, &s.because, s.at) {
+    if let Some(senders) = reading.sent_by(flow, i, &s.because, s.at) {
         for sender in senders {
             v.count(SENT_BACK_BOUNDED);
-            let times = sent_back_since(flow, reading, i, &sender, s.at);
+            let times = reading.sent_back_since(flow, i, &sender, s.at);
             if times >= cell.again as usize {
                 v.fail(
                     SPOKE,
@@ -363,89 +363,6 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
             }
         }
     }
-}
-
-/// The cell's runs that finished before this place, started since the owner last let it go on, in the order they
-/// finished.
-fn finished_since_let_go<'r>(reading: &'r Reading, cell: &decide::CellId, place: Seq) -> Vec<&'r Started> {
-    let let_go = (reading.records.let_go.iter())
-        .filter(|l| &l.cell == cell && l.at < place)
-        .map(|l| l.at)
-        .max();
-    let mut runs: Vec<(Seq, &Started)> = (reading.finished.values())
-        .filter(|f| f.at < place)
-        .map(|f| (f.at, reading.started[&f.run]))
-        .filter(|(_, s)| &s.cell == cell && let_go.is_none_or(|l| s.at > l))
-        .collect();
-    runs.sort_by_key(|(at, _)| *at);
-    runs.into_iter().map(|(_, s)| s).collect()
-}
-
-/// The cells after the cell at place `i` that wrote what these causes of a run of it, starting at this place, are new
-/// versions of, each once: of the causes the run dealt with, where it finished. None where one of them is a first run
-/// or a version that a person, the outside or a cell before it wrote, which is no send-back and starts the cell's
-/// counts anew; the results of its calls, and those of what it asked for in a record, are no one's (decision
-/// the-same-sender-again).
-fn sent_by(flow: &Flow, reading: &Reading, i: usize, because: &[Cause], place: Seq) -> Option<Vec<decide::CellId>> {
-    let cell = &flow.cells()[i].id;
-    let mut senders: Vec<decide::CellId> = Vec::new();
-    for cause in because {
-        match cause {
-            Cause::NoRecord => return None,
-            Cause::Changed { behind: false, .. } => return None,
-            Cause::Changed { block, .. } if reading.results.contains(block) => {}
-            Cause::Changed { block, .. } => {
-                for v in reading.new_to(cell, block, place) {
-                    if let Writer::Cell(writer, _) = &v.by
-                        && flow.place(writer).is_some_and(|j| j > i)
-                        && !senders.contains(writer)
-                    {
-                        senders.push(writer.clone());
-                    }
-                }
-            }
-            Cause::Results { .. } => {}
-        }
-    }
-    Some(senders)
-}
-
-/// How many of the cell's finished runs before this place, since its counts last began anew, this sender sent back:
-/// runs that dealt with something and were for a version it wrote. The counts begin anew where the owner lets the cell
-/// go on, and with a run of it for a first run or a version a person, the outside or a cell before it wrote.
-fn sent_back_since(flow: &Flow, reading: &Reading, i: usize, sender: &decide::CellId, place: Seq) -> usize {
-    let cell = &flow.cells()[i].id;
-    let let_go = (reading.records.let_go.iter())
-        .filter(|l| &l.cell == cell && l.at < place)
-        .map(|l| l.at)
-        .max();
-    let anew = (reading.started.values())
-        .filter(|s| &s.cell == cell && s.at < place && sent_by(flow, reading, i, &s.because, s.at).is_none())
-        .map(|s| s.at)
-        .max();
-    let from = let_go.max(anew);
-    let mut count = 0;
-    for s in finished_since_let_go(reading, cell, place) {
-        if from.is_some_and(|from| s.at <= from) {
-            continue;
-        }
-        let dealt: Vec<Cause> = (s.because.iter())
-            .filter(|c| match c {
-                Cause::Changed { block, .. } => reading.dealt_with(s.run, block, Seq(u64::MAX)),
-                _ => true,
-            })
-            .cloned()
-            .collect();
-        let senders = sent_by(flow, reading, i, &dealt, s.at).unwrap_or_default();
-        let did = reading.finished[&s.run]
-            .dealt_with
-            .as_ref()
-            .is_none_or(|d| !d.is_empty());
-        if did && senders.contains(sender) {
-            count += 1;
-        }
-    }
-    count
 }
 
 /// The first cell before place `upto` that applies and waits for the result of what it asked for, by this reading.
@@ -806,31 +723,7 @@ fn stalled(
     };
     // No person or source outside the work writes a block that keeps a key from holding, as the reading sees it.
     for key in on {
-        let keeping: Vec<BlockId> = match key {
-            Condition::Is { block, .. } => vec![block.clone()],
-            Condition::Test(test) => {
-                let named = &flow.tests()[test];
-                let has = |b: &BlockId| {
-                    reading
-                        .current(b)
-                        .is_some_and(|x| x.value.is_some() && x.value == named.is)
-                };
-                let by_outsider = |b: &BlockId| {
-                    reading
-                        .current(b)
-                        .is_some_and(|x| matches!(x.by, Writer::Person | Writer::Outside) && has(b))
-                };
-                (named.reads.iter())
-                    .filter(|b| match named.kind {
-                        TestKind::All => !has(b),
-                        TestKind::Any | TestKind::AnyContent => true,
-                        TestKind::None => has(b),
-                        TestKind::NoneStanding => by_outsider(b),
-                    })
-                    .cloned()
-                    .collect()
-            }
-        };
+        let keeping = reading.keeping(flow, key, i);
         if let Some(b) = keeping
             .iter()
             .find(|b| flow.outsiders(b).is_some_and(|o| o.people || o.outside.is_some()))
@@ -947,19 +840,9 @@ fn made_by(
     by: &[Maker],
 ) {
     v.count(MAKERS_CHECKED);
-    let named = &flow.tests()[test];
-    let has = |b: &BlockId| {
-        reading
-            .current(b)
-            .is_some_and(|x| x.value.is_some() && x.value == named.is)
-    };
-    let holding: Vec<&BlockId> = (named.reads.iter())
-        .filter(|b| match named.kind {
-            TestKind::All => !has(b),
-            TestKind::Any | TestKind::AnyContent => true,
-            TestKind::None | TestKind::NoneStanding => has(b),
-        })
-        .collect();
+    let i = flow.place(at).expect("the work waits at a cell of the flow");
+    let key = Condition::Test(test.clone());
+    let holding = reading.keeping(flow, &key, i);
     let writes = |m: &Maker, b: &BlockId| {
         let outsiders = flow.outsiders(b);
         match m {
@@ -1031,7 +914,7 @@ fn limit(v: &mut Verdict, flow: &Flow, reading: &Reading, at: &decide::CellId, b
     let i = flow.place(at).expect("the work waits at a cell of the flow");
     let cell = &flow.cells()[i];
     let now = Seq(u64::MAX);
-    let times = sent_back_since(flow, reading, i, by, now);
+    let times = reading.sent_back_since(flow, i, by, now);
     if runs < cell.again || (runs as usize) != times {
         v.fail(
             SPOKE,
@@ -1052,7 +935,10 @@ fn limit(v: &mut Verdict, flow: &Flow, reading: &Reading, at: &decide::CellId, b
             Reason::Results { .. } => None,
         })
         .collect();
-    if !sent_by(flow, reading, i, &next, now).is_some_and(|senders| senders.contains(by)) {
+    if !reading
+        .sent_by(flow, i, &next, now)
+        .is_some_and(|senders| senders.contains(by))
+    {
         v.fail(
             SPOKE,
             format!("the work waits at {at}'s limit of {by}, and its next run would not be for what {by} wrote"),

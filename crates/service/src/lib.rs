@@ -35,14 +35,18 @@
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
+//! - [`judge`]: the judge of a play of a script, which reads each work's records against its path.
 //! - `levels`: the levels of the items, which choose what their agents' rounds run on.
-//! - [`script`]: what the test carriers do, as a TOML file says.
+//! - [`player`]: the player of a script, which plays it on the loop in this process, one thing at a time.
+//! - [`script`]: what the test carriers do, as a TOML file says, and what a play of it does and must come to.
 //! - `scripted`: the test carriers, which follow a script.
 //! - `words`: the faults and the refusals in words.
 
 mod carriers;
 mod clock;
+pub mod judge;
 mod levels;
+pub mod player;
 mod projects;
 pub mod script;
 mod scripted;
@@ -66,7 +70,9 @@ pub use carriers::{
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Under};
+pub use judge::{Judged, Shown};
 pub use levels::{Level, Levels, LevelsFault};
+pub use player::{Bounds, ItemPlayed, Played, Stepper, play};
 pub use projects::Projects;
 pub use script::Script;
 pub use scripted::Scripted;

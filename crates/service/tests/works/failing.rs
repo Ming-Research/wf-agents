@@ -28,7 +28,7 @@ fn failing() -> Script {
     let text = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
     let text = format!("{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nrun = 2\nfails = \"{WHY}\"\n");
     let script = Script::read(&text).expect("the script reads");
-    assert_eq!(script.check(&[trial_flow()]), Vec::<String>::new());
+    assert_eq!(script.check(&[trial_flow()], &crate::words()), Vec::<String>::new());
     script
 }
 
@@ -77,7 +77,7 @@ async fn a_restart_while_the_work_is_paused_hands_out_nothing_and_the_owners_res
     trial.step().await.unwrap();
     let before = trial.work(work);
     trial.restart();
-    assert_eq!(trial.service.driver().pending(), vec![]);
+    assert_eq!(trial.service().driver().pending(), vec![]);
     assert!(
         trial.step().await.is_none(),
         "something was handed out after the restart"
@@ -172,7 +172,7 @@ pub(crate) fn failing_as(failure: &str, resets: Option<u64>) -> Script {
         START.0
     );
     let script = Script::read(&text).expect("the script reads");
-    assert_eq!(script.check(&[trial_flow()]), Vec::<String>::new());
+    assert_eq!(script.check(&[trial_flow()], &crate::words()), Vec::<String>::new());
     script
 }
 
@@ -232,7 +232,7 @@ async fn at_the_usage_limit_no_round_begins_until_it_resets_and_then_the_work_go
     trial.step().await.unwrap();
     trial.answer(work, "Yes, by name.");
     trial.step().await.unwrap();
-    let outage = trial.service.driver().outage().expect("the wait stands");
+    let outage = trial.service().driver().outage().expect("the wait stands");
     assert_eq!(outage.resets, Some(Time(START.0 + hour)));
     assert!(!decide::paused(&trial.work(work).records));
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
@@ -247,7 +247,7 @@ async fn at_the_usage_limit_no_round_begins_until_it_resets_and_then_the_work_go
         kept.time_of(given_again).unwrap().0 >= START.0 + hour,
         "a round began before the limit reset"
     );
-    assert_eq!(trial.service.driver().outage(), None);
+    assert_eq!(trial.service().driver().outage(), None);
 }
 
 /// Agents that end the plan's first round handing in the plan, its work to wait for the owner: the work spent more

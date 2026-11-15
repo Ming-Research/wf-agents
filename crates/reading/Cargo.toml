@@ -1,6 +1,6 @@
 [package]
 name = "reading"
-description = "A work's records read as the design tree says, apart from the deciding code, for the tests that judge it"
+description = "A work's records read as the design tree says, apart from the deciding code, for whatever judges it by them"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
