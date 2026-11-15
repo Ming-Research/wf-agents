@@ -1,6 +1,8 @@
 //! `wf-agents run` starting: what keeps it from starting, and going on from the store when started again.
 
+use std::io::{BufRead, BufReader};
 use std::net::{Ipv4Addr, TcpListener};
+use std::process::Stdio;
 
 use crate::{Engine, Place, SCRIPT, run, run_on, trial};
 
@@ -16,6 +18,46 @@ fn a_script_that_names_what_the_flow_lacks_keeps_the_engine_from_starting() {
             place.script().display()
         )
     );
+}
+
+// A run with a script reads what is written beside its flows, as a run with settings does, and does not start where
+// it cannot read it, saying why: the stand-ins find what is wrong with the questions a return asks in its words. Well
+// under a second alone; no other test runs the command on flows with no words beside them.
+#[test]
+fn a_script_run_on_flows_with_no_words_beside_them_does_not_start() {
+    let place = Place::new(
+        "[[flows.trial.rounds]]\ncell = \"review\"\nhands_in = [{ block = \"verdict\", value = \"yes\" }]\n",
+    );
+    // The trial flow in a directory of its own, with nothing beside it but what the engine says to the owner.
+    let flow = place.dir.path().join("flow");
+    std::fs::create_dir(&flow).unwrap();
+    for entry in std::fs::read_dir(trial()).unwrap() {
+        let path = entry.unwrap().path();
+        std::fs::copy(&path, flow.join(path.file_name().unwrap())).unwrap();
+    }
+    let agents = place.dir.path().join("agents");
+    std::fs::create_dir(&agents).unwrap();
+    std::fs::copy(trial().join("../agents/waits.toml"), agents.join("waits.toml")).unwrap();
+    let mut child = run_on(&place.data(), &flow, &place.script(), 0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the command runs");
+    let mut line = String::new();
+    let stdout = child.stdout.take().expect("the command's output");
+    BufReader::new(stdout)
+        .read_line(&mut line)
+        .expect("the command's first line");
+    let _ = child.kill();
+    let out = child.wait_with_output().expect("the command ends");
+    assert_eq!(line, "", "the engine started");
+    assert!(!out.status.success());
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        said.contains(&format!("{}: ", agents.join("session.toml").display())),
+        "{said}"
+    );
+    assert!(!place.data().join("store.sqlite").exists(), "the store was opened");
 }
 
 #[test]
@@ -75,20 +117,23 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
 
     let engine = Engine::start(&place);
     let held = "The engine started with works going on and holds every work until the owner has looked: none begins \
-                a round but to answer a note, until `wf-agents resume --all`";
+                a round but for the owner's words or answers, until `wf-agents resume --all`";
     assert_eq!(
         engine.says(&["list"]),
         format!(
             "{held}; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: waits at plan for the owner to \
-             answer call 2: \"Should the greeting name the user?\"\n"
+             answer the question named\n"
         )
     );
     // `wait` says first that the engine waits for the owner.
     let said = engine.says(&["wait", "--for", "0"]);
     assert!(said.starts_with(&format!("{held}, for ")), "{said}");
-    // The answer is taken, and the plan's next round waits for the owner to let everything on.
-    engine.says(&["result", "1", "2", "Yes."]);
+    // The answer is taken: the plan's run entered for it runs and finishes, as a run that answers the owner does, and
+    // the build waits for the owner to let everything on.
+    engine.says(&["answer", "1", "named", "9", "1"]);
     engine.until(&["list"], |line| line.ends_with("held back by the pause of everything"));
+    let shown = engine.says(&["show", "1"]);
+    assert!(shown.contains("\n  run 2 of plan: 1 round, finished"), "{shown}");
     assert!(engine.says(&["resume", "--all"]).starts_with("Works go on; "));
     engine.until(&["list", "--all"], |line| line.ends_with(": merged"));
 }
@@ -159,13 +204,18 @@ fn a_flow_that_does_not_compile_keeps_the_engine_from_starting() {
         .output()
         .expect("the command runs");
     assert!(!out.status.success());
+    // Every fault is said at once: the flow's, and that nothing is written beside it, which the flow copied alone lacks.
+    let said = String::from_utf8_lossy(&out.stderr);
+    let lines: Vec<&str> = said.lines().collect();
     assert_eq!(
-        String::from_utf8_lossy(&out.stderr),
+        lines[0],
         format!(
-            "{}/merge.toml inputs[0]: the block kode is not declared in flow.toml\n",
+            "{}/merge.toml inputs[0]: the block kode is not declared in flow.toml",
             flow.display()
         )
     );
+    assert_eq!(lines.len(), 2, "{said}");
+    assert!(lines[1].contains("agents/session.toml: "), "{said}");
     assert!(!place.data().join("store.sqlite").exists(), "the store was opened");
 }
 

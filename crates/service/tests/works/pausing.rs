@@ -21,7 +21,7 @@ async fn a_pause_lets_the_round_under_way_end_and_its_calls_be_made_and_holds_th
         .await;
 
     trial.act(work, Act::Pause).unwrap();
-    // The build's round ends while the work is paused, and the CI it asks for is run.
+    // The build's round ends while the work is paused, and the query it asks for is run.
     trial.step().await.unwrap();
     assert!(matches!(trial.decision(work), Decision::Wait { at, .. } if at.as_str() == "build"));
     trial.step().await.unwrap();
@@ -45,7 +45,7 @@ async fn a_paused_work_begins_no_run() {
     trial.act(work, Act::Pause).unwrap();
     // The plan, entered for the answer, has its round end and finishes; the build does not begin.
     trial.step().await.unwrap();
-    assert_eq!(trial.finished(work), ["plan"]);
+    assert_eq!(trial.finished(work), ["plan", "plan"]);
     assert_eq!(trial.decision(work), Decision::Paused);
     assert!(trial.step().await.is_none());
 }

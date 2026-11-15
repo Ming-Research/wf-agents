@@ -521,7 +521,8 @@ fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
 fn standing(engine: &Engine) -> String {
     let paused = match engine.paused.map(|paused| paused.by) {
         Some(Pauser::Owner) => {
-            "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`"
+            "Every work is paused: none begins a round but for the owner's words or answers, until \
+             `wf-agents resume --all`"
         }
         Some(Pauser::Engine) => STARTED_HELD,
         None => "Works go on",
@@ -531,7 +532,7 @@ fn standing(engine: &Engine) -> String {
 
 /// What the engine's own pause of everything, as it started with works going on, is, in words.
 const STARTED_HELD: &str = "The engine started with works going on and holds every work until the owner has looked: \
-                            none begins a round but to answer a note, until `wf-agents resume --all`";
+                            none begins a round but for the owner's words or answers, until `wf-agents resume --all`";
 
 /// The most items `list` gives in one answer, and the most entries of a part of a work `show` gives alone.
 const LISTED: usize = 100;

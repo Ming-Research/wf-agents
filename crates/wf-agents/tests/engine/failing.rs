@@ -1,15 +1,15 @@
 //! A work whose round fails, as the commands say it: paused by the engine with the reason, its cell's round failed;
 //! and, let on, it goes on to its merge.
 
-use crate::{Engine, Place, SCRIPT};
+use crate::{ASKED, Engine, Place, SCRIPT};
 
 const WHY: &str = "The agent's program could not start";
 
 #[test]
 fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
-    let asks = r#"asks = [{ question = "Should the greeting name the user?" }]"#;
-    assert!(SCRIPT.contains(asks));
-    let place = Place::new(&SCRIPT.replace(asks, &format!("fails = \"{WHY}\"")));
+    assert!(SCRIPT.contains(ASKED));
+    let fails = format!("[[flows.trial.rounds]]\ncell = \"plan\"\nfails = \"{WHY}\"\n");
+    let place = Place::new(&SCRIPT.replace(ASKED, &fails));
     let engine = Engine::start(&place);
     engine.says(&[
         "add",

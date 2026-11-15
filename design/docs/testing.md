@@ -80,9 +80,10 @@ and the scripts that stand in for agents are built; what is not is said at the e
     page, so that it can be looked at as well.
 
 11. **A script in place of the agents.** The program runs with a script, and every agent, act of the engine and tool
-    does what the script says, round by round, at no cost of a model. A round's return depends only on its flow, cell,
-    run and round and the versions its run started from, so that a run stopped and started again goes on as it would
-    have. Such a run shows what the engine and the page do with the case.
+    does what the script says, round by round, at no cost of a model. A round's return depends only on its work, flow,
+    cell, run and round and the versions its run started from, so that a run stopped and started again goes on as it
+    would have; a script says what a round does in one work alone where one work's differs from the rest's. Such a run
+    shows what the engine and the page do with the case.
 
 12. **An agent that plays a part.** What a round is given can be wrong only at one moment, such as an input that
     contradicts itself in one state of the work, and only an agent given it at that moment can see it. So a round can
@@ -143,14 +144,11 @@ and the scripts that stand in for agents are built; what is not is said at the e
     gives what it shows. They agree with themselves and not with the engine, so no change of the page is approved on
     them.
 
-21. Not built: the script saying all the build needs (what a round does in one work alone, the questions a return asks
-    as data, the engine's own questions, the context a round ends with, a tool's time in one work), so that the build
-    runs the program as it is rather than one changed for it; the build kept in the repository beside the program it
-    drives, as 18 needs, the items it fills the store with given from the installation's data (principle
-    harness-only); and the states a script cannot bring about: sessions kept warm and what a round wrote to the cache,
-    which a few works whose agents play parts (12) can show; the settings and the levels, which a script runs without;
-    the copies of the store; and times spread as a real installation's are, which needs the build to run on a clock of
-    its own (principle outside-behind-interfaces).
+21. Not built: the build kept in the repository beside the program it drives, as 18 needs, the items it fills the store
+    with given from the installation's data (principle harness-only); and the states a script cannot bring about:
+    sessions kept warm and what a round wrote to the cache, which a few works whose agents play parts (12) can show; the
+    settings and the levels, which a script runs without; the copies of the store; and times spread as a real
+    installation's are, which needs the build to run on a clock of its own (principle outside-behind-interfaces).
 
 ## A trial on the real installation
 
