@@ -8,8 +8,48 @@ use std::collections::BTreeSet;
 
 use decide::run::Failure;
 use decide::{CallId, Cause, CellId, Decision, Outsider, Pauser, Records, RunId, Seq, Started, decide};
+use engine::spoken::To;
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
-use flow::Compiled;
+use flow::{CellSpec, Compiled};
+
+/// The cell the owner's words said to this reach, read of the records and the flow apart from the engine's code: of a
+/// question, the cell of its latest version, where that stands, or, of a question the engine asked, the last cell an
+/// answer runs; of a line, the one of its cells the owner's words run that the line has reached (`decide::reached`). In
+/// either case it is a cell the owner's words run, and its condition holds now. None where no cell takes them: the work
+/// has ended, or no such cell is there.
+pub fn reaching(flow: &Compiled, records: &Records, to: &To) -> Option<CellId> {
+    if matches!(decide(&flow.flow, records), Decision::Ended(_)) {
+        return None;
+    }
+    let runs = |cell: &CellSpec, source: &str| (cell.triggers.iter()).any(|t| t.of_source(flow, source).is_some());
+    let cell = match to {
+        To::Question(name) => {
+            let latest = (records.questions.iter())
+                .filter(|q| q.name == *name)
+                .max_by_key(|q| q.at)?;
+            if latest.withdrawn {
+                return None;
+            }
+            match latest.engine {
+                false => latest.cell.clone(),
+                true => (flow.cells.iter().rev())
+                    .find(|c| runs(c, flow::ANSWER))
+                    .map_or_else(|| latest.cell.clone(), |c| c.id.clone()),
+            }
+        }
+        To::Line(line) => {
+            let of_line: Vec<CellId> = (flow.cells.iter())
+                .filter(|c| c.line.as_deref() == Some(line.as_str()) && runs(c, flow::WORDS))
+                .map(|c| c.id.clone())
+                .collect();
+            decide::reached(&flow.flow, records, &of_line)?
+        }
+    };
+    let spec = flow.cells.iter().find(|c| c.id == cell)?;
+    let place = flow.flow.place(&cell)?;
+    let applies = reading::Reading::new(records).applies(&flow.flow, place);
+    (runs(spec, flow::WORDS) && applies).then_some(cell)
+}
 
 /// A small deterministic generator (xorshift), so that a seed gives the same history every time.
 pub struct Rng(u64);
@@ -74,6 +114,10 @@ pub struct Seen {
     pub released: usize,
     /// Words told to a round under way.
     pub told: usize,
+    /// The owner's words the engine took, each to the cell it chose.
+    pub words_taken: usize,
+    /// The owner's words the engine refused, no cell taking them.
+    pub words_refused: usize,
     /// Results of what a cell asked for in a record, handed in by a cell that gives them.
     pub results: usize,
 }
@@ -317,6 +361,11 @@ impl Driver {
         self.note(format!("event: {event:?}"));
         let before = self.work.clone();
         let failed = matches!(event, Event::Failed { .. });
+        // The cell the owner's words reach, as the histories read it of the records before the engine takes them.
+        let receiver = match &event {
+            Event::Said { to, .. } => Some(reaching(&self.flow, &self.work.records, to)),
+            _ => None,
+        };
         // The driver's clock: a second for each thing it hands the engine, so that a history with stops keeps the same
         // times as one without.
         self.clock += 1000;
@@ -324,6 +373,26 @@ impl Driver {
         match handle(&self.flow, &mut self.work, now, event) {
             Ok(effects) => {
                 self.note(format!("effects: {effects:?}"));
+                // Words taken go to the cell the records say they reach, and to no other: every entry they wrote is
+                // said to it.
+                if let Some(receiver) = &receiver {
+                    let cell = receiver
+                        .as_ref()
+                        .expect("the engine took words that no cell takes, as the records read");
+                    let written = &self.work.records.written[before.records.written.len()..];
+                    let to: Vec<_> = written.iter().filter_map(|w| w.said_to.as_ref()).collect();
+                    assert!(
+                        to.iter().all(|c| *c == cell),
+                        "words that reach {cell} are said to {to:?}"
+                    );
+                    // Where the cell's trigger of the owner's words has it read a record of what is said, the words
+                    // are an entry of it said to the cell.
+                    let records = (self.flow.cells.iter().filter(|c| c.id == *cell))
+                        .flat_map(|c| &c.triggers)
+                        .any(|t| t.records(&self.flow, flow::WORDS).next().is_some());
+                    assert!(!records || !to.is_empty(), "words that reach {cell} are said to no one");
+                    self.seen.words_taken += 1;
+                }
                 if failed && decide::pause(&self.work.records).is_some_and(|p| p.by == Pauser::Engine) {
                     self.seen.failed += 1;
                 }
@@ -407,6 +476,11 @@ impl Driver {
             Err(why) => {
                 self.note(format!("refused: {why:?}"));
                 assert_eq!(self.work, before, "a refused event changed the work");
+                // Words are refused only where no cell takes them, as the records read.
+                if let Some(receiver) = &receiver {
+                    assert!(receiver.is_none(), "words {receiver:?} takes were refused: {why:?}");
+                    self.seen.words_refused += 1;
+                }
                 self.seen.refused += 1;
                 false
             }

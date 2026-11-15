@@ -1,0 +1,13 @@
+# A build that what people asked for and the owner's words run, which answers the owner in the record of what is said.
+title = "Build"
+kind = "agent"
+effort = "high"
+line = "engineer"
+task = "Build what the request asks for, and commit it."
+triggered_by = ["on_request", "on_spoken"]
+context = ["request", "discussion"]
+outputs = ["code", "discussion"]
+
+[kinds]
+request = "latest"
+discussion = "all"

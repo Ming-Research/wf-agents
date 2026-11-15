@@ -1,0 +1,6 @@
+# The last cell, which the engine carries out by its act `merge`, run by the build's code.
+title = "Merge"
+kind = "engine"
+act = "merge"
+triggered_by = ["on_code"]
+outputs = ["merged"]
