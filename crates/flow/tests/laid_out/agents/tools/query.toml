@@ -1,6 +1,5 @@
 # One read-only query on the engine's records.
 words = "`query`: one read-only query on the engine's records. {store}"
-defines = ["rows", "cut", "substr"]
 given_bytes = 400
 
 [texts]

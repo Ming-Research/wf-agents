@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use flow::agents::{Agents, Part as PartIs};
-use flow::system::{Settings, with_slots, written};
+use flow::system::{with_slots, written};
 use flow::{CellSpec, Compiled, Kind};
 use serde::Serialize;
 
@@ -119,7 +119,7 @@ pub enum Given {
         /// Each of the engine's tools as its file in `agents/tools/` writes it, by the tool's name.
         tool_files: BTreeMap<String, ActWords>,
         /// Each name a text sent to an agent gives between backticks that nothing of the flow, the return, the tools
-        /// (what a tool's file defines included) or the settings defines, with the file it is in.
+        /// or the settings defines, with the file it is in.
         unknown: Vec<Unknown>,
     },
     /// The definition does not compile, or cannot be read: there is nothing to work it out of.
@@ -232,8 +232,7 @@ struct Build<'a> {
 
 impl<'a> Build<'a> {
     /// Each name between backticks in what the cells are sent, but for the project's own files, that nothing defines:
-    /// no block, value of a choice, field, tool, part of the shape of either, kind of return, setting, or name a tool's
-    /// file defines.
+    /// no block, value of a choice, field, tool, part of the shape of either, kind of return or setting.
     fn unknown(&self, cells: &BTreeMap<String, Vec<Part>>) -> Vec<Unknown> {
         let agents = self.agents;
         let mut known: Vec<String> = vec!["calls".into(), "outcome".into()];
@@ -248,20 +247,15 @@ impl<'a> Build<'a> {
         for (name, tool) in &agents.tools {
             known.push(name.clone());
             properties(&tool.request, &mut known);
-            known.extend(tool.defines.iter().cloned());
         }
-        // The settings a text may name are the engine's: the same set it gives each a value where a text names it.
-        known.extend(
-            Settings::of(&agents.project, &agents.installation, |_| None)
-                .names()
-                .map(str::to_string),
-        );
+        known.extend(agents.project.project.keys().map(|k| format!("project.{k}")));
         known.extend(
             self.flow
                 .cells
                 .iter()
                 .flat_map(|c| c.triggers.iter().map(|t| t.name.clone())),
         );
+        known.extend(agents.installation.names.iter().cloned());
         // The project's own files are the project's to word, and are not checked.
         let project: Vec<&String> = agents.project.files.values().map(|f| &f.path).collect();
         let mut out = std::collections::BTreeSet::new();
