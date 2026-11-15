@@ -1623,7 +1623,8 @@ fn words(base: &Path) -> Words {
 }
 
 /// What the owner said to a round under way, as its session is given it: in the words of `said` in the message's
-/// file, with what the cell does for the trigger as the part of the triggers says it.
+/// file, the entry set apart from them as a message sets a datum apart, with what the cell does for the trigger as the
+/// part of the triggers says it.
 fn said(beside: &Beside, told: &Telling) -> String {
     let message = &beside.message;
     let part = message.parts.iter().find(|p| p.part == flow::agents::Part::Triggers);
@@ -1632,8 +1633,9 @@ fn said(beside: &Beside, told: &Telling) -> String {
         _ => String::new(),
     };
     let number = told.number.0.to_string();
+    let entry = flow::system::fenced(&told.entry);
     let places = [
-        ("entry", told.entry.as_str()),
+        ("entry", entry.as_str()),
         ("block", told.block.as_str()),
         ("number", number.as_str()),
         ("trigger", told.trigger.as_str()),
@@ -1963,8 +1965,9 @@ mod tests {
     /// trigger as the part of the triggers says it (`do`).
     fn said_at(at: u64, said: &str) -> String {
         format!(
-            "## `discussion`, version {at}, said while this round runs\n\nThe owner:\n\n{said}\n\nIt is new to this \
-             round as `on_spoken`: Deal with it first.\n\nName `on_spoken` in `dealt_with` once you have dealt with it."
+            "## `discussion`, version {at}, said while this round runs\n\n```\nThe owner:\n\n{said}\n```\n\nIt is new \
+             to this round as `on_spoken`: Deal with it first.\n\nName `on_spoken` in `dealt_with` once you have dealt \
+             with it."
         )
     }
 
@@ -2024,6 +2027,39 @@ mod tests {
         assert!(!files.waiting.exists(), "nothing waits for a round that ended");
         agents.inner.heard(&round, &teller).await;
         assert!(told.try_recv().is_err(), "nothing more is said");
+    }
+
+    // Whatever the owner says, a round under way is given it set apart from the words around it: no line of it stands as
+    // a heading beside the one that says what was said, and it comes back whole from between its fences. Well under a
+    // second alone; the message's own data are held to the same by the context manager's tests.
+    #[tokio::test]
+    async fn the_words_told_a_round_are_set_apart_whatever_they_hold() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round(dir.path());
+        let files = words(&agents.inner.kept(&round));
+        let owner = "# Not a heading of the message\n\n```\nA fence of its own.\n```\n\nPlain\n=====";
+        agents.inner.tell(&round, telling(10, owner)).await;
+        let given = waiting(&files);
+        let (mut fence, mut inside, mut headings, mut blocks) = (None::<usize>, Vec::new(), Vec::new(), Vec::new());
+        for line in given.split('\n') {
+            let ticks = line.len() - line.trim_start_matches('`').len();
+            match fence {
+                Some(opened) if ticks >= opened && line.len() == ticks => {
+                    blocks.push(inside.join("\n"));
+                    (fence, inside) = (None, Vec::new());
+                }
+                Some(_) => inside.push(line),
+                None if ticks >= 3 => fence = Some(ticks),
+                None if line.starts_with('#') || line.starts_with("=====") => headings.push(line),
+                None => {}
+            }
+        }
+        assert_eq!(
+            headings,
+            ["## `discussion`, version 10, said while this round runs"],
+            "{given}"
+        );
+        assert_eq!(blocks, [format!("The owner:\n\n{owner}")], "{given}");
     }
 
     // Told twice with its hook giving nothing between, the round's one file holds both, the first taken back and given

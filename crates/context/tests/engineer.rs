@@ -7,12 +7,15 @@ mod support;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use context::Stands;
-use decide::{BlockId, CellId, Outsider};
+use context::message::{Called, Datum, Run, Version};
+use context::{Situation, Stands, Values};
+use decide::{BlockId, CellId, Outsider, Seq};
 use engine::spoken::{self, NoOne, To};
 use engine::{Came, Effect, Event, Handed};
-use flow::{Compiled, Has};
-use support::Sim;
+use flow::agents::Agents;
+use flow::system::Settings;
+use flow::{CellSpec, Compiled, Has, Kind};
+use support::{Sim, UNRULY, read_as_markdown};
 use work::{Question, Said, Way};
 
 /// The directory that holds the repository's flows.
@@ -43,6 +46,11 @@ fn engineer() -> Compiled {
         details: names(&["files"]),
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")
+}
+
+/// The files beside the repository's flows.
+fn beside() -> Agents {
+    flow::agents::read(&root()).expect("the files beside the flows are read")
 }
 
 #[test]
@@ -657,4 +665,151 @@ fn a_cell_that_returns_what_the_owner_reads_is_told_its_language_once_with_the_l
     assert_eq!(entered.text.matches(&told).count(), 1, "{}", entered.text);
     let list = entered.text.find("## What this cell returns").expect("the list");
     assert!(entered.text[list..].contains(&told), "{}", entered.text);
+}
+
+// An answer's entry ends the option's sentence once: what follows from the option, ending as a sentence does in Chinese
+// or in English, is not given the words' full stop after it as well, as the answer of W2 was (its entry read "边界。.").
+// Under a second alone, most of it taking the work to the research; no other test holds the answer's words filled.
+#[test]
+fn an_answer_whose_option_ends_its_sentence_is_written_with_one_full_stop() {
+    for (follows, ends) in [
+        ("较长，也更正式。", "较长，也更正式。 Why: 正式。"),
+        ("Longer?", "Longer? Why: 正式。"),
+    ] {
+        let (mut sim, round) = until("R2");
+        tried(&mut sim, &round);
+        let mut asked = naming();
+        if let Question::Asked { options, .. } = &mut asked {
+            options[1].follows = follows.to_string();
+        }
+        let came = Came {
+            said: Said {
+                questions: vec![asked],
+                ..Said::default()
+            },
+            ..Came::default()
+        };
+        sim.returns(&round, came, 0);
+        let version = sim.work.records.questions.last().expect("the question is kept").at;
+        sim.take(Event::Answer {
+            question: "naming".to_string(),
+            version,
+            option: 2,
+            why: Some("正式。".to_string()),
+        });
+        let entries = sim.versions("q_and_a");
+        let answer = sim.content("q_and_a", entries[1]).to_string();
+        let said = format!(
+            "`naming`, version {}, answered: option 2, The full name: {ends}",
+            version.0
+        );
+        assert_eq!(answer, said);
+    }
+}
+
+/// The message the cell is sent where each datum it is given holds this text and the session stands with each as
+/// `stands` says, and the round is given the result of a call, which holds it too: of a datum given all of it, two
+/// versions; of one given what changed, the change. And how many times it holds the text.
+fn sent_holding(flow: &Compiled, words: &Agents, cell: &CellSpec, holds: &str, stands: Stands) -> (String, usize) {
+    let mut times = 1;
+    let mut data = std::collections::BTreeMap::new();
+    for given in &cell.given {
+        let value = (flow.blocks.get(&given.block))
+            .and_then(|b| b.values.as_ref())
+            .and_then(|values| values.first().cloned());
+        let version = |number| Version {
+            number: Seq(number),
+            value: value.clone(),
+            content: holds.to_string(),
+        };
+        times += if given.kind == flow::InputKind::All { 2 } else { 1 };
+        let datum = Datum {
+            latest: version(9),
+            last: Some(Seq(5)),
+            diff: Some(holds.to_string()),
+            versions: vec![version(5), version(9)],
+        };
+        data.insert(given.block.clone(), datum);
+    }
+    let situation = Situation {
+        triggers: cell.triggers.iter().map(|t| t.name.clone()).collect(),
+        data: (cell.given.iter())
+            .map(|g| (g.block.as_str().to_string(), stands))
+            .collect(),
+        results: vec!["tool".to_string()],
+        ..Situation::default()
+    };
+    let run = Run {
+        work: "1".to_string(),
+        item: "1".to_string(),
+        item_title: "Greet".to_string(),
+        data,
+        results: vec![context::message::Result {
+            call: Called::Tool {
+                name: "query".to_string(),
+                input: "{}".to_string(),
+            },
+            result: Some(holds.to_string()),
+        }],
+        ..Run::default()
+    };
+    let sent = context::message(flow, words, cell, &situation, Values::Run(&run));
+    (context::message::text(&sent), times)
+}
+
+// Whatever a datum or a call's result holds, the message of every agent cell of the engineer's flow keeps its own
+// headings, and gives what it holds as it is written, whole, each version of a datum given all of it, and a change
+// since a version alike: set apart, so that nothing in it stands among the message's own headings, as the heading of a
+// decision `tree_edits` held stood among the review's in W2. Well under a second alone, every cell and form at once.
+#[test]
+fn whatever_its_data_hold_every_cells_message_keeps_its_own_headings_and_gives_them_as_written() {
+    let (flow, words) = (engineer(), beside());
+    for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
+        for stands in [Stands::Lacks, Stands::HoldsLast] {
+            let (plain, _) = sent_holding(&flow, &words, cell, "Plain words.", stands);
+            let (own, _) = read_as_markdown(&plain);
+            for holds in UNRULY {
+                let (sent, times) = sent_holding(&flow, &words, cell, holds, stands);
+                let (headings, blocks) = read_as_markdown(&sent);
+                let at = format!("{}, {stands:?}, holding {holds:?}:\n{sent}", cell.id.as_str());
+                assert_eq!(headings, own, "{at}");
+                assert_eq!(blocks, vec![holds.to_string(); times], "{at}");
+            }
+        }
+    }
+}
+
+// Whatever a file of the project holds, the system prompt of every line of the engineer's flow keeps its own headings,
+// and gives the file as the project wrote it: set apart, so that nothing in it stands among the prompt's own headings,
+// as the line's rules read, in a trial, as the end of the project's `design/README.md`. Well under a second alone.
+#[test]
+fn whatever_the_projects_files_hold_every_lines_system_prompt_keeps_its_own_headings_and_gives_them_as_written() {
+    let (flow, words) = (engineer(), beside());
+    let settings = Settings::of(&words.project, &words.installation, |name| {
+        Some(format!("the value of {name}"))
+    });
+    let fill = |name: &str| match name {
+        "your_line" => Some("YOUR LINE".to_string()),
+        "store" => Some(String::new()),
+        "named_checks" => Some("THE CHECKS".to_string()),
+        _ => None,
+    };
+    let files = (words.session.parts.iter())
+        .filter(|p| matches!(p, flow::agents::SessionPart::Project(_)))
+        .count();
+    assert!(files > 1, "the system prompt holds files of the project");
+    for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
+        let prompt = |holds: &str| {
+            let parts = flow::system::parts(&words, &flow, cell, |_| Ok(Some(holds.to_string())));
+            flow::system::prompt(&parts.expect("the parts are made"), &settings, fill).expect("the prompt is made")
+        };
+        let (own, _) = read_as_markdown(&prompt("Plain words."));
+        for holds in UNRULY {
+            let sent = prompt(holds);
+            let (headings, blocks) = read_as_markdown(&sent);
+            let at = format!("{}, holding {holds:?}:\n{sent}", cell.id.as_str());
+            assert_eq!(headings, own, "{at}");
+            assert_eq!(blocks, vec![holds.trim_end().to_string(); files], "{at}");
+        }
+    }
 }

@@ -163,9 +163,9 @@ async fn a_round_is_given_what_changed_from_each_earlier_version_of_the_tree_and
     let (tree, head) = (BlockId::from("tree"), BlockId::from("head"));
     let expected = [
         ((tree.clone(), Seq(1)), "design/b.md\ndesign/c.md".to_string()),
-        ((head.clone(), Seq(2)), format!("`git diff {first} {third}`")),
+        ((head.clone(), Seq(2)), format!("git diff {first} {third}")),
         ((tree, Seq(3)), "design/c.md".to_string()),
-        ((head, Seq(4)), format!("`git diff {second} {third}`")),
+        ((head, Seq(4)), format!("git diff {second} {third}")),
     ];
     assert_eq!(changes, expected.into_iter().collect());
 }

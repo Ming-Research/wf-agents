@@ -843,7 +843,8 @@ fn finish(
         call(work, run, on, Call::Asked(ask), effects);
     }
     let at = work.tick();
-    for h in handed {
+    // A block handed in that takes nothing away is no write, and nothing of it is kept but the return as it came.
+    for h in handed.into_iter().filter(|h| writes.iter().any(|w| w.block == h.block)) {
         let content = spoken::entry(flow, &h.block, &h.content).into_owned();
         work.contents.insert((h.block, at), content);
     }
@@ -853,6 +854,17 @@ fn finish(
     for r in read.into_iter().filter(|r| writes.iter().any(|w| w.block == r.block)) {
         work.contents.entry((r.block, at)).or_insert(r.content);
     }
+    // Each version says whether it holds nothing by the content kept of it, as a test of content and the store's
+    // migrations read it (decision a-test-of-content-reads-the-record): of the record of what is said, by the entry,
+    // which holds the words handed in only as its `reply` gives them.
+    let writes: Vec<Write> = (writes.into_iter())
+        .map(|mut w| {
+            if let Some(kept) = work.contents.get(&(w.block.clone(), at)) {
+                w.empty = decide::holds_nothing(w.value.as_deref(), kept);
+            }
+            w
+        })
+        .collect();
     let cell = (work.records.started.iter())
         .find(|s| s.run == run)
         .map(|s| s.cell.clone());
@@ -925,6 +937,7 @@ pub(crate) fn requires<'a>(
         again: cell.again,
         told,
         answered_by,
+        agent: spec.kind == Kind::Agent,
     })
 }
 
@@ -956,15 +969,16 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
 /// the cell's counts last began anew. A return of the form before a return said what it dealt with reads as one that
 /// dealt with nothing where it asked, and with everything that ran its round where it handed in.
 pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run::Log {
-    // Whether a write holds nothing is told of the content the engine keeps of it, which of a record of what is said is
-    // the cell's entry of what it handed in ([`spoken::entry`]).
+    // Whether a write holds nothing is told, for its return to be judged, of what the cell handed in: words to the record
+    // of what is said that hold nothing add no entry, though the entry ([`spoken::entry`]) would wrap them in its
+    // `reply` (decision a-write-of-nothing-only-empties). A version kept says so of its content (`finish`).
     let writes = |handed: &[work::Handed]| {
         (handed.iter())
             .map(|h| Write {
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
-                empty: decide::holds_nothing(h.value.as_deref(), &spoken::entry(flow, &h.block, &h.content)),
+                empty: decide::holds_nothing(h.value.as_deref(), &h.content),
             })
             .collect::<Vec<Write>>()
     };
@@ -974,14 +988,15 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
     // by, the last, only of an agent's, as an act never waits, and only of a cell with a condition.
     let last = began(work, run);
     let place = (work.records.started.iter().find(|s| s.run == run)).and_then(|s| flow.flow.place(&s.cell));
-    let judged = place.is_some_and(|i| flow.cells[i].kind == Kind::Agent && !flow.flow.cells()[i].applies.is_empty());
+    let agent = place.is_some_and(|i| flow.cells[i].kind == Kind::Agent);
+    let judged = agent && place.is_some_and(|i| !flow.flow.cells()[i].applies.is_empty());
     let skips = |i: usize, (writes, waits): (&[Write], bool), read: &[BlockId]| {
         if i + 1 != last || !judged {
             return Vec::new();
         }
         let taken = || {
             let mut taken = work.clone();
-            let writes = run::taken_writes(writes, read);
+            let writes = run::taken_writes(writes, read, told, agent);
             finish(flow, &mut taken, run, Vec::new(), writes, &mut Vec::new());
             taken.records
         };

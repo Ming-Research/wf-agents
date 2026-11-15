@@ -1,9 +1,9 @@
 //! The system prompt of a line's session, made from the files beside the flows: the parts `agents/session.toml` names,
-//! in the order it names them. A file of the project that `project.toml` names, headed as `session.toml` says; the
-//! sets of rules for the agents that the line takes; a text of the engine's own words; and how a cell returns, made from
-//! `agents/return/` with the words of each field and of each tool the flow names. It is the same for every cell of a
-//! line, whose sets of rules are the line's, and holds only what the line shares (principle
-//! the-system-prompt-holds-what-a-line-shares).
+//! in the order it names them. A file of the project that `project.toml` names, headed as `session.toml` says, its text
+//! set apart in a fence ([`fenced`]); the sets of rules for the agents that the line takes; a text of the engine's own
+//! words; and how a cell returns, made from `agents/return/` with the words of each field and of each tool the flow
+//! names. It is the same for every cell of a line, whose sets of rules are the line's, and holds only what the line
+//! shares (principle the-system-prompt-holds-what-a-line-shares).
 //!
 //! The engine gives it to a session as the session begins, and the owner's page shows it, both from [`parts`], so
 //! that the page shows what is sent. Nothing here holds a word that is sent: only which part comes from which file, and
@@ -124,8 +124,12 @@ pub fn made(
                     text: as_written(&fill(&session.heading, &[("path", &file.path), ("text", "")])),
                     places: true,
                 };
+                // The file's text is the project's, set apart from the prompt's own words.
                 let pieces = match read(&file.path) {
-                    Ok(Some(text)) => fill(&session.heading, &[("path", &file.path), ("text", text.trim_end())]),
+                    Ok(Some(text)) => fill(
+                        &session.heading,
+                        &[("path", &file.path), ("text", &fenced(text.trim_end()))],
+                    ),
                     Ok(None) => Vec::new(),
                     Err(why) => {
                         wrong.push(why);
@@ -167,9 +171,9 @@ pub fn made(
                     for text in [
                         &line.reads_only,
                         &line.writes,
-                        &line.locks.replace("{commands}", ""),
+                        &crate::agents::fill(&line.locks, &[("commands", "")]),
                         &line.or,
-                        &line.tests_only.replace("{paths}", ""),
+                        &crate::agents::fill(&line.tests_only, &[("paths", "")]),
                     ] {
                         texts.push(Said {
                             source: source.clone(),
@@ -251,7 +255,7 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<String>) {
     let ret = agents.source(RETURN_FILE);
     let field = |name: &str| agents.source(&format!("{AGENTS_DIR}/return/fields/{name}.toml"));
     let tool = |name: &str| agents.source(&format!("{AGENTS_DIR}/tools/{name}.toml"));
-    let item = |words: &str| told.item.replace("{text}", words.trim_end());
+    let item = |words: &str| crate::agents::fill(&told.item, &[("text", words.trim_end())]);
     let mut said: Vec<Said> = Vec::new();
     // A paragraph after a blank line, an item of a list after a line's end, the words told with those of `outputs`
     // after a space.
@@ -307,7 +311,7 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<String>) {
         put(
             ret.clone(),
             "\n\n",
-            &told.owner_reads.replace("{fields}", &and(&reads, &told.and)),
+            &crate::agents::fill(&told.owner_reads, &[("fields", &and(&reads, &told.and))]),
         );
     }
     let mut wrong = Vec::new();
@@ -590,18 +594,72 @@ pub fn written(text: &str) -> Vec<Piece> {
 /// A text with the places the flow fills in filled, each by its name; a place filled in a run stays one. What fills a
 /// place is sent as it is: a place in it is not filled again.
 pub fn fill(text: &str, known: &[(&str, &str)]) -> Vec<Piece> {
-    let pieces = (with_slots(text).into_iter())
-        .map(|piece| match &piece {
-            Piece::Slot { name } => match known.iter().find(|(k, _)| k == name) {
-                Some((_, value)) => Piece::Text {
-                    text: value.to_string(),
-                },
-                None => piece,
-            },
-            Piece::Text { .. } => piece,
-        })
-        .collect();
-    join(pieces)
+    filled(with_slots(text), known)
+}
+
+/// Pieces with the places these give filled, each by its name, and the others left places, what follows a place filled
+/// following it as [`crate::agents::after`] says; what fills a place is not looked into again.
+pub fn filled(pieces: Vec<Piece>, known: &[(&str, &str)]) -> Vec<Piece> {
+    let value = |piece: &Piece| match piece {
+        Piece::Slot { name } => known.iter().find(|(k, _)| *k == name.as_str()).map(|(_, v)| *v),
+        Piece::Text { .. } => None,
+    };
+    let mut out = Vec::with_capacity(pieces.len());
+    for (at, piece) in pieces.iter().enumerate() {
+        let before = at.checked_sub(1).and_then(|b| value(&pieces[b]));
+        match (piece, value(piece), before) {
+            (_, Some(filling), _) => out.push(Piece::Text {
+                text: filling.to_string(),
+            }),
+            (Piece::Text { text }, None, Some(before)) => {
+                // What follows the words: the next place's filling, or the place as written where nothing fills it.
+                let then = pieces.get(at + 1).map(|next| match next {
+                    Piece::Slot { name } => value(next).map_or_else(|| format!("{{{name}}}"), str::to_string),
+                    Piece::Text { text } => text.clone(),
+                });
+                out.push(Piece::Text {
+                    text: crate::agents::after(before, text, then.as_deref()).to_string(),
+                });
+            }
+            (piece, None, _) => out.push(piece.clone()),
+        }
+    }
+    join(out)
+}
+
+/// A fence of backticks longer than any run of them in the text, and of three at least, so that nothing in the text
+/// can end the block it opens.
+pub fn fence(text: &str) -> String {
+    let longest = (text.split(|c| c != '`')).map(str::len).max().unwrap_or(0);
+    "`".repeat((longest + 1).max(3))
+}
+
+/// The fence that closes the fenced block a text leaves open at its end, as long as the one that opened it; none where
+/// it leaves none. A block opens on a line of three backticks or more after at most three spaces, as [`fenced`] makes
+/// one, and closes on a line of at least as many and nothing else.
+pub fn left_open(text: &str) -> Option<String> {
+    let mut open: Option<usize> = None;
+    for line in text.split('\n') {
+        let bare = line.trim_start_matches(' ');
+        let ticks = bare.len() - bare.trim_start_matches('`').len();
+        if line.len() - bare.len() > 3 {
+            continue;
+        }
+        match open {
+            Some(opened) if ticks >= opened && bare.trim_end().len() == ticks => open = None,
+            None if ticks >= 3 => open = Some(ticks),
+            _ => {}
+        }
+    }
+    open.map(|ticks| "`".repeat(ticks))
+}
+
+/// A text that is not the flow's words, as what holds it gives it: in a fenced block of its own, the text between the
+/// line that opens it and the line that closes it as it is, byte for byte; so that nothing in it, a heading, a line
+/// that underlines one or a fence of its own, is read as the structure of what holds it.
+pub fn fenced(text: &str) -> String {
+    let fence = fence(text);
+    format!("{fence}\n{text}\n{fence}")
 }
 
 /// Pieces with each run of text made one, and no empty text.
@@ -654,6 +712,25 @@ mod tests {
         assert_eq!(with_slots("a {\"type\": 1} b {x"), vec![text("a {\"type\": 1} b {x")]);
         assert_eq!(with_slots("as {{name}} says"), vec![text("as {{name}} says")]);
         assert_eq!(with_slots(""), Vec::<Piece>::new());
+    }
+
+    // A fence is longer than any run of backticks in the text, and of three at least, so that the text cannot end the
+    // block it is set apart in, whatever fences of its own it holds.
+    #[test]
+    fn a_fence_is_longer_than_any_run_of_backquotes_in_the_text() {
+        assert_eq!(fenced("a `b`"), "```\na `b`\n```");
+        assert_eq!(fenced("```rust\nx\n```"), "````\n```rust\nx\n```\n````");
+        assert_eq!(fenced(""), "```\n\n```");
+    }
+
+    // A block a text leaves open is closed by a fence as long as the one that opened it; one closed, or a fence inside
+    // a longer one, leaves none open.
+    #[test]
+    fn a_block_left_open_is_closed_by_a_fence_as_long_as_its_own() {
+        assert_eq!(left_open("Said:\n```\nhalf"), Some("```".to_string()));
+        assert_eq!(left_open("Said:\n````\n```\nhalf"), Some("````".to_string()));
+        assert_eq!(left_open("Said:\n```\nwhole\n```"), None);
+        assert_eq!(left_open("No block."), None);
     }
 
     #[test]

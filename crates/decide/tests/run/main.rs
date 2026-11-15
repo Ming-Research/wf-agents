@@ -31,6 +31,7 @@ struct Spec {
     returns: u32,
     told: Told,
     answered_by: BTreeMap<BlockId, Answer>,
+    agent: bool,
 }
 
 impl Spec {
@@ -45,12 +46,13 @@ impl Spec {
             again: self.returns,
             told: &self.told,
             answered_by: &self.answered_by,
+            agent: self.agent,
         }
     }
 }
 
-/// A cell that may write the plan and the verdict, a choice of yes or no, and need hand in neither; its returns may be
-/// sent back twice. Its round was run by the request and the opinions, and was told of the latest version of each
+/// An agent's cell that may write the plan and the verdict, a choice of yes or no, and need hand in neither; its returns
+/// may be sent back twice. Its round was run by the request and the opinions, and was told of the latest version of each
 /// block it may write: the plan's of version 4, the verdict's, yes, of version 5.
 fn spec() -> Spec {
     let standing = |at: u64, value: Option<&str>| Standing {
@@ -58,6 +60,7 @@ fn spec() -> Spec {
         latest: Some(Seq(at)),
         value: value.map(str::to_string),
         added: false,
+        empty: false,
     };
     Spec {
         outputs: vec!["plan".into(), "verdict".into()],
@@ -77,6 +80,7 @@ fn spec() -> Spec {
             questions: BTreeMap::new(),
         },
         answered_by: BTreeMap::new(),
+        agent: true,
     }
 }
 
@@ -150,6 +154,14 @@ fn prose(block: &str) -> Write {
         meaning_unchanged: false,
         empty: false,
         value: None,
+    }
+}
+
+/// A write of prose that holds nothing: its text is empty, or only whitespace.
+fn nothing(block: &str) -> Write {
+    Write {
+        empty: true,
+        ..prose(block)
     }
 }
 

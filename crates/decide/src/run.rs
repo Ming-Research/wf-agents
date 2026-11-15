@@ -239,6 +239,8 @@ pub struct Standing {
     /// A version written of it is an entry added to a record ([`crate::Flow::adds_entries`]): it replaces no version
     /// before it, and so writes over none the round was not told of.
     pub added: bool,
+    /// The block holds nothing: its latest version holds nothing, or it has none.
+    pub empty: bool,
 }
 
 /// What the flow requires of what a cell's run returns.
@@ -265,6 +267,9 @@ pub struct Requires<'a> {
     pub told: &'a Told,
     /// Of each block that runs the cell and that an act of the engine's after it writes, what runs that act again.
     pub answered_by: &'a BTreeMap<BlockId, Answer>,
+    /// The cell is an agent's, whose return may write a block holding nothing for one that does not apply; an act's
+    /// writes are each a version as written (decision a-write-of-nothing-only-empties).
+    pub agent: bool,
 }
 
 /// What a run does next.
@@ -286,7 +291,9 @@ pub enum Step {
     /// What came back does not meet what the flow requires: it is sent back, the next round being given why.
     SendBack { unmet: Vec<Unmet> },
     /// What came back meets everything the flow requires: the calls it asks for are made, and the run finishes,
-    /// having dealt with these blocks, each once, of what ran its round, and writing these blocks.
+    /// having dealt with these blocks, each once, of what ran its round, and writing these blocks: those it handed in,
+    /// but each that holds nothing where that takes nothing away (decision a-write-of-nothing-only-empties), and those
+    /// its round committed.
     Finish {
         dealt_with: Vec<BlockId>,
         writes: Vec<Write>,
@@ -503,7 +510,7 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             if unmet.is_empty() {
                 return Step::Finish {
                     dealt_with: consumed(dealt_with, requires),
-                    writes: taken_writes(writes, read),
+                    writes: taken_writes(writes, read, requires.told, requires.agent),
                 };
             }
             unmet
@@ -518,19 +525,26 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
     held(Step::SendBack { unmet }, hold)
 }
 
-/// What a run writes as its return is taken: the blocks it writes, then each block of the work's branch the carrier read
-/// new as the round ended that it does not write itself, as what the round committed.
-pub fn taken_writes(writes: &[Write], read: &[BlockId]) -> Vec<Write> {
+/// What a run writes as its return is taken: the blocks it writes, but each of an agent's that holds nothing where that
+/// takes nothing away by how the blocks stand that its round was told of (decision a-write-of-nothing-only-empties), then
+/// each block of the work's branch the carrier read new as the round ended that it does not write itself, as what the
+/// round committed.
+pub fn taken_writes(writes: &[Write], read: &[BlockId], told: &Told, agent: bool) -> Vec<Write> {
+    let written: Vec<Write> = (writes.iter())
+        .filter(|w| !takes_nothing_away(w, told, agent))
+        .cloned()
+        .collect();
     let committed = (read.iter())
-        .filter(|block| !writes.iter().any(|w| &w.block == *block))
+        .filter(|block| !written.iter().any(|w| &w.block == *block))
         .map(|block| Write {
             block: block.clone(),
             meaning_unchanged: false,
             value: None,
             // What the carrier read of the branch, a commit, holds something.
             empty: false,
-        });
-    writes.iter().cloned().chain(committed).collect()
+        })
+        .collect::<Vec<Write>>();
+    written.into_iter().chain(committed).collect()
 }
 
 /// The step, which begins a round, or its being held where the pause holds that round back.
@@ -615,7 +629,20 @@ fn leaves_waiting(came: &Came<'_>, requires: Requires) -> bool {
     came.calls > 0
         || came.waits
         || requires.told.waits
-        || (came.writes.iter()).any(|w| requires.asking.iter().any(|a| a.record == w.block))
+        || (came.writes.iter())
+            .filter(|w| !takes_nothing_away(w, requires.told, requires.agent))
+            .any(|w| requires.asking.iter().any(|a| a.record == w.block))
+}
+
+/// Whether the write of an agent's return holds nothing where that takes nothing away, and so is no write: it makes no
+/// version, adds no entry, asks for nothing and writes over nothing, though a block its cell must write is handed in so,
+/// as it stands (decision a-write-of-nothing-only-empties). So is a write that holds nothing of a block that holds nothing
+/// as the return is taken, or of a record, to which an entry is added and which loses nothing by it; one of a block that
+/// holds something empties it, and a choice written so is sent back for its value. An act's writes are each a version as
+/// written: an act writes no block for one that does not apply, and a result of one kept out would leave its asking cell
+/// waiting for ever.
+fn takes_nothing_away(write: &Write, told: &Told, agent: bool) -> bool {
+    agent && write.empty && (told.outputs.get(&write.block)).is_some_and(|s| s.added || s.empty)
 }
 
 /// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
@@ -669,6 +696,8 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             (None, Some(_)) => unmet.push(Unmet::NotAChoice { block: block() }),
             _ => {}
         }
+        // A write that takes nothing away writes over nothing and adds no entry.
+        let nothing = takes_nothing_away(write, told, requires.agent);
         let standing = told.outputs.get(&write.block);
         if let Some(Standing {
             told,
@@ -677,6 +706,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             ..
         }) = standing
             && *told != Some(*latest)
+            && !nothing
         {
             unmet.push(Unmet::WrittenOver {
                 block: block(),
@@ -684,7 +714,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             });
         }
         // Each entry of a record is new: one written as changing nothing would be no entry to every rule that reads it.
-        if write.meaning_unchanged && standing.is_some_and(|s| s.added) {
+        if write.meaning_unchanged && standing.is_some_and(|s| s.added) && !nothing {
             unmet.push(Unmet::EntryUnchanged { block: block() });
         }
         let choice = requires.choices.contains_key(&write.block);
@@ -757,7 +787,9 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             let Some(answer) = requires.answered_by.get(&block) else {
                 continue;
             };
-            let written = (writes.iter().map(|w| &w.block))
+            let written = (writes.iter())
+                .filter(|w| !takes_nothing_away(w, told, requires.agent))
+                .map(|w| &w.block)
                 .chain(read)
                 .any(|b| answer.runs.contains(b));
             if !written && !answer.new && !(answer.question && unanswered) {

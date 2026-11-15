@@ -181,6 +181,12 @@ impl Rng {
     }
 }
 
+/// Whether the cell gives the results of the tests the cells ask for in a record, as the engine's act does: its writes
+/// are an act's, each a version as written.
+fn gives_results(flow: &decide::Flow, cell: &Cell) -> bool {
+    (flow.cells().iter()).any(|c| c.asks.iter().any(|a| cell.runs_on.contains(&a.record)))
+}
+
 fn when_chosen(mut c: Cell) -> Cell {
     c.applies = vec![Condition::Is {
         block: CHOICE.into(),
@@ -649,6 +655,11 @@ impl History {
         }
         for f in &r.finished[finished..] {
             properties::finished(v, &reading, f.run);
+            if let Some(Some(Back::Came { writes, .. })) = self.backs.get(&f.run).and_then(|b| b.last()) {
+                let agent =
+                    (flow.place(&reading.started[&f.run].cell)).is_some_and(|i| !gives_results(flow, &flow.cells()[i]));
+                properties::nothing_only_empties(v, flow, &reading, f.run, writes, agent);
+            }
             properties::results(v, flow, &reading, f.run);
         }
         self.looked_at = (r.started.len(), r.finished.len());
@@ -813,6 +824,8 @@ impl History {
             told: &told,
             // No act of the engine's is in these flows.
             answered_by: &BTreeMap::new(),
+            // The cell that gives the results of the tests the cells ask for writes them as the engine's act does.
+            agent: !gives_results(&flow, &cell),
         };
         let hold = decide::hold_in(&flow, &self.w.records, run, self.room);
         let step = run::next(&self.log_of(run), requires, hold);
@@ -1016,8 +1029,7 @@ impl History {
     fn draw_return(&mut self, spec: &Cell, told: &run::Told, meets: bool) -> Back {
         // The cell that gives the results of the tests the cells ask for hands in the result of each entry it gives,
         // as the engine's act does, and deals with all that ran it.
-        let asked = (self.w.flow.cells().iter()).any(|c| c.asks.iter().any(|a| spec.runs_on.contains(&a.record)));
-        if asked {
+        if gives_results(&self.w.flow, spec) {
             let writes = (decide::asked_of(&self.w.flow, &self.w.records, &spec.id).into_iter())
                 .map(|entry| Write {
                     block: entry.result,
@@ -1046,11 +1058,12 @@ impl History {
                 None
             };
             // An entry of a record is new whoever writes it: what the run's check refuses otherwise is no return drawn
-            // here.
+            // here. A block that is no choice is now and then written holding nothing, as an agent writes one that
+            // does not apply.
             Write {
                 block: block.clone(),
                 meaning_unchanged: !(meets && choice(block)) && block.as_str() != TESTS && rng.chance(50),
-                empty: false,
+                empty: value.is_none() && rng.chance(15),
                 value,
             }
         };

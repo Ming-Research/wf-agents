@@ -265,7 +265,8 @@ pub async fn sweep(root: &Path, now: std::time::SystemTime) {
 
 /// A result as it is given: its end of whitespace left off, and cut at the most bytes the words allow, at a whole
 /// character, with the words that follow a cut one saying how much was given, how many bytes the record holds, and the
-/// `file` that holds it whole; as it is where they allow it all.
+/// `file` that holds it whole; as it is where they allow it all. A cut inside a fenced block, as what a check said is
+/// given in, closes the block before those words, so that they read as the engine's.
 fn cut(result: &str, given: Option<&ResultGiven>, file: &str) -> String {
     let Some(given) = given.filter(|g| result.len() > g.bound) else {
         return result.trim_end().to_string();
@@ -276,7 +277,13 @@ fn cut(result: &str, given: Option<&ResultGiven>, file: &str) -> String {
     }
     let (kept, size) = (at.to_string(), result.len().to_string());
     let words = fill(&given.cut, &[("given", &kept), ("size", &size), ("file", file)]);
-    format!("{}\n\n{words}", &result[..at])
+    let kept = &result[..at];
+    let closed = match flow::system::left_open(kept) {
+        Some(fence) if kept.ends_with('\n') => fence,
+        Some(fence) => format!("\n{fence}"),
+        None => String::new(),
+    };
+    format!("{kept}{closed}\n\n{words}")
 }
 
 #[cfg(test)]
@@ -307,6 +314,28 @@ mod tests {
         assert!(cut(&padded, Some(&words), "/t/1.txt").contains(&said));
         // Words that give no bound give it whole, its end of whitespace left off.
         assert_eq!(cut(&format!("{long}\n"), None, "/t/1.txt"), long);
+    }
+
+    // A result cut inside a fenced block of what a check said has the block closed before the words that say it is cut,
+    // by a fence as long as the one that opened it, so that those words read as the engine's and not as the check's; a
+    // result cut outside any block has none closed. Well under a millisecond alone; no other test holds a cut fence.
+    #[test]
+    fn a_result_cut_inside_a_fenced_block_has_it_closed_before_the_words_that_say_so() {
+        let words = ResultGiven {
+            bound: 60,
+            cut: "(Cut.)".to_string(),
+        };
+        let xs = "x".repeat(100);
+        for (fence, inner) in [("```", ""), ("````", "```\n")] {
+            let result = format!("The check `c` failed. What it said:\n{fence}\n{inner}{xs}\n{fence}");
+            let given = cut(&result, Some(&words), "/t/1.txt");
+            assert_eq!(given, format!("{}\n{fence}\n\n(Cut.)", &result[..60]), "{fence}");
+        }
+        let plain = format!("The check `c` passed. What it said:\n{xs}");
+        assert_eq!(
+            cut(&plain, Some(&words), "/t/1.txt"),
+            format!("{}\n\n(Cut.)", &plain[..60])
+        );
     }
 
     /// The flow of this repository, compiled against what its engine has.

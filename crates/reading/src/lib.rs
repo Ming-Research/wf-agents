@@ -302,7 +302,12 @@ impl<'a> Reading<'a> {
     /// Of a cell that gives the results of what the cells ask for in a record, each such record that runs it whose
     /// versions it all consumed where a cell that applies waits for the result of an entry of it: one a run of it
     /// passed over while that cell was skipped, which enters it again (decision a-wait-of-a-skipped-cell-is-put-away).
+    /// All of it is as the records stood at the place, whether the asking cell applies too, which a later write of what
+    /// its condition reads may change.
     pub fn taken_up(&self, flow: &Flow, cell: &Cell, place: Seq) -> Vec<BlockId> {
+        let before = std::cell::OnceCell::new();
+        let applied =
+            |j: usize| Reading::of_flow(flow, before.get_or_init(|| self.records.before(place))).applies(flow, j);
         (cell.runs_on.iter())
             .filter(|block| self.new_to(&cell.id, block, place).is_empty())
             .filter(|block| {
@@ -310,8 +315,8 @@ impl<'a> Reading<'a> {
                     (asker.asks.iter()).any(|asks| {
                         &asks.record == *block
                             && cell.outputs.contains(&asks.result)
-                            && self.applies(flow, j)
                             && self.awaited(asker, &asks.record, &asks.result, place)
+                            && applied(j)
                     })
                 })
             })
