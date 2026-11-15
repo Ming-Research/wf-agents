@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from "vitest";
 
-import type { Block as FlowBlock, Flow } from '../api';
-import type { Version, VersionPage, WorkPage } from '../works-api';
-import { FLOW, fixtureItems } from './fixtures';
-import { readBody } from './real';
+import type { Block as FlowBlock, Flow } from "../api";
+import type { Version, VersionPage, WorkPage } from "../works-api";
+import { FLOW, fixtureItems } from "./fixtures";
+import { readBody } from "./real";
 
 /// A block of the flow written from outside by the engine's source of the owner's words.
 const byWords = (name: string, more: Partial<FlowBlock>): FlowBlock => ({
@@ -11,8 +11,8 @@ const byWords = (name: string, more: Partial<FlowBlock>): FlowBlock => ({
   values: null,
   default: null,
   what: null,
-  writtenBy: { cells: [], people: false, note: false, outside: 'words' },
-  readBy: { cells: ['implement'], conditions: [], tests: [], shown: false },
+  writtenBy: { cells: [], people: false, note: false, outside: "words" },
+  readBy: { cells: ["implement"], conditions: [], tests: [], shown: false },
   ...more,
 });
 
@@ -21,41 +21,53 @@ const byWords = (name: string, more: Partial<FlowBlock>): FlowBlock => ({
 const SPOKEN: Flow = {
   ...FLOW,
   cells: FLOW.cells.map((c) =>
-    c.id === 'implement'
+    c.id === "implement"
       ? {
           ...c,
           triggers: [
-            { name: 'on_spoken', what: null, block: 'implement_spoken_to', group: [], read: ['discussion'], do: null },
+            {
+              name: "on_spoken",
+              what: null,
+              block: "implement_spoken_to",
+              group: [],
+              read: ["discussion"],
+              do: null,
+            },
           ],
         }
       : c,
   ),
   blocks: [
     ...FLOW.blocks,
-    byWords('discussion', {
-      field: 'reply',
+    byWords("discussion", {
+      field: "reply",
       writes: [
         [
-          'owner',
+          "owner",
           [
-            { piece: 'text', text: 'The owner:\n\n' },
-            { piece: 'slot', name: 'words' },
+            { piece: "text", text: "The owner:\n\n" },
+            { piece: "slot", name: "words" },
           ],
         ],
         [
-          'reply',
+          "reply",
           [
-            { piece: 'text', text: 'An agent:\n\n' },
-            { piece: 'slot', name: 'reply' },
+            { piece: "text", text: "An agent:\n\n" },
+            { piece: "slot", name: "reply" },
           ],
         ],
       ],
     }),
-    byWords('implement_spoken_to', { trigger: true }),
+    byWords("implement_spoken_to", { trigger: true }),
   ],
 };
 
-const version = (at: number, by: Version['by'], chars: number, saidTo: string | null = null): Version => ({
+const version = (
+  at: number,
+  by: Version["by"],
+  chars: number,
+  saidTo: string | null = null,
+): Version => ({
   at,
   time: at * 1000,
   by,
@@ -65,12 +77,12 @@ const version = (at: number, by: Version['by'], chars: number, saidTo: string | 
   chars,
 });
 
-describe('the messages of a work, read from the record of what is said', () => {
+describe("the messages of a work, read from the record of what is said", () => {
   it("are the owner's entries, each to the cell its version is said to, and the cells' replies, with the words alone", async () => {
     const item = fixtureItems().items[0];
     const contents: Record<string, string> = {
-      'discussion@5': 'The owner:\n\n> Greet them.\n\nBy the first name.',
-      'discussion@9': 'An agent:\n\nDone.',
+      "discussion@5": "The owner:\n\n> Greet them.\n\nBy the first name.",
+      "discussion@9": "An agent:\n\nDone.",
     };
     const page: WorkPage = {
       summary: item.work,
@@ -81,17 +93,32 @@ describe('the messages of a work, read from the record of what is said', () => {
       flow: SPOKEN,
       cells: [],
       blocks: [
-        { name: 'discussion', versions: [version(5, { kind: 'outside' }, 60, 'implement'), version(9, { kind: 'run', run: 3, cell: 'implement' }, 30)] },
-        { name: 'implement_spoken_to', versions: [version(6, { kind: 'outside' }, 0)] },
+        {
+          name: "discussion",
+          versions: [
+            version(5, { kind: "outside" }, 60, "implement"),
+            version(9, { kind: "run", run: 3, cell: "implement" }, 30),
+          ],
+        },
+        {
+          name: "implement_spoken_to",
+          versions: [version(6, { kind: "outside" }, 0)],
+        },
       ],
       steps: [],
     };
     const load = (_: number, block: string, at: number): Promise<VersionPage> =>
-      Promise.resolve({ block, at, content: contents[`${block}@${at}`] ?? '' });
+      Promise.resolve({ block, at, content: contents[`${block}@${at}`] ?? "" });
     const body = await readBody(page, load);
     expect(body.messages).toEqual([
-      { who: 'owner', at: 5000, to: ['implement'], quote: 'Greet them.', text: 'By the first name.' },
-      { who: 'implement', at: 9000, to: ['owner'], quote: null, text: 'Done.' },
+      {
+        who: "owner",
+        at: 5000,
+        to: ["implement"],
+        quote: "Greet them.",
+        text: "By the first name.",
+      },
+      { who: "implement", at: 9000, to: ["owner"], quote: null, text: "Done." },
     ]);
   });
 
@@ -105,15 +132,35 @@ describe('the messages of a work, read from the record of what is said', () => {
       history: item.history,
       flow: SPOKEN,
       cells: [],
-      blocks: [{ name: 'discussion', versions: [version(12, { kind: 'outside' }, 25, 'implement'), version(14, { kind: 'outside' }, 25, 'review')] }],
+      blocks: [
+        {
+          name: "discussion",
+          versions: [
+            version(12, { kind: "outside" }, 25, "implement"),
+            version(14, { kind: "outside" }, 25, "review"),
+          ],
+        },
+      ],
       steps: [],
     };
     const load = (_: number, block: string, at: number): Promise<VersionPage> =>
-      Promise.resolve({ block, at, content: 'The owner:\n\nOne table.' });
+      Promise.resolve({ block, at, content: "The owner:\n\nOne table." });
     const body = await readBody(page, load);
     expect(body.messages).toEqual([
-      { who: 'owner', at: 12000, to: ['implement'], quote: null, text: 'One table.' },
-      { who: 'owner', at: 14000, to: ['review'], quote: null, text: 'One table.' },
+      {
+        who: "owner",
+        at: 12000,
+        to: ["implement"],
+        quote: null,
+        text: "One table.",
+      },
+      {
+        who: "owner",
+        at: 14000,
+        to: ["review"],
+        quote: null,
+        text: "One table.",
+      },
     ]);
   });
 });
