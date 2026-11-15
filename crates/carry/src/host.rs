@@ -218,7 +218,8 @@ pub trait Host: Send + Sync + 'static {
 
     /// What a run of the tests and checks a cell named finds of the work, in words for the cell whose entry asks,
     /// whole; none where it was told to stop. An `Err` is why they could not be run, with the kind of its cause where
-    /// the host tells it, as for the check. What failed is said as [`Host::verdict`] says it.
+    /// the host tells it, as for the check. What failed is said as [`Host::verdict`] says it. Where the entry names a
+    /// commit, of the work's branch as the act found it, that commit is run, whatever the working tree holds.
     fn run_tests(
         &self,
         branch: &Branch<'_>,
@@ -228,8 +229,18 @@ pub trait Host: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Option<String>, Failed>> + Send;
 
     /// Cancels what each of `asking` asked the host to run of the work's tests that is still under way: of an entry a
-    /// newer one of the same cell replaced, which nothing will read.
-    fn cancel_tests(&self, branch: &Branch<'_>, asking: &[Asking]) -> impl Future<Output = Result<(), Failed>> + Send;
+    /// newer one of the same cell replaced, which nothing will read, with the commit it named, where it named one.
+    fn cancel_tests(
+        &self,
+        branch: &Branch<'_>,
+        asking: &[(Asking, Option<String>)],
+    ) -> impl Future<Output = Result<(), Failed>> + Send;
+
+    /// Whether the host runs the tests in a working tree of the local repository, and so runs a commit an entry names
+    /// in a worktree of its own ([`crate::git::at_commit`]), rather than on a commit it is given.
+    fn runs_in_a_worktree(&self) -> bool {
+        false
+    }
 
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
     /// where it did not merge, closed with a word that its work ended ([`CLOSED`]). What is gone, closed or merged
@@ -242,15 +253,17 @@ pub trait Host: Send + Sync + 'static {
     fn reopen(&self, branch: &Branch<'_>) -> impl Future<Output = Result<(), String>> + Send;
 }
 
-/// The tests and the checks a cell names in an entry of `run_tests`, each as it wrote it.
+/// The tests and the checks a cell names in an entry of `run_tests`, each as it wrote it, and the commit it names to
+/// run them on, where it names one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Named {
     pub tests: Vec<String>,
     pub checks: Vec<String>,
+    pub commit: Option<String>,
 }
 
 impl Named {
-    /// Whether nothing is named.
+    /// Whether no test or check is named, whatever commit is.
     pub fn is_empty(&self) -> bool {
         self.tests.is_empty() && self.checks.is_empty()
     }
@@ -305,8 +318,12 @@ impl<H: Host> Host for Arc<H> {
         (**self).run_tests(branch, named, asking, stop).await
     }
 
-    async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[Asking]) -> Result<(), Failed> {
+    async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[(Asking, Option<String>)]) -> Result<(), Failed> {
         (**self).cancel_tests(branch, asking).await
+    }
+
+    fn runs_in_a_worktree(&self) -> bool {
+        (**self).runs_in_a_worktree()
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

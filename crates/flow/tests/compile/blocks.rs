@@ -360,7 +360,15 @@ fn the_cells_that_ask_for_tests_wait_for_results_the_act_that_runs_them_hands_in
         assert_eq!(block.writers.cells, [decide::CellId::from("T3")], "{result}");
         assert_eq!(block.writers.outside, None, "{result}");
         assert!(!block.trigger, "{result} holds what the act hands in");
-        assert_eq!(block.readers.cells, [decide::CellId::from(cell)], "{result}");
+        // Read by the cell that asked, and the engineer's and the testing's by the review and the testing besides, which
+        // judge each new test by its runs.
+        let readers: &[&str] = match result {
+            "i1_tested" => &["I1", "T1", "T2"],
+            "t2_tested" => &["T1", "T2"],
+            _ => &[cell],
+        };
+        let readers: Vec<decide::CellId> = readers.iter().map(|c| decide::CellId::from(*c)).collect();
+        assert_eq!(block.readers.cells, readers, "{result}");
     }
 }
 

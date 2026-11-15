@@ -133,7 +133,7 @@ pub fn enter(
         let version = |v: &VersionView| Version {
             number: v.at,
             value: v.value.clone(),
-            content: content(work, block, v.at).to_string(),
+            content: given_content(carried, work, block, v.at),
         };
         let last = last_worked_from(flow, &records, cell, block);
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
@@ -327,6 +327,12 @@ fn kept_part(words: &Agents, name: &str) -> bool {
 /// The content of a version of a block; nothing where the work keeps none.
 fn content<'a>(work: &'a Work, block: &BlockId, at: Seq) -> &'a str {
     work.contents.get(&(block.clone(), at)).map_or("", String::as_str)
+}
+
+/// What a version of a block holds as a round is given it: whole, but of a block the result of the tests a cell asked
+/// for comes in, which every cell given it is given as the carrier cut it ([`Carried::tested`]), whole in its file.
+fn given_content(carried: &Carried<'_>, work: &Work, block: &BlockId, at: Seq) -> String {
+    (carried.tested.get(&(block.clone(), at)).cloned()).unwrap_or_else(|| content(work, block, at).to_string())
 }
 
 /// Whether the run is one of the cell's.
@@ -524,4 +530,40 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
     }
     held.taken = last.map(|(_, taken)| taken).unwrap_or_default();
     held
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A version of a block the result of the tests a cell asked for comes in is given as the carrier cut it, to any cell
+    // given it, the asking one or another; a version of any other block is given whole. Well under a millisecond alone;
+    // no other test holds what a cell that did not ask is given of a result.
+    #[test]
+    fn a_result_of_tests_is_given_cut_to_every_cell_and_another_block_whole() {
+        let mut work = Work::default();
+        let (result, plan) = (BlockId::from("i1_tested"), BlockId::from("plan"));
+        work.contents
+            .insert((result.clone(), Seq(5)), "The whole result.".to_string());
+        work.contents
+            .insert((plan.clone(), Seq(6)), "The whole plan.".to_string());
+        let tested = BTreeMap::from([((result.clone(), Seq(5)), "The result, cut.".to_string())]);
+        let (changes, results, places) = (Changes::new(), BTreeMap::new(), BTreeMap::new());
+        let named = flow::system::Settings::default();
+        let carried = Carried {
+            about: For {
+                work: 1,
+                item: 1,
+                title: "Greet the user",
+            },
+            main: None,
+            changes: &changes,
+            named: &named,
+            results: &results,
+            tested: &tested,
+            places: &places,
+        };
+        assert_eq!(given_content(&carried, &work, &result, Seq(5)), "The result, cut.");
+        assert_eq!(given_content(&carried, &work, &plan, Seq(6)), "The whole plan.");
+    }
 }
