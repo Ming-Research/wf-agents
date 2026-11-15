@@ -12,6 +12,11 @@ data = ["background", "dependencies", "questions", "answers", "asked", "discussi
 # return holds them, the same for every cell of the flow (`../agents/return/return.toml`).
 tools = ["query", "run_tests"]
 
+# The table of earlier ids: each time cells were numbered anew, oldest first, each cell whose id changed by the id it
+# took, with the id it had before, as `{ D4 = "D3", D5 = "D4" }`; a cell taken out takes an id no cell has. A round
+# recorded at an earlier id reads as the cell it ran at. Only added to.
+earlier_ids = []
+
 # The blocks of the plan, which a cell that reviews or rethinks the plan is run by as one: a new version of any of them
 # runs it once (`../triggers/of_a_group/`).
 [groups]

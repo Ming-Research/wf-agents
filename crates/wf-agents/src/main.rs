@@ -804,6 +804,12 @@ fn words(what: &FaultKind, field: &str) -> String {
             "the test {test}, of what stands, reads {block}, which {cell} writes as well as a cell before it: a \
              skipped cell's write would hide the other's word"
         ),
+        F::RenumberedNothing => "a renumbering of the table of earlier ids names no cell".to_string(),
+        F::SameEarlierId { id } => format!(
+            "the cell {id} is given its own id as the one it had before: a cell whose id did not change is not in the \
+             renumbering"
+        ),
+        F::EarlierIdTwice { id } => format!("two cells of the renumbering had the id {id} before it"),
         F::Flow(fault) => format!("the deciding code refuses the cells as a flow: {fault:?}"),
     }
 }

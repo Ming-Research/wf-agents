@@ -58,13 +58,33 @@ CREATE TABLE item_changes (
 );
 
 -- The work done for an item, on a flow: an item is added together with its one work. Its number is given by the
--- store, counting from one. `flow` is the flow's name only: which version of the flow the work ran on is not kept
--- yet.
+-- store, counting from one. `flow` is the flow's name; the versions of it the work ran on are in `on_flow`.
 CREATE TABLE works (
     number INTEGER PRIMARY KEY,
     item INTEGER NOT NULL REFERENCES items (number),
     flow TEXT NOT NULL,
     added INTEGER NOT NULL
+);
+
+-- A version of a flow a work ran on, kept once: named by the digest of the files of its definition, with the flow's
+-- name and the text of each file by its path from the flow's directory (JSON), as the compiler reads them.
+CREATE TABLE flows (
+    version TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    files TEXT NOT NULL
+);
+
+-- From this place on, the work ran on this version of its flow: as it was added, at place 0, before every other entry,
+-- and again each time it went on with another version installed. `ids` says how the cells its records named before
+-- read from here on (JSON: each id that names another cell on this version, by the id it is read as). The cell of a
+-- run, of a question and of a letting go is kept as it was recorded, and read through each of these after it in turn.
+-- A work kept before the versions were has its first as the engine first started with them.
+CREATE TABLE on_flow (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    version TEXT NOT NULL REFERENCES flows (version),
+    ids TEXT NOT NULL,
+    PRIMARY KEY (work, at)
 );
 
 -- A run of the work began, of a cell, because of what `because` says (JSON: a list of causes).

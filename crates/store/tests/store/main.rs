@@ -12,6 +12,7 @@ mod observations;
 mod only_added;
 mod opening;
 mod round_trip;
+mod versions;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

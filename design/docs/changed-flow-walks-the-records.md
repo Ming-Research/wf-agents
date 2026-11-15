@@ -1,7 +1,8 @@
 # A changed flow walks the records
 
-How a change to a flow reaches the works under way. The walk already goes over a work's records on a changed graph;
-a cell's specification as an input, the walk without acting, and the table of earlier ids are not built.
+How a change to a flow reaches the works under way. The walk already goes over a work's records on a changed graph,
+and a record is found by its cell through the table of earlier ids; a cell's specification as an input and the walk
+without acting are not built.
 
 1. A changed flow is installed by walking each work's records on the new graph: a cell that did not change is passed,
    a new cell has no record and runs when the walk reaches it, and what a cell taken out wrote stays in the item.

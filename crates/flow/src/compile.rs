@@ -45,6 +45,43 @@ pub struct Compiled {
     pub limits: Limits,
     /// The text of each of the flow's sets of rules for the agents, by name: each one a line names.
     pub rules: BTreeMap<String, String>,
+    /// The table of earlier ids, as `flow.toml` writes it: each renumbering of the cells, oldest first, each id a cell
+    /// took then by the id it had before.
+    pub earlier_ids: Vec<BTreeMap<CellId, CellId>>,
+    /// The definition it was compiled from.
+    pub source: Source,
+    /// The version of the flow it is: the digest of its files ([`Source::digest`]).
+    pub version: String,
+    /// What the engine had that it was compiled against, with which another version of the flow is compiled
+    /// ([`Compiled::again`]).
+    pub has: Has,
+}
+
+impl Compiled {
+    /// Another version of this flow, compiled against what the engine had for this one: as a version a work ran on is
+    /// compiled again to be read.
+    pub fn again(&self, source: &Source) -> Result<Compiled, Vec<Fault>> {
+        compile(source, &self.has)
+    }
+
+    /// The id this flow names the cell by that a version of it recorded as `id`, where that version's table of earlier
+    /// ids was the first `since` renumberings of this one's: each renumbering after them takes the id, in turn, to the
+    /// one its cell took. An id that none of them gives another stays as it is.
+    pub fn reads_as(&self, since: usize, id: &CellId) -> CellId {
+        let mut id = id.clone();
+        for renumbering in self.earlier_ids.iter().skip(since) {
+            if let Some((took, _)) = renumbering.iter().find(|(_, had)| **had == id) {
+                id = took.clone();
+            }
+        }
+        id
+    }
+
+    /// Whether this flow's table of earlier ids begins with the whole of `earlier`'s, so that what was recorded on
+    /// `earlier` is read here through the renumberings after it.
+    pub fn follows(&self, earlier: &Compiled) -> bool {
+        self.earlier_ids.starts_with(&earlier.earlier_ids)
+    }
 }
 
 /// A line: the cells of a work that share one session, as its file writes it.
@@ -478,6 +515,13 @@ pub enum FaultKind {
     /// A test of what stands reads a block that this cell writes as well as another before it. Such a test reads the
     /// current version alone, and a skipped cell's write would hide the other's word.
     StandingWrittenByTwo { test: String, block: String, cell: String },
+    /// A renumbering of the table of earlier ids names no cell.
+    RenumberedNothing,
+    /// A renumbering of the table of earlier ids gives a cell its own id as the one it had before: a cell whose id did
+    /// not change is not in it.
+    SameEarlierId { id: String },
+    /// Two cells of one renumbering of the table of earlier ids had this id before it.
+    EarlierIdTwice { id: String },
     /// The deciding code refuses the cells as a flow.
     Flow(FlowFault),
 }
@@ -492,6 +536,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
     let mut faults = Vec::new();
 
     def.check_order(&mut faults);
+    check_earlier_ids(&flow_file.earlier_ids, &mut faults);
     let mut limit = |field: &str, value: i64| {
         count(value).unwrap_or_else(|what| {
             faults.push(fault(FLOW_FILE, field, what));
@@ -590,6 +635,16 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         limits,
         // Every set of rules is one a line names, or it would have been a fault.
         rules: source.rules.clone(),
+        earlier_ids: (flow_file.earlier_ids.iter())
+            .map(|renumbering| {
+                (renumbering.iter())
+                    .map(|(took, had)| (CellId(took.clone()), CellId(had.clone())))
+                    .collect()
+            })
+            .collect(),
+        source: source.clone(),
+        version: source.digest(),
+        has: has.clone(),
     })
 }
 
@@ -814,6 +869,7 @@ impl From<LaidOutFlowFile> for FlowFile {
             blocks: BTreeMap::new(),
             tests: BTreeMap::new(),
             groups: flow.groups,
+            earlier_ids: flow.earlier_ids,
         }
     }
 }
@@ -1256,6 +1312,29 @@ fn sort(faults: &mut [Fault], place: Option<&BTreeMap<&str, usize>>, places: &Pl
             None => (2, 0, f.file.clone()),
         }
     });
+}
+
+/// Checks the table of earlier ids: each renumbering names a cell, gives no cell its own id as the one it had before,
+/// and no two cells one id they had before it. Which earlier ids were cells is the versions' to say, and is checked
+/// where a work is read on a later version.
+fn check_earlier_ids(table: &[BTreeMap<String, String>], faults: &mut Vec<Fault>) {
+    for (i, renumbering) in table.iter().enumerate() {
+        let field = format!("earlier_ids[{i}]");
+        if renumbering.is_empty() {
+            faults.push(fault(FLOW_FILE, &field, FaultKind::RenumberedNothing));
+        }
+        let mut had = BTreeSet::new();
+        for (took, before) in renumbering {
+            let what = if took == before {
+                FaultKind::SameEarlierId { id: took.clone() }
+            } else if !had.insert(before) {
+                FaultKind::EarlierIdTwice { id: before.clone() }
+            } else {
+                continue;
+            };
+            faults.push(fault(FLOW_FILE, format!("{field}.{took}"), what));
+        }
+    }
 }
 
 /// The faults of a list of names: each name given twice is one, and each other name that `check` refuses.
