@@ -201,13 +201,9 @@ fn a_block_named_as_written_with_its_meaning_unchanged_runs_no_cell() {
     assert_eq!(read(&r), Ok(expected));
 }
 
-// A block whose file gives it a shape is read as the JSON the form holds it to and kept as its content, where it is of
-// that shape: an entry of the tests a cell asks for is an object, which was read as a choice written wrongly. Written
-// as a text that holds such JSON, as a return read from the stream can be, it is read as what it holds; one of another
-// shape is found, and not handed in. Well under a millisecond alone; no other test holds the reading to a block of a
-// shape.
-#[test]
-fn a_block_of_a_shape_is_kept_as_the_json_it_holds_where_it_is_of_that_shape() {
+/// The small flow, `write` writing besides `entry`, a block whose file gives it a shape: an object of the tests and the
+/// checks it names.
+fn with_entry() -> Compiled {
     let write = WRITE.replace(
         r#"outputs = ["plan", "ok", "discussion", "q_and_a"]"#,
         r#"outputs = ["plan", "ok", "discussion", "q_and_a", "entry"]"#,
@@ -215,7 +211,17 @@ fn a_block_of_a_shape_is_kept_as_the_json_it_holds_where_it_is_of_that_shape() {
     let entry = "shown = true\n\n[shape]\ntype = \"object\"\nproperties = { tests = { type = \"array\", items = { type = \
                  \"string\" } }, checks = { type = \"array\", items = { type = \"string\" } } }\n\
                  additionalProperties = false\n";
-    let flow = compiled(FLOW, &write, &[("blocks/entry.toml", entry)]);
+    compiled(FLOW, &write, &[("blocks/entry.toml", entry)])
+}
+
+// A block whose file gives it a shape is read as the JSON the form holds it to and kept as its content, where it is of
+// that shape: an entry of the tests a cell asks for is an object, which was read as a choice written wrongly. Written
+// as a text that holds such JSON, as a return read from the stream can be, it is read as what it holds; one of another
+// shape is found, and not handed in. Well under a millisecond alone; no other test holds the reading to a block of a
+// shape.
+#[test]
+fn a_block_of_a_shape_is_kept_as_the_json_it_holds_where_it_is_of_that_shape() {
+    let flow = with_entry();
     let mut r = work();
     r["outcome"]["outputs"]["entry"] = json!({"tests": ["a"], "checks": []});
     let read = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
@@ -246,6 +252,26 @@ fn a_block_of_a_shape_is_kept_as_the_json_it_holds_where_it_is_of_that_shape() {
         let found = vec![Unmet::NotOfItsShape { block: "entry".into() }];
         assert_eq!(read.found, found, "{wrong}");
         assert!(!read.writes.iter().any(|h| h.block.as_str() == "entry"), "{wrong}");
+    }
+}
+
+// A text that holds nothing, empty or only whitespace, says nothing of a block of a shape: it is handed in holding nothing
+// and not held to the shape, for the run's check to take as no write where it takes nothing away; of the work's
+// questions, it asks none (decision a-write-of-nothing-only-empties). An agent writes a block so for one that does not
+// apply.
+#[test]
+fn a_block_of_a_shape_written_as_a_text_that_holds_nothing_is_handed_in_holding_nothing() {
+    let flow = with_entry();
+    for nothing in ["", " \n"] {
+        let mut r = work();
+        r["outcome"]["outputs"]["entry"] = json!(nothing);
+        r["outcome"]["outputs"]["q_and_a"] = json!(nothing);
+        let read = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
+        assert!(read.found.is_empty(), "{nothing:?}: {:?}", read.found);
+        assert!(read.said.questions.is_empty(), "{nothing:?}");
+        let mut expected = worked().writes;
+        expected.push(handed("entry", nothing, true, None));
+        assert_eq!(read.writes, expected, "{nothing:?}");
     }
 }
 

@@ -153,6 +153,14 @@ fn prose(block: &str) -> Write {
     }
 }
 
+/// A write of prose that holds nothing: its text is empty, or only whitespace.
+fn nothing(block: &str) -> Write {
+    Write {
+        empty: true,
+        ..prose(block)
+    }
+}
+
 /// A write of a value.
 fn valued(block: &str, value: &str) -> Write {
     Write {

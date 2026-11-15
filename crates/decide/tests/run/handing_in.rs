@@ -127,6 +127,68 @@ fn an_entry_written_as_changing_nothing_in_meaning_is_sent_back() {
     ));
 }
 
+/// The cell of `spec`, which may write `found` besides, a block of prose that has no version yet.
+fn with_found(mut s: Spec) -> Spec {
+    s.outputs.push("found".into());
+    let none = Standing {
+        told: None,
+        latest: None,
+        value: None,
+        added: false,
+    };
+    s.told.outputs.insert("found".into(), none);
+    s
+}
+
+// A block written holding nothing where it holds nothing takes nothing away, and is no write: the run finishes without
+// it, so that it is a version new to no cell and to no session (decision a-write-of-nothing-only-empties). Work 3's
+// initial research wrote `found` so where its task said to write none.
+#[test]
+fn a_block_written_holding_nothing_where_it_has_no_version_is_no_write() {
+    let s = with_found(spec());
+    let writes = vec![prose("plan"), nothing("found")];
+    assert_eq!(step(vec![handed_in(writes)], &s), finish(vec![prose("plan")]));
+}
+
+// One the cell must hand in is handed in so, as it stands.
+#[test]
+fn a_block_the_cell_must_hand_in_written_holding_nothing_where_it_has_no_version_is_handed_in_as_it_stands() {
+    let mut s = with_found(spec());
+    s.must_write = vec!["found".into()];
+    assert_eq!(step(vec![handed_in(vec![nothing("found")])], &s), finish(vec![]));
+}
+
+// An entry is added to a record and replaces nothing, so one that holds nothing takes nothing away and is no entry: it
+// asks for nothing, and so leaves its cell waiting for nothing and is held to what its cell must hand in.
+#[test]
+fn an_entry_of_a_record_written_holding_nothing_is_no_entry_and_leaves_its_cell_waiting_for_nothing() {
+    let mut s = asking_for_tests(&["verdict"]);
+    let record = Standing {
+        told: None,
+        latest: None,
+        value: None,
+        added: true,
+    };
+    s.told.outputs.insert("tests".into(), record);
+    let unmet = vec![Unmet::NotHandedIn {
+        block: "verdict".into(),
+    }];
+    assert_eq!(step(vec![handed_in(vec![nothing("tests")])], &s), send_back(unmet));
+    let writes = vec![nothing("tests"), valued("verdict", "yes")];
+    assert_eq!(
+        step(vec![handed_in(writes)], &s),
+        finish(vec![valued("verdict", "yes")])
+    );
+}
+
+// A block that holds something is emptied by a write that holds nothing, which is a write as any other: what a test of
+// content reads of it changes.
+#[test]
+fn a_block_written_holding_nothing_where_it_holds_something_is_emptied() {
+    let writes = vec![nothing("plan")];
+    assert_eq!(step(vec![handed_in(writes.clone())], &spec()), finish(writes));
+}
+
 // A block that would leave the cell waiting, the record it asks for tests in or the record of its questions, written in
 // another shape than its own leaves it unknown whether the return waits: it is sent back for the shape alone, not also
 // for dealing with nothing, for a block its cell must write or for an act's words it leaves unanswered, all of which
