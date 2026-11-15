@@ -463,6 +463,7 @@ impl Inner {
             let before = self.before_messages(&on, &system, &form, &permissions);
             let command = self.command(
                 &dir,
+                &of.beside.project.environment,
                 &on,
                 &system,
                 &permissions,
@@ -682,11 +683,13 @@ impl Inner {
     }
 
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
-    /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree.
+    /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, with the
+    /// variables its project's declaration names.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
         dir: &Path,
+        declared: &BTreeMap<String, String>,
         on: &RanOn,
         system: &str,
         permissions: &Permissions,
@@ -702,7 +705,7 @@ impl Inner {
         command
             .args(args)
             .env_clear()
-            .envs(cli::environment(agents, std::env::vars()))
+            .envs(cli::environment(agents, std::env::vars(), declared))
             .current_dir(dir);
         command
     }
@@ -1037,6 +1040,7 @@ impl Inner {
         write(&compacted.again, b"").await.map_err(failed)?;
         let command = self.command(
             &dir,
+            &of.beside.project.environment,
             &on,
             &system,
             &permissions,
