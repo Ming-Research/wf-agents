@@ -679,6 +679,7 @@ impl History {
                     at,
                     writes,
                     dealt_with: Some(dealt_with),
+                    waits_for: None,
                 });
             }
             Step::SendBack { unmet } => {

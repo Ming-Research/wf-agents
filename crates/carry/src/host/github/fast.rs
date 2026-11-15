@@ -364,6 +364,8 @@ impl<A: Api> GitHub<A> {
         stop: &mut Stop,
     ) -> Result<Option<Again>, Failed> {
         let Failing { first, tests, urls } = failing;
+        let check = (self.config.check.as_ref())
+            .ok_or("the words of the check before a merge (agents/acts/check.toml) are not given")?;
         let ci = self.config.ci.as_ref();
         let checks = (ci.and_then(|ci| ci.fast.as_ref())).map_or_else(Vec::new, |fast| fast.checks.clone());
         let named = Named {
@@ -375,7 +377,7 @@ impl<A: Api> GitHub<A> {
             Err(why) => {
                 return Ok(Some(Again::failed(vec![
                     first,
-                    fill(&words.again_not_run, &[("why", &why)]),
+                    fill(&check.again_not_run, &[("why", &why)]),
                 ])));
             }
         };
@@ -388,7 +390,7 @@ impl<A: Api> GitHub<A> {
             let slots = [("main", self.project.main.as_str()), ("head", head), ("run", &run)];
             fill(word, &slots)
         };
-        let again_on_commit = section(&words.again_on_commit, commit, &on_commit, &named);
+        let again_on_commit = section(&check.again_on_commit, commit, &on_commit, &named);
         let Some(rows) = judged(&on_commit, &tests) else {
             return Ok(Some(Again::failed(vec![first, again_on_commit])));
         };
@@ -403,7 +405,7 @@ impl<A: Api> GitHub<A> {
                     ("failed", &urls),
                     ("again", &again_url),
                 ];
-                fill(&words.flaky, &slots)
+                fill(&check.flaky, &slots)
             })
             .collect();
         let red_again: Vec<String> = (rows.iter())
@@ -440,7 +442,7 @@ impl<A: Api> GitHub<A> {
         let Some(on_main) = self.execute_role(&role, at_main, &named_main, stop).await? else {
             return Ok(None);
         };
-        let again_on_main = section(&words.again_on_main, main, &on_main, &named_main);
+        let again_on_main = section(&check.again_on_main, main, &on_main, &named_main);
         let Some(rows) = judged(&on_main, &red_again) else {
             return Ok(Some(Again {
                 flaky,
@@ -449,9 +451,9 @@ impl<A: Api> GitHub<A> {
         };
         let filled = |word: &str, tests: &[&str]| {
             let named: Vec<String> = (tests.iter())
-                .map(|t| fill(&words.test_named, &[("test", t)]))
+                .map(|t| fill(&check.test_named, &[("test", t)]))
                 .collect();
-            let tests = named.join(&words.tests_between);
+            let tests = named.join(&check.tests_between);
             fill(word, &[("main", &self.project.main), ("head", main), ("tests", &tests)])
         };
         let only_here: Vec<&str> = (rows.iter())
@@ -460,14 +462,14 @@ impl<A: Api> GitHub<A> {
             .collect();
         if only_here.is_empty() {
             let red: Vec<&str> = red_again.iter().map(String::as_str).collect();
-            let held = [filled(&words.on_main_too, &red), first, again_on_commit, again_on_main];
+            let held = [filled(&check.on_main_too, &red), first, again_on_commit, again_on_main];
             return Ok(Some(Again {
                 held: Some(held.join("\n\n")),
                 flaky,
                 ..Again::default()
             }));
         }
-        let only = filled(&words.only_here, &only_here);
+        let only = filled(&check.only_here, &only_here);
         Ok(Some(Again {
             flaky,
             ..Again::failed(vec![first, again_on_commit, again_on_main, only])

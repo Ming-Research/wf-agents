@@ -126,10 +126,10 @@ struct Inner<H> {
     look: Option<Arc<dyn service::Network>>,
 }
 
-/// What came of an act: what it hands in, with what the engine asks the owner beside it and what it observed beyond the
-/// work.
+/// What came of an act: what it hands in, with what the engine asks the owner beside it, what it observed beyond the
+/// work and, of a check that holds the work, the block of main what it wrote waits for.
 enum Done {
-    HandsIn(Vec<Handed>, Vec<Question>, Vec<String>),
+    HandsIn(Box<Came>),
     Stopped,
 }
 
@@ -226,17 +226,9 @@ impl<H: Host> Rounds for Acts<H> {
         tokio::spawn(async move {
             let done = inner.act(&round, &teller, &mut stop).await;
             match done {
-                Ok(Done::HandsIn(handed, engine, observations)) => {
+                Ok(Done::HandsIn(came)) => {
                     if let Some(reply) = inner.held.take(key) {
-                        let came = Came {
-                            engine,
-                            said: Said {
-                                observations,
-                                ..Said::default()
-                            },
-                            ..Came::hands_in(handed)
-                        };
-                        reply.ended(came, Spent::default());
+                        reply.ended(*came, Spent::default());
                     }
                 }
                 Ok(Done::Stopped) => {
@@ -321,7 +313,7 @@ impl<H: Host> Inner<H> {
                         ("main", &project.main),
                     ],
                 );
-                Ok(Done::HandsIn(prose(&outputs, &content), Vec::new(), Vec::new()))
+                Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
             }
             "check" => {
                 if !self.take_turn(round.work, stop).await {
@@ -362,9 +354,18 @@ impl<H: Host> Inner<H> {
                         }
                         // The check may have taken main in.
                         tree::look(&round.flow, &round.kept, &project.tree, &place, teller).await;
-                        let asks = checked.asks.clone().into_iter().collect();
                         let handed = checked_in(&outputs, &checked, &project.main, &words.check)?;
-                        Ok(Done::HandsIn(handed, asks, checked.observations))
+                        // A check that holds the work waits for main to move: the work waits for main, not the owner.
+                        let waits_for = checked.held.as_ref().and_then(|_| main_block(&round.flow));
+                        Ok(Done::HandsIn(Box::new(Came {
+                            engine: checked.asks.into_iter().collect(),
+                            said: Said {
+                                observations: checked.observations,
+                                ..Said::default()
+                            },
+                            waits_for,
+                            ..Came::hands_in(handed)
+                        })))
                     }
                     Ok(None) => {
                         self.end_turn(round.work);
@@ -407,13 +408,12 @@ impl<H: Host> Inner<H> {
                         ("head", &merged),
                     ],
                 );
-                Ok(Done::HandsIn(prose(&outputs, &content), Vec::new(), Vec::new()))
+                Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
             }
-            "deliver" => Ok(Done::HandsIn(
-                prose(&outputs, &delivered(&round.item.depends_on, &words.deliver)),
-                Vec::new(),
-                Vec::new(),
-            )),
+            "deliver" => {
+                let content = delivered(&round.item.depends_on, &words.deliver);
+                Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
+            }
             other => Err(format!("the engine has no act named {other}").into()),
         }
     }
@@ -853,6 +853,12 @@ async fn unnamed(
     let written = written.join(", ");
     let slots = [("named", written.as_str()), ("head", head)];
     Ok(Some(fill(&words.not_head, &slots)))
+}
+
+/// The block of the flow the watch of main writes ([`MAIN`]); none where the flow has none.
+fn main_block(flow: &Compiled) -> Option<BlockId> {
+    let block = (flow.blocks.iter()).find(|(_, block)| block.writers.outside.as_deref() == Some(MAIN));
+    block.map(|(id, _)| id.clone())
 }
 
 /// What the block of main of the flow says of main's head, as the watch writes it ([`MAIN`]): the block, and its

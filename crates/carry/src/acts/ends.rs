@@ -372,11 +372,13 @@ async fn a_held_check_writes_its_choice_alone_and_hands_in_what_the_host_observe
     assert_eq!(written, [("passed".to_string(), Some("no".to_string()))]);
     let content = &came.writes[0].content;
     assert!(
-        content.contains("which the work's change is not what fails: the work waits for main to pass it")
+        content.contains("and what fails also fails on main: the work waits for main to pass, and is checked again")
             && content.ends_with("Failed on main as well: `b`."),
         "{content}"
     );
     assert_eq!(came.said.observations, ["The test `a` may be flaky."]);
+    // What it wrote waits for main to move, so that the work waits for main and not for the owner.
+    assert_eq!(came.waits_for, Some(BlockId::from("main")));
 }
 
 #[test]

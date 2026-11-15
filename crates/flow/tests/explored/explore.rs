@@ -511,6 +511,7 @@ impl Explorer<'_> {
                     at,
                     writes,
                     dealt_with: Some(dealt_with),
+                    waits_for: None,
                 });
                 if let Some(t) = s.outside.as_mut()
                     && t.runs.contains(&run)
@@ -1233,6 +1234,7 @@ impl Explorer<'_> {
                     Waited::Precondition { by, .. } => by
                         .iter()
                         .any(|maker| matches!(maker, Maker::Owner | Maker::Outside { .. })),
+                    Waited::Outside { .. } => true,
                     Waited::Slot => false,
                 });
                 (
@@ -1340,6 +1342,7 @@ fn show_waited(w: &Waited) -> String {
         Waited::Limit { runs } => format!("the owner, at its limit of {runs} runs"),
         Waited::Calls { runs } => format!("the owner, at its limit of {runs} runs that asked"),
         Waited::Answer { question } => format!("the owner's answer to {question}"),
+        Waited::Outside { source, block, .. } => format!("the outside ({source}), of which {block} waits"),
         Waited::Slot => "a slot".to_string(),
     }
 }

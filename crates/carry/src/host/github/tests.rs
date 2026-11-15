@@ -87,6 +87,7 @@ fn config(bare: &std::path::Path) -> Config {
         ci: Some(ci()),
         runners: vec!["github".to_string()],
         tool: Some(tool()),
+        check: Some(crate::acts::words().check),
         fast_poll: Duration::from_millis(10),
         token: None,
         withheld: Vec::new(),
@@ -923,7 +924,15 @@ fn github_as_the_settings_say_needs_the_engines_token() {
     let repo = Repo::new("true");
     let text = "repository = \"owner/name\"\n";
     let github: settings::GitHub = toml::from_str(text).unwrap();
-    let none = GitHub::from_settings(&github, &repo.project, &repo.data, INSTALLATION, |_| None, None, None);
+    let none = GitHub::from_settings(
+        &github,
+        &repo.project,
+        &repo.data,
+        INSTALLATION,
+        |_| None,
+        None,
+        (None, None),
+    );
     let refused = none.err().expect("refused");
     assert!(refused.contains("no WF_GITHUB_TOKEN"), "{refused}");
     let given = |name: &str| (name == "WF_GITHUB_TOKEN").then(|| "the-token".to_string());
@@ -934,7 +943,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         INSTALLATION,
         given,
         Some(ci()),
-        None,
+        (None, None),
     );
     let host = host.expect("made");
     let config = &host.config;

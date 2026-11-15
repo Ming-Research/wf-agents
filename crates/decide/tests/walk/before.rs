@@ -52,6 +52,7 @@ fn every_kind() -> Records {
                 value: None,
             }],
             dealt_with: Some(vec!["p".into(), "words".into()]),
+            waits_for: None,
         }],
         abandoned: vec![Abandoned { run: b, at: Seq(14) }],
         put_in: vec![PutIn {

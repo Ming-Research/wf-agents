@@ -78,6 +78,8 @@ pub struct Config {
     pub runners: Vec<String>,
     /// The words of the tool `run_tests`, from its file beside the flows.
     pub tool: Option<flow::agents::Tool>,
+    /// The words of the check before a merge, from its file beside the flows, which say what it ran again.
+    pub check: Option<flow::agents::Check>,
     /// How often GitHub is asked how a run of a workflow goes.
     pub fast_poll: Duration,
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
@@ -134,7 +136,7 @@ impl GitHub<Gh> {
         installation: Uuid,
         env: impl Fn(&str) -> Option<String>,
         ci: Option<flow::agents::Ci>,
-        tool: Option<flow::agents::Tool>,
+        (tool, check): (Option<flow::agents::Tool>, Option<flow::agents::Check>),
     ) -> Result<GitHub<Gh>, String> {
         let token = (env(&github.token_env).filter(|token| !token.is_empty())).ok_or_else(|| {
             format!(
@@ -154,6 +156,7 @@ impl GitHub<Gh> {
             ci,
             runners: github.runners.clone(),
             tool,
+            check,
             fast_poll: FAST_POLL,
             token: Some(token.clone()),
             withheld: withheld(data, &project.repo, env("HOME")),

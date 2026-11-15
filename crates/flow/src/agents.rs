@@ -774,20 +774,6 @@ pub struct ResultWords {
     pub no_such_test_unbuilt: String,
     /// Each test a name has was skipped.
     pub all_skipped: String,
-    /// What the check before a merge says where its full workflows failed tests alone, which it runs again by the fast
-    /// workflow: why they were not run again, `{why}`; what the run on the commit found, `{run}` as a result says it;
-    /// what the run on the head of main found of what failed again, `{main}` the main branch's name, `{head}` its head,
-    /// `{run}`; a test that failed and then passed on the commit, `{test}`, `{commit}`, `{failed}` the links of the
-    /// full workflows' runs and `{again}` of the run again; the tests that failed again and not on main, and those that
-    /// failed on main as well, `{tests}` each as `test_named` says it, `{test}` its name, joined by `tests_between`.
-    pub again_not_run: String,
-    pub again_on_commit: String,
-    pub again_on_main: String,
-    pub flaky: String,
-    pub only_here: String,
-    pub on_main_too: String,
-    pub test_named: String,
-    pub tests_between: String,
 }
 
 /// What `run_tests` says where the host is GitHub.
@@ -1065,6 +1051,20 @@ pub struct Check {
     pub took_in: String,
     pub notes: String,
     pub note: String,
+    /// What the check before a merge says where its full workflows failed tests alone, which it runs again by the fast
+    /// workflow: why they were not run again, `{why}`; what the run on the commit found, `{run}` as a result says it;
+    /// what the run on the head of main found of what failed again, `{main}` the main branch's name, `{head}` its head,
+    /// `{run}`; a test that failed and then passed on the commit, `{test}`, `{commit}`, `{failed}` the links of the
+    /// full workflows' runs and `{again}` of the run again; the tests that failed again and not on main, and those that
+    /// failed on main as well, `{tests}` each as `test_named` says it, `{test}` its name, joined by `tests_between`.
+    pub again_not_run: String,
+    pub again_on_commit: String,
+    pub again_on_main: String,
+    pub flaky: String,
+    pub only_here: String,
+    pub on_main_too: String,
+    pub test_named: String,
+    pub tests_between: String,
     pub values: CheckValues,
     pub found: Found,
 }
