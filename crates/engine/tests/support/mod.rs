@@ -679,7 +679,7 @@ impl Driver {
         (self.held.iter())
             .filter(|e| match e {
                 Effect::Round { .. } => true,
-                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
+                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool(_))),
                 Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } | Effect::Ping { .. } => true,
                 Effect::Tell { .. } => false,
             })

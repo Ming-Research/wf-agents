@@ -394,7 +394,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 let back = Back::Returned {
                     dealt_with,
                     handed: came.writes,
-                    asks: came.asks,
+                    asks: came.asks.into_iter().map(Ask::from).collect(),
                     found: came.found,
                     said: came.said,
                     engine: came.engine,
@@ -834,10 +834,11 @@ fn finish(
         }
         Some(Back::Failed { .. }) | None => (Vec::new(), Vec::new()),
     };
+    // A return asks for tools alone, which wait on nobody; a run kept from before may have asked a person.
     for ask in asks {
         let on = match &ask {
             Ask::Person { who, .. } => Some(who.clone()),
-            Ask::Tool { .. } => None,
+            Ask::Tool(_) => None,
         };
         call(work, run, on, Call::Asked(ask), effects);
     }

@@ -28,7 +28,7 @@ use flow::agents::{Agents, ReturnKind, fill};
 use flow::{CellSpec, Compiled};
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use work::{Ask, Handed, Question, Said, Way};
+use work::{Handed, Question, Said, Tool, Way};
 
 /// The fields of the kind that does the cell's work that are lists, as the engine reads them.
 const LISTS: [&str; 3] = ["dealt_with", "meaning_unchanged", "observations"];
@@ -416,7 +416,7 @@ fn asks(
     cell: &CellSpec,
     found: &mut Vec<Unmet>,
     words: &Agents,
-) -> Result<Vec<Ask>, String> {
+) -> Result<Vec<Tool>, String> {
     let mut tools: Vec<(String, Value)> = tools.into_iter().collect();
     tools.sort_by_key(|(name, _)| {
         let at = cell.tools.iter().position(|t| t == name);
@@ -431,7 +431,7 @@ fn asks(
             found.push(Unmet::NotATool { name: name.clone() });
         }
         for request in requests {
-            asks.push(Ask::Tool {
+            asks.push(Tool {
                 name: name.clone(),
                 input: request.to_string(),
             });

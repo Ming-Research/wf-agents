@@ -319,11 +319,25 @@ pub enum Call {
     Wait { until: Time, failed: u32 },
 }
 
-/// What an agent asks for at the end of a round.
+/// What a round's return asked for, as the records keep it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Ask {
     /// A tool the engine runs, with what it is run on.
-    Tool { name: String, input: String },
-    /// A question for a person.
+    Tool(Tool),
+    /// A question for a person, which one work's old records hold: a return asks for tools alone, and a person is
+    /// asked by the work's questions (decision a-return-asks-no-person-by-a-call).
     Person { who: Who, question: String },
+}
+
+/// A tool a return asks for, with what it is run on: all a return can ask for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tool {
+    pub name: String,
+    pub input: String,
+}
+
+impl From<Tool> for Ask {
+    fn from(tool: Tool) -> Ask {
+        Ask::Tool(tool)
+    }
 }
