@@ -161,8 +161,9 @@ run next all the same, and the note would be filled, since the new session lacks
     decides it; where no cell can take them they are not sent, and the page says so: they never go to another cell
     unsaid.
 
-33. A cell that can ask a question that stops the work can be spoken to: every cell that may write a question has
-    both the datum an answer writes (26) and its own `{cell}_spoken_to`. A flow without them is refused as it loads.
+33. A cell that can ask a question can be spoken to (principle who-asks-can-be-spoken-to): every cell that may write a
+    question has both the datum an answer writes (26) and its own `{cell}_spoken_to`. A flow without them is refused as
+    it loads.
 
 34. The cell answers at once and goes on with its work. It hands in its answer as it hands in anything, in `reply`,
     and the answer is added to the record; with it the round says that it has dealt with the owner's words. What else

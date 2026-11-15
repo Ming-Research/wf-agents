@@ -202,7 +202,7 @@ class History {
     const was = this.current(block);
     const choice = FLOW.blocks.find((b) => b.name === block)?.values !== null;
     const changed = !was || (choice ? was.value !== value : matters);
-    const v: Version = { at: this.place, time: this.time, by, meaning: changed ? this.place : was.meaning, value, chars: content.length };
+    const v: Version = { at: this.place, time: this.time, by, meaning: changed ? this.place : was.meaning, value, saidTo: null, chars: content.length };
     this.versions.set(block, [...(this.versions.get(block) ?? []), v]);
     this.contents.set(`${block}@${v.at}`, content);
     return v;

@@ -36,6 +36,8 @@ use crate::Message;
 /// stopped.
 pub const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its result.";
 
+pub use engine::spoken::Telling;
+
 /// What carries out the rounds of cells of one kind: an agent's rounds, or the engine's own acts.
 ///
 /// Both methods are called inside the loop, between two things it takes: each returns at once, and does its work
@@ -50,6 +52,14 @@ pub trait Rounds: Send + Sync {
     /// saying what it took; what came back is dropped. A round has one end: where the reply it was given with is
     /// still held, that one is used and this one dropped, and where the round has ended already this one is dropped.
     fn stop(&self, round: Round, reply: RoundReply);
+
+    /// Tells the round, which is under way, what the owner said to it, to be handed to its session after its program's
+    /// next use of one of its own tools; once it was, the carrier says so by its teller
+    /// ([`Teller::said_to_round`]), and words that reached the round before it ended are said before its end. Rounds
+    /// carried out in no session are told nothing, as by default, and their cells take the words in their next round.
+    fn tell(&self, round: Round, told: Telling) {
+        let _ = (round, told);
+    }
 
     /// Says whether a pause holds the work back now, its own or the owner's pause of everything: of every work as the
     /// loop opens, before any round is given, and again whenever it may have changed, the same said again changing
@@ -582,6 +592,15 @@ impl Teller {
             run: self.run,
             block,
             content,
+        });
+    }
+
+    /// The round was given what the owner said to it, which the engine gave to be told it ([`Rounds::tell`]): these
+    /// versions are put into it. Said before the round's end.
+    pub fn said_to_round(&self, versions: Vec<(BlockId, decide::Seq)>) {
+        self.tell(Event::SaidToRound {
+            run: self.run,
+            versions,
         });
     }
 

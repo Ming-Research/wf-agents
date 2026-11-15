@@ -5,6 +5,8 @@ use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 
 use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
 
+use crate::spoken::{NoOne, Telling, To};
+
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -57,6 +59,12 @@ pub enum Event {
     },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// The owner says these words to a line of the work's flow, or about a question of the work: to the cell the
+    /// engine chooses (crate module `spoken`).
+    Said { to: To, words: String },
+    /// What the owner said reached the round of this run that is under way, after a use of one of its program's own
+    /// tools: these versions, which the engine gave its carrier to tell the round ([`Effect::Tell`]), are put into it.
+    SaidToRound { run: RunId, versions: Vec<(BlockId, Seq)> },
     /// The owner answers this version of the question, taking this option, counted from one, for this reason where
     /// one is given (design document `data-and-context`, 34).
     Answer {
@@ -168,6 +176,11 @@ pub enum Effect {
     /// It is to be done until the call is said to have its result, which is then that it was withdrawn, or whatever
     /// came back before it could be.
     Withdraw { call: CallId },
+    /// What the owner said is to be told to the round of this run under way, after its next use of one of its
+    /// program's own tools ([`Telling`]). Once the round was given it, its carrier says so with its `versions`
+    /// ([`Event::SaidToRound`]); words that reached no round before it ended stay new to the cell, which runs again for
+    /// them. It is not given again after the engine stops.
+    Tell { run: RunId, telling: Box<Telling> },
     /// The round of this run that is under way is stopped: the run was abandoned, with its work cancelled or for a
     /// cell before it that the owner turned to. It is to be done until the round is said to have ended; what comes
     /// back from it is dropped.
@@ -256,4 +269,6 @@ pub enum Refused {
     NotAnOption { question: String, option: u64 },
     /// The work's item is not cancelled: there is no cancel to reopen.
     NotCancelled,
+    /// No cell can take the owner's words, for this reason: they go to no other.
+    NoOneSpokenTo(NoOne),
 }

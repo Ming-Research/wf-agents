@@ -12,6 +12,7 @@ use flow::{Compiled, Kind};
 
 use crate::asked;
 use crate::event::{Effect, Event, Gate, Refused};
+use crate::spoken;
 use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Ran, Session, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
@@ -80,8 +81,8 @@ pub fn handle_then(
     let from = work.tick();
     let releasing = release(flow, work).is_some();
     let ended = matches!(decide(&flow.flow, &work.records), Decision::Ended(_));
-    take(flow, work, event)?;
     let mut effects = Vec::new();
+    take(flow, work, event, &mut effects)?;
     // What a round returned is taken as the round ends: where it meets everything the flow requires, the run finishes
     // here, before the walk, so that no cell before it comes between.
     if let Some(run) = returned
@@ -100,7 +101,7 @@ pub fn handle_then(
         }
     }
     for event in then(flow, work) {
-        take(flow, work, event)?;
+        take(flow, work, event, &mut effects)?;
     }
     let at = At { from, now, room, gate };
     advance(flow, work, at, &mut effects)?;
@@ -213,8 +214,9 @@ fn release(flow: &Compiled, work: &Work) -> Option<End> {
     quiet.then_some(end)
 }
 
-/// Adds what happened to the records, or refuses what cannot have happened to this work.
-fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
+/// Adds what happened to the records, with what is to be done outside for it alone, or refuses what cannot have
+/// happened to this work.
+fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect>) -> Result<(), Refused> {
     match event {
         Event::Look => {}
         Event::Wrote {
@@ -250,6 +252,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 by,
                 matters,
                 value,
+                said_to: None,
                 at,
             });
         }
@@ -268,7 +271,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                         matters: true,
                         value: None,
                     };
-                    take(flow, work, wrote)?;
+                    take(flow, work, wrote, effects)?;
                     (work.records.written.last())
                         .map(|w| w.at)
                         .expect("the version was written")
@@ -441,6 +444,8 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             asked::answer(flow, work, question, version, option, why)?;
             asked::tell(flow, work);
         }
+        Event::Said { to, words } => spoken::said(flow, work, to, words, effects)?,
+        Event::SaidToRound { run, versions } => spoken::heard(flow, work, run, versions)?,
         Event::Anew { line, why } => {
             if !flow
                 .cells
@@ -756,13 +761,15 @@ fn finish(
     work: &mut Work,
     run: RunId,
     dealt_with: Vec<BlockId>,
-    writes: Vec<Write>,
+    mut writes: Vec<Write>,
     effects: &mut Vec<Effect>,
 ) {
     let mut questions = Vec::new();
+    let mut reply = None;
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
         Some(Back::Returned { handed, asks, said, .. }) => {
             questions = said.questions.clone();
+            reply = said.reply.clone();
             (handed.clone(), asks.clone())
         }
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
@@ -789,6 +796,19 @@ fn finish(
     for h in handed {
         work.contents.insert((h.block, at), h.content);
     }
+    // The cell's answer to the owner is its entry of the record of what is said, a version of its run's as any block it
+    // writes.
+    let cell = (work.records.started.iter())
+        .find(|s| s.run == run)
+        .map(|s| s.cell.clone());
+    if let Some((block, entry)) = cell.as_ref().and_then(|c| spoken::reply(flow, c, reply.as_deref())) {
+        work.contents.insert((block.clone(), at), entry);
+        writes.push(Write {
+            block,
+            meaning_unchanged: false,
+            value: None,
+        });
+    }
     work.records.finished.push(Finished {
         run,
         at,
@@ -801,9 +821,7 @@ fn finish(
     let observed = work::observations::kept(work, run, line);
     work.observed.extend(observed);
     if !questions.is_empty()
-        && let Some(cell) = (work.records.started.iter())
-            .find(|s| s.run == run)
-            .map(|s| s.cell.clone())
+        && let Some(cell) = cell
     {
         asked::record(work, run, &cell, false, &questions);
         asked::tell(flow, work);
@@ -957,10 +975,10 @@ fn abandoned(work: &Work, run: RunId) -> bool {
     work.records.abandoned.iter().any(|a| a.run == run)
 }
 
-/// Whether a source outside the work writes the block: what stands for the questions and their answers the engine
-/// writes itself, as they are taken.
+/// Whether a source outside the work writes the block: what stands for the questions and their answers, and for the
+/// owner's words, the engine writes itself, as they are taken.
 fn outside_writes(declared: &flow::Block) -> bool {
-    let engines = [asked::ASKED, flow::ANSWER];
+    let engines = [asked::ASKED, flow::ANSWER, flow::WORDS];
     (declared.writers.outside.as_deref()).is_some_and(|s| !engines.contains(&s))
 }
 

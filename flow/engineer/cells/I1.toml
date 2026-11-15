@@ -60,6 +60,7 @@ outputs = [
   "reply_testing",
   "reply_check",
   "plan_doubts",
+  "questions",
   "discussion",
 ]
 

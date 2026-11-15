@@ -7,20 +7,41 @@ line = "deep_researcher"
 effort = "xhigh"
 task = { file = "tasks/better_way.md" }
 when = { deep_needed = "yes" }
-triggered_by = ["on_plan", "on_answer"]
-context = ["background", "answers", "plan_owner", "plan_agent", "acceptance", "questions", "tree_edits", "tree"]
-outputs = ["better_found", "plan_owner", "plan_agent", "questions", "acceptance", "tree_edits", "edits_tree"]
+triggered_by = ["on_plan", "on_spoken", "on_answer"]
+context = [
+  "background",
+  "discussion",
+  "answers",
+  "plan_owner",
+  "plan_agent",
+  "acceptance",
+  "questions",
+  "tree_edits",
+  "tree",
+]
+outputs = [
+  "better_found",
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_edits",
+  "edits_tree",
+  "discussion",
+]
 must_write = ["better_found"]
 
 # Each version of the plan is thought through once; one it wrote itself runs it not again.
 [do]
 on_plan = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
 on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
+on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `reply`."""
 
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
 background = "latest"
+discussion = "all"
 answers = "all"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"

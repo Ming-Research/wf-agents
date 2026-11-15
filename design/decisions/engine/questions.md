@@ -39,15 +39,7 @@ text of the diff, the change asks nothing again as main moves on; asking at ever
 turned down, as the owner would answer the same change again and again.
 
 ### decision a-protected-change-is-asked-with-the-work-s-reason-for-each-file
-The engine asks the owner of a change of the protected paths only once the work says why each file of it is needed: a
-return that does the cell's work, of a line that may change the work, is sent back for each file the branch changes
-as the round left it of which neither its `protected_changes` nor the question that stands of the file as it is says
-why, unless the owner let the file merge as it is, and nothing is asked meanwhile. A reason stands for the file as it
-then is: the question carries it above the file's change, a later version asks with it while the file is as it was, a
-file changed again needs its own, and another reason asks anew while the question waits for its answer. The owner's
-yes to the change holds while the change is the same, whatever reason a round gives after it. The check before the
-merge, with no return to say why, asks with what the question that stands says, and says of a file no round explained
-that it has none.
+The engine asks the owner of a change of the protected paths only once the work says why each file of it is needed: a return that does the cell's work, of a line that may change the work, is sent back for each file the branch changes as the round left it of which neither its `protected_changes` nor the question that stands says why, unless the owner let the file merge as it is. A reason stands for the file as it then is, another reason asks anew only while the question waits for its answer and never after the owner's yes to the same change, and the check before the merge, with no return to say why, asks with what the question that stands says.
 Why: The owner judges a change of what governs the agents by why the agent made it, and a question with the diff alone
 left that to guess (work 9). What the branch holds as the round ends is judged, not what that round's commits did, so
 that a change left unexplained by a round stopped, failed or sent back is the next round's to explain; a yes the owner
@@ -59,12 +51,15 @@ reason, and the round that then gave one asked it anew (work 9).
 
 ### decision an-answer-to-the-engines-question-runs-the-last-cell-that-takes-one
 The owner's answer to a question the engine asked is said to the last cell of the walk that has a trigger of an
-answer, whichever cell's round it was asked with; the answer to an agent's question, to the asking cell. A cell that
-writes the work's questions and that no answer runs is refused as its flow is compiled.
+answer, whichever cell's round it was asked with; the answer to an agent's question, to the asking cell; and the
+owner's words about a question, to the cell its answer goes to. A cell that writes the work's questions and that no
+answer runs, or no word of the owner's, is refused as its flow is compiled.
 Why: The engine's question is of the work, not of what a round did: asked beside a round of the tester's or of the
 check, its answer reached no cell that could act on it, and an answer to take a change back ran nothing. The last cell
-that takes an answer is the one nearest the merge that changes the work. A cell that asks and takes no answer would
-leave the owner's answer reaching no one, which would show only once a work waited on it.
+that takes an answer is the one nearest the merge that changes the work, and the one to talk the question over with.
+A cell that asks and takes no answer, or no words, would leave the owner's answer or remarks reaching no one, which
+would show only once a work waited on it: words about a question of a cell no words ran were sent to the cell before it (work
+4).
 
 ### decision an-answer-is-an-entry-of-what-its-cell-reads
 The owner's answer to a question's latest version is written, in the words of the datum's own file, as the owner's

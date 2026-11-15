@@ -34,6 +34,8 @@
 //!     { block = "verdict", value = "no" },
 //! ]
 //! observations = ["The greeting has no test."]
+//! # Its answer to what the owner said to the cell.
+//! reply = "Named the error."
 //!
 //! # The first round of the first run of plan asks the owner a question, and a tool to run.
 //! [[flows.trial.rounds]]
@@ -170,6 +172,8 @@ pub struct RoundScript {
     pub asks: Option<Vec<AskScript>>,
     /// What it came across beyond its work, each a text, where it does the cell's work.
     pub observations: Option<Vec<String>>,
+    /// Its answer to what the owner said to its cell, in `reply`, where it does the cell's work.
+    pub reply: Option<String>,
     /// Why it fails, where it fails: nothing comes back.
     pub fails: Option<String>,
     /// The kind of cause of its failure, as a carrier tells it apart (`usage_limit`, `passing`, ...); a cause no
@@ -265,9 +269,9 @@ impl Script {
 
     /// Everything wrong with the script for these flows, each in words with where it is: a flow, a cell or a block
     /// it names that is not there, a default value that is not one of its choice's, a round that does more than one of
-    /// handing in, asking and failing, one that asks or fails and says observations, a round said twice, and an act of
-    /// the engine that asks or costs. A script that names a block a cell may not write, or a value a choice does not
-    /// have, is not wrong: what it hands in is sent back.
+    /// handing in, asking and failing, one that asks or fails and says observations or a reply, a round said twice, and
+    /// an act of the engine that asks or costs. A script that names a block a cell may not write, or a value a choice
+    /// does not have, is not wrong: what it hands in is sent back.
     pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
         let mut faults = Vec::new();
         if self.slots == Some(0) {
@@ -308,6 +312,11 @@ impl Script {
                 if round.observations.is_some() && (round.fails.is_some() || round.asks.is_some()) {
                     faults.push(format!(
                         "{at}: only a round that does the cell's work says observations"
+                    ));
+                }
+                if round.reply.is_some() && (round.fails.is_some() || round.asks.is_some()) {
+                    faults.push(format!(
+                        "{at}: only a round that does the cell's work answers the owner"
                     ));
                 }
                 if round.fails.is_none() && (round.failure.is_some() || round.resets.is_some()) {
@@ -434,10 +443,11 @@ impl Script {
                 )
             }
         };
-        // What it came across beyond its work is said beside the blocks it hands in.
+        // What it came across beyond its work, and its answer to the owner, are said beside the blocks it hands in.
         if let Some(observations) = entry.and_then(|entry| entry.observations.clone()) {
             came.said.observations = observations;
         }
+        came.said.reply = entry.and_then(|entry| entry.reply.clone());
         Planned {
             ends: Ends::Came(came),
             spent,

@@ -434,6 +434,7 @@ impl World {
             by: Outsider::Person,
             matters: false,
             value: None,
+            said_to: None,
             at,
         });
         at
@@ -448,6 +449,7 @@ impl World {
             by: Outsider::Outside,
             matters: false,
             value: None,
+            said_to: None,
             at,
         });
         at
@@ -460,6 +462,7 @@ impl World {
             by,
             matters: true,
             value,
+            said_to: None,
             at,
         });
         at
@@ -473,6 +476,7 @@ impl World {
             by: Outsider::Person,
             matters: false,
             value: Some(value.to_string()),
+            said_to: None,
             at,
         });
         at

@@ -98,6 +98,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "by": { "kind": "outside" },
                         "meaning": 2,
                         "value": "merged",
+                        "saidTo": null,
                         "chars": 42,
                     }],
                 },
@@ -109,6 +110,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "by": { "kind": "person" },
                         "meaning": 3,
                         "value": null,
+                        "saidTo": null,
                         "chars": 23,
                     }],
                 },
@@ -171,6 +173,19 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             ],
             // The plan's question is a call of the earlier form: no question of the work's own is asked.
             "questions": [],
+            // The owner's words run no cell of the trial flow.
+            "speaking": [
+                {
+                    "to": { "kind": "line", "line": "engineer" },
+                    "cell": null,
+                    "refused": "the owner's words run no cell of the line engineer",
+                },
+                {
+                    "to": { "kind": "line", "line": "reviewer" },
+                    "cell": null,
+                    "refused": "the owner's words run no cell of the line reviewer",
+                },
+            ],
         })
     );
 }

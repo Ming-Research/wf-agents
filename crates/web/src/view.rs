@@ -450,6 +450,10 @@ pub enum What {
     AsksWithNoAnswer {
         block: String,
     },
+    /// The cell writes the work's questions, and the owner's words do not run it.
+    AsksAndCannotBeSpokenTo {
+        block: String,
+    },
     /// A trigger of the cell stands on a block whose every writer runs only where the cell cannot.
     TriggerNeverRuns {
         trigger: String,
@@ -818,6 +822,7 @@ impl What {
             F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
             F::UnknownReturnField { field } => What::UnknownReturnField { field },
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
+            F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
             F::TriggerNeverRuns {
                 trigger,
                 block,

@@ -349,8 +349,9 @@ impl<A: Api> GitHub<A> {
     }
 }
 
-/// What became of the runs, in words for the agent: a line of what they came to, each test, and each job. A run whose
-/// results could not be read says no test's result is known.
+/// What became of the runs, in words for the agent: a line of what they came to, the tests that did not pass, each
+/// job, and the tests that passed, so that what a cut result gives is what matters. A run whose results could not be
+/// read says no test's result is known.
 fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: &Named, red_only: bool) -> String {
     let which = match role {
         Role::Fast(_) => &words.which_fast,
@@ -359,6 +360,7 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     let urls: Vec<&str> = ran.iter().map(|r| r.run.url.as_str()).collect();
     let mut lines = Vec::new();
     let mut tests: Vec<String> = Vec::new();
+    let mut green: Vec<String> = Vec::new();
     let (mut total, mut passed) = (0, 0);
     let mut unread: Vec<String> = Vec::new();
     for one in ran {
@@ -374,17 +376,23 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
                 for row in results::rows(&named.tests, run) {
                     total += 1;
                     passed += usize::from(row.became == Became::Passed);
-                    tests.extend(test_lines(words, &row, run));
+                    let lines = test_lines(words, &row, run);
+                    if row.became == Became::Passed {
+                        green.extend(lines);
+                    } else {
+                        tests.extend(lines);
+                    }
                 }
             }
             Role::Full(_) => {
-                // What did not pass first, then what did.
-                let mut cases: Vec<&Case> = run.cases.iter().collect();
-                cases.sort_by_key(|c| c.outcome == results::Outcome::Passed);
-                for case in cases {
+                for case in &run.cases {
                     total += 1;
-                    passed += usize::from(case.outcome == results::Outcome::Passed);
-                    if !(red_only && case.outcome == results::Outcome::Passed) {
+                    if case.outcome == results::Outcome::Passed {
+                        passed += 1;
+                        if !red_only {
+                            green.extend(case_lines(words, case));
+                        }
+                    } else {
                         tests.extend(case_lines(words, case));
                     }
                 }
@@ -451,6 +459,9 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     }));
     if !said_jobs.is_empty() {
         lines.push(format!("{}\n{}", words.jobs_title, said_jobs.join("\n")));
+    }
+    if !green.is_empty() {
+        lines.push(format!("{}\n{}", words.passed_title, green.join("\n")));
     }
     lines.join("\n\n")
 }

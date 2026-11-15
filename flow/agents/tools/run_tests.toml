@@ -20,11 +20,12 @@ type = "object"
 properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } } }
 additionalProperties = false
 
-# How much of a result is given. The engine keeps it whole in its records and gives a round the first `bound` bytes of
-# it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is whole.
+# How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
+# gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is
+# whole, `{file}` the file that holds it whole.
 [given]
 bound = 20000
-cut = "(The result is cut here: {given} of its {size} bytes are given.)"
+cut = "(The result is cut here: {given} of its {size} bytes are given. The whole result is in the file {file}.)"
 
 # What a result says of what a workflow found, whatever the host. A workflow reports each test as JUnit XML, and the
 # engine reads no log to guess a result. `{...}` are filled in a run.
@@ -35,7 +36,8 @@ which_full = "full workflows"
 came_tests = "{passed} of the {total} tests passed"
 came_checks = "{passed} of the {total} checks passed"
 came_join = "; "
-tests_title = "The tests:"
+tests_title = "The tests that did not pass:"
+passed_title = "The tests that passed:"
 jobs_title = "The jobs:"
 test = "- {name}: {became}{time}"
 # A test's time, and a job's wall time as GitHub records it from its start to its end.

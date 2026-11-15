@@ -157,7 +157,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
 
     let written = rows(
         db,
-        "SELECT at, block, writer, matters, value FROM written WHERE work = ?1 ORDER BY at",
+        "SELECT at, block, writer, matters, value, said_to FROM written WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok((
@@ -166,15 +166,17 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 row.get::<_, String>(2)?,
                 row.get::<_, bool>(3)?,
                 row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?.map(CellId),
             ))
         },
     )?;
-    for (at, block, writer, matters, value) in written {
+    for (at, block, writer, matters, value, said_to) in written {
         r.written.push(Written {
             block,
             by: from_name("written", writer)?,
             matters,
             value,
+            said_to,
             at,
         });
     }
@@ -587,8 +589,17 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     for e in written {
         let writer = name("written", &e.by)?;
         db.execute(
-            "INSERT INTO written (work, at, block, writer, matters, value) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![w, e.at.0, e.block.0, writer, e.matters, e.value],
+            "INSERT INTO written (work, at, block, writer, matters, value, said_to) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                w,
+                e.at.0,
+                e.block.0,
+                writer,
+                e.matters,
+                e.value,
+                e.said_to.as_ref().map(|c| c.0.as_str())
+            ],
         )?;
     }
     for q in questions {
