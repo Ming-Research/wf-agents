@@ -16,10 +16,9 @@ export const waitsOnOwner = (s: Pick<Summary, 'waits'>): boolean => waitsOf(s).l
 export const waitingCount = (summaries: Pick<Summary, 'waits'>[]): number =>
   summaries.reduce((n, s) => n + waitsOf(s).length, 0);
 
-/// Whether the body of the panel draws a wait as its own card, where it arises: a question, as a choice at the plan's
-/// end, and a block the owner rules on, after it. The rest are drawn under the work's state line.
-export const drawnInBody = (w: Wait): boolean =>
-  w.ends.kind === 'answer' || w.ends.kind === 'reply' || w.ends.kind === 'write';
+/// Whether the body of the panel draws a wait as its own card, where it arises: a question of the work's own, as a
+/// choice at the plan's end, and a block the owner rules on, after it. The rest are drawn under the work's state line.
+export const drawnInBody = (w: Wait): boolean => w.ends.kind === 'answer' || w.ends.kind === 'write';
 
 /// What the owner presses on a card that ends a wait, as an act on the work or on the engine as a whole; none where the
 /// card's options say it (a question, a ruling), or where nothing on the page does it.
@@ -37,7 +36,6 @@ export function actOf(ends: Ends): WaitAct | null {
     case 'resumeEverything':
       return { on: 'engine', act: { kind: 'resume' } };
     case 'answer':
-    case 'reply':
     case 'write':
     case 'outside':
       return null;
