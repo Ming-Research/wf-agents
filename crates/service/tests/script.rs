@@ -910,10 +910,11 @@ fn written(mut work: Work, block: &str, content: &str) -> Work {
 // An act's round writes what it read as the real acts do: the merge a head that moved since the check from outside, so
 // that the review and the check run on it (decision a-moved-head-is-reviewed-and-checked-again-before-the-merge, which
 // the engineer's histories hold the engine to), and the check the main it takes in for its round, which then runs it
-// no more. The stood-in check, its entry saying nothing of what it read, takes in the main the work's block of main
-// holds and writes nothing, and only where that block holds none writes a main made up for its round, so that it never
-// writes main back to an older head after main moved; what a block says already is not written again. Milliseconds
-// alone, on the paused clock; no other test holds the stand-ins to what an act writes as it goes.
+// no more. The stood-in check, its entry saying nothing of what it read, tells its round the main the work's block of
+// main holds, as the real check tells its round the latest main it takes in, and only where that block holds none
+// writes a main made up for its round, so that it never writes main back to an older head after main moved; what a
+// block says already is not written again. Milliseconds alone, on the paused clock; no other test holds the stand-ins to
+// what an act writes as it goes.
 #[tokio::test(start_paused = true)]
 async fn an_acts_round_writes_what_it_read_for_its_round_or_from_outside_as_the_real_acts_do() {
     let flow = engineer();
@@ -958,10 +959,15 @@ async fn an_acts_round_writes_what_it_read_for_its_round_or_from_outside_as_the_
             if block.as_str() == "main" && content == made_up),
         "{checked:?}"
     );
-    // Where it holds one, main as it moved, it writes nothing, and never the head of an older main.
+    // Where it holds one, main as it moved, its round is told that main, which it takes in, and never the head of an
+    // older main.
     let moved = written(kept(&["M1"], 1, Work::default()), "main", "main at 0ddba11");
     let checked = carried(&script, round(&flow, "M1", moved)).await;
-    assert!(matches!(&checked[..], [Event::Returned { .. }]), "{checked:?}");
+    assert!(
+        matches!(&checked[..], [Event::WroteForRound { block, content, .. }, Event::Returned { .. }]
+            if block.as_str() == "main" && content == "main at 0ddba11"),
+        "{checked:?}"
+    );
 }
 
 // What an agent's round read of the branch is handed in where it differs from what the block says, as the real carrier

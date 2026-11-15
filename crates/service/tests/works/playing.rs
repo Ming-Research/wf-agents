@@ -1,4 +1,4 @@
-//! A script played on the trial flow, and on a flow whose cell reads main: its items added, the acts of people, of
+//! A script played on the trial flow, and on flows whose cells read main: its items added, the acts of people, of
 //! whoever plans the work and of the outside given as their states come, the engine stopped and opened again where an
 //! act says, main moved once for every item that moves it, and each work judged against its path; and what a script's
 //! items, acts and paths name that the flows lack, told in one pass.
@@ -216,6 +216,21 @@ async fn a_path_left_is_named_at_its_first_step_off_it() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_play_starts_its_clock_at_the_time_the_script_names_as_its_start() {
+    // The trial's script with a start a day after the tests' own: the work is added then, and not at the play's start.
+    let start = START.0 + 86_400_000;
+    let text = format!(
+        "start = {start}\n{}",
+        std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).unwrap()
+    );
+    let script = Script::read(&format!("{text}\n{}", item(ANSWER, MERGED))).expect("the script reads");
+    let (played, dir) = played_on(&script, trial_flow()).await;
+    assert!(played.expect("the script is played").took());
+    let kept = store(&dir).load(WorkNumber(1)).expect("the store has the work");
+    assert_eq!(kept.moments.first().map(|m| m.at), Some(work::Time(start)));
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_played_item_with_no_path_is_refused() {
     let faults = played(&script(&item(ANSWER, "")))
         .await
@@ -258,6 +273,102 @@ async fn main_does_not_move_while_an_item_that_moves_it_stands_elsewhere() {
     );
     let store = store(&dir);
     assert_eq!((mains(&store, 1), mains(&store, 2)), (0, 0));
+}
+
+/// A writer of the text a request asks for, the engine's own check of it, which reads main, and the merge, which waits
+/// for the check to say yes.
+fn checking() -> Compiled {
+    let flow = r#"
+        name = "checking"
+        order = ["write", "check", "merge"]
+        [limits]
+        again = 2
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.main]
+        outside = "main"
+        [blocks.text]
+        [blocks.checked]
+        values = ["yes", "no"]
+        [blocks.merged]
+        shown = true
+    "#;
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the text the request asks for."
+        inputs = ["request"]
+        outputs = ["text"]
+    "#;
+    let check = r#"
+        title = "Check"
+        kind = "engine"
+        act = "check"
+        inputs = ["text", "main"]
+        outputs = ["checked"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        requires = { checked = "yes" }
+        inputs = ["checked"]
+        outputs = ["merged"]
+    "#;
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: [("write", write), ("check", check), ("merge", merge)]
+            .iter()
+            .map(|(id, text)| (id.to_string(), text.to_string()))
+            .collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        sources: ["main".to_string()].into(),
+        acts: ["check".to_string(), "merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the definition compiles")
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_check_given_again_after_main_moved_takes_in_the_main_it_is_given_again_with() {
+    // Main moves while the check's first round is under way, which fails in passing: its round given again takes in
+    // the main that moved, as the real check tells its round, and the check does not run again for it.
+    let script = Script::read(
+        r#"
+        [[flows.checking.rounds]]
+        cell = "check"
+        fails = "The check was cut off."
+        failure = "passing"
+
+        [[items]]
+        title = "Greet"
+        flow = "checking"
+        writes = [{ block = "request", content = "Greet, please." }]
+        acts = [{ at = { under_way = "check", run = 1, round = 1 }, do = "main", content = "The head of main, moved." }]
+        path = [
+            { runs = "write" },
+            { runs = "check" },
+            { fails = "check", failure = "passing" },
+            { waits = "check", for = "retry" },
+            { runs = "merge" },
+            { ends = "merged" },
+        ]
+        "#,
+    )
+    .expect("the script reads");
+    let (played, dir) = played_on(&script, checking()).await;
+    let played = played.expect("the script is played");
+    assert!(played.took(), "{played}");
+    assert_eq!(
+        mains(&store(&dir), 1),
+        2,
+        "the main made up for the first round, and the main that moved"
+    );
 }
 
 #[tokio::test(start_paused = true)]
