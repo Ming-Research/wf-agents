@@ -10,7 +10,7 @@ use decide::{
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::{Filled, Moment, Observed, Ran, RanOn, Session, Spent, Time, Work};
+use work::{Filled, Measured, Measures, Moment, Observed, Pinged, Ran, RanOn, Session, Spent, Time, Work};
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
 
@@ -376,6 +376,65 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
+    for (measured, before) in rows(
+        db,
+        "SELECT at, run, round, attempt, input_tokens, cache_read_tokens, cache_written_tokens, thinking_tokens, turns, \
+         calls, first_read, first_context, added, given, before, received, crossed, priced FROM measured WHERE work = ?1 \
+         ORDER BY at",
+        w,
+        |row| {
+            let measures = Measures {
+                input_tokens: row.get(4)?,
+                cache_read_tokens: row.get(5)?,
+                cache_written_tokens: row.get(6)?,
+                thinking_tokens: row.get(7)?,
+                turns: row.get(8)?,
+                calls: row.get(9)?,
+                first_read: row.get(10)?,
+                first_context: row.get(11)?,
+                added: row.get(12)?,
+                given: row.get(13)?,
+                before: Default::default(),
+                received: row.get(15)?,
+                crossed: row.get(16)?,
+                priced: row.get(17)?,
+            };
+            let measured = Measured {
+                at: Seq(row.get(0)?),
+                run: RunId(row.get(1)?),
+                round: row.get(2)?,
+                attempt: row.get(3)?,
+                measures,
+            };
+            Ok((measured, row.get::<_, String>(14)?))
+        },
+    )? {
+        let mut measured = measured;
+        measured.measures.before = parse("measured", &before)?;
+        out.measured.push(measured);
+    }
+    out.pinged = rows(
+        db,
+        "SELECT at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, \
+         compactions, failed FROM pinged WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Pinged {
+                at: Seq(row.get(0)?),
+                line: row.get(1)?,
+                session: row.get(2)?,
+                spent: Spent {
+                    usd_micros: row.get(3)?,
+                    input_tokens: row.get(4)?,
+                    cached_tokens: row.get(5)?,
+                    output_tokens: row.get(6)?,
+                    context_tokens: row.get(7)?,
+                    compactions: row.get(8)?,
+                },
+                failed: row.get(9)?,
+            })
+        },
+    )?;
 
     out.moments = rows(
         db,
@@ -458,6 +517,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         run: o.run,
         round: o.round,
     })?;
+    let measured = grown("measured", &held.measured, &given.measured, |m| Entry::At(m.at))?;
+    let pinged = grown("pinged", &held.pinged, &given.pinged, |p| Entry::At(p.at))?;
 
     // Each table after those its rows name.
     for s in started {
@@ -651,6 +712,56 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 r.on.model,
                 r.on.effort,
                 r.on.account
+            ],
+        )?;
+    }
+    for m in measured {
+        let n = &m.measures;
+        db.execute(
+            "INSERT INTO measured (work, at, run, round, attempt, input_tokens, cache_read_tokens, \
+             cache_written_tokens, thinking_tokens, turns, calls, first_read, first_context, added, given, before, \
+             received, crossed, priced) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+            params![
+                w,
+                m.at.0,
+                m.run.0,
+                m.round,
+                m.attempt,
+                n.input_tokens,
+                n.cache_read_tokens,
+                n.cache_written_tokens,
+                n.thinking_tokens,
+                n.turns,
+                n.calls,
+                n.first_read,
+                n.first_context,
+                n.added,
+                n.given,
+                json("measured", &n.before)?,
+                n.received,
+                n.crossed,
+                n.priced
+            ],
+        )?;
+    }
+    for p in pinged {
+        let s = &p.spent;
+        db.execute(
+            "INSERT INTO pinged (work, at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, \
+             context_tokens, compactions, failed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                w,
+                p.at.0,
+                p.line,
+                p.session,
+                s.usd_micros,
+                s.input_tokens,
+                s.cached_tokens,
+                s.output_tokens,
+                s.context_tokens,
+                s.compactions,
+                p.failed
             ],
         )?;
     }

@@ -1,9 +1,9 @@
 //! GitHub as the host: main is the repository's main branch on GitHub, fetched into the local repository; the verdict
 //! on a commit is the project's full workflows run by hand on it, once, and judged by the JUnit they upload and by
 //! their jobs' conclusions, never by the pull request's checks or a log; the work's pull request, which the check
-//! pushes the commit to and opens where the branch has none, as a draft whose title and body it keeps to what the work
-//! says of itself, is what is merged, by GitHub once it is made ready. A work that has ended has, where it did not
-//! merge, its pull request closed.
+//! pushes the commit to and opens where the branch has none, as a draft whose title it keeps to the name of the work's
+//! merge and whose body to what the work says of itself, is what is merged, by GitHub once it is made ready, in a
+//! commit of that name. A work that has ended has, where it did not merge, its pull request closed.
 //!
 //! What it does is found again on GitHub by the work's branch and the commit, never kept by the engine: a check given
 //! again after the engine started again pushes nothing GitHub has, finds the pull request it opened and runs the
@@ -261,10 +261,7 @@ impl<A: Api> GitHub<A> {
                     open.url, open.base
                 ));
             }
-            let body = self.body(branch);
-            if open.title != branch.title || open.body != body {
-                self.api.edit(open.number, branch.title, &body).await?;
-            }
+            self.follow(open, branch).await?;
             return Ok(open.clone());
         }
         if let Some(ended) = pulls.first() {
@@ -279,8 +276,8 @@ impl<A: Api> GitHub<A> {
                 ended.url
             ));
         }
-        let body = self.body(branch);
-        match self.api.open(name, main, branch.title, &body).await {
+        let (title, body) = (self.title(branch), self.body(branch));
+        match self.api.open(name, main, &title, &body).await {
             Ok(opened) => Ok(opened),
             // Another check of the work, which found none either, opened it meanwhile: that one is the work's.
             Err(why) => {
@@ -289,6 +286,16 @@ impl<A: Api> GitHub<A> {
                 open.ok_or(why)
             }
         }
+    }
+
+    /// Gives the work's open pull request the title and the body the work's branch has it say now, where it says
+    /// other.
+    async fn follow(&self, open: &Pull, branch: &Branch<'_>) -> Result<(), String> {
+        let (title, body) = (self.title(branch), self.body(branch));
+        if open.title != title || open.body != body {
+            self.api.edit(open.number, &title, &body).await?;
+        }
+        Ok(())
     }
 
     /// Deletes the work's branch on GitHub, where the settings say to.
@@ -385,11 +392,16 @@ impl<A: Api> Host for GitHub<A> {
                 checked: checked.to_string(),
             });
         }
+        (self.follow(open, branch).await)
+            .map_err(|why| format!("GitHub did not name the pull request {} as its merge: {why}", open.url))?;
         if open.draft {
             (self.api.ready(&open.node).await)
                 .map_err(|why| format!("GitHub did not make the pull request {} ready: {why}", open.url))?;
         }
-        let commit = match self.api.merge(open.number, checked, &self.config.merge_method).await {
+        // Titled as GitHub titles a squash by default, with the pull request's number, whatever the method.
+        let title = format!("{} (#{})", self.title(branch), open.number);
+        let method = &self.config.merge_method;
+        let commit = match self.api.merge(open.number, checked, method, &title).await {
             Ok(commit) => commit,
             // GitHub's own word that main moved as it was to merge.
             Err(why) if why.contains(BASE_MODIFIED) => {
@@ -560,7 +572,23 @@ fn fence(text: &str) -> String {
     "`".repeat((longest + 1).max(3))
 }
 
+/// How many characters of the name of a work's merge its pull request and its merge's commit take: GitHub refuses a
+/// title of more than 256, and the name is one line.
+const TITLE: usize = 200;
+
 impl<A: Api> GitHub<A> {
+    /// The title of the work's pull request: the name of its merge, made [`neutral`] as what the work writes is, cut
+    /// to [`TITLE`] characters, saying so.
+    fn title(&self, branch: &Branch<'_>) -> String {
+        let title = neutral(branch.title.trim(), &self.config.withheld);
+        if title.chars().count() <= TITLE {
+            return title;
+        }
+        let mut cut: String = title.chars().take(TITLE - 1).collect();
+        cut.push('…');
+        cut
+    }
+
     /// What the pull request of the work says of itself: what the work wrote of itself, as a block of plain text made
     /// [`neutral`], then what the pull request is. A person's edit of the body is written over at the next check.
     fn body(&self, branch: &Branch<'_>) -> String {

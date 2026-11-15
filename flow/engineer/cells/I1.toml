@@ -18,8 +18,8 @@ not made, such as accepting a slowdown), do not work around it: say where and wh
 judge the answer in `reply_plan_doubts`.
 
 Commit everything in the worktree, and hand in `code`, `decisions` and `evidence` once the project's check passes on
-your last commit: `decisions` only where there is one, and `acceptance` only when a condition must change, the whole
-list as it now stands, with why.
+your last commit: `title` with your first `code` and again when what the change does changes, `decisions` only where
+there is one, and `acceptance` only when a condition must change, the whole list as it now stands, with why.
 
 A red check is fixed, or shown not to be this change's. Where main does not merge into the branch, merge it in
 yourself and run the check again. A point its judge insists on, fix or have the owner rule. If what the item asks
@@ -52,6 +52,7 @@ context = [
 ]
 outputs = [
   "code",
+  "title",
   "decisions",
   "evidence",
   "acceptance",

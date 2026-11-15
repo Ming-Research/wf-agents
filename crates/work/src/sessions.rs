@@ -53,7 +53,8 @@ pub struct RanOn {
 /// Why a line's session was reopened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Why {
-    /// The context of the line's session, as its last round ended, was past the installation's limit, in tokens.
+    /// The context of the line's session, as its last round ended, was past the limit of its line, in tokens: the line
+    /// its rounds' history gives, never more than the installation's limit.
     Limit { context: u64, limit: u64 },
     /// The line's rounds run on another model than the one its session was begun on, whose prompt cache holds
     /// nothing of it.
@@ -65,6 +66,12 @@ pub enum Why {
     /// The service's safety check flagged the line's last round, which is tried again in a session that does not give
     /// the check the same context.
     Flagged,
+    /// The run guard stopped the line's last round, its context having grown past what its cell's history explains:
+    /// it is tried again in a session that does not give it the same context.
+    Guarded,
+    /// The line's last round failed for a prompt too long for the model: a session that holds it would be too long
+    /// for every round after it, so the round is given again, once the work is let on, in a session that does not.
+    TooLong,
     /// The agents' program had no session under the line's id: the round that found it begins one under that id.
     Lost,
     /// The agents' program compacted the line's session during a round: the session goes on under its id, holding a
@@ -81,7 +88,17 @@ impl Why {
 
     /// The names of its kinds, each the name of the words of it where the flow says what the engine writes of a new
     /// session: [`Why::named`] gives a kind's name from here, by [`Why::kind`].
-    pub const KINDS: [&'static str; 7] = ["limit", "model", "account", "owner", "flagged", "lost", "compacted"];
+    pub const KINDS: [&'static str; 9] = [
+        "limit",
+        "model",
+        "account",
+        "owner",
+        "flagged",
+        "guarded",
+        "too_long",
+        "lost",
+        "compacted",
+    ];
 
     /// Its kind's place among [`Why::KINDS`]. The match names every kind, so that a kind added to `Why` is given a
     /// name there before the engine builds.
@@ -92,8 +109,10 @@ impl Why {
             Why::Account { .. } => 2,
             Why::Owner => 3,
             Why::Flagged => 4,
-            Why::Lost => 5,
-            Why::Compacted => 6,
+            Why::Guarded => 5,
+            Why::TooLong => 6,
+            Why::Lost => 7,
+            Why::Compacted => 8,
         }
     }
 
@@ -102,7 +121,13 @@ impl Why {
         let places = match self {
             Why::Limit { context, limit } => vec![("context", context.to_string()), ("limit", limit.to_string())],
             Why::Model { was } => vec![("was", was.clone())],
-            Why::Account { .. } | Why::Owner | Why::Flagged | Why::Lost | Why::Compacted => Vec::new(),
+            Why::Account { .. }
+            | Why::Owner
+            | Why::Flagged
+            | Why::Guarded
+            | Why::TooLong
+            | Why::Lost
+            | Why::Compacted => Vec::new(),
         };
         (Self::KINDS[self.kind()], places)
     }
@@ -147,15 +172,28 @@ fn spent(s: &Spent) -> bool {
     s.input_tokens + s.cached_tokens + s.output_tokens > 0
 }
 
+/// Whether the round of this number of the run put its message into its session: it reached the model, or its last
+/// try's program said, as its stream began, that it had taken the message in, which it writes into the session before
+/// it calls the service (decision `no-round-tries-the-network`). What a round failed of says nothing of this: a crash
+/// may come before the program read its input or after. A round that says neither is taken to have put nothing
+/// there: a message given again where the session holds it costs tokens, while one referred to where the session
+/// lacks it leaves the agent without it.
+pub fn wrote_into(work: &Work, run: RunId, number: usize) -> bool {
+    if work.spent.get(&(run, number)).is_some_and(spent) {
+        return true;
+    }
+    crate::measured::of_round(&work.measured, run, number).is_some_and(|m| m.received)
+}
+
 /// Of the round of this number of the run, on the line whose runs `on_line` tells: which of the line's sessions it runs
 /// in, and whether it begins that session, which it does where no round of the line that took its session before it,
-/// from the same session, spent tokens, as a round that never reached the model has not.
+/// from the same session, put its message into it ([`wrote_into`]).
 pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: RunId, number: usize) -> (u32, bool) {
     let at = start(work, run, number);
     let session = number_at(work, line, at);
-    let went_on = (work.spent.iter())
-        .filter(|((r, _), s)| on_line(*r) && spent(s))
-        .map(|((r, n), _)| start(work, *r, *n))
+    let went_on = (work.spent.keys().chain(work.back.keys()))
+        .filter(|(r, n)| on_line(*r) && wrote_into(work, *r, *n))
+        .map(|(r, n)| start(work, *r, *n))
         .any(|b| b < at && number_at(work, line, b) == session);
     (session, !went_on)
 }
@@ -188,6 +226,8 @@ mod tests {
             Why::Account { was: None },
             Why::Owner,
             Why::Flagged,
+            Why::Guarded,
+            Why::TooLong,
             Why::Lost,
             Why::Compacted,
         ];

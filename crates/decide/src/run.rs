@@ -14,8 +14,9 @@
 //! Whatever carried it out tells the cause apart ([`Failure`]), and each kind is handled its own way. A failure in
 //! passing is tried again, after a wait that grows each time, as a call of the run that the engine makes; so many in a
 //! row and the next pauses the work ([`pausing`]). A return that could not be read is sent back, as any return that
-//! does not meet what the flow requires. A round the service's safety check flagged is tried again, in a new session of
-//! its line, and the second in a row pauses the work. A cause every work shares (the account's usage limit, a command
+//! does not meet what the flow requires. A round the service's safety check flagged, and one the run guard stopped for a
+//! context its cell's history does not explain, is tried again in a new session of its line, and the second of the same
+//! kind in a row pauses the work. A cause every work shares (the account's usage limit, a command
 //! line that cannot run, no network) holds the agents' rounds of every work, which is no matter of one run's: the run
 //! only has its next round once they may begin again. Any other failure pauses the work as the round fails, so that the
 //! owner sees the cause first. Once the work is let on, the run has its next round, given what the failed round was
@@ -32,7 +33,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::flow::BlockId;
+use crate::flow::{self, BlockId};
 use crate::records::{CallId, Seq, Write};
 
 /// What a run has done so far: its rounds, in order.
@@ -79,6 +80,9 @@ pub enum Failure {
     /// The service's safety check flagged the round, stopping it or refusing its message. It is tried again in a new
     /// session of its line, which does not give the check the same context again.
     Flagged,
+    /// The run guard stopped the round: its context grew past what its cell's history explains. It is tried again in a
+    /// new session of its line, since the same session would give the next round the same context.
+    Guarded,
     /// The account's usage limit was reached: no agent round of any work begins until it resets.
     UsageLimit,
     /// The agents' command line cannot run at all: its sign-in has expired, or the program is missing. Only the owner
@@ -114,6 +118,8 @@ pub enum Pausing {
     Passing { failed: u32 },
     /// The round was flagged once more, in the new session its line was given for the time before.
     FlaggedAgain,
+    /// The run guard stopped the round once more, in the new session its line was given for the time before.
+    GuardedAgain,
 }
 
 /// A round of a run.
@@ -126,7 +132,8 @@ pub struct Round {
 /// What came back at the end of a round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Return {
-    /// The return was read: what of what ran the round it dealt with, in the order it named them, the blocks it writes,
+    /// The return was read: what of what ran the round it dealt with, in the order it named them, each trigger by the
+    /// block it stands on or, of a group's trigger, by the group's name ([`flow::stands_on`]); the blocks it writes,
     /// and how many calls it asks for; what was found wrong with it as it was read, which only its reading could see;
     /// and whether a question it asks the owner waits for the answer.
     Came {
@@ -179,8 +186,9 @@ pub struct Call {
 /// records ([`crate::told`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Told {
-    /// What ran the round, which its return may name as dealt with: each block new to the cell as the run started, in
-    /// the order the cell names them, then each block put in to the round since that was not among them.
+    /// What ran the round: each block new to the cell as the run started, in the order the cell names them, then each
+    /// block put in to the round since that was not among them. Its return may name as dealt with each trigger of the
+    /// cell that stands on one of them ([`flow::ran`]).
     pub ran_by: Vec<BlockId>,
     /// Of each block the cell may write, the version the round was told of and the latest.
     pub outputs: BTreeMap<BlockId, Standing>,
@@ -208,6 +216,9 @@ pub struct Standing {
 pub struct Requires<'a> {
     /// The blocks the cell may write.
     pub outputs: &'a [BlockId],
+    /// The cell's triggers that stand on a group of blocks, by the group's name, with the group's blocks
+    /// ([`crate::Cell::groups`]).
+    pub groups: &'a BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks among those that every return that asks for no call includes, but one with a question that waits
     /// for the owner's answer, or one of a round whose cell still waits for the results of calls
     /// ([`Told::waits_for_calls`]).
@@ -239,7 +250,7 @@ pub enum Step {
     /// What came back does not meet what the flow requires: it is sent back, the next round being given why.
     SendBack { unmet: Vec<Unmet> },
     /// What came back meets everything the flow requires: the calls it asks for are made, and the run finishes,
-    /// having dealt with these and writing these blocks.
+    /// having dealt with these blocks, each once, of what ran its round, and writing these blocks.
     Finish {
         dealt_with: Vec<BlockId>,
         writes: Vec<Write>,
@@ -280,9 +291,10 @@ pub enum Unmet {
     NotHandedIn { block: BlockId },
     /// What came back could not be read as a return, for this reason, as whatever carried the round out says.
     Unreadable { why: String },
-    /// The return names the block as dealt with, and it is not among what ran the round.
+    /// The return names the trigger that stands on the block, or on the group of this name, as dealt with, and it did
+    /// not run the round: neither the block nor any of the group's is among what ran it.
     NotRunBy { block: BlockId },
-    /// The return names the block as dealt with twice.
+    /// The return names the trigger that stands on the block, or on the group of this name, as dealt with twice.
     DealtWithTwice { block: BlockId },
     /// Something ran the round, and the return deals with none of it, asks for no call and has no question that waits
     /// for the owner's answer: the cell would be entered again at once for the same.
@@ -313,6 +325,10 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it.
     NotAnswerable { name: String },
+    /// The work's branch, as the round left it, changes the file of this path, which the project protects, and neither
+    /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking
+    /// at the branch as the round ended.
+    Unexplained { path: String },
 }
 
 /// What a pause of the run's work holds back of its rounds.
@@ -326,6 +342,21 @@ pub enum Hold {
     Retry,
     /// Every round: the work is paused, and the run did not start for a note a person wrote.
     Rounds,
+}
+
+/// The blocks a return that is taken deals with: of each trigger it names, in its order, the blocks it stands on that
+/// ran the round, each once. A group's trigger is dealt with for each of its blocks that ran the round, and so each of
+/// their versions the round was told of is consumed.
+fn consumed(dealt_with: &[BlockId], requires: Requires) -> Vec<BlockId> {
+    let mut blocks: Vec<BlockId> = Vec::new();
+    for named in dealt_with {
+        for block in flow::ran(flow::stands_on(requires.groups, named), &requires.told.ran_by) {
+            if !blocks.contains(block) {
+                blocks.push(block.clone());
+            }
+        }
+    }
+    blocks
 }
 
 /// What the run does next. Where the run would have a round that the pause of its work holds back, it is held.
@@ -372,9 +403,10 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             }
             return Step::Rest { calls: open };
         }
-        // Any other failure is no return sent back and makes no call: it counts against no limit. A flagged round is
-        // tried in a new session of its line, which whatever carries it out begins; one whose cause every work
-        // shares has its next round once agents' rounds may begin again; one that paused the work, once it is let on.
+        // Any other failure is no return sent back and makes no call: it counts against no limit. A flagged round, and
+        // one the run guard stopped, is tried in a new session of its line, which whatever carries it out begins; one
+        // whose cause every work shares has its next round once agents' rounds may begin again; one that paused the
+        // work, once it is let on.
         Return::Failed { .. } => return held(Step::Retry, hold),
         Return::Came {
             dealt_with,
@@ -387,7 +419,7 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             let unmet = unmet(dealt_with, writes, *calls, found, *waits, questions, requires);
             if unmet.is_empty() {
                 return Step::Finish {
-                    dealt_with: dealt_with.clone(),
+                    dealt_with: consumed(dealt_with, requires),
                     writes: writes.clone(),
                 };
             }
@@ -445,9 +477,9 @@ fn passing_in_a_row(log: &Log) -> u32 {
 
 /// Why the engine pauses the work as the run's last round fails, if it does: the failure is of a kind running again
 /// cannot help; or it is in passing, and more of the run's last rounds in a row failed so than are tried again
-/// ([`PASSING`]); or the round was flagged, and so was another of the run's last rounds in a row, whatever failed
-/// between them, the first having had its line's session begun anew. Any other failure the run takes up itself
-/// ([`next`]). The failures in a row start anew where the owner let the work on.
+/// ([`PASSING`]); or the round was flagged, or the run guard stopped it, and another of the run's last rounds in a row
+/// failed so, whatever failed between them, the first having had its line's session begun anew. Any other failure the
+/// run takes up itself ([`next`]). The failures in a row start anew where the owner let the work on.
 pub fn pausing(log: &Log) -> Option<Pausing> {
     let mut row = failures_in_a_row(log);
     match row.next()? {
@@ -457,6 +489,7 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
             (failed > PASSING).then_some(Pausing::Passing { failed })
         }
         Failure::Flagged => row.any(|f| f == Failure::Flagged).then_some(Pausing::FlaggedAgain),
+        Failure::Guarded => row.any(|f| f == Failure::Guarded).then_some(Pausing::GuardedAgain),
         Failure::Unread | Failure::UsageLimit | Failure::CannotRun | Failure::Offline => None,
     }
 }
@@ -479,11 +512,14 @@ fn unmet(
 ) -> Vec<Unmet> {
     let told = requires.told;
     let mut unmet = found.to_vec();
-    for (i, block) in dealt_with.iter().enumerate() {
-        if dealt_with[..i].contains(block) {
-            unmet.push(Unmet::DealtWithTwice { block: block.clone() });
-        } else if !told.ran_by.contains(block) {
-            unmet.push(Unmet::NotRunBy { block: block.clone() });
+    for (i, named) in dealt_with.iter().enumerate() {
+        if dealt_with[..i].contains(named) {
+            unmet.push(Unmet::DealtWithTwice { block: named.clone() });
+        } else if flow::ran(flow::stands_on(requires.groups, named), &told.ran_by)
+            .next()
+            .is_none()
+        {
+            unmet.push(Unmet::NotRunBy { block: named.clone() });
         }
     }
     for (i, write) in writes.iter().enumerate() {

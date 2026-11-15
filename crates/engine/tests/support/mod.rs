@@ -297,6 +297,7 @@ impl Driver {
                             );
                             self.seen.released += 1;
                         }
+                        Effect::Ping { .. } => panic!("the work's loop gives a ping, which only its driver gives"),
                     }
                     self.held.push(effect);
                 }
@@ -386,6 +387,7 @@ impl Driver {
                     assert!(r.called.iter().any(|c| c.call == *call), "an unknown call withdrawn");
                 }
                 Effect::Stop { run } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run stopped"),
+                Effect::Ping { .. } => panic!("the work's loop gives a ping, which only its driver gives"),
                 // Nothing of a work is under way as it lets go of what it holds: no round, and no call, which a tool
                 // may be working at in the worktree.
                 Effect::Release { end } => {
@@ -481,7 +483,7 @@ impl Driver {
             .filter(|e| match e {
                 Effect::Round { .. } => true,
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
-                Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } => true,
+                Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } | Effect::Ping { .. } => true,
             })
             .cloned()
             .collect()
@@ -511,8 +513,12 @@ impl Driver {
                 let came = part.returns(self, run, cell.as_str());
                 let place = self.flow.flow.place(&cell).expect("the cell is in the flow");
                 let must = &self.flow.cells[place].must_write;
+                // A hand-in deals with what ran its round, by naming it or by naming nothing, or writes something;
+                // a return that asks for calls, or for nothing, is none.
+                let hand_in = came.dealt_with.as_ref().is_none_or(|d| !d.is_empty()) || !came.writes.is_empty();
                 let lacks = came.asks.is_empty()
-                    && came.dealt_with.is_none()
+                    && hand_in
+                    && !came.said.waits()
                     && must.iter().any(|b| !came.writes.iter().any(|h| h.block == *b));
                 self.returned(run, came);
                 let r = &self.work.records;
@@ -555,6 +561,7 @@ impl Driver {
                     "the release of a work that ended was refused"
                 );
             }
+            Effect::Ping { .. } => panic!("the work's loop gives a ping, which only its driver gives"),
         }
     }
 

@@ -246,6 +246,9 @@ pub struct Cell {
     /// cell while it has a version, changing its meaning, later than the one the cell consumed, that the cell did not
     /// write itself. What the cell is given besides is no matter of the walk's.
     pub runs_on: Vec<BlockId>,
+    /// Of each trigger of the cell that stands on a group of blocks, by the group's name, the group's blocks, each
+    /// among those that run the cell. A return names such a trigger as dealt with by the group's name ([`stands_on`]).
+    pub groups: BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks the cell may write.
     pub outputs: Vec<BlockId>,
     /// How many times in a row the cell may run only for what cells after it wrote, before the work waits for the
@@ -276,12 +279,28 @@ impl Cell {
             applies: Vec::new(),
             requires: Vec::new(),
             runs_on: Vec::new(),
+            groups: BTreeMap::new(),
             outputs: Vec::new(),
             limit: 3,
             calls: 3,
             slot: true,
         }
     }
+}
+
+/// The blocks a trigger of a cell stands on, by the name a return deals with it by: of a group's trigger, by the
+/// group's name, the group's blocks, as the cell's groups ([`Cell::groups`]) hold them; of another, the block of that
+/// name.
+pub fn stands_on<'a>(groups: &'a BTreeMap<BlockId, Vec<BlockId>>, named: &'a BlockId) -> &'a [BlockId] {
+    groups.get(named).map_or(std::slice::from_ref(named), Vec::as_slice)
+}
+
+/// Of the blocks a trigger stands on, those among the blocks that ran a round: the trigger ran the round where any of
+/// them did, and a return that names it as dealt with deals with each of them, as one trigger (design document
+/// `data-and-context`, 9). A group's trigger runs its cell once for a new version of any of the group's blocks, and is
+/// dealt with once for all of them.
+pub fn ran<'a>(stands_on: &'a [BlockId], ran_by: &'a [BlockId]) -> impl Iterator<Item = &'a BlockId> + 'a {
+    stands_on.iter().filter(|b| ran_by.contains(b))
 }
 
 /// One key of a cell's condition or of its preconditions, every one of which holds where the cell runs, or goes on.

@@ -54,6 +54,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     not_yet("merge"),
                 ],
                 "spent": spent(1),
+                // No ping of its sessions was sent.
+                "pinged": { "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
                 "last": asked,
                 // Its first round began as it was resumed, and an agent has run the whole of its time since.
                 "from": resumed,
@@ -155,6 +157,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         // try.
                         "session": { "line": "engineer", "number": 0 },
                         "tries": [],
+                        "missed": null,
+                        "estimated": false,
                     }],
                     "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null }],
                     // A return that asks ends its run, having dealt with nothing.

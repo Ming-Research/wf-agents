@@ -419,11 +419,26 @@ impl Model {
         out
     }
 
+    /// What the return of the round of the cell at this place deals with, with what the round was told: of an agent's,
+    /// each trigger the round was told ran it, named as its agent names it and read as the agents' rounds read a return
+    /// (`CellSpec::dealt_with`); of an act of the engine's, which names none, everything that ran the round.
+    pub fn dealt_with(&self, i: usize, told: &Told) -> Vec<BlockId> {
+        let spec = &self.compiled.cells[i];
+        if !self.agent(i) {
+            return told.ran_by.clone();
+        }
+        let names: Vec<String> = spec.ran(&told.ran_by).map(|t| t.name.clone()).collect();
+        let (dealt_with, none) = spec.dealt_with(&names);
+        assert!(none.is_empty(), "{} names no trigger {none:?}", spec.id);
+        dealt_with
+    }
+
     /// What the round of the cell at this place returns as this variant, with what it was told: the return as the
     /// engine's check of it reads it, and whether a question of it waits for the owner.
     pub fn hand_in(&self, i: usize, variant: &Variant, told: &Told) -> (Return, bool) {
         let cell = &self.cells()[i];
         let ran_by = told.ran_by.clone();
+        let dealt_with = self.dealt_with(i, told);
         if *variant == Variant::SentBack {
             let stray = Write {
                 block: self.stray[i].clone(),
@@ -431,7 +446,7 @@ impl Model {
                 value: None,
             };
             let ret = Return::Came {
-                dealt_with: ran_by,
+                dealt_with,
                 writes: vec![stray],
                 calls: 0,
                 found: Vec::new(),
@@ -499,7 +514,7 @@ impl Model {
             .collect();
         let asks = matches!(variant, Variant::Asks(_));
         let ret = Return::Came {
-            dealt_with: ran_by,
+            dealt_with,
             writes,
             calls: 0,
             found: Vec::new(),
