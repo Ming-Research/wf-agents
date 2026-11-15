@@ -5,4 +5,4 @@ what = "Fires when the owner speaks to the cell."
 block = "{cell}_spoken_to"
 from = "words"
 read = ["discussion"]
-do = """The owner has said something to this cell in `discussion`: that comes first; deal with it before the rest of what is new, and answer it in `reply`. Pass on what it asks of another cell in the block this cell writes for that cell."""
+do = """The owner has said something to this cell in `discussion`: that comes first; deal with it before the rest of what is new, and answer it in `reply`."""
