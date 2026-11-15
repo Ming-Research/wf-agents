@@ -1,0 +1,101 @@
+# The parts the real agents play in tests whose agents play parts (design document `testing`, 12), run with an
+# installation's settings beside this script (`wf-agents run --settings --script`), one round at a time (26). Every
+# round, act and tool is the real one; each item is added, and each act of a person done, by hand. A round named here
+# is given its part; a later run of a cell, or a later round, that is not named plays none, and what it was given is
+# read as any round's is (28).
+
+# The items, in order, so that the kth item's work is the kth work.
+
+# The plain path: every round does its task briefly.
+[[items]]
+title = "Greet by name"
+flow = "engineer"
+writes = [{ block = "background", content = "greet() says \"Hello.\" whoever it greets; it should say \"Hello, Ada.\" when given the name Ada, and \"Hello.\" when given none." }]
+
+# A question to the owner, answered by hand with its second option, not the one it recommends.
+[[items]]
+title = "Greet in the evening"
+flow = "engineer"
+writes = [{ block = "background", content = "greet() says \"Hello.\" at any hour; in the evening it might say \"Good evening.\" instead." }]
+
+# A review that objects once, which sends the work back to the implementation.
+[[items]]
+title = "Greet two people"
+flow = "engineer"
+writes = [{ block = "background", content = "greet() greets one person; given two names it should greet both, \"Hello, Ada and Bo.\"" }]
+
+# The engine stopped by hand while the implementation's round is under way, and started again.
+[[items]]
+title = "Say goodbye"
+flow = "engineer"
+writes = [{ block = "background", content = "There is greet() and no farewell; farewell() should say \"Goodbye.\"" }]
+
+# Every work's: the first round of each agent's cell, and of the implementation's and the review's second run, does
+# its task as briefly as it allows.
+[[flows.engineer.rounds]]
+cell = "R0"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "R1"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "R2"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "D1"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "D2"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "D3"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "D4"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "I1"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "I1"
+run = 2
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "T1"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "T1"
+run = 2
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+[[flows.engineer.rounds]]
+cell = "T2"
+part = "Do your task on the item as briefly as it allows, and return what it asks."
+
+# The second work's research asks the owner one question it waits for.
+[[flows.engineer.rounds]]
+cell = "R1"
+work = 2
+part = "Ask the owner one question with two options that the work needs answered before it goes on, recommend the first, and wait for the answer; return nothing else."
+
+[[flows.engineer.rounds]]
+cell = "R1"
+work = 2
+run = 2
+part = "Do your task on the item as the owner answered, as briefly as it allows, and return what it asks."
+
+# The third work's review objects to one thing in the change, as a review that finds it not yet right does.
+[[flows.engineer.rounds]]
+cell = "T1"
+work = 3
+part = "Object to one thing in the change that a careful review would ask to be done otherwise, and say so as your task asks."

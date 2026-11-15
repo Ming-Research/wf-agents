@@ -73,6 +73,8 @@ pub struct Situation {
     pub results: Vec<String>,
     /// The round is given why what a round of its run returned was sent back, which its session lacks.
     pub sent_back: bool,
+    /// The round's script gives its agent a part to play (design document `testing`, 12).
+    pub part: bool,
 }
 
 /// What fills the places of a message filled in a run. Either way, each setting that the cell's task, what a trigger
@@ -115,6 +117,8 @@ pub struct Run {
     /// Each version the round's own return would have written over, of a block the cell is not given, which its
     /// session lacks: given with why it was sent back, as a datum given `latest` is.
     pub written_over: Vec<(BlockId, Version)>,
+    /// The part the round's script gives its agent to play; none where it gives none.
+    pub part: Option<String>,
 }
 
 /// A datum of the cell's context, as a round fills it.
@@ -376,6 +380,7 @@ pub fn message(
         let applies = match part.only {
             Some(Only::AfterHandIn) => situation.after_hand_in,
             Some(Only::TakesMain) => cell.takes_main,
+            Some(Only::Part) => situation.part,
             None => true,
         };
         if !applies {
@@ -544,7 +549,11 @@ impl Build<'_> {
             Part::Outputs => self.outputs(),
             Part::Results => self.results(),
             Part::SentBack => self.sent_back(),
-            Part::Heading | Part::Task | Part::Context | Part::Triggers => own,
+            Part::Played => match run {
+                None => own,
+                Some(run) => filled(own, &[("part", run.part.as_deref().unwrap_or_default())]),
+            },
+            Part::Heading | Part::Task | Part::Context | Part::Triggers | Part::Told => own,
         })
     }
 

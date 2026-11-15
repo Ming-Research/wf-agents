@@ -999,7 +999,7 @@ pub struct MessagePart {
     /// Of a part the session keeps, as data are kept, the kind it is kept in, as a datum's: it is sent where the
     /// session lacks its latest version, and again when it changes. A part with none is written anew each time.
     pub kind: Option<InputKind>,
-    /// Of a part written anew each time, when it is sent at all; each time where none.
+    /// When it is sent at all; each time where none.
     pub only: Option<Only>,
     pub text: Option<String>,
     /// Of the part `main`, what it says in place of `text` where main was not merged into the work's branch: for a
@@ -1049,6 +1049,12 @@ pub enum Part {
     SentBack,
     /// Each trigger new to the cell.
     Triggers,
+    /// What tells the agent of a round its script gives a part to play that it is a test agent, and what it is there
+    /// to find (design document `testing`, 12).
+    Told,
+    /// The part the round's script gives its agent to play.
+    #[serde(rename = "part")]
+    Played,
 }
 
 impl Part {
@@ -1065,11 +1071,13 @@ impl Part {
             Part::Results => "results",
             Part::SentBack => "sent_back",
             Part::Triggers => "triggers",
+            Part::Told => "told",
+            Part::Played => "part",
         }
     }
 }
 
-/// When a part written anew each time is sent at all.
+/// When a part is sent at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Only {
@@ -1077,6 +1085,8 @@ pub enum Only {
     AfterHandIn,
     /// To a cell that takes main in.
     TakesMain,
+    /// To a round its script gives a part to play (design document `testing`, 12).
+    Part,
 }
 
 impl Only {
@@ -1085,6 +1095,7 @@ impl Only {
         match self {
             Only::AfterHandIn => "after_hand_in",
             Only::TakesMain => "takes_main",
+            Only::Part => "part",
         }
     }
 }

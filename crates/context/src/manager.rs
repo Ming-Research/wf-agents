@@ -13,8 +13,10 @@
 //!
 //! The round is filled with what its cell is given and its session lacks, in the order of the message: which work it
 //! is, each datum of the cell's context by the kind the cell gives it in, what the cell returns, its task, and the
-//! results and the reasons for sending back that the round is given. A datum with no version yet is left out, and so
-//! is one the session holds, but for the line that says so where it is new to the cell.
+//! results and the reasons for sending back that the round is given; and, where the round's script gives its agent a
+//! part to play, that part, with the words that it is a test agent where its session lacks them (design document
+//! `testing`, 12). A datum with no version yet is left out, and so is one the session holds, but for the line that
+//! says so where it is new to the cell.
 //!
 //! What changed in a datum given `last_and_latest` is what differs in its text, but for a datum whose versions the
 //! carrier compares itself, as git compares the versions of the design tree: the carrier gives what changed from each
@@ -50,8 +52,9 @@ pub type Changes = BTreeMap<(BlockId, Seq), String>;
 /// what came of taking main in as the run started, where the cell takes main in and the branch did not hold it
 /// already; what changed in the data whose versions the carrier compares itself; the settings the flow's words may
 /// name, with their values; each result given otherwise than the records hold it, as a result of the tool `query` is
-/// given cut, and so each version of a block the result of the tests a cell asked for comes in; and what fills each
-/// place of the words of a block that the engine fills, by its name.
+/// given cut, and so each version of a block the result of the tests a cell asked for comes in; what fills each
+/// place of the words of a block that the engine fills, by its name; and the part the round's script gives its agent
+/// to play, which the flow's records do not hold either.
 #[derive(Clone, Copy, Debug)]
 pub struct Carried<'a> {
     pub about: For<'a>,
@@ -61,6 +64,8 @@ pub struct Carried<'a> {
     pub results: &'a BTreeMap<CallId, String>,
     pub tested: &'a BTreeMap<(BlockId, Seq), String>,
     pub places: &'a BTreeMap<String, String>,
+    /// The part the round's script gives its agent to play; none where it gives none.
+    pub part: Option<&'a str>,
 }
 
 /// What a round is sent as its cell is entered, and what that fills into its session.
@@ -118,9 +123,11 @@ pub fn enter(
         main: carried.main.cloned(),
         named: carried.named.clone(),
         places: carried.places.clone(),
+        part: carried.part.map(str::to_string),
         ..Run::default()
     };
     situation.main = values.main.as_ref().map(|m| m.key().to_string());
+    situation.part = carried.part.is_some();
     // What each datum fills, by its name.
     let mut filling: BTreeMap<&BlockId, Vec<Fill>> = BTreeMap::new();
     for given in &cell.given {
@@ -562,6 +569,7 @@ mod tests {
             results: &results,
             tested: &tested,
             places: &places,
+            part: None,
         };
         assert_eq!(given_content(&carried, &work, &result, Seq(5)), "The result, cut.");
         assert_eq!(given_content(&carried, &work, &plan, Seq(6)), "The whole plan.");
