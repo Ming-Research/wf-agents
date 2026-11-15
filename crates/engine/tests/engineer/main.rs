@@ -767,8 +767,13 @@ impl Random {
                 if asks && !d.rng.chance(20) {
                     continue;
                 }
-                // An entry of a record is new whoever writes it.
-                let matters = d.flow.flow.adds_entries(b) || d.rng.chance(70);
+                // An entry of a record is new whoever writes it: where another block is written as a change that does
+                // not matter, a record is not written at all, so that a question, an answer to the owner or an ask is
+                // written as often as a change that matters.
+                let matters = d.rng.chance(70);
+                if d.flow.flow.adds_entries(b) && !matters {
+                    continue;
+                }
                 let mut h = handed(b, cell, matters, None);
                 // A block a test of content reads is at times handed in holding nothing.
                 if self.roles.contents.contains(b) && d.rng.chance(30) {
