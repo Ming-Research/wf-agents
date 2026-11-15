@@ -6,8 +6,9 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AGAIN_MS, firstOpening, heldByWork, newlyHeld, openingOf, useNotifications } from './notify';
-import type { Failure, Item, Items, Now, Waited } from './works-api';
+import type { Item, Items, Now, Wait } from './works-api';
 import { fixtureItems } from './works/fixtures';
+import { waitCount } from './works/words';
 
 /// The browser's notifications, as a test sees them: each one made, and the leave the page was given.
 class Told {
@@ -67,76 +68,40 @@ function drawn(items: Items | null, on = true) {
   return (next: Items | null) => act(() => root.render(<Notifying items={next} on={on} />));
 }
 
-/// A question to the owner by the call that puts it.
-const question = (call: number, words = `Question ${call}?`): Waited => ({
-  kind: 'call',
-  call,
-  who: 'owner',
-  what: { kind: 'question', who: 'owner', question: words },
-});
+/// A wait in the engine's list.
+const wait = (key: string, why: string, ends: Wait['ends'] = { kind: 'resume' }): Wait => ({ key, why, ends });
 
-const waiting = (...on: Waited[]): Now => ({ kind: 'waits', at: 'plan', on });
+/// The engine's wait for the answer to a question put as a call.
+const question = (call: number, words = `Question ${call}?`): Wait => wait(`call-${call}`, words, { kind: 'reply', call });
 
-/// The wait every work shares, of this cause.
-const shared = (failure: Failure): Waited => ({
-  kind: 'agents',
-  outage: {
-    service: 'agents',
-    failure,
-    why: 'Not logged in',
-    work: 3,
-    run: 2,
-    round: 1,
-    since: 0,
-    checked: null,
-    until: { kind: 'checked', at: 0 },
-    holds: true,
-  },
-});
-
-/// A review's verdict that holds the work, for the owner to rule on.
-const VERDICT: Waited = {
-  kind: 'precondition',
-  test: 'may_merge',
-  words: 'The reviews are content and the owner lets it merge',
-  by: [{ kind: 'owner' }, { kind: 'cell', cell: 'review' }],
-};
-
-/// The fixtures' items, with the work of this item doing this now.
-function withNow(item: number, now: Now): Items {
-  const items = fixtureItems().items.map((i): Item => (i.number === item ? { ...i, work: { ...i.work, now } } : i));
+/// The fixtures' items, with the work of this item waiting on the owner for these, as the engine's list says.
+function withWaits(item: number, waits: Wait[]): Items {
+  const items = fixtureItems().items.map((i): Item => (i.number === item ? { ...i, work: { ...i.work, waits } } : i));
   return { items, outage: null };
 }
 
+/// Each kind the engine's list names, as it gives it.
+const KINDS: Wait[] = [
+  question(3, 'Which?'),
+  wait('answer-scope', 'What of scope?', { kind: 'answer', question: 'scope', version: 4 }),
+  wait('limit', 'The run of plan had 2 returns sent back, its limit.', { kind: 'goOn', call: 4 }),
+  wait('pause', 'The engine paused the work: a round failed'),
+  wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
+  wait('write-content', 'merge requires test = may_merge, which content keeps from holding.', {
+    kind: 'write',
+    block: 'content',
+    value: 'yes',
+  }),
+  wait('agents', "The agents' command line cannot run: Not logged in", { kind: 'outside', what: 'Sign it in again.' }),
+];
+
 describe('what waits for the owner in a work', () => {
-  it('is counted as `waitsOf` says, whatever its kind', () => {
-    const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
+  it("is counted as the engine's list says, whatever its kind, and nothing it leaves out", () => {
     const work = (fixtureItems().items.find((i) => i.number === 142) as Item).work.number;
-    const n = (now: Now) => heldByWork(withNow(142, now).items).get(work) ?? 0;
-    expect(n(waiting(question(3, 'Which?'), { kind: 'slot' }))).toBe(1);
-    expect(n(waiting({ kind: 'answer', question: 'scope' }, question(4, 'Why?')))).toBe(2);
-    expect(n(waiting({ kind: 'call', call: 4, who: 'owner', what: limit }))).toBe(1);
-    expect(n(waiting({ kind: 'limit', runs: 3 }))).toBe(1);
-    expect(n({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toBe(1);
-    expect(n({ kind: 'everything', by: 'engine' })).toBe(1);
-    expect(n(waiting(VERDICT))).toBe(1);
-    expect(n(waiting(shared('cannotRun')))).toBe(1);
-    // The merge's wait for the owner's answers is the owner's; a wait for the items the work depends on is not.
-    const of = (source: string): Waited => ({
-      kind: 'precondition',
-      test: source,
-      words: source,
-      by: [{ kind: 'outside', source }],
-    });
-    expect(n(waiting(of('asked')))).toBe(1);
-    expect(n(waiting(of('dependencies')))).toBe(0);
-    expect(n({ kind: 'everything', by: 'owner' })).toBe(0);
-    expect(n(waiting(shared('usageLimit')))).toBe(0);
-    expect(n(waiting(shared('offline')))).toBe(0);
-    expect(n(waiting(shared('unavailable')))).toBe(0);
-    expect(n({ kind: 'stalled', at: 'M2', on: [], by: [] })).toBe(0);
-    expect(n({ kind: 'paused', by: 'owner', why: null })).toBe(0);
-    expect(n({ kind: 'fault', words: 'Two entries at 3' })).toBe(0);
+    const n = (waits: Wait[]) => heldByWork(withWaits(142, waits).items).get(work) ?? 0;
+    for (const w of KINDS) expect(n([w])).toBe(1);
+    expect(n(KINDS)).toBe(KINDS.length);
+    expect(n([])).toBe(0);
   });
 
   it('are new where a work holds more of them than before, not where one of several was answered', () => {
@@ -144,58 +109,56 @@ describe('what waits for the owner in a work', () => {
     expect(newlyHeld(null, items)).toEqual([]);
     const before = heldByWork(items);
     expect(newlyHeld(before, items)).toEqual([]);
-    const two = withNow(142, waiting(question(3), question(4))).items;
+    const two = withWaits(142, [question(3), question(4)]).items;
     expect(newlyHeld(before, two).map((i) => i.number)).toEqual([142]);
     // Call 3 answered, call 4 left: nothing new.
-    expect(newlyHeld(heldByWork(two), withNow(142, waiting(question(4))).items)).toEqual([]);
+    expect(newlyHeld(heldByWork(two), withWaits(142, [question(4)]).items)).toEqual([]);
   });
 });
 
 describe("the browser's notifications", () => {
-  it('tell of each work that comes to wait for something new once, by its item and what it waits for, and open that card', () => {
+  it('tell of each work that comes to wait for something new once, by its item and why, and open that card', () => {
     const draw = drawn(fixtureItems());
     expect(Told.made).toEqual([]);
-    draw(withNow(142, waiting(question(9, 'Keep the width per view?'))));
+    draw(withWaits(142, [question(9, 'Keep the width per view?')]));
     expect(Told.made.map((n) => [n.title, n.options.body, n.options.tag, n.options.renotify])).toEqual([
-      ["Waits for you: #142 Keep the panel's width", 'Keep the width per view?', 'wf-agents-item-142', true],
+      ["Waiting for you: #142 Keep the panel's width", 'Keep the width per view?', 'wf-agents-item-142', true],
     ]);
-    draw(withNow(142, waiting(question(9, 'Keep the width per view?'))));
+    draw(withWaits(142, [question(9, 'Keep the width per view?')]));
     expect(Told.made).toHaveLength(1);
     act(() => Told.made[0].onclick?.());
-    expect(window.location.hash).toBe('#/console/items/142/waits/q9');
+    expect(window.location.hash).toBe('#/console/items/142/waits/call-9');
     expect(Told.made[0].closed).toBe(true);
   });
 
-  it("tell of a pause the engine made, a work held after the engine started again, a cell at its limit and a review's verdict that holds the work, each opening its card", () => {
+  it('tell of each kind by its reason, the first line of what a question asks, the state said once in the title, and open its card', () => {
     const draw = drawn(fixtureItems());
-    draw(withNow(142, { kind: 'paused', by: 'engine', why: 'A round failed.' }));
-    draw(withNow(142, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }));
-    draw(withNow(142, { kind: 'everything', by: 'engine' }));
-    draw(withNow(142, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }));
-    draw(withNow(142, waiting({ kind: 'limit', runs: 3 })));
-    draw(withNow(142, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }));
-    draw(withNow(142, waiting(VERDICT)));
-    expect(Told.made.map((n) => [n.options.body, n.options.tag])).toEqual([
-      ['paused by the engine: A round failed.', 'wf-agents-item-142'],
-      ['held back by the pause of everything, set as the engine started again', 'wf-agents-item-142'],
-      ['plan reached its limit, and waits for you to let it go on', 'wf-agents-item-142'],
-      ['The reviews are content and the owner lets it merge', 'wf-agents-item-142'],
-    ]);
-    const opens = (now: Now) => openingOf(withNow(142, now).items.find((i) => i.number === 142) as Item)?.opens;
-    expect(opens({ kind: 'paused', by: 'engine', why: null })).toBe('#/console/items/142/waits/pause');
-    expect(opens({ kind: 'everything', by: 'engine' })).toBe('#/console/items/142/waits/held');
-    expect(opens(waiting({ kind: 'limit', runs: 3 }))).toBe('#/console/items/142/waits/limit');
-    expect(opens(waiting(VERDICT))).toBe('#/console/items/142/waits/precondition');
+    for (const w of KINDS) {
+      draw(withWaits(142, [w]));
+      draw(withWaits(142, []));
+    }
+    const ask = wait('answer-long', 'Which way?\n\nThe details.', { kind: 'answer', question: 'long', version: 2 });
+    draw(withWaits(142, [ask]));
+    expect(Told.made.map((n) => n.options.body)).toEqual([...KINDS.map((w) => w.why), 'Which way?']);
+    for (const n of Told.made) {
+      expect(n.title).toBe("Waiting for you: #142 Keep the panel's width");
+      expect(n.options.body).not.toContain('waits for you');
+    }
+    const opens = (w: Wait) => openingOf(withWaits(142, [w]).items.find((i) => i.number === 142) as Item)?.opens;
+    for (const w of KINDS) expect(opens(w)).toBe(`#/console/items/142/waits/${w.key}`);
   });
 
-  it('tell nothing of a fault, a stall, a pause of the owner, a pause of everything the owner set, a wait the engine lifts, or a work held for main', () => {
+  it('tell nothing where the list holds nothing, whatever the work does', () => {
     const draw = drawn(fixtureItems());
-    draw(withNow(142, { kind: 'stalled', at: 'M2', on: [], by: [] }));
-    draw(withNow(142, waiting(shared('usageLimit'))));
-    draw(withNow(142, { kind: 'paused', by: 'owner', why: null }));
-    draw(withNow(142, { kind: 'everything', by: 'owner' }));
-    draw(withNow(142, { kind: 'fault', words: 'Two entries at 3' }));
-    draw(withNow(142, waiting({ kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' })));
+    const at = (now: Now): Items => {
+      const items = fixtureItems().items.map((i): Item => (i.number === 142 ? { ...i, work: { ...i.work, now, waits: [] } } : i));
+      return { items, outage: null };
+    };
+    draw(at({ kind: 'stalled', at: 'M2', on: [], by: [] }));
+    draw(at({ kind: 'paused', by: 'owner', why: null }));
+    draw(at({ kind: 'everything', by: 'owner' }));
+    draw(at({ kind: 'fault', words: 'Two entries at 3' }));
+    draw(at({ kind: 'waits', at: 'M1', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'w' }] }));
     expect(Told.made).toEqual([]);
   });
 
@@ -204,10 +167,10 @@ describe("the browser's notifications", () => {
     // The page is in sight, and has the focus.
     expect(document.visibilityState).toBe('visible');
     looking = true;
-    draw(withNow(142, waiting(question(9))));
+    draw(withWaits(142, [question(9)]));
     looking = false;
     Told.permission = 'denied';
-    draw(withNow(142, waiting(question(9), question(10))));
+    draw(withWaits(142, [question(9), question(10)]));
     expect(Told.made).toEqual([]);
   });
 
@@ -219,9 +182,9 @@ describe("the browser's notifications", () => {
     act(() => {
       vi.advanceTimersByTime(AGAIN_MS);
     });
-    const title = `${left} ${left === 1 ? 'thing waits' : 'things wait'} for you`;
+    // In the words of the bar's count.
     expect(Told.made.map((n) => [n.title, n.options.tag, n.options.renotify])).toEqual([
-      [title, 'wf-agents-questions', true],
+      [waitCount(left), 'wf-agents-waits', true],
     ]);
     // A click opens the first of them, at its card.
     const first = firstOpening(fixtureItems().items);
@@ -249,7 +212,7 @@ describe("the browser's notifications", () => {
       window.dispatchEvent(new Event('pointerdown'));
     });
     Told.permission = 'granted';
-    draw(withNow(142, waiting(question(9))));
+    draw(withWaits(142, [question(9)]));
     act(() => {
       vi.advanceTimersByTime(AGAIN_MS);
     });

@@ -37,7 +37,11 @@ use flow::{Compiled, Has, Source, compile};
 /// for the owner's word: a choice, `go`, that people write and a named test reads. Returns may be sent back twice, a
 /// run may make three calls, and a cell may go round three times.
 fn judged() -> Compiled {
-    compile(&judged_source(), &has(&["main"])).expect("the definition compiles")
+    let mut flow = compile(&judged_source(), &has(&["main"])).expect("the definition compiles");
+    // A flow written before it was laid out has no words beside it: it takes those beside the repository's flows.
+    flow.waits =
+        flow::agents::Waits::of(include_str!("../../../../flow/agents/waits.toml")).expect("the words are read");
+    flow
 }
 
 /// The files of the judged flow.

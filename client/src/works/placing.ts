@@ -106,11 +106,11 @@ export function findRun(steps: Step[], run: number): Run | undefined {
   return runsOf(steps).find((r) => r.run === run);
 }
 
-/// Where a work stands in the list: what waits for the owner first, as `waitsOf` says, the one definition of what waits
-/// on the owner, then a fault or a stall, then what goes on by itself, then what the owner paused, then what has ended.
+/// Where a work stands in the list: what waits for the owner first, as the engine's one list of it says, then a fault or
+/// a stall, then what goes on by itself, then what the owner paused, then what has ended.
 export function rank(summary: Summary): number {
   const now = summary.now;
-  if (waitsOnOwner(now)) return 0;
+  if (waitsOnOwner(summary)) return 0;
   if (now.kind === 'fault' || now.kind === 'stalled') return 1;
   if (now.kind === 'merged' || now.kind === 'cancelled') return 4;
   if (summary.paused || now.kind === 'paused' || now.kind === 'everything') return 3;

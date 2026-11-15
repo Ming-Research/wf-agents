@@ -62,7 +62,8 @@
 //! and shows nothing more of the works, which it may hold otherwise than the store does, and is to be opened again
 //! (principle `nothing-passes-for-normal`).
 //!
-//! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`].
+//! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`]; what
+//! a work waits on the owner for, defined once for everything that counts or shows it, is [`owner`].
 //!
 //! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
 //! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
@@ -84,6 +85,8 @@ pub mod changes;
 pub mod history;
 
 pub mod judged;
+
+pub mod owner;
 
 pub mod sessions;
 
@@ -1382,6 +1385,25 @@ impl Driver {
     pub fn held(&self, number: WorkNumber) -> Option<Holder> {
         let kept = self.work(number)?;
         held(kept.flow, kept.work, self.room(Some(number), true))
+    }
+
+    /// What the work waits on the owner for now, as the one definition of it says ([`owner::waits`]), with what holds
+    /// every work at once as it stands: the pause of everything, and the agents' wait where their command line cannot
+    /// run. None where there is no such work.
+    pub fn waits_on_owner(&self, number: WorkNumber) -> Vec<owner::Waiting> {
+        let (Some(kept), Some(view)) = (self.work(number), self.view(number)) else {
+            return Vec::new();
+        };
+        let outage = self.outage().filter(Outage::holds);
+        let cannot_run = (outage.as_ref())
+            .map(Outage::down)
+            .filter(|(failure, _)| *failure == Failure::CannotRun)
+            .map(|(_, why)| why);
+        let shared = owner::Shared {
+            everything: self.paused.map(|paused| paused.by),
+            cannot_run,
+        };
+        owner::waits(&kept, &kept.work.records, &view.decision, self.held(number), shared)
     }
 
     /// The slots, as they stand.

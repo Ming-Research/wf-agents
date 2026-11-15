@@ -4,41 +4,33 @@
 import type { Period } from '../route';
 import type { Spent, Summary } from '../works-api';
 import { waitsOnOwner } from '../works/waiting';
+import { STATE, waitingFor } from '../works/words';
 import type { Merged } from './api';
 
 /// Where a work stands now, as the owner acts on it, each work in one place: it is halted at a fault, or stalled, no
-/// cell able to move it on; it waits for the owner, as `waitsOf` says, the one definition of what waits on the owner; a
-/// round of it runs; its next round is due, as soon as a slot is free or the owner's pause of everything is lifted; it
-/// waits for what another gives; the owner paused it. What needs the owner comes first.
+/// cell able to move it on; it waits for the owner, as the engine's one list of it says; a round of it runs; its next
+/// round is due, as soon as a slot is free or the owner's pause of everything is lifted; it waits for what another
+/// gives; the owner paused it. What needs the owner comes first.
 export const STANDINGS = ['halted', 'owner', 'running', 'due', 'others', 'paused'] as const;
 export type Standing = (typeof STANDINGS)[number];
 
+/// The tiles' names, the states' own words, and what each counts, said on pointing at it.
 export const STANDING_WORDS: Record<Standing, { name: string; title: string }> = {
-  halted: {
-    name: 'Halted',
-    title: 'At a fault, or stalled, no cell able to write what it waits for',
-  },
-  owner: {
-    name: 'Waits for the owner',
-    title:
-      "Waits for an answer, a let-go at a limit, or a ruling on a review's verdict; is paused by the engine, or held by the pause of everything the engine set as it started again; or waits for the agents' command line, which cannot run",
-  },
-  running: { name: 'Running', title: 'A round of it is under way' },
+  halted: { name: STATE.halted, title: 'At a fault, or stalled: no cell can move it on' },
+  owner: { name: STATE.owner, title: 'Each has a card on its item in the console, where you act on it' },
+  running: { name: STATE.running, title: 'A round of it is under way' },
   due: {
     name: 'Due',
-    title: "Its next round begins once a slot is free, or once the owner's pause of everything is lifted",
+    title: "Its next round begins once a slot is free, or once your pause of everything is lifted",
   },
-  others: {
-    name: 'Waits on others',
-    title: 'Waits for what the owner does not give: a tool, the items it depends on, a cell, or the wait every work shares',
-  },
-  paused: { name: 'Paused', title: 'Paused by the owner: only a note to a cell is answered until it is let on' },
+  others: { name: waitingFor('others'), title: 'Waits for what another gives: a tool, a source outside the work, or the engine' },
+  paused: { name: STATE.paused, title: 'Paused by you: only a note to a cell is answered until it is let on' },
 };
 
 /// Where a work stands now; none once it has ended.
 export function standingOf(work: Summary): Standing | null {
   const now = work.now;
-  if (waitsOnOwner(now)) return 'owner';
+  if (waitsOnOwner(work)) return 'owner';
   switch (now.kind) {
     case 'merged':
     case 'cancelled':

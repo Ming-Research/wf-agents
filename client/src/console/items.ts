@@ -8,10 +8,9 @@
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
 // them by number is.
 
-import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
+import type { CellNow, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';
 import { waitsOf } from '../works/waiting';
-import { outageDown, waitsForOwner } from '../works/words';
 import { itemOf } from './real';
 
 /// What the item is to deliver: not yet, delivered, or given up.
@@ -22,9 +21,11 @@ export type ItemStanding = 'open' | 'done' | 'cancelled';
 export type ShownWork = {
   number: number;
   now: Now;
-  /// Only a note to a cell is answered; a round under way goes on.
-  paused: boolean;
+  /// Who paused it, where it is paused: only a note to a cell is answered; a round under way goes on.
+  paused: Pauser | null;
   cells: CellNow[];
+  /// What it waits on the owner for, as the engine's one list of it says.
+  waits: Wait[];
   /// When its first round began, from which its age is counted; when it was added, before it has a round or from an
   /// engine that does not say.
   from: number;
@@ -40,10 +41,8 @@ export type Shown = {
   id: number;
   title: string;
   standing: ItemStanding;
-  /// The things its work is stopped for that the owner gives: answers, preconditions they can make hold, a run let on.
+  /// How many things its work waits on the owner for, as the engine's one list of it counts them.
   asks: number;
-  /// The questions that wait for the owner's answer and do not stop its work yet (mock: `mock.ts`).
-  questions: number;
   /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
   /// of its own to show. Its flow says so (`deliver`); until the engine has that flow, the page's rule above does.
   deliver: boolean;
@@ -69,22 +68,8 @@ export function standingOf(i: Item | undefined): ItemStanding {
   return now?.kind === 'merged' ? 'done' : now?.kind === 'cancelled' ? 'cancelled' : 'open';
 }
 
-/// Who gives what a work waits for: the person a call names, the owner for a run let on at its limit or a precondition
-/// the engine says the owner can make hold, the owner's answers among them, none where the engine, another source
-/// outside the work or a cell gives it.
-export function whoGives(w: Waited): 'owner' | 'architect' | null {
-  if (w.kind === 'limit' || w.kind === 'calls') return 'owner';
-  if (w.kind === 'precondition') return waitsForOwner(w) ? 'owner' : null;
-  if (w.kind === 'slot' || w.kind === 'outside') return null;
-  if (w.kind === 'answer') return 'owner';
-  if (w.kind === 'turn') return null;
-  // A wait every work shares is the owner's to end only where the command line cannot run.
-  if (w.kind === 'agents') return outageDown(w.outage).failure === 'cannotRun' ? 'owner' : null;
-  return w.who;
-}
-
-/// How many of the things a work waits for the owner gives.
-export const asksOf = (now: Now): number => waitsOf(now).length;
+/// How many things a work waits on the owner for.
+export const asksOf = (w: Pick<Summary, 'waits'>): number => waitsOf(w).length;
 
 /// Whether a work has begun: a round is under way, or a cell of it has run.
 export const started = (w: Summary): boolean =>
@@ -154,8 +139,7 @@ export function shownTree(data: Items): Shown[] {
       id,
       title: i?.title ?? '',
       standing: standing(id),
-      asks: w === undefined ? 0 : asksOf(w.now),
-      questions: mock?.openQuestions ?? 0,
+      asks: w === undefined ? 0 : asksOf(w),
       deliver: deliverable || w?.flow === 'deliver',
       blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
       // New to the owner exactly when something is unread: one fact, not two.
@@ -170,6 +154,7 @@ export function shownTree(data: Items): Shown[] {
               now: w.now,
               paused: w.paused,
               cells: w.cells,
+              waits: waitsOf(w),
               from: w.from ?? w.added,
               bar: w.bar ?? '',
               sentBack: w.sentBack ?? 0,
@@ -196,7 +181,6 @@ export function shownTree(data: Items): Shown[] {
     title: byId.get(id)?.title ?? '',
     standing: standing(id),
     asks: 0,
-    questions: 0,
     deliver: false,
     blocked: 0,
     unseen: false,

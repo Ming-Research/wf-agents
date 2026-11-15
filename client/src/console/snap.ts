@@ -33,6 +33,7 @@ import { MARK, MARKS } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { waitsOnOwner } from '../works/waiting';
 import { type Shown, type ShownWork } from './items';
+import { BAR_KINDS, TRACK_WORDS } from './track';
 import { indexTree, type Tree } from './tree';
 
 export const NODE_W = 300;
@@ -109,8 +110,8 @@ export const KEEP = 3;
 const LINK_EASE = 0.2;
 export const PACE = 1.5;
 
-/// The console's colours: words, marks and lines in greys; one accent for what runs; amber for what
-/// waits for the owner; red for what has gone wrong or on long; violet for what has gone on for days. These are the
+/// The console's colours: words, marks and lines in greys; one accent for what runs; red for a stop, what waits for the
+/// owner or what the engine halted; and for a work's age amber, red and violet as it goes on longer. These are the
 /// console's own, in light; `themed` gives those the page's tokens came from as the tokens say, light or dark.
 const LIGHT = {
   ink: '#1f2937',
@@ -132,11 +133,9 @@ const LIGHT = {
   chosenRibbon: '#e2d7fd',
   /// A column's bar on the map, light, so that the marks across it show.
   mapBar: '#aab6fd',
-  /// The colours of works, which tint their cards: running a vivid sky blue, green being kept for what is done; waiting
-  /// for the owner a vivid orange, the one that asks for them; waiting for something else a pale yellow, which asks
-  /// nothing of them; paused grey; halted red.
+  /// The colours of works, which tint their cards: running in the accent, green being kept for what is done; paused, and
+  /// waiting for something else, grey; stopped, for the owner or by the engine, red.
   running: '#8b5cf6',
-  asked: '#f5840c',
   paused: '#8b93a1',
   halted: '#e5484d',
   waiting: '#e8cc6a',
@@ -153,7 +152,7 @@ const LIGHT = {
   accent: '#8b5cf6',
   /// Where a work's time went, in the colours of the track in the item's window (styles/parts.css): a model's, the
   /// tools', idle, and the ground they lie on with how far it lets the card through. An idle stretch takes the colour
-  /// of what the work waited for: the owner's (`asked`), a pause's (`muted`), or idle.
+  /// of what the work waited for: the owner's red, a pause's muted grey, or idle.
   model: '#8b5cf6',
   tools: '#14a3a8',
   idle: '#e8ecf2',
@@ -189,7 +188,6 @@ export function themed(): typeof LIGHT {
     page: token('--ground', LIGHT.page),
     chosen: token('--accent', LIGHT.chosen),
     running: token('--running', LIGHT.running),
-    asked: token('--orange', LIGHT.asked),
     halted: token('--red', LIGHT.halted),
     red: token('--red', LIGHT.red),
     green: token('--green', LIGHT.green),
@@ -298,19 +296,28 @@ const TONE = () => ({
   done: PALETTE.violet,
 });
 
+/// Where a card draws its work's time: how wide the line is, where it begins from the card's left, and how far above
+/// or below it the pointer may be to point at it.
+const BAR_W = 70;
+const BAR_X = NODE_W - 8 - 36 - BAR_W;
+const BAR_REACH = 6;
+
+/// The middle of a card's second row, the work's, from the card's middle, for a card `h` high.
+const workRow = (h: number) => -h / 2 + h - (WORK_ROW * ROW) / 2 - 3;
+
 /// What a work's state is to its node: running, waiting for the owner, paused, stopped by the engine for a problem, or
 /// waiting for something else.
 export type Mood = 'running' | 'owner' | 'paused' | 'halted' | 'waiting';
 
-/// A round under way or about to begin is running; a fault halts it, and so does a stall, no cell able to move it on; a
-/// work that waits on the owner, as `waitsOf` says, waits for the owner; the owner's pause and the owner's pause of
-/// everything pause it; one that waits while the engine carries out a call for one of its cells, a tool's, runs, as a
-/// round under way does.
-export function moodOf(w: Pick<ShownWork, 'now' | 'cells'>): Mood {
+/// A work that waits on the owner, as the engine's one list of it says, waits for the owner; a round under way or about
+/// to begin is running; a fault halts it, and so does a stall, no cell able to move it on; the owner's pause and the
+/// owner's pause of everything pause it; one that waits while the engine carries out a call for one of its cells, a
+/// tool's, runs, as a round under way does.
+export function moodOf(w: Pick<ShownWork, 'now' | 'cells' | 'waits'>): Mood {
   const now = w.now;
+  if (waitsOnOwner(w)) return 'owner';
   if (now.kind === 'round' || now.kind === 'next') return 'running';
   if (now.kind === 'fault' || now.kind === 'stalled') return 'halted';
-  if (waitsOnOwner(now)) return 'owner';
   if (now.kind === 'paused' || now.kind === 'everything') return 'paused';
   if (w.cells.some((c) => c.state === 'calling')) return 'running';
   return 'waiting';
@@ -834,7 +841,7 @@ export class SnapScene {
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
-    // mark a card has, as what the owner looks for first; its messages unread, white on orange; its returns sent back,
+    // mark a card has, as what the owner looks for first; its messages unread, white on the accent; its returns sent back,
     // framed in grey; and, while its work is not drawn, a lock framed in grey with
     // how many items it waits for to merge, which stand under it.
     let right = NODE_W - 8;
@@ -872,11 +879,9 @@ export class SnapScene {
       view.addChild(g, t);
       right -= 6;
     };
-    // What stops its work for the owner in red, the strongest; a question that waits for the owner's answer and does
-    // not stop the work yet in orange, a step weaker; how much is new to read in the colour of the line at the card's
-    // left that says something is new.
+    // What waits for the owner in red, the strongest, as the engine's one list counts it; how much is new to read in the
+    // colour of the line at the card's left that says something is new.
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
-    if (item.questions > 0) tag(String(item.questions), PALETTE.asked, null, true);
     if (item.unread > 0) tag(String(item.unread), PALETTE.unseen, null, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
     if (item.work === null && item.blocked > 0) tag(String(item.blocked), PALETTE.muted, 'lock', false);
@@ -884,16 +889,16 @@ export class SnapScene {
     fit(title, right - title.x);
     if (item.work === null || mood === null) return view;
     const w = item.work;
-    const row2 = top + h - (WORK_ROW * ROW) / 2 - 3;
+    const row2 = workRow(h);
     // Where its time went, on a thin line: a model's, the tools', or idle in the colour of what the work waited for
-    // (`track.tsx`); nothing where the engine does not say.
-    const barW = 70;
-    const barX = NODE_W - 8 - 36 - barW;
+    // (`track.tsx`); nothing where the engine does not say. Each stretch says what it was on pointing at it.
+    const barW = BAR_W;
+    const barX = BAR_X;
     const cells = [...w.bar];
     const kind: Record<string, string> = {
       m: PALETTE.model,
       t: PALETTE.tools,
-      o: PALETTE.asked,
+      o: PALETTE.red,
       p: PALETTE.muted,
       w: PALETTE.idle,
       '.': PALETTE.idle,
@@ -1364,6 +1369,23 @@ export class SnapScene {
     return Math.abs(p.y - y(d, rank)) <= h ? t.columns[d][rank] : -1;
   }
 
+  /// What the stretch of the bar under the pointer was, where the pointer is on the bar of the card under it: the kind
+  /// of the character of the engine's bar at that place, in the words of the item window's track; nothing elsewhere.
+  private trackTip(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): string {
+    const p = this.pointer;
+    const i = this.under;
+    if (p === null || i < 0) return '';
+    const work = this.shownItems[i].work;
+    if (work === null || work.bar === '') return '';
+    const d = t.depth[i];
+    const dx = p.x - x(d) - BAR_X;
+    const dy = p.y - y(d, t.rank[i]) - workRow(high(this.rows[i]));
+    if (dx < 0 || dx > BAR_W || Math.abs(dy) > BAR_REACH) return '';
+    const cells = [...work.bar];
+    const kind = BAR_KINDS[cells[Math.min(cells.length - 1, Math.floor((dx / BAR_W) * cells.length))]];
+    return kind === undefined ? '' : TRACK_WORDS[kind];
+  }
+
   private drag = (e: PointerEvent) => {
     if (this.dragging === null) return;
     this.leftGoal = null;
@@ -1548,6 +1570,10 @@ export class SnapScene {
       return set;
     };
     this.under = this.pointed(t, x, y);
+    // On pointing at where an item's work's time went, what the stretch under the pointer was, in the words of the
+    // track in the item's window, as every mark says what it is.
+    const tip = this.trackTip(t, x, y);
+    if (this.app.canvas.title !== tip) this.app.canvas.title = tip;
     const chain = lit(this.under);
     // The item selected, the same way, in purple, under the blue; only the item itself glows, those lit with it are
     // only ringed, so that it stands out among them.

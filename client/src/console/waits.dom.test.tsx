@@ -8,13 +8,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hashOf, routeOf } from '../route';
 import { standingOf } from '../system/standing';
 import { rank } from '../works/placing';
-import { waitsOf, waitsOnOwner } from '../works/waiting';
-import { nowTone } from '../works/words';
+import { waitingCount, waitsOf, waitsOnOwner } from '../works/waiting';
+import { STATE, nowTone, stateOf } from '../works/words';
 import type { Flow } from '../api';
-import type { Act, Block, EngineAct, Failure, Item, Now, Outage, Question, WorkPage } from '../works-api';
+import type { Act, Block, EngineAct, Failure, Item, Now, Outage, Pauser, Question, Wait, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { asksOf } from './items';
-import { ItemPanel, stateOf } from './ItemWindow';
+import { ItemPanel } from './ItemWindow';
 import type { LoadVersion } from './real';
 import { moodOf } from './snap';
 
@@ -47,27 +47,8 @@ const shared = (failure: Failure): Now => {
   return { kind: 'waits', at: 'plan', on: [{ kind: 'agents', outage }] };
 };
 
-/// Every cause of the wait every work shares but the command line that cannot run.
-const LIFTED: Failure[] = [
-  'usageLimit',
-  'offline',
-  'unavailable',
-  'passing',
-  'unread',
-  'flagged',
-  'guarded',
-  'promptTooLong',
-  'noModel',
-  'other',
-];
-
-/// A work at the merge's check, which waits for the owner's answers to the questions that stand: a precondition only the
-/// engine's source of how they stand makes hold.
-const ANSWERS: Now = {
-  kind: 'waits',
-  at: 'merge',
-  on: [{ kind: 'precondition', test: 'asked', words: 'asked = answered', by: [{ kind: 'outside', source: 'asked' }] }],
-};
+/// What the owner does about the agents' command line, in the engine's words, which the page says once.
+const MEND = 'Sign it in again or install it; the engine lets the work go on once its check finds it runs.';
 
 /// A stalled work: no cell can write what it waits for.
 const STALLED: Now = {
@@ -77,36 +58,7 @@ const STALLED: Now = {
   by: [{ cell: 'check', why: { kind: 'nothingNew' } }],
 };
 
-/// Each thing that waits for the owner, as the work's `now` says it, and the key its card is known by.
-const OWNERS: [string, Now, string][] = [
-  [
-    'a question that holds a work',
-    {
-      kind: 'waits',
-      at: 'plan',
-      on: [{ kind: 'call', call: 9, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } }],
-    },
-    'q9',
-  ],
-  [
-    'a run at its limit of returns',
-    { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 4, who: 'owner', what: limit }] },
-    'limit',
-  ],
-  ['a cell at its limit of runs', { kind: 'waits', at: 'plan', on: [{ kind: 'limit', runs: 3 }] }, 'limit'],
-  ['a pause the engine made', { kind: 'paused', by: 'engine', why: 'A round failed.' }, 'pause'],
-  ['a work held after the engine started again', { kind: 'everything', by: 'engine' }, 'held'],
-  [
-    'a question the cell asked as data, as the engine asks of a change of a protected file',
-    { kind: 'waits', at: 'plan', on: [{ kind: 'answer', question: 'protected_files' }] },
-    'answer-protected_files',
-  ],
-  ["the agents' command line, which cannot run", shared('cannotRun'), 'agents'],
-  ['a question that did not stop its cell, which the merge now waits for', ANSWERS, 'asked'],
-];
-
-/// A review's verdict that holds the work, for the owner to rule on: the review said it is not content, and the owner,
-/// who may write the verdict as the review may, rules on it at the card of the panel's body that shows it.
+/// A review's verdict that holds the work, for the owner to rule on.
 const VERDICT: Now = {
   kind: 'waits',
   at: 'merge',
@@ -130,22 +82,83 @@ const SAID_NO: Block = {
   ],
 };
 
-/// What is not the owner's to let on.
+/// The merge's check, which waits for the owner's answers: what the flow declares of `asked` makes it the owner's.
+const ANSWERS: Now = {
+  kind: 'waits',
+  at: 'merge',
+  on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'owner' }] }],
+};
+
+const wait = (key: string, why: string, ends: Wait['ends']): Wait => ({ key, why, ends });
+
+/// Each kind of thing the engine's list names, as the engine gives it with what the work does now.
+const OWNERS: [string, Now, Wait][] = [
+  [
+    'a question put as a call',
+    {
+      kind: 'waits',
+      at: 'plan',
+      on: [{ kind: 'call', call: 9, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } }],
+    },
+    wait('call-9', 'Which?', { kind: 'reply', call: 9 }),
+  ],
+  [
+    'a run at its limit of returns',
+    { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 4, who: 'owner', what: limit }] },
+    wait('limit', 'The run of plan had 2 returns sent back, its limit.', { kind: 'goOn', call: 4 }),
+  ],
+  [
+    'a cell at its limit of runs',
+    { kind: 'waits', at: 'plan', on: [{ kind: 'limit', runs: 3 }] },
+    wait('limit', 'plan ran 3 times in a row for what a cell after it wrote, its limit.', { kind: 'letGo', cell: 'plan' }),
+  ],
+  [
+    'a pause the engine made',
+    { kind: 'paused', by: 'engine', why: 'a round failed' },
+    wait('pause', 'The engine paused the work: a round failed', { kind: 'resume' }),
+  ],
+  [
+    'the works held after the engine started again',
+    { kind: 'everything', by: 'engine' },
+    wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
+  ],
+  [
+    'a question of the work that holds it at its cell, as the engine asks of a change of a protected file',
+    { kind: 'waits', at: 'plan', on: [{ kind: 'answer', question: 'protected_files' }] },
+    wait('answer-protected_files', 'What of protected_files?', {
+      kind: 'answer',
+      question: 'protected_files',
+      version: 4,
+    }),
+  ],
+  [
+    'a question the work went on past, which the merge now waits for',
+    ANSWERS,
+    wait('answer-measure', 'What of measure?', { kind: 'answer', question: 'measure', version: 4 }),
+  ],
+  [
+    "a review's verdict for the owner to rule on",
+    VERDICT,
+    wait('write-content', 'merge requires test = may_merge, which content keeps from holding.', {
+      kind: 'write',
+      block: 'content',
+      value: 'yes',
+    }),
+  ],
+  ["the agents' command line, which cannot run", shared('cannotRun'), wait('agents', "The agents' command line cannot run: Not logged in", { kind: 'outside', what: MEND })],
+];
+
+/// What the engine's list leaves out, which is not the owner's to end whatever the work does.
 const NOT_OWNERS: [string, Now][] = [
   ['a pause of the owner', { kind: 'paused', by: 'owner', why: null }],
   ['a pause of everything by the owner', { kind: 'everything', by: 'owner' }],
   ['a fault', { kind: 'fault', words: 'Two entries at 3' }],
   ['a free slot', { kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }],
-  ['a stalled work, which is shown as a fault is', STALLED],
-  // Every other cause of the wait every work shares is the engine's, which checks the outside itself and lifts it.
-  ...LIFTED.map((failure): [string, Now] => [`the wait every work shares, for ${failure}`, shared(failure)]),
+  ['a stalled work', STALLED],
+  ['the wait every work shares for the usage limit, which the engine lifts', shared('usageLimit')],
   [
     'a check held for main to move',
-    {
-      kind: 'waits',
-      at: 'M2',
-      on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' }],
-    },
+    { kind: 'waits', at: 'M2', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' }] },
   ],
   [
     'a question to another',
@@ -171,27 +184,23 @@ const asked = (name: string, cell: string, waits: boolean): Question => ({
   answer: null,
 });
 
-/// The questions of the work's own it waits for the answer to, as its page gives them: each it waits for at its cell,
-/// and one it went on past while the merge waits for the owner's answers.
-const questionsOf = (now: Now): Question[] =>
-  now.kind !== 'waits'
-    ? []
-    : now.on.flatMap((w): Question[] =>
-        w.kind === 'answer'
-          ? [asked(w.question, now.at, true)]
-          : w.kind === 'precondition' && w.by.some((m) => m.kind === 'outside' && m.source === 'asked')
-            ? [asked('measure', 'plan', false)]
-            : [],
-      );
+/// The questions of the work's own its page gives with each of these waits.
+const questionsOf = (waits: Wait[]): Question[] =>
+  waits.flatMap((w) =>
+    w.ends.kind === 'answer'
+      ? [asked(w.ends.question, w.ends.question === 'measure' ? 'plan' : 'plan', w.ends.question !== 'measure')]
+      : [],
+  );
 
 function draw(
   now: Now,
-  wait: string | undefined,
+  waits: Wait[],
+  opens: string | undefined,
   send: (w: number, a: Act) => Promise<unknown>,
-  engine?: (a: EngineAct) => Promise<unknown>,
-  read: { flow: Flow; blocks: Block[]; load?: LoadVersion } = { flow: FLOW, blocks: [] },
+  o: { engine?: (a: EngineAct) => Promise<unknown>; paused?: Pauser; read?: { flow: Flow; blocks: Block[]; load?: LoadVersion } } = {},
 ) {
-  const item: Item = { ...base, work: { ...base.work, now } };
+  const read = o.read ?? { flow: FLOW, blocks: [] };
+  const item: Item = { ...base, work: { ...base.work, now, waits, paused: o.paused ?? null } };
   const container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -206,7 +215,7 @@ function draw(
     cells: [],
     blocks: read.blocks,
     steps: [],
-    questions: questionsOf(now),
+    questions: questionsOf(waits),
   };
   act(() =>
     r.render(
@@ -216,8 +225,8 @@ function draw(
         act={send}
         waitsFor={[]}
         onTitle={() => undefined}
-        wait={wait}
-        actEngine={engine}
+        wait={opens}
+        actEngine={o.engine}
         loadVersion={read.load}
       />,
     ),
@@ -225,12 +234,8 @@ function draw(
   return container;
 }
 
-/// The work's status line in the panel, under the item's: its word, and what follows it.
-function workLine(el: HTMLElement): { word: string; rest: string } {
-  const line = el.querySelectorAll('.cw-item > .status-line')[1];
-  const word = line.querySelector('.status-word')?.textContent ?? '';
-  return { word, rest: line.textContent?.slice(word.length) ?? '' };
-}
+/// The work's status line in the panel, under the item's.
+const workLine = (el: HTMLElement): HTMLElement => el.querySelectorAll('.cw-item > .status-line')[1] as HTMLElement;
 
 const unmount = () => {
   act(() => root?.unmount());
@@ -240,131 +245,188 @@ const unmount = () => {
 
 const none = () => Promise.resolve(null);
 
-describe('what waits for the owner', () => {
-  it.each(OWNERS)('is counted, marked, carded and said on the status line alike: %s', (_, now, key) => {
-    const waits = waitsOf(now);
-    expect(waits.map((w) => w.key)).toEqual([key]);
-    expect(waitsOnOwner(now)).toBe(true);
-    expect(asksOf(now)).toBe(waits.length);
-    expect(moodOf({ now, cells: [] })).toBe('owner');
-    const container = draw(now, key, none);
-    expect(container.querySelectorAll(`[data-wait="${key}"]`)).toHaveLength(1);
-    // The state line says that the work waits for you, as the card does.
-    expect(workLine(container).word).toBe('Waiting for you');
-  });
+/// Words a card says around what it is about, which no card of a stop says.
+const FILLER = [
+  'The work waits for you',
+  'The merge waits for this answer',
+  'Still to confirm',
+  'The work waits for this ruling',
+];
 
-  it("says on the state line by its keys what a pause of the engine's and its hold wait for", () => {
-    const keys = (now: Now) => {
-      const container = draw(now, undefined, none);
-      const said = [...container.querySelectorAll('.cw-item > .status-line .keys > span')].map((k) => k.textContent);
-      unmount();
-      return said;
-    };
-    expect(keys({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toEqual([
-      'paused by the engine',
-      'why A round failed.',
-    ]);
-    expect(keys({ kind: 'everything', by: 'engine' })).toEqual([
-      'paused every work',
-      'by the engine, as it started again',
-    ]);
-  });
-
-  it("is counted, marked and carded alike where it is a review's verdict that holds the work, for the owner to rule on", async () => {
-    const waits = waitsOf(VERDICT);
-    expect(waits.map((w) => w.key)).toEqual(['precondition']);
-    expect(waitsOnOwner(VERDICT)).toBe(true);
-    expect(asksOf(VERDICT)).toBe(1);
-    expect(moodOf({ now: VERDICT, cells: [] })).toBe('owner');
-    const scrolled = vi.fn();
-    Element.prototype.scrollIntoView = scrolled;
-    const container = draw(VERDICT, 'precondition', none, undefined, { flow: RULED, blocks: [SAID_NO] });
-    // The ruling is read with the body, once the page has drawn.
+describe("what waits for the owner, as the engine's one list names it", () => {
+  it.each(OWNERS)('is counted, marked, carded once in the look of a stop and said on the state line alike: %s', async (_, now, w) => {
+    const summary = { ...base.work, now, waits: [w] };
+    expect(waitsOf(summary)).toEqual([w]);
+    expect(waitsOnOwner(summary)).toBe(true);
+    expect(asksOf(summary)).toBe(1);
+    expect(waitingCount([summary, { waits: [] }])).toBe(1);
+    expect(moodOf({ now, cells: [], waits: [w] })).toBe('owner');
+    const container = draw(now, [w], w.key, none, { read: { flow: RULED, blocks: [SAID_NO] } });
+    // A ruling is read with the body, once the page has drawn.
     await act(async () => undefined);
-    const card = container.querySelector('[data-wait="precondition"]');
-    // It holds the work, as a question that blocks does: on the red tint, edged in red, with no line to say so.
-    expect(card?.className).toBe('cw-choice cw-choice-holds');
-    expect(card?.querySelector('.cw-choice-stops')).toBeNull();
-    expect(scrolled.mock.contexts[0]).toBe(card);
-    expect(workLine(container).word).toBe('Waiting for you');
+    const cards = container.querySelectorAll(`[data-wait="${w.key}"]`);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].classList.contains('cw-choice-holds')).toBe(true);
+    for (const filler of FILLER) expect(container.textContent).not.toContain(filler);
+    expect(workLine(container).querySelector('.status-word')?.textContent).toBe(STATE.owner);
   });
 
-  it.each(NOT_OWNERS)("is none of the three where it is not the owner's to let on: %s", (_, now) => {
-    expect(waitsOf(now)).toEqual([]);
-    expect(waitsOnOwner(now)).toBe(false);
-    expect(asksOf(now)).toBe(0);
-    expect(moodOf({ now, cells: [] })).not.toBe('owner');
-    const container = draw(now, undefined, none);
+  it.each(NOT_OWNERS)('is none where the list leaves it out: %s', (_, now) => {
+    const summary = { ...base.work, now, waits: [] };
+    expect(waitsOnOwner(summary)).toBe(false);
+    expect(asksOf(summary)).toBe(0);
+    expect(moodOf({ now, cells: [], waits: [] })).not.toBe('owner');
+    const container = draw(now, [], undefined, none);
     expect(container.querySelectorAll('[data-wait]')).toHaveLength(0);
-    expect(workLine(container).word).not.toBe('Waiting for you');
+    expect(workLine(container).querySelector('.status-word')?.textContent).not.toBe(STATE.owner);
   });
 
-  it("says a fault and a stalled work halted by the engine, and the owner's own pause paused, on the status line", () => {
-    const word = (now: Now) => {
-      const container = draw(now, undefined, none);
-      const said = workLine(container).word;
+  it("reads the list alone: a work that does what would wait on the owner, with nothing in the list, counts nothing", () => {
+    const [, paused] = OWNERS[3];
+    const summary = { ...base.work, now: paused, waits: [] };
+    expect(waitsOnOwner(summary)).toBe(false);
+    expect(asksOf(summary)).toBe(0);
+    expect(rank(summary)).not.toBe(0);
+    expect(standingOf(summary)).not.toBe('owner');
+  });
+});
+
+describe("the work's state line", () => {
+  it('is one line: the word of its state from the one catalogue, the cell where the state names one, and the work, with no keys under it', () => {
+    const said = (now: Now, waits: Wait[] = []) => {
+      const line = workLine(draw(now, waits, undefined, none));
+      const word = line.querySelector('.status-word')?.textContent;
+      const cell = line.querySelector('.cell-id')?.textContent ?? null;
+      const keys = line.querySelector('.cw-keys, .keys');
       unmount();
-      return said;
+      return { word, cell, keys };
     };
-    expect(word({ kind: 'fault', words: 'Two entries at 3' })).toBe('Halted by the engine');
-    expect(word(STALLED)).toBe('Halted by the engine');
-    expect(word({ kind: 'paused', by: 'owner', why: null })).toBe('Paused');
-    expect(word({ kind: 'everything', by: 'owner' })).toBe('Paused');
+    expect(said({ kind: 'fault', words: 'Two entries at 3' })).toEqual({ word: 'Halted', cell: null, keys: null });
+    expect(said(STALLED)).toEqual({ word: 'Halted', cell: 'merge', keys: null });
+    expect(said({ kind: 'paused', by: 'owner', why: null })).toEqual({ word: 'Paused', cell: null, keys: null });
+    expect(said({ kind: 'everything', by: 'owner' })).toEqual({ word: 'Paused', cell: null, keys: null });
+    expect(said(OWNERS[3][1], [OWNERS[3][2]])).toEqual({ word: 'Waiting for you', cell: null, keys: null });
+    expect(said(OWNERS[2][1], [OWNERS[2][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
+    expect(said({ kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 12, since: 0 }] })).toEqual({
+      word: 'Waiting for W12',
+      cell: 'M2',
+      keys: null,
+    });
+    expect(said({ kind: 'round', cell: 'plan', run: 1, round: 2, since: 0 })).toEqual({
+      word: 'Running',
+      cell: 'plan',
+      keys: null,
+    });
   });
+});
 
-  it("says on the card of the agents' command line what the owner is to do", () => {
-    const container = draw(shared('cannotRun'), undefined, none);
-    expect(container.querySelector('[data-wait="agents"]')?.textContent).toBe(
-      "The work waits for you: the agents' command line cannot run (Not logged in): sign it in again or install it, and the engine lets the work go on once its own check finds it runs",
-    );
-  });
-
-  it('shows a stalled work as a fault is: its tone, its standing and its place on each view', () => {
+describe('a stop that no one waits on', () => {
+  it('is a card in the same look, saying what is wrong, for a fault and for a stall, and counts nothing', () => {
+    for (const [now, why] of [
+      [{ kind: 'fault', words: 'Two entries at 3' } as Now, 'Two entries at 3'],
+      [STALLED, 'it waits for checked = yes, which only cell check can make hold; cell check does not run: nothing new runs it'],
+    ] as const) {
+      const container = draw(now, [], undefined, none);
+      const card = container.querySelector('.cw-waits .cw-choice-holds');
+      expect(card?.textContent).toBe(why);
+      expect(card?.querySelector('button')).toBeNull();
+      unmount();
+    }
     const fault: Now = { kind: 'fault', words: 'Two entries at 3' };
-    const summary = (now: Now) => ({ ...base.work, now });
-    expect(moodOf({ now: STALLED, cells: [] })).toBe(moodOf({ now: fault, cells: [] }));
-    expect(nowTone(STALLED)).toBe(nowTone(fault));
+    const summary = (now: Now) => ({ ...base.work, now, waits: [] });
+    expect(moodOf({ now: STALLED, cells: [], waits: [] })).toBe(moodOf({ now: fault, cells: [], waits: [] }));
+    expect(nowTone(summary(STALLED))).toBe(nowTone(summary(fault)));
     expect(rank(summary(STALLED))).toBe(rank(summary(fault)));
     expect(standingOf(summary(STALLED))).toBe('halted');
-    expect(stateOf(summary(STALLED), null).word).toBe(stateOf(summary(fault), null).word);
-    expect(stateOf(summary(STALLED), null).tone).toBe(stateOf(summary(fault), null).tone);
+    expect(stateOf(summary(STALLED)).word).toBe(stateOf(summary(fault)).word);
+  });
+});
+
+describe('the cards of what waits for the owner', () => {
+  it("say the agents' command line's reason and what the owner does, each once, inside the card", () => {
+    const [, now, w] = OWNERS[8];
+    const container = draw(now, [w], undefined, none);
+    const card = container.querySelector('[data-wait="agents"]');
+    expect(card?.textContent).toBe(`The agents' command line cannot run: Not logged in${MEND}`);
+    expect(container.textContent?.split('Sign it in again').length).toBe(2);
   });
 
-  it("is let on from its card: the limit let go, the engine's pause resumed, the held works started", () => {
+  it('end it from a button inside the card, which says on pointing at it what it does', () => {
     const sent: Act[] = [];
     const engine: EngineAct[] = [];
     const send = (_: number, a: Act) => {
       sent.push(a);
       return Promise.resolve(null);
     };
-    const press = (el: HTMLElement, key: string) =>
-      act(() =>
-        (el.querySelector(`[data-wait="${key}"]`)?.parentElement?.querySelector('button') as HTMLButtonElement).click(),
-      );
-    press(draw(OWNERS[2][1], 'limit', send), 'limit');
-    expect(sent).toEqual([{ kind: 'letGo', cell: 'plan' }]);
-    unmount();
-    press(draw(OWNERS[3][1], 'pause', send), 'pause');
-    expect(sent[1]).toEqual({ kind: 'resume' });
-    unmount();
-    const held = draw(OWNERS[4][1], 'held', send, (a) => {
-      engine.push(a);
-      return Promise.resolve(null);
-    });
-    press(held, 'held');
+    const press = (el: HTMLElement, key: string) => {
+      const button = el.querySelector(`[data-wait="${key}"] button`) as HTMLButtonElement;
+      expect(button.title).not.toBe('');
+      act(() => button.click());
+    };
+    for (const i of [1, 2, 3]) {
+      const [, now, w] = OWNERS[i];
+      press(draw(now, [w], w.key, send), w.key);
+      unmount();
+    }
+    expect(sent).toEqual([
+      { kind: 'result', call: 4, result: 'go on' },
+      { kind: 'letGo', cell: 'plan' },
+      { kind: 'resume' },
+    ]);
+    const [, held, w] = OWNERS[4];
+    press(
+      draw(held, [w], 'held', send, {
+        engine: (a) => {
+          engine.push(a);
+          return Promise.resolve(null);
+        },
+      }),
+      'held',
+    );
     expect(engine).toEqual([{ kind: 'resume' }]);
   });
 
-  it('is shown at its card by the address a notification opens: the item and the thing waited for', () => {
-    for (const [, now, key] of OWNERS) {
-      const [wait] = waitsOf(now);
-      const hash = hashOf({ view: 'console', item: 12, wait: wait.key });
-      expect(routeOf(hash)).toEqual({ view: 'console', item: 12, wait: key });
+  it("let the engine's pause on from its card alone: the pause switch shows only the owner's own pause", () => {
+    const pressed = (el: HTMLElement) => el.querySelector('.cw-acts [aria-pressed="true"], .cw-acts [aria-checked="true"]')?.textContent;
+    const [, now, w] = OWNERS[3];
+    expect(pressed(draw(now, [w], undefined, none, { paused: 'engine' }))).toBe('Start');
+    unmount();
+    expect(pressed(draw({ kind: 'paused', by: 'owner', why: null }, [], undefined, none, { paused: 'owner' }))).toBe('Pause');
+  });
+
+  it('offer a ruling\'s values as options drawn as choices, the one that makes it hold picked, and write the one picked', async () => {
+    const sent: Act[] = [];
+    const [, now, w] = OWNERS[7];
+    const container = draw(
+      now,
+      [w],
+      undefined,
+      (_, a) => {
+        sent.push(a);
+        return Promise.resolve(null);
+      },
+      { read: { flow: RULED, blocks: [SAID_NO] } },
+    );
+    await act(async () => undefined);
+    const card = container.querySelector('[data-wait="write-content"]') as HTMLElement;
+    const options = [...card.querySelectorAll('.cw-options .cw-option')];
+    expect(options.map((o) => o.textContent)).toEqual(['content = yes']);
+    expect(options[0].querySelector('.cw-radio')).not.toBeNull();
+    expect(options[0].getAttribute('aria-checked')).toBe('true');
+    act(() => (card.querySelector('.cw-stop-acts button') as HTMLButtonElement).click());
+    expect(sent).toEqual([{ kind: 'write', block: 'content', content: '', value: 'yes' }]);
+  });
+
+  it('are shown at their card by the address a notification opens: the item and the thing waited for', async () => {
+    for (const [, now, w] of OWNERS) {
+      const hash = hashOf({ view: 'console', item: 12, wait: w.key });
+      expect(routeOf(hash)).toEqual({ view: 'console', item: 12, wait: w.key });
       const scrolled = vi.fn();
       Element.prototype.scrollIntoView = scrolled;
-      const container = draw(now, key, none);
+      const container = draw(now, [w], w.key, none, { read: { flow: RULED, blocks: [SAID_NO] } });
+      await act(async () => undefined);
       expect(scrolled).toHaveBeenCalled();
-      expect(scrolled.mock.contexts[0]).toBe(container.querySelector(`[data-wait="${key}"]`));
+      expect(scrolled.mock.contexts[0]).toBe(container.querySelector(`[data-wait="${w.key}"]`));
       unmount();
     }
   });

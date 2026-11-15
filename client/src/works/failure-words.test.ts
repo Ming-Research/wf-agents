@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Outage, Waited } from '../works-api';
-import { callWords, failureWords, outageWords, unmetWords, waitedWords, waitsForOwner } from './words';
+import { callWords, failureWords, outageWords, unmetWords, waitedWords } from './words';
 
 const outage = (o: Partial<Outage>): Outage => ({
   service: 'agents',
@@ -34,14 +34,15 @@ describe('the words of a round that failed and of the waits that follow', () => 
     const words = outageWords(outage({}));
     expect(words).toMatch(/^the account's usage limit was reached, since .*; no agent's round of any work begins, /);
     expect(words).toContain('the engine checks the outside itself at ');
-    expect(words).toContain("(work 3, round 1 of run 2: You've hit your limit)");
-    expect(outageWords(outage({ failure: 'cannotRun' }))).toContain('sign the command line in again or install it');
+    expect(words).toContain("(W3, round 1 of run 2: You've hit your limit)");
+    // What the owner does where the command line cannot run is the engine's to say, on the wait's card, once.
+    expect(outageWords(outage({ failure: 'cannotRun' }))).not.toContain('sign');
     // What the latest check found down is what is said down, with what it found.
     const checked = outage({
       failure: 'unavailable',
       checked: { at: 0, taken: 2, found: { kind: 'down', failure: 'cannotRun', why: 'Not logged in' } },
     });
-    expect(outageWords(checked)).toMatch(/^the agents' command line cannot run: sign the command line in again/);
+    expect(outageWords(checked)).toMatch(/^the agents' command line cannot run, since /);
     expect(outageWords(checked)).toContain('found: Not logged in');
     const well = outage({
       holds: false,
@@ -53,19 +54,8 @@ describe('the words of a round that failed and of the waits that follow', () => 
     expect(outageWords(host)).toContain("no act of the engine's of any work begins, once the host is reached");
   });
 
-  it('waits for the owner only where the command line cannot run', () => {
+  it('says the wait every work shares as what the agents\' rounds wait for', () => {
     const agents = (failure: Outage['failure']): Waited => ({ kind: 'agents', outage: outage({ failure }) });
-    expect(waitsForOwner(agents('cannotRun'))).toBe(true);
-    expect(waitsForOwner(agents('usageLimit'))).toBe(false);
-    expect(waitsForOwner(agents('unavailable'))).toBe(false);
-    const signedOut: Waited = {
-      kind: 'agents',
-      outage: outage({
-        failure: 'unavailable',
-        checked: { at: 0, taken: 1, found: { kind: 'down', failure: 'cannotRun', why: 'Not logged in' } },
-      }),
-    };
-    expect(waitsForOwner(signedOut)).toBe(true);
     expect(waitedWords(agents('offline'))).toMatch(/^the agents' rounds to begin again: the network cannot be reached/);
   });
 });

@@ -13,7 +13,7 @@ function work(item: number, now: Now, states: CellNow['state'][] = ['notYet', 'n
     item,
     flow: 'small',
     added: 0,
-    paused: false,
+    paused: null,
     now,
     cells: CELLS.map((cell, i) => ({
       cell,
@@ -111,16 +111,17 @@ describe('what a card shows of an item', () => {
     ],
   };
 
-  it('counts the things a work waits for that the owner gives, as the engine says: their questions, the preconditions they can make hold, a run let on', () => {
-    expect(asksOf(waits)).toBe(3);
-    expect(asksOf({ kind: 'paused', by: 'owner', why: null })).toBe(0);
-    // The engine's word of whether every question has the owner's answer changes only as the owner answers.
-    const merge: Now = {
-      kind: 'waits',
-      at: 'merge',
-      on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'outside', source: 'asked' }] }],
-    };
-    expect(asksOf(merge)).toBe(1);
+  it('counts the things a work waits on the owner for as the engine\'s list says, and nothing of what it waits for that the list leaves out', () => {
+    const listed = [
+      { key: 'call-1', why: 'Which?', ends: { kind: 'reply' as const, call: 1 } },
+      { key: 'write-confirmed', why: 'implement requires test = confirmed, which confirmed keeps from holding.', ends: { kind: 'write' as const, block: 'confirmed', value: 'yes' } },
+      { key: 'limit', why: 'implement ran 3 times in a row for what a cell after it wrote, its limit.', ends: { kind: 'letGo' as const, cell: 'implement' } },
+    ];
+    expect(asksOf({ waits: listed })).toBe(3);
+    expect(asksOf({ waits: [] })).toBe(0);
+    // A card's mark is the same count.
+    const shown = shownTree({ items: [{ ...item(1, 'open'), work: { ...work(1, waits, ['done', 'resting', 'notYet']), waits: listed } }] });
+    expect(shown[0].asks).toBe(3);
   });
 
   it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {

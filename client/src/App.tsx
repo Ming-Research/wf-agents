@@ -10,7 +10,8 @@ import { type Definition, type Flow, type Given, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems } from './Engine';
-import { waitsOnOwner } from './works/waiting';
+import { waitingCount } from './works/waiting';
+import { waitCount } from './works/words';
 import { LazyFlowChart } from './graph/lazy';
 import { GraphLegend } from './graph/legend';
 import { chartOf } from './graph/model';
@@ -140,14 +141,10 @@ export function Shell({ route, serves = 'all', children }: {
 }) {
   const [theme, setTheme] = useTheme();
   const [bar, setBar] = useState<BarItems>({ items: null, failed: null });
-  // The questions that hold a work, told of by the browser as they come, on the engine's own page only.
+  // What waits on the owner, told of by the browser as it comes, on the engine's own page only.
   useNotifications(bar.items, serves === 'all' && !usesFixtures(window.location.search));
-  const waiting = bar.items?.items.filter((i) => waitsOnOwner(i.work.now)).length ?? 0;
-  const views = TABS.map((t) =>
-    t.href === '#/console'
-      ? { ...t, count: waiting, countTitle: `${waiting} ${waiting === 1 ? 'question waits' : 'questions wait'} for you` }
-      : t,
-  );
+  const waiting = waitingCount(bar.items?.items.map((i) => i.work) ?? []);
+  const views = TABS.map((t) => (t.href === '#/console' ? { ...t, count: waiting, countTitle: waitCount(waiting) } : t));
   return (
     <div className="page">
       <Bar

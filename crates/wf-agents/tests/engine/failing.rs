@@ -27,7 +27,9 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
     engine.until(&["list"], |line| line == paused);
     let shown = engine.says(&["show", "1"]);
     assert!(
-        shown.contains(&format!("\nNow: paused by the engine: {WHY}.\nPaused: yes.\n")),
+        shown.contains(&format!(
+            "\nNow: paused by the engine: {WHY}.\nPaused: by the engine.\n"
+        )),
         "{shown}"
     );
     assert!(

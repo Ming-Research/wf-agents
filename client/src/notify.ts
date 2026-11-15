@@ -1,8 +1,9 @@
-// The browser's notifications of what waits on the owner, as `waitsOf` says, and of nothing else (principle
-// one-count-of-what-waits). A work that waits for more than when the items were read before is told of once, by its
-// item and its latest wait, and a click on it opens the console on the item at the card of that wait; while any is
-// left, the owner is told again each hour how many there are, and a click opens the first of them. A notification that takes the place of one
-// before it alerts again. The page asks the browser for leave once, at the owner's first click on it as browsers want,
+// The browser's notifications of what waits on the owner, as the engine's one list of it says, and of nothing else
+// (principle one-count-of-what-waits). A work that waits for more than when the items were read before is told of
+// once, by its item, with why it waits for its latest wait, what it asks for a question, and a click on it opens the
+// console on the item at the card of that wait; while any is left, the owner is told again each hour how many there
+// are, in the bar's words, and a click opens the first of them. A notification that takes the place of one before it
+// alerts again. The page asks the browser for leave once, at the owner's first click on it as browsers want,
 // and never again whatever the answer; it tells nothing while the owner looks at the page, and nothing at all, nor
 // asks, on a page that is not the engine's own (`on`).
 
@@ -11,11 +12,12 @@ import { useEffect, useRef } from 'react';
 import { hashOf } from './route';
 import type { Item, Items } from './works-api';
 import { type Wait, targetOf, waitsOf } from './works/waiting';
+import { STATE, firstLine, waitCount } from './works/words';
 
 /// Where this browser keeps that the page asked for leave.
 const ASKED = 'wf-agents.notifications-asked';
 
-/// How often the owner is told again of the questions that are left, while any is.
+/// How often the owner is told again of what is left, while anything is.
 export const AGAIN_MS = 60 * 60 * 1000;
 
 /// Whether the browser has notifications at all.
@@ -47,12 +49,12 @@ function askOnce(): (() => void) | undefined {
 /// Whether the owner looks at the page now.
 const looking = (): boolean => document.visibilityState === 'visible' && document.hasFocus();
 
-/// How many things wait for the owner in each work, by the work's number, for those that wait for any; what counts is
-/// `waitsOf`, the one definition the bar's count and the cards share.
+/// How many things wait for the owner in each work, by the work's number, for those that wait for any: the engine's
+/// list, which the bar's count and the cards read.
 export function heldByWork(items: Item[]): Map<number, number> {
   const out = new Map<number, number>();
   for (const i of items) {
-    const n = waitsOf(i.work.now).length;
+    const n = waitsOf(i.work).length;
     if (n > 0) out.set(i.work.number, n);
   }
   return out;
@@ -62,12 +64,12 @@ export function heldByWork(items: Item[]): Map<number, number> {
 /// when everything is old. Something answered among others is no new one.
 export function newlyHeld(before: Map<number, number> | null, items: Item[]): Item[] {
   if (before === null) return [];
-  return items.filter((i) => waitsOf(i.work.now).length > (before.get(i.work.number) ?? 0));
+  return items.filter((i) => waitsOf(i.work).length > (before.get(i.work.number) ?? 0));
 }
 
 /// What a notification of an item opens: the item in the console, at the card of its latest wait.
 export function openingOf(item: Item): { wait: Wait; opens: string } | null {
-  const waits = waitsOf(item.work.now);
+  const waits = waitsOf(item.work);
   const wait = waits[waits.length - 1];
   return wait === undefined ? null : { wait, opens: hashOf(targetOf(item, wait)) };
 }
@@ -75,7 +77,7 @@ export function openingOf(item: Item): { wait: Wait; opens: string } | null {
 /// What the hourly notification opens: the first item that waits, at the card of its first wait.
 export function firstOpening(items: Item[]): string | null {
   for (const i of items) {
-    const wait = waitsOf(i.work.now)[0];
+    const wait = waitsOf(i.work)[0];
     if (wait !== undefined) return hashOf(targetOf(i, wait));
   }
   return null;
@@ -92,9 +94,9 @@ function tell(title: string, body: string | undefined, tag: string, opens: strin
   };
 }
 
-/// Tells the owner, by the browser's notifications, of each work that newly holds a question to them, as the items
-/// are read again, and again each hour how many questions are left, while any is; on a page that is not the engine's
-/// own (`on` false), nothing.
+/// Tells the owner, by the browser's notifications, of each work that newly waits on them, as the items are read
+/// again, and again each hour how many things are left, while any is; on a page that is not the engine's own (`on`
+/// false), nothing.
 export function useNotifications(items: Items | null, on: boolean): void {
   const before = useRef<Map<number, number> | null>(null);
   const left = useRef(0);
@@ -110,7 +112,7 @@ export function useNotifications(items: Items | null, on: boolean): void {
     for (const i of fresh) {
       const opening = openingOf(i);
       if (opening === null) continue;
-      tell(`Waits for you: #${i.number} ${i.title}`, opening.wait.words, `wf-agents-item-${i.number}`, opening.opens);
+      tell(`${STATE.owner}: #${i.number} ${i.title}`, firstLine(opening.wait.why), `wf-agents-item-${i.number}`, opening.opens);
     }
   }, [items, on]);
   useEffect(() => {
@@ -118,7 +120,7 @@ export function useNotifications(items: Items | null, on: boolean): void {
     const timer = setInterval(() => {
       const n = left.current;
       if (n === 0 || !can() || Notification.permission !== 'granted' || looking()) return;
-      tell(`${n} ${n === 1 ? 'thing waits' : 'things wait'} for you`, undefined, 'wf-agents-questions', first.current ?? '#/console');
+      tell(waitCount(n), undefined, 'wf-agents-waits', first.current ?? '#/console');
     }, AGAIN_MS);
     return () => clearInterval(timer);
   }, [on]);

@@ -88,8 +88,8 @@
   /* The shadow of the window that floats over a view: Primer's overlay shadow, as the console drew it. */
   --window-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
 
-  /* The meanings, and only these: done; waits for the owner, or a change of a block's meaning; running; failed; the way
-     back; a call under way. A mark or a tag takes the colour itself; small text takes its text step, a darker step
+  /* The meanings, and only these: done; a change of a block's meaning; running; a stop, for the owner or because
+     something failed; the way back; a call under way. A mark or a tag takes the colour itself; small text takes its text step, a darker step
      where the colour does not read on white; a fill takes its tint. */
   --green: #2f9e6e;
   --orange: #f5840c;
@@ -107,7 +107,7 @@
 
   /* Where a work's time went: a model's stretches in the accent, the tools' in a teal no meaning has, those nothing
      ran in a light grey, on a muted ground. A stretch nothing ran in takes the colour of what the work waited for:
-     the owner's orange, a pause's muted grey, and this light grey for the items it depends on as for anything else. */
+     the owner's red, a pause's muted grey, and this light grey for the items it depends on as for anything else. */
   --track-ground: #818b981f;
   --track-model: var(--accent);
   --track-tool: #14a3a8;

@@ -53,7 +53,22 @@ fn a_flow_laid_out_one_thing_to_a_file_compiles_to_what_its_twin_written_before_
         line.file = FLOW_FILE.to_string();
         line.system = std::mem::take(&mut line.rules);
     }
+    // The words the engine says to the owner are beside the flows, which a flow written before reads none of.
+    assert_ne!(
+        twin.waits,
+        flow::agents::Waits::default(),
+        "the words beside the flows are read"
+    );
+    twin.waits = flow::agents::Waits::default();
     assert_eq!(twin, before);
+}
+
+#[test]
+fn a_flow_laid_out_one_thing_to_a_file_without_the_words_beside_the_flows_is_refused() {
+    let mut source = laid_out();
+    source.files.remove(&flow::waits_file());
+    let faults = flow::compile(&source, &crate::support::has()).expect_err("it is refused");
+    assert!(faults.iter().any(|f| f.file == flow::waits_file()), "{faults:#?}");
 }
 
 #[test]

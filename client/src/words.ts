@@ -52,13 +52,15 @@ export function conditionWords(keys: Condition[]): string {
   return keys.map(keyWords).join(', ');
 }
 
-/// Who writes a block besides cells, by the block's own keys: `people`, `note`, `outside` with its source.
+/// Who writes a block besides cells, by the block's own keys: `people`, `note`, `outside` with its source, and
+/// `changed_by` with whoever changes what that source writes.
 export function writersBesideCells(block: Block): string[] {
-  const { people, note, outside } = block.writtenBy;
+  const { people, note, outside, changedBy } = block.writtenBy;
   return [
     ...(people ? ['people'] : []),
     ...(note ? ['note'] : []),
     ...(outside !== null ? [`outside ${outside}`] : []),
+    ...(changedBy !== undefined ? [`changed_by ${changedBy}`] : []),
   ];
 }
 

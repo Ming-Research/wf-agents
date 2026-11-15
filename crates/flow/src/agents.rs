@@ -66,6 +66,57 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
 /// The file, in `agents/`, of the questions the engine itself asks the owner.
 pub const ASKS_FILE: &str = "asks.toml";
 
+/// The file, in `agents/`, of what the engine says to the owner of why a work waits on them, and why it paused a work
+/// as a round of it failed. It is read with each flow, which carries it ([`crate::Compiled::waits`]), so that the
+/// engine's deciding and showing read the words of the flow a work runs on.
+pub const WAITS_FILE: &str = "waits.toml";
+
+/// `agents/waits.toml`: why a work waits on the owner, and why the engine paused a work as a round of it failed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Waits {
+    pub paused: PausedWords,
+    pub owner: OwnerWords,
+}
+
+impl Waits {
+    /// The words as the file's text writes them, or why they cannot be read.
+    pub fn of(text: &str) -> Result<Waits, String> {
+        toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())
+    }
+}
+
+/// Why the engine paused a work as a round of it failed, each with `{why}`, what carried the round out said.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PausedWords {
+    /// The prompt is too long for the model.
+    pub too_long: String,
+    /// The round failed in passing `{failed}` times in a row.
+    pub passing: String,
+    /// The round failed `{failed}` times in a row for a cause outside every work.
+    pub outside: String,
+    /// The service's safety check flagged the round again, in the new session of its line.
+    pub flagged_again: String,
+}
+
+/// Why a work waits on the owner, a sentence for each thing it waits for; a question is said by what it asks.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerWords {
+    pub limit: String,
+    pub calls: String,
+    pub returns: String,
+    pub made: String,
+    pub ruling: String,
+    pub paused: String,
+    pub no_reason: String,
+    pub held: String,
+    pub agents: String,
+    /// What the owner does where the agents' command line cannot run, outside the page.
+    pub mend: String,
+}
+
 /// The field of a return that holds the blocks a cell writes, each under its name, in its own shape. The form of a
 /// line lists the blocks of the line's cells there; the cell is told its own with its task, and the engine sends back
 /// a block that is not among them.
@@ -104,14 +155,26 @@ pub struct Agents {
     pub cost: Cost,
 }
 
-/// `agents/cost.toml`: what the engine says as it guards what the agents' rounds cost and keeps their sessions' prompt
-/// caches.
+/// `agents/cost.toml`: what the engine says as it runs the agents' program, guards what its rounds cost and keeps their
+/// sessions' prompt caches.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Cost {
+    pub program: ProgramWords,
     pub ping: PingWords,
     pub guard: GuardWords,
     pub work: WorkWords,
+}
+
+/// Why a run of the agents' program failed where it ended with no result to read: a round's, a ping's or the check of
+/// the outside's.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProgramWords {
+    /// It exited with a code.
+    pub exited: String,
+    /// A signal ended it.
+    pub signal: String,
 }
 
 /// What a keep-warm ping sends, and why one failed.
@@ -124,7 +187,6 @@ pub struct PingWords {
     pub no_round: String,
     pub no_system: String,
     pub stopped: String,
-    pub exited: String,
 }
 
 /// Where a line the run guard judges by comes from, by the scope of its history.
@@ -157,6 +219,8 @@ pub struct GuardWords {
 pub struct WorkWords {
     pub spent: String,
     pub time: String,
+    /// What it has spent is over the budget the settings give.
+    pub budget: String,
     pub started: String,
     pub let_on: String,
     pub between: String,

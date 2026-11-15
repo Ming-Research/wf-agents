@@ -5,17 +5,18 @@
 // changed, with a link to mark the item read. The first tab holds the body (where the item came from, the problem it
 // solves, the plan, with each choice that waits for the owner where it stands in the plan, and after them each question
 // put to the owner that stands, the only place the panel draws it, drawn as they are: what it asks, as it was written,
-// its options with what each does and what follows, and the one it recommends; one that holds the work on the red tint
-// and one the merge waits for saying so in red, muted where the work has gone on past it and it is still to confirm,
-// an answered one with the answer picked. Each is picked by a press on an option and let go by another, and at the
-// plan's end a button as wide as the body confirms them, which counts the picks, waits until each choice has one and
-// sends each question's answer to the engine; once confirmed, the picks stand; and last, each ruling of a cell that
-// keeps the work from going on and that the owner may overrule, drawn as such a question is, with a button as wide to
-// count it as settled), each passage
+// its options with what each does and what follows, and the one it recommends; one the engine's one list of what waits
+// on the owner names on the red tint, framed in red, the look of every stop, an answered one with the answer picked.
+// Each is picked by a press on an option and let go by another, and at the plan's end a button as wide as the body
+// confirms them, which counts the picks, waits until each choice has one and sends each question's answer to the
+// engine; once confirmed, the picks stand; and last, each block the owner may write that keeps the work from going on,
+// drawn as such a question is, its values the options, with a button that writes the one picked), each passage
 // changed since the owner read it marked at its left, and under the body the messages: the owner's and the replies, and a
 // box to write one into a block of the work that people write, chosen above it, which a passage selected in the body
-// can be quoted into and which names the cells that read it. The second holds what of the work the lines do not say,
-// and the legend of the strip's marks. While the window is out, R marks the item read, as its link does, unless a box
+// can be quoted into and which names the cells that read it. Under the work's state line, each other stop of the work,
+// in the same look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall,
+// which no one waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and
+// the legend of the strip's marks. While the window is out, R marks the item read, as its link does, unless a box
 // has the keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is
 // said under the item it was for, and only there.
 //
@@ -52,19 +53,18 @@ import {
   type WorkPage,
 } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
-import { type Wait, waitsOf, waitsOnOwner } from '../works/waiting';
+import { type Wait, type WaitAct, actOf, drawnInBody, waitsOf } from '../works/waiting';
 import { LetGoAgain } from '../works/Boxes';
-import { Keys } from '../works/Round';
 import {
   CANCEL_DOES,
   CANCEL_WHY,
-  clock,
+  ENDS_WORDS,
+  type Tone as WorkTone,
   letGoFailed,
-  outageWords,
   stalledWords,
-  waitsForAnswers,
+  stateOf,
 } from '../works/words';
-import { type ItemStanding, standingOf, whoGives } from './items';
+import { type ItemStanding, standingOf } from './items';
 import { Markdown } from './markdown';
 import { markRead } from './mock';
 import {
@@ -78,7 +78,7 @@ import {
   type Ruling,
   workTierOf,
 } from './real';
-import { age, dollars, type Mood, moodOf } from './snap';
+import { age, dollars } from './snap';
 import { barOf, barSpans, TimeTrack } from './track';
 import {
   type Body,
@@ -94,47 +94,6 @@ import {
 } from './window';
 
 const ago = (at: number) => age(Date.now() - at).label;
-
-/// The words for who gives what a work waits for.
-const WHO = { owner: 'you', architect: 'the architect' } as const;
-
-/// Who gives what a work waits for, in words: the person a call names or the engine, you for a run let on at its
-/// limit, and for a precondition the person who can make it hold, or else the cells that can, by their titles; none
-/// for a precondition only sources outside the work can make hold, such as the items it depends on being merged, or
-/// main moving; the engine for a free slot and for the wait every work shares.
-function whom(w: Waited, page: WorkPage | null): string | null {
-  switch (w.kind) {
-    case 'limit':
-    case 'calls':
-      return WHO.owner;
-    case 'call':
-      return w.who === null ? 'the engine' : WHO[w.who];
-    case 'precondition': {
-      const person = whoGives(w);
-      if (person !== null) return WHO[person];
-      const cells = w.by.flatMap((m) => (m.kind === 'cell' ? [titleOf(page, m.cell)] : []));
-      return cells.length > 0 ? cells.join(' or ') : null;
-    }
-    case 'slot':
-    case 'agents':
-      return 'the engine';
-    case 'answer':
-      return WHO.owner;
-    case 'outside':
-      return null;
-    case 'turn':
-      return 'the turn';
-  }
-}
-
-/// What a work's state is to the panel, as its card colours it.
-const MOOD_WORDS: Record<Mood, string> = {
-  running: 'Running',
-  owner: 'Waiting for you',
-  paused: 'Paused',
-  halted: 'Halted by the engine',
-  waiting: 'Waiting',
-};
 
 const STANDING_WORDS: Record<ItemStanding, string> = { open: 'Open', done: 'Done', cancelled: 'Cancelled' };
 
@@ -154,19 +113,28 @@ const titleOf = (page: WorkPage | null, cell: string) => page?.flow.cells.find((
 const asked = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { kind: 'question' } } =>
   w.kind === 'call' && w.what.kind === 'question';
 
-/// The questions a cell asked the owner as a call the work waits at, as choices at the plan's end.
-function askedOf(now: Summary['now']): Choice[] {
+/// The questions a cell asked the owner as a call the work waits at, as choices at the plan's end, each holding the work
+/// where the engine's list names it.
+function askedOf(s: Summary): Choice[] {
+  const now = s.now;
   if (now.kind !== 'waits') return [];
+  const keys = new Set(waitsOf(s).map((w) => w.key));
   return now.on.flatMap((w) =>
-    asked(w) && w.who === 'owner' ? [{ ...askedChoice(w.what.question, w.call, now.at), stops: 'work' as const }] : [],
+    asked(w) && w.who === 'owner'
+      ? [{ ...askedChoice(w.what.question, w.call, now.at), holds: keys.has(callKey(w.call)) }]
+      : [],
   );
 }
 
+/// The key the engine's list gives the wait for a question put as a call, and for one of the work's own by its name.
+const callKey = (call: number) => `call-${call}`;
+const answerKey = (question: string) => `answer-${question}`;
+
 /// The questions put to the owner that stand, as the work's page gives them, each as a choice at the plan's end: what
-/// it asks, its options, the one it recommends, and the owner's answer to its latest version, which confirms it; until
-/// it is answered, the work waits for it at its cell, or goes on by the option it recommends until the merge waits for
-/// it (`merge`, where the work waits for the owner's answers).
-function questionsStanding(questions: Question[] | undefined, merge: boolean): Choice[] {
+/// it asks, its options, the one it recommends, and the owner's answer to its latest version, which confirms it. One
+/// the engine's list names holds the work, at its cell or at the merge.
+function questionsStanding(questions: Question[] | undefined, s: Summary): Choice[] {
+  const keys = new Set(waitsOf(s).map((w) => w.key));
   return (questions ?? []).flatMap((q): Choice[] => {
     if (q.withdrawn !== null || q.ask === null) return [];
     const answered = q.answer !== null;
@@ -179,7 +147,7 @@ function questionsStanding(questions: Question[] | undefined, merge: boolean): C
         chosen: q.answer === null ? null : q.answer.option - 1,
         confirmed: answered,
         asks: { cell: q.cell, question: q.name, version: q.version },
-        stops: answered ? undefined : q.waits ? 'work' : merge ? 'merge' : 'later',
+        holds: !answered && keys.has(answerKey(q.name)),
       },
     ];
   });
@@ -189,220 +157,9 @@ function questionsStanding(questions: Question[] | undefined, merge: boolean): C
 const pickKey = (c: Choice): string =>
   c.asks === undefined ? '' : 'call' in c.asks ? `call ${c.asks.call}` : `${c.asks.question}@${c.asks.version}`;
 
-/// The key of the card of what a work waits for that a question's choice is (`Wait.key`): a question put as a call by
-/// its call, one the merge waits for as the merge's wait for the owner's answers, any other of the work's own by its
-/// name.
+/// The key of the wait in the engine's list that a question's choice answers, which its card carries.
 const waitKeyOf = (c: Choice): string | undefined =>
-  c.asks === undefined
-    ? undefined
-    : 'call' in c.asks
-      ? `q${c.asks.call}`
-      : c.stops === 'merge'
-        ? 'asked'
-        : `answer-${c.asks.question}`;
-
-/// A key and its value on the work's state line, shown as the panel shows every key (`Attr`).
-type StateKey = [string, ReactNode];
-
-/// When something began, and how long ago.
-const since = (at: number): StateKey[] => [
-  ['since', clock(at)],
-  ['for', ago(at)],
-];
-
-/// Where a call or an act runs, as what carries it out says: its CI run's link.
-const runsAt = (at: string | null | undefined): StateKey[] =>
-  at
-    ? [
-        [
-          'runs at',
-          <a className="link" href={at} target="_blank" rel="noreferrer">
-            {at.replace(/^https?:\/\//, '')}
-          </a>,
-        ],
-      ]
-    : [];
-
-/// The act of the engine's own an engine cell carries out, as the work's flow names it; none for an agent's cell, or
-/// before the flow is read.
-const actOf = (page: WorkPage | null, cell: string): string | null =>
-  page?.flow.cells.find((c) => c.id === cell)?.act ?? null;
-
-/// The keys of what the work waits for at its cell, as the engine names each: none for a question to the owner, which
-/// is shown where it arises, in the plan.
-function waitedKeys(w: Waited, page: WorkPage | null, cell: string): StateKey[] {
-  switch (w.kind) {
-    case 'call':
-      switch (w.what.kind) {
-        case 'question':
-          return [];
-        case 'tool':
-          return [
-            ['tool', w.what.name],
-            ['input', w.what.input],
-            ...(w.made === undefined ? [] : since(w.made)),
-            ...runsAt(w.at),
-          ];
-        case 'atLimit':
-          return w.what.limit.of === 'returns'
-            ? [
-                ['limit', 'returns'],
-                ['sent back', String(w.what.limit.sentBack)],
-              ]
-            : [
-                ['limit', 'calls'],
-                ['made', String(w.what.limit.made)],
-              ];
-        case 'wait':
-          return [
-            ['retry', clock(w.what.until)],
-            ['failed', String(w.what.failed)],
-          ];
-      }
-      return [];
-    case 'precondition':
-      return [['requires', w.words]];
-    case 'limit':
-      return [
-        ['limit', 'runs'],
-        ['runs', String(w.runs)],
-      ];
-    case 'calls':
-      return [
-        ['limit', 'calls'],
-        ['runs', String(w.runs)],
-      ];
-    case 'slot':
-      return [['slot', 'none free']];
-    case 'agents':
-      return [['outage', outageWords(w.outage)]];
-    case 'answer':
-      return [];
-    case 'outside':
-      return [
-        ['source', w.source],
-        ['cell', w.cell],
-        ['why', w.why],
-      ];
-    case 'turn': {
-      const act = actOf(page, cell);
-      return [
-        ...(act === null ? [] : ([['act', act]] as StateKey[])),
-        [
-          'held by',
-          <a className="link mono" href={`#/works/${w.holder}`} title={`Open work ${w.holder}`}>
-            W{w.holder}
-          </a>,
-        ],
-        ...since(w.since),
-      ];
-    }
-  }
-}
-
-/// What the work's state line says, the one part every state is said by: the tone of its dot, the word of its state,
-/// the cell it stands at, shown as a cell is shown everywhere, and that state's own keys and values.
-export interface WorkState {
-  tone: Tone;
-  word: string;
-  cell: string | null;
-  keys: StateKey[];
-}
-
-/// The word of a call under way: a tool's call the engine runs for a cell, or an engine cell's act.
-const CALL_WORD = 'Call under way';
-
-/// What the work does now, as its state line says it. Whatever the one definition of what waits on the owner counts
-/// (`waitsOf`) waits for you, in the owner's tone, with the keys of what it waits for; a fault and a stalled work are
-/// halted by the engine; the owner's own pause is a pause. It names a cell only where the engine's state names one: a
-/// paused, held or faulted work shows none. Its own pause is said by a key wherever what it does now says something
-/// else, as a round under way or a call goes on under it.
-export function stateOf(s: Summary, page: WorkPage | null): WorkState {
-  const now = s.now;
-  const paused: StateKey[] = s.paused ? [['paused', 'yes']] : [];
-  if (waitsOnOwner(now)) {
-    switch (now.kind) {
-      case 'waits':
-        return {
-          tone: 'owner',
-          word: MOOD_WORDS.owner,
-          cell: now.at,
-          keys: [...now.on.flatMap((w) => waitedKeys(w, page, now.at)), ...paused],
-        };
-      case 'paused':
-        return {
-          tone: 'owner',
-          word: MOOD_WORDS.owner,
-          cell: null,
-          keys: [['paused', 'by the engine'], ...(now.why === null ? [] : ([['why', now.why]] as StateKey[]))],
-        };
-      case 'everything':
-        return {
-          tone: 'owner',
-          word: MOOD_WORDS.owner,
-          cell: null,
-          keys: [
-            ['paused', 'every work'],
-            ['by', 'the engine, as it started again'],
-          ],
-        };
-    }
-  }
-  switch (now.kind) {
-    case 'round': {
-      const act = actOf(page, now.cell);
-      const calling = s.cells.find((c) => c.cell === now.cell)?.state === 'calling';
-      return calling
-        ? {
-            tone: 'running',
-            word: CALL_WORD,
-            cell: now.cell,
-            keys: [...(act === null ? [] : ([['act', act]] as StateKey[])), ...since(now.since), ...runsAt(now.at), ...paused],
-          }
-        : {
-            tone: 'running',
-            word: MOOD_WORDS.running,
-            cell: now.cell,
-            keys: [['round', String(now.round)], ...since(now.since), ...paused],
-          };
-    }
-    case 'next':
-      return { tone: 'running', word: MOOD_WORDS.running, cell: now.cell, keys: paused };
-    case 'waits': {
-      const mood = moodOf(s);
-      const keys = [...now.on.flatMap((w) => waitedKeys(w, page, now.at)), ...paused];
-      if (mood === 'running') return { tone: 'running', word: CALL_WORD, cell: now.at, keys };
-      // Not the owner's, as the definition says: it waits for whoever else gives what it waits for, or, where only a
-      // source outside it does, such as the items it depends on being merged, for that.
-      const who = [...new Set(now.on.flatMap((w) => whom(w, page) ?? []))].filter((x) => x !== WHO.owner);
-      return {
-        tone: mood,
-        word: who.length === 0 ? MOOD_WORDS.waiting : `Waiting for ${who.join(' and ')}`,
-        cell: now.at,
-        keys,
-      };
-    }
-    // The owner's own pause: the engine's waits for the owner, above.
-    case 'paused':
-      return { tone: 'paused', word: MOOD_WORDS.paused, cell: null, keys: [] };
-    case 'everything':
-      return { tone: 'paused', word: MOOD_WORDS.paused, cell: null, keys: [['paused', 'every work']] };
-    case 'fault':
-      return { tone: 'halted', word: MOOD_WORDS.halted, cell: null, keys: [['fault', now.words]] };
-    case 'merged':
-      return { tone: 'ended', word: 'Merged', cell: null, keys: [] };
-    case 'cancelled':
-      return { tone: 'ended', word: 'Cancelled', cell: null, keys: [] };
-    // A stalled work is shown as a fault is: no cell can move it on, and it is not the owner's to let on.
-    case 'stalled':
-      return {
-        tone: 'halted',
-        word: MOOD_WORDS.halted,
-        cell: now.at,
-        keys: [['stalled', stalledWords(now)], ...paused],
-      };
-  }
-}
+  c.asks === undefined ? undefined : 'call' in c.asks ? callKey(c.asks.call) : answerKey(c.asks.question);
 
 /// A cell as the page shows one: its id in the monospace, muted, and its title semibold, which the work's flow gives.
 function CellName({ cell, page }: { cell: string; page: WorkPage | null }) {
@@ -421,24 +178,22 @@ function CellName({ cell, page }: { cell: string; page: WorkPage | null }) {
 }
 
 /// The tone of a dot: an item's standing, or what its work does.
-type Tone = ItemStanding | Mood | 'ended';
+type Tone = ItemStanding | WorkTone;
 
-/// The dot of each tone, as the look's status line colours it: red for a work stopped for the owner or by the engine,
-/// as its card is; grey for one stopped for anything else.
+/// The dot of each tone, as the look's status line colours it: red for a stop, a work that waits for the owner or one
+/// the engine halted, as its card is; grey for one that waits for anything else.
 const DOT: Record<Tone, string> = {
   open: 'dot dot-running',
   running: 'dot dot-running',
   done: 'dot dot-added',
   owner: 'dot dot-removed',
-  halted: 'dot dot-removed',
-  waiting: 'dot',
-  paused: 'dot',
+  failed: 'dot dot-removed',
+  quiet: 'dot',
   cancelled: 'dot',
-  ended: 'dot',
 };
 
-/// A status line of the panel, the look's (`StatusLine`), but with the five tones of a work, and room at its right
-/// end for the strip of the work's cells.
+/// A status line of the panel, the look's (`StatusLine`), but with the tones of a work, and room at its right end for
+/// the strip of the work's cells.
 function Line({ tone, word, children }: { tone: Tone; word: ReactNode; children?: ReactNode }) {
   return (
     <div className="status-line">
@@ -573,7 +328,7 @@ function ItemView({
       setBodyRead(true);
       setBodyFailed(null);
     }, failed);
-    readRulings(read, loadVersion).then((r) => alive && setRulings(r), failed);
+    readRulings(read, waitsOf(read.summary), loadVersion).then((r) => alive && setRulings(r), failed);
     return () => {
       alive = false;
     };
@@ -645,8 +400,7 @@ function ItemView({
   // options, by what its answer is sent to.
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [written, setWritten] = useState<Record<string, string>>({});
-  const merge = work.now.kind === 'waits' && work.now.on.some(waitsForAnswers);
-  const questions = [...questionsStanding(read?.questions, merge), ...askedOf(work.now)].map((c) =>
+  const questions = [...questionsStanding(read?.questions, work), ...askedOf(work)].map((c) =>
     c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null, answer: written[pickKey(c)] ?? '' },
   );
   // Those still to answer, which Confirm sends.
@@ -743,14 +497,8 @@ function ItemView({
       </header>
       <ItemLine item={item} waitsFor={waitsFor} goal={goal} tier={mock.tier} />
       <WorkLine w={work} page={read} />
-      {!ended(work) && (
-        <Acts paused={work.paused || work.now.kind === 'paused'} act={send} />
-      )}
-      <WaitCards
-        waits={waitsOf(work.now).filter((w) => !drawnInBody(w))}
-        act={send}
-        actEngine={actEngine}
-      />
+      {!ended(work) && <Acts paused={work.paused === 'owner'} act={send} />}
+      <StopCards work={work} act={send} actEngine={actEngine} />
       {letGoFailedNow !== null && (
         <div className="cw-acts">
           <LetGoAgain why={letGoFailedNow} send={(what) => send(what).then(() => null, refusal)} />
@@ -818,7 +566,7 @@ function ItemView({
                     {answering.refused !== null && <p className="failed small">{answering.refused}</p>}
                     {confirmed !== null ? <p className="cw-done">{confirmed}</p> : null}
                     {rulings.map((r) => (
-                      <RulingBox key={`${r.block}@${r.at}`} ruling={r} page={read} act={send} />
+                      <RulingBox key={r.key} ruling={r} act={send} />
                     ))}
                   </>
                 }
@@ -844,7 +592,6 @@ function ItemView({
             <Discussion
               work={work}
               page={page}
-              askers={[...new Set(toAnswer.flatMap((q) => (q.asks === undefined ? [] : [q.asks.cell])))]}
               messages={body.messages}
               messageTo={messageTo}
               setMessageTo={setMessageTo}
@@ -896,11 +643,11 @@ function ItemLine({ item, waitsFor, goal, tier }: {
   );
 }
 
-/// The work's state line, the same part for every state: its word, the cell it stands at as a cell is shown
-/// everywhere, the work, at the right how far it has come and where its time went, and under them that state's keys
-/// and values.
+/// The work's state line, one line, the same part for every state: its dot and the word of its state, the cell it
+/// stands at where the engine's state names one, as a cell is shown everywhere, the work, and at the right how far it
+/// has come and where its time went.
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
-  const { tone, word, cell, keys } = stateOf(w, page);
+  const { tone, word, cell } = stateOf(w);
   return (
     <Line tone={tone} word={word}>
       {cell !== null && <CellName cell={cell} page={page} />}
@@ -914,19 +661,13 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
           <TimeTrack spans={barSpans(w.bar ?? (page === null ? '' : barOf(page)))} />
         </span>
       </span>
-      {/* The state's own keys, on a row of their own under the line, however long a value is. */}
-      {keys.length > 0 && (
-        <span className="cw-keys">
-          <Keys keys={keys} />
-        </span>
-      )}
     </Line>
   );
 }
 
-/// What the owner does to a work that goes on: let it go on past a limit it waits at; start it or pause it, with one
-/// switch whose pressed choice says which it is in; cancel it, once they confirm and say why. While one is under way,
-/// none takes effect.
+/// What the owner does to a work that goes on: start it or pause it, with one switch whose pressed choice says whether
+/// the owner's own pause holds it, the engine's being let on from its card; cancel it, once they confirm and say why.
+/// While one is under way, none takes effect.
 function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<unknown> }) {
   const { waiting, refused, send } = useSending(act);
   const [asking, setAsking] = useState(false);
@@ -983,20 +724,17 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
   );
 }
 
-/// Whether the body of the panel draws what a work waits for as its own card: a question, as a choice at the plan's
-/// end, and a precondition the owner makes hold, as the ruling on the block that keeps it.
-export const drawnInBody = (w: Wait): boolean => w.kind === 'question' || w.kind === 'precondition';
-
-/// What a work waits for from the owner that is not a question drawn in the plan or a ruling: a card for each, in the
-/// words of `waitsOf`, with the button that lets the work on where there is one.
-function WaitCards({ waits, act, actEngine }: {
-  waits: Wait[];
+/// The work's stops that are not drawn in its body, each a card under the state line in the look of every stop: what
+/// the engine's list says it waits on the owner for, one sentence of why and the button that ends it, each saying on
+/// pointing at it what it does; and a fault or a stall, which no one waits on, with what is wrong.
+function StopCards({ work, act, actEngine }: {
+  work: Summary;
   act: (what: Act) => Promise<unknown>;
   actEngine?: (what: EngineAct) => Promise<unknown>;
 }) {
   const [waiting, setWaiting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
-  const send = (w: NonNullable<Wait['act']>) => {
+  const send = (w: WaitAct) => {
     if (waiting) return;
     setWaiting(true);
     setRefused(null);
@@ -1009,28 +747,50 @@ function WaitCards({ waits, act, actEngine }: {
       },
     );
   };
-  if (waits.length === 0) return null;
+  const now = work.now;
+  const halted = now.kind === 'fault' ? now.words : now.kind === 'stalled' ? stalledWords(now) : null;
+  const waits = waitsOf(work).filter((w) => !drawnInBody(w));
+  if (waits.length === 0 && halted === null) return null;
   return (
     <div className="cw-waits">
+      {halted !== null && <StopCard why={halted} />}
       {waits.map((w) => (
-        <div className="cw-part" key={w.key}>
-          <div className="cw-choice" data-wait={w.key}>
-            <p className="cw-choice-stops">The work waits for you: {w.words}</p>
-          </div>
-          <WaitButton todo={w.act} waiting={waiting} send={send} />
-        </div>
+        <StopCard key={w.key} wait={w.key} why={w.why}>
+          <WaitButton wait={w} waiting={waiting} send={send} />
+        </StopCard>
       ))}
       {refused !== null && <p className="failed small">{refused}</p>}
     </div>
   );
 }
 
-function WaitButton({ todo, waiting, send }: { todo: Wait['act']; waiting: boolean; send: (w: NonNullable<Wait['act']>) => void }) {
-  if (todo === null) return null;
+/// A stop of a work, the one look of every stop: on the red tint, framed in red; its reason, then what stands under it
+/// and the buttons that end it, inside the card.
+function StopCard({ wait, why, children }: { wait?: string; why: ReactNode; children?: ReactNode }) {
   return (
-    <Button primary disabled={waiting} onClick={() => send(todo)}>
-      {todo.label}
-    </Button>
+    <div className="cw-part">
+      <div className="cw-choice cw-choice-holds" data-wait={wait}>
+        <div className="cw-choice-q">{why}</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/// The button that ends a wait, inside its card, saying on pointing at it what it does; for what no control of the
+/// page does, what the owner does, in the engine's words.
+function WaitButton({ wait, waiting, send }: { wait: Wait; waiting: boolean; send: (w: WaitAct) => void }) {
+  const ends = wait.ends;
+  if (ends.kind === 'outside') return <p className="cw-stop-do">{ends.what}</p>;
+  const todo = actOf(ends);
+  if (todo === null || !(ends.kind in ENDS_WORDS)) return null;
+  const words = ENDS_WORDS[ends.kind as keyof typeof ENDS_WORDS];
+  return (
+    <div className="cw-stop-acts">
+      <Button primary title={words.title} disabled={waiting} onClick={() => send(todo)}>
+        {words.label}
+      </Button>
+    </div>
   );
 }
 
@@ -1156,10 +916,47 @@ function Section({
   );
 }
 
+/// The options of a card that offers them, drawn as choices and told apart by shape from what stands above them: under
+/// a hairline, each a frame in the accent with a radio mark at its left, filled once picked, the one picked on the
+/// accent's tint; the one recommended tagged.
+function Options({ options, chosen, recommended = null, pick }: {
+  options: { label: string; detail: string }[];
+  chosen: number | null;
+  recommended?: number | null;
+  pick?: (option: number) => void;
+}) {
+  return (
+    <div className="cw-options" role="radiogroup">
+      {options.map((o, i) => (
+        <button
+          key={o.label}
+          type="button"
+          role="radio"
+          disabled={pick === undefined}
+          aria-checked={chosen === i}
+          aria-pressed={chosen === i}
+          className={chosen === i ? 'cw-option on' : 'cw-option'}
+          onClick={() => pick?.(i)}
+        >
+          <span className="cw-radio" aria-hidden="true" />
+          <span className="cw-option-text">
+            <span className="cw-option-label">
+              {o.label}
+              {recommended === i ? <span className="tag cw-tag">Recommended</span> : null}
+            </span>
+            {o.detail !== '' && <span className="cw-option-detail">{o.detail}</span>}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
-/// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about
-/// it, which brings the first into view. A question with no options is answered in words, in a box in their place. A
-/// question that holds the work, at its cell or at the merge, is on the red tint, edged in red.
+/// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are
+/// about it, which brings the first into view. A question with no options is answered in words, in a box in their
+/// place. A question the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in
+/// red, the look of every stop, with no line that says so.
 function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   p: Choice;
   pick?: (option: number) => void;
@@ -1168,17 +965,14 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   messages: number[];
   jump?: (at: number) => void;
 }) {
-  const holds = p.stops === 'work' || p.stops === 'merge';
   return (
     <div
-      className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${holds ? ' cw-choice-holds' : ''}`}
+      className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}`}
       data-wait={waitKeyOf(p)}
     >
       <div className="cw-choice-q">
         <Markdown text={p.question} />
       </div>
-      {p.stops === 'merge' && <p className="cw-choice-stops">The merge waits for this answer</p>}
-      {p.stops === 'later' && <p className="cw-choice-later">Still to confirm</p>}
       {p.options.length === 0 && p.asks !== undefined ? (
         <textarea
           rows={3}
@@ -1189,22 +983,14 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
           onChange={(e) => write?.(e.target.value)}
         />
       ) : null}
-      {p.options.map((o, i) => (
-        <button
-          key={o.label}
-          type="button"
-          disabled={pick === undefined}
-          aria-pressed={p.chosen === i}
-          className={p.chosen === i ? 'cw-option on' : 'cw-option'}
-          onClick={() => pick?.(i)}
-        >
-          <span className="cw-option-label">
-            {o.label}
-            {p.recommended === i ? <span className="tag cw-tag">Recommended</span> : null}
-          </span>
-          <span className="cw-option-detail">{o.detail}</span>
-        </button>
-      ))}
+      {p.options.length > 0 && (
+        <Options
+          options={p.options}
+          chosen={p.chosen}
+          recommended={p.recommended}
+          pick={pick}
+        />
+      )}
       {messages.length > 0 || discuss !== undefined ? (
         <div className="cw-choice-foot">
           {messages.length > 0 ? (
@@ -1232,42 +1018,48 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   );
 }
 
-/// A block that keeps a precondition the work waits for from holding, drawn as a question that stops the work is: who
-/// wrote its current version, a cell by the name the owner calls it, and what it says; under it, as wide as the body,
-/// the button that writes the block with the value that makes the test hold, where its values make that plain. To have
-/// the cell judge again, the owner writes to it in the discussion.
-function RulingBox({ ruling, page, act }: {
-  ruling: Ruling;
-  page: WorkPage | null;
-  act: (what: Act) => Promise<unknown>;
-}) {
+/// A block the owner may write that keeps a precondition the work waits for from holding, as the engine's list names
+/// it, drawn as a question that holds the work is: why, in the engine's words, and what the block's latest version
+/// says; its values but the one it has now as the options, the one that makes the precondition hold picked first; and
+/// inside the card the button that writes the one picked. To have the cell judge again, the owner writes to it in the
+/// discussion.
+function RulingBox({ ruling, act }: { ruling: Ruling; act: (what: Act) => Promise<unknown> }) {
   const { waiting, refused, send } = useSending(act);
-  const by = ruling.by;
-  const who =
-    by.kind === 'run'
-      ? writerOf(by.cell, page)
-      : by.kind === 'person'
-        ? WRITER.owner
-        : (page?.flow.blocks.find((b) => b.name === ruling.block)?.writtenBy.outside ?? 'The outside');
-  const value = ruling.value;
+  const options = ruling.values.filter((v) => v !== ruling.now);
+  const first = ruling.holding === null ? -1 : options.indexOf(ruling.holding);
+  const [chosen, setChosen] = useState<number | null>(first < 0 ? null : first);
+  const value = chosen === null ? null : options[chosen];
   return (
     <>
       <div className="cw-part">
-        <div className="cw-choice cw-choice-holds" data-wait="precondition">
-          <p className="cw-choice-q">{who}</p>
-          {ruling.text.trim() !== '' && <Markdown text={ruling.text} />}
+        <div className="cw-choice cw-choice-holds" data-wait={ruling.key}>
+          <div className="cw-choice-q">
+            <p>{ruling.why}</p>
+            {ruling.text.trim() !== '' && <Markdown text={ruling.text} />}
+          </div>
+          {options.length > 0 && (
+            <Options
+              options={options.map((v) => ({ label: `${ruling.block} = ${v}`, detail: '' }))}
+              chosen={chosen}
+              pick={(o) => setChosen((was) => (was === o ? null : o))}
+            />
+          )}
+          {options.length > 0 && (
+            <div className="cw-stop-acts">
+              <Button
+                primary
+                title={value === null ? 'Pick a value to write' : `Write ${ruling.block} = ${value}`}
+                disabled={waiting || value === null}
+                onClick={() => {
+                  if (value !== null) void send({ kind: 'write', block: ruling.block, content: '', value });
+                }}
+              >
+                Confirm
+              </Button>
+            </div>
+          )}
         </div>
       </div>
-      {value !== null && (
-        <button
-          type="button"
-          className="button button-primary cw-confirm"
-          disabled={waiting}
-          onClick={() => void send({ kind: 'write', block: ruling.block, content: '', value })}
-        >
-          Count it as settled
-        </button>
-      )}
       {refused !== null && <p className="failed small">{refused}</p>}
     </>
   );
@@ -1282,8 +1074,6 @@ function RulingBox({ ruling, page, act }: {
 function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
-  /// The cells that asked the owner a question still to answer.
-  askers: string[];
   messages: Message[];
   /// The line the owner chose the message goes to; none where they did not.
   messageTo: string | null;

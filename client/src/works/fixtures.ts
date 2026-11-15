@@ -28,6 +28,7 @@ import type {
   Item,
   Items,
   Now,
+  Pauser,
   Projects,
   Round,
   RoundPage,
@@ -39,6 +40,7 @@ import type {
   Unmet,
   Version,
   VersionPage,
+  Wait,
   WorkPage,
   Writer,
 } from '../works-api';
@@ -460,8 +462,8 @@ class History {
     return { cell: cellId, needs, inputs };
   }
 
-  /// The work as the interface would give it now.
-  page(number: number, item: number, title: string, now: Now, paused = false): WorkPage {
+  /// The work as the interface would give it now, with who paused it and what the engine says it waits on the owner for.
+  page(number: number, item: number, title: string, now: Now, o: { paused?: Pauser; waits?: Wait[] } = {}): WorkPage {
     const runs = this.steps.filter((s): s is RunStep => s.kind === 'run');
     const details = FLOW.cells.map((c) => this.detail(c.id));
     const cells: CellNow[] = FLOW.cells.map((c, i) => {
@@ -487,9 +489,10 @@ class History {
         item,
         flow: FLOW.name,
         added: this.steps[0]?.time ?? this.time,
-        paused,
+        paused: o.paused ?? null,
         now,
         cells,
+        waits: o.waits ?? [],
         spent: runs.reduce((s, r) => add(s, r.spent), nothing()),
         last: this.steps.length > 0 ? this.time : null,
       },
@@ -674,11 +677,22 @@ function long(start: number): Built {
     minutes: 14,
     usd: 0,
   });
-  const page = h.page(41, 141, 'Show the cost of each round on the works page', {
-    kind: 'waits',
-    at: 'merge',
-    on: [{ kind: 'precondition', test: 'approved', words: 'The owner approved the merge', by: [{ kind: 'owner' }] }],
-  });
+  const approval: Wait = {
+    key: 'write-approval',
+    why: 'merge requires test = approved, which approval keeps from holding.',
+    ends: { kind: 'write', block: 'approval', value: 'yes' },
+  };
+  const page = h.page(
+    41,
+    141,
+    'Show the cost of each round on the works page',
+    {
+      kind: 'waits',
+      at: 'merge',
+      on: [{ kind: 'precondition', test: 'approved', words: 'The owner approved the merge', by: [{ kind: 'owner' }] }],
+    },
+    { waits: [approval] },
+  );
   return { page, history: h };
 }
 
@@ -719,12 +733,19 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
       asks: [{ kind: 'question', who: 'owner', question: 'Should the list show the works of cancelled items, or leave them out?' }],
     });
     const call = run.calls[0].call;
+    const asked: Wait = {
+      key: `call-${call}`,
+      why: 'Should the list show the works of cancelled items, or leave them out?',
+      ends: { kind: 'reply', call },
+    };
     keep({
-      page: h.page(43, 143, 'List every work', {
-        kind: 'waits',
-        at: 'plan',
-        on: [{ kind: 'call', call, who: 'owner', what: run.calls[0].what }],
-      }),
+      page: h.page(
+        43,
+        143,
+        'List every work',
+        { kind: 'waits', at: 'plan', on: [{ kind: 'call', call, who: 'owner', what: run.calls[0].what }] },
+        { waits: [asked] },
+      ),
       history: h,
     });
   }
@@ -749,7 +770,21 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.round(run, { hands: [{ block: 'solution', content: 'a solution' }] });
     const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
     const call = h.atLimit(run, limit);
-    keep({ page: h.page(44, 144, 'Say a choice\'s values', { kind: 'waits', at: 'implement', on: [{ kind: 'call', call, who: 'owner', what: limit }] }), history: h });
+    const atLimit: Wait = {
+      key: 'limit',
+      why: 'The run of implement had 2 returns sent back, its limit.',
+      ends: { kind: 'goOn', call },
+    };
+    keep({
+      page: h.page(
+        44,
+        144,
+        'Say a choice\'s values',
+        { kind: 'waits', at: 'implement', on: [{ kind: 'call', call, who: 'owner', what: limit }] },
+        { waits: [atLimit] },
+      ),
+      history: h,
+    });
   }
 
   {
@@ -758,7 +793,21 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     upToReview(h, 'Draw the way back in its purple.', false);
     goRound(h, 3);
     h.ran('review', [{ block: 'opinions_implement', content: 'Finding 4: the arrow points the wrong way.' }, { block: 'content', content: '', value: 'no' }]);
-    keep({ page: h.page(45, 145, 'Draw the way back', { kind: 'waits', at: 'implement', on: [{ kind: 'limit', runs: 3 }] }), history: h });
+    const limit: Wait = {
+      key: 'limit',
+      why: 'implement ran 3 times in a row for what a cell after it wrote, its limit.',
+      ends: { kind: 'letGo', cell: 'implement' },
+    };
+    keep({
+      page: h.page(
+        45,
+        145,
+        'Draw the way back',
+        { kind: 'waits', at: 'implement', on: [{ kind: 'limit', runs: 3 }] },
+        { waits: [limit] },
+      ),
+      history: h,
+    });
   }
 
   {
@@ -772,7 +821,10 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.did('paused', 30);
     h.did('resumed', 60);
     h.did('paused', 10);
-    keep({ page: h.page(46, 146, 'Fold the panel away', { kind: 'paused', by: 'owner', why: null }, true), history: h });
+    keep({
+      page: h.page(46, 146, 'Fold the panel away', { kind: 'paused', by: 'owner', why: null }, { paused: 'owner' }),
+      history: h,
+    });
   }
 
   {
@@ -788,7 +840,17 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.round(run, { minutes: 5, asks: [{ kind: 'tool', name: 'shell', input: 'npm test', result: '212 passed' }] });
     const why = "The agent's program exited with status 1: the session could not be resumed.";
     h.round(run, { minutes: 0.5, usd: 0.01, fails: why });
-    keep({ page: h.page(50, 150, 'Say why a work is paused', { kind: 'paused', by: 'engine', why }, true), history: h });
+    const paused: Wait = { key: 'pause', why: `The engine paused the work: ${why}`, ends: { kind: 'resume' } };
+    keep({
+      page: h.page(
+        50,
+        150,
+        'Say why a work is paused',
+        { kind: 'paused', by: 'engine', why },
+        { paused: 'engine', waits: [paused] },
+      ),
+      history: h,
+    });
   }
 
   {

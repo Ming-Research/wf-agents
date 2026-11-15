@@ -134,7 +134,7 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
         <span className="view-name">{page.title}</span>
         {page.project !== null && <Attr name="project" value={page.project} />}
         <span className="view-facts">
-          <NowLine now={summary.now} paused={summary.paused} />
+          <NowLine work={summary} />
         </span>
         <span className="view-end">
           <button

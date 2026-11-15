@@ -57,7 +57,7 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
     let items = get_json(router, "/api/v1/items").await;
     let second = &items["items"][1];
     assert_eq!(second["dependsOn"], json!([1]));
-    assert_eq!(second["work"]["paused"], true);
+    assert_eq!(second["work"]["paused"], "owner");
     // A precondition holds the work before its cell whether or not it is paused.
     assert_eq!(
         second["work"]["now"],

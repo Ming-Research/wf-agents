@@ -35,10 +35,7 @@ fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_
     let said = engine.says(&["wait"]);
     let (lines, mark) = split(&said);
     assert!(
-        lines.starts_with(
-            "Item 1 \"Greet the user\", work 1: waits at plan for the owner to answer call 2: \"Should the greeting \
-             name the user?\", for "
-        ),
+        lines.starts_with("Item 1 \"Greet the user\", work 1: waits for you: Should the greeting name the user?, for "),
         "{said}"
     );
     assert_eq!(lines.lines().count(), 1, "{said}");

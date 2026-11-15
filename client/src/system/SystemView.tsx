@@ -212,7 +212,7 @@ function NowPart({ items, engine, copies, copiesFailed }: {
                 <ItemName item={item.number} title={item.title} />
               </td>
               <td className="view-cell-wide">
-                <NowLine now={item.work.now} paused={item.work.paused} />
+                <NowLine work={item.work} />
               </td>
               <td className="small muted" title={item.work.last === null ? undefined : fullTime(item.work.last)}>
                 {item.work.last === null ? 'nothing yet' : clock(item.work.last)}

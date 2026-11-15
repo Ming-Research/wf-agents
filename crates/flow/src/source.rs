@@ -57,6 +57,12 @@ pub fn rules_file() -> String {
     format!("../{}", agents::RULES_FILE)
 }
 
+/// The path, from a flow's directory, of the file beside the flows that says why a work waits on the owner and why the
+/// engine paused a work: [`agents::WAITS_FILE`] in `agents/`.
+pub fn waits_file() -> String {
+    format!("../{}/{}", agents::AGENTS_DIR, agents::WAITS_FILE)
+}
+
 /// The text of a flow's files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Source {
@@ -71,16 +77,16 @@ pub struct Source {
     pub rules: BTreeMap<String, String>,
     /// Of a flow laid out one thing to a file, the text of each of its files but `flow.toml` and its cells', and of
     /// each file beside the flows that it may use, by its path from the flow's directory: `lines/<name>.toml`,
-    /// `blocks/.../<name>.toml`, `tests/<name>.toml`, `../data/.../<name>.toml`, `../triggers/.../<name>.toml` and
-    /// [`rules_file`].
+    /// `blocks/.../<name>.toml`, `tests/<name>.toml`, `../data/.../<name>.toml`, `../triggers/.../<name>.toml`,
+    /// [`rules_file`] and [`waits_file`].
     pub files: BTreeMap<String, String>,
 }
 
 /// Reads the flow in this directory. Laid out one thing to a file where it has `cells/`: `flow.toml`; each `.toml` file
 /// directly in `cells/`, `lines/` and `tests/`; each in `blocks/`, `../data/` and `../triggers/` or in a directory in
-/// them; and [`rules_file`]. Else as it was written before: `flow.toml`, every other `.toml` file directly in it as the
-/// file of the cell its name gives, and every `.md` file directly in its `rules/`, where it has one, as the set of rules
-/// its name gives. Other files and directories are not read.
+/// them; [`rules_file`] and [`waits_file`]. Else as it was written before: `flow.toml`, every other `.toml` file
+/// directly in it as the file of the cell its name gives, and every `.md` file directly in its `rules/`, where it has
+/// one, as the set of rules its name gives. Other files and directories are not read.
 pub fn read(dir: &Path) -> io::Result<Source> {
     let mut source = Source {
         laid_out: dir.join(CELLS_DIR).is_dir(),
@@ -103,9 +109,11 @@ pub fn read(dir: &Path) -> io::Result<Source> {
                 }
             }
         }
-        let rules = dir.join(rules_file());
-        if rules.is_file() {
-            source.add(&rules_file(), fs::read_to_string(rules)?);
+        for beside in [rules_file(), waits_file()] {
+            let at = dir.join(&beside);
+            if at.is_file() {
+                source.add(&beside, fs::read_to_string(at)?);
+            }
         }
         for (path, text) in files(dir, TASK_EXTENSION, true)? {
             source.add(&path, text);
@@ -220,7 +228,7 @@ fn laid_out(path: &str) -> Option<Kept<'_>> {
     } else if dir == LINES_DIR || dir == TESTS_DIR || under(BLOCKS_DIR) || under(DATA_DIR) || under(TRIGGERS_DIR) {
         Some(Kept::File)
     } else {
-        (path == rules_file()).then_some(Kept::File)
+        (path == rules_file() || path == waits_file()).then_some(Kept::File)
     }
 }
 
@@ -377,6 +385,16 @@ pub struct BlockFile {
     /// `{name}` in it a place the engine fills in a run.
     #[serde(default)]
     pub writes: Texts,
+    /// Of a block a source outside the work writes, who changes what it writes by their acts, where only one does.
+    pub changed_by: Option<ChangedBy>,
+}
+
+/// Who changes what a source outside the work writes of a block, by their acts: the owner, as the record of the
+/// questions changes only as the owner answers them, so that a precondition that reads the block waits on the owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangedBy {
+    Owner,
 }
 
 /// A block as written in a file of a flow's `blocks/`, or, of the engine's own data, in a file of `../data/`: as in
@@ -410,6 +428,9 @@ pub struct LaidOutBlockFile {
     /// `{name}` in it a place the engine fills in a run. The words are the flow's, so the code holds none of them.
     #[serde(default)]
     pub writes: Texts,
+    /// Of a block a source outside the work writes, who changes what it writes by their acts, where only one does: the
+    /// owner, so that a precondition that reads it waits on the owner.
+    pub changed_by: Option<ChangedBy>,
 }
 
 /// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
@@ -436,6 +457,7 @@ impl From<LaidOutBlockFile> for BlockFile {
             words: block.words,
             shape: block.shape,
             writes: block.writes,
+            changed_by: block.changed_by,
         }
     }
 }

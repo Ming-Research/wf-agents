@@ -14,7 +14,7 @@ async fn each_act_is_taken_as_what_happened_to_the_work() {
     greeted(router).await;
     let done = (StatusCode::NO_CONTENT, Value::Null);
     assert_eq!(post(router, ACTS, &json!({ "kind": "pause" })).await, done);
-    assert_eq!(get_json(router, "/api/v1/works/1").await["summary"]["paused"], true);
+    assert_eq!(get_json(router, "/api/v1/works/1").await["summary"]["paused"], "owner");
     assert_eq!(post(router, ACTS, &json!({ "kind": "resume" })).await, done);
     let opinion = json!({ "kind": "write", "block": "opinions", "content": "Keep it short.", "value": null });
     assert_eq!(post(router, ACTS, &opinion).await, done);

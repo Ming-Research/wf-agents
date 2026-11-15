@@ -25,6 +25,12 @@ fn asked() -> Value {
                 "at": null,
             }],
         },
+        // What it waits on the owner for, as the engine's one list of it says.
+        "waits": [{
+            "key": "call-2",
+            "why": "Should the greeting name the user?",
+            "ends": { "kind": "reply", "call": 2 },
+        }],
     })
 }
 
@@ -80,6 +86,11 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
             "of": { "work": 1, "item": 1, "title": "Greet the user" },
             "since": START + 4500,
             "now": { "kind": "paused", "by": "engine", "why": "The agent's program could not start." },
+            "waits": [{
+                "key": "pause",
+                "why": "The engine paused the work: The agent's program could not start.",
+                "ends": { "kind": "resume" },
+            }],
         }])
     );
 }

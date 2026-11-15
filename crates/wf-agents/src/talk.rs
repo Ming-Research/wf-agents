@@ -690,7 +690,14 @@ fn show(page: &WorkPage) -> String {
             summary.flow
         ),
         format!("Now: {}.", now(&summary.now)),
-        format!("Paused: {}.", if summary.paused { "yes" } else { "no" }),
+        format!(
+            "Paused: {}.",
+            match summary.paused {
+                Some(Pauser::Owner) => "by the owner",
+                Some(Pauser::Engine) => "by the engine",
+                None => "no",
+            }
+        ),
         format!(
             "Tags: {}.",
             if page.tags.is_empty() {
@@ -1396,10 +1403,16 @@ fn heed(line: &Line, now: u64) -> String {
                 duration(now.saturating_sub(*since))
             );
         }
-        Line::Fault { of, since, now: is } | Line::ForAPerson { of, since, now: is } => (
+        Line::Fault { of, since, now: is } | Line::Stalled { of, since, now: is } => (
             of,
             format!("{}, for {}", self::now(is), duration(now.saturating_sub(*since))),
         ),
+        // What it waits on the owner for, each by why, a question by the first line of what it asks.
+        Line::ForAPerson { of, since, waits, .. } => {
+            let why: Vec<String> = waits.iter().map(|wait| first_line(&wait.why)).collect();
+            let waited = duration(now.saturating_sub(*since));
+            (of, format!("waits for you: {}, for {waited}", why.join(" ")))
+        }
         Line::Idle {
             of,
             since,
@@ -1441,11 +1454,22 @@ fn heed(line: &Line, now: u64) -> String {
     format!("Item {} \"{title}\", work {}: {said}.", of.item, of.work)
 }
 
+/// The first line of a text, cut to a paragraph's length.
+fn first_line(text: &str) -> String {
+    let line = text.trim().lines().next().unwrap_or_default();
+    if line.chars().count() > PARAGRAPH {
+        format!("{}…", line.chars().take(PARAGRAPH).collect::<String>())
+    } else {
+        line.to_string()
+    }
+}
+
 /// Why an item waited for is not going on, after its number.
 fn stuck(why: Stuck) -> &'static str {
     match why {
         Stuck::Paused => "paused",
-        Stuck::ForAPerson => "resting for a person",
+        Stuck::ForAPerson => "waiting for you",
+        Stuck::Stalled => "stalled",
         Stuck::Idle => "waiting in turn for items none of which is going on",
         Stuck::Cancelled => "cancelled",
         Stuck::Fault => "unable to go on",
@@ -1949,7 +1973,7 @@ mod tests {
                 item: number,
                 flow: "trial".to_string(),
                 added: 0,
-                paused: false,
+                paused: None,
                 now: if merged {
                     Now::Merged
                 } else {
@@ -1966,7 +1990,7 @@ mod tests {
                 from: None,
                 bar: String::new(),
                 sent_back: 0,
-                holding: Vec::new(),
+                waits: Vec::new(),
             },
         }
     }

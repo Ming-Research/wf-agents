@@ -6,12 +6,10 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cellNowWords } from '../works/marks';
-import { clock } from '../works/words';
-import type { Act, CellNow, Item, Now, Question, Speaking, WorkPage } from '../works-api';
+import type { Act, CellNow, Item, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
-import { waitsOnOwner } from '../works/waiting';
 
 let root: Root | undefined;
 let container: HTMLElement;
@@ -137,8 +135,15 @@ const lines = (el: HTMLElement) =>
       .join(' '),
   );
 
-/// The keys and values of the work's state line, each as its key and its value.
-const keysOf = (el: HTMLElement) => text(el, '.cw-item > .status-line .keys > span');
+/// The work's state line has no row of keys under it: what it says is one line.
+const noKeys = (el: HTMLElement) => el.querySelector('.cw-item > .status-line .cw-keys, .cw-item > .status-line .keys') === null;
+
+/// The engine's wait for the owner's answer to this question of the work's, at this version.
+const answering = (name: string, version = 30): Wait => ({
+  key: `answer-${name}`,
+  why: `What of ${name}?`,
+  ends: { kind: 'answer', question: name, version },
+});
 
 const button = (el: HTMLElement, words: string) =>
   [...el.querySelectorAll('button')].find((b) => b.textContent === words) as HTMLButtonElement;
@@ -177,7 +182,12 @@ describe('the panel of the item selected', () => {
     const [itemLine, workLine] = lines(el);
     expect(itemLine).toBe('Open Added 1.1d ago Waits for 11 to merge');
     expect(workLine).toContain('Waiting for you review_plan Review the plan');
-    expect(keysOf(el)).toEqual(['limit runs', 'runs 3']);
+    expect(noKeys(el)).toBe(true);
+    // What it waits for is its card, under the line, in the look of every stop: why, and the button that ends it.
+    const card = el.querySelector('[data-wait="limit"]') as HTMLElement;
+    expect(card.className).toBe('cw-choice cw-choice-holds');
+    expect(text(card, '.cw-choice-q')).toEqual(['review_plan ran 3 times in a row for what a cell after it wrote, its limit.']);
+    expect(card.querySelector('button')?.title).toBe('Run the cell again past its limit');
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
   });
 
@@ -190,18 +200,22 @@ describe('the panel of the item selected', () => {
     expect(el.querySelector('.drawer-belongs')).toBeNull();
   });
 
-  it('says a work the engine paused as waiting for you, with the reason, and shows it paused on the switch that starts it', () => {
-    const el = draw(4, answered([]));
+  it("says a work the engine paused as waiting for you, its reason on its card, which alone lets it on: the switch shows the owner's own pause", () => {
+    const sent: Sent = [];
+    const el = draw(4, answered(sent));
     const [, workLine] = lines(el);
-    // It waits for you, as the one definition of what waits on the owner says, with the engine's reason.
     expect(workLine).toContain('Waiting for you');
-    expect(keysOf(el)).toEqual([
-      'paused by the engine',
-      "why The agent's program exited with an error: the session could not be resumed.",
+    expect(noKeys(el)).toBe(true);
+    const card = el.querySelector('[data-wait="pause"]') as HTMLElement;
+    expect(text(card, '.cw-choice-q')).toEqual([
+      "The engine paused the work: the agent's program exited with an error: the session could not be resumed",
     ]);
     expect(el.querySelectorAll('.cw-item > .status-line .strip .state-failed')).toHaveLength(1);
-    expect(button(el, 'Pause').getAttribute('aria-pressed')).toBe('true');
-    expect(button(el, 'Start').getAttribute('aria-pressed')).toBe('false');
+    const pressed = text(el, '.cw-acts [aria-pressed="true"]');
+    expect(pressed).toEqual(['Start']);
+    act(() => (card.querySelector('button') as HTMLButtonElement).click());
+    expect(sent).toEqual([[4, { kind: 'resume' }]]);
+    expect(card.querySelector('button')?.textContent).toBe('Start');
   });
 
   it("shows the work's cells in the works page's strip, one mark per cell in the flow's order, each by its state", () => {
@@ -240,11 +254,11 @@ describe('the panel of the item selected', () => {
     const el = draw(20, answered([]));
     const [, workLine] = lines(el);
     expect(workLine).toContain('Waiting for you implement Implement');
-    expect(keysOf(el)).toEqual(['requires The owner confirmed the plan']);
-    expect(text(el, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
+    expect(noKeys(el)).toBe(true);
+    const asked = el.querySelector('[data-wait="call-12"]') as HTMLElement;
+    expect(text(asked, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
     // It holds the work: on the red tint, with no line to say so.
-    expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-holds');
-    expect(text(el, '.cw-choice-stops')).toEqual([]);
+    expect(asked.className).toBe('cw-choice cw-choice-holds');
   });
 
   it("says a message to the chosen cell's line, names the cell the engine says it reaches, and then the one it gave it to", async () => {
@@ -370,7 +384,7 @@ describe('the panel of the item selected', () => {
     await act(async () => button(el, 'Pause').click());
     expect(sent).toEqual([[2, { kind: 'pause' }]]);
 
-    draw(4, answered(sent));
+    draw(3, answered(sent));
     // Pressing the choice already pressed sends nothing.
     await act(async () => button(el, 'Pause').click());
     await act(async () => button(el, 'Start').click());
@@ -385,8 +399,8 @@ describe('the panel of the item selected', () => {
     type(el.querySelector('dialog textarea') as HTMLTextAreaElement, ' Joined into #3 ');
     await act(async () => button(el, 'Cancel the work').click());
     expect(sent.slice(1)).toEqual([
-      [4, { kind: 'resume' }],
-      [4, { kind: 'cancel', why: 'Joined into #3' }],
+      [3, { kind: 'resume' }],
+      [3, { kind: 'cancel', why: 'Joined into #3' }],
     ]);
   });
 
@@ -485,7 +499,8 @@ const question = (name: string, o: Partial<Question> = {}): Question => ({
   ...o,
 });
 
-/// Draws the panel of item 25, its work doing `now` and held by the questions `holding`, its page giving `questions`.
+/// Draws the panel of item 25, its work doing `now` and waiting on the owner for the answers to the questions
+/// `holding`, as the engine's list says, its page giving `questions`; paused by the owner where `paused`.
 function drawAsking(
   now: Now,
   holding: string[],
@@ -495,7 +510,10 @@ function drawAsking(
   paused = false,
 ) {
   const i = itemOf(25);
-  const item: Item = { ...i, work: { ...i.work, now, holding, cells: cells ?? i.work.cells, paused } };
+  const versions = new Map(questions.map((q) => [q.name, q.version]));
+  const waits = holding.map((name) => answering(name, versions.get(name)));
+  const work = { ...i.work, now, waits, cells: cells ?? i.work.cells, paused: paused ? ('owner' as const) : null };
+  const item: Item = { ...i, work };
   const page = pageOf(item);
   if (page === null || !('page' in page)) throw new Error('no page');
   container = document.createElement('div');
@@ -549,13 +567,14 @@ describe("the work's state line, one part for every state", () => {
     }
   });
 
-  it("says a round under way by its number and since when, and the work's own pause plainly", () => {
+  it("says a round under way as running, in one line, and the work's own pause on the switch alone", () => {
     const el = at({ kind: 'round', cell: 'implement', run: 9, round: 2, since, at: null }, cellsAt('implement', 'running'), true);
-    expect(lines(el)[1]).toContain('Running implement Implement');
-    expect(keysOf(el)).toEqual(['round 2', `since ${clock(since)}`, 'for 13m', 'paused yes']);
+    expect(lines(el)[1]).toBe('Running implement Implement W25');
+    expect(noKeys(el)).toBe(true);
+    expect(text(el, '.cw-acts [aria-pressed="true"]')).toEqual(['Pause']);
   });
 
-  it('says a call under way, a tool its agent asked for, by the tool, its input as written, since when and its CI run', () => {
+  it("says a call under way, a tool its agent asked for, as running, the cell's yellow saying it is a call, and no raw input", () => {
     const link = 'https://github.example/actions/runs/316';
     const el = at(
       {
@@ -576,30 +595,24 @@ describe("the work's state line, one part for every state", () => {
     );
     // It runs, as a round under way does: the running tone.
     expect(el.querySelector('.cw-item > .status-line:nth-of-type(2) .dot')?.className).toBe('dot dot-running');
-    expect(lines(el)[1]).toContain('Call under way implement Implement');
-    expect(keysOf(el)).toEqual([
-      'tool run_tests',
-      'input {"tests": [], "checks": ["lint"]}',
-      `since ${clock(since)}`,
-      'for 13m',
-      'runs at github.example/actions/runs/316',
-    ]);
-    expect(el.querySelector('.cw-item > .status-line .keys a')?.getAttribute('href')).toBe(link);
+    expect(lines(el)[1]).toContain('Running implement Implement');
+    expect(noKeys(el)).toBe(true);
+    expect(el.querySelector('.cw-item')?.textContent).not.toContain('{"tests"');
+    expect(el.querySelector('.cw-item > .status-line .state-calling')).not.toBeNull();
   });
 
-  it("says an engine cell's act under way by the act, since when and its CI run", () => {
+  it("says an engine cell's act under way as running", () => {
     const link = 'https://github.example/actions/runs/250';
     const el = at({ kind: 'round', cell: 'check', run: 9, round: 1, since, at: link }, cellsAt('check', 'calling'));
-    expect(lines(el)[1]).toContain('Call under way check Check with the latest main');
-    expect(keysOf(el)).toEqual(['act check', `since ${clock(since)}`, 'for 13m', 'runs at github.example/actions/runs/250']);
+    expect(lines(el)[1]).toContain('Running check Check with the latest main');
+    expect(noKeys(el)).toBe(true);
   });
 
-  it('says an act that waits for the turn, and the work that holds it', () => {
+  it('says an act that waits for the turn as waiting for the work that holds it, in the line', () => {
     const el = at({ kind: 'waits', at: 'check', on: [{ kind: 'turn', holder: 7, since }] }, cellsAt('check', 'resting'));
     expect(el.querySelector('.cw-item > .status-line:nth-of-type(2) .dot')?.className).toBe('dot');
-    expect(lines(el)[1]).toContain('Waiting for the turn check Check with the latest main');
-    expect(keysOf(el)).toEqual(['act check', 'held by W7', `since ${clock(since)}`, 'for 13m']);
-    expect(el.querySelector('.cw-item > .status-line .keys a')?.getAttribute('href')).toBe('#/works/7');
+    expect(lines(el)[1]).toContain('Waiting for W7 check Check with the latest main');
+    expect(noKeys(el)).toBe(true);
   });
 
   it('names no cell for a paused, held or faulted work, which the engine names none for', () => {
@@ -642,7 +655,6 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     expect(text(el, '.cw-choice-q')).toEqual(['What of scope?']);
     // It holds the work: on the red tint, edged in red, with no line to say so.
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-holds');
-    expect(text(el, '.cw-choice-stops')).toEqual([]);
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it']]);
     expect(text(el, '.cw-option-detail')).toEqual(['Nothing changes', 'The plan is shorter']);
     expect(button(el, 'Confirm (0/1)').disabled).toBe(true);
@@ -658,7 +670,7 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     const merge: Now = {
       kind: 'waits',
       at: 'merge',
-      on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'outside', source: 'asked' }] }],
+      on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'owner' }] }],
     };
     const el = drawAsking(
       merge,
@@ -680,9 +692,9 @@ describe('the questions put to the owner, in the panel of the item selected', ()
       })),
     );
     const [, workLine] = lines(el);
-    expect(workLine).toContain('Waiting for you merge Merge W25 requires asked = answered');
+    expect(workLine).toBe('Waiting for you merge Merge W25');
     expect(text(el, '.cw-choice-q')).toEqual(['What of measure?', 'What of old?', 'What of read-time?']);
-    expect(text(el, '.cw-choice-stops')).toEqual(['The merge waits for this answer', 'The merge waits for this answer']);
+    expect(el.textContent).not.toContain('The merge waits for this answer');
     // Those the merge waits for hold the work, on the red tint; the one answered stands with its answer, and is not
     // asked again.
     expect([...el.querySelectorAll('.cw-choice')].map((c) => c.className)).toEqual([
@@ -710,21 +722,43 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     expect([...el.querySelectorAll('.cw-choice-q pre.content')].map((p) => p.textContent)).toEqual(['-a = 1\n+a = 2']);
   });
 
-  it('shows a question the work has gone on past as still to confirm, which stops nothing yet', () => {
+  it('shows a question the work has gone on past in the look of a choice of the plan, which stops nothing yet, with no words of its own', () => {
     const el = drawAsking({ kind: 'next', cell: 'implement' }, [], [question('later')]);
     expect(text(el, '.cw-choice-q')).toEqual(['What of later?']);
-    // It keeps the look of a choice of the plan.
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice');
-    expect(text(el, '.cw-choice-stops')).toEqual([]);
-    expect(text(el, '.cw-choice-later')).toEqual(['Still to confirm']);
+    expect(el.textContent).not.toContain('Still to confirm');
     expect(text(el, '.cw-confirm')).toEqual(['Confirm (0/1)']);
+  });
+
+  it("draws each option as a choice, apart from the question by a hairline: a radio mark, filled once picked", () => {
+    const el = drawAsking({ kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'scope' }] }, ['scope'], [
+      question('scope', { waits: true }),
+    ]);
+    const card = el.querySelector('[data-wait="answer-scope"]') as HTMLElement;
+    const group = card.querySelector('.cw-options') as HTMLElement;
+    expect(group.getAttribute('role')).toBe('radiogroup');
+    // The options stand after what the question asks, in a part of their own.
+    expect(group.previousElementSibling?.className).toBe('cw-choice-q');
+    const marks = [...group.querySelectorAll('.cw-option')].map((o) => o.firstElementChild?.className);
+    expect(marks).toEqual(['cw-radio', 'cw-radio']);
+    const checked = () => [...group.querySelectorAll('.cw-option')].map((o) => o.getAttribute('aria-checked'));
+    expect(checked()).toEqual(['false', 'false']);
+    act(() => (group.querySelectorAll('.cw-option')[1] as HTMLButtonElement).click());
+    expect(checked()).toEqual(['false', 'true']);
+    expect(group.querySelectorAll('.cw-option.on')).toHaveLength(1);
   });
 });
 
-/// Draws the panel of item 12, its work doing `now`, its page giving `questions`.
-function drawQuestions(now: Now, questions: Question[], send: (work: number, what: Act) => Promise<unknown>) {
+/// Draws the panel of item 12, its work doing `now` and waiting on the owner for `waits`, as the engine's list says, its
+/// page giving `questions`.
+function drawQuestions(
+  now: Now,
+  questions: Question[],
+  send: (work: number, what: Act) => Promise<unknown>,
+  waits: Wait[] = [],
+) {
   const i = itemOf(12);
-  const item: Item = { ...i, work: { ...i.work, now } };
+  const item: Item = { ...i, work: { ...i.work, now, waits } };
   const p = pageOf(item);
   if (p === null || !('page' in p)) throw new Error('no page');
   return draw(item, send, { page: { ...p.page, questions } });
@@ -743,6 +777,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       { kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'scope' }] },
       [question('scope', { waits: true })],
       answered(sent),
+      [answering('scope')],
     );
     // One card, which the address of what the work waits for names, and none under the status line.
     expect(el.querySelectorAll('[data-wait="answer-scope"]')).toHaveLength(1);
@@ -750,8 +785,6 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(text(el, '.cw-choice-q')).toEqual(['What of scope?']);
     // It holds the work: on the red tint, edged in red, with no line to say so.
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-holds');
-    expect(text(el, '.cw-choice-stops')).toEqual([]);
-    expect(text(el, '.cw-choice-later')).toEqual([]);
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it']]);
     expect(text(el, '.cw-option-detail')).toEqual(['Nothing changes', 'The plan is shorter']);
     expect(button(el, 'Confirm (0/1)').disabled).toBe(true);
@@ -764,22 +797,20 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
 
   it('shows a question the merge waits for as holding the work, which waits for you, and sends its answer', async () => {
     const sent: Sent = [];
-    const answers = { kind: 'outside', source: 'asked' } as const;
     const merge: Now = {
       kind: 'waits',
       at: 'merge',
-      on: [{ kind: 'precondition', test: 'asked', words: 'asked = answered', by: [answers] }],
+      on: [{ kind: 'precondition', test: 'asked', words: 'asked = answered', by: [{ kind: 'owner' }] }],
     };
-    expect(waitsOnOwner(merge)).toBe(true);
     const old = question('old', { answer: { option: 1, at: 40, why: null } });
-    const el = drawQuestions(merge, [question('measure'), old], answered(sent));
-    // It waits for you at the merge's check, by the key of what it requires.
+    const el = drawQuestions(merge, [question('measure'), old], answered(sent), [answering('measure')]);
+    // It waits for you at the merge's check, in one line.
     expect(lines(el)[1]).toContain('Waiting for you merge Merge');
-    expect(keysOf(el)).toEqual(['requires asked = answered']);
-    // The card the address of the merge's wait opens, which says so; the one answered asks nothing.
-    expect(el.querySelectorAll('[data-wait="asked"]')).toHaveLength(1);
-    expect(text(el, '.cw-choice-stops')).toEqual(['The merge waits for this answer']);
-    expect(text(el, '.cw-choice-later')).toEqual([]);
+    expect(noKeys(el)).toBe(true);
+    // The card the address of the engine's wait for its answer opens, which says nothing of its own; the one answered
+    // asks nothing.
+    expect(el.querySelectorAll('[data-wait="answer-measure"]')).toHaveLength(1);
+    expect(el.textContent).not.toContain('The merge waits for this answer');
     // The one the merge waits for holds the work, on the red tint; the one answered stands with its answer.
     expect([...el.querySelectorAll('.cw-choice')].map((c) => c.className)).toEqual([
       'cw-choice cw-choice-holds',
@@ -792,15 +823,13 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
 
   it('shows a question the work goes on past by the option it recommends, not counted while no merge waits on it, and sends its answer', async () => {
     const sent: Sent = [];
-    expect(waitsOnOwner({ kind: 'next', cell: 'implement' })).toBe(false);
     const later = question('later', { recommends: 2 });
     const el = drawQuestions({ kind: 'next', cell: 'implement' }, [later], answered(sent));
     expect(el.querySelector('[data-wait]')?.getAttribute('data-wait')).toBe('answer-later');
     expect(text(el, '.cw-choice-q')).toEqual(['What of later?']);
-    // It keeps the look of a choice of the plan, still to confirm.
+    // It keeps the look of a choice of the plan, with no words of its own.
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice');
-    expect(text(el, '.cw-choice-stops')).toEqual([]);
-    expect(text(el, '.cw-choice-later')).toEqual(['Still to confirm']);
+    expect(el.textContent).not.toContain('Still to confirm');
     expect(options(el)).toEqual([['Keep it', 'Drop itRecommended']]);
     pick(el, 0, 0);
     await act(async () => button(el, 'Confirm (1/1)').click());
@@ -833,6 +862,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       { kind: 'waits', at: 'implement', on: [{ kind: 'answer', question: 'protected_files' }] },
       [protectedFiles],
       answered(sent),
+      [answering('protected_files', 44)],
     );
     const card = el.querySelector('[data-wait="answer-protected_files"]') as HTMLElement;
     expect(card.className).toBe('cw-choice cw-choice-holds');
@@ -863,8 +893,6 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(text(el, '.cw-choice-q')).toEqual(['What of old?']);
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-done');
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
-    expect(text(el, '.cw-choice-stops')).toEqual([]);
-    expect(text(el, '.cw-choice-later')).toEqual([]);
     expect(el.querySelector('.cw-confirm')).toBeNull();
   });
 });

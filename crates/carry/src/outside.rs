@@ -45,12 +45,15 @@ pub struct Check {
     network: Arc<dyn Network>,
     /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
     clock: Arc<dyn Clock>,
+    /// Why the short request failed where the command line ended with no result, in the words beside the flows.
+    words: flow::agents::ProgramWords,
 }
 
 impl Check {
     /// The check the settings say: with the agents' command, directory of settings and environment, the short request
-    /// on the cheapest level's model, and the network looked at on the service's host ([`failure::Look`]).
-    pub fn of(settings: &Settings) -> Result<Check, String> {
+    /// on the cheapest level's model, and the network looked at on the service's host ([`failure::Look`]); a command
+    /// line that ends with no result is said in these words.
+    pub fn of(settings: &Settings, words: flow::agents::ProgramWords) -> Result<Check, String> {
         let levels = settings.levels()?;
         let cheapest =
             (levels.levels().first()).ok_or_else(|| "agents.levels: there is at least one level".to_string())?;
@@ -65,6 +68,7 @@ impl Check {
             dir: std::env::temp_dir(),
             network: Arc::new(failure::Look),
             clock: Arc::new(SystemClock),
+            words,
         })
     }
 
@@ -167,10 +171,10 @@ impl Check {
         // What it said, as a round's failure says it: its result's error, or else the end of what it wrote of itself.
         let why = match (output.status.success(), had_result) {
             (true, _) => no.why,
-            (false, true) => format!("{} exited with {}: {}", self.command, output.status, no.why),
+            (false, true) => process::ended(&self.words, &self.command, output.status, &no.why),
             (false, false) => {
                 let tail = process::tail(String::from_utf8_lossy(&output.stderr).trim().as_bytes());
-                format!("{} exited with {}: {tail}", self.command, output.status)
+                process::ended(&self.words, &self.command, output.status, &tail)
             }
         };
         let failure = failure::of(&why, &no.said, no.spent.as_ref());
@@ -233,6 +237,10 @@ mod tests {
             dir: dir.to_path_buf(),
             network: Arc::new(Reached(reached)),
             clock: Arc::new(At),
+            words: flow::agents::ProgramWords {
+                exited: "{command} exited with code {code}: {said}".to_string(),
+                signal: "{command} was ended by signal {signal}: {said}".to_string(),
+            },
         }
     }
 

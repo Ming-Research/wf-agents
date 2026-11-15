@@ -299,6 +299,10 @@ pub struct WrittenBy {
     pub note: bool,
     /// The source outside the work that writes it; none where the outside does not.
     pub outside: Option<String>,
+    /// Who changes what that source writes of it by their acts, as its file writes it (`owner`); none where its file
+    /// says nobody.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_by: Option<String>,
 }
 
 /// Who reads a block.
@@ -690,6 +694,9 @@ impl Flow {
                     people: block.writers.people,
                     note: block.writers.note,
                     outside: block.writers.outside.clone(),
+                    changed_by: block.writers.changed_by.map(|by| match by {
+                        flow::ChangedBy::Owner => flow::OWNER.to_string(),
+                    }),
                 },
                 read_by: ReadBy {
                     cells: names(&block.readers.cells),

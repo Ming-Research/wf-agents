@@ -203,8 +203,8 @@ export interface Summary {
   item: number;
   flow: string;
   added: number;
-  /// Only a note to a cell is answered; a round under way goes on.
-  paused: boolean;
+  /// Who paused it, where it is paused: only a note to a cell is answered; a round under way goes on.
+  paused: Pauser | null;
   now: Now;
   /// In the order of the walk.
   cells: CellNow[];
@@ -217,17 +217,45 @@ export interface Summary {
   from?: number | null;
   /// Where its time went, from its first round's begin to the end of its last round or tool's call, cut into equal
   /// cells, one character each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls; where neither
-  /// ran, what the work waited for: `o` the owner, `p` a pause, `w` the items its item depends on, `.` anything else.
-  /// Empty with no round; absent from an engine that does not give it yet.
+  /// ran, what the work waited for: `o` the owner, as the engine's one definition of what waits on the owner says, `p` a
+  /// pause, `w` the items its item depends on, `.` anything else. Empty with no round; absent from an engine that does
+  /// not give it yet.
   bar?: string;
   /// How many of its rounds were given back what the round before handed in; absent from an engine that does not give
   /// it yet.
   sentBack?: number;
-  /// The questions put to the owner that hold it now, by their names: each it waits for at its cell, and, while the
-  /// check before the merge waits for the owner's answers (`asked = answered`), each that stands unanswered. Absent
-  /// from an engine that does not give it yet.
-  holding?: string[];
+  /// Everything it waits on the owner for now, in the order it waits for them, as the engine defines it once: what the
+  /// count, each item's mark, the cards and the notifications read, and nothing else. Absent from an engine that does
+  /// not give it yet.
+  waits?: Wait[];
 }
+
+/// One thing a work waits on the owner for: its key within the work, which a notification's address and the card that
+/// shows it carry; why, in a sentence, what it asks for a question; and what the owner does that ends it.
+export interface Wait {
+  key: string;
+  why: string;
+  ends: Ends;
+}
+
+/// What the owner does that ends a wait on them.
+export type Ends =
+  /// Answers this version of the work's question by one of its options, on its card at the plan's end.
+  | { kind: 'answer'; question: string; version: number }
+  /// Answers in words the question this call puts, on its card at the plan's end.
+  | { kind: 'reply'; call: number }
+  /// Lets the run at its limit go on, as the result of this call.
+  | { kind: 'goOn'; call: number }
+  /// Lets the cell go on past its limit.
+  | { kind: 'letGo'; cell: string }
+  /// Writes the block with this value, which makes the precondition hold; none where its values do not make it plain.
+  | { kind: 'write'; block: string; value: string | null }
+  /// Lets the work go on, lifting the engine's pause.
+  | { kind: 'resume' }
+  /// Lets every work go on, lifting the pause of everything the engine set.
+  | { kind: 'resumeEverything' }
+  /// Does what this says, which no control of the page does.
+  | { kind: 'outside'; what: string };
 
 export interface Item {
   number: number;

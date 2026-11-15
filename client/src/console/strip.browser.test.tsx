@@ -33,7 +33,6 @@ const working = (id: number, cells: CellNow[]): Shown => ({
   title: `Item ${id}`,
   standing: 'open',
   asks: 0,
-  questions: 0,
   deliver: false,
   blocked: 0,
   unseen: false,
@@ -43,7 +42,8 @@ const working = (id: number, cells: CellNow[]): Shown => ({
   work: {
     number: id,
     now: { kind: 'round', cell: 'c1', run: 1, round: 1, since: Date.now() },
-    paused: false,
+    paused: null,
+    waits: [],
     bar: '',
     sentBack: 0,
     cells,

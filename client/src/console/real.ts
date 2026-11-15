@@ -14,13 +14,13 @@
 //   each version of a block people write as a note to one cell (one people write, with no fixed values, that one cell
 //   reads) is the owner's, to that cell. In the order of their times.
 // - A question a cell asked the owner: its sentence alone, answered in words, since the engine gives no options.
-// - A ruling: for each precondition the work waits for, each block its test reads that people write whose current
-//   version keeps the test from holding, with that version's writer and content (`readRulings`).
+// - A ruling: for each block the engine's list of what waits on the owner says the owner may write, its latest version's
+//   content (`readRulings`).
 // Nothing, with the mocks off: an item's unseen mark, unread messages, open questions, tier and verdicts; a work's tier.
 
 import { mocksShown } from '../mock-data';
-import type { Block, Flow, SentPiece, Test } from '../api';
-import type { Item, Version, VersionPage, WorkPage, Writer } from '../works-api';
+import type { Block, Flow, SentPiece } from '../api';
+import type { Item, Version, VersionPage, Wait, WorkPage } from '../works-api';
 import { askedMock, bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
 import type { Body, Choice, Message, Part } from './window';
 
@@ -30,7 +30,7 @@ export type LoadVersion = (work: number, block: string, at: number) => Promise<V
 /// What a card and the window show of an item that the engine does not give: made up with the mocks, none without.
 export function itemOf(item: Item): ItemMock {
   if (mocksShown()) return itemMock(item);
-  return { unseen: false, unread: 0, openQuestions: 0, tier: null, verdicts: [] };
+  return { unseen: false, unread: 0, tier: null, verdicts: [] };
 }
 
 /// A question a cell asked the owner, as a choice at the plan's end: with made-up options with the mocks, and with none
@@ -173,75 +173,45 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
   return { background, problem: [], plan, planWaits: false, messages };
 }
 
-/// A block that keeps a precondition the work waits for from holding, which people may write and so the owner may
-/// rule: its current version, who wrote it and what it says, and the value that makes the test hold, none where the
-/// block's values do not make that plain.
+/// A block the owner may write that keeps a precondition the work waits for from holding, as the engine's list of what
+/// waits on the owner names it: its key in that list and why, the block, its values and the one it has now, the value
+/// that makes the precondition hold where the engine says one, and what its latest version says.
 export interface Ruling {
+  key: string;
+  why: string;
   block: string;
-  at: number;
-  by: Writer;
+  /// The place of its latest version; none where it has none.
+  at: number | null;
+  values: string[];
+  now: string | null;
+  holding: string | null;
   text: string;
-  value: string | null;
 }
 
-/// Whether a version of a block keeps a test that reads it from holding: for a test that holds when every one or at
-/// least one block has its value, when the version has another; for one that holds when none has it, when the version
-/// has it, and for `noneStanding` only as written by a person, the outside or a cell that is not skipped now; for a
-/// test of content, when the version holds nothing.
-function keeps(test: Test, v: Version, skipped: Set<string>): boolean {
-  switch (test.kind) {
-    case 'anyContent':
-      return v.chars === 0;
-    case 'all':
-    case 'any':
-      return v.value !== test.is;
-    case 'none':
-      return v.value === test.is;
-    case 'noneStanding':
-      return v.value === test.is && (v.by.kind !== 'run' || !skipped.has(v.by.cell));
-  }
-}
-
-/// The value of a block that makes a test that reads it hold: the test's own where it holds when a block has it, and
-/// where it holds when none has it, the block's only other value; none where that is not plain, as of a test of
-/// content, which looks for no value.
-function holding(test: Test, values: string[] | null): string | null {
-  if (test.is === null) return null;
-  if (test.kind === 'all' || test.kind === 'any') return values?.includes(test.is) === true ? test.is : null;
-  const others = (values ?? []).filter((v) => v !== test.is);
-  return others.length === 1 ? others[0] : null;
-}
-
-/// What the owner may rule of the preconditions the work waits for, from the flow's tests and the work's blocks: each
-/// block an unmet test reads, of those people write, whose current version keeps the test from holding.
-export async function readRulings(page: WorkPage, load: LoadVersion): Promise<Ruling[]> {
-  const now = page.summary.now;
-  if (now.kind !== 'waits') return [];
+/// What the owner may rule of the preconditions the work waits for, as the engine's list names them: each block it says
+/// the owner may write, with what its latest version says.
+export async function readRulings(page: WorkPage, waits: Wait[], load: LoadVersion): Promise<Ruling[]> {
   const work = page.summary.number;
-  const skipped = new Set(page.summary.cells.filter((c) => c.state === 'skipped').map((c) => c.cell));
-  const found = new Map<string, { v: Version; value: string | null }>();
-  for (const w of now.on) {
-    if (w.kind !== 'precondition') continue;
-    const test = page.flow.tests.find((t) => t.name === w.test);
-    if (test === undefined) continue;
-    for (const name of test.reads) {
-      const block = page.flow.blocks.find((b) => b.name === name);
-      if (block === undefined || !block.writtenBy.people || found.has(name)) continue;
-      const v = (page.blocks.find((b) => b.name === name)?.versions ?? []).reduce<Version | undefined>(
+  return Promise.all(
+    waits.flatMap((w) => {
+      const ends = w.ends;
+      if (ends.kind !== 'write') return [];
+      const v = (page.blocks.find((b) => b.name === ends.block)?.versions ?? []).reduce<Version | undefined>(
         (last, x) => (last === undefined || x.at > last.at ? x : last),
         undefined,
       );
-      if (v === undefined || !keeps(test, v, skipped)) continue;
-      found.set(name, { v, value: holding(test, block.values) });
-    }
-  }
-  return Promise.all(
-    [...found].map(async ([block, { v, value }]) => ({
-      block,
-      at: v.at,
-      by: v.by,
-      text: v.chars > 0 ? await contentOf(load, work, block, v.at) : '',
-      value,
-    })),
+      const values = page.flow.blocks.find((b) => b.name === ends.block)?.values ?? [];
+      const read = async (): Promise<Ruling> => ({
+        key: w.key,
+        why: w.why,
+        block: ends.block,
+        at: v?.at ?? null,
+        values,
+        now: v?.value ?? null,
+        holding: ends.value,
+        text: v !== undefined && v.chars > 0 ? await contentOf(load, work, ends.block, v.at) : '',
+      });
+      return [read()];
+    }),
   );
 }

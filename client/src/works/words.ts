@@ -27,7 +27,7 @@ import type {
   Waited,
   Writer,
 } from '../works-api';
-import { waitsOf, waitsOnOwner } from './waiting';
+import { waitsOf } from './waiting';
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -165,23 +165,13 @@ export function personWords(person: Person): string {
   return `the ${person}`;
 }
 
-/// The engine's source of the datum that says whether every question of the work that stands has the owner's answer
-/// to its latest version: a precondition only it can make hold waits for the owner's answers, as the engine's own
-/// account of what rests for a person says.
-export const ASKED = 'asked';
-
-/// Whether what a work waits for is the owner's answers to the questions that stand: a precondition only the engine's
-/// source of how they stand can make hold, as the merge's check requires.
-export const waitsForAnswers = (waited: Waited): boolean =>
-  waited.kind === 'precondition' && waited.by.some((m) => m.kind === 'outside' && m.source === ASKED);
-
-/// Who can make a precondition hold.
+/// Who can make a precondition hold, as the engine says it from what the flow declares of each block.
 export function makerWords(maker: Maker): string {
   switch (maker.kind) {
     case 'owner':
       return 'the owner';
     case 'outside':
-      return maker.source === ASKED ? "the owner's answers" : `the outside (${maker.source})`;
+      return `the outside (${maker.source})`;
     case 'cell':
       return `cell ${maker.cell}`;
   }
@@ -252,45 +242,18 @@ export function outageWords(outage: Outage): string {
         ? `the engine's check at ${clock(until.at)} found it well, and every work goes on`
         : `once the host is reached, looked at from ${clock(until.at)}`;
   const down = outageDown(outage);
-  const mend = down.failure === 'cannotRun' ? ': sign the command line in again or install it' : '';
   const held =
     outage.service === 'host' ? "no act of the engine's of any work begins" : "no agent's round of any work begins";
   const checked =
     outage.checked && outage.holds && outage.checked.found.kind === 'down'
       ? `; the check at ${clock(outage.checked.at)} found: ${outage.checked.found.why}`
       : '';
-  return `${failureWords(down.failure)}${mend}, since ${clock(outage.since)}; ${held}, ${when}${checked} (work ${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
+  return `${failureWords(down.failure)}, since ${clock(outage.since)}; ${held}, ${when}${checked} (W${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
 }
 
 /// What a round asked for.
 export function askWords(ask: Ask): string {
   return ask.kind === 'tool' ? `the tool ${ask.name}` : `a question to ${personWords(ask.who)}`;
-}
-
-/// Whether what can make a precondition hold is the owner's: the owner, or the engine's word of how the questions put
-/// to the owner stand, which only the owner's answers change.
-export const ownerMakes = (m: Maker): boolean => m.kind === 'owner' || (m.kind === 'outside' && m.source === ASKED);
-
-/// Whether the owner is the one a work waits for, on this.
-export function waitsForOwner(waited: Waited): boolean {
-  switch (waited.kind) {
-    case 'call':
-      return waited.who === 'owner' || waited.what.kind === 'atLimit';
-    case 'precondition':
-      return waited.by.some(ownerMakes);
-    case 'limit':
-    case 'calls':
-      return true;
-    case 'slot':
-      return false;
-    case 'agents':
-      return outageDown(waited.outage).failure === 'cannotRun';
-    case 'answer':
-      return true;
-    case 'outside':
-    case 'turn':
-      return false;
-  }
 }
 
 /// What a work waits for, in words; a question's own words are shown beside them, in full.
@@ -324,40 +287,130 @@ export function waitedWords(waited: Waited): string {
     case 'outside':
       return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
     case 'turn':
-      return `the project's turn to check and merge, which work ${waited.holder} holds`;
+      return `the project's turn to check and merge, which W${waited.holder} holds`;
   }
 }
 
-/// What a work does now, in a line. Whatever the one definition of what waits on the owner counts (`waitsOf`) is said
-/// to wait for you, with what it waits for: at a cell, each thing it waits for there; else in the words of its card.
-export function nowWords(now: Now): string {
-  const owners = waitsOf(now);
-  if (owners.length > 0) {
-    return now.kind === 'waits'
-      ? `Waiting for you at ${now.at}: ${now.on.map(waitedWords).join('; ')}`
-      : `Waiting for you, ${owners.map((w) => w.words).join('; ')}`;
+/// The words of a work's state, the one catalogue every view names one from: the item's state line in the console, a
+/// row of the Works list, the System view's tiles, a stretch of a work's bar and the browser's notifications. A work
+/// that waits for anyone but the owner is waiting for them, by name (`waitingFor`).
+export const STATE = {
+  owner: 'Waiting for you',
+  halted: 'Halted',
+  paused: 'Paused',
+  running: 'Running',
+  merged: 'Merged',
+  cancelled: 'Cancelled',
+  /// Waiting, where nothing the engine gives names who gives it.
+  waiting: 'Waiting',
+} as const;
+
+/// A work that waits for whoever else gives what it waits for, by name.
+export const waitingFor = (who: string): string => `Waiting for ${who}`;
+
+/// What the button of a card that ends a wait says, and what it does on pointing at it.
+export const ENDS_WORDS = {
+  goOn: { label: 'Let it go on', title: 'Give the run its next round past its limit' },
+  letGo: { label: 'Let it go on', title: 'Run the cell again past its limit' },
+  resume: { label: 'Start', title: 'Let the work go on' },
+  resumeEverything: { label: 'Start all', title: 'Let every work go on' },
+} as const;
+
+/// How many things wait for the owner, the one count, said one way wherever it is said.
+export const waitCount = (n: number): string => `${n} ${n === 1 ? 'thing waits' : 'things wait'} for you`;
+
+/// Who gives what a work waits for that is not the owner's: the architect for a question put to them, the engine for a
+/// call it makes, a slot and the wait every work shares, the source outside the work, or else the cells, for a
+/// precondition only they make hold, the source a work waits on, and the work that holds the project's turn. None for
+/// what waits on the owner, which the engine's list says.
+function whoGives(w: Waited): string | null {
+  switch (w.kind) {
+    case 'call':
+      return w.who === 'architect' ? 'the architect' : w.who === null ? 'the engine' : null;
+    case 'precondition': {
+      const sources = w.by.flatMap((m) => (m.kind === 'outside' ? [m.source] : []));
+      const cells = w.by.flatMap((m) => (m.kind === 'cell' ? [m.cell] : []));
+      const who = sources.length > 0 ? sources : cells;
+      return who.length > 0 ? who.join(' and ') : null;
+    }
+    case 'slot':
+    case 'agents':
+      return 'the engine';
+    case 'outside':
+      return w.source;
+    case 'turn':
+      return `W${w.holder}`;
+    case 'limit':
+    case 'calls':
+    case 'answer':
+      return null;
   }
+}
+
+/// The tone a work's state takes: red for a work that waits for the owner and for one halted, a stop either way.
+export type Tone = 'running' | 'owner' | 'failed' | 'quiet' | 'done';
+
+/// What a work's state line says: the tone of its dot, the word of its state from the catalogue, and the cell it
+/// stands at where the engine's state names one.
+export interface WorkState {
+  tone: Tone;
+  word: string;
+  cell: string | null;
+}
+
+/// The state of a work. Whatever the engine's list of what waits on the owner holds waits for you; a fault and a stalled
+/// work are halted; the owner's own pause, and the owner's pause of everything, are a pause; a round under way, and a
+/// call or an act the engine carries out for a cell, which the cell's yellow says, are running; anything else waits for
+/// whoever gives it.
+export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState {
+  const now = s.now;
+  const at = now.kind === 'waits' || now.kind === 'stalled' ? now.at : now.kind === 'round' || now.kind === 'next' ? now.cell : null;
+  if (waitsOf(s).length > 0) return { tone: 'owner', word: STATE.owner, cell: at };
   switch (now.kind) {
-    case 'fault':
-      return `Fault: ${now.words}`;
-    case 'merged':
-      return 'Merged';
-    case 'cancelled':
-      return 'Cancelled';
     case 'round':
-      return `Running ${now.cell}, round ${now.round} of run ${now.run}, since ${clock(now.since)}`;
-    // The owner's own pause: the engine's waits for the owner, above.
-    case 'paused':
-      return 'Paused: only a note to a cell is answered until it is let on';
-    case 'everything':
-      return 'Paused with every work: only a note to a cell is answered until everything is let on';
-    case 'waits':
-      return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':
-      return `About to go on at ${now.cell}`;
+      return { tone: 'running', word: STATE.running, cell: at };
+    case 'waits': {
+      if (s.cells.some((c) => c.cell === now.at && c.state === 'calling'))
+        return { tone: 'running', word: STATE.running, cell: at };
+      const who = [...new Set(now.on.flatMap((w) => whoGives(w) ?? []))];
+      return { tone: 'quiet', word: who.length > 0 ? waitingFor(who.join(' and ')) : STATE.waiting, cell: at };
+    }
+    case 'paused':
+    case 'everything':
+      return { tone: 'quiet', word: STATE.paused, cell: null };
+    case 'fault':
+      return { tone: 'failed', word: STATE.halted, cell: null };
     case 'stalled':
-      return `Stalled at ${now.at}: ${stalledWords(now)}`;
+      return { tone: 'failed', word: STATE.halted, cell: at };
+    case 'merged':
+      return { tone: 'done', word: STATE.merged, cell: null };
+    case 'cancelled':
+      return { tone: 'quiet', word: STATE.cancelled, cell: null };
   }
+}
+
+/// The first line of a text, for a line of a list or a notification.
+export const firstLine = (text: string): string => text.trim().split('\n')[0] ?? '';
+
+/// What a work does now, in a line of the Works list: its state's word, the cell where the state names one, and why:
+/// for what waits on the owner, the engine's reasons; for a fault or a stall, what is wrong; for what waits on another,
+/// what it waits for.
+export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
+  const { word, cell } = stateOf(s);
+  const now = s.now;
+  const waits = waitsOf(s);
+  const why =
+    waits.length > 0
+      ? waits.map((w) => firstLine(w.why)).join(' ')
+      : now.kind === 'fault'
+        ? now.words
+        : now.kind === 'stalled'
+          ? stalledWords(now)
+          : now.kind === 'waits' && word !== STATE.running
+            ? now.on.map(waitedWords).join('; ')
+            : null;
+  return [word, cell, why].filter((x) => x !== null && x !== '').join(' · ');
 }
 
 /// What a stalled work waits for, which cells write it and why none of them runs, in a line.
@@ -381,29 +434,8 @@ export function stalledWords(now: Extract<Now, { kind: 'stalled' }>): string {
   return [waits, ...now.by.map((s) => `cell ${s.cell} does not run: ${why(s)}`)].join('; ');
 }
 
-/// The word of what a work does now, for its tag, and the tone the tag takes.
-export type Tone = 'running' | 'owner' | 'quiet' | 'done' | 'failed';
-
-/// Whatever the one definition of what waits on the owner counts (`waitsOf`) is in the owner's tone; a fault, and a
-/// stalled work, which is shown as a fault is, in the tone of what failed; the rest as it stands.
-export function nowTone(now: Now): Tone {
-  if (waitsOnOwner(now)) return 'owner';
-  switch (now.kind) {
-    case 'fault':
-    case 'stalled':
-      return 'failed';
-    case 'merged':
-      return 'done';
-    case 'round':
-      return 'running';
-    case 'paused':
-    case 'waits':
-    case 'cancelled':
-    case 'everything':
-    case 'next':
-      return 'quiet';
-  }
-}
+/// The tone of what a work does now, as its state takes it (`stateOf`).
+export const nowTone = (s: Pick<Summary, 'now' | 'cells' | 'waits'>): Tone => stateOf(s).tone;
 
 /// Why a cell ran or would run, after the block's name where the cause has one. A change a cell after it made is said
 /// to be one; the run is a way round only when every one of its causes is (`wayRound`).
