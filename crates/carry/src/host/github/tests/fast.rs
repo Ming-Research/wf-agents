@@ -240,11 +240,11 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
     let a = said.find("- tools::tests::a: passed in 0.12 s").expect("a");
     assert!(b < a, "{said}");
     assert!(said.contains("assertion failed: said.is_empty()"), "{said}");
-    // What did not pass and the jobs come before what passed, which a result cut short loses first.
+    // The jobs come before what did not pass, and that before what passed, which a result cut short loses first.
     let jobs = "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 \
                 s https://github.example/checks/test";
     let at = said.find(jobs).expect("the jobs");
-    assert!(b < at && at < a, "{said}");
+    assert!(at < b && b < a, "{said}");
     assert!(
         said.ends_with("The tests that passed:\n- tools::tests::a: passed in 0.12 s"),
         "{said}"
