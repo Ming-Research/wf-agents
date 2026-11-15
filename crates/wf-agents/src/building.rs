@@ -715,9 +715,26 @@ mod tests {
         said
     }
 
-    /// The text with each word a renamed name gives back as the name it replaced.
+    /// The text with each word a renamed name gives back as the name it replaced, as it is or in small letters, and so
+    /// a word that begins with one of them and `_`, as the exploration names a cell's question by its cell.
     fn back(text: &str, names: &BTreeMap<String, String>) -> String {
-        let to: BTreeMap<&str, &str> = names.iter().map(|(was, is)| (is.as_str(), was.as_str())).collect();
+        let mut to: BTreeMap<String, String> = BTreeMap::new();
+        for (was, is) in names {
+            to.insert(is.clone(), was.clone());
+            to.insert(is.to_lowercase(), was.to_lowercase());
+        }
+        let given = |word: &str| -> String {
+            if let Some(was) = to.get(word) {
+                return was.clone();
+            }
+            let prefix = (to.iter())
+                .filter(|(is, _)| word.starts_with(&format!("{is}_")))
+                .max_by_key(|(is, _)| is.len());
+            match prefix {
+                Some((is, was)) => format!("{was}{}", &word[is.len()..]),
+                None => word.to_string(),
+            }
+        };
         let mut out = String::with_capacity(text.len());
         let mut word = String::new();
         for c in text.chars().chain(std::iter::once(' ')) {
@@ -725,7 +742,7 @@ mod tests {
                 word.push(c);
                 continue;
             }
-            out.push_str(to.get(word.as_str()).copied().unwrap_or(&word));
+            out.push_str(&given(&word));
             word.clear();
             out.push(c);
         }

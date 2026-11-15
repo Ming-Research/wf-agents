@@ -713,8 +713,40 @@ impl<'m> Replay<'m> {
         Ok(replay)
     }
 
-    /// Gives the loop this, as the exploration did, with a second more on the clock.
+    /// Gives the loop this, as the exploration did, with a second more on the clock; and, as a round of the act that
+    /// checks the work begins, what a script's check writes for it as it begins: main as the work's block of it holds
+    /// it, or, where it holds none, a version made up for the round (crate `service`, the stand-in check).
     fn give(&mut self, given: Given) -> Result<Vec<Effect>, String> {
+        let mut effects = self.take(given)?;
+        let checks: Vec<RunId> = (effects.iter())
+            .filter_map(|effect| match effect {
+                Effect::Round { run, cell, .. } => (self.flow.cells.iter())
+                    .any(|c| c.id == *cell && c.act.as_deref() == Some(service::script::CHECK))
+                    .then_some(*run),
+                _ => None,
+            })
+            .collect();
+        let main = (self.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(driver::MAIN));
+        if let Some((block, _)) = main {
+            for run in checks {
+                let versions = decide::versions(&self.work.records);
+                let latest = versions.get(block).and_then(|v| v.last()).map(|v| v.at);
+                let says = latest
+                    .and_then(|at| self.work.contents.get(&(block.clone(), at)))
+                    .cloned();
+                let content = says.unwrap_or_else(|| "The main as the check took it in.".to_string());
+                effects.extend(self.take(Given::WroteForRound {
+                    run,
+                    block: block.clone(),
+                    content,
+                })?);
+            }
+        }
+        Ok(effects)
+    }
+
+    /// Takes this, with a second more on the clock.
+    fn take(&mut self, given: Given) -> Result<Vec<Effect>, String> {
         self.clock += 1000;
         let shown = format!("{given:?}");
         engine::handle(self.flow, &mut self.work, Time(self.clock), given).map_err(|why| {

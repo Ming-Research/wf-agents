@@ -256,6 +256,10 @@ fn slot_taken(base: &Case) -> Case {
 fn slot_waited(base: &Case) -> Case {
     let (cell, ..) = base.under_way.clone().expect("a round under way");
     let mut c = without_end(base);
+    // Its run does not start: no slot is free for its round.
+    if c.path.last() == Some(&Step::Runs(cell.clone())) {
+        c.path.pop();
+    }
     let end = Step::Waits {
         cell: cell.clone(),
         on: Wait::Slot,
@@ -328,6 +332,8 @@ fn engine_question(base: &Case, words: &Agents) -> Option<Case> {
     r.insert("cell".to_string(), text(cell.as_str()));
     r.insert("run".to_string(), Value::Integer(run as i64));
     r.insert("round".to_string(), Value::Integer(round as i64));
+    // A return that leaves its cell waiting owes nothing else: it hands in nothing, so that the cell stays as it was.
+    r.insert("hands_in".to_string(), Value::Array(Vec::new()));
     r.insert("engine".to_string(), Value::Array(vec![Value::Table(question)]));
     c.rounds.push(r);
     let end = Step::Waits {
