@@ -1,4 +1,4 @@
-//! What the owner says to a work, and what its cells answer (design document `data-and-context`, 30 to 39).
+//! What the owner says to a work, and what its cells answer (design document `data-and-context`, 30 to 38).
 //!
 //! The owner speaks about a question, or to a line of the work's flow, and the engine alone chooses the cell the words
 //! reach ([`receiver`]): words about a question go to the cell that asked it, or, for a question of the engine's, to

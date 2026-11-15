@@ -41,7 +41,7 @@ goes up at each change of meaning, which would leave which version a write is co
 told of the change could keep (principle keep-what-was-paid-for).
 
 ### decision a-question-that-waits-holds-its-cell
-A question a cell waits for holds the work at that cell while it stands with no answer to its latest version: no later cell runs, and the cell is entered meanwhile only for the owner turning to it, by a version no run of it has seen, and for the results of the calls such a run asked for, its round held to nothing its cell must write, as the cell stood when the round began. The answer runs the cell again by its trigger of an answer; the wait is read from the questions and the answers, and is no call.
+A question a cell waits for holds the work at that cell while it stands with no answer to its latest version: no later cell runs, and the cell is entered meanwhile only for the owner turning to it, by a version no run of it has seen, and for the results of the calls such a run asked for, its round held to nothing its cell must write, as the cell stood when the round began; a run of it that is at rest still goes on to hand its return in. The answer runs the cell again by its trigger of an answer; the wait is read from the questions and the answers, and is no call.
 Why: Put to the owner as a call, the question was its run's and not the work's: it could not be asked anew or withdrawn
 under its name, an answer to an older version could not be told from one to the latest, and an answer came back twice,
 as the call's result and as the trigger of an answer (design document `data-and-context`, 35, 36). Entering the cell
