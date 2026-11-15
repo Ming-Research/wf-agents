@@ -18,6 +18,10 @@ Why: A compaction leaves only a summary of what the session was sent, which is n
 Of a datum the session holds that the cell never worked from, as a cell entered after another of its line that read or wrote it, `held_new`'s line is sent: its name and the version the session holds.
 Why: All of it is new to the cell, and the system prompt tells the agent that a block the session holds already comes as a line that says so; with nothing sent, a cell such as the implementation after the plan was told to implement a block its message never named. Sending it whole again was turned down for what it costs (judgment, not measured).
 
+### decision a-question-a-return-asks-is-handed-in-as-its-entry
+The entry the engine writes, of the record of questions and answers, of a question a return asks, asks anew or withdraws is what that return handed in: the session of its round holds it, its cell worked from it, and the line after the return names it. An entry is of the question or the answer the engine recorded last before it, as the engine writes each entry right after what it is of; a question the engine asks itself with a round's end is no return's.
+Why: The session holds the question as its return wrote it; counted as the engine's write alone, the research that asked was given its own question again with the answer (work 2), what its session held (principle lean-agent-input). Keeping with each entry what it is of was turned down, as the order of the records says it (principle state-from-records).
+
 ### decision last-worked-from-a-datum-that-runs-no-cell
 Of a datum that does not run the cell, the version the cell last worked from is the latest written before its last finished run's last round began; of any datum, a version a run of the cell wrote is one it worked from.
 Why: Only a datum that runs a cell is consumed (design document `data-and-context`, 8), and every round is filled with the latest of each datum it is given, so that is the version the run worked from; a cell's own version is no change to it (design document `data-and-context`, 9).
