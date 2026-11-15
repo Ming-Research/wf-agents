@@ -58,7 +58,8 @@ holds the work: no later cell runs but what ends the wait, the engine making the
 the result, the owner answering; and the cell is entered meanwhile only for the owner turning to it, by a version no
 run of it has seen, and for the results of the calls such a run asked for, as the cell stood when the round began; a
 run of it that is at rest still goes on to hand its return in. A return that leaves its cell waiting owes nothing else:
-it may leave out the blocks its cell must write every time and deal with nothing. A result comes in a block of the
+it may leave out the blocks its cell must write every time and deal with nothing, though it may not leave its cell
+(decision a-return-that-waits-keeps-its-cell). A result comes in a block of the
 cell's own, which the cell that gives it hands in with the end of its round, as one of its outputs, and which runs the
 asking cell alone and every run of it told of it takes; it is the end of a wait, named in no `dealt_with`. An entry
 replaced by a newer one of the same cell has no result, and what it asked the host for is cancelled. The answer runs

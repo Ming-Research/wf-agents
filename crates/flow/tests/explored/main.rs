@@ -42,7 +42,7 @@ use explore::{
     A_QUESTION_WAITED, A_ROUND_STOPPED, A_TOOL_ANSWERED, Bounds, CHECKED_CONDITION, CHECKED_GATES,
     CHECKED_GROUP_DEFINED, CHECKED_GROUP_RUN, CHECKED_RERUN, CHECKED_REST, CHECKED_RUN, CHECKED_STALL, CHECKED_STOP,
     CHECKED_THE_CHECK, CHECKED_WRITE_AT_STOP, Explored, GAVE_RESULTS, MAIN_WHILE_THE_CHECK_WAITS, Property,
-    RAN_FOR_A_WAIT, WAITED_FOR_MAIN, WAITED_FOR_THE_OWNER, explore, replay,
+    RAN_FOR_A_WAIT, SKIPPED_ITS_WAIT, WAITED_FOR_MAIN, WAITED_FOR_THE_OWNER, explore, replay,
 };
 use flow::{Compiled, Has, Source, compile, read};
 
@@ -227,6 +227,9 @@ fn rare() -> Vec<String> {
         "a return was sent back".to_string(),
         // A question that does not hold the work, which the merge waits on until the owner answers it.
         "the work waited at M1 on asked = answered".to_string(),
+        // A question the research waits on, asked as it hands the work to the deep research, which leaves it: sent
+        // back.
+        SKIPPED_ITS_WAIT.to_string(),
         ran_on(&cell("M1"), "on_asked"),
         A_QUESTION_WAITED.to_string(),
         ran_on(&cell("R0"), "on_session"),

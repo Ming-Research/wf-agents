@@ -204,14 +204,17 @@ impl<'a> Reading<'a> {
                 Some(named) => named.contains(block),
                 None => self.started[&f.run].basis.contains_key(block),
             })
-            .filter_map(|f| {
-                let began = self.started[&f.run].basis.get(block).copied().flatten();
-                let put_in = (self.put_in.iter())
-                    .filter(|p| p.run == f.run && &p.block == block)
-                    .map(|p| p.version);
-                began.into_iter().chain(put_in).max()
-            })
+            .filter_map(|f| self.told(f.run, block))
             .collect()
+    }
+
+    /// The latest version of the block the run was told of: the one it began from, or one put in to it since.
+    pub fn told(&self, run: RunId, block: &BlockId) -> Option<Seq> {
+        let began = self.started[&run].basis.get(block).copied().flatten();
+        let put_in = (self.put_in.iter())
+            .filter(|p| p.run == run && &p.block == block)
+            .map(|p| p.version);
+        began.into_iter().chain(put_in).max()
     }
 
     /// The runs that finished, in the order they finished.

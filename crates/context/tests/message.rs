@@ -423,6 +423,25 @@ fn a_return_that_dealt_with_what_ran_it_and_did_nothing_is_sent_back_in_its_word
     assert!(entered.text.contains(said), "{}", entered.text);
 }
 
+// A return sent back for asking to wait as its writes leave its own cell is told so in the words of `skips_its_wait`,
+// the block filled in. Well under a millisecond alone; no other test holds the sentence a round is told of it.
+#[test]
+fn a_return_that_asked_to_wait_and_left_its_cell_is_sent_back_in_its_words() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = vec![Unmet::SkipsItsWait { block: "code".into() }];
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    let entered = sim.enter(&again, false);
+    let said = "## Sent back\n\n- `code` ends this cell while it waits.\n";
+    assert!(entered.text.contains(said), "{}", entered.text);
+}
+
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
     let mut sim = Sim::new();
