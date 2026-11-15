@@ -191,6 +191,9 @@ pub struct Asking {
 pub struct Asked {
     pub own: bool,
     pub stands: bool,
+    /// It stands with no answer to its latest version: its answer is still to come, and writes the questions'
+    /// standing.
+    pub unanswered: bool,
 }
 
 /// A call made for a round.
@@ -368,12 +371,14 @@ pub enum Unmet {
 }
 
 /// What runs an act of the engine's again, of a block it wrote that runs a cell before it: the blocks that run the
-/// act, and whether the block of the questions' standing is among them, so that a question that stands runs it once
-/// it is answered. A return that deals with the block is held to leaving one of them new.
+/// act, and whether the block of the questions' standing is among them, so that a question that stands unanswered runs
+/// it once it is answered; and whether one of the blocks already has a version new to the act, which runs it again
+/// whatever the return leaves. A return that deals with the block is held to leaving one of them new.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Answer {
     pub runs: Vec<BlockId>,
     pub question: bool,
+    pub new: bool,
 }
 
 /// What a pause of the run's work holds back of its rounds.
@@ -692,13 +697,14 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         }
     }
     // What an act of the engine's after the cell said to it is answered by what runs the act: what the return hands
-    // in, the work's head it committed among it, or a question that stands once the return is taken. The act reads no
-    // words, and a work answered with none would never run it again (decision an-act-is-answered-by-what-runs-it).
+    // in, the work's head it committed among it, a block already new to the act, or a question that stands unanswered
+    // once the return is taken, whose answer is still to come. The act reads no words, and a work answered with none
+    // would never run it again (decision an-act-is-answered-by-what-runs-it).
     if !waiting {
         let withdrawn = |name: &str| questions.iter().any(|q| q.withdrawn && q.name == name);
-        let stands = waits
+        let unanswered = waits
             || questions.iter().any(|q| !q.withdrawn)
-            || (told.questions.iter()).any(|(name, q)| q.stands && !withdrawn(name));
+            || (told.questions.iter()).any(|(name, q)| q.unanswered && !withdrawn(name));
         for block in consumed(dealt_with, requires) {
             let Some(answer) = requires.answered_by.get(&block) else {
                 continue;
@@ -706,7 +712,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             let written = (writes.iter().map(|w| &w.block))
                 .chain(read)
                 .any(|b| answer.runs.contains(b));
-            if !written && !(answer.question && stands) {
+            if !written && !answer.new && !(answer.question && unanswered) {
                 unmet.push(Unmet::Unanswered { block });
             }
         }

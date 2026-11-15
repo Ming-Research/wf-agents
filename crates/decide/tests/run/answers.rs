@@ -1,6 +1,6 @@
 //! Answering an act: a return that deals with what an act of the engine's after its cell wrote leaves new what runs
-//! that act, by what it writes or what it committed, or has a question stand where an answer runs the act; else it is
-//! sent back, since the act reads no words and would never run again.
+//! that act, by what it writes or what it committed, finds it new already, or has a question stand unanswered where an
+//! answer runs the act; else it is sent back, since the act reads no words and would never run again.
 
 use super::*;
 
@@ -17,7 +17,14 @@ fn answering(question: bool) -> Spec {
             ran_by: vec!["request".into(), "check".into()],
             ..s.told
         },
-        answered_by: BTreeMap::from([("check".into(), Answer { runs, question })]),
+        answered_by: BTreeMap::from([(
+            "check".into(),
+            Answer {
+                runs,
+                question,
+                new: false,
+            },
+        )]),
         ..s
     }
 }
@@ -85,6 +92,7 @@ fn a_question_of_the_cell_that_still_stands_answers_the_check_and_one_withdrawn_
         Asked {
             own: true,
             stands: true,
+            unanswered: true,
         },
     )]);
     let standing = answer(&["check"], vec![], &[], vec![]);
@@ -92,6 +100,39 @@ fn a_question_of_the_cell_that_still_stands_answers_the_check_and_one_withdrawn_
     let withdrawn = answer(&["check"], vec![], &[], vec![asking("not_this_change", true)]);
     let unmet = vec![Unmet::Unanswered { block: "check".into() }];
     assert_eq!(step(vec![withdrawn], &s), send_back(unmet));
+}
+
+// A question the owner answered already writes the questions' standing no more: it stands, and will never run the
+// check again, so a return that answers a red check with nothing else is sent back.
+#[test]
+fn a_question_already_answered_does_not_answer_the_check() {
+    let mut s = answering(true);
+    s.told.questions = BTreeMap::from([(
+        "not_this_change".to_string(),
+        Asked {
+            own: true,
+            stands: true,
+            unanswered: false,
+        },
+    )]);
+    let round = answer(&["check"], vec![prose("plan")], &[], vec![]);
+    let unmet = vec![Unmet::Unanswered { block: "check".into() }];
+    assert_eq!(step(vec![round], &s), send_back(unmet));
+}
+
+// Main moved after the check failed, and the watch wrote it: the check has something new that runs it again, so a
+// return that merges the new main in, moving no head, answers it all the same.
+#[test]
+fn a_block_already_new_to_the_act_answers_it() {
+    let mut s = answering(false);
+    if let Some(answer) = s.answered_by.get_mut(&BlockId::from("check")) {
+        answer.new = true;
+    }
+    let round = answer(&["request", "check"], vec![prose("plan")], &[], vec![]);
+    assert_eq!(
+        step(vec![round], &s),
+        finish_with(&["request", "check"], vec![prose("plan")])
+    );
 }
 
 #[test]

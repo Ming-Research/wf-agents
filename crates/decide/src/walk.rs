@@ -307,6 +307,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
             let asked = Asked {
                 own: q.latest.cell == r.started.cell && !q.latest.engine,
                 stands: q.stands(),
+                unanswered: q.unanswered(),
             };
             (name.to_string(), asked)
         })
@@ -412,6 +413,21 @@ pub struct Entry {
     /// The cell's earlier entries of the record since its last result, which this one replaces: none of them is to
     /// have a result.
     pub replaced: Vec<Seq>,
+}
+
+/// The blocks that run the cell with a version new to it now, as the walk reads what is new to a cell, whether or not
+/// the cell applies; none where the flow has no such cell.
+pub fn new_to(flow: &Flow, records: &Records, cell: &CellId) -> Vec<BlockId> {
+    let walk = Walk::new(flow, records);
+    let Some(i) = flow.place(cell) else {
+        return Vec::new();
+    };
+    (walk.needs(i).into_iter())
+        .filter_map(|cause| match cause {
+            Cause::Changed { block, .. } => Some(block),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Of each cell that asks in a record the cell `giving` is run by, in the order of the walk, its latest entry that has

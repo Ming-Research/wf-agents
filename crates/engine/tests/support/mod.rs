@@ -82,7 +82,7 @@ pub struct Seen {
 /// dealt with (decision a-return-hands-in-what-its-cell-must-every-time). A return with a question that waits is not
 /// held either; the histories that check this give no cell that must write a question to ask. Nor is a return that asks
 /// for tests in a record its cell asks in, which leaves the cell waiting for the result, nor a run entered while its cell
-/// waited ([`waited`], [`pending`]): each owes nothing else (decision a-wait-holds-its-cell).
+/// waited ([`waited`], [`waited_for_a_result`]): each owes nothing else (decision a-wait-holds-its-cell).
 pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
     for finished in &records.finished {
         let started = (records.started.iter())
@@ -97,7 +97,7 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
         let cell = (flow.flow.place(&started.cell)).map(|i| &flow.flow.cells()[i]);
         let asks =
             cell.is_some_and(|c| (c.asks.iter()).any(|asks| finished.writes.iter().any(|w| w.block == asks.record)));
-        if asked || asks || waited(records, started) || pending(&flow.flow, records, started) {
+        if asked || asks || waited(records, started) || waited_for_a_result(&flow.flow, records, started) {
             continue;
         }
         let spec = (flow.cells.iter())
@@ -158,7 +158,7 @@ pub fn waited(records: &Records, started: &Started) -> bool {
 /// Whether the cell of the run waited, as the run started, for the result of what an earlier run of it asked for in a
 /// record: the latest entry a run of it wrote of the record finished before the run started, and no version of the
 /// result was written after it and before. Read from the records and the flow.
-pub fn pending(flow: &decide::Flow, records: &Records, started: &Started) -> bool {
+pub fn waited_for_a_result(flow: &decide::Flow, records: &Records, started: &Started) -> bool {
     let Some(cell) = flow.place(&started.cell).map(|i| &flow.cells()[i]) else {
         return false;
     };

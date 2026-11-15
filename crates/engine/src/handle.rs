@@ -913,7 +913,8 @@ pub(crate) fn requires<'a>(
 
 /// Of each block that runs the run's cell and that an act of the engine's after the cell writes, what runs that act
 /// again, as the flow's graph says it: the blocks that run the act, and whether the block of the questions' standing is
-/// among them. None where the run's cell is not in the flow.
+/// among them; and whether one of them already has a version new to the act, as the records stand. None where the
+/// run's cell is not in the flow.
 pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<BlockId, Answer> {
     let mut answers: BTreeMap<BlockId, Answer> = BTreeMap::new();
     let started = work.records.started.iter().find(|s| s.run == run);
@@ -928,6 +929,7 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
             let answer = answers.entry(block.clone()).or_default();
             answer.runs.extend(act.runs_on.iter().cloned());
             answer.question |= asked.is_some_and(|(id, _)| act.runs_on.contains(id));
+            answer.new |= !decide::new_to(&flow.flow, &work.records, &act.id).is_empty();
         }
     }
     answers

@@ -134,6 +134,7 @@ fn a_return_that_asks_for_tests_owes_no_answer_to_an_act_s_block_it_dealt_with()
         Answer {
             runs: vec!["head".into()],
             question: false,
+            new: false,
         },
     )]);
     let asks = works(&["check"], vec![prose("tests")]);
