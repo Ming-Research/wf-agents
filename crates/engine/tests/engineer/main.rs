@@ -60,8 +60,12 @@
 //!   handing in what its cell may write: each choice in nine of ten, its first value (yes) in a little over half of
 //!   those; each other block in four of five, mattering in seven of ten; but a block a cell before it reads, an
 //!   opinion for that cell, in about a third, mattering. A return that hands in names as dealt with each trigger its
-//!   round was told ran it, by its name, as an agent writes it. In one history of five the agents are sloppy: half
-//!   their returns ask for nothing and are sent back, so that runs reach their limit of returns;
+//!   round was told ran it, by its name, as an agent writes it. A research that hands the work to the deep research,
+//!   which leaves it, while it waits for tests it asks for then or asked before, as when the owner's words entered it
+//!   while its tests ran, is sent back, as no wait of its holds once it is skipped (decision
+//!   a-return-that-waits-keeps-its-cell), which the driver holds every run that finishes to. In one history of five the
+//!   agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach their limit of
+//!   returns;
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
 //!   kind `all` looks for in three of five (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
@@ -515,6 +519,8 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             CONTENT_ON_A_REFUSAL,
             ENGINE_STOPPED,
             LACKING_SENT_BACK,
+            SKIPPING_SENT_BACK,
+            SKIPPING_LEFT_BEFORE,
             MERGED_A_REVIEWED_HEAD,
             CHECK_GATED,
             MERGE_ON_A_MOVED_HEAD,
@@ -602,6 +608,9 @@ const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's 
 const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a precondition waits on";
 const ENGINE_STOPPED: &str = "the engine stopped";
 const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
+const SKIPPING_SENT_BACK: &str = "a hand-in that left its own cell as it still waited was sent back";
+const SKIPPING_LEFT_BEFORE: &str =
+    "a hand-in that asked no wait itself and left its own cell as a wait left before still held it was sent back";
 const MERGED_A_REVIEWED_HEAD: &str = "the merge merged a head the work committed and the review dealt with";
 const CHECK_GATED: &str = "the check failed in passing on a head a judge of it had not dealt with";
 const MERGE_ON_A_MOVED_HEAD: &str = "the merge failed in passing on a head moved since the check passed";
@@ -1776,6 +1785,12 @@ impl History {
         }
         if self.d.seen.lacking > 0 {
             reached.push(LACKING_SENT_BACK.to_string());
+        }
+        if self.d.seen.skipping > 0 {
+            reached.push(SKIPPING_SENT_BACK.to_string());
+        }
+        if self.d.seen.skipping_left_before > 0 {
+            reached.push(SKIPPING_LEFT_BEFORE.to_string());
         }
         if self.d.seen.stops > 0 {
             reached.push(ENGINE_STOPPED.to_string());

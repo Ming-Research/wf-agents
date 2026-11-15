@@ -229,6 +229,60 @@ fn a_return_with_a_question_that_waits_is_held_to_no_block_its_cell_must_write_a
     );
 }
 
+/// A round whose return asked a question that waits or none, wrote these, and, as the walk found it, writes these so
+/// that its cell no longer applies while the cell still waits.
+fn skipping(waits: bool, writes: Vec<Write>, skips: &[&str]) -> Round {
+    Round {
+        returned: Some(Return::Came {
+            dealt_with: vec!["request".into(), "opinions".into()],
+            writes,
+            calls: 0,
+            found: Vec::new(),
+            waits,
+            questions: Vec::new(),
+            read: Vec::new(),
+            skips: skips.iter().map(|&b| b.into()).collect(),
+        }),
+    }
+}
+
+// A return whose writes leave its cell no longer applying while the cell, once the return is taken, still waits, by a
+// question that waits or an entry asking for tests, asked now or left before, is sent back naming each block that
+// does: the wait of a cell that does not apply would hold nothing (decision a-return-that-waits-keeps-its-cell). The
+// walk judges both, so that the run's check sends back what it names, however the cell came to wait. Well under a
+// millisecond alone; no other test holds the run's check to it.
+#[test]
+fn a_return_whose_writes_leave_its_cell_while_it_still_waits_is_sent_back_naming_each_block() {
+    let s = asking_for_tests(&["verdict"]);
+    let skips = vec![Unmet::SkipsItsWait {
+        block: "verdict".into(),
+    }];
+    let asks = skipping(true, vec![valued("verdict", "no")], &["verdict"]);
+    assert_eq!(step(vec![asks], &s), send_back(skips.clone()));
+    let tests = skipping(false, vec![prose("tests"), valued("verdict", "no")], &["verdict"]);
+    assert_eq!(step(vec![tests], &s), send_back(skips.clone()));
+    // A wait left before, which the return neither ended nor withdrew, holds it as much.
+    let before = skipping(false, vec![valued("verdict", "no")], &["verdict"]);
+    assert_eq!(step(vec![before], &s), send_back(skips));
+    // Where the walk finds nothing so, the return is taken.
+    let leaves = skipping(false, vec![valued("verdict", "no")], &[]);
+    assert!(matches!(step(vec![leaves], &s), Step::Finish { .. }));
+}
+
+// A round entered for the owner while its cell waits is held to the rule as any other: the owner's words move the work
+// and end no wait, so one that leaves its cell while the wait stands is sent back (decision
+// a-return-that-waits-keeps-its-cell). Well under a millisecond alone.
+#[test]
+fn a_round_entered_for_the_owner_while_its_cell_waits_is_sent_back_for_leaving_its_cell_as_it_waits() {
+    let mut s = asking_for_tests(&["verdict"]);
+    s.told.waits = true;
+    let leaves = skipping(false, vec![valued("verdict", "no")], &["verdict"]);
+    let skips = vec![Unmet::SkipsItsWait {
+        block: "verdict".into(),
+    }];
+    assert_eq!(step(vec![leaves], &s), send_back(skips));
+}
+
 #[test]
 fn what_was_found_as_a_return_was_read_is_said_first_with_everything_else_wrong_with_it() {
     let found = vec![
