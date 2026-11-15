@@ -35,7 +35,8 @@
 //!   write each time too, so that it leaves one out at times, and, in one in ten, a block it may not; a choice with one
 //!   of its values in four of five, a wrong value or none otherwise; prose with a value in one in twenty; each
 //!   mattering or not as a coin says. In three in ten it asks for one to three calls, a tool in seven of ten and a
-//!   question for the owner or the architect otherwise; in two in ten it asks for nothing.
+//!   question for the owner or the architect otherwise, but where its cell asked [`ASKING`] times in a row it hands in
+//!   instead, as the engine's line of asking would stop it; in two in ten it asks for nothing.
 //! - a call has its result: always for a tool; for a person or the owner's call at a limit only while people act.
 //! - a round given to be stopped ends, what it returns being dropped, or, while people act, fails in half of them; a
 //!   call given to be withdrawn is said to have its result, that it was withdrawn.
@@ -186,7 +187,13 @@ fn shape(n: usize, binds: &mut Rng) -> Compiled {
 struct Shape {
     /// The owner's word at the merge, as last written: yes, or no where it was never written.
     go: bool,
+    /// Of each cell, the times in a row its returns asked for calls.
+    asked: BTreeMap<String, u64>,
 }
+
+/// The most times in a row a cell asks before it hands in: the line the history of asking draws is the engine's, beside
+/// the walk, and the histories stand for it so.
+const ASKING: u64 = 3;
 
 impl Part for Shape {
     /// A round fails only while people act, as the other faults of the first part do, so that once they stop a work
@@ -199,8 +206,32 @@ impl Part for Shape {
     fn returns(&mut self, d: &mut Driver, _: RunId, cell: &str) -> Came {
         let place = d.flow.flow.place(&cell.into()).expect("the cell is in the flow");
         let outputs = d.flow.flow.cells()[place].outputs.clone();
+        let asked = self.asked.entry(cell.to_string()).or_default();
         match d.rng.below(10) {
-            0..=4 => {
+            5..=7 if *asked < ASKING => {
+                *asked += 1;
+                let n = 1 + d.rng.below(3);
+                let asks = (0..n)
+                    .map(|i| {
+                        if d.rng.chance(70) {
+                            Ask::Tool {
+                                name: format!("tool {i}"),
+                                input: "x".to_string(),
+                            }
+                        } else {
+                            let who = if d.rng.chance(50) { Who::Owner } else { Who::Architect };
+                            Ask::Person {
+                                who,
+                                question: "which?".to_string(),
+                            }
+                        }
+                    })
+                    .collect();
+                Came::asks(asks)
+            }
+            8..=9 => Came::asks(vec![]),
+            _ => {
+                *asked = 0;
                 let mut blocks = Vec::new();
                 for b in &outputs {
                     if d.rng.chance(70) {
@@ -233,27 +264,6 @@ impl Part for Shape {
                     .collect();
                 Came::hands_in(handed)
             }
-            5..=7 => {
-                let n = 1 + d.rng.below(3);
-                let asks = (0..n)
-                    .map(|i| {
-                        if d.rng.chance(70) {
-                            Ask::Tool {
-                                name: format!("tool {i}"),
-                                input: "x".to_string(),
-                            }
-                        } else {
-                            let who = if d.rng.chance(50) { Who::Owner } else { Who::Architect };
-                            Ask::Person {
-                                who,
-                                question: "which?".to_string(),
-                            }
-                        }
-                    })
-                    .collect();
-                Came::asks(asks)
-            }
-            _ => Came::asks(vec![]),
         }
     }
 
@@ -327,27 +337,29 @@ impl Shape {
 /// How many steps, once people stop, the work may take before it rests (property a-work-comes-to-rest).
 ///
 /// Once people stop, the driver ends rounds and gives tools their results, and nothing else. A run's rounds are at most
-/// `returns + 1` that are sent back or end it: past the limit the run waits for the owner, who no longer answers. A
+/// `again + 1` that are sent back or end it: past the limit the run waits for the owner, who no longer answers. A
 /// return that asks for calls ends its run, and the cell is entered again for their results as a new run, at most
-/// `calls` runs in a row that only ask before the work waits for the owner. A run takes at most four steps a round, the
-/// round's end and the results of up to three calls, and four to be undone, its round stopped and up to three calls
-/// withdrawn. A run of a cell is a way round unless one of its reasons is a change that people, the outside or a cell
-/// before it made; nobody lets a cell go on any more, so between two that are not, a cell runs at most its limit `L` of
-/// ways round, each with at most `calls` runs that only ask before it. Those that are not number at most one first run,
-/// one for each block that runs it (the last write of it by people or the outside), and one for each run of a cell
-/// before it. So the cell at place `i` starts at most `S_i = (L + 2) * (calls + 1) * (3 + n_i + S_0 + ... + S_(i-1))`
-/// runs, `n_i` the blocks that run it.
+/// [`ASKING`] runs in a row that only ask before it hands in. A run takes at most four steps a round, the round's end
+/// and the results of up to three calls, and four to be undone, its round stopped and up to three calls withdrawn. A
+/// run of a cell is sent back by the cells after it whose writes run it, unless one of its reasons is a change that
+/// people, the outside or a cell before it made; nobody lets a cell go on any more, so between two that are not, each
+/// cell after it sends it back at most `again` times, each with at most [`ASKING`] runs that only ask before it. Those
+/// that are not number at most one first run, one for each block that runs it (the last write of it by people or the
+/// outside), and one for each run of a cell before it. So the cell at place `i`, with `a_i` cells after it, starts at
+/// most `S_i = (again * a_i + 2) * (ASKING + 1) * (3 + n_i + S_0 + ... + S_(i-1))` runs, `n_i` the blocks that run it.
 fn bound(flow: &Compiled) -> u64 {
-    let rounds = u64::from(flow.limits.returns + 2);
-    let asking = u64::from(flow.limits.calls + 1);
+    let cells = flow.flow.cells();
+    let mut most: u64 = 0;
     let mut before: u64 = 0;
-    for c in flow.flow.cells() {
-        let s = (u64::from(c.limit) + 2)
-            .saturating_mul(asking)
+    for (i, c) in cells.iter().enumerate() {
+        let after = (cells.len() - i - 1) as u64;
+        most = most.max(u64::from(c.again));
+        let s = (u64::from(c.again).saturating_mul(after) + 2)
+            .saturating_mul(ASKING + 1)
             .saturating_mul(3 + c.runs_on.len() as u64 + before);
         before = before.saturating_add(s);
     }
-    (before + 1).saturating_mul(4 * rounds + 4)
+    (before + 1).saturating_mul(4 * (most + 2) + 4)
 }
 
 fn wrote(block: &str, by: Outsider, matters: bool, value: Option<String>) -> Event {
@@ -367,7 +379,10 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
     let flow = shape(rng.below(4), &mut Rng::new(seed ^ 0xB10C_5EED_0FC3_1150));
     let yes_at_first = rng.chance(40);
     let mut d = Driver::new(flow, rng, seed, stops);
-    let mut shape = Shape { go: false };
+    let mut shape = Shape {
+        go: false,
+        asked: BTreeMap::new(),
+    };
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         let first = if yes_at_first {
             shape.owner_says(true)

@@ -125,7 +125,6 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         (given.bound, given.cut.as_str()),
         (40, "(Cut: {given} of {size} bytes.)")
     );
-    assert_eq!(read.tools["answers"].unread, None);
 
     let message: Vec<(Part, Option<InputKind>, Option<Only>)> = (read.message.parts.iter())
         .map(|part| (part.part, part.kind, part.only))
@@ -168,6 +167,10 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
 
     assert_eq!(read.acts.check.values.passed, "yes");
     assert!(read.acts.merge.text.contains("{branch}"));
+    let named_checks: Vec<&str> = (read.acts.run_tests.places["named_checks"].keys())
+        .map(String::as_str)
+        .collect();
+    assert_eq!(named_checks, ["named", "none_named", "whole"]);
     assert_eq!(read.commits.name, "wf-agents");
 }
 

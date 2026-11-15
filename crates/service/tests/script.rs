@@ -35,11 +35,12 @@ fn engineer() -> Compiled {
             "session",
             "start",
             "head",
+            "tested",
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };

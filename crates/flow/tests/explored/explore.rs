@@ -837,9 +837,11 @@ impl Explorer<'_> {
                     .filter(|st| &st.cell == cell)
                     .map(|st| st.run)
                     .collect();
-                for log in runs.iter().filter_map(|run| c.logs.get_mut(run)) {
-                    log.let_go = log.rounds.len();
-                    log.before = 0;
+                for run in &runs {
+                    if let Some(log) = c.logs.get_mut(run) {
+                        log.let_go = log.rounds.len();
+                        log.before = 0;
+                    }
                 }
             }
             Event::Source(source) => {
