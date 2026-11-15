@@ -55,7 +55,7 @@ const BOUNDS: Bounds = Bounds {
 
 /// The bound the flow renamed is explored at, beside the flow as it is at that bound, in half a second each against ten
 /// for the whole bound (measured in CI). That a name written into the code shows already on the ways within it is a
-/// judgment, which the two names tried bear out; it leaves unreached, on both sides alike, 61 of the items the whole
+/// judgment, which the trigger's name tried at it bears out; it leaves unreached, on both sides alike, 61 of the items the whole
 /// bound reaches: those that take two spent, as the deep research's runs past its first and every other return of a
 /// path that spent one.
 const RENAMED_BOUNDS: Bounds = Bounds {
