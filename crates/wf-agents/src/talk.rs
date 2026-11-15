@@ -644,6 +644,7 @@ fn show(page: &WorkPage) -> String {
         };
         let state = match cell.state {
             CellState::Running => format!("a round under way{}", run(cell.open)),
+            CellState::Calling => format!("a call under way{}", run(cell.open)),
             CellState::Resting => format!("resting{}", run(cell.open)),
             CellState::Failed => format!(
                 "its last round failed{}, and is given again once the work is let on{}",
@@ -1390,8 +1391,18 @@ fn waited(waited: &Waited) -> String {
             call,
             who: Some(who),
             what,
+            ..
         } => format!("the {} to answer call {call}: {}", person(*who), called(what)),
-        Waited::Call { call, who: None, what } => format!("call {call}, {}", called(what)),
+        Waited::Call {
+            call,
+            who: None,
+            what,
+            at,
+            ..
+        } => match at {
+            Some(at) => format!("call {call}, {}, running at {at}", called(what)),
+            None => format!("call {call}, {}", called(what)),
+        },
         Waited::Precondition { words, by, .. } => {
             let by: Vec<String> = by.iter().map(maker).collect();
             format!("{}: {words}", by.join(" or "))
@@ -1404,6 +1415,7 @@ fn waited(waited: &Waited) -> String {
         ),
         Waited::Slot {} => "a free slot".to_string(),
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
+        Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again: {}", outage(o)),
     }
 }

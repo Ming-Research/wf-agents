@@ -40,7 +40,7 @@ export function Strip({ cells }: { cells: CellNow[] }) {
 
 /// The legend of the states' marks.
 export function StateLegend() {
-  const states: CellState[] = ['done', 'running', 'resting', 'failed', 'again', 'notYet', 'skipped'];
+  const states: CellState[] = ['done', 'running', 'calling', 'resting', 'failed', 'again', 'notYet', 'skipped'];
   return (
     <ul className="legend" aria-label="What the marks of a cell's state mean">
       {states.map((s) => (

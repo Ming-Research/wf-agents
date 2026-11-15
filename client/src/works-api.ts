@@ -94,8 +94,10 @@ export type Maker = { kind: 'owner' } | { kind: 'outside'; source: string } | { 
 
 /// What a work waits for.
 export type Waited =
-  /// The result of a call a run rests at: from this person, or from the engine where there is none.
-  | { kind: 'call'; call: number; who: Person | null; what: Call }
+  /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this time,
+  /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes. Absent from an engine that does
+  /// not give them yet.
+  | { kind: 'call'; call: number; who: Person | null; what: Call; made?: number; at?: string | null }
   /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
@@ -109,15 +111,19 @@ export type Waited =
   /// The wait every work shares: the cell's agent's round does not begin until it is over.
   | { kind: 'agents'; outage: Outage }
   /// The owner's answer to the latest version of this question, which the cell asked and waits for.
-  | { kind: 'answer'; question: string };
+  | { kind: 'answer'; question: string }
+  /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
+  /// time, waits for it. The works of a project check and merge one at a time.
+  | { kind: 'turn'; holder: number; since: number };
 
 /// What a work does now.
 export type Now =
   | { kind: 'fault'; words: string }
   | { kind: 'merged' }
   | { kind: 'cancelled' }
-  /// A round of this run of this cell is under way, since this time.
-  | { kind: 'round'; cell: string; run: number; round: number; since: number }
+  /// A round of this run of this cell is under way, since this time; where it is an engine cell's act that runs as a
+  /// CI run, the run's link. The link is absent from an engine that does not give it yet.
+  | { kind: 'round'; cell: string; run: number; round: number; since: number; at?: string | null }
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
   /// for this one.
   | { kind: 'paused'; by: Pauser; why: string | null }
@@ -147,10 +153,11 @@ export interface Stalling {
   why: { kind: 'skipped'; on: CellKey[] } | { kind: 'nothingNew' } | { kind: 'held' };
 }
 
-/// How a cell stands for a work: a round of its run is under way; its run is at rest; its run's last round failed,
-/// and is given again once the work is let on; its condition is not met; it never finished a run; it has a record and
-/// runs again when the walk reaches it; its record knows everything.
-export type CellState = 'running' | 'resting' | 'failed' | 'skipped' | 'notYet' | 'again' | 'done';
+/// How a cell stands for a work: a round of its run, an agent's, is under way; the engine carries out something for
+/// its run that takes its time, an engine cell's act or a tool's call; its run is at rest, or its act waits for the
+/// project's turn; its run's last round failed, and is given again once the work is let on; its condition is not met;
+/// it never finished a run; it has a record and runs again when the walk reaches it; its record knows everything.
+export type CellState = 'running' | 'calling' | 'resting' | 'failed' | 'skipped' | 'notYet' | 'again' | 'done';
 
 export interface CellNow {
   cell: string;
@@ -194,9 +201,10 @@ export interface Summary {
   last: number | null;
   /// When its first round began; none before it has one. Absent from an engine that does not give it yet.
   from?: number | null;
-  /// Where its time went, from its first round's begin to its last round's end, cut into equal cells, one character
-  /// each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls, `.` neither. Empty with no round;
-  /// absent from an engine that does not give it yet.
+  /// Where its time went, from its first round's begin to the end of its last round or tool's call, cut into equal
+  /// cells, one character each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls; where neither
+  /// ran, what the work waited for: `o` the owner, `p` a pause, `w` the items its item depends on, `.` anything else.
+  /// Empty with no round; absent from an engine that does not give it yet.
   bar?: string;
   /// How many of its rounds were given back what the round before handed in; absent from an engine that does not give
   /// it yet.

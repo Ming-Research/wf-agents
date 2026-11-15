@@ -269,6 +269,8 @@ export function waitsForOwner(waited: Waited): boolean {
       return waited.outage.failure === 'cannotRun';
     case 'answer':
       return true;
+    case 'turn':
+      return false;
   }
 }
 
@@ -300,6 +302,8 @@ export function waitedWords(waited: Waited): string {
       return `the agents' rounds to begin again: ${outageWords(waited.outage)}`;
     case 'answer':
       return `the owner's answer to the question ${waited.question}`;
+    case 'turn':
+      return `the project's turn to check and merge, which work ${waited.holder} holds`;
   }
 }
 
@@ -474,6 +478,7 @@ export function writerWords(writer: Writer): string {
 
 export const STATE_WORDS: Record<CellState, string> = {
   running: 'running',
+  calling: 'call under way',
   resting: 'at rest',
   failed: 'failed',
   skipped: 'skipped',

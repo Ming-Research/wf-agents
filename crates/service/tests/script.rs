@@ -70,6 +70,12 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
         [[flows.trial.rounds]]
         cell = "review"
         hands_in = []
+
+        [[flows.trial.rounds]]
+        cell = "build"
+        run = 2
+        turn = 3
+        at = "https://github.example/actions/runs/1"
         "#,
     )
     .unwrap();
@@ -86,6 +92,7 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
             "flows.trial.rounds[3]: an act of the engine asks for nothing",
             "flows.trial.rounds[3]: an act of the engine takes no cost and no tokens",
             "flows.trial.rounds[4]: says again what flows.trial.rounds[2] says",
+            "flows.trial.rounds[5]: only an act of the engine waits for the turn or runs as a CI run",
         ]
     );
 }
@@ -261,6 +268,27 @@ fn a_round_takes_what_its_entry_says_and_else_what_the_script_says() {
     // The engine's own act takes no cost, whatever the script says of rounds.
     let merge = script.round(&flow, cell(&flow, "merge"), 1, 1, &BTreeMap::new());
     assert_eq!((merge.ms, merge.spent), (900, Spent::default()));
+}
+
+#[test]
+fn an_act_says_the_turn_it_waits_for_and_the_ci_run_it_runs_as_where_its_entry_says() {
+    let flow = trial();
+    let script = Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "merge"
+        turn = 3
+        at = "https://github.example/actions/runs/1"
+        "#,
+    )
+    .unwrap();
+    let merge = script.round(&flow, cell(&flow, "merge"), 1, 1, &BTreeMap::new());
+    assert_eq!(
+        (merge.turn, merge.at.as_deref()),
+        (Some(3), Some("https://github.example/actions/runs/1"))
+    );
+    let again = script.round(&flow, cell(&flow, "merge"), 2, 1, &BTreeMap::new());
+    assert_eq!((again.turn, again.at), (None, None));
 }
 
 #[test]

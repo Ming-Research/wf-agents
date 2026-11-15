@@ -49,7 +49,8 @@ import {
 } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
 import { LetGoAgain } from '../works/Boxes';
-import { CANCEL_DOES, CANCEL_WHY, callWords, letGoFailed, outageWords, stalledWords } from '../works/words';
+import { Keys } from '../works/Round';
+import { CANCEL_DOES, CANCEL_WHY, clock, letGoFailed, outageWords, stalledWords } from '../works/words';
 import { type ItemStanding, standingOf, whoGives } from './items';
 import { Markdown } from './markdown';
 import { markRead } from './mock';
@@ -106,6 +107,8 @@ function whom(w: Waited, page: WorkPage | null): string | null {
       return 'the engine';
     case 'answer':
       return WHO.owner;
+    case 'turn':
+      return 'the turn';
   }
 }
 
@@ -171,36 +174,96 @@ function questionsOf(page: WorkPage | null, holding: Set<string>): Choice[] {
 const pickKey = (c: Choice): string =>
   c.asks === undefined ? '' : 'call' in c.asks ? `call ${c.asks.call}` : `${c.asks.question}@${c.asks.version}`;
 
-/// What the work waits for at the cell the status line names, in a few words; none for a question to the owner, which
+/// A key and its value on the work's state line, shown as the panel shows every key (`Attr`).
+type StateKey = [string, ReactNode];
+
+/// When something began, and how long ago.
+const since = (at: number): StateKey[] => [
+  ['since', clock(at)],
+  ['for', ago(at)],
+];
+
+/// Where a call or an act runs, as what carries it out says: its CI run's link.
+const runsAt = (at: string | null | undefined): StateKey[] =>
+  at
+    ? [
+        [
+          'runs at',
+          <a className="link" href={at} target="_blank" rel="noreferrer">
+            {at.replace(/^https?:\/\//, '')}
+          </a>,
+        ],
+      ]
+    : [];
+
+/// The act of the engine's own an engine cell carries out, as the work's flow names it; none for an agent's cell, or
+/// before the flow is read.
+const actOf = (page: WorkPage | null, cell: string): string | null =>
+  page?.flow.cells.find((c) => c.id === cell)?.act ?? null;
+
+/// The keys of what the work waits for at its cell, as the engine names each: none for a question to the owner, which
 /// is shown where it arises, in the plan.
-function lineWords(w: Waited): string | null {
+function waitedKeys(w: Waited, page: WorkPage | null, cell: string): StateKey[] {
   switch (w.kind) {
     case 'call':
       switch (w.what.kind) {
         case 'question':
-          return null;
+          return [];
         case 'tool':
-          return `for ${w.what.name} to run`;
+          return [
+            ['tool', w.what.name],
+            ['input', w.what.input],
+            ...(w.made === undefined ? [] : since(w.made)),
+            ...runsAt(w.at),
+          ];
         case 'atLimit':
           return w.what.limit.of === 'returns'
-            ? `reached its limit: ${w.what.limit.sentBack} returns sent back`
-            : `reached its limit: ${w.what.limit.made} calls made`;
+            ? [
+                ['limit', 'returns'],
+                ['sent back', String(w.what.limit.sentBack)],
+              ]
+            : [
+                ['limit', 'calls'],
+                ['made', String(w.what.limit.made)],
+              ];
         case 'wait':
-          return `for ${callWords(w.what)}`;
+          return [
+            ['retry', clock(w.what.until)],
+            ['failed', String(w.what.failed)],
+          ];
       }
-      return null;
+      return [];
     case 'precondition':
-      return `until ${w.words.charAt(0).toLowerCase()}${w.words.slice(1)}`;
+      return [['requires', w.words]];
     case 'limit':
-      return `reached its limit: ${w.runs} runs in a row for what a cell after it wrote`;
+      return [
+        ['limit', 'runs'],
+        ['runs', String(w.runs)],
+      ];
     case 'calls':
-      return `reached its limit: ${w.runs} runs in a row that only asked for calls`;
+      return [
+        ['limit', 'calls'],
+        ['runs', String(w.runs)],
+      ];
     case 'slot':
-      return 'for a free slot, which the engine gives in its order';
+      return [['slot', 'none free']];
     case 'agents':
-      return `for the wait every work shares: ${outageWords(w.outage)}`;
+      return [['outage', outageWords(w.outage)]];
     case 'answer':
-      return null;
+      return [];
+    case 'turn': {
+      const act = actOf(page, cell);
+      return [
+        ...(act === null ? [] : ([['act', act]] as StateKey[])),
+        [
+          'held by',
+          <a className="link mono" href={`#/works/${w.holder}`} title={`Open work ${w.holder}`}>
+            W{w.holder}
+          </a>,
+        ],
+        ...since(w.since),
+      ];
+    }
   }
 }
 
@@ -215,41 +278,78 @@ function goOnOf(now: Summary['now']): Act | null {
   return null;
 }
 
-/// What the work does now, as a word, the cell it waits at, and the facts after them.
-export function nowWords(s: Summary, page: WorkPage | null): { word: string; at: string | null; facts: string | null } {
+/// What the work's state line says, the one part every state is said by: the tone of its dot, the word of its state,
+/// the cell it stands at, shown as a cell is shown everywhere, and that state's own keys and values.
+export interface WorkState {
+  tone: Tone;
+  word: string;
+  cell: string | null;
+  keys: StateKey[];
+}
+
+/// The word of a call under way: a tool's call the engine runs for a cell, or an engine cell's act.
+const CALL_WORD = 'Call under way';
+
+/// The cell a work stands at where what it does now names none: the cell of its open run, or else the first in the
+/// walk that runs again or has not run.
+function standsAt(s: Summary): string | null {
+  const open = s.cells.find((c) => c.open !== null);
+  return (open ?? s.cells.find((c) => c.state === 'again' || c.state === 'notYet'))?.cell ?? null;
+}
+
+/// What the work does now, as its state line says it. Its own pause is said by a key wherever what it does now says
+/// something else, as a round under way or a call goes on under it.
+export function stateOf(s: Summary, page: WorkPage | null): WorkState {
   const now = s.now;
+  const paused: StateKey[] = s.paused ? [['paused', 'yes']] : [];
   switch (now.kind) {
-    case 'round':
-      return {
-        word: MOOD_WORDS.running,
-        at: null,
-        facts: `${titleOf(page, now.cell)}, round ${now.round}, for ${ago(now.since)}${s.paused ? ', paused after it' : ''}`,
-      };
+    case 'round': {
+      const act = actOf(page, now.cell);
+      const calling = s.cells.find((c) => c.cell === now.cell)?.state === 'calling';
+      return calling
+        ? {
+            tone: 'running',
+            word: CALL_WORD,
+            cell: now.cell,
+            keys: [...(act === null ? [] : ([['act', act]] as StateKey[])), ...since(now.since), ...runsAt(now.at), ...paused],
+          }
+        : {
+            tone: 'running',
+            word: MOOD_WORDS.running,
+            cell: now.cell,
+            keys: [['round', String(now.round)], ...since(now.since), ...paused],
+          };
+    }
     case 'next':
-      return { word: MOOD_WORDS.running, at: null, facts: `next ${titleOf(page, now.cell)}` };
+      return { tone: 'running', word: MOOD_WORDS.running, cell: now.cell, keys: paused };
     case 'waits': {
+      const mood = moodOf(s);
+      const keys = [...now.on.flatMap((w) => waitedKeys(w, page, now.at)), ...paused];
+      if (mood === 'running') return { tone: 'running', word: CALL_WORD, cell: now.at, keys };
       const who = [...new Set(now.on.flatMap((w) => whom(w, page) ?? []))];
-      const said = now.on.flatMap((w) => lineWords(w) ?? []);
-      const facts = said.length > 0 ? said.join('; ') : null;
       // A work that waits only for what a source outside it gives, such as the items it depends on being merged,
       // waits for that.
-      if (who.length === 0) return { word: MOOD_WORDS.waiting, at: now.at, facts };
-      return { word: `Waiting for ${who.join(' and ')}`, at: now.at, facts };
+      return {
+        tone: mood,
+        word: who.length === 0 ? MOOD_WORDS.waiting : `Waiting for ${who.join(' and ')}`,
+        cell: now.at,
+        keys,
+      };
     }
     case 'paused':
       return now.by === 'engine'
-        ? { word: MOOD_WORDS.halted, at: null, facts: now.why }
-        : { word: MOOD_WORDS.paused, at: null, facts: null };
+        ? { tone: 'halted', word: MOOD_WORDS.halted, cell: standsAt(s), keys: now.why === null ? [] : [['why', now.why]] }
+        : { tone: 'paused', word: MOOD_WORDS.paused, cell: standsAt(s), keys: [] };
     case 'everything':
-      return { word: MOOD_WORDS.paused, at: null, facts: 'with every work' };
+      return { tone: 'paused', word: MOOD_WORDS.paused, cell: standsAt(s), keys: [['paused', 'every work']] };
     case 'fault':
-      return { word: MOOD_WORDS.halted, at: null, facts: now.words };
+      return { tone: 'halted', word: MOOD_WORDS.halted, cell: standsAt(s), keys: [['fault', now.words]] };
     case 'merged':
-      return { word: 'Merged', at: null, facts: null };
+      return { tone: 'ended', word: 'Merged', cell: null, keys: [] };
     case 'cancelled':
-      return { word: 'Cancelled', at: null, facts: null };
+      return { tone: 'ended', word: 'Cancelled', cell: null, keys: [] };
     case 'stalled':
-      return { word: MOOD_WORDS.owner, at: now.at, facts: stalledWords(now) };
+      return { tone: 'owner', word: MOOD_WORDS.owner, cell: now.at, keys: [['stalled', stalledWords(now)], ...paused] };
   }
 }
 
@@ -719,13 +819,14 @@ function ItemLine({ item, waitsFor, goal, tier }: {
   );
 }
 
+/// The work's state line, the same part for every state: its word, the cell it stands at as a cell is shown
+/// everywhere, the work, at the right how far it has come and where its time went, and under them that state's keys
+/// and values.
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
-  const { word, at, facts } = nowWords(w, page);
+  const { tone, word, cell, keys } = stateOf(w, page);
   return (
-    <Line tone={ended(w) ? 'ended' : moodOf(w)} word={word}>
-      {/* Where it waits, as a cell is shown elsewhere; what it does in one phrase; then the work. */}
-      {at !== null && <CellName cell={at} page={page} />}
-      {facts !== null && <span className="muted">{facts}</span>}
+    <Line tone={tone} word={word}>
+      {cell !== null && <CellName cell={cell} page={page} />}
       <a href={`#/works/${w.number}`} className="link mono" title={`Open work ${w.number}`}>
         W{w.number}
       </a>
@@ -736,6 +837,12 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
           <TimeTrack spans={barSpans(w.bar ?? (page === null ? '' : barOf(page)))} />
         </span>
       </span>
+      {/* The state's own keys, on a row of their own under the line, however long a value is. */}
+      {keys.length > 0 && (
+        <span className="cw-keys">
+          <Keys keys={keys} />
+        </span>
+      )}
     </Line>
   );
 }

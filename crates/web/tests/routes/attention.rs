@@ -21,6 +21,8 @@ fn asked() -> Value {
                 "call": 2,
                 "who": "owner",
                 "what": { "kind": "question", "who": "owner", "question": "Should the greeting name the user?" },
+                "made": START + 2500,
+                "at": null,
             }],
         },
     })

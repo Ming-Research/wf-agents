@@ -124,7 +124,13 @@ impl Attention {
             let now = if person && of::rests_for_the_engines_pause(&kept) {
                 Now::paused(kept.work)?
             } else {
-                Now::of(kept, &view.decision, driver.held(work), &outages)?
+                Now::of(
+                    kept,
+                    &view.decision,
+                    driver.held(work),
+                    &outages,
+                    &driver.along_of(work),
+                )?
             };
             Ok((of, now))
         };

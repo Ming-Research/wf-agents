@@ -17,7 +17,8 @@
 // selects the item it points to and brings it to the middle of the screen. The mark of a cell running pulses. Every
 // column fades out into the page near the top and the bottom of the screen; at those two edges the column under the
 // pointer has a line of blue, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and how
-// fast is kept in `stats`.
+// fast is kept in `stats`. A call the engine carries out for a cell, a tool's or an act of its own, keeps its card
+// running as a round does, and its cell's mark, in the yellow of a call, pulses as a running cell's does.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
 // every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
@@ -149,10 +150,11 @@ const LIGHT = {
   /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
   unseen: '#8b5cf6',
   accent: '#8b5cf6',
-  /// Where a work's time went, in the colours of the track in the item's window (console.css): a model's, the
-  /// tools', idle, and the ground they lie on with how far it lets the card through.
+  /// Where a work's time went, in the colours of the track in the item's window (styles/parts.css): a model's, the
+  /// tools', idle, and the ground they lie on with how far it lets the card through. An idle stretch takes the colour
+  /// of what the work waited for: the owner's (`asked`), a pause's (`muted`), or idle.
   model: '#8b5cf6',
-  tools: '#eb670f',
+  tools: '#14a3a8',
   idle: '#e8ecf2',
   track: '#818b98',
   trackAlpha: 0x1f / 255,
@@ -191,6 +193,9 @@ export function themed(): typeof LIGHT {
     red: token('--red', LIGHT.red),
     green: token('--green', LIGHT.green),
     onTag: token('--on-colour', LIGHT.onTag),
+    model: token('--track-model', LIGHT.model),
+    tools: token('--track-tool', LIGHT.tools),
+    idle: token('--track-gap', LIGHT.idle),
   };
   if (getComputedStyle(document.documentElement).colorScheme !== 'dark') return { ...LIGHT, ...t };
   return {
@@ -209,10 +214,7 @@ export function themed(): typeof LIGHT {
     violet: t.chosen,
     other: '#656c76',
     otherAlpha: 0.85 * (0x33 / 255),
-    // Where a work's time went, as the track in the item's window has it in dark.
-    model: t.chosen,
-    tools: '#984b10',
-    idle: '#2a2d33',
+    // The ground of where a work's time went, as the track in the item's window has it in dark.
     track: '#656c76',
     trackAlpha: 0x33 / 255,
   };
@@ -300,14 +302,16 @@ const TONE = () => ({
 export type Mood = 'running' | 'owner' | 'paused' | 'halted' | 'waiting';
 
 /// A round under way or about to begin is running; a fault halts it, and so does the engine pausing it, as for a round
-/// that failed; a work that waits for anything the owner gives waits for the owner.
-export function moodOf(w: Pick<ShownWork, 'now'>): Mood {
+/// that failed; a work that waits for anything the owner gives waits for the owner; one that waits while the engine
+/// carries out a call for one of its cells, a tool's, runs, as a round under way does.
+export function moodOf(w: Pick<ShownWork, 'now' | 'cells'>): Mood {
   const now = w.now;
   if (now.kind === 'round' || now.kind === 'next') return 'running';
   if (now.kind === 'fault') return 'halted';
   if (now.kind === 'paused') return now.by === 'engine' ? 'halted' : 'paused';
   if (now.kind === 'everything') return 'paused';
   if (now.kind === 'waits' && now.on.some((o) => whoGives(o) === 'owner')) return 'owner';
+  if (w.cells.some((c) => c.state === 'calling')) return 'running';
   return 'waiting';
 }
 
@@ -880,11 +884,19 @@ export class SnapScene {
     if (item.work === null || mood === null) return view;
     const w = item.work;
     const row2 = top + h - (WORK_ROW * ROW) / 2 - 3;
-    // Where its time went, on a thin line: a model's, the tools', or idle; nothing where the engine does not say.
+    // Where its time went, on a thin line: a model's, the tools', or idle in the colour of what the work waited for
+    // (`track.tsx`); nothing where the engine does not say.
     const barW = 70;
     const barX = NODE_W - 8 - 36 - barW;
     const cells = [...w.bar];
-    const kind = { m: PALETTE.model, t: PALETTE.tools, '.': PALETTE.idle };
+    const kind: Record<string, string> = {
+      m: PALETTE.model,
+      t: PALETTE.tools,
+      o: PALETTE.asked,
+      p: PALETTE.muted,
+      w: PALETTE.idle,
+      '.': PALETTE.idle,
+    };
     const cw = barW / Math.max(1, cells.length);
     const track = new Graphics();
     // Drawn as the track in the item's window is, a little lower: a rounded ground, and on it a rounded block for
@@ -899,7 +911,7 @@ export class SnapScene {
         while (j < cells.length && cells[j] === cells[i]) j += 1;
         track
           .roundRect(barX + i * cw, row2 - trackH / 2, Math.max(2, (j - i) * cw), trackH, 2)
-          .fill(kind[cells[i] as 'm' | 't' | '.'] ?? kind['.']);
+          .fill(kind[cells[i]] ?? kind['.']);
         i = j;
       }
     }
@@ -957,7 +969,7 @@ export class SnapScene {
         fill: look.fill,
         edge: look.edge,
         ring: look.ring,
-        pulses: c.state === 'running',
+        pulses: c.state === 'running' || c.state === 'calling',
       };
     });
     const still = new Graphics();

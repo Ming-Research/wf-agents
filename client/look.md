@@ -43,6 +43,7 @@ of text are under the tokens.
 | `--blue` | `#1a9fff` | `#4fb4ff` | running, at rest between rounds | `PALETTE.running` |
 | `--red` | `#e5484d` | `#ff6b70` | failed | `PALETTE.red`, `PALETTE.halted` |
 | `--violet` | `#8250df` | `#ab7df8` | the way back | the flow chart's purple (Primer's done) |
+| `--yellow` | `#eab308` | `#facc15` | a call under way: the engine runs a tool or an act of its own for a cell, which fills the cell's mark | ours |
 | `--*-text` | darker steps | the colours | the colours as small text on white (4.5:1): green, orange, blue, red | ours |
 | `--*-tint` | 10% over the card | 10% over the card | a fill that says the colour's meaning | `TINT` = 0.09 |
 | `--on-colour` | `#ffffff` | `#0f1012` | words on a filled tag or button | the white on a count tag |
@@ -50,7 +51,10 @@ of text are under the tokens.
 | `--track-ground` | `#818b981f` | `#656c7633` | the ground of a work's line of time and of a bar of a share | ours |
 | `--track-model` | the accent | the accent | a model's stretch of a work's time, and a bar of a share | ours |
 | `--track-tool` | `#14a3a8` | `#1f7f84` | the tools' and the engine's stretch of a work's time: a teal no meaning has | ours |
-| `--track-gap` | `#e8ecf2` | `#2a2d33` | a stretch of a work's time in which nothing ran | ours |
+| `--track-gap` | `#e8ecf2` | `#2a2d33` | a stretch of a work's time in which nothing ran, while the work waited for the items it depends on or for anything not the owner's and no pause | ours |
+
+A stretch of a work's time in which nothing ran takes the colour of what the work waited for, as the engine's bar says
+it (`Summary.bar`): `--orange` for the owner, `--muted` for a pause, `--track-gap` for the rest.
 
 The dark values are ours: the console has no dark ground. They keep its relations: the card a step lighter than the
 ground, the colours lifted to read on it.
@@ -144,8 +148,10 @@ drawn line with an arrow.
 What the owner reviews every work by, so that it says plainly why a work is where it is and what it waits for.
 
 - **State mark** (`StateMark`): how a cell stands for a work, as an 8px square with 2px corners: filled in
-  `--mark-done` when its record knows everything (done), filled in `--mark-running` while a round of its run is under
-  way, the only bright mark, a ring of `--mark-running` while its run is at rest, a red ring when its run's last round
+  `--mark-done` when its record knows everything (done), filled in `--mark-running` while a round of its run, an
+  agent's, is under way, filled in `--yellow` while a call is under way for it (the engine runs a tool its agent asked
+  for, or the cell's own act), the two bright marks, a ring of `--mark-running` while its run is at rest or its act
+  waits for the project's turn to check and merge, a red ring when its run's last round
   failed, a hollow ring of `--mark-done` when it ran and something it reads has a newer version since (runs again), a
   muted hairline ring before its first run, a muted dash when it is skipped. A square, so that it is not taken for the
   flow chart's ring and dot, which mean reads and writes. Orange marks no cell: it says that a work waits for the
@@ -349,10 +355,14 @@ smoothly, and the panel at its right with the item selected. It is the console o
   rules, so the page's `--font` could draw another face); at its right a tag of how many things its work waits for from the owner,
   `--on-colour` on `--red`, and, while its work has not begun, a lock framed in muted with how many items it depends on
   are not merged. A card whose work goes on, once it has begun or while it is paused, at fault or waits, is tinted with the colour of what the work does (`--blue` running,
-  `--orange` waiting for the owner, the console's pale yellow `#e8cc6a` waiting for anything else, muted paused,
+  `--orange` waiting for the owner, muted waiting for anything else and paused,
   `--red` halted, by a fault or by the engine's pause), and has a second row: the works page's strip of the work's cells, mark for mark, drawn on the
   canvas from the same definition and the same tokens as the page's marks (`src/works/state-marks.ts`), the mark of a
-  cell running pulsing while its round is under way; what the work has taken, in dollars; and how long it has gone on,
+  cell running pulsing while its round is under way and the yellow mark of a call under way pulsing as it does; a call
+  under way keeps the card running, tinted and lit as a round under way does; where its time went, a thin bar of the
+  engine's (`Summary.bar`) in the track's tokens, a model's stretches `--track-model`, the tools' `--track-tool`, and a
+  stretch nothing ran in the colour of what the work waited for (`--orange` the owner, `--muted` a pause,
+  `--track-gap` the rest); what the work has taken, in dollars; and how long it has gone on,
   its colour by its age (muted, amber after half an hour, `--red` after an hour, violet after a day). The strip keeps
   the marks' size: the card's room before what the work has taken holds about twenty, and a flow with more shows the
   first that fit and after them how many more there are, muted. The edge of a card above a work is a light accent, so
@@ -368,11 +378,16 @@ smoothly, and the panel at its right with the item selected. It is the console o
 - **Panel.** The page's panel, 560px until dragged, as the console's window was, drawn with the flow page's panel's
   parts so that the views read as one page. Its head (`.drawer-head`): the item's number, its title, which brings the
   item into view, and its project's name alone, in monospace, muted. Two status lines (`.status-line`): where the item
-  stands and what it waits for to merge; what its work does, the cell it waits at as the page shows a cell (its id
-  in monospace, muted, and its title semibold), what else it waits for there in a few muted words (a question is
-  shown in the plan, where it arises, and not here), a link to the work's own page, and at the right the works page's **strip**
-  (`Strip`) of the work's cells, and what it has taken. Their dot takes the five tones of a work, among them the pale
-  yellow of a work waiting for anything but the owner, which the status line has no tone for. Under them the buttons of
+  stands and what it waits for to merge; and what its work does, one part for every state (running, a call under way,
+  waiting for the owner, the engine or the turn, paused, halted, ended): the state's word, the cell the work stands at
+  as the page shows a cell (its id in monospace, muted, and its title semibold), engine cells as agents' cells, a link
+  to the work's own page, and at the right the works page's **strip** (`Strip`) of the work's cells and where its time
+  went; under them, on a row of their own (`.cw-keys`), that state's own keys and values as the panel shows keys
+  (`Attr`): a round's number, since when and for how long; a call under way's tool and its input as written, or the
+  engine cell's act, since when, and where it runs, its CI run's link, where what runs it says one; an act waiting for
+  the project's turn, the work that holds it; a precondition by its key as the cell's file writes it; the work's own
+  pause, `paused yes`, where the state says something else (a question is shown in the plan, where it arises, and not
+  here). Their dot takes the five tones of a work. Under them the buttons of
   what the owner does to the work: let it on or pause it, and cancel it, each waiting while what it sent is under way.
   Then, under a hairline (`.drawer-body`), the page's **switch** (`Switch`) between the item and the work. The item
   says what the work waits for, the owner's things in `--orange-text`; its body as sections (`PanelPart`), a passage

@@ -6,6 +6,7 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cellNowWords } from '../works/marks';
+import { clock } from '../works/words';
 import type { Act, CellNow, Item, Now, Question, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
@@ -85,6 +86,9 @@ const lines = (el: HTMLElement) =>
       .join(' '),
   );
 
+/// The keys and values of the work's state line, each as its key and its value.
+const keysOf = (el: HTMLElement) => text(el, '.cw-item > .status-line .keys > span');
+
 const button = (el: HTMLElement, words: string) =>
   [...el.querySelectorAll('button')].find((b) => b.textContent === words) as HTMLButtonElement;
 
@@ -121,9 +125,8 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
     const [itemLine, workLine] = lines(el);
     expect(itemLine).toBe('Open Added 1.1d ago Waits for 11 to merge');
-    expect(workLine).toContain(
-      'Waiting for you review_plan Review the plan reached its limit: 3 runs in a row for what a cell after it wrote W12',
-    );
+    expect(workLine).toContain('Waiting for you review_plan Review the plan');
+    expect(keysOf(el)).toEqual(['limit runs', 'runs 3']);
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
   });
 
@@ -139,7 +142,8 @@ describe('the panel of the item selected', () => {
   it('says a work the engine paused as halted, with the reason, and shows it paused on the switch that starts it', () => {
     const el = draw(4, answered([]));
     const [, workLine] = lines(el);
-    expect(workLine).toContain("Halted by the engine The agent's program exited with an error: the session could not be resumed.");
+    expect(workLine).toContain('Halted by the engine');
+    expect(keysOf(el)).toEqual(["why The agent's program exited with an error: the session could not be resumed."]);
     expect(el.querySelectorAll('.cw-item > .status-line .strip .state-failed')).toHaveLength(1);
     expect(button(el, 'Pause').getAttribute('aria-pressed')).toBe('true');
     expect(button(el, 'Start').getAttribute('aria-pressed')).toBe('false');
@@ -165,13 +169,23 @@ describe('the panel of the item selected', () => {
     act(() => button(el, 'Work').click());
     const legend = el.querySelector('.panel-part .legend');
     expect(legend?.getAttribute('aria-label')).toBe("What the marks of a cell's state mean");
-    expect(text(el, '.legend li')).toEqual(['done', 'running', 'at rest', 'failed', 'runs again', 'not run yet', 'skipped']);
+    expect(text(el, '.legend li')).toEqual([
+      'done',
+      'running',
+      'call under way',
+      'at rest',
+      'failed',
+      'runs again',
+      'not run yet',
+      'skipped',
+    ]);
   });
 
   it('says on the work\'s line what the work waits for and who gives it, and a question a cell asked at the plan\'s end', () => {
     const el = draw(20, answered([]));
     const [, workLine] = lines(el);
-    expect(workLine).toContain('Waiting for you implement Implement until the owner confirmed the plan');
+    expect(workLine).toContain('Waiting for you implement Implement');
+    expect(keysOf(el)).toEqual(['requires The owner confirmed the plan']);
     expect(text(el, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
     // It holds the work: on the red tint, with no line to say so.
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-holds');
@@ -346,9 +360,16 @@ const question = (name: string, o: Partial<Question> = {}): Question => ({
 });
 
 /// Draws the panel of item 25, its work doing `now` and held by the questions `holding`, its page giving `questions`.
-function drawAsking(now: Now, holding: string[], questions: Question[], send = answered([]), cells?: CellNow[]) {
+function drawAsking(
+  now: Now,
+  holding: string[],
+  questions: Question[],
+  send = answered([]),
+  cells?: CellNow[],
+  paused = false,
+) {
   const i = itemOf(25);
-  const item: Item = { ...i, work: { ...i.work, now, holding, cells: cells ?? i.work.cells } };
+  const item: Item = { ...i, work: { ...i.work, now, holding, cells: cells ?? i.work.cells, paused } };
   const page = pageOf(item);
   if (page === null || !('page' in page)) throw new Error('no page');
   container = document.createElement('div');
@@ -368,6 +389,101 @@ function drawAsking(now: Now, holding: string[], questions: Question[], send = a
   );
   return container;
 }
+
+describe("the work's state line, one part for every state", () => {
+  const MIN = 60_000;
+  /// Each cell of the fixture's flow, at rest but this one, which stands so.
+  const cellsAt = (cell: string, state: CellNow['state']): CellNow[] =>
+    FLOW.cells.map((c) => ({
+      cell: c.id,
+      state: c.id === cell ? state : 'done',
+      finished: 1,
+      record: null,
+      open: c.id === cell ? 9 : null,
+    }));
+  const since = Date.now() - 13 * MIN;
+  const at = (now: Now, cells: CellNow[], paused = false) => drawAsking(now, [], [], answered([]), cells, paused);
+
+  it('names the cell as a cell is shown everywhere, its id and its title, an engine cell as an agent cell, whatever the state', () => {
+    const states: [Now, CellNow[], string][] = [
+      [{ kind: 'round', cell: 'implement', run: 9, round: 2, since, at: null }, cellsAt('implement', 'running'), 'implement'],
+      [{ kind: 'round', cell: 'merge', run: 9, round: 1, since, at: null }, cellsAt('merge', 'calling'), 'merge'],
+      [
+        { kind: 'waits', at: 'check', on: [{ kind: 'turn', holder: 7, since }] },
+        cellsAt('check', 'resting'),
+        'check',
+      ],
+      [{ kind: 'paused', by: 'owner', why: null }, cellsAt('implement', 'resting'), 'implement'],
+      [{ kind: 'paused', by: 'engine', why: 'It failed.' }, cellsAt('check', 'failed'), 'check'],
+    ];
+    for (const [now, cells, cell] of states) {
+      const el = at(now, cells);
+      expect(text(el, '.cw-item > .status-line .cell-id')).toEqual([cell]);
+      expect(text(el, '.cw-item > .status-line .cell-title')).toEqual([FLOW.cells.find((c) => c.id === cell)?.title]);
+      act(() => root?.unmount());
+      root = undefined;
+    }
+  });
+
+  it("says a round under way by its number and since when, and the work's own pause plainly", () => {
+    const el = at({ kind: 'round', cell: 'implement', run: 9, round: 2, since, at: null }, cellsAt('implement', 'running'), true);
+    expect(lines(el)[1]).toContain('Running implement Implement');
+    expect(keysOf(el)).toEqual(['round 2', `since ${clock(since)}`, 'for 13m', 'paused yes']);
+  });
+
+  it('says a call under way, a tool its agent asked for, by the tool, its input as written, since when and its CI run', () => {
+    const link = 'https://github.example/actions/runs/316';
+    const el = at(
+      {
+        kind: 'waits',
+        at: 'implement',
+        on: [
+          {
+            kind: 'call',
+            call: 8,
+            who: null,
+            what: { kind: 'tool', name: 'run_tests', input: '{"tests": [], "checks": ["lint"]}' },
+            made: since,
+            at: link,
+          },
+        ],
+      },
+      cellsAt('implement', 'calling'),
+    );
+    // It runs, as a round under way does: the running tone.
+    expect(el.querySelector('.cw-item > .status-line:nth-of-type(2) .dot')?.className).toBe('dot dot-running');
+    expect(lines(el)[1]).toContain('Call under way implement Implement');
+    expect(keysOf(el)).toEqual([
+      'tool run_tests',
+      'input {"tests": [], "checks": ["lint"]}',
+      `since ${clock(since)}`,
+      'for 13m',
+      'runs at github.example/actions/runs/316',
+    ]);
+    expect(el.querySelector('.cw-item > .status-line .keys a')?.getAttribute('href')).toBe(link);
+  });
+
+  it("says an engine cell's act under way by the act, since when and its CI run", () => {
+    const link = 'https://github.example/actions/runs/250';
+    const el = at({ kind: 'round', cell: 'check', run: 9, round: 1, since, at: link }, cellsAt('check', 'calling'));
+    expect(lines(el)[1]).toContain('Call under way check Check with the latest main');
+    expect(keysOf(el)).toEqual(['act check', `since ${clock(since)}`, 'for 13m', 'runs at github.example/actions/runs/250']);
+  });
+
+  it('says an act that waits for the turn, and the work that holds it', () => {
+    const el = at({ kind: 'waits', at: 'check', on: [{ kind: 'turn', holder: 7, since }] }, cellsAt('check', 'resting'));
+    expect(el.querySelector('.cw-item > .status-line:nth-of-type(2) .dot')?.className).toBe('dot');
+    expect(lines(el)[1]).toContain('Waiting for the turn check Check with the latest main');
+    expect(keysOf(el)).toEqual(['act check', 'held by W7', `since ${clock(since)}`, 'for 13m']);
+    expect(el.querySelector('.cw-item > .status-line .keys a')?.getAttribute('href')).toBe('#/works/7');
+  });
+
+  it('names no cell once the work has ended', () => {
+    const el = at({ kind: 'merged' }, cellsAt('merge', 'done'));
+    expect(lines(el)[1]).toContain('Merged W25');
+    expect(el.querySelector('.cw-item > .status-line .cell-id')).toBeNull();
+  });
+});
 
 /// The options of the questions drawn, by question, each as its label and whether it is picked.
 const options = (el: HTMLElement) =>
@@ -425,7 +541,7 @@ describe('the questions put to the owner, in the panel of the item selected', ()
       })),
     );
     const [, workLine] = lines(el);
-    expect(workLine).toContain('Waiting for you merge Merge until asked = answered W25');
+    expect(workLine).toContain('Waiting for you merge Merge W25 requires asked = answered');
     expect(text(el, '.cw-choice-q')).toEqual(['What of measure?', 'What of old?', 'What of read-time?']);
     expect(text(el, '.cw-choice-stops')).toEqual(['The merge waits for this answer', 'The merge waits for this answer']);
     // Those the merge waits for hold the work, on the red tint; the one answered stands with its answer, and is not

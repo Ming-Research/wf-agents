@@ -22,6 +22,7 @@ use super::{GitHub, output};
 use crate::held::Stop;
 use crate::host::{Named, Verdict};
 use crate::process;
+use service::Along;
 
 /// The workflow to run, the artifact its results are in, and what it is run with.
 struct Plan<'a> {
@@ -231,6 +232,10 @@ impl<A: Api> GitHub<A> {
                 () = stop.told() => return Ok(None),
             };
             let mine = runs.into_iter().find(|r| r.title.contains(&plan.call));
+            // Once its run is found, the call or the act runs as it, at its link.
+            if let Some(run) = &mine {
+                stop.say(Some(Along::Runs { at: run.url.clone() }));
+            }
             let waited = began.elapsed();
             match mine {
                 Some(run) if run.completed => break run,

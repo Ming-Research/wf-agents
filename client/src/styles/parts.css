@@ -863,7 +863,9 @@ textarea:disabled {
 }
 
 /* Where a work's time went: one block for each stretch of a model or of the tools, and one for each stretch nothing
-   ran in, on a muted ground; the console's item window and a work's usage draw it alike. */
+   ran in, on a muted ground; the console's item window and a work's usage draw it alike. A stretch nothing ran in
+   takes, in the console's, the colour of what the work waited for: the owner's orange, a pause's muted grey, and the
+   light grey of nothing running for the items it depends on as for anything else. */
 .us-track {
   position: relative;
   height: var(--space-8);
@@ -886,6 +888,15 @@ textarea:disabled {
   background: var(--track-tool);
 }
 
-.us-gap {
+.us-gap,
+.us-items {
   background: var(--track-gap);
+}
+
+.us-owner {
+  background: var(--orange);
+}
+
+.us-paused {
+  background: var(--muted);
 }
