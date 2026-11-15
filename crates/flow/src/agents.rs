@@ -134,7 +134,6 @@ pub struct ScopeWords {
     pub flow: String,
     pub works: String,
     pub line: String,
-    pub tool: String,
 }
 
 /// Why the run guard stopped a round.

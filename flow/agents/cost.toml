@@ -22,7 +22,6 @@ cell = "of its cell"
 flow = "of its flow"
 works = "of the flow's other works"
 line = "of its line"
-tool = "of its tool"
 
 # Why the engine paused a work whose spend or time, since it started or was last let on after the engine paused it,
 # is past the line the flow's other works give. Filled in a run: `{work}` the work's number, `{value}` its spend in

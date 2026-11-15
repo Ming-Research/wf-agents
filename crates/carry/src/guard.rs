@@ -127,7 +127,8 @@ impl Crossing {
             Scope::Flow => &words.scope.flow,
             Scope::Works => &words.scope.works,
             Scope::Line => &words.scope.line,
-            Scope::Tool => &words.scope.tool,
+            // The guard judges an agent's round, whose lines come from rounds, never from the calls of a tool.
+            Scope::Tool => unreachable!("the run guard judges no line of a tool's calls"),
         };
         let from = fill(
             &words.from,
@@ -243,7 +244,6 @@ mod tests {
                 flow: "of its flow".to_string(),
                 works: "of the other works".to_string(),
                 line: "of its line".to_string(),
-                tool: "of its tool".to_string(),
             },
             tool: "{tool} {on}".to_string(),
             between: "; ".to_string(),
