@@ -451,6 +451,9 @@ pub struct TriggerFile {
     pub block: String,
     /// Who writes the block: [`OWNER`], or a name of a source outside the work that the engine has.
     pub from: Option<String>,
+    /// The act of the engine's whose cells write the block as their rounds end, where one does: the block is among the
+    /// outputs of each cell that carries the act out, and holds what it hands in.
+    pub act: Option<String>,
     /// What the engine says of what happened, where it says something: the name of a place it fills in a run.
     pub detail: Option<String>,
     /// The data the agent reads for it, each among those its cell is given.

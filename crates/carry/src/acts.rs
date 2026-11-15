@@ -452,9 +452,15 @@ impl<H: Host> Inner<H> {
             }
             flow::RUNS_TESTS => {
                 let of = (&*round.flow, &*round.kept, &round.cell.id);
-                match tested::act(&self.host, project, &branch, of, teller, stop).await? {
-                    true => Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, ""))))),
-                    false => Ok(Done::Stopped),
+                match tested::act(&self.host, project, &branch, of, stop).await? {
+                    Some(tested) => Ok(Done::HandsIn(Box::new(Came {
+                        said: Said {
+                            observations: tested.observations,
+                            ..Said::default()
+                        },
+                        ..Came::hands_in(tested.results)
+                    }))),
+                    None => Ok(Done::Stopped),
                 }
             }
             other => Err(format!("the engine has no act named {other}").into()),

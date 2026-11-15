@@ -330,6 +330,7 @@ export type Unmet =
   | { kind: 'notATrigger'; name: string }
   | { kind: 'notATool'; name: string }
   | { kind: 'unchangedNotWritten'; block: string }
+  | { kind: 'entryUnchanged'; block: string }
   | { kind: 'questionTaken'; name: string }
   | { kind: 'noSuchQuestion'; name: string }
   | { kind: 'questionTwice'; name: string }

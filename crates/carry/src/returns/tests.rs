@@ -187,6 +187,55 @@ fn a_block_named_as_written_with_its_meaning_unchanged_runs_no_cell() {
     assert_eq!(read(&r), Ok(expected));
 }
 
+// A block whose file gives it a shape is read as the JSON the form holds it to and kept as its content, whatever the
+// shape: an entry of the tests a cell asks for is an object, which was read as a choice written wrongly. Well under a
+// millisecond alone; no other test holds the reading to a block of a shape.
+#[test]
+fn a_block_of_a_shape_is_kept_as_the_json_it_holds() {
+    let write = WRITE.replace(
+        r#"outputs = ["plan", "ok", "discussion", "q_and_a"]"#,
+        r#"outputs = ["plan", "ok", "discussion", "q_and_a", "entry"]"#,
+    );
+    let entry = "shown = true\n\n[shape]\ntype = \"object\"\n";
+    let flow = compiled(FLOW, &write, &[("blocks/entry.toml", entry)]);
+    let mut r = work();
+    r["outcome"]["outputs"]["entry"] = json!({"tests": ["a"], "checks": []});
+    let came = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
+    assert!(came.found.is_empty(), "{:?}", came.found);
+    let entry = (came.writes.iter())
+        .find(|h| h.block.as_str() == "entry")
+        .expect("it is handed in");
+    let kept: Value = serde_json::from_str(&entry.content).expect("it is kept as JSON");
+    assert_eq!(kept, json!({"tests": ["a"], "checks": []}));
+    assert_eq!((entry.value.as_ref(), entry.matters), (None, true));
+}
+
+// Each entry of a record is new: a return that names a record it writes in `meaning_unchanged`, the record of what is
+// said or that of the questions as any other, is found wanting, so that no rule reads the entry as no entry. Well under
+// a millisecond alone; no other test holds the reading to it.
+#[test]
+fn a_record_named_as_written_with_its_meaning_unchanged_is_found_wanting() {
+    let flow = flow();
+    let found = |r: &Value| came(r, &flow, cell(&flow), &words()).expect("it is read").came.found;
+    let mut r = work();
+    r["outcome"]["outputs"]["discussion"] = json!("An answer.");
+    r["outcome"]["meaning_unchanged"] = json!(["plan", "discussion"]);
+    assert_eq!(
+        found(&r),
+        [Unmet::EntryUnchanged {
+            block: "discussion".into()
+        }]
+    );
+    r["outcome"]["outputs"]["q_and_a"] = json!([]);
+    r["outcome"]["meaning_unchanged"] = json!(["q_and_a"]);
+    assert_eq!(
+        found(&r),
+        [Unmet::EntryUnchanged {
+            block: "q_and_a".into()
+        }]
+    );
+}
+
 #[test]
 fn a_return_that_deals_with_the_owners_words_and_gives_no_answer_to_them_is_found_wanting() {
     let flow = flow();

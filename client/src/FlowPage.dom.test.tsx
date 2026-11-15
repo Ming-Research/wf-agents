@@ -224,8 +224,8 @@ describe('the chart', () => {
   });
 
   it('draws the engine’s cell that runs the tests as a column, the record a cell asks in and the trigger of its result as rows', () => {
-    // build asks for tests in run_tests, which runs T3, whose act writes build_tested from outside: that runs build by
-    // its trigger on_tested.
+    // build asks for tests in run_tests, which runs T3, whose act hands in build_tested: that runs build by its trigger
+    // on_tested.
     const trigger = (name: string, block: string) => ({ name, what: null, block, group: [], read: [], do: null });
     const flow = flowOf(
       [
@@ -241,10 +241,11 @@ describe('the chart', () => {
           task: null,
           act: 'run_tests',
           runsOn: ['run_tests'],
+          outputs: ['build_tested'],
           triggers: [trigger('on_run_tests', 'run_tests')],
         }),
       ],
-      { request: { people: true }, code: {}, run_tests: {}, build_tested: { outside: 'tested' } },
+      { request: { people: true }, code: {}, run_tests: {}, build_tested: {} },
     );
     const page = draw({ state: 'compiled', flow });
     expect(texts(page, 'thead .cell-head .cell-id')).toEqual(['build', 'T3']);
@@ -253,8 +254,7 @@ describe('the chart', () => {
       'T3 triggered_by on_run_tests',
     ]);
     const tested = rowOf(page, 'on_tested', true);
-    expect(texts(tested, '.spot .visually-hidden')).toEqual(['build triggered_by on_tested']);
-    expect(tested.querySelector('[title="from tested"]')).not.toBeNull();
+    expect(texts(tested, '.spot .visually-hidden')).toEqual(['build triggered_by on_tested', 'T3 outputs build_tested']);
     expect(texts(rowOf(page, 'run_tests'), '.spot .visually-hidden')).toEqual(['build outputs run_tests']);
   });
 

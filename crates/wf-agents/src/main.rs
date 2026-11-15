@@ -650,11 +650,10 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 /// anew or withdrawn and as the owner answers one, and the answering cell's block of an answer that takes another
 /// option than the one the work goes by; `asked`, as the questions and their answers come to stand otherwise; `main`,
 /// written by the acts' watch of main on the host; `tree` and `head`, read by the carriers of the design tree and of
-/// the work's head on a work's branch, written from outside or handed in with the round that committed them; `tested`,
-/// written by the act that runs the tests the cells ask for, the result of each into the asking cell's own block; and
+/// the work's head on a work's branch, written from outside or handed in with the round that committed them; and
 /// `words`, written by the engine's loop as the owner speaks to a cell, the record of what is said and the cell's block
 /// that it was spoken to.
-const SOURCES: [&str; 10] = [
+const SOURCES: [&str; 9] = [
     "answer",
     "asked",
     "dependencies",
@@ -662,7 +661,6 @@ const SOURCES: [&str; 10] = [
     "main",
     "session",
     "start",
-    "tested",
     "tree",
     "words",
 ];
@@ -825,7 +823,7 @@ fn words(what: &FaultKind, field: &str) -> String {
         }
         F::AsksWithNoResult { block } => {
             format!(
-                "the cell writes {block}, which runs the cell that runs the tests, but no block of the source tested runs it: the result would reach no cell, and it would wait for it for ever"
+                "the cell writes {block}, which runs the cell that runs the tests, but no block that cell's act hands in runs it: the result would reach no cell, and it would wait for it for ever"
             )
         }
         F::TriggerNeverRuns {

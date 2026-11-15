@@ -133,7 +133,7 @@ pub enum FlowFault {
     /// The cell's limit is zero: no sender could send it back even once, nor could the owner let it go on.
     NoLimit(CellId),
     /// What the cell asks for in a record is amiss: the record is not among its outputs, its result does not run it, or
-    /// no cell is run by the record to give the result.
+    /// no cell the record runs writes the result.
     AsksAmiss(CellId),
     /// A key of the cell's condition or of its preconditions names a named test the flow does not have.
     NoSuchTest(CellId, TestName),
@@ -162,9 +162,10 @@ impl Flow {
             if cell.again == 0 {
                 return Err(FlowFault::NoLimit(cell.id.clone()));
             }
-            let answered = |record: &BlockId| cells.iter().any(|c| c.runs_on.contains(record));
+            let gives =
+                |a: &Asks| (cells.iter()).any(|c| c.runs_on.contains(&a.record) && c.outputs.contains(&a.result));
             if (cell.asks.iter())
-                .any(|a| !cell.outputs.contains(&a.record) || !cell.runs_on.contains(&a.result) || !answered(&a.record))
+                .any(|a| !cell.outputs.contains(&a.record) || !cell.runs_on.contains(&a.result) || !gives(a))
             {
                 return Err(FlowFault::AsksAmiss(cell.id.clone()));
             }

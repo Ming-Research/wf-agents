@@ -275,9 +275,6 @@ pub struct Driver {
     pub paused: bool,
     pub log: Vec<String>,
     pub seen: Seen,
-    /// The run whose round the driver is ending now, while what the round's carrier writes as it ends is taken: the
-    /// act that runs the tests writes the results it gives, which may have the round stopped before its end is given.
-    pub ending: Option<RunId>,
 }
 
 impl Driver {
@@ -296,7 +293,6 @@ impl Driver {
             paused: false,
             log: Vec::new(),
             seen: Seen::default(),
-            ending: None,
         }
     }
 
@@ -370,15 +366,8 @@ impl Driver {
                                 .held
                                 .iter()
                                 .position(|e| matches!(e, Effect::Round { run: r, .. } if r == run));
+                            self.held.remove(at.expect("a stopped round was held"));
                             self.seen.stopped += 1;
-                            match at {
-                                Some(at) => {
-                                    self.held.remove(at);
-                                }
-                                // The round being ended now: its end, given next, ends it as stopped.
-                                None if self.ending == Some(*run) => continue,
-                                None => panic!("a stopped round was held"),
-                            }
                         }
                         Effect::Call {
                             what: Call::AtLimit(_), ..
@@ -618,9 +607,7 @@ impl Driver {
                     assert!(taken, "the failure of a round under way was refused");
                     return;
                 }
-                self.ending = Some(run);
                 let came = part.returns(self, run, cell.as_str());
-                self.ending = None;
                 let place = self.flow.flow.place(&cell).expect("the cell is in the flow");
                 let must = &self.flow.cells[place].must_write;
                 // A hand-in deals with what ran its round, by naming it or by naming nothing, or writes something;

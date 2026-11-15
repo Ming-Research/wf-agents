@@ -258,7 +258,6 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
             "session",
             "start",
             "head",
-            "tested",
             "tree",
             "words",
         ]),
@@ -275,6 +274,64 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
     assert_eq!(records, ["discussion", "q_and_a", "run_tests"]);
 }
 
+// The cells that write the record of the tests ask for them, each waiting for a block of its own, which the cell of the
+// act that runs the tests has among its outputs, as the trigger of the result says the act writes it: the act hands the
+// results in with its round's end, and each block holds what it handed in, standing for no trigger alone. Well under a
+// second alone; no other test holds the compiler to where the results are written.
+#[test]
+fn the_cells_that_ask_for_tests_wait_for_results_the_act_that_runs_them_hands_in() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+    let source = flow::read(&dir).expect("the engineer's flow is read");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
+        tools: names(&["query"]),
+        details: names(&["files"]),
+        ..Default::default()
+    };
+    let compiled = flow::compile(&source, &has).expect("the engineer's flow compiles");
+    let asking: Vec<(&str, &str, &str)> = (compiled.flow.cells().iter())
+        .flat_map(|c| {
+            c.asks
+                .iter()
+                .map(move |a| (c.id.as_str(), a.record.as_str(), a.result.as_str()))
+        })
+        .collect();
+    assert_eq!(
+        asking,
+        [
+            ("R1", "run_tests", "r1_tested"),
+            ("D1", "run_tests", "d1_tested"),
+            ("I1", "run_tests", "i1_tested"),
+            ("T2", "run_tests", "t2_tested")
+        ]
+    );
+    let t3 = (compiled.flow.cells().iter())
+        .find(|c| c.id.as_str() == "T3")
+        .expect("the flow has T3");
+    let mut outputs: Vec<&str> = t3.outputs.iter().map(|b| b.as_str()).collect();
+    outputs.sort_unstable();
+    assert_eq!(outputs, ["d1_tested", "i1_tested", "r1_tested", "t2_tested"]);
+    for (cell, _, result) in asking {
+        let block = &compiled.blocks[&decide::BlockId::from(result)];
+        assert_eq!(block.writers.cells, [decide::CellId::from("T3")], "{result}");
+        assert_eq!(block.writers.outside, None, "{result}");
+        assert!(!block.trigger, "{result} holds what the act hands in");
+        assert_eq!(block.readers.cells, [decide::CellId::from(cell)], "{result}");
+    }
+}
+
 #[test]
 fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
@@ -289,7 +346,6 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
             "session",
             "start",
             "head",
-            "tested",
             "tree",
             "words",
         ]),

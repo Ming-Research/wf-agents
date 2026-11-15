@@ -31,9 +31,11 @@ Why: A program stopped or crashed prints no result to say what the round cost, w
 How many times in a row a cell asks, for calls of tools or for tests in a record, before a run of it hands in its work,
 is a measured quantity, its line drawn from the rows of asking in every work of the flow as every line is (decision
 a-line-comes-from-the-history-of-its-kind): the cell's own rows where at least `history.samples` of them tell it, else
-every cell's of the flow; the row a cell is in now is no part of it. A return that asks and makes its cell's row longer
-than the line pauses the work for the owner, saying the row, the line and what gave it; with too few rows nothing is
-judged, and the work's budget still holds.
+every cell's of the flow; the row a cell is in now is no part of it, and is counted from where the work was last let on
+after the engine paused it, as its spend and time are (decision a-work-is-judged-by-the-flows-other-works). A return
+that asks and makes its cell's row longer than the line pauses the work for the owner, saying the row, the line and
+what gave it. With too few rows nothing is judged, as with too few works for a work's spend and time: the work's budget
+(`agents.work_budget_usd`) bounds it where the settings give one, and nothing does where they give none.
 Why: The counts the walk held, of the calls of a run and of runs in a row that only asked, were set by hand and no work
 showed what they should be (principle `judged-by-own-history`); a cell that asks for test runs again and again as it
 should and one that runs away differ only against what such cells do. A count begun anew by a commit was turned down

@@ -527,7 +527,6 @@ fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own(
             SESSION,
             "start",
             "head",
-            "tested",
             "tree",
         ]),
         acts: names(&["start", "check", "merge", "run_tests"]),

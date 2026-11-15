@@ -30,7 +30,6 @@ fn engineer() -> Compiled {
             "session",
             "start",
             "head",
-            "tested",
             "tree",
             "words",
         ]),
@@ -307,6 +306,44 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
     let mut local = settings();
     local.projects.get_mut("example").unwrap().github = None;
     assert_eq!(faults(&local, &beside, &flow), Vec::<String>::new());
+}
+
+// The words of `run_tests` are told as the host runs the tests: on GitHub, the last commit of the branch, what is
+// named run alone by the fast workflow, and each test and job in the result; on the local repository, the worktree as
+// it stands, the whole command whatever is named, and whether it passed. Every place of the words is filled for both.
+// Well under a millisecond alone; no other test holds each host to its own words.
+#[test]
+fn the_words_of_run_tests_are_told_as_the_host_runs_the_tests() {
+    let beside = beside();
+    let filling = filling(&settings(), &beside);
+    let flow = engineer();
+    let words = (flow.blocks.get(&decide::BlockId::from("run_tests"))).and_then(|b| b.words.clone());
+    let told = |hosted: Hosted| {
+        let places = places(&filling, &beside, hosted);
+        let mut said = words.clone().expect("the record has words");
+        for (name, value) in &places {
+            said = said.replace(&format!("{{{name}}}"), value);
+        }
+        for place in ["{runs_on}", "{named_run}", "{result_gives}", "{named_checks}"] {
+            assert!(!said.contains(place), "{place} is filled: {said}");
+        }
+        said
+    };
+    let github = told(Hosted::GitHub);
+    assert!(github.contains("on the last commit of the work's branch"), "{github}");
+    assert!(github.contains("run alone, by the project's fast workflow"), "{github}");
+    assert!(github.contains("and each job, how it ended"), "{github}");
+    let local = told(Hosted::Local);
+    assert!(
+        local.contains("on your worktree as it stands, what is not committed included"),
+        "{local}"
+    );
+    assert!(local.contains("the whole command runs, whatever is named"), "{local}");
+    assert!(local.contains("whether the command passed"), "{local}");
+    assert!(
+        !local.contains("commit of the work's branch") && !local.contains("fast workflow"),
+        "{local}"
+    );
 }
 
 // A place the engine does not fill, in the heading a file of the project stands under or in the engine's words, and a

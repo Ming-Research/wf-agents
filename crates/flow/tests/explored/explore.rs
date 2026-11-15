@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use decide::run::{self, Hold, Requires, Step};
 use decide::{
     Abandoned, BlockId, CallId, Called, Cause, CellId, Condition, Decision, Done, End, Finished, LetGo, Maker, PutIn,
-    Records, Returned, Round, RunId, Seq, Stalling, Started, Unrun, Waited, Who, decide, told,
+    Records, Returned, Round, RunId, Seq, Stalling, Started, Unrun, Waited, Who, Write, decide, told,
 };
 
 use crate::model::{
@@ -464,6 +464,13 @@ impl Explorer<'_> {
             );
             return false;
         };
+        // The act that runs the tests the cells ask for hands in the result of each entry it gives, as the asking cell's
+        // own block, and nothing else.
+        let results: Option<Vec<BlockId>> = (m.tests == Some(i)).then(|| {
+            (decide::asked_of(self.flow(), &s.world.records, cell).into_iter())
+                .map(|entry| entry.result)
+                .collect()
+        });
         let Some(log) = s.logs.get_mut(&run) else {
             return false;
         };
@@ -481,7 +488,18 @@ impl Explorer<'_> {
                 );
                 return false;
             };
-            let (ret, a) = m.hand_in(i, &v, &told);
+            let (mut ret, a) = m.hand_in(i, &v, &told);
+            if let (Some(results), run::Return::Came { writes, .. }) = (&results, &mut ret) {
+                *writes = (results.iter())
+                    .map(|block| Write {
+                        block: block.clone(),
+                        meaning_unchanged: false,
+                        empty: false,
+                        value: None,
+                    })
+                    .collect();
+                self.reach(GAVE_RESULTS.to_string());
+            }
             last.returned = Some(ret);
             asks = a;
             variant = Some(v);
@@ -704,22 +722,6 @@ impl Explorer<'_> {
         if cost {
             c.spent += 1;
         }
-        // The act that runs the tests the cells ask for writes, as its round ends, the result of each entry it gives
-        // into the asking cell's own block, from outside.
-        if self.model.tests == Some(self.model.place(cell)) {
-            let mut results = Vec::new();
-            for entry in decide::asked_of(self.flow(), &c.world.records, cell) {
-                let at = c.world.outside_writes(entry.result.as_str());
-                if let Some(t) = c.outside.as_mut()
-                    && t.runs.contains(&run)
-                {
-                    t.versions.insert(at);
-                }
-                results.push(entry.result.to_string());
-            }
-            self.reach(GAVE_RESULTS.to_string());
-            said.push_str(&format!(", writing {}", results.join(", ")));
-        }
         c.trace = c.trace.then(c.spent, said);
         let at = c.world.tick();
         c.world.records.returned.push(Returned { run, at });
@@ -915,7 +917,7 @@ impl Explorer<'_> {
                 (r.done(call, NOW), s.questions.contains_key(&call)).hash(&mut h);
             }
             streaks(flow, records, &cell.id).hash(&mut h);
-            r.pending(cell, NOW).hash(&mut h);
+            r.pending(flow, cell, NOW).hash(&mut h);
             let finished = (r.started.values()).any(|st| st.cell == cell.id && r.finished.contains_key(&st.run));
             finished.hash(&mut h);
         }
@@ -1082,7 +1084,7 @@ impl Explorer<'_> {
                 let name = format!("{cell} ran while {} before it waited for an answer", before.id);
                 self.breach(Property::NewToIt, name, trace, String::new());
             }
-            if r.pending(before, NOW) {
+            if r.pending(flow, before, NOW) {
                 if (before.asks.iter()).any(|asks| def.runs_on.contains(&asks.record)) {
                     held = true;
                     self.reach(RAN_FOR_A_WAIT.to_string());

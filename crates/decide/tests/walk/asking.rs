@@ -1,8 +1,9 @@
 //! A cell that asks for what takes time in a record, such as a run of the tests, and the cell that record runs, which
-//! gives the result into a block of the asking cell's own (decision a-wait-holds-its-cell): the asking cell waits from
+//! hands the result in as a block of the asking cell's own (decision a-wait-holds-its-cell): the asking cell waits from
 //! its entry until a run of it is given a result written after it; meanwhile no later cell runs but the one that gives
-//! the result, and the owner turning to it still enters it. And the count of the times each sender sends a cell back
-//! (decision the-same-sender-again), which counts no result under anyone.
+//! the result, and the owner turning to it still enters it; a cell skipped has its entry put away (decision
+//! a-wait-of-a-skipped-cell-is-put-away). And the count of the times each sender sends a cell back (decision
+//! the-same-sender-again), which counts no result under anyone.
 
 use decide::{Asks, Entry, Outsiders, asked_of, told};
 
@@ -17,16 +18,17 @@ fn asking(record: &str, result: &str, mut c: Cell) -> Cell {
     c
 }
 
-/// The cell that runs the tests the cells ask for in `tests`: an act of the engine's, which takes no slot.
+/// The cell that runs the tests the cells ask for in `tests`: an act of the engine's, which takes no slot and hands in
+/// the result of each into the asking cell's own block.
 fn run_tests() -> Cell {
-    let mut run_tests = cell("run tests", &["tests"], &[]);
+    let mut run_tests = cell("run tests", &["tests"], &["research_tested", "implement_tested"]);
     run_tests.slot = false;
     run_tests
 }
 
 /// The research and the implementation each ask for tests in `tests`, their results coming in blocks of their own,
-/// which the source `tested` writes; the review judges the code, and the cell that runs the tests is run by the
-/// record. The owner's words turn to the implementation. The research ran, and wrote the plan.
+/// which the cell that runs the tests hands in; the review judges the code, and the cell that runs the tests is run by
+/// the record. The owner's words turn to the implementation. The research ran, and wrote the plan.
 fn testing() -> World {
     let cells = vec![
         asking(
@@ -47,8 +49,8 @@ fn testing() -> World {
         run_tests(),
     ];
     let mut w = World::with_gate(cells);
-    w.written_outside("research_tested", "tested");
-    w.written_outside("implement_tested", "tested");
+    w.written_by_cells("research_tested");
+    w.written_by_cells("implement_tested");
     w.turning("implement_spoken");
     w.person_writes("background");
     w.run("research", &[("plan", Matters)]);
@@ -63,24 +65,37 @@ fn asks_for_tests(w: &mut World) -> Seq {
     w.finish_dealing("implement", &ran, &[("code", Matters), ("tests", Matters)])
 }
 
-// The owner's words the implementation was told before it asked for tests are no turning to it once the result comes:
-// the round that runs the tests, under way as the act writes the result, is not stopped, and the run given the result
-// takes the words up with it.
+// The owner's words the implementation was told before it asked for tests are no turning to it while it waits: the
+// round that runs the tests is not stopped for them, and the run given the result takes the words up with it.
 #[test]
-fn a_result_written_while_its_tests_run_stops_nothing_for_words_the_cell_was_told() {
+fn words_a_waiting_cell_was_told_stop_no_round_and_come_back_with_its_result() {
     let mut w = testing();
     w.outside_writes("implement_spoken");
     w.start("implement");
     w.finish_dealing("implement", &[], &[("tests", Matters)]);
     assert_eq!(reasons(&w.decide()).0, "run tests");
     let run = w.start("run tests");
-    w.outside_writes("implement_tested");
+    w.person_writes("background");
     assert_eq!(
         w.decide(),
         Decision::Busy {
             cell: "run tests".into(),
             run
         }
+    );
+    w.finish("run tests", &[("implement_tested", Matters)]);
+    assert_eq!(reasons(&w.decide()).0, "research");
+    w.run("research", &[]);
+    assert_eq!(
+        reasons(&w.decide()),
+        (
+            "implement".into(),
+            vec![
+                ("plan".into(), false),
+                ("implement_spoken".into(), false),
+                ("implement_tested".into(), true)
+            ]
+        )
     );
 }
 
@@ -104,11 +119,10 @@ fn words_to_a_cell_after_a_waiting_one_stop_no_round_of_what_ends_the_wait() {
     );
 }
 
-/// The tests run for what was asked, and give the implementation its result.
+/// The tests run for what was asked, and hand the implementation its result in.
 fn tests_run(w: &mut World) {
     w.start("run tests");
-    w.outside_writes("implement_tested");
-    w.finish("run tests", &[]);
+    w.finish("run tests", &[("implement_tested", Matters)]);
 }
 
 #[test]
@@ -154,7 +168,7 @@ fn the_result_runs_the_asking_cell_alone_and_is_taken_by_the_run_given_it() {
     tests_run(&mut w);
     assert_eq!(
         reasons(&w.decide()),
-        ("implement".into(), vec![("implement_tested".into(), false)])
+        ("implement".into(), vec![("implement_tested".into(), true)])
     );
     let run = w.start("implement");
     // The result runs no trigger its return deals with: the round is given it as what it asked for.
@@ -246,8 +260,11 @@ fn a_newer_entry_of_the_same_cell_replaces_the_one_whose_tests_have_not_run() {
     );
 }
 
+// A cell that asks for tests and skips itself in the same return has its entry put away: it holds nothing, the cell
+// that runs the tests gives none for it, and once it applies again it waits for it again, where no run of that cell
+// passed over it meanwhile.
 #[test]
-fn a_cell_skipped_now_still_has_its_entry_run_so_that_its_result_is_there_should_it_apply_again() {
+fn a_skipped_cells_entry_is_put_away_and_waits_again_as_the_cell_applies_again() {
     let mut w = testing();
     w.install(vec![
         asking(
@@ -266,8 +283,48 @@ fn a_cell_skipped_now_still_has_its_entry_run_so_that_its_result_is_there_should
     w.start("research");
     let entry = w.finish_dealing("research", &["background"], &[("tests", Matters)]);
     w.says("researching", false);
-    let given = asked_of(&w.flow, &w.records, &"run tests".into());
-    assert_eq!(given.iter().map(|e| e.at).collect::<Vec<_>>(), vec![entry]);
+    assert_eq!(asked_of(&w.flow, &w.records, &"run tests".into()), Vec::new());
+    // Its entry holds nothing: the implementation runs on the plan.
+    assert_eq!(reasons(&w.decide()).0, "implement");
+    w.says("researching", true);
+    assert_eq!(
+        asked_of(&w.flow, &w.records, &"run tests".into())
+            .iter()
+            .map(|e| e.at)
+            .collect::<Vec<_>>(),
+        vec![entry]
+    );
+    assert_eq!(reasons(&w.decide()).0, "run tests");
+}
+
+// A run of the cell that runs the tests that passed over a skipped cell's entry, as it gave the results of the cells
+// that applied, gave it no result: the entry is no longer waited for once the cell applies again.
+#[test]
+fn an_entry_a_run_of_the_tests_passed_over_is_waited_for_no_more() {
+    let mut w = testing();
+    w.install(vec![
+        asking(
+            "tests",
+            "research_tested",
+            on_test(
+                "researching",
+                cell("research", &["background", "research_tested"], &["plan", "tests"]),
+            ),
+        ),
+        cell("implement", &["plan"], &["code"]),
+        run_tests(),
+        gate(),
+    ]);
+    w.person_writes("background");
+    w.start("research");
+    w.finish_dealing("research", &["background"], &[("tests", Matters)]);
+    w.says("researching", false);
+    w.run("implement", &[("code", Matters)]);
+    assert_eq!(reasons(&w.decide()).0, "run tests");
+    w.run("run tests", &[]);
+    w.says("researching", true);
+    assert_eq!(asked_of(&w.flow, &w.records, &"run tests".into()), Vec::new());
+    assert_eq!(w.decide(), resting());
 }
 
 #[test]
@@ -302,7 +359,7 @@ fn the_result_of_what_a_cell_asked_for_counts_under_no_sender() {
     }
     assert_eq!(
         reasons(&w.decide()),
-        ("implement".into(), vec![("implement_tested".into(), false)])
+        ("implement".into(), vec![("implement_tested".into(), true)])
     );
 }
 

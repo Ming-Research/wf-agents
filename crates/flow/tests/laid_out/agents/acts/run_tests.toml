@@ -73,3 +73,15 @@ not_apart = "The tests and checks you named are not run apart: the whole command
 named = "{checks}"
 none_named = "none, since the project's fast workflow runs no check by name"
 whole = "none, since the project declares no fast workflow: nothing is run alone, and an entry names none"
+
+[places.runs_on]
+github = "the project's tests to run on the last commit of the work's branch, which the engine pushes; what is not committed is not run."
+local = "the project's check command to run on your worktree as it stands, what is not committed included."
+
+[places.named_run]
+github = "what is named is run alone, by the project's fast workflow. Name none to run the project's full workflows."
+local = "the whole command runs, whatever is named."
+
+[places.result_gives]
+github = "each test, passed or failed, with the time it took and what a failed one said, and each job, how it ended and its wall time."
+local = "whether the command passed, and what it said."

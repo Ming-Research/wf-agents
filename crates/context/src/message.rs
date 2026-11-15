@@ -801,6 +801,7 @@ impl Build<'_> {
             Unmet::NotATrigger { name } => (&f.not_a_trigger, vec![("name", name.clone())]),
             Unmet::NotATool { name } => (&f.not_a_tool, vec![("name", name.clone())]),
             Unmet::UnchangedNotWritten { block: b } => (&f.unchanged_not_written, vec![block(b)]),
+            Unmet::EntryUnchanged { block: b } => (&f.entry_unchanged, vec![block(b)]),
             Unmet::QuestionTaken { name } => (&f.question_taken, vec![("name", name.clone())]),
             Unmet::NoSuchQuestion { name } => (&f.no_such_question, vec![("name", name.clone())]),
             Unmet::QuestionTwice { name } => (&f.question_twice, vec![("name", name.clone())]),

@@ -179,22 +179,20 @@ fn read_head(d: &Driver, roles: &Roles, branch: Branch) -> Option<(BlockId, Stri
     (says_now(d, &block) != Some(now.as_str())).then_some((block, now))
 }
 
-/// What the carriers write as the round of the cell at this place ends: the act that runs the tests, the result of
-/// each entry it gives, from outside, into the asking cell's own block of it; and the work's head they read: an agent's
-/// round on a line that may change the work hands it in with its return; one on a line that only reads, and the start,
-/// write it from outside first. The check reads it as it judges ([`gate`]).
+/// What the carriers hand in and read as the round of the cell at this place ends: the act that runs the tests, the
+/// result of each entry it gives, as the asking cell's own block of it; and the work's head: an agent's round on a line
+/// that may change the work hands it in with its return; one on a line that only reads, and the start, write it from
+/// outside first. The check reads it as it judges ([`gate`]).
 fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, i: usize, came: &mut Came) {
     if d.flow.cells[i].act.as_deref() == Some(flow::RUNS_TESTS) {
-        let cell = d.flow.cells[i].id.clone();
-        for entry in decide::asked_of(&d.flow.flow, &d.work.records, &cell) {
-            let event = Event::Wrote {
+        let cell = &d.flow.cells[i].id;
+        for entry in decide::asked_of(&d.flow.flow, &d.work.records, cell) {
+            came.writes.push(Handed {
                 block: entry.result,
-                by: Outsider::Outside,
                 content: format!("The tests {} asked for passed.", entry.cell),
                 matters: true,
                 value: None,
-            };
-            assert!(d.take(event), "the result of the tests was refused");
+            });
         }
     }
     let Some((block, content)) = read_head(d, roles, branch) else {
@@ -286,7 +284,6 @@ fn engineer() -> Compiled {
             "session",
             "start",
             "head",
-            "tested",
             "tree",
         ]),
         acts: names(&["start", "check", "merge", "run_tests"]),
@@ -1543,9 +1540,9 @@ impl History {
             if w.by == Outsider::Person && self.roles.refusals.contains_key(&w.block) {
                 reached.push(person_wrote(&w.block));
             }
-            if w.by == Outsider::Outside
-                && let Some(asker) = cells.iter().find(|c| c.asks.iter().any(|a| a.result == w.block))
-            {
+        }
+        for w in records.finished.iter().flat_map(|f| &f.writes) {
+            if let Some(asker) = cells.iter().find(|c| c.asks.iter().any(|a| a.result == w.block)) {
                 reached.push(tests_ran(&asker.id));
             }
         }

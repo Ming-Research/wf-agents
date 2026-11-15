@@ -642,6 +642,7 @@ pub struct SentBackFaults {
     pub not_a_trigger: String,
     pub not_a_tool: String,
     pub unchanged_not_written: String,
+    pub entry_unchanged: String,
     pub question_taken: String,
     pub no_such_question: String,
     pub question_twice: String,

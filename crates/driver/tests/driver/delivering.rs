@@ -26,7 +26,6 @@ fn engineer() -> Compiled {
             "session",
             "start",
             "head",
-            "tested",
             "tree",
         ]),
         acts: names(&["start", "check", "merge", "run_tests"]),

@@ -19,6 +19,7 @@ use store::WorkNumber;
 
 use crate::carriers::{CallReply, Carriers, Network, Outside, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
 use crate::script::{Ends, Planned, Script};
+use work::Handed;
 
 /// Agents, engine acts and tools that follow a script.
 #[derive(Clone)]
@@ -61,7 +62,8 @@ impl Scripted {
         }
     }
 
-    /// What the round returns: the script's entry for it, as the cell's nth run in its work.
+    /// What the round returns: the script's entry for it, as the cell's nth run in its work; a round of the act that
+    /// runs the tests hands in besides the result of each entry it gives ([`tested`]).
     fn planned(&self, round: &Round) -> Planned {
         // Runs are named in the order they started.
         let started = round.kept.records.started.iter();
@@ -70,9 +72,14 @@ impl Scripted {
             .count();
         let basis = (started.clone().find(|s| s.run == round.run)).map(|s| s.basis.clone());
         let basis = basis.unwrap_or_default();
-        self.inner
+        let mut planned = self
+            .inner
             .script
-            .round(&round.flow, &round.cell, nth, round.number, &basis)
+            .round(&round.flow, &round.cell, nth, round.number, &basis);
+        if let Ends::Came(came) = &mut planned.ends {
+            came.writes.extend(tested(round));
+        }
+        planned
     }
 }
 
@@ -83,21 +90,25 @@ impl Inner {
     }
 }
 
-/// What the act that runs the tests writes as its round ends: of each entry it gives, its cell's block of the result,
+/// What the act that runs the tests hands in as its round ends: of each entry it gives, its cell's block of the result,
 /// saying the tests passed; nothing of a round of any other cell.
-fn tested(round: &Round) -> Vec<(decide::BlockId, String)> {
+fn tested(round: &Round) -> Vec<Handed> {
     if round.cell.act.as_deref() != Some(flow::RUNS_TESTS) {
         return Vec::new();
     }
     (decide::asked_of(&round.flow.flow, &round.kept.records, &round.cell.id).into_iter())
-        .map(|entry| (entry.result, format!("The tests {} asked for passed.", entry.cell)))
+        .map(|entry| Handed {
+            content: format!("The tests {} asked for passed.", entry.cell),
+            block: entry.result,
+            matters: true,
+            value: None,
+        })
         .collect()
 }
 
 impl Rounds for Scripted {
     fn give(&self, round: Round, reply: RoundReply) {
         let planned = self.planned(&round);
-        let results = tested(&round);
         let key = (round.work, round.run, round.number);
         {
             let mut held = self.inner.held();
@@ -111,10 +122,6 @@ impl Rounds for Scripted {
             tokio::time::sleep(Duration::from_millis(planned.ms)).await;
             let reply = inner.held().rounds.get_mut(&key).and_then(Option::take);
             if let Some(reply) = reply {
-                let teller = reply.teller();
-                for (block, content) in results {
-                    teller.outside_wrote(block, content);
-                }
                 end(reply, planned);
             }
         });

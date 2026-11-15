@@ -430,9 +430,10 @@ pub fn new_to(flow: &Flow, records: &Records, cell: &CellId) -> Vec<BlockId> {
         .collect()
 }
 
-/// Of each cell that asks in a record the cell `giving` is run by, in the order of the walk, its latest entry that has
-/// no result yet: what a run of `giving` gives the results of. A cell skipped now is among them, so that its result is
-/// there should it apply again. None where the flow has no cell `giving`.
+/// Of each cell that asks in a record the cell `giving` is run by and that applies, in the order of the walk, its
+/// entry that waits for its result ([`Walk::waits_for`]): what a run of `giving` gives the results of. A cell skipped
+/// now has its entry put away, and none is given for it (decision a-wait-of-a-skipped-cell-is-put-away). None where
+/// the flow has no cell `giving`.
 pub fn asked_of(flow: &Flow, records: &Records, giving: &CellId) -> Vec<Entry> {
     let walk = Walk::new(flow, records);
     let Some(i) = flow.place(giving) else {
@@ -440,15 +441,15 @@ pub fn asked_of(flow: &Flow, records: &Records, giving: &CellId) -> Vec<Entry> {
     };
     let runs_on = &flow.cells()[i].runs_on;
     let mut entries = Vec::new();
-    for cell in flow.cells() {
+    for (j, cell) in flow.cells().iter().enumerate() {
+        if !walk.applies(j) {
+            continue;
+        }
         for asks in cell.asks.iter().filter(|a| runs_on.contains(&a.record)) {
-            let Some(at) = walk.entry(&cell.id, &asks.record) else {
+            let Some(at) = walk.waits_for(cell, asks) else {
                 continue;
             };
             let answered = walk.versions(&asks.result).iter().map(|v| v.at).max();
-            if answered.is_some_and(|answered| answered > at) {
-                continue;
-            }
             let replaced = (walk.versions(&asks.record).iter())
                 .filter(|v| v.meaning == v.at && walk.by_cell(v, &cell.id))
                 .map(|v| v.at)
@@ -772,21 +773,38 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    /// Of each record the cell at this place asks in whose latest entry has no version of its result written after it,
-    /// the wait for that result, which the cells the record runs give; in the order the cell names its records.
+    /// Of each record the cell at this place asks in whose entry waits for its result ([`Walk::waits_for`]), the wait
+    /// for that result, which the cells the record runs give; in the order the cell names its records.
     fn pending(&self, i: usize) -> Vec<Waited> {
         let cell = &self.flow.cells()[i];
         (cell.asks.iter())
-            .filter(|asks| {
-                (self.entry(&cell.id, &asks.record))
-                    .is_some_and(|entry| !self.versions(&asks.result).iter().any(|v| v.at > entry))
-            })
+            .filter(|asks| self.waits_for(cell, asks).is_some())
             .map(|asks| Waited::Result {
                 record: asks.record.clone(),
                 result: asks.result.clone(),
                 by: self.flow.answering(&asks.record).map(|c| c.id.clone()).collect(),
             })
             .collect()
+    }
+
+    /// The cell's latest entry of what it asks for, where it waits for its result: no version of the result was written
+    /// after it, and no run of a cell that gives the result, run since, passed over it, as one passes over the entry of a
+    /// cell skipped as it runs (decision a-wait-of-a-skipped-cell-is-put-away); none where none waits.
+    fn waits_for(&self, cell: &Cell, asks: &crate::Asks) -> Option<Seq> {
+        let entry = self.entry(&cell.id, &asks.record)?;
+        if self.versions(&asks.result).iter().any(|v| v.at > entry) {
+            return None;
+        }
+        let gives = |r: &RunView<'a>| {
+            (self.flow.place(&r.started.cell)).is_some_and(|j| {
+                let giver = &self.flow.cells()[j];
+                giver.runs_on.contains(&asks.record) && giver.outputs.contains(&asks.result)
+            })
+        };
+        let passed = (self.runs.values())
+            .filter(|r| r.finished.is_some() && gives(r))
+            .any(|r| self.told(r, &asks.record).is_some_and(|told| told >= entry));
+        (!passed).then_some(entry)
     }
 
     /// The cell's latest entry of the record: the latest version a run of it wrote of it that changes its meaning; none

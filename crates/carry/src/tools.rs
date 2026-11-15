@@ -116,8 +116,8 @@ pub fn given(work: &work::Work, tools: &BTreeMap<String, Tool>, dir: &Path) -> B
         .collect()
 }
 
-/// Each version of a block the result of the tests a cell asked for comes in (of the source [`flow::TESTED`]), as a
-/// round of the cell is given it: cut at the bound the act's words give, with the words that follow a cut one, which say
+/// Each version of a block the result of the tests a cell asked for comes in ([`decide::Flow::is_result`]), as a round
+/// of the cell is given it: cut at the bound the act's words give, with the words that follow a cut one, which say
 /// which file of `dir` holds its whole ([`keep_wholes`]); and any, its end of whitespace left off.
 pub fn tested(work: &work::Work, flow: &Compiled, given: &ResultGiven, dir: &Path) -> BTreeMap<(BlockId, Seq), String> {
     (results_of_tests(work, flow))
@@ -130,12 +130,8 @@ pub fn tested(work: &work::Work, flow: &Compiled, given: &ResultGiven, dir: &Pat
 
 /// Each version of a block of the flow that the result of the tests a cell asked for comes in, with its content.
 fn results_of_tests<'w>(work: &'w work::Work, flow: &Compiled) -> impl Iterator<Item = (&'w BlockId, Seq, &'w str)> {
-    let blocks: Vec<BlockId> = (flow.blocks.iter())
-        .filter(|(_, b)| b.writers.outside.as_deref() == Some(flow::TESTED))
-        .map(|(id, _)| id.clone())
-        .collect();
     (work.contents.iter())
-        .filter(move |((block, _), _)| blocks.contains(block))
+        .filter(move |((block, _), _)| flow.flow.is_result(block))
         .map(|((block, at), content)| (block, *at, content.as_str()))
 }
 
@@ -291,7 +287,6 @@ mod tests {
                 "main",
                 "session",
                 "start",
-                "tested",
                 "tree",
                 "words",
             ]),

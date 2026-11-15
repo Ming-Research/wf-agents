@@ -138,12 +138,38 @@ pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
     }
 }
 
+/// How the host of a project runs its tests, which the words of the record a cell asks for them in are said by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hosted {
+    /// GitHub, which runs the project's workflows on a commit of the work's branch.
+    GitHub,
+    /// The local repository, which runs the project's check command on the worktree as it stands.
+    Local,
+}
+
+impl Hosted {
+    /// The key of the words the act's file gives for this host.
+    fn key(self) -> &'static str {
+        match self {
+            Hosted::GitHub => "github",
+            Hosted::Local => "local",
+        }
+    }
+}
+
 /// What fills each place of the words of a block that the engine fills, by its name, which a message gives a cell that
-/// writes the block: `named_checks`, as `filling` has it, where it has it.
-pub fn places(filling: &Filling) -> std::collections::BTreeMap<String, String> {
-    (filling.named_checks.iter())
+/// writes the block: `named_checks`, as `filling` has it, where it has it; and each other place the file of the act
+/// that runs the tests gives words for, those it gives for the host that runs them.
+pub fn places(filling: &Filling, beside: &Agents, hosted: Hosted) -> std::collections::BTreeMap<String, String> {
+    let mut places: std::collections::BTreeMap<String, String> = (filling.named_checks.iter())
         .map(|named| (NAMED_CHECKS.to_string(), named.clone()))
-        .collect()
+        .collect();
+    for (name, ways) in &beside.acts.run_tests.places {
+        if let Some(words) = ways.get(hosted.key()) {
+            places.insert(name.clone(), words.clone());
+        }
+    }
+    places
 }
 
 /// What fills each place of the texts the engine fills, by its name, for a line whose agents are told `your_line` of

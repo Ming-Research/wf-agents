@@ -164,7 +164,7 @@ export function faultWords(fault: Fault): string {
     case 'asksAndCannotBeSpokenTo':
       return `The cell writes ${w.block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell.`;
     case 'asksWithNoResult':
-      return `The cell writes ${w.block}, which runs the cell that runs the tests, but no block of the source tested runs it: the result would reach no cell, and it would wait for it for ever.`;
+      return `The cell writes ${w.block}, which runs the cell that runs the tests, but no block that cell's act hands in runs it: the result would reach no cell, and it would wait for it for ever.`;
     case 'unknownDetail':
       return `The engine fills no place named "${w.detail}".`;
     case 'readNotInContext':

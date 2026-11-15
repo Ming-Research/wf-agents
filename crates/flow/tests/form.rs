@@ -146,7 +146,6 @@ fn engineer() -> Compiled {
             "session",
             "start",
             "head",
-            "tested",
             "tree",
             "words",
         ]),

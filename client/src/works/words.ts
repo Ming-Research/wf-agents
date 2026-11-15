@@ -436,6 +436,8 @@ export function unmetWords(unmet: Unmet): string {
       return `it asked for ${unmet.name}, which is not a tool the cell may ask for`;
     case 'unchangedNotWritten':
       return `it named ${unmet.block} as unchanged in meaning, and did not write it`;
+    case 'entryUnchanged':
+      return `it named ${unmet.block}, a record, as unchanged in meaning, and each entry of a record is new`;
     case 'questionTaken':
       return `it wrote the question ${unmet.name}, which is not its cell's own`;
     case 'noSuchQuestion':

@@ -240,10 +240,12 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
         let (writes, asked) = writes(&outcome, flow, cell, &mut found);
         came.writes = writes;
         for name in &outcome.meaning_unchanged {
+            let block = BlockId(name.clone());
             if !outcome.outputs.contains_key(name) {
-                found.push(Unmet::UnchangedNotWritten {
-                    block: BlockId(name.clone()),
-                });
+                found.push(Unmet::UnchangedNotWritten { block });
+            } else if flow.flow.adds_entries(&block) {
+                // Each entry of a record is new: one the return said changed nothing would be no entry.
+                found.push(Unmet::EntryUnchanged { block });
             }
         }
         answered(&outcome, flow, cell, &mut found);
@@ -309,10 +311,10 @@ fn questions(asked: &[Question], words: &Agents, found: &mut Vec<Unmet>) {
 }
 
 /// Each block the return writes, in the order the cell writes them, then any other in the order of its name: one the
-/// cell writes there, as a string or as a choice's value with its line of why, which is kept as its content. A block
-/// that is not among the cell's outputs, and one in a shape neither a block nor a choice has, is found. Beside them,
-/// what the return writes of the record of the work's questions, which is read as the questions it asks: their entries
-/// are the engine's to write.
+/// cell writes there, as a string, as a choice's value with its line of why, or, of a block whose file gives it a shape,
+/// as the JSON that shape holds it to, which is kept as its content. A block that is not among the cell's outputs, and
+/// one in a shape neither a block nor a choice has, is found. Beside them, what the return writes of the record of the
+/// work's questions, which is read as the questions it asks: their entries are the engine's to write.
 fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) -> (Vec<Handed>, Vec<Value>) {
     let place = flow.flow.place(&cell.id);
     let outputs = place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]);
@@ -335,6 +337,16 @@ fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<U
             continue;
         }
         let matters = !outcome.meaning_unchanged.contains(name);
+        // The form holds a block of a shape to it, and what it holds is kept as written, whatever it is.
+        if declared.is_some_and(|d| d.shape.is_some()) {
+            handed.push(Handed {
+                block,
+                content: outcome.outputs[name].to_string(),
+                matters,
+                value: None,
+            });
+            continue;
+        }
         let (content, value) = match &outcome.outputs[name] {
             Value::String(content) => (content.clone(), None),
             Value::Object(choice) => match (choice.len(), choice.get("value"), choice.get("why")) {

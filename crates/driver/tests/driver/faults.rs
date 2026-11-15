@@ -41,7 +41,6 @@ fn engineer(root: &Path) -> Compiled {
             "session",
             "start",
             "head",
-            "tested",
             "tree",
         ]),
         acts: names(&["start", "check", "merge", "deliver", "run_tests"]),

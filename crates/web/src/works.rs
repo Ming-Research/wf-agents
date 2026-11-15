@@ -1069,6 +1069,8 @@ pub enum Unmet {
     NotATool { name: String },
     /// The return names the block as written with its meaning unchanged, and does not write it.
     UnchangedNotWritten { block: String },
+    /// The return names a record it adds an entry to as written with its meaning unchanged: each entry is new.
+    EntryUnchanged { block: String },
     /// A question it writes is not its cell's own: another cell's, or one the engine asked.
     QuestionTaken { name: String },
     /// It withdraws a question of which none of its cell's stands.
@@ -2508,6 +2510,9 @@ impl Unmet {
             UnmetOf::NotATrigger { name } => Unmet::NotATrigger { name: name.clone() },
             UnmetOf::NotATool { name } => Unmet::NotATool { name: name.clone() },
             UnmetOf::UnchangedNotWritten { block } => Unmet::UnchangedNotWritten {
+                block: block.to_string(),
+            },
+            UnmetOf::EntryUnchanged { block } => Unmet::EntryUnchanged {
                 block: block.to_string(),
             },
             UnmetOf::QuestionTaken { name } => Unmet::QuestionTaken { name: name.clone() },

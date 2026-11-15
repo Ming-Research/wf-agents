@@ -272,14 +272,31 @@ impl<'a> Reading<'a> {
 
     /// Whether the cell waits at this place for the result of what it asked for in a record: its latest entry of the
     /// record before the place, a version a run of it wrote that changed what the record says, has no version of its
-    /// result after it.
-    pub fn pending(&self, cell: &Cell, place: Seq) -> bool {
+    /// result after it, and no run of a cell that gives the result finished before the place told of the entry, as one
+    /// that passed over the entry of the cell skipped (decision a-wait-of-a-skipped-cell-is-put-away).
+    pub fn pending(&self, flow: &Flow, cell: &Cell, place: Seq) -> bool {
         cell.asks.iter().any(|asks| {
             let entry = (self.of(&asks.record).iter())
                 .filter(|v| v.at < place && v.changed_meaning() && matches!(&v.by, Writer::Cell(c, _) if *c == cell.id))
                 .map(|v| v.at)
                 .max();
-            entry.is_some_and(|entry| !self.of(&asks.result).iter().any(|v| v.at > entry && v.at < place))
+            let Some(entry) = entry else {
+                return false;
+            };
+            let answered = self.of(&asks.result).iter().any(|v| v.at > entry && v.at < place);
+            let gives = |c: &CellId| {
+                (flow.place(c)).is_some_and(|j| {
+                    let giver = &flow.cells()[j];
+                    giver.runs_on.contains(&asks.record) && giver.outputs.contains(&asks.result)
+                })
+            };
+            let passed = (self.finished.values())
+                .filter(|f| f.at < place && gives(&self.started[&f.run].cell))
+                .any(|f| {
+                    self.told_before(f.run, &asks.record, place)
+                        .is_some_and(|told| told >= entry)
+                });
+            !answered && !passed
         })
     }
 
@@ -296,7 +313,7 @@ impl<'a> Reading<'a> {
     pub fn entering(&self, flow: &Flow, cell: &Cell, place: Seq) -> Vec<Reason> {
         let mut reasons = self.reasons(cell, place);
         let owed = self.owed(&cell.id, place);
-        if owed.iter().any(|c| !self.done(*c, place)) || self.pending(cell, place) {
+        if owed.iter().any(|c| !self.done(*c, place)) || self.pending(flow, cell, place) {
             let abandoned = |run: RunId| (self.records.abandoned.iter()).any(|a| a.run == run && a.at < place);
             let seen = |block: &BlockId| {
                 (self.started.values())

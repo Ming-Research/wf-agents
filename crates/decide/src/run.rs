@@ -345,6 +345,9 @@ pub enum Unmet {
     NotATool { name: String },
     /// The return names the block as written with its meaning unchanged, and does not write it.
     UnchangedNotWritten { block: BlockId },
+    /// The return names a record it adds an entry to as written with its meaning unchanged: each entry of a record is
+    /// new, and is read so by every rule that reads it.
+    EntryUnchanged { block: BlockId },
     /// The return writes a question of this name that is not its cell's own: another cell's, or one the engine asked.
     QuestionTaken { name: String },
     /// The return withdraws a question of this name that is none of its cell's that stands.

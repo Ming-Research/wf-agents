@@ -88,13 +88,10 @@ pub const ANSWER: &str = "answer";
 pub const TURNING: [&str; 2] = [WORDS, ANSWER];
 
 /// The act of the engine's that runs the tests the cells ask for, in the records that run its cell: it runs each asking
-/// cell's latest entry, and writes the result into the cell's own block of [`TESTED`].
+/// cell's latest entry, and hands in the result as the block of the cell's own that a trigger of the cell says the act
+/// writes. A cell with a trigger on such a block asks in each block among its outputs that runs a cell of that act
+/// ([`decide::Cell::asks`]), and waits for the result from each entry it writes there.
 pub const RUNS_TESTS: &str = "run_tests";
-
-/// The source of the block of a cell's own that the result of the tests it asked for comes in, which the act
-/// [`RUNS_TESTS`] writes as its round ends. A cell with a trigger on such a block asks in each block among its outputs
-/// that runs a cell of that act ([`decide::Cell::asks`]), and waits for the result from each entry it writes there.
-pub const TESTED: &str = "tested";
 
 /// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -447,7 +444,7 @@ pub enum FaultKind {
     /// The cell writes the block, which holds the work's questions (one the source [`ANSWER`] writes), and no block of
     /// the source [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
     AsksAndCannotBeSpokenTo { block: String },
-    /// The cell writes the block, which runs a cell of the act [`RUNS_TESTS`], and no block of the source [`TESTED`]
+    /// The cell writes the block, which runs a cell of the act [`RUNS_TESTS`], and no block that act hands in
     /// runs it: the result of the tests it asks for there would come to no block of its own, and it would wait for it
     /// for ever.
     AsksWithNoResult { block: String },
@@ -665,6 +662,8 @@ struct Parsed {
     triggers: Resolved,
     /// The blocks that stand only for the trigger that declares each.
     trigger_blocks: BTreeSet<String>,
+    /// The blocks a trigger declares that an act of the engine's writes, each with the act.
+    acted: BTreeMap<String, String>,
     /// Of a flow laid out one thing to a file, the names of the sets of rules a line may take, as
     /// [`crate::agents::RULES_FILE`] names them.
     rule_sets: BTreeSet<String>,
@@ -760,7 +759,16 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
     match parsed {
         Some((data, tools, mut flow, files)) if faults.is_empty() => {
             let rule_sets = files.gather(&mut flow, &data, &mut places, &mut faults);
-            let (triggers, trigger_blocks) = files.resolve(&cells, &mut flow, &mut places, &mut faults);
+            let (triggers, trigger_blocks, acted) = files.resolve(&cells, &mut flow, &mut places, &mut faults);
+            // A block a trigger says an act writes is among the outputs of each cell that carries the act out.
+            for cell in cells.values_mut().filter(|c| c.kind == Kind::Engine) {
+                let of_act = (acted.iter()).filter(|(_, act)| cell.act.as_deref() == Some(act.as_str()));
+                for (block, _) in of_act {
+                    if !cell.outputs.contains(block) {
+                        cell.outputs.push(block.clone());
+                    }
+                }
+            }
             Ok(Parsed {
                 flow,
                 tools,
@@ -769,6 +777,7 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
                 places,
                 triggers,
                 trigger_blocks,
+                acted,
                 rule_sets,
                 trigger_files: files.triggers,
                 faults,
@@ -1099,14 +1108,16 @@ impl LaidOut {
     /// A fault is a trigger whose block the flow defines as well, once, on the block's file, naming the trigger's;
     /// a block that a second trigger's file declares, on that file, or that a second cell's trigger of one file
     /// declares, its id being the same in small letters, on that cell's; and a trigger of a file that a rule makes of a
-    /// datum of the flow as well, on the trigger's file. The first of two stands, so that one fault stays one.
+    /// datum of the flow as well, on the trigger's file. The first of two stands, so that one fault stays one. Of the
+    /// blocks the triggers declare, those an act writes (`act`) hold what it hands in, and stand for no trigger alone:
+    /// they are given apart, each with its act.
     fn resolve(
         &self,
         cells: &BTreeMap<String, CellFile>,
         flow: &mut FlowFile,
         places: &mut Places,
         faults: &mut Vec<Fault>,
-    ) -> (Resolved, BTreeSet<String>) {
+    ) -> (Resolved, BTreeSet<String>, BTreeMap<String, String>) {
         let mut named: BTreeMap<&str, &(String, TriggerFile, Whose)> = BTreeMap::new();
         for trigger in &self.triggers {
             named.entry(stem(&trigger.0)).or_insert(trigger);
@@ -1128,6 +1139,7 @@ impl LaidOut {
         // Each block a fault was given for, with the file it was given on.
         let mut told: BTreeSet<(String, String)> = BTreeSet::new();
         let mut resolved = BTreeMap::new();
+        let mut acted = BTreeMap::new();
         for (id, cell) in cells {
             let small = id.to_lowercase();
             let engine = cell.kind == Kind::Engine;
@@ -1160,6 +1172,9 @@ impl LaidOut {
                         match declarers.get(&block).copied() {
                             None => {
                                 declarers.insert(block.clone(), declarer);
+                                if let Some(act) = &file.act {
+                                    acted.insert(block.clone(), act.clone());
+                                }
                                 let (people, outside) = who_writes(file.from.as_deref());
                                 let blank = BlockFile {
                                     people,
@@ -1256,7 +1271,10 @@ impl LaidOut {
                 resolved.insert(id.clone(), worked);
             }
         }
-        (resolved, declarers.into_keys().collect())
+        let trigger_blocks = (declarers.into_keys())
+            .filter(|block| !acted.contains_key(block))
+            .collect();
+        (resolved, trigger_blocks, acted)
     }
 }
 
@@ -1376,6 +1394,8 @@ struct Definition<'a> {
     places: &'a Places,
     triggers: &'a Resolved,
     trigger_blocks: &'a BTreeSet<String>,
+    /// The blocks a trigger declares that an act of the engine's writes, each with the act.
+    acted: &'a BTreeMap<String, String>,
     rule_sets: &'a BTreeSet<String>,
     /// Where each cell of the order that has a file first stands.
     place: BTreeMap<&'a str, usize>,
@@ -1396,6 +1416,7 @@ impl<'a> Definition<'a> {
             places: &parsed.places,
             triggers: &parsed.triggers,
             trigger_blocks: &parsed.trigger_blocks,
+            acted: &parsed.acted,
             rule_sets: &parsed.rule_sets,
             place: first_places(&flow.order, cells),
             uses: BTreeMap::new(),
@@ -1798,12 +1819,12 @@ impl<'a> Definition<'a> {
                 }
             }
         }
-        // A cell that asks for tests in a record is run by its result, which comes in a block of its own of the source
-        // the act that runs the tests writes; it waits for that result from each entry it writes.
+        // A cell that asks for tests in a record is run by its result, which comes in a block of its own that the act
+        // that runs the tests hands in; it waits for that result from each entry it writes.
         let asked_in = self.asked_in();
         let results: Vec<BlockId> = (takes.runs_on.iter())
             .map(|r| r.block.clone())
-            .filter(|block| source(block.as_str()) == Some(TESTED))
+            .filter(|block| self.acted.get(block.as_str()).map(String::as_str) == Some(RUNS_TESTS))
             .collect();
         let mut asks = Vec::new();
         for (i, block) in file

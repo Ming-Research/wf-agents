@@ -26,7 +26,7 @@ pub mod system;
 
 pub use compile::{
     ANSWER, Block, CellSpec, Compiled, Fault, FaultKind, Given, Has, Limits, Line, RUNS_TESTS, Readers, RunsOn, Shape,
-    TESTED, TURNING, Trigger, WORDS, Writers, compile,
+    TURNING, Trigger, WORDS, Writers, compile,
 };
 pub use decide::{Test, TestKind};
 pub use source::{

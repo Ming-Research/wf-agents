@@ -1,15 +1,15 @@
 //! The act that runs the tests the cells ask for (`run_tests`): of each cell that asks in a record the act's cell is
-//! run by, its latest entry with no result yet ([`decide::asked_of`]), run on the work's branch as the host runs the
-//! project's tests, its result written into the cell's own block that the result comes in, which runs it again
-//! (decision a-wait-holds-its-cell). What a newer entry of the same cell replaced has what it asked the host for
-//! cancelled. A red test is what the run found, and what could not be run is said in the result once and not run
-//! again; the round fails only where the host could not be reached, which waits with every act until it can be.
+//! run by and that applies, its entry that waits for its result ([`decide::asked_of`]), run on the work's branch as the
+//! host runs the project's tests, its result handed in with the round's end as the cell's own block that the result
+//! comes in, which runs it again (decision a-wait-holds-its-cell). What a newer entry of the same cell replaced has
+//! what it asked the host for cancelled, and what cannot be cancelled is kept as an observation. A red test is what the
+//! run found, and what could not be run is said in the result once and not run again; the round fails only where the
+//! host could not be reached, which waits with every act until it can be.
 
-use decide::{BlockId, CellId};
+use decide::CellId;
 use flow::Compiled;
 use serde::Deserialize;
-use service::Teller;
-use work::Work;
+use work::{Handed, Work};
 
 use super::conflict;
 use super::failing;
@@ -17,50 +17,61 @@ use crate::held::Stop;
 use crate::host::{Asking, Branch, Failed, Host, Named};
 use crate::settings::Project;
 
-/// Runs, for the cell `giving` of the flow, each entry it gives the result of, and writes each result as the source
-/// outside the work that writes the asking cell's block of it; first cancels what the entries replaced asked for.
-/// Says false where it was told to stop, having written nothing; an `Err` is a host that could not be reached.
+/// What a round of the act hands in: the result of each entry, as the asking cell's block of it; and what it came
+/// across beyond the work, as a cancel the host refused.
+pub(crate) struct Tested {
+    pub results: Vec<Handed>,
+    pub observations: Vec<String>,
+}
+
+/// Runs, for the cell `giving` of the flow, each entry it gives the result of, and gives each result as the asking
+/// cell's block of it; first cancels what the entries replaced asked for. None where it was told to stop; an `Err` is a
+/// host that could not be reached.
 pub(crate) async fn act(
     host: &impl Host,
     project: &Project,
     branch: &Branch<'_>,
     (flow, work, giving): (&Compiled, &Work, &CellId),
-    teller: &Teller,
     stop: &mut Stop,
-) -> Result<bool, Failed> {
+) -> Result<Option<Tested>, Failed> {
     let entries = decide::asked_of(&flow.flow, &work.records, giving);
     let replaced: Vec<Asking> = (entries.iter())
         .flat_map(|entry| entry.replaced.iter().map(|at| Asking::Entry(*at)))
         .collect();
+    let mut observations = Vec::new();
     if !replaced.is_empty()
         && let Err(failed) = host.cancel_tests(branch, &replaced).await
     {
-        // What a replaced entry still runs costs a runner, and nothing reads it: what cannot be cancelled is said, and
-        // the entries are run all the same.
-        eprintln!(
-            "work {}: what replaced entries of run_tests asked for could not be cancelled: {}",
-            branch.work.0, failed.why
-        );
+        // What a replaced entry still runs costs a runner, and nothing reads it: what cannot be cancelled is kept as an
+        // observation, and the entries are run all the same.
+        let names: Vec<String> = replaced.iter().map(Asking::name).collect();
+        observations.push(format!(
+            "What the replaced entries of `run_tests` ({}) asked the host for could not be cancelled: {}",
+            names.join(", "),
+            failed.why
+        ));
     }
-    let mut results: Vec<(BlockId, String)> = Vec::new();
+    let mut results = Vec::new();
     for entry in &entries {
         let input = (work.contents.get(&(entry.record.clone(), entry.at))).map_or("", String::as_str);
         let said = match named(input) {
             Err(why) => could_not(&why),
             Ok(named) => match run(host, project, branch, &named, Asking::Entry(entry.at), stop).await {
                 Ok(Some(said)) => said,
-                Ok(None) => return Ok(false),
+                Ok(None) => return Ok(None),
                 // A host out of reach is no answer to the entry: the round waits with every act for the host.
                 Err(failed) if failed.kind.is_none() && failing::network(&failed.why) => return Err(failed),
                 Err(failed) => could_not(&failed.why),
             },
         };
-        results.push((entry.result.clone(), said));
+        results.push(Handed {
+            block: entry.result.clone(),
+            content: said,
+            matters: true,
+            value: None,
+        });
     }
-    for (block, said) in results {
-        teller.outside_wrote(block, said);
-    }
-    Ok(true)
+    Ok(Some(Tested { results, observations }))
 }
 
 /// What asked the host for the whole of the project's checks for the work: each entry in which a cell asked for tests
