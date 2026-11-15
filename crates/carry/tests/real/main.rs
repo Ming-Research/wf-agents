@@ -316,6 +316,10 @@ fn compiled(on: On) -> Compiled {
             carry::head::HEAD
         ));
     }
+    // The build may ask for `query`, as the trial flow's names it already.
+    if let Some(build) = (source.cells.get_mut("build")).filter(|build| !build.contains("tools = ")) {
+        *build = format!("tools = [\"query\"]\n{build}");
+    }
     // The build asks for tests in a record, which runs the cell of the act that runs them, whose result runs the build.
     if matches!(on, On::Tested) {
         let build = source.cells.get_mut("build").expect("the flow has a build");

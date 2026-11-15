@@ -83,9 +83,19 @@ impl Scripted {
         let new = |block: &BlockId, content: &str| says_now(&round.kept, block) != Some(content);
         if let Ends::Came(came) = &mut planned.ends {
             came.writes.extend(tested(round));
-            let _ = (&self.inner.words, new);
+            came.found
+                .extend(engine::asked::unmet(&came.said.questions, &self.inner.words));
+            came.read.retain(|read| new(&read.block, &read.content));
         }
-        let _ = taken_in;
+        let reads = (planned.reads.take()).unwrap_or_else(|| taken_in(round, nth).into_iter().collect());
+        // A version for the round is put in where the block says it already, and none written; one from outside is
+        // not written again.
+        planned.reads = Some(
+            reads
+                .into_iter()
+                .filter(|r| r.for_round || new(&r.block, &r.content))
+                .collect(),
+        );
         planned
     }
 
@@ -178,7 +188,7 @@ impl Rounds for Scripted {
             held.rounds.insert(key, Some(reply));
         }
         // What an act read is written as its round begins, each as the script says: for the round, or from outside.
-        for read in planned.reads.iter().flatten().filter(|_| false) {
+        for read in planned.reads.iter().flatten() {
             let (block, content) = (read.block.clone(), read.content.clone());
             match read.for_round {
                 true => teller.outside_wrote_for_round(block, content),
@@ -250,7 +260,6 @@ impl Outside for Scripted {
     fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
         let script = &self.inner.script;
         let found = match &script.outside.finds {
-            _ if true => Found::Well,
             None => Found::Well,
             Some(down) => Found::Down {
                 failure: down.failure,
@@ -264,8 +273,7 @@ impl Outside for Scripted {
 
 impl Tools for Scripted {
     fn call(&self, call: ToolCall, reply: CallReply) {
-        let (answer, ms) = (self.inner.script).tool(&call.name, &call.input, None);
-        let _ = Self::asked;
+        let (answer, ms) = (self.inner.script).tool(&call.name, &call.input, self.asked(&call));
         let at = (self.inner.script.tools.get(&call.name)).and_then(|tool| tool.at.clone());
         let key = (call.work, call.call);
         let saying = reply.saying();

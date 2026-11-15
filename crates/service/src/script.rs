@@ -489,6 +489,28 @@ impl Script {
         for tool in self.tools.keys().filter(|tool| !named(tool)) {
             faults.push(format!("tools.{tool}: no flow names the tool {tool}"));
         }
+        let timed = |at: &str, faults: &mut Vec<String>| {
+            if self.start.is_none() {
+                faults.push(format!(
+                    "{at}: a time counts from the script's start, which it does not say"
+                ));
+            }
+        };
+        if let Some(down) = &self.outside.finds {
+            if !down.failure.shared() {
+                faults.push(
+                    "outside.finds: the check of the outside finds only what holds every work: usage_limit, \
+                     cannot_run, offline or unavailable"
+                        .to_string(),
+                );
+            }
+            if down.resets.is_some() {
+                if down.failure != Failure::UsageLimit {
+                    faults.push("outside.finds: only a usage limit resets".to_string());
+                }
+                timed("outside.finds.resets", &mut faults);
+            }
+        }
         for (name, script) in &self.flows {
             let Some(flow) = flows.iter().find(|flow| flow.name == *name) else {
                 faults.push(format!("flows.{name}: no flow is named {name}"));
@@ -505,14 +527,18 @@ impl Script {
                     Some(Some(_)) => {}
                 }
             }
+            let of_questions = |block: &BlockId| {
+                flow.blocks.get(block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER)
+            };
             for (i, round) in script.rounds.iter().enumerate() {
                 let at = format!("flows.{name}.rounds[{i}]");
-                let said = (script.rounds[..i].iter())
-                    .position(|r| r.cell == round.cell && r.run == round.run && r.round == round.round);
+                let said = (script.rounds[..i].iter()).position(|r| {
+                    r.cell == round.cell && r.work == round.work && r.run == round.run && r.round == round.round
+                });
                 if let Some(k) = said {
                     faults.push(format!("{at}: says again what flows.{name}.rounds[{k}] says"));
                 }
-                if round.run == 0 || round.round == 0 {
+                if round.run == 0 || round.round == 0 || round.work == Some(0) {
                     faults.push(format!("{at}: works, runs and rounds are counted from 1"));
                 }
                 let cell = flow.cells.iter().find(|cell| cell.id.as_str() == round.cell);
@@ -529,6 +555,14 @@ impl Script {
                         "{at}: only a round that does the cell's work says observations"
                     ));
                 }
+                if round.questions.is_some() && !works {
+                    faults.push(format!("{at}: only a round that does the cell's work asks the owner"));
+                }
+                if round.engine.is_some() && !works {
+                    faults.push(format!(
+                        "{at}: only a round that does the cell's work ends with what the engine asks"
+                    ));
+                }
                 if round.reads.is_some() && agent && !works {
                     faults.push(format!("{at}: only an agent's round that does the cell's work reads"));
                 }
@@ -542,11 +576,18 @@ impl Script {
                         "{at}: only a round that fails has a kind of failure or a reset"
                     ));
                 }
+                if round.resets.is_some() {
+                    timed(&format!("{at}.resets"), &mut faults);
+                }
                 for (j, handed) in round.hands_in.iter().flatten().enumerate() {
                     let block = BlockId::from(handed.block.as_str());
                     if !flow.blocks.contains_key(&block) {
                         let block = &handed.block;
                         faults.push(format!("{at}.hands_in[{j}]: the flow {name} has no block {block}"));
+                    } else if of_questions(&block) {
+                        faults.push(format!(
+                            "{at}.hands_in[{j}]: {block} holds the work's questions, which a round asks in questions"
+                        ));
                     }
                 }
                 for (j, read) in round.reads.iter().flatten().enumerate() {
@@ -557,6 +598,15 @@ impl Script {
                             faults.push(format!("{at}.reads[{j}]: no source outside the work writes {block}"));
                         }
                         Some(_) => {}
+                    }
+                    match (agent, read.for_round) {
+                        (true, Some(_)) => faults.push(format!(
+                            "{at}.reads[{j}]: an agent's round hands in what it read, and only an act's says for_round"
+                        )),
+                        (false, None) if cell.is_some() => faults.push(format!(
+                            "{at}.reads[{j}]: an act's round says whether it writes what it read for_round"
+                        )),
+                        _ => {}
                     }
                 }
                 for (j, ask) in round.asks.iter().flatten().enumerate() {
@@ -572,6 +622,24 @@ impl Script {
                     faults.push(format!("{at}: the flow {name} has no cell {}", round.cell));
                     continue;
                 };
+                let place = flow.flow.place(&cell.id);
+                let outputs = place.map_or(&[][..], |place| &flow.flow.cells()[place].outputs[..]);
+                if round.questions.is_some() && !outputs.iter().any(of_questions) {
+                    faults.push(format!(
+                        "{at}: the cell {} writes no record of the work's questions, and asks the owner none",
+                        cell.id
+                    ));
+                }
+                let looks = match cell.kind {
+                    Kind::Agent => !cell.reads_only,
+                    Kind::Engine => cell.act.as_deref() == Some(CHECK),
+                };
+                if round.engine.is_some() && !looks {
+                    faults.push(format!(
+                        "{at}: the engine asks nothing as a round of {} ends, which it looks at no branch for",
+                        cell.id
+                    ));
+                }
                 if cell.kind == Kind::Engine {
                     if round.asks.is_some() {
                         faults.push(format!("{at}: an act of the engine asks for nothing"));
@@ -582,6 +650,7 @@ impl Script {
                         took.input_tokens,
                         took.cached_tokens,
                         took.output_tokens,
+                        took.context_tokens,
                     ];
                     if costs.iter().any(Option::is_some) {
                         faults.push(format!("{at}: an act of the engine takes no cost and no tokens"));
@@ -599,8 +668,7 @@ impl Script {
         let of = |of: Option<u64>| {
             (rounds.clone()).find(|r| r.cell == cell && r.work == of && r.run == run && r.round == number)
         };
-        let _ = work;
-        of(None)
+        of(Some(work)).or_else(|| of(None))
     }
 
     /// What the round of this number of the cell's nth run returns in the flow, in the work of this number, and what
@@ -625,12 +693,13 @@ impl Script {
                 input_tokens: or(took.input_tokens, self.took.input_tokens, INPUT_TOKENS),
                 cached_tokens: or(took.cached_tokens, self.took.cached_tokens, CACHED_TOKENS),
                 output_tokens: or(took.output_tokens, self.took.output_tokens, OUTPUT_TOKENS),
+                context_tokens: took.context_tokens.or(self.took.context_tokens),
                 ..Default::default()
             },
         };
         // What an act read as it went, which it writes as its entry says.
         let reads = (entry.and_then(|entry| entry.reads.as_ref()))
-            .filter(|_| false)
+            .filter(|_| cell.kind == Kind::Engine)
             .map(|reads| {
                 (reads.iter())
                     .map(|read| Read {
@@ -658,7 +727,7 @@ impl Script {
                     ends: Ends::Fails {
                         why: why.clone(),
                         failure: failure.unwrap_or_default(),
-                        resets: resets.map(Time),
+                        resets: resets.map(|ms| self.after_start(ms)),
                     },
                     spent,
                     ms: or(took.ms, self.took.ms, ROUND_MS),
@@ -703,9 +772,12 @@ impl Script {
                         .any(|reader| matches!((flow.flow.place(reader), place), (Some(r), Some(p)) if r < p))
                 };
                 let asks = place.map_or(&[][..], |place| &flow.flow.cells()[place].asks[..]);
+                let of_questions = |block: &BlockId| {
+                    flow.blocks.get(block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER)
+                };
                 Came::hands_in(
                     (outputs.iter())
-                        .filter(|block| !asks.iter().any(|a| &a.record == *block))
+                        .filter(|block| !asks.iter().any(|a| &a.record == *block) && !of_questions(block))
                         .filter(|block| !back(block) || cell.must_write.contains(block))
                         .map(|block| Handed {
                             block: block.clone(),
@@ -721,6 +793,12 @@ impl Script {
         // beside the blocks it hands in.
         if let Some(observations) = entry.and_then(|entry| entry.observations.clone()) {
             came.said.observations = observations;
+        }
+        if let Some(questions) = entry.and_then(|entry| entry.questions.as_ref()) {
+            came.said.questions = questions.iter().map(QuestionScript::question).collect();
+        }
+        if let Some(engine) = entry.and_then(|entry| entry.engine.as_ref()) {
+            came.engine = engine.iter().map(EngineQuestion::question).collect();
         }
         // What an agent's round read of the branch as it ended is handed in beside its blocks: what its entry says, or,
         // of a round the script says nothing of, the work's head where it hands in what an act describes the work by.
@@ -763,15 +841,15 @@ impl Script {
     /// where it says it, else what the tool's entry says.
     pub fn tool(&self, name: &str, input: &str, asked: Option<&ToolAsk>) -> (String, u64) {
         let script = self.tools.get(name);
-        let _ = asked;
-        let answer = (script.and_then(|s| s.answer.clone())).unwrap_or_else(|| format!("{name} ran on: {input}"));
-        let ms = script.and_then(|s| s.ms);
+        let answer = (asked.and_then(|ask| ask.answer.clone()))
+            .or_else(|| script.and_then(|s| s.answer.clone()))
+            .unwrap_or_else(|| format!("{name} ran on: {input}"));
+        let ms = (asked.and_then(|ask| ask.ms)).or_else(|| script.and_then(|s| s.ms));
         (answer, ms.unwrap_or(TOOL_MS))
     }
 }
 
 /// The options of a question, as the engine keeps them.
-#[allow(dead_code)]
 fn ways(options: &[WayScript]) -> Vec<Way> {
     (options.iter())
         .map(|o| Way {
@@ -781,7 +859,6 @@ fn ways(options: &[WayScript]) -> Vec<Way> {
         .collect()
 }
 
-#[allow(dead_code)]
 impl QuestionScript {
     /// The question as a return asks it, as the engine keeps it.
     fn question(&self) -> Question {
@@ -803,7 +880,6 @@ impl QuestionScript {
     }
 }
 
-#[allow(dead_code)]
 impl EngineQuestion {
     /// The question as the engine asks it, as the engine keeps it.
     fn question(&self) -> Question {

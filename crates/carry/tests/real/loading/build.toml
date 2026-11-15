@@ -2,7 +2,6 @@ title = "Build"
 kind = "agent"
 effort = "high"
 line = "engineer"
-tools = ["query"]
 task = "Build what the plan says."
 inputs = ["plan", "opinions", "answered"]
 outputs = ["code"]

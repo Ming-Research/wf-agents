@@ -42,7 +42,7 @@ pub enum With {
 /// What carries the works out, read and checked: a script or the settings, each with what is written beside the flows.
 enum Read {
     /// The script, and what is written beside the flows, in whose words its rounds' questions are read.
-    Script(Script, Box<flow::agents::Agents>),
+    Script(Box<Script>, Box<flow::agents::Agents>),
     /// The settings, and what is written beside the flows: what the acts write and the agents' rounds are told, and
     /// what the form of a return and the system prompts are made of.
     Settings(Box<carry::Settings>, Box<flow::agents::Agents>),
@@ -145,7 +145,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         // The settings as the page shows them, beside those the engine runs with; a script has none.
         let mut install: Option<web::settings::Install> = None;
         let (carriers, watches): (Carriers, Vec<carry::ProjectWatch>) = match with {
-            Read::Script(script, beside) => (Scripted::new(script, *beside).carriers(), Vec::new()),
+            Read::Script(script, beside) => (Scripted::new(*script, *beside).carriers(), Vec::new()),
             Read::Settings(settings, beside) => {
                 if let Some(file) = settings_file {
                     match installed(file, &settings) {
@@ -431,7 +431,7 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
             read_script(script, &flows, compiled_all, &mut wrong),
             beside(dirs, &flows),
         ) {
-            (Some(script), Ok(beside)) => Some(Read::Script(script, Box::new(beside))),
+            (Some(script), Ok(beside)) => Some(Read::Script(Box::new(script), Box::new(beside))),
             (_, beside) => {
                 if let Err(why) = beside {
                     eprintln!("{why}");
