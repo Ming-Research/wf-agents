@@ -24,7 +24,9 @@
 //!   where it runs only while "flip" holds, the owner is steered so that its entry is taken up again: once it waits for
 //!   the result of an entry, "flip" fails, and once the cell that gives results ran since, passing the entry over,
 //!   "flip" holds again, so that the cell that gives results is entered for the entry (decision
-//!   a-wait-of-a-skipped-cell-is-put-away).
+//!   a-wait-of-a-skipped-cell-is-put-away). In three of ten of those, the cell that gives results runs only while a
+//!   choice the asking cell alone writes says yes, so that a wait may be for a result no cell will give (decision
+//!   a-work-no-cell-can-move-is-stalled).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
