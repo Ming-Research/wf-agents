@@ -5,9 +5,10 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AGAIN_MS, heldByWork, newlyHeld, questionsHolding, useNotifications } from './notify';
-import type { Item, Items, Now, Waited } from './works-api';
+import { AGAIN_MS, firstOpening, heldByWork, newlyHeld, openingOf, useNotifications } from './notify';
+import type { Item, Items, Now, Wait } from './works-api';
 import { fixtureItems } from './works/fixtures';
+import { waitCount } from './works/words';
 
 /// The browser's notifications, as a test sees them: each one made, and the leave the page was given.
 class Told {
@@ -67,34 +68,40 @@ function drawn(items: Items | null, on = true) {
   return (next: Items | null) => act(() => root.render(<Notifying items={next} on={on} />));
 }
 
-/// A question to the owner by the call that puts it.
-const question = (call: number, words = `Question ${call}?`): Waited => ({
-  kind: 'call',
-  call,
-  who: 'owner',
-  what: { kind: 'question', who: 'owner', question: words },
-});
+/// A wait in the engine's list.
+const wait = (key: string, why: string, ends: Wait['ends'] = { kind: 'resume' }): Wait => ({ key, why, ends });
 
-const waiting = (...on: Waited[]): Now => ({ kind: 'waits', at: 'plan', on });
+/// The engine's wait for the answer to a question put as a call.
+const question = (call: number, words = `Question ${call}?`): Wait => wait(`call-${call}`, words, { kind: 'reply', call });
 
-/// The fixtures' items, with the work of this item doing this now.
-function withNow(item: number, now: Now): Items {
-  const items = fixtureItems().items.map((i): Item => (i.number === item ? { ...i, work: { ...i.work, now } } : i));
+/// The fixtures' items, with the work of this item waiting on the owner for these, as the engine's list says.
+function withWaits(item: number, waits: Wait[]): Items {
+  const items = fixtureItems().items.map((i): Item => (i.number === item ? { ...i, work: { ...i.work, waits } } : i));
   return { items, outage: null };
 }
 
-describe('the questions that hold a work', () => {
-  it('are the questions to the owner it waits for, and nothing else the owner gives', () => {
-    expect(questionsHolding(waiting(question(3, 'Which?'), { kind: 'slot' }))).toEqual(['Which?']);
-    expect(questionsHolding(waiting({ kind: 'answer', question: 'scope' }, question(4, 'Why?')))).toEqual([
-      'scope',
-      'Why?',
-    ]);
-    const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
-    expect(questionsHolding(waiting({ kind: 'call', call: 4, who: 'owner', what: limit }))).toEqual([]);
-    expect(questionsHolding(waiting({ kind: 'limit', by: 'review', runs: 3 }))).toEqual([]);
-    expect(questionsHolding({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toEqual([]);
-    expect(questionsHolding({ kind: 'fault', words: 'Two entries at 3' })).toEqual([]);
+/// Each kind the engine's list names, as it gives it.
+const KINDS: Wait[] = [
+  question(3, 'Which?'),
+  wait('answer-scope', 'What of scope?', { kind: 'answer', question: 'scope', version: 4 }),
+  wait('limit', "The cell's run had 2 returns sent back, its limit.", { kind: 'goOn', call: 4 }),
+  wait('pause', 'The engine paused the work. A round failed.'),
+  wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
+  wait('write-content', '`test = may_merge` does not hold, as `content` says, and the cell requires it.', {
+    kind: 'write',
+    block: 'content',
+    value: 'yes',
+  }),
+  wait('agents', "The agents' command line cannot run. Not logged in.", { kind: 'outside', what: 'Sign it in again.' }),
+];
+
+describe('what waits for the owner in a work', () => {
+  it("is counted as the engine's list says, whatever its kind, and nothing it leaves out", () => {
+    const work = (fixtureItems().items.find((i) => i.number === 142) as Item).work.number;
+    const n = (waits: Wait[]) => heldByWork(withWaits(142, waits).items).get(work) ?? 0;
+    for (const w of KINDS) expect(n([w])).toBe(1);
+    expect(n(KINDS)).toBe(KINDS.length);
+    expect(n([])).toBe(0);
   });
 
   it('are new where a work holds more of them than before, not where one of several was answered', () => {
@@ -102,32 +109,78 @@ describe('the questions that hold a work', () => {
     expect(newlyHeld(null, items)).toEqual([]);
     const before = heldByWork(items);
     expect(newlyHeld(before, items)).toEqual([]);
-    const two = withNow(142, waiting(question(3), question(4))).items;
+    const two = withWaits(142, [question(3), question(4)]).items;
     expect(newlyHeld(before, two).map((i) => i.number)).toEqual([142]);
     // Call 3 answered, call 4 left: nothing new.
-    expect(newlyHeld(heldByWork(two), withNow(142, waiting(question(4))).items)).toEqual([]);
+    expect(newlyHeld(heldByWork(two), withWaits(142, [question(4)]).items)).toEqual([]);
   });
 });
 
 describe("the browser's notifications", () => {
-  it('tell of each work that comes to hold a new question once, by its item and its question, and open the item', () => {
+  it('tell of each work that comes to wait for something new once, by its item and why, and open that card', () => {
     const draw = drawn(fixtureItems());
     expect(Told.made).toEqual([]);
-    draw(withNow(142, waiting(question(9, 'Keep the width per view?'))));
+    draw(withWaits(142, [question(9, 'Keep the width per view?')]));
     expect(Told.made.map((n) => [n.title, n.options.body, n.options.tag, n.options.renotify])).toEqual([
-      ["Waits for you: #142 Keep the panel's width", 'Keep the width per view?', 'wf-agents-item-142', true],
+      ["Waiting for you: #142 Keep the panel's width", 'implement · Keep the width per view?', 'wf-agents-item-142', true],
     ]);
-    draw(withNow(142, waiting(question(9, 'Keep the width per view?'))));
+    draw(withWaits(142, [question(9, 'Keep the width per view?')]));
     expect(Told.made).toHaveLength(1);
     act(() => Told.made[0].onclick?.());
-    expect(window.location.hash).toBe('#/console/items/142');
+    expect(window.location.hash).toBe('#/console/items/142/waits/call-9');
     expect(Told.made[0].closed).toBe(true);
   });
 
-  it('tell nothing of a fault, a pause of the engine or a command line that cannot run', () => {
+  it('tell of each kind by its reason, the first line of what a question asks, the state said once in the title, and open its card', () => {
     const draw = drawn(fixtureItems());
-    draw(withNow(142, { kind: 'paused', by: 'engine', why: 'A round failed.' }));
-    draw(withNow(142, { kind: 'fault', words: 'Two entries at 3' }));
+    for (const w of KINDS) {
+      draw(withWaits(142, [w]));
+      draw(withWaits(142, []));
+    }
+    const ask = wait('answer-long', 'Which way?\n\nThe details.', { kind: 'answer', question: 'long', version: 2 });
+    draw(withWaits(142, [ask]));
+    // After the cell the work stands at, as a line names it: a name or a value in backticks is said bare, as a
+    // notification has no monospace.
+    const bare = KINDS.map((w) => `implement · ${w.why.replace(/`/g, '')}`);
+    expect(bare[5]).toBe('implement · test = may_merge does not hold, as content says, and the cell requires it.');
+    expect(Told.made.map((n) => n.options.body)).toEqual([...bare, 'implement · Which way?']);
+    for (const n of Told.made) {
+      expect(n.title).toBe("Waiting for you: #142 Keep the panel's width");
+      expect(n.options.body).not.toContain('waits for you');
+    }
+    const opens = (w: Wait) => openingOf(withWaits(142, [w]).items.find((i) => i.number === 142) as Item)?.opens;
+    for (const w of KINDS) expect(opens(w)).toBe(`#/console/items/142/waits/${w.key}`);
+  });
+
+  it('tell of a question the merge waits for by what it asks, at the cell the work waits at', () => {
+    const draw = drawn(fixtureItems());
+    const merge: Now = {
+      kind: 'waits',
+      at: 'M1',
+      on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'owner' }] }],
+    };
+    const asks: Wait = {
+      ...wait('answer-scope', '选哪一种？', { kind: 'answer', question: 'scope', version: 4 }),
+      under: 'The merge waits for this answer.',
+    };
+    const items = fixtureItems().items.map((i): Item =>
+      i.number === 142 ? { ...i, work: { ...i.work, now: merge, waits: [asks] } } : i,
+    );
+    draw({ items, outage: null });
+    expect(Told.made.map((n) => n.options.body)).toEqual(['M1 · 选哪一种？']);
+  });
+
+  it('tell nothing where the list holds nothing, whatever the work does', () => {
+    const draw = drawn(fixtureItems());
+    const at = (now: Now): Items => {
+      const items = fixtureItems().items.map((i): Item => (i.number === 142 ? { ...i, work: { ...i.work, now, waits: [] } } : i));
+      return { items, outage: null };
+    };
+    draw(at({ kind: 'stalled', at: 'M2', on: [], by: [], why: 'Nothing new runs `M2`.' }));
+    draw(at({ kind: 'paused', by: 'owner', why: null }));
+    draw(at({ kind: 'everything', by: 'owner' }));
+    draw(at({ kind: 'fault', words: 'Two entries at 3' }));
+    draw(at({ kind: 'waits', at: 'M1', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'w' }] }));
     expect(Told.made).toEqual([]);
   });
 
@@ -136,14 +189,14 @@ describe("the browser's notifications", () => {
     // The page is in sight, and has the focus.
     expect(document.visibilityState).toBe('visible');
     looking = true;
-    draw(withNow(142, waiting(question(9))));
+    draw(withWaits(142, [question(9)]));
     looking = false;
     Told.permission = 'denied';
-    draw(withNow(142, waiting(question(9), question(10))));
+    draw(withWaits(142, [question(9), question(10)]));
     expect(Told.made).toEqual([]);
   });
 
-  it('tell again each hour how many questions are left, while any is', () => {
+  it('tell again each hour how many things are left, while any is', () => {
     vi.useFakeTimers();
     const left = [...heldByWork(fixtureItems().items).values()].reduce((a, b) => a + b, 0);
     expect(left).toBeGreaterThan(0);
@@ -151,10 +204,15 @@ describe("the browser's notifications", () => {
     act(() => {
       vi.advanceTimersByTime(AGAIN_MS);
     });
-    const title = `${left} ${left === 1 ? 'question waits' : 'questions wait'} for you`;
+    // In the words of the bar's count.
     expect(Told.made.map((n) => [n.title, n.options.tag, n.options.renotify])).toEqual([
-      [title, 'wf-agents-questions', true],
+      [waitCount(left), 'wf-agents-waits', true],
     ]);
+    // A click opens the first of them, at its card.
+    const first = firstOpening(fixtureItems().items);
+    expect(first).toMatch(/^#\/console\/items\/\d+\/waits\//);
+    act(() => Told.made[0].onclick?.());
+    expect(window.location.hash).toBe(first);
   });
 
   it('ask the browser for leave once, at the first click on the page', () => {
@@ -176,7 +234,7 @@ describe("the browser's notifications", () => {
       window.dispatchEvent(new Event('pointerdown'));
     });
     Told.permission = 'granted';
-    draw(withNow(142, waiting(question(9))));
+    draw(withWaits(142, [question(9)]));
     act(() => {
       vi.advanceTimersByTime(AGAIN_MS);
     });

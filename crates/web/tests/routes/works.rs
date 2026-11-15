@@ -41,11 +41,11 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "item": 1,
                 "flow": "trial",
                 "added": START,
-                "paused": false,
+                "paused": null,
                 "now": {
                     "kind": "waits",
                     "at": "plan",
-                    "on": [{ "kind": "call", "call": 2, "who": "owner", "what": question() }],
+                    "on": [{ "kind": "call", "call": 2, "who": "owner", "what": question(), "made": asked, "at": null }],
                 },
                 "cells": [
                     { "cell": "plan", "state": "again", "finished": 1, "record": 1, "open": null },
@@ -61,6 +61,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "from": resumed,
                 "bar": "m".repeat(96),
                 "sentBack": 0,
+                // The plan's question is a call of the earlier form, answered in words by the result of its call.
+                "waits": [{ "key": "call-2", "why": QUESTION, "ends": { "kind": "reply", "call": 2 } }],
             },
             "title": "Greet the user",
             "level": "2",

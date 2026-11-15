@@ -62,7 +62,8 @@
 //! and shows nothing more of the works, which it may hold otherwise than the store does, and is to be opened again
 //! (principle `nothing-passes-for-normal`).
 //!
-//! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`].
+//! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`]; what
+//! a work waits on the owner for, defined once for everything that counts or shows it, is [`owner`].
 //!
 //! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
 //! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
@@ -70,6 +71,10 @@
 //! of the sessions of lines that wait as their time comes, the time being among what it asks to be told ([`warm`]);
 //! it tells a round that missed its session's prompt cache from the records ([`cache`]); and it tells how each round
 //! and each call of a tool went against the lines of its history, which stops nothing ([`judged`]).
+//!
+//! It keeps, while a round or a call is under way, where it stands as what carries it out says as it goes ([`along`]).
+
+pub mod along;
 
 pub mod attention;
 
@@ -81,6 +86,8 @@ pub mod history;
 
 pub mod judged;
 
+pub mod owner;
+
 pub mod sessions;
 
 pub mod warm;
@@ -90,6 +97,7 @@ use std::sync::Arc;
 
 pub mod outage;
 
+pub use along::{Along, Under};
 use decide::run::Failure;
 use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
@@ -117,8 +125,9 @@ pub const START: &str = "start";
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
 /// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`], and each record
 /// a trigger of the owner's words or of an answer has its agent read, which that source writes entries of
-/// ([`flow::Trigger::records`]), gives in its `writes` each text the engine fills, so that none is written empty. A
-/// flow with any of these is not run.
+/// ([`flow::Trigger::records`]), gives in its `writes` each text the engine fills, so that none is written empty; and
+/// the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner. A flow with any of
+/// these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
@@ -161,6 +170,51 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
             ));
         }
     }
+    // What the engine says to the owner of why a work waits on them, and why it paused one, is beside the flows: a flow
+    // run without it would show every such reason empty (principle nothing-passes-for-normal).
+    let waits = &flow.waits;
+    let words = [
+        ("paused.too_long", &waits.paused.too_long),
+        ("paused.passing", &waits.paused.passing),
+        ("paused.outside", &waits.paused.outside),
+        ("paused.flagged_again", &waits.paused.flagged_again),
+        ("paused.let_go", &waits.paused.let_go),
+        ("owner.limit", &waits.owner.limit),
+        ("owner.calls", &waits.owner.calls),
+        ("owner.returns", &waits.owner.returns),
+        ("owner.made", &waits.owner.made),
+        ("owner.ruling", &waits.owner.ruling),
+        ("owner.answer", &waits.owner.answer),
+        ("owner.paused", &waits.owner.paused),
+        ("owner.no_reason", &waits.owner.no_reason),
+        ("owner.held", &waits.owner.held),
+        ("owner.agents", &waits.owner.agents),
+        ("owner.mend", &waits.owner.mend),
+        ("stalled.waits", &waits.stalled.waits),
+        ("stalled.last", &waits.stalled.last),
+        ("stalled.only", &waits.stalled.only),
+        ("stalled.none", &waits.stalled.none),
+        ("stalled.unrun", &waits.stalled.unrun),
+        ("stalled.skipped", &waits.stalled.skipped),
+        ("stalled.nothing_new", &waits.stalled.nothing_new),
+        ("stalled.held", &waits.stalled.held),
+        ("stalled.name", &waits.stalled.name),
+        ("stalled.and", &waits.stalled.and),
+        ("stalled.or", &waits.stalled.or),
+        ("stalled.then", &waits.stalled.then),
+    ];
+    let empty: Vec<&str> = (words.iter())
+        .filter(|(_, text)| text.trim().is_empty())
+        .map(|(key, _)| *key)
+        .collect();
+    if !empty.is_empty() {
+        faults.push(format!(
+            "the flow {}, {}: the words beside the flows must give {}",
+            flow.name,
+            flow::waits_file(),
+            empty.join(", ")
+        ));
+    }
     faults
 }
 
@@ -175,6 +229,8 @@ pub struct Driver {
     slots: usize,
     /// The pause of everything, while it holds, as the store keeps it.
     paused: Option<EverythingPaused>,
+    /// Every stretch the pause of everything held, in order, as the store keeps them.
+    spans: Vec<Span>,
     /// What stopped the driver, once something has.
     fault: Option<Fault>,
     /// When a line begins a new session; with none, only what others record of sessions is followed.
@@ -193,6 +249,54 @@ pub struct Driver {
     /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a work is,
     /// no round of the work begins. Lost in a stop, when a ping still due is given again.
     pinging: BTreeSet<(WorkNumber, String)>,
+    /// Where each round or call under way stands, of a work, as what carries it out last said ([`along`]). What the
+    /// outside says at a moment, kept only in memory: lost in a stop, it is said again as what is given again goes on.
+    along: BTreeMap<(WorkNumber, Under), Along>,
+}
+
+/// An item a work's item depends on that has not merged, and whether it was cancelled, so that it never will.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Unmerged {
+    pub item: ItemNumber,
+    pub cancelled: bool,
+}
+
+/// A stretch the pause of everything held: from when it was set and by whom, to when it was lifted; none while it holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Span {
+    pub from: Time,
+    pub until: Option<Time>,
+    pub by: Pauser,
+}
+
+/// The stretches the pause of everything held, as the store keeps each pause set and lifted, in order.
+fn spans_of(pauses: &[store::PauseOfEverything]) -> Vec<Span> {
+    let mut spans: Vec<Span> = Vec::new();
+    for pause in pauses {
+        add_span(&mut spans, pause.paused, pause.by, pause.at);
+    }
+    spans
+}
+
+/// The stretches with a pause of everything set, or lifted, by this pauser at this time: one set while another holds
+/// ends it and holds from then, by its own pauser; one lifted while none holds changes nothing.
+fn add_span(spans: &mut Vec<Span>, paused: bool, by: Pauser, at: Time) {
+    let open = spans.last_mut().filter(|span| span.until.is_none());
+    match (paused, open) {
+        (false, Some(open)) => open.until = Some(at),
+        (false, None) => {}
+        (true, Some(open)) if open.by == by => {}
+        (true, open) => {
+            if let Some(open) = open {
+                open.until = Some(at);
+            }
+            spans.push(Span {
+                from: at,
+                until: None,
+                by,
+            });
+        }
+    }
 }
 
 /// When the driver is to be told the time again: where `check`, the outside of the agents' rounds is to be checked
@@ -383,6 +487,7 @@ impl Driver {
             }
         }
         let paused = store.everything_paused().map_err(Fault::Store)?;
+        let spans = spans_of(&store.everything_pauses().map_err(Fault::Store)?);
         let mut driver = Driver {
             store,
             flows: by_name,
@@ -390,6 +495,7 @@ impl Driver {
             of_item: BTreeMap::new(),
             slots,
             paused,
+            spans,
             fault: None,
             policy,
             checked: None,
@@ -397,6 +503,7 @@ impl Driver {
             ticked: None,
             answered: BTreeSet::new(),
             pinging: BTreeSet::new(),
+            along: BTreeMap::new(),
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
@@ -447,6 +554,7 @@ impl Driver {
                 since: now,
                 by: Pauser::Engine,
             });
+            add_span(&mut driver.spans, true, Pauser::Engine, now);
         }
         // What was to be done is worked out before the works are looked at: looking adds to it.
         let mut todos = driver.pending();
@@ -843,6 +951,7 @@ impl Driver {
             since: now,
             by: Pauser::Owner,
         });
+        add_span(&mut self.spans, paused, Pauser::Owner, now);
         if paused {
             return Ok(Vec::new());
         }
@@ -982,6 +1091,49 @@ impl Driver {
     /// The waits of every service, as they stand.
     fn outages(&self) -> (Option<Outage>, Option<Outage>) {
         (self.outage(), self.host_outage())
+    }
+
+    /// What carries out a round or a call of the work says where it stands now, or, with none, that it no longer says
+    /// so; taken while it is under way, and dropped otherwise. Gives whether what is kept changed. What it kept of the
+    /// work's rounds and calls no longer under way is let go.
+    pub fn along(&mut self, work: WorkNumber, under: Under, along: Option<Along>) -> bool {
+        let Some(held) = self.works.get(&work) else {
+            return false;
+        };
+        let records = &held.work.records;
+        self.along
+            .retain(|(of, under), _| *of != work || under.under_way(records));
+        let key = (work, under);
+        let was = self.along.get(&key).cloned();
+        match along {
+            Some(along) if under.under_way(records) => {
+                self.along.insert(key, along);
+            }
+            _ => {
+                self.along.remove(&key);
+            }
+        }
+        self.along.get(&key) != was.as_ref()
+    }
+
+    /// Where each round or call of the work under way stands, as what carries it out last said.
+    pub fn along_of(&self, work: WorkNumber) -> Vec<(Under, &Along)> {
+        let Some(held) = self.works.get(&work) else {
+            return Vec::new();
+        };
+        (self.along.range(
+            (
+                work,
+                Under::Round {
+                    run: decide::RunId(0),
+                    round: 0,
+                },
+            )..,
+        ))
+        .take_while(|((of, _), _)| *of == work)
+        .filter(|((_, under), _)| under.under_way(&held.work.records))
+        .map(|((_, under), along)| (*under, along))
+        .collect()
     }
 
     /// Takes, at the time the caller's clock gives, that the agents' service answered the round under way of the run:
@@ -1340,6 +1492,25 @@ impl Driver {
         held(kept.flow, kept.work, self.room(Some(number), true))
     }
 
+    /// What the work waits on the owner for now, as the one definition of it says ([`owner::waits`]), with what holds
+    /// every work at once as it stands: the pause of everything, and the agents' wait where their command line cannot
+    /// run. None where there is no such work.
+    pub fn waits_on_owner(&self, number: WorkNumber) -> Vec<owner::Waiting> {
+        let (Some(kept), Some(view)) = (self.work(number), self.view(number)) else {
+            return Vec::new();
+        };
+        let outage = self.outage().filter(Outage::holds);
+        let cannot_run = (outage.as_ref())
+            .map(Outage::down)
+            .filter(|(failure, _)| *failure == Failure::CannotRun)
+            .map(|(_, why)| why);
+        let shared = owner::Shared {
+            everything: self.paused.map(|paused| paused.by),
+            cannot_run,
+        };
+        owner::waits(&kept, &kept.work.records, &view.decision, self.held(number), shared)
+    }
+
     /// The slots, as they stand.
     pub fn slots(&self) -> Slots {
         Slots {
@@ -1351,6 +1522,39 @@ impl Driver {
     /// The pause of everything, while it holds: when it began, and who set it.
     pub fn everything_paused(&self) -> Option<EverythingPaused> {
         self.paused
+    }
+
+    /// Every stretch the pause of everything held, in order, the one that holds now last.
+    pub fn everything_spans(&self) -> &[Span] {
+        &self.spans
+    }
+
+    /// The items the work's item depends on whose works have not merged, in the order the item names them, as the
+    /// block of [`DEPENDENCIES`] says they are waited for, each with whether it was cancelled, which the work then
+    /// waits for for good; none where there is no such work.
+    pub fn unmerged(&self, number: WorkNumber) -> Vec<Unmerged> {
+        let Some(held) = self.works.get(&number) else {
+            return Vec::new();
+        };
+        (self.waited_for(&held.item.depends_on).into_iter())
+            .map(|(item, standing)| Unmerged {
+                item,
+                cancelled: standing == Standing::Ended(End::Cancelled),
+            })
+            .collect()
+    }
+
+    /// Of these items, each whose work has not merged, with how it stands: the one reading of what a block of
+    /// [`DEPENDENCIES`] waits for, which writes the block and says which items a work waits for. An item with no work
+    /// yet goes on.
+    fn waited_for(&self, depends_on: &[ItemNumber]) -> Vec<(ItemNumber, Standing)> {
+        (depends_on.iter())
+            .map(|on| {
+                let work = self.of_item.get(on).and_then(|work| self.works.get(work));
+                (*on, work.map_or(Standing::Going, |held| held.standing))
+            })
+            .filter(|(_, standing)| *standing != Standing::Ended(End::Merged))
+            .collect()
     }
 
     /// What stopped the driver, once something has.
@@ -1474,15 +1678,10 @@ impl Driver {
         let (block, declared) =
             (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
         let says = |name: &str| declared.writes.get(name).unwrap_or_default();
-        let standing = |on: &ItemNumber| {
-            let work = self.of_item.get(on).and_then(|work| self.works.get(work));
-            work.map_or(Standing::Going, |held| held.standing)
-        };
-        let waited: Vec<String> = (depends_on.iter())
-            .filter_map(|on| match standing(on) {
-                Standing::Ended(End::Merged) => None,
-                Standing::Ended(End::Cancelled) => Some(fill(says("cancelled"), &[("item", &on.0.to_string())])),
-                Standing::Going | Standing::AtFault => Some(on.0.to_string()),
+        let waited: Vec<String> = (self.waited_for(depends_on).into_iter())
+            .map(|(on, standing)| match standing {
+                Standing::Ended(End::Cancelled) => fill(says("cancelled"), &[("item", &on.0.to_string())]),
+                Standing::Ended(End::Merged) | Standing::Going | Standing::AtFault => on.0.to_string(),
             })
             .collect();
         let (value, content) = if waited.is_empty() {

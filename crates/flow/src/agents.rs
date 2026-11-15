@@ -69,6 +69,85 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
 /// The file, in `agents/`, of the questions the engine itself asks the owner.
 pub const ASKS_FILE: &str = "asks.toml";
 
+/// The file, in `agents/`, of what the engine says to the owner of why a work waits on them, and why it paused a work
+/// as a round of it failed. It is read with each flow, which carries it ([`crate::Compiled::waits`]), so that the
+/// engine's deciding and showing read the words of the flow a work runs on.
+pub const WAITS_FILE: &str = "waits.toml";
+
+/// `agents/waits.toml`: why a work waits on the owner, and why the engine paused a work as a round of it failed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Waits {
+    pub paused: PausedWords,
+    pub owner: OwnerWords,
+    pub stalled: StalledWords,
+}
+
+/// Why a stalled work rests, made of these in one sentence: what it waits for and which cells could make it hold, then
+/// why each of them does not run.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StalledWords {
+    /// The cell it stands at waits for `{keys}`, which `{writers}` can make hold.
+    pub waits: String,
+    /// It stands at its last cell, which nothing new runs, and `{writers}` can write what runs it.
+    pub last: String,
+    /// The cells that write what it waits for, `{cells}`.
+    pub only: String,
+    /// No cell writes what it waits for.
+    pub none: String,
+    /// `{cell}` does not run, as `{why}` says.
+    pub unrun: String,
+    /// It is skipped, its `when` keys `{keys}` not holding.
+    pub skipped: String,
+    /// Nothing new runs it.
+    pub nothing_new: String,
+    /// The cell the work stands at holds it.
+    pub held: String,
+    /// A key or a cell, `{name}`.
+    pub name: String,
+    pub and: String,
+    pub or: String,
+    pub then: String,
+}
+
+/// Why the engine paused a work, each with `{why}`, what carried the round out, or the act that lets go of what the
+/// work held, said.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PausedWords {
+    /// The prompt is too long for the model.
+    pub too_long: String,
+    /// The round failed in passing `{failed}` times in a row.
+    pub passing: String,
+    /// The round failed `{failed}` times in a row for a cause outside every work.
+    pub outside: String,
+    /// The service's safety check flagged the round again, in the new session of its line.
+    pub flagged_again: String,
+    /// Letting go of what an ended work held failed.
+    pub let_go: String,
+}
+
+/// Why a work waits on the owner, a sentence for each thing it waits for; a question the work waits for at its cell is
+/// said by what it asks, and one a cell's precondition waits for, by `answer`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerWords {
+    pub limit: String,
+    pub calls: String,
+    pub returns: String,
+    pub made: String,
+    pub ruling: String,
+    /// A question that stands without the owner's answer, which a cell's precondition waits for.
+    pub answer: String,
+    pub paused: String,
+    pub no_reason: String,
+    pub held: String,
+    pub agents: String,
+    /// What the owner does where the agents' command line cannot run, outside the page.
+    pub mend: String,
+}
+
 /// The field of a return that holds the blocks a cell writes, each under its name, in its own shape. The form of a
 /// line lists the blocks of the line's cells there; the cell is told its own with its task, and the engine sends back
 /// a block that is not among them.
@@ -109,14 +188,37 @@ pub struct Agents {
     pub cost: Cost,
 }
 
-/// `agents/cost.toml`: what the engine says as it guards what the agents' rounds cost and keeps their sessions' prompt
-/// caches.
+/// `agents/cost.toml`: what the engine says as it runs the agents' program, guards what its rounds cost and keeps their
+/// sessions' prompt caches.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Cost {
+    pub program: ProgramWords,
+    pub check: CheckWords,
     pub ping: PingWords,
     pub guard: GuardWords,
     pub work: WorkWords,
+}
+
+/// Why a run of the agents' program failed where it ended with no result to read: a round's, a ping's or the check of
+/// the outside's.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProgramWords {
+    /// It exited with a code.
+    pub exited: String,
+    /// A signal ended it.
+    pub signal: String,
+}
+
+/// What the engine's check of the outside of the agents' rounds found down, where it says it itself.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckWords {
+    /// The command line is not signed in, as `{command} auth status` says.
+    pub signed_out: String,
+    /// The network does not reach the agents' service.
+    pub offline: String,
 }
 
 /// What a keep-warm ping sends, and why one failed.
@@ -129,7 +231,6 @@ pub struct PingWords {
     pub no_round: String,
     pub no_system: String,
     pub stopped: String,
-    pub exited: String,
 }
 
 /// Where a line the run guard judges by comes from, by the scope of its history.
@@ -146,9 +247,14 @@ pub struct ScopeWords {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GuardWords {
+    /// That it stopped the round, a sentence before what it measured.
+    pub stopped: String,
+    /// That it stopped the run's round again, in the new session its line was given, in place of `stopped`.
+    pub again: String,
+    /// Between that and what it measured.
+    pub then: String,
     pub growth: String,
     pub jump: String,
-    pub again: String,
     pub from: String,
     pub scope: ScopeWords,
     pub tool: String,
@@ -163,6 +269,9 @@ pub struct GuardWords {
 pub struct WorkWords {
     pub spent: String,
     pub time: String,
+    /// What it has spent is over the budget the settings give.
+    pub budget: String,
+    /// A cell of it asked, for tools or tests, in a row past the line of its history.
     pub asking: String,
     pub asked_from: String,
     pub started: String,
@@ -1162,6 +1271,16 @@ pub fn pieces(text: &str) -> Vec<Piece<'_>> {
         pieces.push(Piece::Text(&text[from..]));
     }
     pieces
+}
+
+/// A text as a sentence: as it is where it ends as a sentence does, in English or in Chinese, else with a full stop; so
+/// that reasons said one after another each read as one.
+pub fn sentence(text: &str) -> String {
+    let text = text.trim_end();
+    match text.is_empty() || text.ends_with(['.', '?', '!', '。', '？', '！']) {
+        true => text.to_string(),
+        false => format!("{text}."),
+    }
 }
 
 /// A text with each place these give filled by its value; a place they do not give stays as it is written. What fills

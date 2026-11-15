@@ -191,6 +191,25 @@ export function Attr({ name, value }: { name: string; value: ReactNode }) {
   );
 }
 
+/// A reason as the engine says it: each name or value it marks in backticks, on one line, in the monospace (principle
+/// monospace-for-names-and-values), and the rest as the plain text it is, whatever it holds: a program's own words
+/// keep their stars, underscores, fences and leading signs.
+export function Coded({ text }: { text: string }) {
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const m of text.matchAll(/`([^`\n]+)`/g)) {
+    if (m.index > at) out.push(text.slice(at, m.index));
+    out.push(
+      <code key={m.index} className="mono">
+        {m[1]}
+      </code>,
+    );
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return <>{out}</>;
+}
+
 /// A word that opens something on the page.
 export function LinkButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
@@ -345,8 +364,8 @@ export function Drawer({
   );
 }
 
-/// The colours a status line's dot takes: none; green for done; red for failed; orange for a change of a block's
-/// meaning or for waiting for the owner; blue for running; the way back's purple.
+/// The colours a status line's dot takes: none; green for done; red for a stop, for the owner or because something
+/// failed; orange for a change of a block's meaning; the running colour for running; the way back's violet.
 export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
 
 /// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.

@@ -88,15 +88,18 @@
   /* The shadow of the window that floats over a view: Primer's overlay shadow, as the console drew it. */
   --window-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
 
-  /* The meanings, and only these: done; waits for the owner, or a change of a block's meaning; running; failed; the way
-     back. A mark or a tag takes the colour itself; small text takes its text step, a darker step where the colour does
-     not read on white; a fill takes its tint. */
+  /* The meanings, and only these: done; a change of a block's meaning; running; a problem, red: a stop, for the owner
+     or because something failed, or a work not done within an hour; the way back; a call under way. A mark or a tag
+     takes the colour itself; small text takes its text step, a darker step where the colour does not read on white; a
+     fill takes its tint. */
   --green: #2f9e6e;
   --orange: #f5840c;
   --running: #8b5cf6;
   --red: #e5484d;
   /* The way back: the purple the flow chart has drawn it in, Primer's done colour. */
   --violet: #8250df;
+  /* A call under way: the engine runs a tool or an act of its own for a cell, and the cell's mark is filled in it. */
+  --yellow: #eab308;
   --green-text: #23795a;
   --running-text: #7c4ddb;
   --orange-text: #b45309;
@@ -104,7 +107,8 @@
   --on-colour: #ffffff;
 
   /* Where a work's time went: a model's stretches in the accent, the tools' in a teal no meaning has, those nothing
-     ran in grey, on a muted ground. */
+     ran in a light grey, on a muted ground. A stretch nothing ran in takes the colour of what the work waited for:
+     the owner's red, a pause's muted grey, and this light grey for the items it depends on as for anything else. */
   --track-ground: #818b981f;
   --track-model: var(--accent);
   --track-tool: #14a3a8;
@@ -137,6 +141,7 @@
     --running: #a78bfa;
     --red: #ff6b70;
     --violet: #ab7df8;
+    --yellow: #facc15;
     --green-text: #45c08a;
     --running-text: #a78bfa;
     --orange-text: #ff9a3c;
@@ -168,6 +173,7 @@
   --running: #a78bfa;
   --red: #ff6b70;
   --violet: #ab7df8;
+  --yellow: #facc15;
   --green-text: #45c08a;
   --running-text: #a78bfa;
   --orange-text: #ff9a3c;
@@ -186,6 +192,9 @@
   --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
   --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));
   --running-tint: color-mix(in srgb, var(--running) 10%, var(--card));
+  /* An option picked: a deeper tint of the accent than a card that waits for an answer is filled with, so that the
+     option stands out on that card as on any other. */
+  --accent-picked: color-mix(in srgb, var(--accent) 24%, var(--card));
   /* The flowchart's arrows a write runs: the muted colour a step towards the ground, so that they stand behind the main
      path, which is in the text's colour. */
   --chart-data: color-mix(in srgb, var(--muted) 70%, var(--ground));

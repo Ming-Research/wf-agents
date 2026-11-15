@@ -36,6 +36,7 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
     write("../triggers/of_a_datum/changed.toml", "name = \"on_{datum}\"");
     write("../agents/rules/rules.toml", "[general]\nfile = \"general.md\"");
     write("../agents/rules/general.md", "not read with the flow");
+    write("../agents/waits.toml", "[paused]");
     write("../agents/session.toml", "not read with the flow");
     write("../other/flow.toml", "another flow, not read with this one");
 
@@ -54,6 +55,7 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
         source.files.keys().map(String::as_str).collect::<Vec<_>>(),
         [
             "../agents/rules/rules.toml",
+            "../agents/waits.toml",
             "../data/more/answers.toml",
             "../data/request.toml",
             "../triggers/of_a_cell/on_spoken.toml",

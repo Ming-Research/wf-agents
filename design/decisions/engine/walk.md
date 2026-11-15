@@ -109,8 +109,9 @@ answered it.
 A work that waits only for what cells write, at a cell whose preconditions only cells make hold or at its last cell
 that nothing new runs, is stalled, unless what those cells wrote waits for the outside (decision
 what-a-run-wrote-may-wait-for-the-outside): the walk says where it stands, what it waits for, and why each cell that writes it
-does not run, skipped, with nothing new, or held behind where the work stands. It is shown as waiting for the owner,
-worked out from the walk each time it is shown, and nothing is recorded for it: whatever then runs a cell moves it on.
+does not run, skipped, with nothing new, or held behind where the work stands. It is shown halted, as a fault is, with
+that reason, worked out from the walk each time it is shown; it waits on no one, and the planner is given it as a line
+of its own. Nothing is recorded for it: whatever then runs a cell moves it on.
 Why: A wait that names only cells that will not run names nobody who can act (principle decide-purely): an
 implementation that handed in nothing for a red check left the work at the merge's gate, waiting for the check, and
 nobody was told. A pause of the engine's was turned down: its reason went stale once the work could move again, it

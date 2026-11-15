@@ -241,7 +241,11 @@ impl Rounds for Agents {
                         let resets = resets(failure, &why, &said, &*inner.clock);
                         match inner.to_wait(&round, &spent, None) {
                             Some(over) => {
-                                let pause = format!("{why}; and {over}");
+                                // The two reasons are joined in the project's words, as two reasons to wait are.
+                                let between = (crate::projects::of(&inner.projects, &round.item))
+                                    .map(|of| of.beside.cost.work.between.clone())
+                                    .unwrap_or_default();
+                                let pause = format!("{}{between}{over}", flow::agents::sentence(&why));
                                 reply.failed_and_paused(failure, resets, why, spent, pause);
                             }
                             None => reply.failed_as(failure, resets, why, spent),
@@ -598,8 +602,8 @@ impl Inner {
                     true => no.why,
                     false => process::tail(stderr.trim().as_bytes()),
                 };
-                let command = &self.settings.agents.command;
-                return failed(format!("{command} exited with {status}: {why}"), no.said, no.spent);
+                let ended = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &why);
+                return failed(ended, no.said, no.spent);
             }
         };
         match returns::came(&read.structured, flow, &round.cell, &of.beside) {
@@ -862,7 +866,6 @@ impl Inner {
             flow::agents::fill(
                 said,
                 &[
-                    ("work", &round.work.0.to_string()),
                     ("value", &unit.say(value)),
                     ("line", &unit.say(line.value)),
                     ("works", &line.samples.to_string()),
@@ -895,20 +898,19 @@ impl Inner {
     }
 
     /// Why the work is to wait for the owner, where the round took it over its budget: everything its rounds have
-    /// spent, this one with them, is more than the settings let a work spend.
+    /// spent, this one with them, is more than the settings let a work spend; in the project's words, which a work
+    /// whose project the settings no longer have, and whose rounds do not run, has none of.
     fn over_budget(&self, round: &Round, spent: &Spent) -> Option<String> {
         let budget = self.settings.budget_micros()?;
         // No other round of the work ended while this one was under way: a work has one round under way at a time.
         let pinged = round.kept.pinged.iter().map(|p| p.spent.usd_micros).sum::<u64>();
         let total = round.kept.spent.values().map(|s| s.usd_micros).sum::<u64>() + spent.usd_micros + pinged;
-        let dollars = |micros: u64| micros as f64 / 1_000_000.0;
+        let dollars = |micros: u64| format!("{:.2}", micros as f64 / 1_000_000.0);
+        let of = crate::projects::of(&self.projects, &round.item).ok()?;
         (total > budget).then(|| {
-            format!(
-                "work {} has spent ${:.2}, over its budget of ${:.2}",
-                round.work.0,
-                dollars(total),
-                dollars(budget)
-            )
+            let (value, budget) = (dollars(total), dollars(budget));
+            let places = [("value", value.as_str()), ("budget", budget.as_str())];
+            flow::agents::fill(&of.beside.cost.work.budget, &places)
         })
     }
 }
@@ -1077,14 +1079,7 @@ impl Inner {
             return Ok(spent);
         }
         let end = process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes());
-        let why = fill(
-            &said.exited,
-            &[
-                ("command", &self.settings.agents.command),
-                ("status", &status.to_string()),
-                ("said", &end),
-            ],
-        );
+        let why = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
         Err((why, spent))
     }
 }

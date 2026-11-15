@@ -5,7 +5,9 @@ import { act, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Changed, Engine } from '../works-api';
+import type { Changed, Engine, Item, Items, Wait } from '../works-api';
+import { waitingCount } from '../works/waiting';
+import { waitCount, waitCounted } from '../works/words';
 import { fixtureCopies, fixtureItems, fixtureWork } from '../works/fixtures';
 import { type Source, SourceContext } from '../works/source';
 import { type SystemSource, SystemSourceContext } from './api';
@@ -119,16 +121,68 @@ describe('the System view', () => {
     // Each work in one place, counted under its standing.
     const items = fixtureItems().items;
     for (const [standing, words] of Object.entries(STANDING_WORDS)) {
+      if (standing === 'owner') continue;
       const n = items.filter((i) => standingOf(i.work) === standing).length;
       const tile = [...now.querySelectorAll('.tile')].find((t) => t.querySelector('.label')?.textContent === words.name);
       // The works whose round is under way are in the list of the rounds under way, and nowhere else.
       if (standing === 'running') expect(tile).toBeUndefined();
       else expect(tile?.querySelector('.tile-value')?.textContent, words.name).toBe(String(n));
     }
+
     const running = items.filter((i) => i.work.now.kind === 'round');
     expect(running.length).toBeGreaterThan(0);
     const under = now.querySelectorAll('table')[0];
     expect(texts(under, 'tbody td:first-child')).toEqual(running.map((i) => `W${i.work.number}`));
+  });
+
+  it('counts what waits for the owner by the one count, the things that wait, as the bar says it', async () => {
+    const s = sources();
+    const items = fixtureItems();
+    const first = items.items.find((i) => standingOf(i.work) === 'owner') as Item;
+    const extra: Wait = { key: 'limit', why: 'The cell ran 3 times in a row, its limit.', ends: { kind: 'letGo', cell: 'plan' } };
+    const more: Items = {
+      ...items,
+      items: items.items.map((i) => (i === first ? { ...i, work: { ...i.work, waits: [...(i.work.waits ?? []), extra] } } : i)),
+    };
+    s.works.loadItems = async () => more;
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const works = more.items.filter((i) => standingOf(i.work) === 'owner');
+    const waiting = waitingCount(works.map((i) => i.work));
+    expect(waiting).toBe(works.length + 1);
+    const tile = [...part(container, 'Now').querySelectorAll('.tile')].find(
+      (t) => t.querySelector('.label')?.textContent === waitCounted(waiting),
+    );
+    expect(`${tile?.querySelector('.tile-value')?.textContent} ${tile?.querySelector('.label')?.textContent}`).toBe(
+      waitCount(waiting),
+    );
+  });
+
+  it("says the wait every work shares in sentences, the names and values it marks in the monospace", async () => {
+    const s = sources();
+    const items = fixtureItems();
+    const found = 'It is not signed in, as `claude auth status` says.';
+    s.works.loadItems = async () => ({
+      ...items,
+      outage: {
+        service: 'agents',
+        failure: 'cannotRun',
+        why: 'Not logged in',
+        work: 3,
+        run: 2,
+        round: 1,
+        since: 0,
+        checked: { at: 0, taken: 2, found: { kind: 'down', failure: 'cannotRun', why: found } },
+        until: { kind: 'checked', at: 0 },
+        holds: true,
+      },
+    });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const shared = part(container, 'Now').querySelectorAll('dd')[2] as HTMLElement;
+    expect([...shared.querySelectorAll('code')].map((c) => c.textContent)).toEqual(['claude auth status']);
+    expect(shared.textContent).not.toContain('`');
+    expect(shared.textContent).toContain(' found it down. It is not signed in, as claude auth status says. Round 1 of run 2 of W3 met it.');
   });
 
   it('unfolds the works a count counts, and folds them again', async () => {

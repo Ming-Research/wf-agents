@@ -155,23 +155,61 @@
   background: var(--ground);
 }
 
+/* Every stop of a work, the one look: what waits for the owner, a question that holds the work, a ruling, a limit, a
+   pause, the agents' command line, and a fault or a stall: on the red tint, framed in red. */
+.cw-choice-holds {
+  border-color: var(--red);
+  background: var(--red-tint);
+}
+
+/* The buttons that end a stop, and what the owner does where no button can, inside its card, under its reason. */
+.cw-stop-acts {
+  display: flex;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}
+
+.cw-stop-do {
+  margin: var(--space-8) 0 0;
+}
+
+/* What a question asks, as it was written: its paragraphs semibold, a block of code in it, such as the change a
+   question of the engine's is about, as code is shown anywhere in the window. */
 .cw-choice-q {
   margin: 0 0 var(--space-8);
   font-weight: var(--weight-strong);
 }
 
-/* Under a question a cell asked, that it stops the work: one line in red, as a card stopped for the owner is. */
+.cw-choice-q .content {
+  font-weight: var(--weight);
+}
+
+/* The engine's one sentence of why a question holds the work, where that is not what it asks: under what it asks, in
+   the red of a stop, as of a question the merge waits for. */
 .cw-choice-stops {
   margin: calc(-1 * var(--space-4)) 0 var(--space-8);
   color: var(--red-text);
   font-size: var(--size-small);
 }
 
+/* The options of a card, told apart by shape from the text above them, its code and its diffs included: under a
+   hairline, with more room before them, each drawn as a choice in the page's colour of what is chosen, the accent: a
+   thin frame of it, its background a step darker under the pointer (principle quiet-motion), and the one picked in a
+   stronger frame on a deeper tint of the accent than a card that waits is filled with, so that it stands out on every
+   card; a radio mark at its left, a ring, filled once picked. */
+.cw-options {
+  margin-top: var(--space-12);
+  padding-top: var(--space-12);
+  border-top: var(--hairline) solid var(--line);
+}
+
 .cw-option {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
   width: 100%;
   padding: var(--space-8);
-  border: var(--hairline) solid var(--line);
+  border: var(--hairline) solid var(--accent);
   border-radius: var(--corner);
   background: var(--card);
   color: var(--text);
@@ -190,12 +228,34 @@
 }
 
 .cw-option.on {
-  border-color: var(--accent);
   box-shadow: inset 0 0 0 var(--hairline) var(--accent);
+  background-color: var(--accent-picked);
 }
 
 .cw-option:disabled {
   cursor: default;
+}
+
+/* The radio mark: a ring in the accent, the height of a line of the option's label, filled at its middle once picked. */
+.cw-radio {
+  flex: none;
+  box-sizing: border-box;
+  width: var(--space-12);
+  height: var(--space-12);
+  margin-top: var(--space-2);
+  border: var(--hairline) solid var(--accent);
+  border-radius: 50%;
+  background: var(--card);
+}
+
+.cw-option.on .cw-radio {
+  border-width: var(--focus);
+  background: radial-gradient(circle, var(--accent) 0 40%, var(--card) 45%);
+}
+
+.cw-option-text {
+  display: block;
+  min-width: 0;
 }
 
 .cw-option-label {
