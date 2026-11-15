@@ -226,7 +226,9 @@ describe('the panel of the item selected', () => {
     const [, workLine] = lines(el);
     expect(workLine).toContain('Waiting for you until the owner confirmed the plan');
     expect(text(el, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
-    expect(text(el, '.cw-choice-stops')).toEqual(['The work waits for this answer']);
+    // It holds the work: on the red tint, with no line to say so.
+    expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-holds');
+    expect(text(el, '.cw-choice-stops')).toEqual([]);
   });
 
   it("says a message to the chosen cell's line, names the cell the engine says it reaches, and then the one it gave it to", async () => {
@@ -479,7 +481,9 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(el.querySelectorAll('[data-wait="answer-scope"]')).toHaveLength(1);
     expect(el.querySelector('.cw-waits')).toBeNull();
     expect(text(el, '.cw-choice-q')).toEqual(['What of scope?']);
-    expect(text(el, '.cw-choice-stops')).toEqual(['The work waits for this answer']);
+    // It holds the work: on the red tint, edged in red, with no line to say so.
+    expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-holds');
+    expect(text(el, '.cw-choice-stops')).toEqual([]);
     expect(text(el, '.cw-choice-later')).toEqual([]);
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it']]);
     expect(text(el, '.cw-option-detail')).toEqual(['Nothing changes', 'The plan is shorter']);
@@ -508,6 +512,11 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(el.querySelectorAll('[data-wait="asked"]')).toHaveLength(1);
     expect(text(el, '.cw-choice-stops')).toEqual(['The merge waits for this answer']);
     expect(text(el, '.cw-choice-later')).toEqual([]);
+    // The one the merge waits for holds the work, on the red tint; the one answered stands with its answer.
+    expect([...el.querySelectorAll('.cw-choice')].map((c) => c.className)).toEqual([
+      'cw-choice cw-choice-holds',
+      'cw-choice cw-choice-done',
+    ]);
     pick(el, 0, 1);
     await act(async () => button(el, 'Confirm (1/1)').click());
     expect(sent).toEqual([[12, { kind: 'answer', question: 'measure', version: 30, option: 2, why: null }]]);
@@ -519,8 +528,10 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     const el = drawAsking({ kind: 'next', cell: 'implement' }, [question('later', { recommends: 2 })], answered(sent));
     expect(el.querySelector('[data-wait]')?.getAttribute('data-wait')).toBe('answer-later');
     expect(text(el, '.cw-choice-q')).toEqual(['What of later?']);
+    // It keeps the look of a choice of the plan, still to confirm.
+    expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice');
     expect(text(el, '.cw-choice-stops')).toEqual([]);
-    expect(text(el, '.cw-choice-later')).toEqual(['The work goes on by the recommended option until you answer']);
+    expect(text(el, '.cw-choice-later')).toEqual(['Still to confirm']);
     expect(options(el)).toEqual([['Keep it', 'Drop itRecommended']]);
     pick(el, 0, 0);
     await act(async () => button(el, 'Confirm (1/1)').click());
@@ -555,6 +566,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       answered(sent),
     );
     const card = el.querySelector('[data-wait="answer-protected_files"]') as HTMLElement;
+    expect(card.className).toBe('cw-choice cw-choice-holds');
     expect(text(card, '.cw-choice-q p code')).toEqual(['flow/agents/tools/run_tests.toml', 'flow/project.toml']);
     expect(text(card, '.cw-choice-q p').slice(1)).toEqual([
       "flow/agents/tools/run_tests.toml, changed. Why, in the work's words: The tool needs a longer timeout.",

@@ -4,13 +4,14 @@
 // cancel it); two tabs; and under them, while something in the item is new to the owner, a strip that says what
 // changed, with a link to mark the item read. The first tab holds the body (where the item came from, the problem it
 // solves, the plan, with each choice that waits for the owner where it stands in the plan, and after them each question
-// put to the owner that stands, the only place the panel draws it: what it asks, as it was written, its options with
-// what each does and what follows, the one it recommends, and a line that the work waits for its answer, in red, or
-// goes on by the option it recommends, muted; one answered stands with its answer. Each is picked by a press on an
-// option and let go by another, and at the plan's end a button as wide as the body confirms them, which counts the
-// picks, waits until each choice has one and sends each question's answer to the engine; once confirmed, the picks
-// stand; and last, each ruling of a cell that keeps the work from going on and that the owner may overrule, drawn as
-// such a question is, with a button as wide to count it as settled), each passage
+// put to the owner that stands, the only place the panel draws it, drawn as they are: what it asks, as it was written,
+// its options with what each does and what follows, and the one it recommends; one that holds the work on the red tint
+// and one the merge waits for saying so in red, muted where the work has gone on past it and it is still to confirm,
+// an answered one with the answer picked. Each is picked by a press on an option and let go by another, and at the
+// plan's end a button as wide as the body confirms them, which counts the picks, waits until each choice has one and
+// sends each question's answer to the engine; once confirmed, the picks stand; and last, each ruling of a cell that
+// keeps the work from going on and that the owner may overrule, drawn as such a question is, with a button as wide to
+// count it as settled), each passage
 // changed since the owner read it marked at its left, and under the body the messages: the owner's and the replies, and a
 // box to write one into a block of the work that people write, chosen above it, which a passage selected in the body
 // can be quoted into and which names the cells that read it. The second holds what of the work the lines do not say,
@@ -1017,7 +1018,8 @@ function Section({
 
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
 /// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about
-/// it, which brings the first into view. A question with no options is answered in words, in a box in their place.
+/// it, which brings the first into view. A question with no options is answered in words, in a box in their place. A
+/// question that holds the work, at its cell or at the merge, is on the red tint, edged in red.
 function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   p: Choice;
   pick?: (option: number) => void;
@@ -1026,16 +1028,17 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   messages: number[];
   jump?: (at: number) => void;
 }) {
+  const holds = p.stops === 'work' || p.stops === 'merge';
   return (
-    <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'} data-wait={waitKeyOf(p)}>
+    <div
+      className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${holds ? ' cw-choice-holds' : ''}`}
+      data-wait={waitKeyOf(p)}
+    >
       <div className="cw-choice-q">
         <Markdown text={p.question} />
       </div>
-      {p.stops === 'work' && <p className="cw-choice-stops">The work waits for this answer</p>}
       {p.stops === 'merge' && <p className="cw-choice-stops">The merge waits for this answer</p>}
-      {p.stops === 'later' && (
-        <p className="cw-choice-later">The work goes on by the recommended option until you answer</p>
-      )}
+      {p.stops === 'later' && <p className="cw-choice-later">Still to confirm</p>}
       {p.options.length === 0 && p.asks !== undefined ? (
         <textarea
           rows={3}
