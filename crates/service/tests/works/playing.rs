@@ -393,6 +393,51 @@ async fn a_check_given_again_after_main_moved_takes_in_the_main_it_is_given_agai
     );
 }
 
+/// What each version of main the work of this number was written says, in the order they were written.
+fn mains_said(store: &Store, work: u64) -> Vec<String> {
+    let kept = store.load(WorkNumber(work)).expect("the store has the work");
+    (kept.records.written.iter())
+        .filter(|w| w.block.as_str() == "main")
+        .map(|w| kept.contents[&(w.block.clone(), w.at)].clone())
+        .collect()
+}
+
+// The check takes main in as its round begins, and main moves while the round is under way: the take-in reaches the
+// loop before main moved, as the real check sends it inside the repository's lock that the watch of main reads in too,
+// so that main's block ends at the head main moved to, and the check runs again for it. Milliseconds alone on a paused
+// clock; no other test plays main moving under a round that has said something already.
+#[tokio::test(start_paused = true)]
+async fn main_moving_while_the_checks_round_is_under_way_comes_after_the_main_the_check_took_in() {
+    let script = Script::read(
+        r#"
+        [[items]]
+        title = "Greet"
+        flow = "checking"
+        writes = [{ block = "request", content = "Greet, please." }]
+        acts = [{ at = { under_way = "check" }, do = "main", content = "The head of main, moved." }]
+        path = [
+            { runs = "write" },
+            { runs = "check" },
+            { runs = "check" },
+            { runs = "merge" },
+            { ends = "merged" },
+        ]
+        "#,
+    )
+    .expect("the script reads");
+    let (played, dir) = played_on(&script, checking()).await;
+    let played = played.expect("the script is played");
+    assert_eq!(
+        mains_said(&store(&dir), 1),
+        [
+            "The main as check took it in in its run 1, round 1.",
+            "The head of main, moved."
+        ],
+        "main went back to the head the check took in"
+    );
+    assert!(played.took(), "{played}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn the_planners_changes_are_made_as_their_states_come_and_one_refused_is_named() {
     // The second item, before it is let on, comes to depend on the first, so that its plan waits for the first to
