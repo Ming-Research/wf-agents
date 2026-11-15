@@ -34,6 +34,11 @@ async fn a_compaction_in_a_round_that_is_stopped_is_still_told_as_the_session_re
     let work = real.add().await;
     real.act(work, Act::Resume);
     real.wait(|real| real.calls().len() == 1).await;
+    // The compaction is the program's hook, which gives its message once it has told the loop: a round stopped before
+    // that has not compacted, so the round is stopped after the hook ended.
+    let again = real.calls_dir().join("1.again");
+    real.wait(|_| std::fs::read_to_string(&again).is_ok_and(|text| !text.is_empty()))
+        .await;
     let plan = real.run_of(work, "plan");
     real.act(work, Act::Cancel { why: None });
     real.until(|real| real.ended_rounds(work, plan)).await;
