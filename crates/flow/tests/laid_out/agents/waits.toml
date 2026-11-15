@@ -20,15 +20,15 @@ let_go = "Letting go of what the work held failed. {why}"
 # a question put to the owner is said by what it asks. Filled in a run: `{cell}` the cell by its id, given to each;
 # `limit`, one of the cell's senders that sent it back as often as the flow's `again` lets one since its counts last
 # started anew, `{by}` the sender, `sender` with `{cell}` a cell after it for what it wrote, or `engine` for the
-# returns the engine sent back, and `{times}` how often; `made`, a run kept from before at its limit of `{made}`
-# calls made, which no run reaches now; `ruling`, a block the owner may write, `{block}`, keeping the cell's
-# `requires` key `{key}` from holding; `answer`, why a cell's precondition waits for a question that stands without
-# the owner's answer, said on its card alone, under what it asks; `paused`, the engine's pause, `{why}` its reason,
-# and `no_reason` where it gave none; `held`, the pause of every work the engine set as it started again; `agents`,
-# the agents' command line that cannot run, `{why}` what its check or its round found, and `mend`, what the owner does
-# about it, which the page has no control for.
+# returns the engine sent back, and `{times}` how often, the limit, said where no plural follows it; `made`, a run
+# kept from before at its limit of `{made}` calls made, which no run reaches now; `ruling`, a block the owner may
+# write, `{block}`, keeping the cell's `requires` key `{key}` from holding; `answer`, why a cell's precondition waits
+# for a question that stands without the owner's answer, said on its card alone, under what it asks; `paused`, the
+# engine's pause, `{why}` its reason, and `no_reason` where it gave none; `held`, the pause of every work the engine
+# set as it started again; `agents`, the agents' command line that cannot run, `{why}` what its check or its round
+# found, and `mend`, what the owner does about it, which the page has no control for.
 [owner]
-limit = "{by} sent the cell back {times} times since its counts last started anew, its limit."
+limit = "{by} has sent the cell back as often as a sender may since its counts last started anew, its limit of {times}."
 sender = "`{cell}`"
 engine = "The engine"
 made = "The cell's run made {made} calls, its limit."
