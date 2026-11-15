@@ -452,7 +452,8 @@ impl<H: Host> Inner<H> {
             }
             flow::RUNS_TESTS => {
                 let of = (&*round.flow, &*round.kept, &round.cell.id);
-                match tested::act(&self.host, (project, &words.run_tests), &branch, of, stop).await? {
+                let with = (project, &words.run_tests, &self.repository);
+                match tested::act(&self.host, with, &branch, of, stop).await? {
                     Some(tested) => Ok(Done::HandsIn(Box::new(Came {
                         said: Said {
                             observations: tested.observations,
@@ -483,7 +484,9 @@ impl<H: Host> Inner<H> {
         self.end_turn(release.work);
         let _held = self.repository.lock().await;
         self.host.end(&branch, release.end == End::Merged).await?;
-        git::remove(&self.project, &place).await
+        git::remove(&self.project, &place).await?;
+        // The worktree of the commits the work's entries named goes with it.
+        git::remove(&self.project, &git::commits_place(&place)).await
     }
 }
 

@@ -117,6 +117,9 @@ pub struct Permissions {
     pub allowed: Vec<String>,
     /// What a round may not use, as the command line's tool rules name it.
     pub refused: Vec<String>,
+    /// The directories outside the worktree a round may read, as the command line is told them (`--add-dir`): the
+    /// one that holds the whole results of what the work asked for.
+    pub readable: Vec<String>,
 }
 
 impl Permissions {
@@ -171,12 +174,16 @@ impl Permissions {
             locks,
             allowed,
             refused,
+            readable: Vec::new(),
         }
     }
 
     /// The arguments that give a round these permissions, after the installation's own.
     pub fn arguments(&self) -> Vec<String> {
         let mut out = Vec::new();
+        for dir in &self.readable {
+            out.extend(["--add-dir".to_string(), dir.clone()]);
+        }
         if !self.allowed.is_empty() {
             out.push("--allowedTools".to_string());
             out.extend(self.allowed.iter().cloned());
@@ -186,6 +193,12 @@ impl Permissions {
             out.extend(self.refused.iter().cloned());
         }
         out
+    }
+
+    /// The permissions with this directory let read beside the worktree.
+    pub fn reading(mut self, dir: &std::path::Path) -> Permissions {
+        self.readable.push(dir.display().to_string());
+        self
     }
 
     /// What the agent is told its line may do in the worktree, in one line of the system prompt, which no rule says by

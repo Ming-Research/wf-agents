@@ -193,6 +193,58 @@ pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Start
     })
 }
 
+/// Where the commits the work's entries of `run_tests` name are run on a host that runs the tests in a working tree: a
+/// worktree of its own beside the work's, never in it, so that nothing the work's worktree shows, its changes or its
+/// status, holds it. Its branch is the work's, which it never checks out.
+pub fn commits_place(place: &Place) -> Place {
+    let name = place
+        .dir
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    Place {
+        branch: place.branch.clone(),
+        dir: place.dir.with_file_name(format!("{name}-commits")),
+    }
+}
+
+/// Checks the commit out, detached, in the worktree of the work's named commits ([`commits_place`]), made where there is
+/// none, and takes away what is in it untracked and not ignored, so that what the repository ignores, the build's
+/// output among it, stays and a run builds warm. With the same guards as the work's own worktree: refused while the
+/// repository's configuration names a program git could run, since a checkout runs its filters; and what is at its
+/// place that is a symbolic link, or no worktree git lists, was not made by the engine, and is left as it is. The
+/// caller holds the repository.
+pub async fn at_commit(project: &Project, place: &Place, commit: &str) -> Result<Place, String> {
+    let at = commits_place(place);
+    configuration(project, &at).await?;
+    let repo = &project.repo;
+    let dir = text(&at.dir);
+    if a_link(&at.dir) {
+        return Err(format!("{dir} is a symbolic link, which the engine did not make"));
+    }
+    if at.dir.exists() {
+        let canonical = tokio::fs::canonicalize(&at.dir)
+            .await
+            .map_err(|e| format!("{dir}: {e}"))?;
+        let listed = git(repo, &["worktree", "list", "--porcelain"]).await?;
+        let mut ours = false;
+        for listed in listed.lines().filter_map(|line| line.strip_prefix("worktree ")) {
+            ours |= tokio::fs::canonicalize(listed)
+                .await
+                .is_ok_and(|listed| listed == canonical);
+        }
+        if !ours {
+            return Err(format!("{dir} is there already, and is no worktree of the repository"));
+        }
+        git(&at.dir, &["checkout", "--quiet", "--detach", "--force", commit]).await?;
+    } else {
+        // A worktree whose directory was taken away is still named by the repository until it is pruned.
+        git(repo, &["worktree", "prune"]).await?;
+        git(repo, &["worktree", "add", "--quiet", "--detach", &dir, commit]).await?;
+    }
+    git(&at.dir, &["clean", "-ffd", "--quiet"]).await?;
+    Ok(at)
+}
+
 /// Whether there is a symbolic link at the path itself, read by the link's own metadata and not its target's.
 pub(crate) fn a_link(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())

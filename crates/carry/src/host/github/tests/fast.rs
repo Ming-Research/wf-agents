@@ -11,6 +11,7 @@ pub(super) fn named(tests: &[&str], checks: &[&str]) -> Named {
     Named {
         tests: all(tests),
         checks: all(checks),
+        commit: None,
     }
 }
 
@@ -523,4 +524,76 @@ fn a_time_is_read_in_seconds_minutes_hours_or_days() {
     for wrong in ["", "h", "2", "2 weeks", "-1h"] {
         assert!(span_of(wrong).is_err(), "{wrong:?}");
     }
+}
+
+/// The commit each run by hand was asked for on.
+fn dispatched_on(hub: &Hub) -> Vec<String> {
+    (hub.dispatched().into_iter())
+        .filter_map(|asked| match asked {
+            Asked::Dispatch { inputs, .. } => inputs.into_iter().find(|(name, _)| name == "commit").map(|(_, c)| c),
+            _ => None,
+        })
+        .collect()
+}
+
+// An entry that names a commit of the branch runs that commit, whatever the worktree holds, and opens no pull request:
+// a run on a commit needs none, and GitHub opens none for a branch with nothing of its own, as a work's in research.
+// One that names none is held to the worktree as before. Under a second alone, a bare repository for GitHub; no other
+// test holds a named commit to its run on GitHub.
+#[tokio::test]
+async fn a_commit_named_is_run_whatever_the_worktree_holds_and_opens_no_pull_request() {
+    let hub = Hub::new();
+    let place = hub.place();
+    crate::acts::start(&hub.repo.project, &hub.host, &branch(&place), &Mutex::new(()))
+        .await
+        .expect("the work starts");
+    // The branch holds nothing of its own, and the worktree has a change not committed.
+    let main = run(&place.dir, &["rev-parse", "HEAD"]);
+    std::fs::write(place.dir.join("draft.txt"), "Not committed.\n").unwrap();
+    let refused = hub.named_check(&named(&["a"], &[])).await.unwrap().expect("said");
+    assert!(refused.contains("not committed"), "{refused}");
+    assert_eq!(dispatched_on(&hub), Vec::<String>::new(), "nothing is run");
+    hub.github()
+        .fast(&main, vec![passed("test")], Some(("test-results", junit_green())));
+    let mut asked = named(&["a"], &[]);
+    asked.commit = Some(main.clone());
+    let said = hub.named_check(&asked).await.unwrap().expect("run");
+    assert!(
+        said.starts_with(&format!("The fast workflow ran on the commit {main} (")),
+        "{said}"
+    );
+    assert_eq!(dispatched_on(&hub), [main], "the commit named is run");
+    assert_eq!(hub.opened(), 0, "no pull request is opened");
+}
+
+// A newer entry of a cell has the runs of the one it replaced cancelled on the commit that one named, though that
+// commit is none of the branch's own since main, as the point the branch left main is. Well under a second alone, a
+// bare repository for GitHub; no other test holds a cancel to the commit an entry named.
+#[tokio::test]
+async fn the_runs_of_a_replaced_entry_are_cancelled_on_the_commit_it_named() {
+    let hub = Hub::new();
+    let fork = run(&hub.repo.project.repo, &["rev-parse", "main"]);
+    hub.committed().await;
+    hub.github().runs_go_on();
+    let replaced = Asking::Entry(decide::Seq(1));
+    let request = super::super::fast::Request {
+        work: WORK,
+        commit: &fork,
+        asking: replaced,
+    };
+    let call = hub.host.call(request, "fast.yml");
+    let inputs = [("commit".to_string(), fork.clone()), ("call".to_string(), call)];
+    super::super::api::Api::dispatch(hub.github(), "fast.yml", "main", &inputs)
+        .await
+        .unwrap();
+    let place = hub.place();
+    hub.host
+        .cancel_tests(&branch(&place), &[(replaced, Some(fork.clone()))])
+        .await
+        .expect("cancelled");
+    assert!(
+        hub.github().asked().contains(&Asked::Cancel(1000)),
+        "the run on the commit named is cancelled: {:?}",
+        hub.github().asked()
+    );
 }

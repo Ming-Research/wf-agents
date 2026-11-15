@@ -738,6 +738,10 @@ pub struct RunTests {
     pub not_cancelled: String,
     /// What a result says where the tests an entry asks for could not be run, said once: `{why}` why.
     pub could_not: String,
+    /// What a result says first, on every host: `{entry}` the version of the entry it answers.
+    pub entry: String,
+    /// Why an entry that names a commit is run nowhere: the commit is no full commit hash of the work's branch.
+    pub not_of_the_branch: String,
 }
 
 /// What a result of the tests a cell asked for says of the tests and checks a run found. `{...}` are filled in a run.
@@ -834,6 +838,10 @@ pub struct LocalWords {
     pub could_not: String,
     /// Said before what it found where tests or checks are named, which are not run apart.
     pub not_apart: String,
+    /// What it says first of what it ran on: `{commit}` the commit of the working tree it ran in; `ran_on_changed`
+    /// where that working tree has changes not committed.
+    pub ran_on: String,
+    pub ran_on_changed: String,
 }
 
 /// How much of a result a round is given: the result is kept whole, and given cut where it is longer.

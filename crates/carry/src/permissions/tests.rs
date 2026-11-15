@@ -557,3 +557,15 @@ fn no_lock_command_undoes_what_the_files_beside_the_flows_or_the_declaration_ref
         ["flow/agents/refused.toml: each entry names a command"]
     );
 }
+
+// A round may read the directory of the whole results beside its worktree, told to the command line before its tool
+// rules; with none given, nothing more. Well under a millisecond alone; no other test holds the directory a round may
+// read.
+#[test]
+fn a_round_is_let_read_the_directory_it_is_given_before_its_tool_rules() {
+    let given = of(false, &[]).reading(std::path::Path::new("/tmp/wf-agents-tag-results"));
+    let arguments = given.arguments();
+    assert_eq!(arguments[..2], ["--add-dir", "/tmp/wf-agents-tag-results"]);
+    assert_eq!(arguments[2..], of(false, &[]).arguments()[..]);
+    assert!(!of(false, &[]).arguments().iter().any(|a| a == "--add-dir"));
+}

@@ -488,6 +488,7 @@ impl<A: Api> GitHub<A> {
         let named = Named {
             tests: tests.clone(),
             checks,
+            commit: None,
         };
         let role = match self.role(ci, &named)? {
             Ok(role) => role,
@@ -558,6 +559,7 @@ impl<A: Api> GitHub<A> {
         let named_main = Named {
             tests: red_again.clone(),
             checks: Vec::new(),
+            commit: None,
         };
         let Some(on_main) = self.execute_role(&role, at_main, &named_main, stop).await? else {
             return Ok(None);

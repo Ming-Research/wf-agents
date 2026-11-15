@@ -356,7 +356,8 @@ impl Inner {
         }
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
         let refused = permissions::refused_commands(&of.beside);
-        let permissions = Permissions::of(round.cell.reads_only, args, &refused, added);
+        let results = self.results_root().await?;
+        let permissions = Permissions::of(round.cell.reads_only, args, &refused, added).reading(&results);
         // One program at a time in a work: a keep-warm ping of it under way ends first, so that what its session holds
         // and cost is worked out with the ping in.
         let lock = self.lock(round.work);
@@ -932,6 +933,17 @@ fn chars_of(back: &Back) -> u64 {
 }
 
 impl Inner {
+    /// The directory of the whole results of every work, which every round's command line is let read, a ping's alike
+    /// so that its session's tools stay what the cache keeps: made where it is not, as the command line takes only a
+    /// directory that is there.
+    async fn results_root(&self) -> Result<PathBuf, String> {
+        let root = tools::results_root(&std::env::temp_dir(), &git::tag(&self.installation));
+        tokio::fs::create_dir_all(&root)
+            .await
+            .map_err(|e| format!("{}: {e}", root.display()))?;
+        Ok(root)
+    }
+
     /// The lock of the work, made where it has none.
     fn lock(&self, work: WorkNumber) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.in_work.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1006,7 +1018,8 @@ impl Inner {
         let form = began(system::Begun::Form)?;
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
         let refused = permissions::refused_commands(&of.beside);
-        let permissions = Permissions::of(cell.reads_only, args, &refused, added);
+        let results = self.results_root().await.map_err(failed)?;
+        let permissions = Permissions::of(cell.reads_only, args, &refused, added).reading(&results);
         let base =
             kept::base(&self.data, ping.work, run, number).with_file_name(format!("ping-{line}-{}", ping.session));
         let compacted = Compacted {

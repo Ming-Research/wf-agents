@@ -62,6 +62,15 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     assert!(after(review, "--allowedTools").is_empty());
     assert!(told(review, "You only read it"));
     assert!(!told(review, "Make your changes there"));
+    // Every line's round may read the directory of the whole results, which the engine makes and tells the command line.
+    for call in [plan, review] {
+        let readable = after(call, "--add-dir");
+        let results = readable
+            .iter()
+            .find(|dir| dir.ends_with("-results"))
+            .expect("the results' directory");
+        assert!(std::path::Path::new(results).is_dir(), "{results}");
+    }
     // Every line's system prompt holds the project's files `project.toml` names, each headed by its path, the engine's
     // words, and how a cell returns, with each field's words and the owner's language beside its name.
     for call in [plan, review] {
