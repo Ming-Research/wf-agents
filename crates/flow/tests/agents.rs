@@ -117,6 +117,8 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         ["answers", "query"]
     );
     assert_eq!(read.tools["query"].request["required"][0].as_str(), Some("sql"));
+    assert_eq!(read.tools["query"].defines, ["rows", "cut", "substr"]);
+    assert!(read.tools["answers"].defines.is_empty());
     let given = read.tools["answers"]
         .given
         .as_ref()
