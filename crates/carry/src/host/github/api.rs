@@ -73,6 +73,8 @@ pub struct Run {
     pub started: bool,
     /// Whether it has completed.
     pub completed: bool,
+    /// Whether it completed cancelled, having judged nothing.
+    pub cancelled: bool,
     /// Where a person sees it.
     pub url: String,
 }

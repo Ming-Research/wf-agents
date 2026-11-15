@@ -22,6 +22,7 @@ pub(crate) mod fake;
 use std::future::Future;
 use std::sync::Arc;
 
+use decide::{CallId, RunId};
 use store::WorkNumber;
 
 use crate::git::Place;
@@ -42,6 +43,27 @@ pub struct Branch<'a> {
     /// or nothing is written yet.
     pub about: &'a str,
     pub place: &'a Place,
+}
+
+/// What asks a host to run the project's checks, as the work's records name it: a call of `run_tests`, or a round of
+/// the check before the merge. Given again after the engine started again it is the same, and a host that runs the
+/// checks elsewhere finds by it what it began for it there rather than beginning it again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Asking {
+    /// A call of `run_tests`.
+    Call(CallId),
+    /// A round of the run of the check, by its run and which round of it it is, the first being one.
+    Round(RunId, usize),
+}
+
+impl Asking {
+    /// Its name among what the work asks: `call/<call>`, or `run/<run>/round/<round>`.
+    pub fn name(&self) -> String {
+        match self {
+            Asking::Call(call) => format!("call/{}", call.0),
+            Asking::Round(run, round) => format!("run/{}/round/{round}", run.0),
+        }
+    }
 }
 
 /// Why a work's branch was not merged.
@@ -82,12 +104,13 @@ pub trait Host: Send + Sync + 'static {
     fn main(&self) -> impl Future<Output = Result<String, String>> + Send;
 
     /// The verdict on the commit, the head of the work's branch, which is committed and merges into main without a
-    /// conflict; none where it was told to stop. A failure fails it, whatever else passes, and
-    /// nothing is run again.
+    /// conflict, as the round of the check that asks finds it; none where it was told to stop. A failure fails it,
+    /// whatever else passes, and nothing is run again.
     fn verdict(
         &self,
         branch: &Branch<'_>,
         commit: &str,
+        asking: Asking,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<Verdict>, String>> + Send;
 
@@ -106,12 +129,13 @@ pub trait Host: Send + Sync + 'static {
     fn kept_main(&self) -> String;
 
     /// What the agents' tool `run_tests` finds of the work, with the tests and checks the agent named, in words for the
-    /// agent that asked, whole; none where it was told to stop. An `Err` is why it could not run them, for the agent
-    /// too. What failed is said as [`Host::verdict`] says it.
+    /// agent whose call asks, whole; none where it was told to stop. An `Err` is why it could not run them, for the
+    /// agent too. What failed is said as [`Host::verdict`] says it.
     fn run_tests(
         &self,
         branch: &Branch<'_>,
         named: &Named,
+        asking: Asking,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
@@ -160,8 +184,14 @@ impl<H: Host> Host for Arc<H> {
         (**self).main().await
     }
 
-    async fn verdict(&self, branch: &Branch<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
-        (**self).verdict(branch, commit, stop).await
+    async fn verdict(
+        &self,
+        branch: &Branch<'_>,
+        commit: &str,
+        asking: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<Verdict>, String> {
+        (**self).verdict(branch, commit, asking, stop).await
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
@@ -172,8 +202,14 @@ impl<H: Host> Host for Arc<H> {
         (**self).kept_main()
     }
 
-    async fn run_tests(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
-        (**self).run_tests(branch, named, stop).await
+    async fn run_tests(
+        &self,
+        branch: &Branch<'_>,
+        named: &Named,
+        asking: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<String>, String> {
+        (**self).run_tests(branch, named, asking, stop).await
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

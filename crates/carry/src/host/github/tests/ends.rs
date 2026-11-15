@@ -47,7 +47,7 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     let place = hub.place();
     let branch = about(&place, "Greets the user by name, and by title where one is known.");
     hub.host
-        .verdict(&branch, &head, &mut Stop::never())
+        .verdict(&branch, &head, hub.round(), &mut Stop::never())
         .await
         .unwrap()
         .unwrap();
@@ -118,7 +118,9 @@ async fn the_name_of_a_merge_is_published_with_no_mention_reference_or_closing_w
 /// The title of the work's pull request once the work, its merge named so, is checked at the commit.
 async fn titled(hub: &Hub, commit: &str, name: &str) -> String {
     let place = hub.place();
-    (hub.host.verdict(&named(&place, name), commit, &mut Stop::never()).await)
+    (hub.host
+        .verdict(&named(&place, name), commit, hub.round(), &mut Stop::never())
+        .await)
         .unwrap()
         .unwrap();
     hub.github().pull_requests()[0].title.clone()
@@ -137,7 +139,7 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
     );
     let place = hub.place();
     hub.host
-        .verdict(&about(&place, &wrote), &head, &mut Stop::never())
+        .verdict(&about(&place, &wrote), &head, hub.round(), &mut Stop::never())
         .await
         .unwrap()
         .unwrap();
@@ -164,7 +166,7 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
     // A long text is cut, saying so.
     let long = "word ".repeat(10_000);
     hub.host
-        .verdict(&about(&place, &long), &head, &mut Stop::never())
+        .verdict(&about(&place, &long), &head, hub.round(), &mut Stop::never())
         .await
         .unwrap()
         .unwrap();

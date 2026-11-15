@@ -37,11 +37,13 @@ pub(super) fn job(name: &str, outcome: Outcome, _: u64) -> Check {
 impl Hub {
     async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
         let place = self.place();
-        self.host.run_tests(&branch(&place), named, &mut Stop::never()).await
+        self.host
+            .run_tests(&branch(&place), named, self.call(), &mut Stop::never())
+            .await
     }
 
     /// The runs by hand GitHub was asked for.
-    fn dispatched(&self) -> Vec<Asked> {
+    pub(super) fn dispatched(&self) -> Vec<Asked> {
         (self.github().asked().into_iter())
             .filter(|a| matches!(a, Asked::Dispatch { .. }))
             .collect()

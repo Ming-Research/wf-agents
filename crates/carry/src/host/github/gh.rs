@@ -218,18 +218,7 @@ impl Api for Gh {
         );
         let listed = self.json("GET", &path, None, &[200]).await?;
         let runs = listed["workflow_runs"].as_array().cloned().unwrap_or_default();
-        Ok((runs.iter())
-            .filter_map(|run| {
-                let status = run["status"].as_str();
-                Some(Run {
-                    id: run["id"].as_u64()?,
-                    title: run["display_title"].as_str().unwrap_or_default().to_string(),
-                    started: matches!(status, Some("in_progress" | "completed")),
-                    completed: status == Some("completed"),
-                    url: run["html_url"].as_str().unwrap_or_default().to_string(),
-                })
-            })
-            .collect())
+        Ok(runs.iter().filter_map(run).collect())
     }
 
     async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), String> {
@@ -446,6 +435,20 @@ fn pull(value: &Value) -> Result<Pull, String> {
         body: value["body"].as_str().unwrap_or_default().to_string(),
         draft: value["draft"].as_bool().unwrap_or(false),
         node: text(&value["node_id"], "id")?,
+    })
+}
+
+/// A run of a workflow, as GitHub's REST API lists it; none for one with no number.
+fn run(run: &Value) -> Option<Run> {
+    let status = run["status"].as_str();
+    let completed = status == Some("completed");
+    Some(Run {
+        id: run["id"].as_u64()?,
+        title: run["display_title"].as_str().unwrap_or_default().to_string(),
+        started: matches!(status, Some("in_progress" | "completed")),
+        completed,
+        cancelled: completed && run["conclusion"].as_str() == Some("cancelled"),
+        url: run["html_url"].as_str().unwrap_or_default().to_string(),
     })
 }
 

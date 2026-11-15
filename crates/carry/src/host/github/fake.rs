@@ -35,6 +35,8 @@ struct Kept {
     another_call: bool,
     /// Whether the runs by hand stay queued, as with no runner online.
     queued: bool,
+    /// Whether the runs by hand start and go on until they are finished or cancelled, as a run that takes minutes.
+    going: bool,
     asked: Vec<Asked>,
 }
 
@@ -115,6 +117,27 @@ impl Fake {
     /// Keeps every run by hand queued, never started, as with no runner online.
     pub(crate) fn no_runner(&self) {
         self.kept().queued = true;
+    }
+
+    /// Has every run by hand asked for from now on start and go on until it is finished or cancelled.
+    pub(crate) fn runs_go_on(&self) {
+        self.kept().going = true;
+    }
+
+    /// Completes every run by hand that is under way, as it ends with the jobs and results its commit is given.
+    pub(crate) fn finish_runs(&self) {
+        for asked in &mut self.kept().runs {
+            asked.run.completed = true;
+        }
+    }
+
+    /// Cancels every run by hand that is under way, as a person may: it completes cancelled, with nothing uploaded and
+    /// its jobs cancelled.
+    pub(crate) fn cancel_runs(&self) {
+        for asked in (self.kept().runs.iter_mut()).filter(|d| !d.run.completed) {
+            asked.run.completed = true;
+            asked.run.cancelled = true;
+        }
     }
 
     /// Has another request run the workflow on the same branch and commit right after each one the host asks for.
@@ -330,9 +353,9 @@ impl Api for Fake {
         if kept.another_call {
             made.push(("another".to_string(), true));
         }
+        let (ran, going) = (!kept.queued, kept.going);
         for (call, another) in made {
             let id = 1000 + kept.runs.len() as u64;
-            let ran = !kept.queued;
             kept.runs.push(Dispatched {
                 workflow: workflow.to_string(),
                 branch: branch.to_string(),
@@ -342,7 +365,8 @@ impl Api for Fake {
                     id,
                     title: format!("fast {call}"),
                     started: ran,
-                    completed: ran,
+                    completed: ran && !going,
+                    cancelled: false,
                     url: format!("https://github.example/actions/runs/{id}"),
                 },
             });
@@ -355,10 +379,11 @@ impl Api for Fake {
         let Some(asked) = kept.runs.iter().find(|d| d.run.id == run) else {
             return Ok(Vec::new());
         };
-        if asked.another {
+        if asked.another || asked.run.cancelled {
+            let how = if asked.another { ANOTHER_CALLS } else { "cancelled" };
             return Ok(vec![Check {
                 name: "test".to_string(),
-                outcome: super::api::Outcome::Broken(ANOTHER_CALLS.to_string()),
+                outcome: super::api::Outcome::Broken(how.to_string()),
                 url: None,
                 took: None,
             }]);
@@ -368,7 +393,7 @@ impl Api for Fake {
 
     async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, String> {
         let kept = self.kept();
-        let asked = (kept.runs.iter()).find(|d| d.run.id == run && !d.another);
+        let asked = (kept.runs.iter()).find(|d| d.run.id == run && !d.another && !d.run.cancelled);
         let artifact = asked.and_then(|d| kept.fast.get(&d.commit).and_then(|(_, a)| a.clone()));
         Ok(artifact.filter(|(n, _)| n == name).map(|(_, files)| files))
     }

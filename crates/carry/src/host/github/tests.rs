@@ -1,11 +1,16 @@
 //! The GitHub host against a fake of GitHub: a bare repository on disk and pull requests and checks in memory.
 //!
 //! - `ends`: the pull request's text and draft, the checks that hold no work, main red, and the end of a work.
+//! - `again`: a check or a call of `run_tests` given again after the engine started again, which finds the runs it
+//!   asked for.
 
+mod again;
 mod ends;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use decide::{CallId, RunId};
 use store::WorkNumber;
 use tokio::sync::Mutex;
 
@@ -21,11 +26,16 @@ mod fast;
 
 const WORK: WorkNumber = WorkNumber(1);
 
-/// A local repository, its bare repository on GitHub holding its main branch, and the GitHub host over both.
+/// A local repository, its bare repository on GitHub holding its main branch, and the GitHub host over both; and how
+/// many calls and rounds have asked it for runs, each asking anew.
 struct Hub {
     repo: Repo,
     host: GitHub<Fake>,
+    asked: AtomicU64,
 }
+
+/// The installation the tests' host is of.
+const INSTALLATION: Uuid = Uuid::from_u128(1);
 
 /// The words of `run_tests`, as this repository's file beside the flows gives them.
 fn tool() -> flow::agents::Tool {
@@ -77,6 +87,7 @@ fn config(bare: &std::path::Path) -> Config {
         fast_poll: Duration::from_millis(10),
         token: None,
         withheld: Vec::new(),
+        installation: INSTALLATION,
     }
 }
 
@@ -89,7 +100,21 @@ impl Hub {
         let mut config = config(&bare);
         config.withheld = withheld(&repo.data, &repo.project.repo, None);
         let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config);
-        Hub { repo, host }
+        Hub {
+            repo,
+            host,
+            asked: AtomicU64::new(0),
+        }
+    }
+
+    /// A round of the check that has not asked for a verdict before.
+    fn round(&self) -> Asking {
+        Asking::Round(RunId(self.asked.fetch_add(1, Ordering::Relaxed) + 1), 1)
+    }
+
+    /// A call of `run_tests` that has not asked for its tests to be run before.
+    fn call(&self) -> Asking {
+        Asking::Call(CallId(self.asked.fetch_add(1, Ordering::Relaxed) + 1))
     }
 
     fn with(mut self, change: impl FnOnce(&mut Config)) -> Hub {
@@ -116,7 +141,9 @@ impl Hub {
 
     async fn verdict(&self, commit: &str) -> Result<Option<Verdict>, String> {
         let place = self.place();
-        self.host.verdict(&branch(&place), commit, &mut Stop::never()).await
+        self.host
+            .verdict(&branch(&place), commit, self.round(), &mut Stop::never())
+            .await
     }
 
     /// Merges the commit the check passed; a refusal but for a moved main in the host's words.
@@ -301,7 +328,7 @@ async fn a_check_given_again_pushes_nothing_new_and_opens_no_second_pull_request
     let head = hub.committed().await;
     hub.green(&head);
     hub.verdict(&head).await.unwrap().unwrap();
-    // As after the engine started again in the middle of the check.
+    // Another check of the commit, as after the work was sent back to it.
     let again = hub.verdict(&head).await.unwrap().unwrap();
     assert_eq!(again.failed, None);
     assert_eq!(hub.opened(), 1);
@@ -584,7 +611,7 @@ async fn a_stopped_wait_gives_nothing() {
         held.stop(1, ());
     };
     let branch = branch(&place);
-    let (verdict, ()) = tokio::join!(hub.host.verdict(&branch, &head, &mut stop), stopping);
+    let (verdict, ()) = tokio::join!(hub.host.verdict(&branch, &head, hub.round(), &mut stop), stopping);
     assert_eq!(verdict, Ok(None));
 }
 
@@ -806,11 +833,20 @@ fn github_as_the_settings_say_needs_the_engines_token() {
     let repo = Repo::new("true");
     let text = "repository = \"owner/name\"\n";
     let github: settings::GitHub = toml::from_str(text).unwrap();
-    let none = GitHub::from_settings(&github, &repo.project, &repo.data, |_| None, None, None);
+    let none = GitHub::from_settings(&github, &repo.project, &repo.data, INSTALLATION, |_| None, None, None);
     let refused = none.err().expect("refused");
     assert!(refused.contains("no WF_GITHUB_TOKEN"), "{refused}");
     let given = |name: &str| (name == "WF_GITHUB_TOKEN").then(|| "the-token".to_string());
-    let host = GitHub::from_settings(&github, &repo.project, &repo.data, given, Some(ci()), None).expect("made");
+    let host = GitHub::from_settings(
+        &github,
+        &repo.project,
+        &repo.data,
+        INSTALLATION,
+        given,
+        Some(ci()),
+        None,
+    );
+    let host = host.expect("made");
     let config = &host.config;
     assert_eq!(config.url, "https://github.com/owner/name.git");
     assert_eq!(
@@ -828,6 +864,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         "the project's workflows are the project's declaration"
     );
     assert_eq!(config.token.as_deref(), Some("the-token"));
+    assert_eq!(config.installation, INSTALLATION);
     assert!(
         repo.data.join("gh").is_dir(),
         "gh keeps its configuration in the data directory"

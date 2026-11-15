@@ -123,6 +123,40 @@ fn the_seconds_between_two_stamps_hold_across_days_months_years_and_leap_days() 
 }
 
 #[test]
+fn a_run_is_read_by_its_status_and_one_that_completed_cancelled_is_said_so() {
+    let run = |status: &str, conclusion: Option<&str>| {
+        run(&json!({
+            "id": 43658592831u64,
+            "display_title": "ci 0f3a",
+            "status": status,
+            "conclusion": conclusion,
+            "html_url": "https://github.com/o/r/actions/runs/43658592831",
+        }))
+        .expect("a run")
+    };
+    let going = run("in_progress", None);
+    assert_eq!(
+        going,
+        Run {
+            id: 43658592831,
+            title: "ci 0f3a".to_string(),
+            started: true,
+            completed: false,
+            cancelled: false,
+            url: "https://github.com/o/r/actions/runs/43658592831".to_string(),
+        }
+    );
+    let queued = run("queued", None);
+    assert!(!queued.started && !queued.completed && !queued.cancelled);
+    let cancelled = run("completed", Some("cancelled"));
+    assert!(cancelled.completed && cancelled.cancelled);
+    for judged in ["success", "failure", "timed_out"] {
+        let ended = run("completed", Some(judged));
+        assert!(ended.completed && !ended.cancelled, "{judged}");
+    }
+}
+
+#[test]
 fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
     let mut value = json!({
         "number": 12,
