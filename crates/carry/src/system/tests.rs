@@ -95,9 +95,9 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
     let engineer = of("engineer");
     let at = |text: &str| engineer.find(text).unwrap_or_else(|| panic!("{text}:\n{engineer}"));
     let order = [
-        "# `AGENTS.md`\n\n# Working here\n\nThe guide.",
-        "# `design/constitution.md`\n\n# The constitution",
-        "# `design/README.md`\n\n# The design tree",
+        "# `AGENTS.md`\n\n```\n# Working here\n\nThe guide.",
+        "# `design/constitution.md`\n\n```\n# The constitution",
+        "# `design/README.md`\n\n```\n# The design tree",
         "- Check each fact when you write it",
         "How an engineer works",
         "# How you work here",
