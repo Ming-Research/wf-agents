@@ -353,7 +353,7 @@ fn engine_question(flow: &flow::Compiled, base: &Case, cases: &[Case], words: &A
         })
     };
     let rounds: Vec<&Table> = (cases.iter()).flat_map(|c| &c.rounds).filter(|t| same(t)).collect();
-    let done = rounds.iter().find(kept).or(rounds.first()).copied();
+    let done = rounds.iter().find(|t| kept(t)).or(rounds.first()).copied();
     for key in ["hands_in", "dealt_with", "reads"] {
         if let Some(value) = done.and_then(|t| t.get(key)) {
             r.insert(key.to_string(), value.clone());
