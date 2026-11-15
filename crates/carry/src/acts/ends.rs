@@ -406,11 +406,13 @@ fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
     );
 }
 
-/// The flow of the end-to-end tests with a block of the work's head.
+/// The flow of the end-to-end tests with a block of the work's head, which the owner reads.
 fn acts_flow_with_head() -> Compiled {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
     let mut source = flow::read(&dir).unwrap();
-    source.flow.push_str("\n[blocks.head]\noutside = \"head\"\n");
+    source
+        .flow
+        .push_str("\n[blocks.head]\noutside = \"head\"\nshown = true\n");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = flow::Has {
         sources: names(&["tree", "main", "head"]),
