@@ -121,6 +121,11 @@ const RESULT_GIVEN: &str = "the result of an entry is handed in";
 const ENTRY_PUT_AWAY: &str = "the entry of a cell skipped is put away while a cell that gives results runs";
 const ENTRY_TAKEN_UP: &str = "a cell that gives results runs for an entry it put away, its cell applying again";
 const WAITING_HOLDS_A_STOP: &str = "the owner turns to a cell a waiting cell holds back while a round is under way";
+pub const OUTSIDE: &str = "a work waits for the outside only for what the latest run of a cell said it waits for";
+const OUTSIDE_WAITED: &str = "a work waits for main to move, as a check said what it wrote waits for";
+
+/// What the histories with a check before the merge must reach (decision what-a-run-wrote-may-wait-for-the-outside).
+pub const CHECKS_REACHED: &[&str] = &[OUTSIDE_WAITED];
 
 /// What the histories that draw a cell asking for tests must reach (decisions a-wait-holds-its-cell,
 /// a-wait-of-a-skipped-cell-is-put-away).
@@ -560,11 +565,8 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                             v.fail(HELD, format!("the work waits at {at} on {on:?}, which holds"));
                         }
                     }
-                    Waited::Call { .. }
-                    | Waited::Slot
-                    | Waited::Answer { .. }
-                    | Waited::Result { .. }
-                    | Waited::Outside { .. } => {}
+                    Waited::Outside { source, run, block } => outside(v, flow, reading, i, (source, *run, block)),
+                    Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } | Waited::Result { .. } => {}
                 }
             }
             first_entered(v, flow, reading, i);
@@ -649,6 +651,57 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         if reading.pending(cell, now) {
             return;
         }
+    }
+}
+
+/// Property what-a-run-wrote-may-wait-for-the-outside: a work waits at the cell at this place for a source outside the
+/// work only where the run named is the latest finished run of its cell, which writes the block named; that run said
+/// what it wrote waits for a block the source writes, of which nothing is new to the cell; and the block keeps a key of
+/// the preconditions of the cell where the work waits from holding.
+fn outside(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, (source, run, block): (&str, RunId, &BlockId)) {
+    v.count(OUTSIDE_WAITED);
+    let now = Seq(u64::MAX);
+    let cells = flow.cells();
+    let Some(started) = reading.started.get(&run) else {
+        v.fail(
+            OUTSIDE,
+            format!("the work waits for {source} for run {run:?}, which never started"),
+        );
+        return;
+    };
+    let cell = &started.cell;
+    let latest = (reading.finished.values())
+        .filter(|f| reading.started[&f.run].cell == *cell)
+        .max_by_key(|f| f.at);
+    let Some(latest) = latest.filter(|f| f.run == run) else {
+        v.fail(
+            OUTSIDE,
+            format!("the work waits for {source} for run {run:?}, the latest finished of {cell} or none"),
+        );
+        return;
+    };
+    let waited = latest.waits_for.as_ref();
+    let of_source = waited.is_some_and(|b| flow.outsiders(b).is_some_and(|o| o.outside.as_deref() == Some(source)));
+    let place = flow.place(cell).expect("a cell of the flow");
+    let writes = cells[place].outputs.contains(block);
+    let new = waited.is_some_and(|b| !reading.new_to(cell, b, now).is_empty());
+    let keeps = (cells[i].requires.iter()).any(|key| {
+        !reading.key_holds(flow, key, i)
+            && match key {
+                Condition::Is { block: b, .. } => b == block,
+                Condition::Test(test) => flow.tests()[test].reads.contains(block),
+            }
+    });
+    if !of_source || !writes || new || !keeps {
+        v.fail(
+            OUTSIDE,
+            format!(
+                "the work waits at {} for {source} for {block} of run {run:?} of {cell}, which said it waits for \
+                 {waited:?} of the source {of_source}, writes {block} {writes}, has something of it new {new}, and \
+                 keeps a key from holding {keeps}",
+                cells[i].id
+            ),
+        );
     }
 }
 
