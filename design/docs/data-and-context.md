@@ -182,6 +182,3 @@ run next all the same, and the note would be filled, since the new session lacks
     again.
 
 38. A round that says it has dealt with the owner's words and has handed in no answer has its return sent back.
-
-39. What the words ask that is not the cell's to change, the cell passes on in the block it already writes for the
-    cell whose it is, and the flow goes on as for any such block.
