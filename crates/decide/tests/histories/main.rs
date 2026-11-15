@@ -26,7 +26,8 @@
 //!   "flip" holds again, so that the cell that gives results is entered for the entry (decision
 //!   a-wait-of-a-skipped-cell-is-put-away). In three of ten of those, the cell that gives results runs only while a
 //!   choice the asking cell alone writes says yes, so that a wait may be for a result no cell will give (decision
-//!   a-work-no-cell-can-move-is-stalled).
+//!   a-work-no-cell-can-move-is-stalled); and in half of these the asking cell has the precondition "ready" too, so
+//!   that it may wait for the owner while no cell will give its result (property `RESULT_WAITS`).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -394,6 +395,11 @@ impl History {
                     block: GIVES.into(),
                     value: "yes".into(),
                 }];
+                // And in half of those the asking cell waits for the owner's "ready" too, so that it may wait for the
+                // owner while no cell will give its result, which the wait does not name (property `RESULT_WAITS`).
+                if asking.chance(50) && !cells[i].requires.contains(&"ready".into()) {
+                    cells[i].requires.push("ready".into());
+                }
             }
             result
         });
