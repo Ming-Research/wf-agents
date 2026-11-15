@@ -143,6 +143,10 @@ export function faultWords(fault: Fault): string {
       return `${w.block} is a note, but people do not write it.`;
     case 'noteIsAChoice':
       return `${w.block} is a note, but it is a choice, and a note is words to a cell.`;
+    case 'spokenWithoutText':
+      return `${w.block} is a record of what is said, and its writes give no ${w.key}: its entries of that kind would be empty.`;
+    case 'spokenTextWithoutPlace':
+      return `${w.block} is a record of what is said, and its writes.${w.key} has no {${w.place}}: its entries of that kind would hold none of what was said.`;
     case 'noSuchBlock':
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':
