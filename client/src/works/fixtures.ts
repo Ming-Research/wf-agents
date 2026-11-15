@@ -728,7 +728,8 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     // Waiting for the owner's answer to a question the plan asked.
     const h = new History(hours(5));
     h.wrote('request', 'person', REQUEST_TEXT('List the works of every item, those that wait for the owner first.'));
-    h.ran('plan', [{ block: 'plan', content: prose('Plan', ['A list of every work, those waiting for the owner first']) }]);
+    // Its run handed in its question alone, which the engine keeps in the record of questions.
+    h.ran('plan', []);
     const asked: Wait = {
       key: 'answer-cancelled',
       why: 'Should the list show the works of cancelled items, or leave them out?',
