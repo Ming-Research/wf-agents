@@ -181,8 +181,7 @@ function BarEngine({ onRead }: { onRead: (bar: BarItems) => void }) {
 
 /// The limits of the flow as a whole, by their keys as `flow.toml` writes them.
 function limitsWords(flow: Flow): string {
-  const { runs, returns, calls } = flow.limits;
-  return `limits runs ${runs}, returns ${returns}, calls ${calls}`;
+  return `limits again ${flow.limits.again}`;
 }
 
 /// How the flow view draws the flow: the matrix of its blocks against its cells, or the flowchart of how a work moves

@@ -40,9 +40,7 @@ fn a_block_the_driver_writes_that_is_no_choice_of_waiting_and_merged_is_refused(
             name = "odd"
             order = ["write", "merge"]
             [limits]
-            runs = 2
-            returns = 2
-            calls = 3
+            again = 2
             [lines.main]
             [blocks.deps]
             values = {values}
@@ -234,9 +232,7 @@ fn with_blocks(blocks: &str, tests: &str, requires: &str, outputs: &str) -> flow
         name = "odd"
         order = ["write", "merge"]
         [limits]
-        runs = 2
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.text]
         {blocks}
@@ -404,8 +400,8 @@ fn engineer() -> flow::Compiled {
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
+        tools: names(&["query"]),
         system: flow::system::reserved(&beside).into_iter().collect(),
         details: names(&["files"]),
     };

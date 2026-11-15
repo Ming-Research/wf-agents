@@ -70,8 +70,7 @@ pub const REACHED: &[&str] = &[
     TURNED_TO_WHILE_WAITING,
     STOPS,
     LIMITS_CHECKED,
-    CALL_LIMITS_CHECKED,
-    WAYS_ROUND_BOUNDED,
+    SENT_BACK_BOUNDED,
     DECIDED_AGAIN,
     DECIDED_SHUFFLED,
     MOMENTS_REPLAYED,
@@ -103,9 +102,8 @@ const CAUSES_CHECKED: &str = "the reasons of a run as it starts";
 const RESULTS_ENTERED: &str = "a cell is entered for the results of its calls";
 const TURNED_TO_WHILE_WAITING: &str = "a cell waiting for the results of its calls is entered for the owner's words";
 const STOPS: &str = "a round under way is stopped for the owner turning to a cell before it";
-const LIMITS_CHECKED: &str = "a work waits at a cell's limit of ways round";
-const CALL_LIMITS_CHECKED: &str = "a work waits at a cell's limit of calls";
-const WAYS_ROUND_BOUNDED: &str = "a way round starts";
+const LIMITS_CHECKED: &str = "a work waits at a cell's limit of the times one sender sent it back";
+const SENT_BACK_BOUNDED: &str = "a run for what a cell after it wrote starts";
 const DECIDED_AGAIN: &str = "a decision taken again on the same records";
 const DECIDED_SHUFFLED: &str = "a decision taken on the records in another order";
 const MOMENTS_REPLAYED: &str = "a decision taken again on the records as they were";
@@ -116,6 +114,23 @@ const MAKERS_CHECKED: &str = "a work waits on a precondition";
 const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge is not skipped";
 const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
+pub const WAITS: &str = "while a cell waits for a result, only a cell that gives it runs after it, and no round stops";
+pub const RESULTS: &str = "a result is handed in only for an entry that waits for it";
+const WAITED_FOR_A_RESULT: &str = "a cell runs that gives the result a cell before it waits for";
+const RESULT_GIVEN: &str = "the result of an entry is handed in";
+const ENTRY_PUT_AWAY: &str = "the entry of a cell skipped is put away while a cell that gives results runs";
+const ENTRY_TAKEN_UP: &str = "a cell that gives results runs for an entry it put away, its cell applying again";
+const WAITING_HOLDS_A_STOP: &str = "the owner turns to a cell a waiting cell holds back while a round is under way";
+
+/// What the histories that draw a cell asking for tests must reach (decisions a-wait-holds-its-cell,
+/// a-wait-of-a-skipped-cell-is-put-away).
+pub const WAITS_REACHED: &[&str] = &[
+    WAITED_FOR_A_RESULT,
+    RESULT_GIVEN,
+    ENTRY_PUT_AWAY,
+    ENTRY_TAKEN_UP,
+    WAITING_HOLDS_A_STOP,
+];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
@@ -248,8 +263,8 @@ fn shuffled(r: &Records, seed: u64) -> Records {
 /// Its reasons are exactly what the records give: each block that runs the cell with a version new to it, `was` being
 /// the version the cell consumed, then the results it is owed where all are in; or, while one has no result, only the
 /// owner turning to it. For each `Changed { block, behind }`, `behind` is true exactly when every new version was
-/// written by a cell after this one (decision every-way-round-has-a-limit), and no cell starts a way round once its
-/// last finished runs since the owner last let it go on, as many in a row as its limit, were each one by this reading.
+/// written by a cell after this one, and no cell after it sends it back once more where it did so as many times in a
+/// row as the cell's limit since its counts last began anew, by this reading (decision the-same-sender-again).
 pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     let i = flow.place(&s.cell).expect("the histories do not change the flow");
     let cell = &flow.cells()[i];
@@ -330,30 +345,22 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
         }
     }
 
-    if reading.way_round(flow, i, &reasons, s.at) {
-        v.count(WAYS_ROUND_BOUNDED);
-        let in_a_row = ways_round_in_a_row(flow, reading, i, s.at);
-        if in_a_row >= cell.limit as usize {
-            v.fail(
-                SPOKE,
-                format!(
-                    "run {:?} of {} is a way round after {in_a_row} in a row, and its limit is {}",
-                    s.run, s.cell, cell.limit
-                ),
-            );
-        }
-    }
-    if reasons.iter().any(|r| matches!(r, Reason::Results { .. })) {
-        let in_a_row = asked_in_a_row(reading, &s.cell, s.at);
-        if in_a_row >= cell.calls as usize {
-            v.fail(
-                SPOKE,
-                format!(
-                    "run {:?} of {} is entered for results after {in_a_row} runs in a row that only asked, and its \
-                     limit of calls is {}",
-                    s.run, s.cell, cell.calls
-                ),
-            );
+    // Each cell after it whose version runs it sends it back once more, which its limit allows only so often since its
+    // counts last began anew (decision the-same-sender-again).
+    if let Some(senders) = sent_by(flow, reading, i, &s.because, s.at) {
+        for sender in senders {
+            v.count(SENT_BACK_BOUNDED);
+            let times = sent_back_since(flow, reading, i, &sender, s.at);
+            if times >= cell.again as usize {
+                v.fail(
+                    SPOKE,
+                    format!(
+                        "run {:?} of {} starts for what {sender} wrote, which sent it back {times} times since its \
+                         counts last began anew, and its limit is {}",
+                        s.run, s.cell, cell.again
+                    ),
+                );
+            }
         }
     }
 }
@@ -374,48 +381,167 @@ fn finished_since_let_go<'r>(reading: &'r Reading, cell: &decide::CellId, place:
     runs.into_iter().map(|(_, s)| s).collect()
 }
 
-/// How many of the cell's last finished runs before this place, since the owner last let it go on, were in a row ways
-/// round that dealt with something (plan, D2): a run one of whose reasons someone other than a cell after it wrote ends
-/// the row, and one that dealt with nothing or was entered for no block is passed over.
-fn ways_round_in_a_row(flow: &Flow, reading: &Reading, i: usize, place: Seq) -> usize {
-    let cell = &flow.cells()[i];
-    let mut count = 0;
-    for s in finished_since_let_go(reading, &cell.id, place).into_iter().rev() {
-        let forward = s.because.iter().any(|c| match c {
-            Cause::NoRecord => true,
-            Cause::Changed { behind, .. } => !behind,
-            Cause::Results { .. } => false,
-        });
-        if forward {
-            break;
+/// The cells after the cell at place `i` that wrote what these causes of a run of it, starting at this place, are new
+/// versions of, each once: of the causes the run dealt with, where it finished. None where one of them is a first run
+/// or a version that a person, the outside or a cell before it wrote, which is no send-back and starts the cell's
+/// counts anew; the results of its calls, and those of what it asked for in a record, are no one's (decision
+/// the-same-sender-again).
+fn sent_by(flow: &Flow, reading: &Reading, i: usize, because: &[Cause], place: Seq) -> Option<Vec<decide::CellId>> {
+    let cell = &flow.cells()[i].id;
+    let mut senders: Vec<decide::CellId> = Vec::new();
+    for cause in because {
+        match cause {
+            Cause::NoRecord => return None,
+            Cause::Changed { behind: false, .. } => return None,
+            Cause::Changed { block, .. } if reading.results.contains(block) => {}
+            Cause::Changed { block, .. } => {
+                for v in reading.new_to(cell, block, place) {
+                    if let Writer::Cell(writer, _) = &v.by
+                        && flow.place(writer).is_some_and(|j| j > i)
+                        && !senders.contains(writer)
+                    {
+                        senders.push(writer.clone());
+                    }
+                }
+            }
+            Cause::Results { .. } => {}
         }
-        let changed = s.because.iter().any(|c| matches!(c, Cause::Changed { .. }));
-        let dealt = reading.finished[&s.run]
+    }
+    Some(senders)
+}
+
+/// How many of the cell's finished runs before this place, since its counts last began anew, this sender sent back:
+/// runs that dealt with something and were for a version it wrote. The counts begin anew where the owner lets the cell
+/// go on, and with a run of it for a first run or a version a person, the outside or a cell before it wrote.
+fn sent_back_since(flow: &Flow, reading: &Reading, i: usize, sender: &decide::CellId, place: Seq) -> usize {
+    let cell = &flow.cells()[i].id;
+    let let_go = (reading.records.let_go.iter())
+        .filter(|l| &l.cell == cell && l.at < place)
+        .map(|l| l.at)
+        .max();
+    let anew = (reading.started.values())
+        .filter(|s| &s.cell == cell && s.at < place && sent_by(flow, reading, i, &s.because, s.at).is_none())
+        .map(|s| s.at)
+        .max();
+    let from = let_go.max(anew);
+    let mut count = 0;
+    for s in finished_since_let_go(reading, cell, place) {
+        if from.is_some_and(|from| s.at <= from) {
+            continue;
+        }
+        let dealt: Vec<Cause> = (s.because.iter())
+            .filter(|c| match c {
+                Cause::Changed { block, .. } => reading.dealt_with(s.run, block, Seq(u64::MAX)),
+                _ => true,
+            })
+            .cloned()
+            .collect();
+        let senders = sent_by(flow, reading, i, &dealt, s.at).unwrap_or_default();
+        let did = reading.finished[&s.run]
             .dealt_with
             .as_ref()
             .is_none_or(|d| !d.is_empty());
-        if changed && dealt {
+        if did && senders.contains(sender) {
             count += 1;
         }
     }
     count
 }
 
-/// How many of the cell's last finished runs before this place, since the owner last let it go on, each asked for calls
-/// and dealt with nothing, in a row (plan, D1).
-fn asked_in_a_row(reading: &Reading, cell: &decide::CellId, place: Seq) -> usize {
-    (finished_since_let_go(reading, cell, place).into_iter().rev())
-        .take_while(|s| {
-            let f = reading.finished[&s.run];
-            let ended = (reading.records.returned.iter())
-                .filter(|e| e.run == s.run)
-                .map(|e| e.at)
-                .max();
-            let asked = (reading.records.called.iter())
-                .any(|c| c.run == s.run && c.at < f.at && ended.is_none_or(|e| c.at > e));
-            f.dealt_with.as_ref().is_some_and(Vec::is_empty) && asked
-        })
-        .count()
+/// The first cell before place `upto` that applies and waits for the result of what it asked for, by this reading.
+fn waiting(flow: &Flow, reading: &Reading, upto: usize) -> Option<usize> {
+    let now = Seq(u64::MAX);
+    (0..upto).find(|&j| reading.applies(flow, j) && reading.pending(&flow.cells()[j], now))
+}
+
+/// While a cell waits for the result of what it asked for, no later cell runs but one that gives that result; and the
+/// owner's turning to a cell such a wait holds back stops no round under way (decision a-wait-holds-its-cell).
+pub fn waits(v: &mut Verdict, flow: &Flow, reading: &Reading, decision: &Decision) {
+    let cells = flow.cells();
+    match decision {
+        Decision::Run { cell, .. } => {
+            let Some(i) = flow.place(cell) else { return };
+            if !reading.taken_up(flow, &cells[i], Seq(u64::MAX)).is_empty() {
+                v.count(ENTRY_TAKEN_UP);
+            }
+            let Some(j) = waiting(flow, reading, i) else { return };
+            if (cells[j].asks.iter()).any(|asks| cells[i].runs_on.contains(&asks.record)) {
+                v.count(WAITED_FOR_A_RESULT);
+            } else {
+                v.fail(
+                    WAITS,
+                    format!("{cell} runs while {} before it waits for a result", cells[j].id),
+                );
+            }
+        }
+        Decision::Busy { cell, .. } => {
+            // The owner's words to a cell the wait holds back wait for the wait to end.
+            let Some(i) = flow.place(cell) else { return };
+            let Some(j) = waiting(flow, reading, i) else { return };
+            let now = Seq(u64::MAX);
+            let held = (j + 1..i).any(|k| {
+                (reading.reasons(&cells[k], now).iter())
+                    .any(|r| matches!(r, Reason::Changed { block, .. } if flow.interrupts(block)))
+            });
+            if held {
+                v.count(WAITING_HOLDS_A_STOP);
+            }
+        }
+        Decision::Abandon {
+            cell,
+            because: Abandoning::Stopped { cell: to, .. },
+            ..
+        } => {
+            let (Some(i), Some(k)) = (flow.place(cell), flow.place(to)) else {
+                return;
+            };
+            if let Some(j) = waiting(flow, reading, k)
+                && j < i
+            {
+                let what = format!(
+                    "{cell}'s round is stopped for {to}, which {} waiting before it holds back",
+                    cells[j].id
+                );
+                v.fail(WAITS, what);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A result the run handed in is for an entry of the asking cell that waited for it as the run started: an entry it
+/// wrote before, with no result since; and an entry of a cell that does not apply, waiting so, is passed over (decision
+/// a-wait-of-a-skipped-cell-is-put-away).
+pub fn results(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId) {
+    let s = reading.started[&run];
+    let f = reading.finished[&run];
+    let entry_of = |cell: &decide::Cell, record: &BlockId| {
+        (reading.of(record).iter())
+            .filter(|x| x.at < s.at && matches!(&x.by, Writer::Cell(c, _) if *c == cell.id))
+            .map(|x| x.at)
+            .max()
+    };
+    for (j, cell) in flow.cells().iter().enumerate() {
+        for asks in &cell.asks {
+            let entry = entry_of(cell, &asks.record);
+            let answered = |entry: Seq| reading.of(&asks.result).iter().any(|x| x.at > entry && x.at < s.at);
+            let gave = f.writes.iter().any(|w| w.block == asks.result);
+            match entry {
+                Some(entry) if gave && !answered(entry) => v.count(RESULT_GIVEN),
+                _ if gave => v.fail(
+                    RESULTS,
+                    format!("run {run:?} hands in {} for no entry that waits", asks.result),
+                ),
+                Some(entry) if !answered(entry) && !reading.applies(flow, j) => {
+                    let gives = flow.cells().iter().find(|c| c.id == s.cell);
+                    if gives.is_some_and(|g| g.runs_on.contains(&asks.record)) {
+                        v.count(ENTRY_PUT_AWAY);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 /// A run that has just finished (property a-run-is-one-mechanism, nothing written over unseen): of each block it
@@ -465,7 +591,9 @@ pub fn consumption(v: &mut Verdict, flow: &Flow, reading: &Reading) {
         for input in &seen.runs_on {
             v.count(CONSUMED_CHECKED);
             let consumed = reading.consumed(&cell.id, &input.block, now);
-            let new = !reading.new_to(&cell.id, &input.block, now).is_empty();
+            // A record whose entry waits again for the cell that gives its result enters that cell as a new one does.
+            let taken_up = reading.taken_up(flow, cell, now).contains(&input.block);
+            let new = !reading.new_to(&cell.id, &input.block, now).is_empty() || taken_up;
             if input.consumed != consumed || input.new != new {
                 v.fail(
                     CONSUMED,
@@ -502,8 +630,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
             let i = flow.place(at).expect("the work waits at a cell of the flow");
             for o in on {
                 match o {
-                    Waited::Limit { runs } => limit(v, flow, reading, at, *runs),
-                    Waited::Calls { runs } => calls_limit(v, flow, reading, at, *runs),
+                    Waited::Limit { by, runs } => limit(v, flow, reading, at, by, *runs),
                     Waited::Precondition {
                         on: Condition::Test(test),
                         by,
@@ -516,7 +643,11 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                             v.fail(HELD, format!("the work waits at {at} on {on:?}, which holds"));
                         }
                     }
-                    Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } | Waited::Outside { .. } => {}
+                    Waited::Call { .. }
+                    | Waited::Slot
+                    | Waited::Answer { .. }
+                    | Waited::Result { .. }
+                    | Waited::Outside { .. } => {}
                 }
             }
             first_entered(v, flow, reading, i);
@@ -571,6 +702,20 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         let entering = reading.entering(flow, cell, now);
         let owed_open = reading.owed(&cell.id, now).iter().any(|c| !reading.done(*c, now));
         let unmet = cell.requires.iter().any(|key| !reading.key_holds(flow, key, j));
+        // A cell that waits for a result the cell entered gives holds the work behind it, whatever else it waits for:
+        // only the owner turning to it, or its run at rest, comes first (decision a-wait-holds-its-cell).
+        let gives = (cell.asks.iter()).any(|asks| flow.cells()[i].runs_on.contains(&asks.record));
+        if reading.pending(cell, now) && gives {
+            if at_rest || !entering.is_empty() {
+                let what = format!(
+                    "the walk passes {} to {}, which gives what it waits for",
+                    cell.id,
+                    flow.cells()[i].id
+                );
+                v.fail(FIRST, what);
+            }
+            return;
+        }
         if at_rest || !entering.is_empty() || owed_open || unmet {
             v.fail(
                 FIRST,
@@ -581,6 +726,11 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
                     flow.cells()[i].id
                 ),
             );
+        }
+        // A cell that waits for a result holds the work: the cells after it are passed for what ends the wait, which
+        // the property of waits judges (decision a-wait-holds-its-cell).
+        if reading.pending(cell, now) {
+            return;
         }
     }
 }
@@ -873,52 +1023,39 @@ fn settled(v: &mut Verdict, flow: &Flow, reading: &Reading) {
     }
 }
 
-/// Who wrote what is new, the count: a work waits at a cell's limit of ways round only when the cell's last finished
-/// runs since the owner last let it go on, as many in a row as the wait says and at least its limit, were each a way
-/// round that dealt with something, and the run it would start is one too (plan, D2).
-fn limit(v: &mut Verdict, flow: &Flow, reading: &Reading, at: &decide::CellId, runs: u32) {
+/// Who wrote what is new, the count: a work waits at a cell's limit of a sender only when that sender, a cell after
+/// it, sent it back as many times since its counts last began anew as the wait says and at least its limit, and the run
+/// it would start is for what that sender wrote (decision the-same-sender-again).
+fn limit(v: &mut Verdict, flow: &Flow, reading: &Reading, at: &decide::CellId, by: &decide::CellId, runs: u32) {
     v.count(LIMITS_CHECKED);
     let i = flow.place(at).expect("the work waits at a cell of the flow");
     let cell = &flow.cells()[i];
     let now = Seq(u64::MAX);
-    let in_a_row = ways_round_in_a_row(flow, reading, i, now);
-    if runs < cell.limit || (runs as usize) != in_a_row {
+    let times = sent_back_since(flow, reading, i, by, now);
+    if runs < cell.again || (runs as usize) != times {
         v.fail(
             SPOKE,
             format!(
-                "the work waits at {at}'s limit of {} after {runs} ways round, and the records give {in_a_row} in a \
-                 row",
-                cell.limit
+                "the work waits at {at}'s limit of {} after {by} sent it back {runs} times, and the records give \
+                 {times}",
+                cell.again
             ),
         );
     }
-    let next = reading.entering(flow, cell, now);
-    if !reading.way_round(flow, i, &next, now) {
+    let next: Vec<Cause> = (reading.entering(flow, cell, now).into_iter())
+        .filter_map(|r| match r {
+            Reason::Changed { block, was } => Some(Cause::Changed {
+                behind: reading.behind(flow, i, &block, now),
+                block,
+                was,
+            }),
+            Reason::Results { .. } => None,
+        })
+        .collect();
+    if !sent_by(flow, reading, i, &next, now).is_some_and(|senders| senders.contains(by)) {
         v.fail(
             SPOKE,
-            format!("the work waits at {at}'s limit, and its next run would be no way round: {next:?}"),
-        );
-    }
-}
-
-/// The count of calls: a work waits at a cell's limit of calls only when its last finished runs since the owner last
-/// let it go on, as many in a row as the wait says and at least its limit, each asked for calls and dealt with
-/// nothing, and the cell would be entered for their results (plan, D1).
-fn calls_limit(v: &mut Verdict, flow: &Flow, reading: &Reading, at: &decide::CellId, runs: u32) {
-    v.count(CALL_LIMITS_CHECKED);
-    let i = flow.place(at).expect("the work waits at a cell of the flow");
-    let cell = &flow.cells()[i];
-    let now = Seq(u64::MAX);
-    let in_a_row = asked_in_a_row(reading, at, now);
-    let results = (reading.entering(flow, cell, now).iter()).any(|r| matches!(r, Reason::Results { .. }));
-    if runs < cell.calls || (runs as usize) != in_a_row || !results {
-        v.fail(
-            SPOKE,
-            format!(
-                "the work waits at {at}'s limit of {} calls after {runs} runs that asked; the records give {in_a_row} \
-                 in a row, and it would be entered for results: {results}",
-                cell.calls
-            ),
+            format!("the work waits at {at}'s limit of {by}, and its next run would not be for what {by} wrote"),
         );
     }
 }
@@ -974,9 +1111,14 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
             return;
         }
     };
-    let reading = Reading::new(&then);
+    let reading = Reading::of_flow(flow, &then);
     let now = Seq(u64::MAX);
     for (i, cell) in cells[..exempt_from].iter().enumerate() {
+        // A cell that waits for a result, and every cell after it, is reached once the wait is over (decision
+        // a-wait-holds-its-cell).
+        if reading.applies(flow, i) && reading.pending(cell, now) {
+            break;
+        }
         if !reading.applies(flow, i) {
             continue;
         }
@@ -1014,4 +1156,51 @@ pub fn replay(v: &mut Verdict, flow: &Flow, records: &Records, moments: &[Moment
             );
         }
     }
+}
+
+/// A result is no one's send-back (decision the-same-sender-again): of a cell whose limit is one, a run entered by the
+/// result of its entry and by a version a cell after it wrote, then a run entered by the result of its next entry
+/// alone, counts no sender for the result; the count the properties keep says so as the walk does. Well under a
+/// millisecond alone; the random histories reach this row of acts only now and then, and this holds it every run.
+#[test]
+fn a_result_sends_no_cell_back_in_the_count_the_properties_keep() {
+    use crate::support::{Says::Matters, World, cell};
+    use crate::{BRIEF, GIVER, TESTS};
+    let mut asker = cell("asker", &[BRIEF, "o", "asker_tested"], &["x", TESTS]);
+    asker.asks.push(decide::Asks {
+        record: TESTS.into(),
+        result: "asker_tested".into(),
+    });
+    asker.again = 1;
+    let cells = vec![
+        asker,
+        cell("later", &["x"], &["o"]),
+        cell(GIVER, &[TESTS], &["asker_tested"]),
+    ];
+    let mut w = World::with_gate(cells);
+    w.notes(&[BRIEF]);
+    w.written_by_cells("asker_tested");
+    w.written_by_cells(TESTS);
+    w.person_writes(BRIEF);
+    w.run("asker", &[("x", Matters)]);
+    w.run("later", &[("o", Matters)]);
+    // Entered for what the later cell wrote, it asks for tests and leaves that for after their result.
+    w.start("asker");
+    w.finish_dealing("asker", &[], &[(TESTS, Matters)]);
+    w.run(GIVER, &[("asker_tested", Matters)]);
+    // Entered for the result and for what the later cell wrote, it deals with both, and asks again.
+    w.run("asker", &[(TESTS, Matters)]);
+    w.run(GIVER, &[("asker_tested", Matters)]);
+    // Entered for the result alone.
+    w.start("asker");
+    let reading = Reading::of_flow(&w.flow, &w.records);
+    let mut v = Verdict::default();
+    for s in &w.records.started {
+        started(&mut v, &w.flow, &reading, s);
+    }
+    let spoke: Vec<&String> = (v.broken.iter())
+        .filter(|(p, _)| *p == SPOKE)
+        .map(|(_, what)| what)
+        .collect();
+    assert!(spoke.is_empty(), "{spoke:?}");
 }

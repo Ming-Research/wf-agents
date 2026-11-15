@@ -64,6 +64,9 @@ pub enum Variant {
     /// The check's act, the work not passing: each choice a precondition waits on with another value, and every
     /// other block it writes.
     Fails(&'static str),
+    /// An entry of each record its cell asks for tests in, and nothing else, dealing with nothing: the cell waits for
+    /// the result. Where the cell commits, the round commits as it ends, the tests running on the commit.
+    Tests,
 }
 
 /// The check's act on a red check, and on a branch that does not merge into main.
@@ -88,6 +91,7 @@ impl fmt::Display for Variant {
                 write!(f, "its content{}, and a question it waits on", values.concat())
             }
             Variant::Fails(why) => write!(f, "{why}"),
+            Variant::Tests => write!(f, "an entry asking for tests, whose result it waits for"),
             Variant::Empty => write!(f, "its content, with what a test of content reads holding nothing"),
         }
     }
@@ -150,6 +154,11 @@ pub struct Model {
     pub forward: Vec<Vec<BlockId>>,
     pub backward: Vec<Vec<BlockId>>,
     pub silent: Vec<Vec<BlockId>>,
+    /// Of each cell by its place, the records it asks for tests in, which none of the three holds: a return writes one
+    /// only to ask.
+    pub asking: Vec<Vec<BlockId>>,
+    /// The place of the engine's act that runs the tests the cells ask for, where the flow has one.
+    pub tests: Option<usize>,
     /// Of each cell by its place, the trigger each block that runs it stands for, by the trigger's name.
     pub triggers: Vec<BTreeMap<BlockId, String>>,
     /// Of each cell by its place, its groups' triggers, each with its blocks.
@@ -229,9 +238,13 @@ impl Model {
                 .any(|(a, b, x)| ((*a == i && *b == j) || (*a == j && *b == i)) && !cells[i].outputs.contains(x))
         };
         let (mut forward, mut backward, mut silent) = (Vec::new(), Vec::new(), Vec::new());
+        let asking: Vec<Vec<BlockId>> = (cells.iter())
+            .map(|c| c.asks.iter().map(|asks| asks.record.clone()).collect())
+            .collect();
         for (i, cell) in cells.iter().enumerate() {
             let (mut f, mut b, mut s) = (Vec::new(), Vec::new(), Vec::new());
-            for block in cell.outputs.iter().filter(|b| !choices.contains_key(*b)) {
+            let prose = (cell.outputs.iter()).filter(|b| !choices.contains_key(*b) && !asking[i].contains(*b));
+            for block in prose {
                 let readers: Vec<usize> = (cells.iter().enumerate())
                     .filter(|(j, c)| *j != i && c.runs_on.contains(block) && !apart(i, *j))
                     .map(|(j, _)| j)
@@ -293,6 +306,7 @@ impl Model {
         let check = (compiled.cells.iter())
             .position(|c| c.act.as_deref() == Some(CHECK))
             .expect("the flow has a check");
+        let tests = (compiled.cells.iter()).position(|c| c.act.as_deref() == Some(flow::RUNS_TESTS));
         let asked = (compiled.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(ASKED));
         let answered_by = (0..cells.len())
             .map(|i| {
@@ -326,6 +340,8 @@ impl Model {
             forward,
             backward,
             silent,
+            asking,
+            tests,
             triggers,
             groups,
             spoken,
@@ -361,7 +377,8 @@ impl Model {
     }
 
     /// The cells, by their places, a write of these blocks can run again: each that one of them runs, or whose
-    /// condition or preconditions read one, and so on through what each of those writes or commits.
+    /// condition or preconditions read one, and so on through what each of those writes or commits, and through the
+    /// result of an entry of a record of asking, which the act the record runs writes from outside.
     pub fn reach(&self, from: &[BlockId]) -> BTreeSet<usize> {
         let cells = self.cells();
         let mut blocks: Vec<BlockId> = from.to_vec();
@@ -370,6 +387,9 @@ impl Model {
         while let Some(block) = blocks.pop() {
             if !seen.insert(block.clone()) {
                 continue;
+            }
+            for asks in cells.iter().flat_map(|c| &c.asks).filter(|asks| asks.record == block) {
+                blocks.push(asks.result.clone());
             }
             for (j, cell) in cells.iter().enumerate() {
                 let reads = cell.runs_on.contains(&block)
@@ -464,6 +484,11 @@ impl Model {
         if cell.outputs.iter().any(|b| self.refusals.contains_key(b)) {
             out.push((Variant::Refuses, true));
         }
+        // Asking at every round is judged by the history of asking, which the engine keeps beside the walk: once is
+        // what the walk itself reads.
+        if !self.asking[i].is_empty() {
+            out.push((Variant::Tests, false));
+        }
         out.push((Variant::SentBack, true));
         out
     }
@@ -487,6 +512,26 @@ impl Model {
     pub fn hand_in(&self, i: usize, variant: &Variant, told: &Told) -> (Return, bool) {
         let cell = &self.cells()[i];
         let ran_by = told.ran_by.clone();
+        if *variant == Variant::Tests {
+            let writes = (self.asking[i].iter())
+                .map(|block| Write {
+                    block: block.clone(),
+                    meaning_unchanged: false,
+                    empty: false,
+                    value: None,
+                })
+                .collect();
+            let ret = Return::Came {
+                dealt_with: Vec::new(),
+                writes,
+                calls: 0,
+                found: Vec::new(),
+                waits: false,
+                questions: Vec::new(),
+                read: self.commits(i).cloned().into_iter().collect(),
+            };
+            return (ret, false);
+        }
         let dealt_with = self.dealt_with(i, told);
         if *variant == Variant::SentBack {
             let stray = Write {
@@ -535,7 +580,7 @@ impl Model {
                     }
                     prose.extend(self.backward[i].iter().cloned());
                 }
-                Variant::Content | Variant::Empty | Variant::SentBack | Variant::Fails(_) => {}
+                Variant::Content | Variant::Empty | Variant::SentBack | Variant::Fails(_) | Variant::Tests => {}
             }
         } else {
             let fails = matches!(variant, Variant::Fails(_));
@@ -614,12 +659,12 @@ impl Model {
     }
 
     /// Each pair of an opinion and its reply: a block a cell writes that runs a cell before it, which writes a block
-    /// that runs the first again.
+    /// that runs the first again. The result of what a cell asked for is no opinion: it ends a wait.
     pub fn loops(&self) -> BTreeSet<(BlockId, BlockId)> {
         let cells = self.cells();
         let mut pairs = BTreeSet::new();
         for (a, writer) in cells.iter().enumerate() {
-            for o in &self.backward[a] {
+            for o in self.backward[a].iter().filter(|o| !self.compiled.flow.is_result(o)) {
                 for (b, reader) in cells.iter().enumerate().take(a) {
                     if !reader.runs_on.contains(o) {
                         continue;

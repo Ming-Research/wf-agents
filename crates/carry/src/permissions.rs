@@ -4,17 +4,17 @@
 //!
 //! On every line two kinds of command are refused: what every agent is refused whatever its project, pushing
 //! (`agents/refused.toml` beside the flows), and the heavy commands of the project's declaration (`[heavy]`), its
-//! compiling, type checking, building, test suites and benchmarks. The project's tests are had through the tool
-//! `run_tests`, and only the engine pushes; run by an agent, they would fight the owner for the processor, and push what
-//! no check passed. On a line that writes, the commands that update the project's lock files and build, run and install
-//! nothing are allowed, though a heavy command covers them, rather than leave the agent to write a lock file by hand and
-//! the check to find its mistakes; which they are is the project's toolchain's, and only the installation's settings
-//! name them (`agents.permissions.locks`, with the uses of them refused all the same). A line that only reads, as its
-//! line in the flow says, is refused the tools that edit files and the git commands that change the repository; those
-//! that only read, such as `show`, `diff` and `log`, it may run. Those two lists are the engine's. A line that changes
-//! only the project's tests is refused nothing more than any line that writes, the look at its run's change as each
-//! round ends holding it to them (`tests_only`); it is told the paths of the tests, and no lock command, since a lock
-//! file is none of them.
+//! compiling, type checking, building, test suites and benchmarks. The project's tests are had through `run_tests`,
+//! which the engine runs, and only the engine pushes; run by an agent, they would fight the owner for the processor,
+//! and push what no check passed. On a line that writes, the commands that update the project's lock files and build,
+//! run and install nothing are allowed, though a heavy command covers them, rather than leave the agent to write a lock
+//! file by hand and the check to find its mistakes; which they are is the project's toolchain's, and only the
+//! installation's settings name them (`agents.permissions.locks`, with the uses of them refused all the same). A line
+//! that only reads, as its line in the flow says, is refused the tools that edit files and the git commands that change
+//! the repository; those that only read, such as `show`, `diff` and `log`, it may run. Those two lists are the
+//! engine's. A line that changes only the project's tests is refused nothing more than any line that writes, the look
+//! at its run's change as each round ends holding it to them (`tests_only`); it is told the paths of the tests, and no
+//! lock command, since a lock file is none of them.
 //!
 //! The command line allows what a rule of the installation's arguments or of these allows, unless a rule of either
 //! refuses it, and refuses what any rule refuses even where another allows it. A flag given twice adds its values to

@@ -71,8 +71,8 @@ fn in_the_new_form_a_cell_describes_the_work_by_a_block_it_is_given_or_writes_as
     let source = edit(
         source,
         "answer.toml",
-        "limit = 5",
-        "limit = 5\n\n[give.plan]\nkind = \"latest\"",
+        "again = 5",
+        "again = 5\n\n[give.plan]\nkind = \"latest\"",
     );
     let compiled = compiled(&source);
     let answer = (compiled.cells.iter())

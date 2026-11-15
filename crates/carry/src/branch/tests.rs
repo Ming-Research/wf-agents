@@ -20,9 +20,7 @@ name = "tiny"
 order = ["read"]
 
 [limits]
-runs = 10
-returns = 10
-calls = 10
+again = 10
 
 [lines.engineer]
 

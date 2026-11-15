@@ -18,13 +18,15 @@ use std::collections::BTreeMap;
 use decide::run::{
     Answer, Asked, Asking, Call, Failure, Hold, Limit, Log, Requires, Return, Round, Standing, Step, Told, Unmet, next,
 };
-use decide::{BlockId, CallId, Seq, Write};
+use decide::{Asks, BlockId, CallId, Seq, Write};
 
 /// What the flow requires of a cell, owned so that tests can lend it as `Requires`.
 struct Spec {
     outputs: Vec<BlockId>,
     groups: BTreeMap<BlockId, Vec<BlockId>>,
     must_write: Vec<BlockId>,
+    asking: Vec<Asks>,
+    questions: Vec<BlockId>,
     choices: BTreeMap<BlockId, Vec<String>>,
     returns: u32,
     told: Told,
@@ -37,8 +39,10 @@ impl Spec {
             outputs: &self.outputs,
             groups: &self.groups,
             must_write: &self.must_write,
+            asking: &self.asking,
+            questions: &self.questions,
             choices: &self.choices,
-            returns: self.returns,
+            again: self.returns,
             told: &self.told,
             answered_by: &self.answered_by,
         }
@@ -59,6 +63,8 @@ fn spec() -> Spec {
         outputs: vec!["plan".into(), "verdict".into()],
         groups: BTreeMap::new(),
         must_write: vec![],
+        asking: vec![],
+        questions: vec![],
         choices: BTreeMap::from([("verdict".into(), vec!["yes".to_string(), "no".to_string()])]),
         returns: 2,
         told: Told {
@@ -105,7 +111,7 @@ fn step_let_go(rounds: Vec<Round>, let_go: usize, spec: &Spec) -> Step {
         &Log {
             rounds,
             let_go,
-            let_on: 0,
+            ..Log::default()
         },
         spec.requires(),
         Hold::Nothing,

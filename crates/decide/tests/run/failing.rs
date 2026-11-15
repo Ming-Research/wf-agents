@@ -17,8 +17,8 @@ fn failed() -> Round {
 fn let_on(rounds: Vec<Round>, let_on: usize) -> Log {
     Log {
         rounds,
-        let_go: 0,
         let_on,
+        ..Log::default()
     }
 }
 

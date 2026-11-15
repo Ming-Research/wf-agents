@@ -43,8 +43,8 @@ fn engineer(root: &Path) -> Compiled {
             "head",
             "tree",
         ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };

@@ -24,7 +24,8 @@
 //!   cell may write in half of them (each output with a chance of six in ten, a choice with one of its values), hands
 //!   in what does not meet the flow in three in twenty (a block it may not write, or a choice with a wrong value), asks
 //!   for one to three tools in three in twenty, asks the owner or the architect in three in twenty, and asks for
-//!   nothing in one in twenty;
+//!   nothing in one in twenty; where its cell asked [`ASKING`] times in a row, it hands in instead of asking, as the
+//!   engine's line of asking would stop it;
 //! - a call has its result: always for a tool, and for a person or at a limit only while people act;
 //! - a call withdrawn is said to be; a round stopped ends.
 //!
@@ -199,7 +200,13 @@ struct History {
     seen: Seen,
     /// What each round and call of a tool that ended was judged as when first seen, by its name.
     judged: BTreeMap<String, String>,
+    /// Of each cell of each work, the times in a row its rounds asked for calls.
+    asked: BTreeMap<(WorkNumber, String), u64>,
 }
+
+/// The most times in a row a cell asks before it hands in: the line the history of asking draws is the engine's, beside
+/// the walk, and the histories stand for it so.
+const ASKING: u64 = 3;
 
 /// How a history ended: every work with its head and all that is kept of it, what each does next, and every round and
 /// call given and answered.
@@ -238,6 +245,7 @@ impl History {
             done: Vec::new(),
             log: Vec::new(),
             seen: Seen::default(),
+            asked: BTreeMap::new(),
             judged: BTreeMap::new(),
         }
     }
@@ -586,7 +594,17 @@ impl History {
         }
         let place = flow.flow.place(&cell.into()).expect("the cell is in the flow");
         let outputs = flow.flow.cells()[place].outputs.clone();
-        match self.rng.below(20) {
+        let asked = self.asked.entry((work, cell.to_string())).or_default();
+        let mut draw = self.rng.below(20);
+        if (13..=18).contains(&draw) && *asked >= ASKING {
+            draw = 0;
+        }
+        match draw {
+            13..=18 => *asked += 1,
+            0..=12 => *asked = 0,
+            _ => {}
+        }
+        match draw {
             0..=9 => {
                 let mut handed = Vec::new();
                 for block in outputs {
@@ -787,15 +805,18 @@ impl History {
     fn bound(&self) -> u64 {
         (self.h.d().works())
             .map(|k| {
-                let flow = k.flow;
-                let rounds = u64::from(flow.limits.returns + flow.limits.calls + 2);
+                let cells = k.flow.flow.cells();
+                let mut most: u64 = 0;
                 let mut before: u64 = 0;
-                for c in flow.flow.cells() {
-                    let s = (u64::from(c.limit) + u64::from(c.calls) + 2)
+                for (i, c) in cells.iter().enumerate() {
+                    let after = (cells.len() - i - 1) as u64;
+                    most = most.max(u64::from(c.again));
+                    let s = (u64::from(c.again).saturating_mul(after) + 2)
+                        .saturating_mul(ASKING + 1)
                         .saturating_mul(3 + c.runs_on.len() as u64 + before);
                     before = before.saturating_add(s);
                 }
-                (before + 1).saturating_mul(4 * rounds + 4)
+                (before + 1).saturating_mul(4 * (most + 2) + 4)
             })
             .sum::<u64>()
             + 10

@@ -1,7 +1,7 @@
 //! The GitHub host against a fake of GitHub: a bare repository on disk and pull requests and checks in memory.
 //!
 //! - `ends`: the pull request's text and draft, the checks that hold no work, main red, and the end of a work.
-//! - `again`: a check or a call of `run_tests` given again after the engine started again, which finds the runs it
+//! - `again`: a check or an entry of `run_tests` given again after the engine started again, which finds the runs it
 //!   asked for.
 //! - `red`: a check whose full workflows failed tests alone, which are run again on the commit and on main's head.
 
@@ -12,8 +12,8 @@ mod red;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use decide::RunId;
 use decide::run::Failure;
-use decide::{CallId, RunId};
 use store::WorkNumber;
 use tokio::sync::Mutex;
 
@@ -40,13 +40,9 @@ struct Hub {
 /// The installation the tests' host is of.
 const INSTALLATION: Uuid = Uuid::from_u128(1);
 
-/// The words of `run_tests`, as this repository's file beside the flows gives them.
-fn tool() -> flow::agents::Tool {
-    let text = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../flow/agents/tools/run_tests.toml"
-    ));
-    toml::from_str(text).expect("the file of run_tests reads")
+/// The words of the act that runs the tests, as this repository's file beside the flows gives them.
+fn tool() -> flow::agents::RunTests {
+    crate::acts::words().run_tests
 }
 
 /// The project's two workflows as the tests' project declares them: `fast.yml`, which runs the lint by name, and
@@ -116,9 +112,9 @@ impl Hub {
         Asking::Round(RunId(self.asked.fetch_add(1, Ordering::Relaxed) + 1), 1)
     }
 
-    /// A call of `run_tests` that has not asked for its tests to be run before.
+    /// An entry of `run_tests` that has not asked for its tests to be run before.
     fn call(&self) -> Asking {
-        Asking::Call(CallId(self.asked.fetch_add(1, Ordering::Relaxed) + 1))
+        Asking::Entry(decide::Seq(self.asked.fetch_add(1, Ordering::Relaxed) + 1))
     }
 
     fn with(mut self, change: impl FnOnce(&mut Config)) -> Hub {
@@ -152,7 +148,7 @@ impl Hub {
         let place = self.place();
         let main = self.main_on_github();
         self.host
-            .verdict(&branch(&place), commit, &main, self.round(), &mut Stop::never())
+            .verdict(&branch(&place), commit, &main, (self.round(), &[]), &mut Stop::never())
             .await
     }
 
@@ -680,7 +676,7 @@ async fn a_stopped_wait_gives_nothing() {
     };
     let (branch, main) = (branch(&place), hub.main_on_github());
     let (verdict, ()) = tokio::join!(
-        hub.host.verdict(&branch, &head, &main, hub.round(), &mut stop),
+        hub.host.verdict(&branch, &head, &main, (hub.round(), &[]), &mut stop),
         stopping
     );
     assert_eq!(verdict, Ok(None));

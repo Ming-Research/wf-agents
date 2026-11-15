@@ -3,19 +3,21 @@
 //! the same for every cell of the line and every session of it, so that it holds only what the line shares (principle
 //! the-system-prompt-holds-what-a-line-shares).
 //!
-//! The prompt is made as a session begins, the project's files read from the work's worktree, where the agent reads
-//! the project, and kept with the session in the data directory: every later round of the session is given the kept
-//! one ([`of_session`]), so that a change of the files by the work's own commits or by main taken in reaches a session
-//! only when it is reopened, as a new session. The form of return the program is given with every call is the system
-//! prompt sent another way, and is kept beside it by the same means ([`Begun`]): a flow installed since reaches a
-//! session only as a new one (principle one-form-of-return-for-a-session). A file of the project is never read through a symbolic link
-//! ([`read_within`]). The engine fills three places of the texts ([`Filling`]): `{your_line}`, what the line may do in
-//! the worktree ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
-//! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
-//! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
-//! its value beside it: the project's from its `project.toml`, and the installation's that `agents/installation.toml`
-//! names, from these settings ([`named`]); so is each setting a message names, in the cell's task, in what a trigger
-//! says the cell does for it, and in the words of what the cell returns (crate `context`), with these settings.
+//! The prompt is made as a session begins, the project's files read from the work's worktree, where the agent reads the
+//! project, and kept with the session in the data directory: every later round of the session is given the kept one
+//! ([`of_session`]), so that a change of the files by the work's own commits or by main taken in reaches a session only
+//! when it is reopened, as a new session. The form of return the program is given with every call is the system prompt
+//! sent another way, and is kept beside it by the same means ([`Begun`]): a flow installed since reaches a session only
+//! as a new one (principle one-form-of-return-for-a-session). A file of the project is never read through a symbolic
+//! link ([`read_within`]). The engine fills three places of the texts ([`Filling`]): `{your_line}`, what the line may
+//! do in the worktree ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's
+//! records hold, as [`crate::store`] gives it; and `{named_checks}`, the checks a cell may name in `run_tests`, in the
+//! words the act's file gives for how the installation runs the project's CI, which the words of that block a message
+//! gives a cell that writes it hold (crate `context`). Each setting the texts name, but in a file of the project, is
+//! given with its value beside it: the project's from its `project.toml`, and the installation's that
+//! `agents/installation.toml` names, from these settings ([`named`]); so is each setting a message names, in the cell's
+//! task, in what a trigger says the cell does for it, and in the words of what the cell returns (crate `context`), with
+//! these settings.
 //!
 //! As the engine starts, every text sent to the agents is checked, each fault said with the file or the thing of the
 //! flow that holds the text, all of them at once ([`faults`]): a place the engine does not fill, a setting named that
@@ -103,23 +105,23 @@ pub(crate) fn read_within(root: &Path, path: &str) -> std::io::Result<String> {
 pub struct Filling {
     /// The settings the texts may name, with their values.
     pub named: flow::system::Settings,
-    /// What fills `{named_checks}`; none where no tool's file gives words for how the installation runs its CI.
+    /// What fills `{named_checks}`; none where the act's file gives no words for how the installation runs its CI.
     pub named_checks: Option<String>,
     /// What fills `{store}`: what the schema's comments say of the store where the settings open it to the agents, and
     /// the tool's file's words that it is not open where they do not ([`crate::store`]).
     pub store: String,
 }
 
-/// The place of a tool's words that says which checks an agent may name.
-const NAMED_CHECKS: &str = "named_checks";
+/// The place of the words of the record a cell asks for tests in that says which checks it may name.
+pub(crate) const NAMED_CHECKS: &str = "named_checks";
 
 /// What the engine puts into the texts, as these settings and the files beside the flows say. `{named_checks}` is
-/// filled with the words its tool's file gives for how the installation runs the project's CI, as the host takes a
-/// check named: by the project's fast workflow alone (`ci.fast` of its declaration), and only one it runs by name
-/// (`checks`), each between backticks for `{checks}` in `named`, or `none_named` where it runs none by name; where the
-/// project declares no fast workflow, nothing is run alone, `whole`.
+/// filled with the words the file of the act that runs the tests gives for how the installation runs the project's CI,
+/// as the host takes a check named: by the project's fast workflow alone (`ci.fast` of its declaration), and only one
+/// it runs by name (`checks`), each between backticks for `{checks}` in `named`, or `none_named` where it runs none by
+/// name; where the project declares no fast workflow, nothing is run alone, `whole`.
 pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
-    let ways = beside.tools.values().find_map(|tool| tool.places.get(NAMED_CHECKS));
+    let ways = beside.acts.run_tests.places.get(NAMED_CHECKS);
     let fast = beside.project.ci.as_ref().and_then(|ci| ci.fast.as_ref());
     let named_checks = ways.and_then(|ways| match fast {
         Some(fast) if !fast.checks.is_empty() => {
@@ -136,6 +138,40 @@ pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
         named_checks,
         store,
     }
+}
+
+/// How the host of a project runs its tests, which the words of the record a cell asks for them in are said by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hosted {
+    /// GitHub, which runs the project's workflows on a commit of the work's branch.
+    GitHub,
+    /// The local repository, which runs the project's check command on the worktree as it stands.
+    Local,
+}
+
+impl Hosted {
+    /// The key of the words the act's file gives for this host.
+    fn key(self) -> &'static str {
+        match self {
+            Hosted::GitHub => "github",
+            Hosted::Local => "local",
+        }
+    }
+}
+
+/// What fills each place of the words of a block that the engine fills, by its name, which a message gives a cell that
+/// writes the block: `named_checks`, as `filling` has it, where it has it; and each other place the file of the act
+/// that runs the tests gives words for, those it gives for the host that runs them.
+pub fn places(filling: &Filling, beside: &Agents, hosted: Hosted) -> std::collections::BTreeMap<String, String> {
+    let mut places: std::collections::BTreeMap<String, String> = (filling.named_checks.iter())
+        .map(|named| (NAMED_CHECKS.to_string(), named.clone()))
+        .collect();
+    for (name, ways) in &beside.acts.run_tests.places {
+        if let Some(words) = ways.get(hosted.key()) {
+            places.insert(name.clone(), words.clone());
+        }
+    }
+    places
 }
 
 /// What fills each place of the texts the engine fills, by its name, for a line whose agents are told `your_line` of
@@ -243,6 +279,29 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
                 "{}: names the setting `{name}`, which has no value",
                 said.source
             ));
+        }
+    }
+    // Each place of what a block's writer is told is filled as a message fills it, for every host a project may have:
+    // any other would reach the agent as written. A block's shape, which the flow alone decides, its compile checks.
+    let filled: Vec<(Hosted, std::collections::BTreeMap<String, String>)> = (([Hosted::GitHub, Hosted::Local])
+        .into_iter())
+    .map(|hosted| (hosted, places(&filling, beside, hosted)))
+    .collect();
+    for (name, block) in &flow.blocks {
+        let name = name.as_str();
+        let pieces = block.words.as_deref().map(flow::system::with_slots).unwrap_or_default();
+        for piece in pieces {
+            let flow::system::Piece::Slot { name: place } = piece else {
+                continue;
+            };
+            for (hosted, places) in &filled {
+                if !places.contains_key(&place) {
+                    add(format!(
+                        "block {name}, what its writer is told: the engine fills no place `{{{place}}}` where the host is {}",
+                        hosted.key()
+                    ));
+                }
+            }
         }
     }
     faults

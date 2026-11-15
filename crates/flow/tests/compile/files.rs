@@ -17,7 +17,7 @@ fn a_file_without_a_field_it_must_have_or_with_a_value_of_the_wrong_kind_cannot_
     assert!(message.contains("title"), "{message}");
     let source = edit(valid(), "judge.toml", "kind = \"agent\"", "kind = \"robot\"");
     unreadable(&source, "judge.toml");
-    let source = edit(valid(), FLOW_FILE, "[limits]\nruns = 3\n", "[limits]\n");
+    let source = edit(valid(), FLOW_FILE, "[limits]\nagain = 2\n", "[limits]\n");
     unreadable(&source, FLOW_FILE);
     let source = edit(valid(), FLOW_FILE, "people = true", "people = \"yes\"");
     unreadable(&source, FLOW_FILE);
@@ -33,7 +33,7 @@ fn a_field_no_file_knows_is_a_fault() {
     );
     let message = unreadable(&source, "plan.toml");
     assert!(message.contains("colour"), "{message}");
-    let source = edit(valid(), FLOW_FILE, "calls = 40", "calls = 40\nhours = 8");
+    let source = edit(valid(), FLOW_FILE, "again = 2", "again = 2\nhours = 8");
     unreadable(&source, FLOW_FILE);
     let source = edit(valid(), FLOW_FILE, "[blocks.plan]", "[blocks.plan]\nlook = \"prose\"");
     unreadable(&source, FLOW_FILE);

@@ -3,7 +3,7 @@
 
 import type { Block, Cell, Condition, Flow, Group, Input, Limits, Line, Test, TestKind } from './api';
 
-const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
+const LIMITS: Limits = { again: 3 };
 
 /// A cell of an agent in the line `engineer`, told to do its part, that reads and writes nothing, with these fields over
 /// it. What runs it and what it is given are worked out as the compiler does: from `runsOn` and `given` where they are
@@ -156,7 +156,7 @@ export function small(): Flow {
         requires: tested(test('plan_confirmed', 'The owner confirmed the plan', 'all', ['confirmed'])),
         inputs: ['comments', 'plan'],
         outputs: ['reply'],
-        limits: { ...LIMITS, runs: 5 },
+        limits: { again: 5 },
       }),
       cell('check', {
         title: 'Check with the latest main',

@@ -231,6 +231,9 @@ pub struct Lines {
     pub work_spent: Option<Line>,
     /// How long the rounds of a work of the flow take in all, in milliseconds, as the flow's other works' have.
     pub work_time: Option<Line>,
+    /// How many runs of a cell in a row ask, for a tool or for tests, before a run of it hands in its work, as the
+    /// rows of asking of the cell, else of the flow, in every work of the flow have ([`asking_rows`]).
+    pub asking: Option<Line>,
 }
 
 impl Lines {
@@ -265,6 +268,7 @@ impl Lines {
             time: whole(&|s| s.ms.map(|ms| ms as f64)),
             work_spent: None,
             work_time: None,
+            asking: None,
         }
     }
 }
@@ -408,9 +412,187 @@ pub fn works_line(others: &[f64], least: usize) -> Option<Line> {
     judged(others, &[], least, Scope::Works, Scope::Works)
 }
 
+/// The line of how many runs of a cell in a row ask before one hands in its work: of the cell's own rows where at least
+/// `least` of them tell it, else of every cell's of the flow ([`asking_rows`]).
+pub fn asking_line(own: &[f64], any: &[f64], least: usize) -> Option<Line> {
+    judged(own, any, least, Scope::Cell, Scope::Flow)
+}
+
+/// Of each run of the work that finished, in the order they finished, its cell, whether it asked and where it
+/// finished: it asked for calls, or for tests in a record its cell asks in ([`decide::Cell::asks`]). A run that asked
+/// handed in no work of its cell's, whatever else it wrote.
+fn asked(flow: &Compiled, work: &Work) -> Vec<(CellId, bool, decide::Seq)> {
+    let r = &work.records;
+    let mut finished: Vec<&decide::Finished> = r.finished.iter().collect();
+    finished.sort_by_key(|f| f.at);
+    (finished.into_iter())
+        .filter_map(|f| {
+            let cell = &r.started.iter().find(|s| s.run == f.run)?.cell;
+            let records = flow
+                .flow
+                .place(cell)
+                .map_or(&[][..], |i| &flow.flow.cells()[i].asks[..]);
+            let called = (r.called.iter())
+                .any(|c| c.run == f.run && matches!(work.calls.get(&c.call), Some(work::Call::Asked(_))));
+            let entry = (f.writes.iter()).any(|w| records.iter().any(|a| a.record == w.block));
+            Some((cell.clone(), called || entry, f.at))
+        })
+        .collect()
+}
+
+/// The rows of asking of the work, each with its cell: each count of a cell's finished runs in a row that asked before
+/// a run of it that handed in its work, which ended the row. What a measure of asking is judged by is made of them, as
+/// the rows of every work on the flow give them; the row a cell is in now is no part of it ([`asking_now`]).
+pub fn asking_rows(flow: &Compiled, work: &Work) -> Vec<(CellId, f64)> {
+    let mut rows = Vec::new();
+    let mut counts: std::collections::BTreeMap<CellId, u32> = std::collections::BTreeMap::new();
+    for (cell, asked, _) in asked(flow, work) {
+        let count = counts.entry(cell.clone()).or_default();
+        if asked {
+            *count += 1;
+        } else if *count > 0 {
+            rows.push((cell, f64::from(*count)));
+            *count = 0;
+        }
+    }
+    rows
+}
+
+/// How many of the cell's latest finished runs in a row asked, for calls or for tests, of those that finished after
+/// `since`, where the work was last let on after the engine paused it, as its spend and time are counted: the row it is
+/// in now, which a run that hands in its work ends, and the owner letting the work on begins anew.
+pub fn asking_now(flow: &Compiled, work: &Work, cell: &CellId, since: decide::Seq) -> u32 {
+    let runs = asked(flow, work);
+    let of_cell = runs.iter().rev().filter(|(c, _, at)| c == cell && *at > since);
+    of_cell.take_while(|(_, asked, _)| *asked).count() as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The engineer's flow as the repository defines it, whose R1, D1, I1 and T2 ask for tests in `run_tests`.
+    fn engineer() -> Compiled {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+        let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+        let has = flow::Has {
+            sources: names(&[
+                "answer",
+                "asked",
+                "dependencies",
+                "main",
+                "session",
+                "start",
+                "head",
+                "tree",
+                "words",
+            ]),
+            acts: names(&["start", "check", "merge", "run_tests"]),
+            tools: names(&["query"]),
+            details: names(&["files"]),
+            ..Default::default()
+        };
+        flow::compile(&flow::read(&dir).expect("the flow is read"), &has).expect("the flow compiles")
+    }
+
+    /// A work whose runs finished in this order, each of the cell named, each asking for a tool (`call`), asking for
+    /// tests in `run_tests` (`entry`) or handing in its work (`work`); with where each finished.
+    fn ran(runs: &[(&str, &str)]) -> (Work, Vec<decide::Seq>) {
+        let mut work = Work::default();
+        let mut finished = Vec::new();
+        for (n, (cell, how)) in runs.iter().enumerate() {
+            let run = RunId(n as u64 + 1);
+            let at = work.tick();
+            work.records.started.push(decide::Started {
+                run,
+                cell: CellId::from(*cell),
+                at,
+                because: Vec::new(),
+                basis: Default::default(),
+            });
+            if *how == "call" {
+                let call = decide::CallId(n as u64 + 100);
+                let at = work.tick();
+                work.records.called.push(decide::Called {
+                    call,
+                    run,
+                    on: None,
+                    at,
+                });
+                let ask = work::Ask::Tool {
+                    name: "query".to_string(),
+                    input: "{}".to_string(),
+                };
+                work.calls.insert(call, work::Call::Asked(ask));
+            }
+            let block = if *how == "entry" { "run_tests" } else { "code" };
+            let at = work.tick();
+            work.records.finished.push(decide::Finished {
+                run,
+                at,
+                writes: vec![decide::Write {
+                    block: block.into(),
+                    meaning_unchanged: false,
+                    empty: false,
+                    value: None,
+                }],
+                dealt_with: Some(Vec::new()),
+                waits_for: None,
+            });
+            finished.push(at);
+        }
+        (work, finished)
+    }
+
+    // A row of asking is the runs of one cell in a row that asked, for a tool or for tests, ended by a run of it that
+    // hands in its work; the rows of each cell apart, and the row a cell is in now no part of them. Well under a
+    // millisecond alone; no other test holds the rows.
+    #[test]
+    fn a_row_of_asking_is_a_cells_runs_in_a_row_that_asked_ended_by_one_that_handed_in() {
+        let flow = engineer();
+        let (work, _) = ran(&[
+            ("I1", "call"),
+            ("I1", "entry"),
+            ("T2", "entry"),
+            ("I1", "work"),
+            ("T2", "work"),
+            ("I1", "call"),
+            ("I1", "work"),
+            ("I1", "entry"),
+        ]);
+        let rows = asking_rows(&flow, &work);
+        let rows: Vec<(&str, f64)> = rows.iter().map(|(cell, n)| (cell.as_str(), *n)).collect();
+        assert_eq!(rows, [("I1", 2.0), ("T2", 1.0), ("I1", 1.0)]);
+        assert_eq!(asking_now(&flow, &work, &"I1".into(), decide::Seq(0)), 1);
+        assert_eq!(asking_now(&flow, &work, &"T2".into(), decide::Seq(0)), 0);
+        // A run that handed in nothing of the kind, as a cell that never asked, makes no row.
+        let (none, _) = ran(&[("I1", "work"), ("I1", "work")]);
+        assert!(asking_rows(&flow, &none).is_empty());
+    }
+
+    // The row a cell is in now is counted from where the work was last let on after the engine paused it, as its spend
+    // and time are: the runs that asked before it are no part of it. Well under a millisecond alone.
+    #[test]
+    fn the_row_a_cell_is_in_now_is_counted_from_where_the_work_was_last_let_on() {
+        let flow = engineer();
+        let (work, at) = ran(&[("I1", "call"), ("I1", "entry"), ("I1", "call")]);
+        assert_eq!(asking_now(&flow, &work, &"I1".into(), decide::Seq(0)), 3);
+        assert_eq!(asking_now(&flow, &work, &"I1".into(), at[1]), 1);
+        assert_eq!(asking_now(&flow, &work, &"I1".into(), at[2]), 0);
+    }
+
+    // The line of asking is of the cell's own rows where enough of them tell it, else of every cell's of the flow;
+    // with too few rows in all, there is none, and nothing is judged. Well under a millisecond alone.
+    #[test]
+    fn the_line_of_asking_is_the_cells_own_else_the_flows_and_none_from_too_few_rows() {
+        let own = [1.0, 2.0, 2.0];
+        let any = [1.0, 2.0, 2.0, 3.0, 9.0];
+        let line = asking_line(&own, &any, 3).expect("a line");
+        assert_eq!((line.value, line.samples, line.scope), (2.0, 3, Scope::Cell));
+        let line = asking_line(&own[..2], &any, 3).expect("a line");
+        assert_eq!((line.samples, line.scope), (5, Scope::Flow));
+        assert_eq!(asking_line(&own[..1], &any[..2], 3), None);
+    }
 
     #[test]
     fn a_line_stands_past_the_largest_value_by_as_much_as_that_is_past_the_median() {

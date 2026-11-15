@@ -23,9 +23,7 @@ data = ["request", "discussion", "q_and_a"]
 tools = ["query"]
 
 [limits]
-runs = 3
-returns = 2
-calls = 40
+again = 2
 "#;
 
 const WRITE: &str = r#"
@@ -127,6 +125,16 @@ fn read(r: &Value) -> Result<Came, String> {
     came(r, &flow, cell(&flow), &words()).map(|reading| reading.came)
 }
 
+/// The return is read, the work's questions it writes found not of their shape and none of them taken.
+fn questions_not_of_their_shape(r: &Value) {
+    let came = read(r).unwrap_or_else(|why| panic!("{r} is not read: {why}"));
+    let found = vec![Unmet::NotOfItsShape {
+        block: "q_and_a".into(),
+    }];
+    assert_eq!(came.found, found, "{r}");
+    assert!(came.said.questions.is_empty(), "{r}");
+}
+
 fn handed(block: &str, content: &str, matters: bool, value: Option<&str>) -> Handed {
     Handed {
         block: block.into(),
@@ -187,6 +195,54 @@ fn a_block_named_as_written_with_its_meaning_unchanged_runs_no_cell() {
     let mut expected = worked();
     expected.writes[0].matters = false;
     assert_eq!(read(&r), Ok(expected));
+}
+
+// A block whose file gives it a shape is read as the JSON the form holds it to and kept as its content, where it is of
+// that shape: an entry of the tests a cell asks for is an object, which was read as a choice written wrongly. Written
+// as a text that holds such JSON, as a return read from the stream can be, it is read as what it holds; one of another
+// shape is found, and not handed in. Well under a millisecond alone; no other test holds the reading to a block of a
+// shape.
+#[test]
+fn a_block_of_a_shape_is_kept_as_the_json_it_holds_where_it_is_of_that_shape() {
+    let write = WRITE.replace(
+        r#"outputs = ["plan", "ok", "discussion", "q_and_a"]"#,
+        r#"outputs = ["plan", "ok", "discussion", "q_and_a", "entry"]"#,
+    );
+    let entry = "shown = true\n\n[shape]\ntype = \"object\"\nproperties = { tests = { type = \"array\", items = { type = \
+                 \"string\" } }, checks = { type = \"array\", items = { type = \"string\" } } }\n\
+                 additionalProperties = false\n";
+    let flow = compiled(FLOW, &write, &[("blocks/entry.toml", entry)]);
+    let mut r = work();
+    r["outcome"]["outputs"]["entry"] = json!({"tests": ["a"], "checks": []});
+    let read = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
+    assert!(read.found.is_empty(), "{:?}", read.found);
+    let entry = (read.writes.iter())
+        .find(|h| h.block.as_str() == "entry")
+        .expect("it is handed in");
+    let kept: Value = serde_json::from_str(&entry.content).expect("it is kept as JSON");
+    assert_eq!(kept, json!({"tests": ["a"], "checks": []}));
+    assert_eq!((entry.value.as_ref(), entry.matters), (None, true));
+    let mut held = r.clone();
+    held["outcome"]["outputs"]["entry"] = json!(r#" {"tests": ["a"], "checks": []} "#);
+    let read = came(&held, &flow, cell(&flow), &words()).expect("it is read").came;
+    assert!(read.found.is_empty(), "{:?}", read.found);
+    let entry = (read.writes.iter()).find(|h| h.block.as_str() == "entry");
+    let kept: Value = serde_json::from_str(&entry.expect("it is handed in").content).expect("it is kept as JSON");
+    assert_eq!(kept, json!({"tests": ["a"], "checks": []}));
+    for wrong in [
+        json!({"test": ["a"]}),
+        json!({"tests": "a"}),
+        json!({"tests": [1]}),
+        json!(["a"]),
+        json!(r#"{"tests": "a"}"#),
+        json!("the tests"),
+    ] {
+        r["outcome"]["outputs"]["entry"] = wrong.clone();
+        let read = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
+        let found = vec![Unmet::NotOfItsShape { block: "entry".into() }];
+        assert_eq!(read.found, found, "{wrong}");
+        assert!(!read.writes.iter().any(|h| h.block.as_str() == "entry"), "{wrong}");
+    }
 }
 
 #[test]
@@ -259,13 +315,47 @@ fn a_block_that_is_not_among_the_cell_s_outputs_is_found_the_questions_and_the_r
     assert!(came.writes.iter().any(|h| h.block.as_str() == "discussion"));
 }
 
-// The work's questions are a list of questions: written as anything else, as a text, the return is not of its form.
+// The option a question recommends, a whole number, is read where it is written as a float with nothing after the point,
+// as the shape of the questions takes it; with a part after the point it is not of the shape; a negative one, which is
+// of the shape, is no option, and is found so. Well under a millisecond alone; no other test holds the reading of a
+// question to its shape's numbers.
 #[test]
-fn the_work_s_questions_not_written_as_a_list_of_questions_are_not_of_the_form() {
+fn a_recommended_option_written_as_a_whole_float_is_read_as_its_number() {
+    let asked = |recommends: Value| {
+        let mut r = work();
+        r["outcome"]["outputs"]["q_and_a"] = json!([{"name": "q", "waits": false, "recommends": recommends,
+            "ask": "Which?", "options": [{"does": "this", "follows": "that"}]}]);
+        r
+    };
+    let came = read(&asked(json!(1.0))).expect("it is read");
+    assert_eq!(came.found, []);
+    assert!(
+        matches!(
+            &came.said.questions[..],
+            [Question::Asked {
+                recommends: Some(1),
+                ..
+            }]
+        ),
+        "{:?}",
+        came.said.questions
+    );
+    questions_not_of_their_shape(&asked(json!(1.5)));
+    for negative in [json!(-1), json!(-1.0)] {
+        let came = read(&asked(negative.clone())).expect("it is read");
+        let found = vec![Unmet::NotAnOption { name: "q".to_string() }];
+        assert_eq!(came.found, found, "{negative}");
+    }
+}
+
+// The work's questions are a list of questions: written as anything else, as a text, they are not of their shape, as
+// any block of a shape, and none is taken.
+#[test]
+fn the_work_s_questions_not_written_as_a_list_of_questions_are_not_of_their_shape() {
     for questions in [json!("None."), json!({"name": "q"}), json!([{"name": "q"}])] {
         let mut r = work();
         r["outcome"]["outputs"]["q_and_a"] = questions.clone();
-        assert!(read(&r).is_err(), "{questions} is taken");
+        questions_not_of_their_shape(&r);
     }
     let mut r = work();
     r["outcome"]["outputs"]["q_and_a"] = json!([]);
@@ -526,7 +616,7 @@ fn what_an_item_requires_is_never_made_up() {
         json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
             "options": [{"does": "this"}]}]}}}),
     ] {
-        assert!(read(&r).is_err(), "{r} is taken");
+        questions_not_of_their_shape(&r);
     }
 }
 

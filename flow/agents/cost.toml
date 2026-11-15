@@ -24,12 +24,16 @@ works = "of the flow's other works"
 line = "of its line"
 
 # Why the engine paused a work whose spend or time, since it started or was last let on after the engine paused it,
-# is past the line the flow's other works give. Filled in a run: `{work}` the work's number, `{value}` its spend in
-# dollars or its time in minutes, `{line}` the line, `{works}` how many works gave it, `{since}` the words below of
-# since when; `between` between two reasons it waits for.
+# is past the line the flow's other works give, or one of whose cells asked for tools or tests more times in a row
+# before it handed in its work than the history of such rows gives. Filled in a run: `{work}` the work's number,
+# `{value}` its spend in dollars, its time in minutes or the times in a row, `{line}` the line, `{works}` how many works
+# gave it, `{since}` the words below of since when; of the asking, `{cell}` the cell, and `{from}` how many rows gave
+# the line and of what, `{scope}` one of `[guard.scope]`; `between` between two reasons it waits for.
 [work]
 spent = "work W{work} has spent ${value} since {since}, past the line of ${line} that {works} other works of its flow give"
 time = "work W{work} has taken {value} minutes in its rounds since {since}, past the line of {line} that {works} other works of its flow give"
+asking = "work W{work}: its cell {cell} has asked for tools or tests {value} times in a row before handing in its work, past the line of {line} that {from} give"
+asked_from = "{samples} such rows {scope}"
 started = "it started"
 let_on = "it was last let on"
 between = "; and "

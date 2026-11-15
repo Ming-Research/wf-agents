@@ -92,7 +92,7 @@ describe('the questions that hold a work', () => {
     ]);
     const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
     expect(questionsHolding(waiting({ kind: 'call', call: 4, who: 'owner', what: limit }))).toEqual([]);
-    expect(questionsHolding(waiting({ kind: 'limit', runs: 3 }))).toEqual([]);
+    expect(questionsHolding(waiting({ kind: 'limit', by: 'review', runs: 3 }))).toEqual([]);
     expect(questionsHolding({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toEqual([]);
     expect(questionsHolding({ kind: 'fault', words: 'Two entries at 3' })).toEqual([]);
   });

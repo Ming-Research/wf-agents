@@ -3,12 +3,8 @@
 
 /// The limits of what repeats.
 export interface Limits {
-  /// How many runs of a cell in a row may be ways round before the work waits for the owner.
-  runs: number;
-  /// How often a return may be sent back within one run.
-  returns: number;
-  /// How many calls one run may make.
-  calls: number;
+  /// How many times in a row one sender may send a cell back before the work waits for the owner.
+  again: number;
 }
 
 /// The cells that share one session, and what its file writes of it.
@@ -246,6 +242,10 @@ export type What =
   | { kind: 'asksWithNoAnswer'; block: string }
   /// The cell writes the work's questions, and the owner's words do not run it.
   | { kind: 'asksAndCannotBeSpokenTo'; block: string }
+  /// The cell writes a block that runs the cell that runs the tests, and no block of the result runs it.
+  | { kind: 'asksWithNoResult'; block: string }
+  /// The block's shape is written in a word, or a form of one, that the engine holds no return to.
+  | { kind: 'shapeNotChecked'; block: string; word: string }
   /// The trigger says what happened by a place the engine does not fill.
   | { kind: 'unknownDetail'; detail: string }
   /// A trigger of an agent's cell has its agent read a datum that the cell's context does not hold.
@@ -282,7 +282,15 @@ export type What =
   | { kind: 'standingWrittenByTwo'; test: string; block: string; cell: string }
   | {
       kind: 'flowRefused';
-      reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest' | 'unwritten';
+      reason:
+        | 'empty'
+        | 'twice'
+        | 'conditionOnOwnOutput'
+        | 'lastHasCondition'
+        | 'noLimit'
+        | 'asksAmiss'
+        | 'noSuchTest'
+        | 'unwritten';
       cell: string | null;
     };
 

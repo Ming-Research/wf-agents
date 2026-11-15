@@ -585,7 +585,7 @@ function WrittenBy(props: { flow: Flow; cell: Cell; block: Block; onChoose: (c: 
 
 /// The limits a cell sets of its own, where they differ from the flow's, which the view's line says once.
 function OwnLimits({ cell, flow }: { cell: Cell; flow: Flow }) {
-  const own = (['runs', 'returns', 'calls'] as const).filter((l) => cell.limits[l] !== flow.limits[l]);
+  const own = (['again'] as const).filter((l) => cell.limits[l] !== flow.limits[l]);
   if (own.length === 0) return null;
   return (
     <StatusLine word="limits">

@@ -17,7 +17,14 @@
 //!   the first test, drawn apart from the rest, a judge stands before the merge, run only while "flip" holds and
 //!   writing a verdict, yes or no; the merge then also waits while the verdict stands at no. In a third of the
 //!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
-//!   entered again for the results of what it asked for one to three times in a row.
+//!   entered again for the results of what it asked for one to three times in a row. In about a third of the
+//!   histories, drawn apart, a cell asks for tests in a record, which runs a cell after it that hands in the result of
+//!   each entry it gives, as the engine's act does; the asking cell runs only while "flip" holds in two of five of
+//!   those, and the owner's words run a cell after it in half (properties `WAITS` and `RESULTS`). In half of those
+//!   where it runs only while "flip" holds, the owner is steered so that its entry is taken up again: once it waits for
+//!   the result of an entry, "flip" fails, and once the cell that gives results ran since, passing the entry over,
+//!   "flip" holds again, so that the cell that gives results is entered for the entry (decision
+//!   a-wait-of-a-skipped-cell-is-put-away).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -123,11 +130,19 @@ pub const UNREFUSED: &str = "the verdict is no refusal";
 /// The block that is the owner's words to a cell: it interrupts.
 const SPOKEN: &str = "spoken";
 
+/// The record a cell asks for tests in, where one does, and the cell that gives their results.
+const TESTS: &str = "tests";
+const GIVER: &str = "giver";
+
 /// From this round of a run on, its agent returns what meets everything the flow requires of it.
 const ROUNDS: usize = 3;
 
 /// How often a return of any cell may be sent back before the owner is asked.
 const RETURNS: u32 = 2;
+
+/// How many times in a row an agent asks for calls before it hands in its work: what the engine's line of its history
+/// allows in these histories, which the walk does not count.
+const ASKING: usize = 3;
 
 /// A small deterministic generator (xorshift), so that a seed gives the same history every time.
 struct Rng(u64);
@@ -236,8 +251,9 @@ fn draw_cells(rng: &mut Rng, shape: Option<usize>) -> Vec<Cell> {
         cells.push(c);
     }
     for c in &mut cells {
-        c.limit = 1 + rng.below(2) as u32;
-        c.calls = 1 + rng.below(3) as u32;
+        c.again = 1 + rng.below(2) as u32;
+        // The draw the limit of calls took, kept so that what follows it draws as before.
+        let _ = rng.below(3);
     }
     if rng.chance(25) {
         let i = rng.below(cells.len());
@@ -300,6 +316,16 @@ struct History {
     moments: Vec<Moment>,
     /// How many of the runs started and finished the properties have looked at.
     looked_at: (usize, usize),
+    /// Where the history is steered so that the asking cell's entry is taken up again: how far it went.
+    taking_up: Option<TakingUp>,
+}
+
+/// How far the steering went that has the cell that gives results take an asking cell's entry up again: the asking
+/// cell, run only while "flip" holds, and the place where the owner made "flip" fail as it waited for a result, none
+/// before.
+struct TakingUp {
+    asker: CellId,
+    since: Option<Seq>,
 }
 
 impl History {
@@ -319,9 +345,44 @@ impl History {
                 c.slot = !rooms.chance(30);
             }
         }
+        // In about a third of the histories, one cell asks for tests in a record, which runs a cell after it that gives
+        // the result of each entry into the asking cell's own block, drawn apart so that the other draws keep their
+        // order.
+        let mut asking = Rng::new(seed ^ 0x7E57_ED00_A5C1_0000);
+        let mut taking_up = None;
+        let result = asking.chance(35).then(|| {
+            let i = asking.below(cells.len());
+            let result = format!("{}_tested", cells[i].id);
+            cells[i].outputs.push(TESTS.into());
+            cells[i].runs_on.push(result.as_str().into());
+            cells[i].asks.push(decide::Asks {
+                record: TESTS.into(),
+                result: result.as_str().into(),
+            });
+            // Now and then the asking cell can be skipped, so that its entry is put away, and the owner's words turn to
+            // a cell after it, which its wait holds back.
+            let skippable = cells[i].applies.is_empty() && asking.chance(40);
+            if skippable {
+                cells[i] = when_flipped(cells[i].clone());
+            }
+            if i + 1 < cells.len() && asking.chance(50) {
+                let k = i + 1 + asking.below(cells.len() - i - 1);
+                if !cells[k].runs_on.contains(&SPOKEN.into()) {
+                    cells[k].runs_on.push(SPOKEN.into());
+                }
+            }
+            cells.push(cell(GIVER, &[TESTS], &[result.as_str()]));
+            if skippable && asking.chance(50) {
+                taking_up = Some(TakingUp {
+                    asker: cells[i].id.clone(),
+                    since: None,
+                });
+            }
+            result
+        });
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
-            judge.limit = 2;
+            judge.again = 2;
             cells.push(judge);
             let mut merge = gate();
             merge.requires.push(UNREFUSED.into());
@@ -337,6 +398,10 @@ impl History {
         };
         w.notes(&[BRIEF]);
         w.turning(SPOKEN);
+        if let Some(result) = &result {
+            w.written_by_cells(result);
+            w.written_by_cells(TESTS);
+        }
         w.person_writes(BRIEF);
         if rng.chance(40) || judged.is_some() {
             w.says(GATE, true);
@@ -372,6 +437,7 @@ impl History {
             verdict: Verdict::default(),
             moments: Vec::new(),
             looked_at: (0, 0),
+            taking_up,
         }
     }
 
@@ -382,6 +448,9 @@ impl History {
     /// One step: people may act first, then the engine applies the decision. Says whether the work moved; it has
     /// not when it rests waiting for people who no longer act, is paused, or has ended.
     fn step(&mut self, people: bool) -> bool {
+        if people {
+            self.take_up();
+        }
         if people && self.rng.chance(16) {
             self.person_acts(None, &[]);
         }
@@ -541,8 +610,8 @@ impl History {
                 "a round is under way and the walk decides {decision:?}"
             );
         }
-        let reading = Reading::new(r);
         let flow = &self.w.flow;
+        let reading = Reading::of_flow(flow, r);
         let v = &mut self.verdict;
         let (started, finished) = self.looked_at;
         for s in &r.started[started..] {
@@ -550,12 +619,14 @@ impl History {
         }
         for f in &r.finished[finished..] {
             properties::finished(v, &reading, f.run);
+            properties::results(v, flow, &reading, f.run);
         }
         self.looked_at = (r.started.len(), r.finished.len());
         properties::consumption(v, flow, &reading);
         let seed = properties::last_place(r).0;
         let paused = decide::paused(r) || self.room.paused;
         properties::decision(v, flow, &reading, decision, self.room, paused, seed);
+        properties::waits(v, flow, &reading, decision);
         pausing::decision(v, flow, &reading, decision, self.room, paused);
         room::decision(v, flow, r);
     }
@@ -619,9 +690,19 @@ impl History {
             })
             .collect();
         let rounds_ended_before = |at: Seq| ended.iter().filter(|e| **e < at).count();
+        // The owner's word at the run's limit, and the owner letting its cell go on, which the word records too.
+        let cell = &self
+            .w
+            .records
+            .started
+            .iter()
+            .find(|s| s.run == run)
+            .expect("the run started")
+            .cell;
         let let_go = (r.called.iter())
             .filter(|c| c.run == run && self.at_limit.contains(&c.call))
             .filter_map(|c| done(c.call))
+            .chain(r.let_go.iter().filter(|l| &l.cell == cell).map(|l| l.at))
             .max()
             .map_or(0, rounds_ended_before);
         let let_on = (r.pauses.iter())
@@ -629,7 +710,28 @@ impl History {
             .map(|p| p.at)
             .max()
             .map_or(0, rounds_ended_before);
-        Log { rounds, let_go, let_on }
+        // The returns of the cell's other runs the engine sent back since its counts last began anew: each the round
+        // after one that came back, as the engine's loop counts them.
+        let from = decide::again_from(&self.w.flow, r, cell);
+        let before = (r.started.iter())
+            .filter(|s| s.run != run && &s.cell == cell)
+            .map(|s| {
+                let began: Vec<Seq> = r.rounds.iter().filter(|e| e.run == s.run).map(|e| e.at).collect();
+                let backs = self.backs.get(&s.run).map_or(&[][..], Vec::as_slice);
+                (backs.iter().enumerate())
+                    .filter(|(k, back)| {
+                        matches!(back, Some(Back::Came { .. }))
+                            && began.get(k + 1).is_some_and(|at| from.is_none_or(|from| *at > from))
+                    })
+                    .count() as u32
+            })
+            .sum();
+        Log {
+            rounds,
+            before,
+            let_go,
+            let_on,
+        }
     }
 
     /// Does what the run does next, as the engine's loop does, until a round of it begins or it rests: takes a return
@@ -655,8 +757,11 @@ impl History {
             outputs: &cell.outputs,
             groups: &cell.groups,
             must_write: &[],
+            asking: &cell.asks,
+            // No cell of these flows asks the owner in a record of questions.
+            questions: &[],
             choices: &choices,
-            returns: RETURNS,
+            again: RETURNS,
             told: &told,
             // No act of the engine's is in these flows.
             answered_by: &BTreeMap::new(),
@@ -822,10 +927,25 @@ impl History {
             return;
         }
         let told = decide::told(&self.w.flow, &self.w.records, run).expect("the run started");
-        let back = self.draw_return(&spec, &told, is_merge || rounds >= ROUNDS);
+        // An agent that asked as often in a row as its kind's history allows hands in its work: the engine would pause
+        // the work otherwise, which these histories leave to the engine's own tests.
+        let asked = self.asked_in_a_row(&spec.id) >= ASKING;
+        let back = self.draw_return(&spec, &told, is_merge || rounds >= ROUNDS || asked);
         self.note(format!("{cell} returns {back:?}"));
         self.set_back(run, back);
         self.engine(run);
+    }
+
+    /// How many of the cell's last finished runs in a row each asked for calls and dealt with nothing.
+    fn asked_in_a_row(&self, cell: &CellId) -> usize {
+        let r = &self.w.records;
+        let mut finished: Vec<&Finished> = (r.finished.iter())
+            .filter(|f| r.started.iter().any(|s| s.run == f.run && &s.cell == cell))
+            .collect();
+        finished.sort_by_key(|f| f.at);
+        (finished.iter().rev())
+            .take_while(|f| f.dealt_with.as_ref().is_some_and(Vec::is_empty) && r.called.iter().any(|c| c.run == f.run))
+            .count()
     }
 
     fn set_back(&mut self, run: RunId, back: Back) {
@@ -838,6 +958,24 @@ impl History {
     /// A return drawn from all the form allows; where `meets`, one that does the cell's work, dealing with everything
     /// that ran the round, and writes only what the cell may, each as it may be written.
     fn draw_return(&mut self, spec: &Cell, told: &run::Told, meets: bool) -> Back {
+        // The cell that gives the results of the tests the cells ask for hands in the result of each entry it gives,
+        // as the engine's act does, and deals with all that ran it.
+        let asked = (self.w.flow.cells().iter()).any(|c| c.asks.iter().any(|a| spec.runs_on.contains(&a.record)));
+        if asked {
+            let writes = (decide::asked_of(&self.w.flow, &self.w.records, &spec.id).into_iter())
+                .map(|entry| Write {
+                    block: entry.result,
+                    meaning_unchanged: false,
+                    empty: false,
+                    value: None,
+                })
+                .collect();
+            return Back::Came {
+                dealt_with: told.ran_by.clone(),
+                writes,
+                calls: Vec::new(),
+            };
+        }
         let choice = |b: &BlockId| [CHOICE, VERDICT].contains(&b.as_str());
         let write = |rng: &mut Rng, block: &BlockId, meets: bool| {
             let value = if choice(block) {
@@ -851,9 +989,11 @@ impl History {
             } else {
                 None
             };
+            // An entry of a record is new whoever writes it: what the run's check refuses otherwise is no return drawn
+            // here.
             Write {
                 block: block.clone(),
-                meaning_unchanged: !(meets && choice(block)) && rng.chance(50),
+                meaning_unchanged: !(meets && choice(block)) && block.as_str() != TESTS && rng.chance(50),
                 empty: false,
                 value,
             }
@@ -919,6 +1059,39 @@ impl History {
                     dealt_with,
                     writes,
                     calls: Vec::new(),
+                }
+            }
+        }
+    }
+
+    /// The owner's word "flip", where the history is steered so that the cell that gives results takes the asking
+    /// cell's entry up again: once the asking cell applies and waits for the result of an entry, "flip" fails, and the
+    /// entry is put away; once a run of the cell that gives results started since has finished, passing the entry over,
+    /// "flip" holds again (decision a-wait-of-a-skipped-cell-is-put-away).
+    fn take_up(&mut self) {
+        let Some((asker, since)) = (self.taking_up.as_ref()).map(|t| (t.asker.clone(), t.since)) else {
+            return;
+        };
+        let Some(i) = self.w.flow.place(&asker) else {
+            return;
+        };
+        let reading = Reading::of_flow(&self.w.flow, &self.w.records);
+        match since {
+            None => {
+                let waits = reading.applies(&self.w.flow, i) && reading.pending(&self.w.flow.cells()[i], Seq(u64::MAX));
+                if waits {
+                    self.note("the owner's word flip comes to no, the asking cell waiting".into());
+                    let at = self.w.says("flip", false);
+                    self.taking_up = Some(TakingUp { asker, since: Some(at) });
+                }
+            }
+            Some(since) => {
+                let passed = (reading.started.values())
+                    .any(|s| s.cell.as_str() == GIVER && s.at > since && reading.finished.contains_key(&s.run));
+                if passed {
+                    self.note("the owner's word flip comes to yes, the cell that gives results having run".into());
+                    self.w.says("flip", true);
+                    self.taking_up = None;
                 }
             }
         }
@@ -1001,9 +1174,17 @@ impl History {
                 Waited::Call { call, on: Some(_) } if self.rng.chance(60) => {
                     self.note(format!("a person answers the call {call:?}"));
                     self.w.done(*call);
+                    // The owner's word at a run's limit lets its cell go on, as the engine records it.
+                    if self.at_limit.contains(call)
+                        && let Some(c) = self.w.records.called.iter().find(|c| c.call == *call)
+                        && let Some(s) = self.w.records.started.iter().find(|s| s.run == c.run)
+                    {
+                        let cell = s.cell.clone();
+                        self.w.let_go(cell.as_str());
+                    }
                     return;
                 }
-                Waited::Limit { .. } | Waited::Calls { .. } if self.rng.chance(60) => {
+                Waited::Limit { .. } if self.rng.chance(60) => {
                     let at = at.expect("a limit is waited for at a cell").clone();
                     self.note(format!("the owner lets {at} go on"));
                     self.w.let_go(at.as_str());
@@ -1121,15 +1302,18 @@ impl History {
 
     /// How many steps, once people stop, the work may take before it must wait, rest or end (property
     /// a-work-comes-to-rest). Once people stop, a cell runs again only for what cells write, the results of its calls
-    /// or what was new when they stopped; its ways round are bounded by its limit, its entries for results by its
-    /// limit of calls, and a run's rounds by the limit of returns, at which it waits for the owner. A generous bound
-    /// of the same shape as before: each cell at place `i`, of limits `L_i` and `C_i` and `n_i` blocks that run it,
-    /// starts at most `S_i = (L_i + C_i + 3) * (3 + n_i + S_0 + ... + S_(i-1))` runs, and a run takes at most
-    /// `6 * ROUNDS` steps.
+    /// or what was new when they stopped; what each cell after it sends it back is bounded by its limit, its entries
+    /// for results by how often its agent asks in a row, and a run's rounds by the limit of returns, at which it waits
+    /// for the owner. A generous bound of the same shape as before: each cell at place `i`, of limit `L_i`, `a_i` cells
+    /// after it and `n_i` blocks that run it, starts at most `S_i = (L_i * (a_i + 1) + ASKING + 3) * (3 + n_i + S_0 +
+    /// ... + S_(i-1))` runs, and a run takes at most `6 * ROUNDS` steps.
     fn bound(&self) -> u64 {
         let mut before: u64 = 0;
-        for c in self.w.flow.cells() {
-            let s = (u64::from(c.limit) + u64::from(c.calls) + 3).saturating_mul(3 + c.runs_on.len() as u64 + before);
+        let cells = self.w.flow.cells();
+        for (i, c) in cells.iter().enumerate() {
+            let after = (cells.len() - i) as u64;
+            let s =
+                (u64::from(c.again) * after + ASKING as u64 + 3).saturating_mul(3 + c.runs_on.len() as u64 + before);
             before = before.saturating_add(s);
         }
         (before + 1).saturating_mul(6 * ROUNDS as u64)
@@ -1290,7 +1474,13 @@ fn random_works_keep_the_engines_properties_and_come_to_rest() {
     histories(
         ANY,
         800,
-        &[properties::REACHED, pausing::REACHED, room::REACHED].concat(),
+        &[
+            properties::REACHED,
+            properties::WAITS_REACHED,
+            pausing::REACHED,
+            room::REACHED,
+        ]
+        .concat(),
     );
 }
 

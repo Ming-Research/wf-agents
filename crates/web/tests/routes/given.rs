@@ -77,8 +77,8 @@ fn the_engine_s(_: &flow::Source) -> flow::Has {
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
+        tools: names(&["query"]),
         system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),
         details: names(&["files"]),
     }

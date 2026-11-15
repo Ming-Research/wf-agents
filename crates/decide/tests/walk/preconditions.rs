@@ -68,7 +68,10 @@ fn an_unmet_precondition_and_the_limit_at_one_cell_are_waited_for_at_once() {
             "implement",
             vec![
                 precondition("implement may go", vec![Maker::Owner]),
-                Waited::Limit { runs: 3 }
+                Waited::Limit {
+                    by: "review".into(),
+                    runs: 3
+                }
             ]
         )
     );

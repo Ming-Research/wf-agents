@@ -43,7 +43,7 @@ The wait before a round that failed in passing is tried again is a call of the r
 Why: Deciding then needs no clock, a wait made is known as made after a stop, and the work shows what it waits for and until when as for any call; deciding with the time as an input was turned down, since a decision could then not be taken again from the records alone.
 
 ### decision an-unread-return-is-sent-back
-A return that could not be read is sent back to the agent in its session, as any return that does not meet the form, and counts against the run's limit of returns sent back.
+A return that could not be read is sent back to the agent in its session, as any return that does not meet the form, and counts among the times the engine sent the cell back (the walk's decision the-same-sender-again).
 Why: The agent's work is done and only its hand-in is wrong, so running the round from its start would pay for it twice. Repairing a text that is no JSON, in the engine or by a cheap model, was turned down: the agent that wrote it holds in its session what it meant, while a repair guesses at it (judgment, not measured).
 
 ### decision a-flagged-round-begins-a-new-session

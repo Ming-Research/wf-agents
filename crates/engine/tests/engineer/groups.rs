@@ -132,8 +132,11 @@ fn each_trigger_of_each_cell_named_as_dealt_with_is_taken_for_any_block_it_stand
                     outputs: &cell.outputs,
                     groups: &cell.groups,
                     must_write: &[],
+                    asking: &cell.asks,
+                    // This test's returns are found wanting in nothing as they are read.
+                    questions: &[],
                     choices: &choices,
-                    returns: 3,
+                    again: 3,
                     told: &told,
                     // What answers an act is another rule's, and this test's returns write nothing.
                     answered_by: &BTreeMap::new(),

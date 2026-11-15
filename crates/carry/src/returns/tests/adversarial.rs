@@ -1,6 +1,7 @@
 //! Adversarial tests of the reading of a return. Reference: the acceptance of the work (a return in the form, or one of
-//! the few shapes it names, is read; anything else, an unknown field, a required field made up, is an `Err`), and the
-//! JSON grammar (RFC 8259) for what a string holding a form is.
+//! the few shapes it names, is read; anything else, an unknown field, a required field made up, is an `Err`, and a
+//! block of a shape written in another, the work's questions among them, is found not of its shape), and the JSON
+//! grammar (RFC 8259) for what a string holding a form is.
 
 use super::*;
 
@@ -23,7 +24,7 @@ fn a_null_unknown_field_in_a_question_still_fails() {
         json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
             "options": [], "bogus": null}]}}}),
     ] {
-        assert!(read(&r).is_err(), "{r} is taken");
+        questions_not_of_their_shape(&r);
     }
 }
 
@@ -41,7 +42,7 @@ fn a_null_unknown_field_in_a_kind_or_the_form_still_fails() {
 fn a_question_with_both_shapes_filled_fails() {
     let r = json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
         "options": [], "withdrawn": "No longer."}]}}});
-    assert!(read(&r).is_err());
+    questions_not_of_their_shape(&r);
 }
 
 #[test]

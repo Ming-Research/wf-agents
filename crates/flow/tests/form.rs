@@ -149,8 +149,8 @@ fn engineer() -> Compiled {
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
+        tools: names(&["query"]),
         system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),
         details: names(&["files"]),
     };
@@ -317,7 +317,7 @@ fn the_engineer_s_form_is_made_of_the_files_beside_the_repository_s_flows() {
     let value = parsed(&form);
     assert_eq!(in_order(&form, "{", &value["properties"]), ["tools", "outcome"]);
     let tools = &value["properties"]["tools"]["properties"];
-    assert_eq!(in_order(&form, "\"tools\": {", tools), ["query", "run_tests"]);
+    assert_eq!(in_order(&form, "\"tools\": {", tools), ["query"]);
     let outcome = &value["properties"]["outcome"];
     assert_eq!(outcome["required"], json!(["dealt_with"]));
     assert_eq!(outcome["additionalProperties"], json!(false));
@@ -335,5 +335,95 @@ fn the_engineer_s_form_is_made_of_the_files_beside_the_repository_s_flows() {
     assert_eq!(
         outcome["properties"]["protected_changes"],
         json!({ "type": "object", "additionalProperties": { "type": "string" } })
+    );
+}
+
+/// A shape, written as a block's file writes it.
+fn shape_of(text: &str) -> flow::Shape {
+    flow::Shape(toml::from_str(text).expect("a shape"))
+}
+
+// A value is of a shape where it is of the type it says, each property of the shape it gives with those it requires and
+// no other where it allows none, each item of the shape it gives, of one of the shapes `anyOf` gives, and one of the
+// values `enum` gives; as the record of the questions and a choice are written. Well under a millisecond alone; no
+// other test holds a value to a shape.
+#[test]
+fn a_value_is_of_a_shape_by_each_word_the_shape_is_written_in() {
+    let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/data/q_and_a.toml"))
+        .expect("the record of the questions");
+    let table: toml::Table = toml::from_str(&text).expect("TOML");
+    let questions = flow::Shape(table["shape"].clone());
+    let asked = json!({"name": "a", "waits": true, "recommends": 1, "ask": "Which?", "options": [
+        {"does": "this", "follows": "that"}
+    ]});
+    let withdrawn = json!({"name": "a", "withdrawn": "no longer"});
+    assert!(form::fits(&json!([asked.clone(), withdrawn.clone()]), &questions));
+    assert!(form::fits(&json!([]), &questions));
+    let mut wrong = vec![json!({"name": "a"}), json!(asked.clone())];
+    wrong[1]["recommends"] = json!("1");
+    for item in wrong {
+        assert!(!form::fits(&json!([item]), &questions), "{item}");
+    }
+    let mut more = asked.clone();
+    more["also"] = json!(true);
+    assert!(!form::fits(&json!([more]), &questions));
+    let mut option = asked.clone();
+    option["options"][0]["does"] = json!(1);
+    assert!(!form::fits(&json!([option]), &questions));
+    assert!(!form::fits(&json!(asked), &questions), "an array");
+    let choice = shape_of(
+        "type = \"object\"\nrequired = [\"value\"]\nproperties = { value = { type = \"string\", enum = [\"yes\", \"no\"] } }\n",
+    );
+    assert!(form::fits(&json!({"value": "yes", "why": "it holds"}), &choice));
+    assert!(!form::fits(&json!({"value": "maybe"}), &choice));
+    assert!(!form::fits(&json!({"why": "it holds"}), &choice));
+    let open = shape_of("type = \"object\"\nadditionalProperties = { type = \"integer\" }\n");
+    assert!(form::fits(&json!({"a": 1, "b": 2}), &open));
+    assert!(
+        form::fits(&json!({"a": 1.0}), &open),
+        "a whole number written as a float"
+    );
+    assert!(!form::fits(&json!({"a": 1.5}), &open));
+}
+
+// What of a shape the engine holds no return to as it says is found at every depth: a word it does not check, a word it
+// checks written in a form it does not read, and a type it does not know; a shape in the words it checks has none.
+// Well under a millisecond alone; no other test holds the words of a shape to those the engine checks.
+#[test]
+fn a_word_of_a_shape_the_engine_does_not_check_is_found_at_any_depth() {
+    let checked = shape_of(
+        "type = \"array\"\nitems = { anyOf = [{ type = \"object\", properties = { a = { type = \"string\" } }, \
+         required = [\"a\"], additionalProperties = false }, { enum = [\"b\"] }] }\n",
+    );
+    assert_eq!(form::unchecked(&checked), Vec::<String>::new());
+    let unchecked = shape_of(
+        "type = \"array\"\nminItems = 1\nitems = { anyOf = [{ type = \"date\" }, { type = \"object\", properties = \
+         { a = { type = \"string\", pattern = \"^a\" } } }] }\n",
+    );
+    assert_eq!(
+        form::unchecked(&unchecked),
+        ["`minItems`", "the type `date`", "`pattern`"]
+    );
+    let forms = shape_of(
+        "type = \"object\"\nproperties = { a = { type = [\"string\", \"null\"] }, b = { type = \"array\", items = [{ \
+         type = \"string\" }] }, c = { enum = \"x\" }, d = { type = \"object\", required = \"a\" }, e = { type = \
+         \"object\", required = [1] }, f = { anyOf = { type = \"string\" } }, g = { anyOf = [] }, h = { type = \
+         \"object\", properties = [\"a\"] }, i = { type = \"object\", additionalProperties = \"no\" }, j = { enum = [] } \
+         }\n",
+    );
+    assert_eq!(
+        form::unchecked(&forms),
+        [
+            "`type` written as an array",
+            "`items` written as an array",
+            "`enum` written as a string",
+            "`required` written as a string",
+            "`required` holding other than the names of properties",
+            "`anyOf` written as a table",
+            "`anyOf` written as an empty array",
+            "`properties` written as an array",
+            "`additionalProperties` written as a string",
+            "`enum` written as an empty array",
+        ]
     );
 }

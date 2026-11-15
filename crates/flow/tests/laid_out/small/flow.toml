@@ -4,6 +4,4 @@ order = ["plan", "judge", "design", "answer", "check", "merge"]
 data = ["request"]
 
 [limits]
-runs = 3
-returns = 2
-calls = 40
+again = 2

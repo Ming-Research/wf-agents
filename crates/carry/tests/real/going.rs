@@ -3,7 +3,7 @@
 use service::Act;
 use work::Spent;
 
-use crate::{Fake, NAMED, On, Real, ended, git_in};
+use crate::{Call, Fake, NAMED, On, Real, ended, git_in};
 
 #[tokio::test]
 async fn a_work_goes_to_its_merge_with_the_command_line() {
@@ -75,6 +75,50 @@ async fn a_work_merges_by_the_name_its_build_wrote_and_its_items_title_reaches_n
     assert_eq!(git_in(&real.repo, &["log", "-1", "--format=%s", "main"]), NAMED);
     let every = git_in(&real.repo, &["log", "--all", "--format=%B"]);
     assert!(!every.contains(&real.title), "{every}");
+}
+
+// A build that asks for the tests once, through the real carriers: its return is read with the entry it wrote, the cell
+// of the act that runs the tests runs them on the local repository and hands the result in as the build's own block,
+// and the build, entered again with it, is given it as the result of what it asked for and goes on to the merge. A few
+// seconds alone, a repository on disk and the fake command line; no other test runs an entry through the carriers.
+#[tokio::test]
+async fn a_build_that_asks_for_tests_once_is_given_their_result_and_the_work_merges() {
+    let mut real = Real::open(
+        On::Tested,
+        Fake {
+            asks_tests: true,
+            ..Fake::default()
+        },
+        None,
+        "echo the tests passed",
+    );
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    assert_eq!(
+        real.finished(work),
+        ["start", "build", "tests", "build", "check", "merge"]
+    );
+    let kept = real.work(work);
+    let entry = (kept.contents.iter())
+        .find(|((block, _), _)| block.as_str() == "run_tests")
+        .map(|(_, content)| content.clone())
+        .expect("the entry is kept");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&entry).ok(),
+        Some(serde_json::json!({"tests": [], "checks": []}))
+    );
+    let result = (kept.contents.iter())
+        .find(|((block, _), _)| block.as_str() == "build_tested")
+        .map(|(_, content)| content.clone())
+        .expect("the result is handed in");
+    assert!(result.contains("echo the tests passed"), "{result}");
+    let builds: Vec<Call> = real.calls().into_iter().filter(|c| c.of("Build")).collect();
+    assert_eq!(builds.len(), 2, "the build is entered again for the result");
+    assert!(
+        builds[1].stdin.contains("The tests you asked for"),
+        "the result is given"
+    );
 }
 
 #[tokio::test]

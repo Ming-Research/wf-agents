@@ -49,9 +49,9 @@ describe('what a work does now, in words', () => {
     expect(nowWords({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe(
       'Paused by the engine: The agent could not start.',
     );
-    expect(nowWords({ kind: 'waits', at: 'merge', on: [precondition, { kind: 'limit', runs: 3 }] })).toBe(
+    expect(nowWords({ kind: 'waits', at: 'merge', on: [precondition, { kind: 'limit', by: 'review', runs: 3 }] })).toBe(
       'Waits at merge for The owner approved the merge, which the owner can make hold; ' +
-        'the owner to let the cell go on: its last 3 runs in a row were each a way round',
+        'the owner to let the cell go on: review sent it back 3 times since its counts last started anew',
     );
     expect(nowWords({ kind: 'next', cell: 'plan' })).toBe('About to go on at plan');
   });
@@ -90,11 +90,14 @@ describe('what a work does now, in words', () => {
       'No cell that judged the work says it is not settled, which the owner or cell T1 can make hold',
     );
     expect(waitedWords(checked)).toBe('The check before the merge passed, which cell M1 can make hold');
-    expect(waitedWords({ kind: 'limit', runs: 1 })).toBe(
-      'the owner to let the cell go on: its last run was a way round',
+    expect(waitedWords({ kind: 'limit', by: 'review', runs: 1 })).toBe(
+      'the owner to let the cell go on: review sent it back once since its counts last started anew',
     );
-    const all = [question, tool, returns, calls, precondition, dependencies, settled, checked, { kind: 'limit', runs: 3 } as Waited];
-    expect(all.map(waitsForOwner)).toEqual([true, false, true, true, true, false, true, false, true]);
+    const tested: Waited = { kind: 'result', record: 'run_tests', by: ['T3'] };
+    expect(waitedWords(tested)).toBe('T3 to give the result of what it asked for in run_tests');
+    const limit: Waited = { kind: 'limit', by: 'review', runs: 3 };
+    const all = [question, tool, returns, calls, precondition, dependencies, settled, checked, limit, tested];
+    expect(all.map(waitsForOwner)).toEqual([true, false, true, true, true, false, true, false, true, false]);
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool] })).toBe('quiet');
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool, question] })).toBe('owner');
     // A check held because what fails also fails on main waits for main, and not for the owner.
@@ -189,6 +192,9 @@ describe('why a run ran, in words', () => {
     );
     expect(unmetWords({ kind: 'unchangedNotWritten', block: 'plan' })).toBe(
       'it named plan as unchanged in meaning, and did not write it',
+    );
+    expect(unmetWords({ kind: 'notOfItsShape', block: 'run_tests' })).toBe(
+      'it wrote run_tests in another shape than the form gives it',
     );
     expect(unmetWords({ kind: 'unexplained', path: 'AGENTS.md' })).toBe(
       'it left AGENTS.md, a file the project protects, changed, and said not why',

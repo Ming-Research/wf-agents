@@ -1,4 +1,4 @@
-//! A check or a call of `run_tests` given again after the engine started again, on the GitHub host: it finds the run
+//! A check or an entry of `run_tests` given again after the engine started again, on the GitHub host: it finds the run
 //! it asked for by the value the run's name holds, waits for it or reads it where it has ended, and asks for a run
 //! again only where it finds none of its own, or only cancelled ones; for the full workflows and the fast one alike.
 
@@ -35,14 +35,14 @@ impl Hub {
     async fn tests_asked(&self, named: &Named, call: Asking) -> Result<Option<String>, String> {
         let place = self.place();
         let branch = branch(&place);
-        self.host.run_tests(&branch, named, call, &mut Stop::never()).await
+        (self.host.run_tests(&branch, named, call, &mut Stop::never()).await).map_err(String::from)
     }
 
     /// The verdict the round of the check finds on the commit.
     async fn judged(&self, commit: &str, round: Asking) -> Result<Option<Verdict>, String> {
         let place = self.place();
         let (branch, main, mut stop) = (branch(&place), self.main_on_github(), Stop::never());
-        let verdict = self.host.verdict(&branch, commit, &main, round, &mut stop);
+        let verdict = self.host.verdict(&branch, commit, &main, (round, &[]), &mut stop);
         verdict.await.map_err(String::from)
     }
 
@@ -191,7 +191,7 @@ fn the_value_of_a_run_is_its_requests_own_and_the_same_whenever_it_is_worked_out
         commit,
         asking,
     };
-    let (call, round) = (Asking::Call(CallId(3)), Asking::Round(RunId(3), 1));
+    let (call, round) = (Asking::Entry(decide::Seq(3)), Asking::Round(RunId(3), 1));
     let value = hub.host.call(request(1, call, "c0ffee"), "ci.yml");
     assert_eq!(value, hub.host.call(request(1, call, "c0ffee"), "ci.yml"));
     assert!(
@@ -200,7 +200,8 @@ fn the_value_of_a_run_is_its_requests_own_and_the_same_whenever_it_is_worked_out
     );
     for other in [
         hub.host.call(request(2, call, "c0ffee"), "ci.yml"),
-        hub.host.call(request(1, Asking::Call(CallId(4)), "c0ffee"), "ci.yml"),
+        hub.host
+            .call(request(1, Asking::Entry(decide::Seq(4)), "c0ffee"), "ci.yml"),
         hub.host.call(request(1, round, "c0ffee"), "ci.yml"),
         hub.host
             .call(request(1, Asking::Round(RunId(3), 2), "c0ffee"), "ci.yml"),

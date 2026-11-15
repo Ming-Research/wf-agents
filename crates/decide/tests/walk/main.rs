@@ -9,6 +9,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod asking;
 mod before;
 mod changed_flow;
 mod failing;
@@ -136,7 +137,7 @@ fn on_test(test: &str, mut c: Cell) -> Cell {
 }
 
 fn with_limit(limit: u32, mut c: Cell) -> Cell {
-    c.limit = limit;
+    c.again = limit;
     c
 }
 
@@ -240,5 +241,14 @@ fn send_back(w: &mut World) {
 }
 
 fn at_limit(w: &World, runs: u32) {
-    assert_eq!(w.decide(), wait("implement", vec![Waited::Limit { runs }]));
+    assert_eq!(
+        w.decide(),
+        wait(
+            "implement",
+            vec![Waited::Limit {
+                by: "review".into(),
+                runs
+            }]
+        )
+    );
 }

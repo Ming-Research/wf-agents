@@ -1,0 +1,7 @@
+# A block of each cell that names it, under the block's name below, which the cell that carries out the act named
+# below hands in as its round ends: the result of the latest entry the cell wrote of `run_tests`. The cell waits for it
+# from that entry on, is run by it alone, and is given it as the result of what it asked for, which it names in no
+# `dealt_with`.
+what = "Fires when the tests the cell asked for in `run_tests` have run."
+block = "{cell}_tested"
+act = "run_tests"

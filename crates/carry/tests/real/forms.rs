@@ -44,22 +44,23 @@ async fn every_call_of_a_line_is_given_the_form_of_that_line_as_the_files_beside
 }
 
 // A session is given on every call the form and the system prompt it began with, though the flow changed in the
-// meantime: the engine started again with a flow whose plan may ask for one more tool, which would change both, gives
-// the build's later calls, in the session the plan began, what the plan's call was given.
+// meantime: the engine started again with a flow whose build may ask for no tool, which would change both, gives the
+// build's later calls, in the session the plan began, what the plan's call was given.
 #[tokio::test]
 async fn every_call_of_a_session_is_given_the_form_and_the_system_prompt_it_began_with_after_the_flow_changed() {
     let mut real = Real::trial(Fake {
         question_first: true,
+        quiet_after_answer: true,
         ..Fake::default()
     });
     let work = real.add().await;
     real.act(work, Act::Resume);
     real.until(|real| real.waited_question(work).is_some()).await;
     let before = real.form("engineer");
-    let plan = (real.flow.cells.iter_mut())
-        .find(|c| c.id.as_str() == "plan")
-        .expect("the plan");
-    plan.tools.push("run_tests".to_string());
+    let build = (real.flow.cells.iter_mut())
+        .find(|c| c.id.as_str() == "build")
+        .expect("the build");
+    build.tools.clear();
     real.restart();
     let after = real.form("engineer");
     assert_ne!(after, before, "the change reaches a form made anew");
@@ -80,10 +81,10 @@ async fn every_call_of_a_session_is_given_the_form_and_the_system_prompt_it_bega
         assert_eq!(system(call), system(session[0].1), "call {n}");
     }
     // The words of a tool begin with its name, as the list of the tools gives them.
-    let told = "`run_tests`: ";
-    assert!(crate::beside().tools["run_tests"].words.trim_start().starts_with(told));
+    let told = "`query`: ";
+    assert!(crate::beside().tools["query"].words.trim_start().starts_with(told));
     assert!(
-        !(session.iter()).any(|(_, call)| system(call).iter().any(|l| l.contains(told))),
-        "no call of the session is told of the tool the changed flow names"
+        (session.iter()).all(|(_, call)| system(call).iter().any(|l| l.contains(told))),
+        "every call of the session is told of the tool the flow named as the session began"
     );
 }

@@ -1,4 +1,5 @@
-//! The limit of ways round: runs in a row each for what cells after it wrote, each dealing with something.
+//! The limit of the times one sender sends a cell back: runs since its counts last began anew each for what one cell
+//! after it wrote, each dealing with something, counted for each such cell apart.
 
 use super::*;
 
@@ -141,7 +142,16 @@ fn two_cells_in_a_circle_are_bounded_by_the_earlier_ones_limit() {
     );
     w.run("a", &[("x", Matters)]);
     w.run("b", &[("y", Matters)]);
-    assert_eq!(w.decide(), wait("a", vec![Waited::Limit { runs: 2 }]));
+    assert_eq!(
+        w.decide(),
+        wait(
+            "a",
+            vec![Waited::Limit {
+                by: "b".into(),
+                runs: 2
+            }]
+        )
+    );
 }
 
 #[test]
@@ -158,7 +168,16 @@ fn a_run_that_dealt_with_nothing_is_passed_over_in_the_count_of_ways_round() {
     w.finish_dealing("a", &[], &[]);
     w.run("a", &[("x", Matters)]);
     w.run("b", &[("y", Matters)]);
-    assert_eq!(w.decide(), wait("a", vec![Waited::Limit { runs: 1 }]));
+    assert_eq!(
+        w.decide(),
+        wait(
+            "a",
+            vec![Waited::Limit {
+                by: "b".into(),
+                runs: 1
+            }]
+        )
+    );
 }
 
 #[test]
@@ -214,10 +233,19 @@ fn a_persons_confirmation_of_a_choice_a_later_cell_made_does_not_lift_the_limit(
     w.run("review", &[("verdict", Value("no"))]);
     w.run("implement", &[("code", Matters)]);
     w.run("review", &[("verdict", Value("yes"))]);
-    assert_eq!(w.decide(), wait("implement", vec![Waited::Limit { runs: 1 }]));
+    let limit = || {
+        wait(
+            "implement",
+            vec![Waited::Limit {
+                by: "review".into(),
+                runs: 1,
+            }],
+        )
+    };
+    assert_eq!(w.decide(), limit());
     // The confirmation is the latest version, but the meaning is still the one the review gave.
     w.person_confirms("verdict", "yes");
-    assert_eq!(w.decide(), wait("implement", vec![Waited::Limit { runs: 1 }]));
+    assert_eq!(w.decide(), limit());
 }
 
 #[test]

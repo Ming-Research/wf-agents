@@ -16,9 +16,7 @@ fn asking() -> Compiled {
         name = "asking"
         order = ["research", "implement", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.request]
         people = true
@@ -455,7 +453,7 @@ fn what_stands_for_the_questions_and_the_answers_is_the_engine_s_alone_to_write(
 /// writes in the words of its file; and the merge.
 fn laid_out() -> Compiled {
     let flow = "name = \"laid\"\norder = [\"ask\", \"merge\"]\ndata = [\"request\", \"q_and_a\"]\n\
-                [limits]\nruns = 3\nreturns = 2\ncalls = 3\n";
+                [limits]\nagain = 2\n";
     let ask = "title = \"Ask\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Plan, and ask.\"\n\
                triggered_by = [\"on_request\", \"on_answer\"]\ncontext = [\"request\", \"q_and_a\"]\n\
                outputs = [\"plan\"]\n[kinds]\nrequest = \"latest\"\nq_and_a = \"all\"\n";

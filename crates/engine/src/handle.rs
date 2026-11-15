@@ -90,8 +90,9 @@ pub fn handle_then(
         && let Some(told) = told(&flow.flow, &work.records, run)
     {
         let choices = choices(flow);
+        let questions = questions(flow);
         let answers = answers(flow, work, run);
-        if let Some(requires) = requires(flow, &choices, &answers, &told, work, run)
+        if let Some(requires) = requires(flow, (&choices, &questions), &answers, &told, work, run)
             && let Step::Finish { dealt_with, writes } = run::next(
                 &log(flow, work, run, &told),
                 requires,
@@ -298,7 +299,14 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 return Err(Refused::NoSuchCell(cell));
             }
             let at = work.tick();
-            work.records.let_go.push(LetGo { cell, at });
+            work.records.let_go.push(LetGo { cell: cell.clone(), at });
+            // A run of the cell that rests at its limit waits for the owner's word, which this is: the round is told so
+            // in the words the message gives a call at a limit, and the result itself says nothing more.
+            for call in at_limit(work, &cell) {
+                let at = work.tick();
+                work.records.done.push(Done { call, at });
+                work.results.insert(call, String::new());
+            }
         }
         Event::Paused { by, why } => {
             // The engine's pause of a work that has ended, as one a carrier asks for as a round of a cancelled work
@@ -448,7 +456,18 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             // before it could be.
             let at = work.tick();
             work.records.done.push(Done { call, at });
+            // The owner's word at the limit of a run that goes on lets its cell go on, which starts every count of the
+            // cell anew; one withdrawn with its run says nothing of the cell.
+            let limit = matches!(work.calls.get(&call), Some(Call::AtLimit(_)));
+            let run = (work.records.called.iter().find(|c| c.call == call)).map(|c| c.run);
+            let cell = (run.filter(|run| limit && open(work, *run)))
+                .and_then(|run| work.records.started.iter().find(|s| s.run == run))
+                .map(|s| s.cell.clone());
             work.results.insert(call, result);
+            if let Some(cell) = cell {
+                let at = work.tick();
+                work.records.let_go.push(LetGo { cell, at });
+            }
         }
         Event::Answer {
             question,
@@ -675,11 +694,12 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
 /// a wait made or came to rest for the owner at a limit, and not when a round of it began or is held.
 fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<Effect>) -> bool {
     let choices = choices(flow);
+    let questions = questions(flow);
     let answers = answers(flow, work, run);
     let Some(told) = told(&flow.flow, &work.records, run) else {
         return false;
     };
-    let Some(requires) = requires(flow, &choices, &answers, &told, work, run) else {
+    let Some(requires) = requires(flow, (&choices, &questions), &answers, &told, work, run) else {
         return false;
     };
     let Some(started) = work.records.started.iter().find(|s| s.run == run) else {
@@ -861,6 +881,15 @@ fn call(work: &mut Work, run: RunId, on: Option<Who>, what: Call, effects: &mut 
     effects.push(Effect::Call { call, run, what });
 }
 
+/// The records of the flow that hold the questions the cells ask the owner: those the engine's source of answers
+/// writes ([`flow::ANSWER`]).
+pub(crate) fn questions(flow: &Compiled) -> Vec<BlockId> {
+    (flow.blocks.iter())
+        .filter(|(_, b)| b.writers.outside.as_deref() == Some(flow::ANSWER))
+        .map(|(block, _)| block.clone())
+        .collect()
+}
+
 /// The values of each block of the flow that is a choice.
 pub(crate) fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
     (flow.blocks.iter())
@@ -872,7 +901,7 @@ pub(crate) fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
 /// not in the flow.
 pub(crate) fn requires<'a>(
     flow: &'a Compiled,
-    choices: &'a BTreeMap<BlockId, Vec<String>>,
+    (choices, questions): (&'a BTreeMap<BlockId, Vec<String>>, &'a [BlockId]),
     answered_by: &'a BTreeMap<BlockId, Answer>,
     told: &'a Told,
     work: &Work,
@@ -881,12 +910,15 @@ pub(crate) fn requires<'a>(
     let started = work.records.started.iter().find(|s| s.run == run)?;
     let place = flow.flow.place(&started.cell)?;
     let spec = flow.cells.get(place)?;
+    let cell = &flow.flow.cells()[place];
     Some(Requires {
-        outputs: &flow.flow.cells()[place].outputs,
-        groups: &flow.flow.cells()[place].groups,
+        outputs: &cell.outputs,
+        groups: &cell.groups,
         must_write: &spec.must_write,
+        asking: &cell.asks,
+        questions,
         choices,
-        returns: spec.returns,
+        again: cell.again,
         told,
         answered_by,
     })
@@ -894,7 +926,8 @@ pub(crate) fn requires<'a>(
 
 /// Of each block that runs the run's cell and that an act of the engine's after the cell writes, what runs that act
 /// again, as the flow's graph says it: the blocks that run the act, and whether the block of the questions' standing is
-/// among them. None where the run's cell is not in the flow.
+/// among them; and whether one of them already has a version new to the act, as the records stand. None where the
+/// run's cell is not in the flow.
 pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<BlockId, Answer> {
     let mut answers: BTreeMap<BlockId, Answer> = BTreeMap::new();
     let started = work.records.started.iter().find(|s| s.run == run);
@@ -909,13 +942,15 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
             let answer = answers.entry(block.clone()).or_default();
             answer.runs.extend(act.runs_on.iter().cloned());
             answer.question |= asked.is_some_and(|(id, _)| act.runs_on.contains(id));
+            answer.new |= !decide::new_to(&flow.flow, &work.records, &act.id).is_empty();
         }
     }
     answers
 }
 
-/// The run so far, as the deciding code reads it. A return of the form before a return said what it dealt with reads
-/// as one that dealt with nothing where it asked, and with everything that ran its round where it handed in.
+/// The run so far, as the deciding code reads it, with the returns of its cell's other runs the engine sent back since
+/// the cell's counts last began anew. A return of the form before a return said what it dealt with reads as one that
+/// dealt with nothing where it asked, and with everything that ran its round where it handed in.
 pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run::Log {
     // Whether a write holds nothing is told of the content the engine keeps of it, which of a record of what is said is
     // the cell's entry of what it handed in ([`spoken::entry`]).
@@ -990,16 +1025,40 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             returned: work.back.get(&(run, i + 1)).map(|b| returned(i, b)),
         })
         .collect();
-    // How many rounds had ended when the owner last let the run go on at a limit.
-    let let_go = (work.records.called.iter())
+    // How many rounds had ended when the owner last let the run go on at a limit, or let its cell go on: each lets the
+    // cell go on, and the owner's word at a run's limit is recorded so as well.
+    let cell = (work.records.started.iter().find(|s| s.run == run)).map(|s| s.cell.clone());
+    let from = cell
+        .as_ref()
+        .and_then(|cell| decide::again_from(&flow.flow, &work.records, cell));
+    // A run kept before the owner's word at its limit let its cell go on has that word alone.
+    let word = (work.records.called.iter())
         .filter(|c| c.run == run && matches!(work.calls.get(&c.call), Some(Call::AtLimit(_))))
-        .filter_map(|c| done(work, c.call))
+        .filter_map(|c| done(work, c.call));
+    let let_go = (work.records.let_go.iter())
+        .filter(|l| cell.as_ref() == Some(&l.cell))
+        .map(|l| l.at)
+        .chain(word)
         .max()
         .map_or(0, |at| {
             (work.records.returned.iter())
                 .filter(|r| r.run == run && r.at < at)
                 .count()
         });
+    // The returns of the cell's other runs the engine sent back since the cell's counts last began anew: each is the
+    // round after one, given why it was sent back.
+    let before = (work.records.started.iter())
+        .filter(|s| s.run != run && cell.as_ref() == Some(&s.cell))
+        .map(|s| {
+            let rounds = work.records.rounds.iter().filter(|r| r.run == s.run);
+            (rounds.enumerate())
+                .filter(|(k, r)| {
+                    from.is_none_or(|from| r.at > from)
+                        && matches!(work.given.get(&(s.run, k + 1)), Some(Given::SentBack(_)))
+                })
+                .count() as u32
+        })
+        .sum();
     // How many rounds had ended when the owner last let the work on after a pause.
     let let_on = (work.records.pauses.iter())
         .filter(|p| !p.paused)
@@ -1010,7 +1069,22 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
                 .filter(|r| r.run == run && r.at < at)
                 .count()
         });
-    run::Log { rounds, let_go, let_on }
+    run::Log {
+        rounds,
+        before,
+        let_go,
+        let_on,
+    }
+}
+
+/// The calls at a limit, of the runs of the cell, that have no result: the owner's word each waits for.
+fn at_limit(work: &Work, cell: &CellId) -> Vec<CallId> {
+    let records = &work.records;
+    (records.called.iter())
+        .filter(|c| matches!(work.calls.get(&c.call), Some(Call::AtLimit(_))) && done(work, c.call).is_none())
+        .filter(|c| (records.started.iter()).any(|s| s.run == c.run && &s.cell == cell))
+        .map(|c| c.call)
+        .collect()
 }
 
 /// The waits the engine made after the run's round at this place, counted from none, which failed in passing: those

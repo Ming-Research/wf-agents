@@ -107,7 +107,7 @@ describe('what a card shows of an item', () => {
         by: [{ kind: 'outside', source: 'dependencies' }],
       },
       { kind: 'precondition', test: 'checked', words: 'The check before the merge passed', by: [{ kind: 'cell', cell: 'M1' }] },
-      { kind: 'limit', runs: 3 },
+      { kind: 'limit', by: 'review', runs: 3 },
     ],
   };
 

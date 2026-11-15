@@ -11,7 +11,7 @@ use decide::{Decision, Holder, Room, decide_in, hold_in, paused, told};
 use flow::Compiled;
 use work::Work;
 
-use crate::handle::{answers, choices, log, requires};
+use crate::handle::{answers, choices, log, questions, requires};
 
 /// What holds back the round the work would begin next, in the room the engine leaves it; none where nothing does, or
 /// where the work would begin no round. Of the holders, the work's own pause is given first, for only the owner lifts
@@ -30,9 +30,10 @@ pub fn held(flow: &Compiled, work: &Work, room: Room) -> Option<Holder> {
         Decision::Wait { on, .. } if on == [decide::Waited::Slot] => Some(Holder::Slot),
         Decision::GoOn { run, .. } => {
             let choices = choices(flow);
+            let questions = questions(flow);
             let answers = answers(flow, work, run);
             let told = told(&flow.flow, records, run)?;
-            let requires = requires(flow, &choices, &answers, &told, work, run)?;
+            let requires = requires(flow, (&choices, &questions), &answers, &told, work, run)?;
             let log = log(flow, work, run, &told);
             let held = |hold: Hold| run::next(&log, requires, hold) == Step::Held;
             // The pauses alone, as if a slot were free; then everything the room holds back.

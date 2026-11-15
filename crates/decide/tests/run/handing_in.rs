@@ -91,6 +91,126 @@ fn a_return_that_deals_with_only_part_of_what_ran_its_round_is_still_held_to_wha
     assert_eq!(step(vec![partial], &s), finish);
 }
 
+/// The same cell, which must hand in these blocks each time, and asks for tests in `tests`.
+fn asking_for_tests(blocks: &[&str]) -> Spec {
+    let mut s = must_write(blocks);
+    s.outputs.push("tests".into());
+    s.asking = vec![Asks {
+        record: "tests".into(),
+        result: "tested".into(),
+    }];
+    s
+}
+
+// Each entry of a record is new: a return that writes an entry of a record as changing nothing in meaning is sent back,
+// whatever the record, so that the run's check, which reads it as leaving its cell waiting, and the walk, which would
+// read it as no entry, never read it two ways. Well under a millisecond alone; no other test holds it.
+#[test]
+fn an_entry_written_as_changing_nothing_in_meaning_is_sent_back() {
+    let mut s = asking_for_tests(&[]);
+    let record = Standing {
+        told: None,
+        latest: None,
+        value: None,
+        added: true,
+    };
+    s.told.outputs.insert("tests".into(), record);
+    let entry = Write {
+        meaning_unchanged: true,
+        ..prose("tests")
+    };
+    let unmet = vec![Unmet::EntryUnchanged { block: "tests".into() }];
+    assert_eq!(step(vec![works(&[], vec![entry])], &s), send_back(unmet));
+    assert!(matches!(
+        step(vec![works(&[], vec![prose("tests")])], &s),
+        Step::Finish { .. }
+    ));
+}
+
+// A block that would leave the cell waiting, the record it asks for tests in or the record of its questions, written in
+// another shape than its own leaves it unknown whether the return waits: it is sent back for the shape alone, not also
+// for dealing with nothing, for a block its cell must write or for an act's words it leaves unanswered, all of which
+// a return that waits may do. Well under a millisecond alone; no other test holds a check to what depends on another.
+#[test]
+fn a_block_that_would_leave_its_cell_waiting_written_in_another_shape_is_sent_back_for_that_alone() {
+    let mut s = asking_for_tests(&["verdict"]);
+    s.outputs.push("questions".into());
+    s.questions = vec!["questions".into()];
+    s.answered_by = BTreeMap::from([(
+        "request".into(),
+        Answer {
+            runs: vec!["plan".into()],
+            question: false,
+            new: false,
+        },
+    )]);
+    for block in ["tests", "questions"] {
+        let unmet = vec![Unmet::NotOfItsShape { block: block.into() }];
+        let round = came(&[], vec![], unmet.clone(), false);
+        assert_eq!(step(vec![round], &s), send_back(unmet), "{block}");
+    }
+    // Dealing with what an act wrote, and answering it with nothing, is no fault while it is not known to wait.
+    let unmet = vec![Unmet::NotOfItsShape { block: "tests".into() }];
+    let round = came(&["request"], vec![], unmet.clone(), false);
+    assert_eq!(step(vec![round], &s), send_back(unmet));
+    // A block of a shape that would not leave it waiting leaves the other checks as they were.
+    let unmet = vec![Unmet::NotOfItsShape { block: "plan".into() }];
+    let round = came(&["request"], vec![], unmet.clone(), false);
+    let mut expected = unmet;
+    expected.push(Unmet::NotHandedIn {
+        block: "verdict".into(),
+    });
+    expected.push(Unmet::Unanswered {
+        block: "request".into(),
+    });
+    assert_eq!(step(vec![round], &s), send_back(expected));
+}
+
+// A return that writes an entry in which its cell asks for tests leaves the cell waiting for the result, and so owes
+// nothing else: it may leave out what its cell must write, and deal with nothing (decision a-wait-holds-its-cell).
+#[test]
+fn a_return_that_asks_for_tests_leaves_its_cell_waiting_and_owes_nothing_else() {
+    let s = asking_for_tests(&["verdict", "plan"]);
+    let finish = Step::Finish {
+        dealt_with: vec![],
+        writes: vec![prose("tests")],
+    };
+    assert_eq!(step(vec![works(&[], vec![prose("tests")])], &s), finish);
+    // One that asks for nothing is held to them as before.
+    let unmet = vec![
+        Unmet::DealtWithNothing,
+        Unmet::NotHandedIn {
+            block: "verdict".into(),
+        },
+        Unmet::NotHandedIn { block: "plan".into() },
+    ];
+    assert_eq!(step(vec![works(&[], vec![])], &s), send_back(unmet));
+}
+
+// What an act after the cell said to it and the cell dealt with must leave something new that runs the act again; a
+// return that leaves the cell waiting owes nothing of it either, as it comes back to the cell once its result is in.
+#[test]
+fn a_return_that_asks_for_tests_owes_no_answer_to_an_act_s_block_it_dealt_with() {
+    let mut s = asking_for_tests(&[]);
+    s.told.ran_by = vec!["check".into()];
+    s.answered_by = BTreeMap::from([(
+        "check".into(),
+        Answer {
+            runs: vec!["head".into()],
+            question: false,
+            new: false,
+        },
+    )]);
+    let asks = works(&["check"], vec![prose("tests")]);
+    let finish = Step::Finish {
+        dealt_with: vec!["check".into()],
+        writes: vec![prose("tests")],
+    };
+    assert_eq!(step(vec![asks], &s), finish);
+    let unanswered = vec![Unmet::Unanswered { block: "check".into() }];
+    assert_eq!(step(vec![works(&["check"], vec![])], &s), send_back(unanswered));
+}
+
 #[test]
 fn a_return_with_a_question_that_waits_is_held_to_no_block_its_cell_must_write_and_may_deal_with_nothing() {
     let s = must_write(&["verdict", "plan"]);

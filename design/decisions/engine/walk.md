@@ -18,20 +18,22 @@ Why: A choice beside the block, written yes where the block held an entry, copie
 and its writer could let the two disagree. Giving the walk the contents beside the records was turned down: what
 decides a work would then be more than its records.
 
-### decision every-way-round-has-a-limit
-Each thing the flow lets repeat has a limit: how many runs of a cell in a row are ways round, how often what a run
-returns is sent back, and how many runs of a cell in a row each ask for calls and deal with nothing before it is entered
-again for their results; at a limit the work waits for the owner. A run is a way round when every version new to it as
-it started was written by a cell after it, and its return dealt with something. A run with a reason that a person, the
-outside or a cell before it wrote starts the count anew, and so does the owner's letting a cell go on; a run that dealt
-with nothing, or was entered only for the results of its calls, is passed over. The count of calls is ended by a run
-that dealt with something.
-Why: In any circle of cells that send each other round, the first of them in the order runs only for what the later
-ones wrote, so its count grows whatever the others' reasons are, and one count bounds them all. A person's opinion is
-the owner steering and no circle, so it starts the count anew, and the owner is not asked to let go on what the owner
-sent back (principle no-unseen-spending-loop). A run that dealt with nothing leaves what ran it new and is entered again
-at once, so it is no step round the circle; a return that deals with nothing and asks for nothing is sent back, and
-one that only asks is bounded by the count of calls, so that neither repeats unseen.
+### decision the-same-sender-again
+A cell sent back is counted by who sent it: the engine, for each of its returns the engine sent back; a cell after it,
+for each run of it that dealt with a version that cell wrote; the result of what the cell asked for comes from no one.
+One sender may send the cell back as many times in a row as the flow's `again` says, and at the next the work waits for
+the owner at the cell, naming the sender. A run with a reason that a person, the outside or a cell before it wrote
+starts every count of the cell anew, and so does the owner's letting the cell go on, as the owner's word at a run's
+limit does; a run that dealt with nothing is passed over.
+Why: One count of runs that were ways round, and one of returns within a run, stopped courses that went well: work 9's
+implementation, sent back by its testing, its review and the check in turn, each for a cause of its own, waited for the
+owner at the third though no reviewer had repeated itself. A sender asking the same again is what runs away, and in a
+circle the first cell in the order counts what each later one wrote, so a count for each sender still bounds every
+circle. A person's opinion is the owner steering and no circle, so it starts the counts anew, and the owner is not asked
+to let go on what the owner sent back (principle no-unseen-spending-loop). A run that dealt with nothing leaves what ran
+it new and is entered again at once, so it is no step round. Counting runs that only ask among them was turned down:
+asking is no sending back, and how often a cell asks is judged by its history (decision
+asking-is-judged-by-its-history).
 
 ### decision meaning-told-by-the-writer
 A block that is a choice or a list of names changes its meaning when its value does, whoever writes it, and a return
@@ -49,27 +51,59 @@ goes up at each change of meaning, which would leave which version a write is co
 (Article 3). A run abandoned for what changed under it, as the walk once did, threw away a round's work that a round
 told of the change could keep (principle keep-what-was-paid-for).
 
-### decision a-question-that-waits-holds-its-cell
-A question a cell waits for holds the work at that cell while it stands with no answer to its latest version: no later cell runs, and the cell is entered meanwhile only for the owner turning to it, by a version no run of it has seen, and for the results of the calls such a run asked for, its round held to nothing its cell must write, as the cell stood when the round began; a run of it that is at rest still goes on to hand its return in. The answer runs the cell again by its trigger of an answer; the wait is read from the questions and the answers, and is no call.
-Why: Put to the owner as a call, the question was its run's and not the work's: it could not be asked anew or withdrawn
-under its name, an answer to an older version could not be told from one to the latest, and an answer came back twice,
-as the call's result and as the trigger of an answer (design document `data-and-context`, 35, 36). Entering the cell
-meanwhile for something else new to it was turned down: that round could settle nothing the answer may not undo, and
-what is new stays new for the round the answer begins (a judgment, with no case behind it). The owner's words are let
-in, since the cell answers them at once and goes on waiting: words about the question a cell waited on reached no
-round until the answer (work 4); so are the results a round answering them asked for, which otherwise waited for the
-answer too. A round so entered whose question is answered while it runs owes nothing it was not told it owed: judged
-as the work stands when it returns, it was sent back for not writing what the answer, not the owner's words, asks.
+### decision a-wait-holds-its-cell
+A cell waits while what it asked for has not come: the result of a call of a tool; the result of the tests it asked for
+by its latest entry of `run_tests`; the owner's answer to the latest version of a question it waits for. A waiting cell
+holds the work: no later cell runs but what ends the wait, the engine making the call, the cell the record runs giving
+the result, the owner answering; and the cell is entered meanwhile only for the owner turning to it, by a version no
+run of it has seen, and for the results of the calls such a run asked for, as the cell stood when the round began; a
+run of it that is at rest still goes on to hand its return in. A return that leaves its cell waiting owes nothing else:
+it may leave out the blocks its cell must write every time and deal with nothing. A result comes in a block of the
+cell's own, which the cell that gives it hands in with the end of its round, as one of its outputs, and which runs the
+asking cell alone and every run of it told of it takes; it is the end of a wait, named in no `dealt_with`. An entry
+replaced by a newer one of the same cell has no result, and what it asked the host for is cancelled. The answer runs
+the cell again by its trigger of an answer; a wait is read from the records, and a question is no call.
+Why: Each wait was an exception of its own, the question that waits, the round entered for the owner while its cell
+waited for calls, and those planned for a test run, and each left holes: a test run's commit moved the work's head, and
+the review ran on it while the implementation waited for the result; an implementation given a green result was sent
+back for not dealing with it, though it had nothing to do but hand its work in. One rule for every wait closes them.
+Put to the owner as a call, a question was its run's and not the work's: it could not be asked anew or withdrawn under
+its name, an answer to an older version could not be told from one to the latest, and an answer came back twice, as the
+call's result and as the trigger of an answer (design document `data-and-context`, 35, 36). Entering the cell meanwhile
+for something else new to it was turned down: that round could settle nothing the result may not undo, and what is new
+stays new for the round the result begins (a judgment, with no case behind it). The owner's words are let in, since the
+cell answers them at once and goes on waiting: words about the question a cell waited on reached no round until the
+answer (work 4); so are the results a round answering them asked for, which otherwise waited for the answer too. A
+round so entered whose question is answered while it runs owes nothing it was not told it owed: judged as the work
+stands when it returns, it was sent back for not writing what the answer, not the owner's words, asks. A result named
+as dealt with would be held to the rule that an act's block is answered (decision an-act-is-answered-by-what-runs-it),
+and a green result would send the cell back for answering it by nothing but its work. Written from outside in the
+middle of the round that gave it, a result ended the wait before that round ended, and the owner's word to a cell the
+wait had held behind it stopped the round, which lost what it ran from its history and ran again for nothing; handed in
+with the round's end, it is what the round did, on its return and on the chart.
+
+### decision a-wait-of-a-skipped-cell-is-put-away
+A wait of a cell that no longer applies is put away: it holds nothing, the cell that gives what it waits for gives it
+nothing, and it is waited for again once the cell applies again. The cell that gives the result of an entry is then
+entered for it, though it took the record in before, passing over the entry while its cell was skipped. Of a question,
+the engine's record of the questions' standing (`asked`) holds the merge whatever cell asked it, skipped or not.
+Why: Run for a cell that no longer applies, its entry ran later on another cell's commit, for a cell whose work no
+longer counted, and gave a result to none that read it. One rule for every wait keeps a skipped cell from holding, or
+spending, for what it no longer does.
 
 ### decision the-owner-turning-to-a-waiting-cell-enters-it-once
-While a cell waits for the results of its calls, the owner turning to it, by words or by an answer, enters it only for
-a version no run of the cell has seen: none that finished was told it, and none still open holds it. A run so entered
-that asks for calls in turn leaves what the owner wrote new, for the run their results begin, which deals with both; a
-run abandoned, its round stopped or its return unread, saw nothing, and the cell is entered for the version again.
+While a cell waits (decision a-wait-holds-its-cell), the owner turning to it, by words or by an answer, enters it only
+for a version no run of the cell has seen: none that finished was told it, and none still open holds it; and only such a
+version, of a cell no waiting cell holds back, stops a round under way of a later cell. A run so entered that asks in
+turn leaves what the owner wrote new, for the run the results begin, which deals with both; a run abandoned, its round
+stopped or its return unread, saw nothing, and the cell is entered for the version again.
 Why: Entered again for the same version each time such a run asked, the cell went round without end, a call asked at
-each turn, and no limit counted it, since the limit of calls counts only the runs entered for their results: a build
-entered for an answer that asked for a tool first did so in the real carriers' tests. Counted from the cell's last run
-begun instead, a version told to a run that was then abandoned waited for every result before any run answered it.
+each turn, and no limit counted it: a build entered for an answer that asked for a tool first did so in the real
+carriers' tests. Counting a version the cell was told as the owner turning to it stopped a round for words the asking
+cell had answered before it asked. And words to a cell held behind a wait would stop the very round that is ending that
+wait, while the cell spoken to can run only once the wait is over: the work would be held for ever. Counted from the
+cell's last run begun instead, a version told to a run that was then abandoned waited for every result before any run
+answered it.
 
 ### decision a-work-no-cell-can-move-is-stalled
 A work that waits only for what cells write, at a cell whose preconditions only cells make hold or at its last cell

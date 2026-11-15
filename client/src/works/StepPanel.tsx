@@ -450,7 +450,7 @@ const ACT_WORDS = {
 /// An act on the work: a let-go, a pause, a let-on or a cancel of the owner's, or a pause of the engine's.
 export function ActPanel({ step, fold }: PanelProps & { step: Step & { kind: keyof typeof ACT_WORDS } }) {
   const what = {
-    letGo: step.kind === 'letGo' ? `The owner let ${step.cell} go on past its limit of ways round, and its count started anew` : '',
+    letGo: step.kind === 'letGo' ? `The owner let ${step.cell} go on, and every count of the times it was sent back started anew` : '',
     paused:
       step.kind === 'paused' && step.by === 'engine'
         ? `The engine paused the work: only a note to a cell is answered until the owner lets it on. Why: ${step.why ?? 'it gave no reason'}`

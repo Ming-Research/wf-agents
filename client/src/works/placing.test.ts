@@ -119,7 +119,7 @@ describe('the list of works', () => {
       summary(1, { kind: 'merged' }, 900),
       summary(2, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 500),
       summary(3, { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'x', input: '' } }] }, 800),
-      summary(4, { kind: 'waits', at: 'merge', on: [{ kind: 'limit', runs: 3 }] }, 100),
+      summary(4, { kind: 'waits', at: 'merge', on: [{ kind: 'limit', by: 'review', runs: 3 }] }, 100),
       summary(5, { kind: 'paused', by: 'owner', why: null }, 950, true),
       summary(6, { kind: 'fault', words: 'x' }, 10),
       summary(7, { kind: 'waits', at: 'plan', on: [{ kind: 'precondition', test: 't', words: 'w', by: [{ kind: 'owner' }] }] }, 200),

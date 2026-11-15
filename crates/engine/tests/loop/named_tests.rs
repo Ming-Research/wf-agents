@@ -9,9 +9,7 @@ fn forked() -> Compiled {
         name = "forked"
         order = ["ask", "extra", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.request]
         people = true

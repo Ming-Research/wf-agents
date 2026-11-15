@@ -99,6 +99,23 @@ fn a_return_that_answers_the_check_with_nothing_new_is_sent_back() {
     assert_eq!(w.round().1, "T1", "the fix runs the review");
 }
 
+// The check failed on a conflict, and main moved while the implementation answered it: it merges the new main in,
+// which resolves the conflict and leaves the head where it was, and hands in its code. Main, new to the check already,
+// runs it again, and the return is taken.
+#[test]
+fn a_return_that_answers_the_check_while_main_already_runs_it_again_is_taken() {
+    let mut w = reviewed_at_c1();
+    w.hands_in("M1", &[("checked", Some("no")), ("check", None)], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "I1");
+    w.on(wrote("main", Outsider::Outside, None));
+    let effects = w.returns("I1", &["on_check"], &[("code", None)]);
+    let sent_back =
+        (effects.iter()).any(|e| matches!(e, Effect::Round { run: r, given: Given::SentBack(_), .. } if *r == run));
+    assert!(!sent_back, "{effects:?}");
+    assert!(w.work.records.finished.iter().any(|f| f.run == run));
+}
+
 // A commit no round handed in, as a person's, is read by the check from outside for its round, which fails in passing
 // as the review has not seen it: the review runs on it first, and the check is taken again after its wait.
 #[test]

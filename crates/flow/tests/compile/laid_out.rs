@@ -266,7 +266,7 @@ fn each_fault_is_in_the_file_of_the_thing_it_is_about_flow_toml_first_then_the_c
         "context = [\"plan\"]",
         "context = [\"plan\", \"ghost\"]",
     );
-    let source = edit(source, FLOW_FILE, "calls = 40", "calls = 0");
+    let source = edit(source, FLOW_FILE, "again = 2", "again = 0");
     let source = edit(
         source,
         "blocks/judging/opinions.toml",
@@ -281,7 +281,7 @@ fn each_fault_is_in_the_file_of_the_thing_it_is_about_flow_toml_first_then_the_c
     assert_eq!(
         faults(&source),
         [
-            at(FLOW_FILE, "limits.calls", LimitOutOfRange { value: 0 }),
+            at(FLOW_FILE, "limits.again", LimitOutOfRange { value: 0 }),
             at("cells/judge.toml", "context[1]", NoSuchBlock { block: "ghost".into() }),
             at(
                 "blocks/judging/opinions.toml",

@@ -1,10 +1,11 @@
 //! The local repository as the host: main is its own main branch, the verdict is the project's check command run in
-//! the work's worktree, and the merge is made in its checkout. An agent's `run_tests` runs the same command on the
-//! worktree as it stands, what is not committed included, and says what it said, whether it passed or not.
+//! the work's worktree, and the merge is made in its checkout. The tests a cell asks for run the same command on the
+//! worktree as it stands, what is not committed included, and say what it said, whether it passed or not; nothing of
+//! them goes on once their round is stopped, and nothing is found again.
 
 use std::path::Path;
 
-use flow::agents::{LocalWords, Tool, fill};
+use flow::agents::{LocalWords, RunTests, fill};
 
 use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::git;
@@ -18,7 +19,7 @@ pub struct Local {
     project: Project,
     /// The variables of the engine's environment the check command is given beside those always given.
     env: Vec<String>,
-    /// What `run_tests` says here, from the tool's file beside the flows.
+    /// What a run of the tests says here, from the act's file beside the flows.
     words: Option<LocalWords>,
 }
 
@@ -31,9 +32,9 @@ impl Local {
         }
     }
 
-    /// The host that says what `run_tests` says in the words of the tool's file.
-    pub fn saying(mut self, tool: Option<&Tool>) -> Local {
-        self.words = tool.and_then(|tool| tool.local.clone());
+    /// The host that says what a run of the tests says in the words of the act's file.
+    pub fn saying(mut self, words: Option<&RunTests>) -> Local {
+        self.words = words.map(|words| words.local.clone());
         self
     }
 
@@ -43,10 +44,10 @@ impl Local {
         self
     }
 
-    /// What `run_tests` says here, or why there are no words.
+    /// What a run of the tests says here, or why there are no words.
     fn words(&self) -> Result<&LocalWords, String> {
         (self.words.as_ref())
-            .ok_or_else(|| "the words of run_tests (agents/tools/run_tests.toml) have no [local]".to_string())
+            .ok_or_else(|| "the words of run_tests (agents/acts/run_tests.toml) are not given".to_string())
     }
 
     /// Runs the check command in the directory, and says whether it passed with what it said; none where it was told
@@ -81,7 +82,7 @@ impl Host for Local {
         branch: &Branch<'_>,
         _: &str,
         _: &str,
-        _: Asking,
+        _: (Asking, &[Asking]),
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
         let dir = git::worktree(branch.place)?;
@@ -114,7 +115,7 @@ impl Host for Local {
         named: &Named,
         _: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         let words = self.words()?;
         let ran = match git::worktree(branch.place) {
             Ok(dir) => self.run(&dir, stop).await,
@@ -131,6 +132,11 @@ impl Host for Local {
                 format!("{}\n\n{said}", words.not_apart)
             }
         }))
+    }
+
+    /// A run of the tests here ends with its round: nothing of it is under way to cancel.
+    async fn cancel_tests(&self, _: &Branch<'_>, _: &[Asking]) -> Result<(), Failed> {
+        Ok(())
     }
 
     /// The local repository holds nothing for a work beside its branch and its worktrees, which the acts let go.

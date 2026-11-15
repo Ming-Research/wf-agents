@@ -7,6 +7,38 @@ use crate::support::{at, compiled, edit, faults, faults_with, has, unreadable, v
 
 const PLAN_INPUTS: &str = r#"inputs = ["request", "opinions"]"#;
 
+// A block's shape is written in the words the engine holds a return to as it reads it, in the forms it reads them in:
+// any other is a fault of the flow, at the block's shape. Well under a millisecond alone; no other test holds a flow to
+// the shapes the engine checks.
+#[test]
+fn a_block_s_shape_in_a_word_the_engine_does_not_check_is_a_fault() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.design]",
+        "[blocks.design]\nshape = { type = [\"string\", \"null\"], minLength = 1 }",
+    );
+    let what = |word: &str| ShapeNotChecked {
+        block: "design".to_string(),
+        word: word.to_string(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "blocks.design.shape", what("`type` written as an array")),
+            at(FLOW_FILE, "blocks.design.shape", what("`minLength`")),
+        ]
+    );
+    let checked = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.design]",
+        "[blocks.design]\nshape = { type = \"string\" }",
+    );
+    let shape = compiled(&checked).blocks[&"design".into()].shape.clone();
+    assert!(shape.is_some(), "a shape in the words the engine checks compiles");
+}
+
 #[test]
 fn every_block_a_cell_reads_or_writes_is_declared() {
     let source = edit(
@@ -261,8 +293,8 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -271,7 +303,65 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
         .filter(|b| compiled.flow.adds_entries(b))
         .map(|b| b.as_str())
         .collect();
-    assert_eq!(records, ["discussion", "q_and_a"]);
+    assert_eq!(records, ["discussion", "q_and_a", "run_tests"]);
+}
+
+// The cells that write the record of the tests ask for them, each waiting for a block of its own, which the cell of the
+// act that runs the tests has among its outputs, as the trigger of the result says the act writes it: the act hands the
+// results in with its round's end, and each block holds what it handed in, standing for no trigger alone. Well under a
+// second alone; no other test holds the compiler to where the results are written.
+#[test]
+fn the_cells_that_ask_for_tests_wait_for_results_the_act_that_runs_them_hands_in() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+    let source = flow::read(&dir).expect("the engineer's flow is read");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
+        tools: names(&["query"]),
+        details: names(&["files"]),
+        ..Default::default()
+    };
+    let compiled = flow::compile(&source, &has).expect("the engineer's flow compiles");
+    let asking: Vec<(&str, &str, &str)> = (compiled.flow.cells().iter())
+        .flat_map(|c| {
+            c.asks
+                .iter()
+                .map(move |a| (c.id.as_str(), a.record.as_str(), a.result.as_str()))
+        })
+        .collect();
+    assert_eq!(
+        asking,
+        [
+            ("R1", "run_tests", "r1_tested"),
+            ("D1", "run_tests", "d1_tested"),
+            ("I1", "run_tests", "i1_tested"),
+            ("T2", "run_tests", "t2_tested")
+        ]
+    );
+    let t3 = (compiled.flow.cells().iter())
+        .find(|c| c.id.as_str() == "T3")
+        .expect("the flow has T3");
+    let mut outputs: Vec<&str> = t3.outputs.iter().map(|b| b.as_str()).collect();
+    outputs.sort_unstable();
+    assert_eq!(outputs, ["d1_tested", "i1_tested", "r1_tested", "t2_tested"]);
+    for (cell, _, result) in asking {
+        let block = &compiled.blocks[&decide::BlockId::from(result)];
+        assert_eq!(block.writers.cells, [decide::CellId::from("T3")], "{result}");
+        assert_eq!(block.writers.outside, None, "{result}");
+        assert!(!block.trigger, "{result} holds what the act hands in");
+        assert_eq!(block.readers.cells, [decide::CellId::from(cell)], "{result}");
+    }
 }
 
 #[test]
@@ -291,8 +381,8 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };

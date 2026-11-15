@@ -3,15 +3,17 @@
 //! name holds, which is worked out from what asked for it; and what each reports, read from the JUnit XML it uploads
 //! (`results`) and never from a log.
 //!
-//! The value is the same each time the same call of `run_tests` or the same round of the check asks for the same
-//! workflow on the same commit, and is had by no other: given again after the engine started again, the request
-//! finds the run it asked for before and waits for it, or reads it where it has ended, and asks for a run again only
-//! where it finds none but runs that were cancelled, which judged nothing.
+//! The value is the same each time the same entry in which a cell asked for tests, or the same round of the check,
+//! asks for the same workflow on the same commit, and is had by no other: given again after the engine started again,
+//! or after the round that asked was stopped, the request finds the run it asked for before and waits for it, or reads
+//! it where it has ended, and asks for a run again only where it finds none but runs that were cancelled, which judged
+//! nothing. A run of an entry a newer one replaced is cancelled, found by the same value on the branch's commits.
 //!
-//! - fast: runs only the tests and checks a request names, and builds only what they need; every `run_tests` that
-//!   names tests or checks is run by it, and so is what the check before a merge runs again of what failed.
-//! - full: the workflows that hold every job required to merge; a `run_tests` that names none is run by them, once, on
-//!   the work's last commit, and so is the check before a merge.
+//! - fast: runs only the tests and checks a request names, and builds only what they need; every entry that names
+//!   tests or checks is run by it, and so is what the check before a merge runs again of what failed.
+//! - full: the workflows that hold every job required to merge; an entry that names none is run by them, once, on the
+//!   work's last commit, and so is the check before a merge, but where the full workflows of such an entry passed on
+//!   the very commit it checks.
 //!
 //! What is said of a run: each test, with what became of it, how long it took and what a failed one said; and each
 //! job of the workflow, with how it ended and, where it ran to a conclusion, the wall time GitHub records for it. A
@@ -19,7 +21,7 @@
 
 use std::time::Duration;
 
-use flow::agents::{Ci, CiFast, CiFull, ResultWords, Tool, fill};
+use flow::agents::{Ci, CiFast, CiFull, ResultWords, RunTests, fill};
 use store::WorkNumber;
 use uuid::Uuid;
 
@@ -150,22 +152,18 @@ pub(super) enum Role<'a> {
 }
 
 impl<A: Api> GitHub<A> {
-    /// The words of the tool, or why there are none.
-    fn tool(&self) -> Result<&Tool, String> {
+    /// The words of the act that runs the tests, or why there are none.
+    fn tool(&self) -> Result<&RunTests, String> {
         self.config
             .tool
             .as_ref()
-            .ok_or_else(|| "the words of run_tests (agents/tools/run_tests.toml) are not given".to_string())
+            .ok_or_else(|| "the words of run_tests (agents/acts/run_tests.toml) are not given".to_string())
     }
 
     /// Why a request cannot be run by the project's workflows, in the words of the tool's file, or the workflow it is
     /// run by: the fast one where it names tests or checks, the full ones where it names none.
     pub(super) fn role<'a>(&'a self, ci: Option<&'a Ci>, named: &Named) -> Result<Result<Role<'a>, String>, String> {
-        let words = self
-            .tool()?
-            .github
-            .as_ref()
-            .ok_or("the words of run_tests have no [github]")?;
+        let words = &self.tool()?.github;
         let have = self.config.runners.join(", ");
         let runner_missing = |runner: &str| {
             (!self.config.runners.iter().any(|r| r == runner))
@@ -203,16 +201,106 @@ impl<A: Api> GitHub<A> {
         request: Request<'_>,
         named: &Named,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         let Some(ran) = self.execute_role(&role, request, named, stop).await? else {
             return Ok(None);
         };
-        let words = &self
-            .tool()?
-            .result
-            .as_ref()
-            .ok_or("the words of run_tests have no [result]")?;
+        let words = &self.tool()?.result;
         Ok(Some(said(words, &role, request.commit, &ran, named, false)))
+    }
+
+    /// The verdict of the check before a merge on the commit where the full workflows the request asked for before
+    /// ran on it and passed, each of them, found again by its value and nothing run for it; none where one of them did
+    /// not run, is not complete or did not pass, or where it was told to stop.
+    pub(super) async fn passed_full(&self, request: Request<'_>, stop: &mut Stop) -> Result<Option<Verdict>, Failed> {
+        let Some(full) = self.config.ci.as_ref().and_then(|ci| ci.full.as_ref()) else {
+            return Ok(None);
+        };
+        let mut ran = Vec::new();
+        for workflow in &full.workflows {
+            let plan = Plan {
+                workflow,
+                results: &full.results,
+                inputs: Vec::new(),
+                call: self.call(request, workflow),
+                limit: Duration::ZERO,
+            };
+            let Some(runs) = self.runs_of(&plan, stop).await? else {
+                return Ok(None);
+            };
+            let Some(run) = (runs.into_iter()).filter(|r| !r.cancelled).min_by_key(|r| r.id) else {
+                return Ok(None);
+            };
+            if !run.completed {
+                return Ok(None);
+            }
+            let jobs = self.api.jobs(run.id).await?;
+            let results = match self.api.artifact(run.id, plan.results).await {
+                Ok(Some(files)) => results::read(&files).map_err(|why| format!("the artifact {}: {why}", plan.results)),
+                Ok(None) => Err(format!("the run uploaded no artifact {}", plan.results)),
+                Err(why) => Err(format!("the artifact {} could not be fetched: {why}", plan.results)),
+            };
+            ran.push(Ran { run, jobs, results });
+        }
+        let red = ran.iter().any(|one| match &one.results {
+            Ok(run) => run.cases.iter().any(|c| c.outcome == results::Outcome::Failed) || one.jobs.iter().any(red_job),
+            Err(_) => true,
+        });
+        if red || ran.is_empty() {
+            return Ok(None);
+        }
+        let words = &self.tool()?.result;
+        let urls: Vec<&str> = ran.iter().map(|r| r.run.url.as_str()).collect();
+        let jobs: Vec<String> = (ran.iter().flat_map(|r| &r.jobs)).map(|j| job_line(words, j)).collect();
+        let notes = if jobs.is_empty() {
+            Vec::new()
+        } else {
+            vec![fill(
+                &words.verdict_jobs,
+                &[(
+                    "jobs",
+                    &jobs.join(
+                        "
+  ",
+                    ),
+                )],
+            )]
+        };
+        Ok(Some(Verdict {
+            by: Some(fill(&words.verdict_by, &[("urls", &urls.join(", "))])),
+            notes,
+            ..Verdict::default()
+        }))
+    }
+
+    /// Cancels each run of the project's workflows not complete that one of `asking` asked for, of the work of this
+    /// number, on one of these commits: found by the values that ask for it.
+    pub(super) async fn cancel_runs(
+        &self,
+        work: WorkNumber,
+        asking: &[Asking],
+        commits: &[&str],
+    ) -> Result<(), Failed> {
+        let ci = self.config.ci.as_ref();
+        let fast = (ci.and_then(|ci| ci.fast.as_ref())).map(|fast| fast.workflow.as_str());
+        let full = (ci.and_then(|ci| ci.full.as_ref())).map_or(&[][..], |full| &full.workflows[..]);
+        for workflow in fast.into_iter().chain(full.iter().map(String::as_str)) {
+            let calls: Vec<String> = (asking.iter())
+                .flat_map(|asking| {
+                    (commits.iter()).map(move |commit| Request {
+                        work,
+                        commit,
+                        asking: *asking,
+                    })
+                })
+                .map(|request| self.call(request, workflow))
+                .collect();
+            let runs = self.api.runs(workflow, &self.project.main).await?;
+            for run in (runs.iter()).filter(|r| !r.completed && calls.iter().any(|c| r.title.contains(c))) {
+                self.api.cancel(run.id).await?;
+            }
+        }
+        Ok(())
     }
 
     /// The jobs of the full workflows that did not pass may be let through with no failed test of their own, as the
@@ -329,11 +417,7 @@ impl<A: Api> GitHub<A> {
         let Some(ran) = self.execute_role(&role, request, &named, stop).await? else {
             return Ok(None);
         };
-        let words = &self
-            .tool()?
-            .result
-            .as_ref()
-            .ok_or("the words of run_tests have no [result]")?;
+        let words = &self.tool()?.result;
         let red = ran.iter().any(|one| match &one.results {
             Ok(run) => run.cases.iter().any(|c| c.outcome == results::Outcome::Failed) || one.jobs.iter().any(red_job),
             Err(_) => true,

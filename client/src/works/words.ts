@@ -264,8 +264,8 @@ export function waitsForOwner(waited: Waited): boolean {
     case 'precondition':
       return waited.by.some((m) => m.kind === 'owner');
     case 'limit':
-    case 'calls':
       return true;
+    case 'result':
     case 'slot':
       return false;
     case 'agents':
@@ -290,15 +290,11 @@ export function waitedWords(waited: Waited): string {
     case 'precondition':
       return `${waited.words}, which ${waited.by.map(makerWords).join(' or ')} can make hold`;
     case 'limit':
-      return `the owner to let the cell go on: ${
-        waited.runs === 1 ? 'its last run was a way round' : `its last ${waited.runs} runs in a row were each a way round`
-      }`;
-    case 'calls':
-      return `the owner to let the cell go on: ${
-        waited.runs === 1
-          ? 'its last run asked for calls and dealt with nothing'
-          : `its last ${waited.runs} runs in a row each asked for calls and dealt with nothing`
-      }`;
+      return `the owner to let the cell go on: ${waited.by} sent it back ${
+        waited.runs === 1 ? 'once' : `${waited.runs} times`
+      } since its counts last started anew`;
+    case 'result':
+      return `${waited.by.join(' or ')} to give the result of what it asked for in ${waited.record}`;
     case 'slot':
       return 'a free slot, which the engine gives in its order';
     case 'agents':
@@ -440,6 +436,10 @@ export function unmetWords(unmet: Unmet): string {
       return `it asked for ${unmet.name}, which is not a tool the cell may ask for`;
     case 'unchangedNotWritten':
       return `it named ${unmet.block} as unchanged in meaning, and did not write it`;
+    case 'entryUnchanged':
+      return `it named ${unmet.block}, a record, as unchanged in meaning, and each entry of a record is new`;
+    case 'notOfItsShape':
+      return `it wrote ${unmet.block} in another shape than the form gives it`;
     case 'questionTaken':
       return `it wrote the question ${unmet.name}, which is not its cell's own`;
     case 'noSuchQuestion':

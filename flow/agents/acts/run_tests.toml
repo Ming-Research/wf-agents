@@ -1,24 +1,19 @@
-# Runs tests and checks in the project's CI, run by the engine.
-words = '''
-`run_tests`: runs the project's tests on the last commit of the work's branch, which the engine pushes; what is not
-  committed is not run. Ask as `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says
-  and checks among {named_checks}; what is named is run alone, by the project's fast workflow. Name none to run the
-  project's full workflows. It gives each test, passed or failed, with the time it took and what a failed one said,
-  and each job, how it ended and its wall time.'''
+# What the engine's act `run_tests` writes into the block of each cell whose latest entry of `run_tests` it ran
+# (`../../triggers/of_a_cell/on_tested.toml`), the tests and checks run in the project's CI. A red test is what the run
+# found, not a failure of the act: the round fails only where the host could not be reached.
 
-# What it says in place of `words` where the host is the local repository.
-words_local = '''
-`run_tests`: runs the project's check command on your worktree as it stands, what is not committed included. Ask as
-  `{"tests": [...], "checks": [...]}`; the whole command runs whatever is named. It gives whether the command passed
-  and what it said.'''
+# What a call of `run_tests` as a tool is answered, from a work kept from before the cells asked for tests in a record,
+# where the call's cell asks for tests in the record: `{name}` the record's name.
+as_a_tool = "`{name}` is no tool now: ask for the tests by writing `{name}` in `outputs`, as its words there say."
 
-# What a request that cannot be read as that shape is told, nothing having been run: `{error}` what the reading said.
-unread = "Nothing was run: the request is not `{\"tests\": [...], \"checks\": [...]}`, each list of names and either left out: {error}."
+# What the act's round keeps as an observation where what the entries a newer entry of the same cell replaced asked the
+# host for could not be cancelled, which costs a runner and is read by no one: `{entries}` those entries, `{why}` the
+# host's words. The entries are run all the same.
+not_cancelled = "What the replaced entries of `run_tests` ({entries}) asked the host for could not be cancelled: {why}"
 
-[request]
-type = "object"
-properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } } }
-additionalProperties = false
+# What a result says where the tests an entry asks for could not be run, said once, so that the cell may ask again:
+# `{why}` why, as the host or the reading of the entry says it.
+could_not = "The check could not be run: {why}"
 
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is
@@ -90,4 +85,20 @@ not_apart = "The tests and checks you named are not run apart: the whole command
 [places.named_checks]
 named = "{checks}"
 none_named = "none, since the project's fast workflow runs no check by name"
-whole = "none, since the project declares no fast workflow: nothing is run alone, and a request names none"
+whole = "none, since the project declares no fast workflow: nothing is run alone, and an entry names none"
+
+# What fills each other place of the words of `run_tests`, by the host that runs the tests: `github`, where it is
+# GitHub, which runs the project's workflows on a commit; `local`, where it is the local repository, which runs the
+# project's check command on the worktree as it stands. `runs_on`, what is run, and on what; `named_run`, what becomes of
+# what an entry names; `result_gives`, what the result says.
+[places.runs_on]
+github = "the project's tests to run on the last commit of the work's branch, which the engine pushes; what is not committed is not run."
+local = "the project's check command to run on your worktree as it stands, what is not committed included."
+
+[places.named_run]
+github = "what is named is run alone, by the project's fast workflow. Name none to run the project's full workflows."
+local = "the whole command runs, whatever is named."
+
+[places.result_gives]
+github = "each test, passed or failed, with the time it took and what a failed one said, and each job, how it ended and its wall time."
+local = "whether the command passed, and what it said."

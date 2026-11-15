@@ -758,7 +758,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     upToReview(h, 'Draw the way back in its purple.', false);
     goRound(h, 3);
     h.ran('review', [{ block: 'opinions_implement', content: 'Finding 4: the arrow points the wrong way.' }, { block: 'content', content: '', value: 'no' }]);
-    keep({ page: h.page(45, 145, 'Draw the way back', { kind: 'waits', at: 'implement', on: [{ kind: 'limit', runs: 3 }] }), history: h });
+    keep({ page: h.page(45, 145, 'Draw the way back', { kind: 'waits', at: 'implement', on: [{ kind: 'limit', by: 'review', runs: 3 }] }), history: h });
   }
 
   {

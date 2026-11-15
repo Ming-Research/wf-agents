@@ -1,11 +1,11 @@
-//! What the agents' tool `run_tests` answers at once, pushing nothing and waiting for no verdict, where the last commit of
-//! the work's branch does not merge into main's head as the host last gave it: GitHub starts no CI for a pull request
-//! in conflict, so tests run then would wait for a CI that never starts, and the work could not merge anyway.
+//! What a run of the tests a cell asked for says at once, pushing nothing and waiting for no verdict, where the last
+//! commit of the work's branch does not merge into main's head as the host last gave it: GitHub starts no CI for a pull
+//! request in conflict, so tests run then would wait for a CI that never starts, and the work could not merge anyway.
 
 use crate::git::{self, Place};
 use crate::settings::Project;
 
-/// What the agent is told where the work's branch, at its last commit, does not merge into main's head at `main`, the
+/// What the cell is told where the work's branch, at its last commit, does not merge into main's head at `main`, the
 /// reference that holds it as the host last gave it; none where it merges cleanly, or where what stands in the way of
 /// looking is for the host's check to say: the work has no worktree, or a merge is under way in it. Refused, as every
 /// act is, where the repository's configuration names a program git could run.
@@ -33,14 +33,13 @@ pub(super) async fn found(project: &Project, place: &Place, main: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use decide::CallId;
     use store::WorkNumber;
 
-    use super::super::{Answer, Call, RUN_TESTS, Told, answer};
-    use crate::git::tests::{Repo, commit, run};
+    use super::super::tested::run;
+    use crate::git::tests::{Repo, commit, run as git_run};
     use crate::held::Stop;
     use crate::host::fake::{Asked, Fake, NO_TOOLS};
-    use crate::host::{Branch, Named};
+    use crate::host::{Asking, Branch, Named};
 
     const WORK: WorkNumber = WorkNumber(1);
 
@@ -56,13 +55,8 @@ mod tests {
         (repo, main)
     }
 
-    /// The check's answer on the fake host, with what the host was asked.
-    async fn checked(repo: &Repo) -> (String, Vec<Asked>) {
-        checked_with(repo, "").await
-    }
-
-    /// The check's answer to this input on the fake host, with what the host was asked.
-    async fn checked_with(repo: &Repo, input: &str) -> (String, Vec<Asked>) {
+    /// What a run of these tests says on the fake host, with what the host was asked.
+    async fn checked_with(repo: &Repo, named: Named) -> (String, Vec<Asked>) {
         let host = Fake::new("unused");
         let place = repo.place(WORK);
         let branch = Branch {
@@ -71,19 +65,17 @@ mod tests {
             about: "",
             place: &place,
         };
-        let told = Told {
-            unread: None,
-            tools: &[],
+        let asking = Asking::Entry(decide::Seq(1));
+        let said = match run(&host, &repo.project, &branch, &named, asking, &mut Stop::never()).await {
+            Ok(Some(said)) => said,
+            Ok(None) => panic!("nothing stopped it"),
+            Err(failed) => format!("The check could not be run: {}", failed.why),
         };
-        let call = Call {
-            id: CallId(1),
-            name: RUN_TESTS,
-            input,
-        };
-        match answer(&host, &repo.project, &branch, &told, &call, &mut Stop::never()).await {
-            Answer::Result(said) => (said, host.asked()),
-            Answer::Withdrawn => panic!("nothing withdrew it"),
-        }
+        (said, host.asked())
+    }
+
+    async fn checked(repo: &Repo) -> (String, Vec<Asked>) {
+        checked_with(repo, Named::default()).await
     }
 
     #[tokio::test]
@@ -104,7 +96,11 @@ mod tests {
     #[tokio::test]
     async fn a_branch_in_conflict_asks_for_no_fast_run_of_the_tests_it_names() {
         let (repo, main) = moved("greeting.txt").await;
-        let (said, asked) = checked_with(&repo, r#"{"tests": ["greets the user"], "checks": ["lint"]}"#).await;
+        let named = Named {
+            tests: vec!["greets the user".to_string()],
+            checks: vec!["lint".to_string()],
+        };
+        let (said, asked) = checked_with(&repo, named).await;
         assert!(
             said.starts_with(&format!(
                 "The work's branch does not merge into main at {main} without a conflict"
@@ -134,7 +130,7 @@ mod tests {
             .output()
             .expect("git runs");
         assert!(!merging.status.success(), "the merge meets the conflict");
-        run(&dir, &["rev-parse", "--verify", "MERGE_HEAD"]);
+        git_run(&dir, &["rev-parse", "--verify", "MERGE_HEAD"]);
         let (_, asked) = checked(&repo).await;
         assert_eq!(asked, [Asked::RunTests(Named::default())]);
     }

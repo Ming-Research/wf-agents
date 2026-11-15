@@ -33,8 +33,8 @@ fn engineer() -> Compiled {
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -122,8 +122,6 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "`agents.subagents.most` (3)",
         "`project.research` (research/)",
         "`owner.language` (Chinese)",
-        "and checks among `lint`;",
-        "`project.test_names` (An agent names to `run_tests` a test by the name its JUnit",
     ] {
         assert!(engineer.contains(named), "{named}:\n{engineer}");
     }
@@ -321,17 +319,19 @@ fn every_text_sent_naming_a_setting_with_no_value_is_refused_as_the_engine_start
     assert_eq!(faults(&settings(), &beside, &flow), expected);
 }
 
-// The checks an agent may name to `run_tests` are said as the project declares its fast workflow: the checks it runs by
+// The checks a cell may name in `run_tests` are said as the project declares its fast workflow: the checks it runs by
 // name, or that it runs none by name; with none declared, that nothing is run alone. No way of declaring it keeps the
 // engine from starting.
 #[test]
 fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workflow() {
     let (beside, flow) = (beside(), engineer());
-    let ways = &beside.tools["run_tests"].places["named_checks"];
+    let ways = &beside.acts.run_tests.places["named_checks"];
     let told = |beside: &Agents| {
         assert_eq!(faults(&settings(), beside, &flow), Vec::<String>::new());
-        let cell = cell(&flow, "engineer");
-        of_line(beside, &filling(&settings(), beside), &flow, cell, "", project).expect("it is made")
+        let named = filling(&settings(), beside)
+            .named_checks
+            .expect("the act's words fill it");
+        format!("and checks among {named};")
     };
     let declared = |checks: &[&str]| {
         let mut declared = beside.clone();
@@ -360,10 +360,86 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
         whole.contains(&format!("and checks among {};", ways["whole"])),
         "{whole}"
     );
-    assert!(!whole.contains("{named_checks}"), "{whole}");
     let mut local = settings();
     local.projects.get_mut("example").unwrap().github = None;
     assert_eq!(faults(&local, &beside, &flow), Vec::<String>::new());
+}
+
+// The words of `run_tests` are told as the host runs the tests: on GitHub, the last commit of the branch, what is
+// named run alone by the fast workflow, and each test and job in the result; on the local repository, the worktree as
+// it stands, the whole command whatever is named, and whether it passed. Every place of the words is filled for both.
+// Well under a millisecond alone; no other test holds each host to its own words.
+#[test]
+fn the_words_of_run_tests_are_told_as_the_host_runs_the_tests() {
+    let beside = beside();
+    let filling = filling(&settings(), &beside);
+    let flow = engineer();
+    let words = (flow.blocks.get(&decide::BlockId::from("run_tests"))).and_then(|b| b.words.clone());
+    let told = |hosted: Hosted| {
+        let places = places(&filling, &beside, hosted);
+        let mut said = words.clone().expect("the record has words");
+        for (name, value) in &places {
+            said = said.replace(&format!("{{{name}}}"), value);
+        }
+        for place in ["{runs_on}", "{named_run}", "{result_gives}", "{named_checks}"] {
+            assert!(!said.contains(place), "{place} is filled: {said}");
+        }
+        said
+    };
+    let github = told(Hosted::GitHub);
+    assert!(github.contains("on the last commit of the work's branch"), "{github}");
+    assert!(github.contains("run alone, by the project's fast workflow"), "{github}");
+    assert!(github.contains("and each job, how it ended"), "{github}");
+    let local = told(Hosted::Local);
+    assert!(
+        local.contains("on your worktree as it stands, what is not committed included"),
+        "{local}"
+    );
+    assert!(local.contains("the whole command runs, whatever is named"), "{local}");
+    assert!(local.contains("whether the command passed"), "{local}");
+    assert!(
+        !local.contains("commit of the work's branch") && !local.contains("fast workflow"),
+        "{local}"
+    );
+}
+
+// A place of a block's words the engine fills for no host, or for one host and not the other, is said as the engine
+// starts, every one of them; the repository's flow has none. Well under a millisecond alone; no other test holds a
+// block's words to the places the engine fills.
+#[test]
+fn a_place_of_a_blocks_words_the_engine_does_not_fill_is_said_at_once() {
+    let (beside, mut flow) = (beside(), engineer());
+    let record = decide::BlockId::from("run_tests");
+    assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
+    let block = flow.blocks.get_mut(&record).expect("the record");
+    block.words = Some(format!(
+        "{} {{nowhere}} {{{{name}}}}",
+        block.words.clone().unwrap_or_default()
+    ));
+    let mut local_only = beside.clone();
+    let places = &mut local_only.acts.run_tests.places;
+    places.get_mut("runs_on").expect("a place").remove("github");
+    let faults_of = |beside: &Agents| -> Vec<String> {
+        (faults(&settings(), beside, &flow).into_iter())
+            .filter(|f| f.starts_with("flow engineer: block run_tests,"))
+            .collect()
+    };
+    assert_eq!(
+        faults_of(&beside),
+        [
+            "flow engineer: block run_tests, what its writer is told: the engine fills no place `{nowhere}` where the \
+             host is github",
+            "flow engineer: block run_tests, what its writer is told: the engine fills no place `{nowhere}` where the \
+             host is local",
+        ]
+    );
+    let runs_on = "flow engineer: block run_tests, what its writer is told: the engine fills no place `{runs_on}` where \
+                   the host is github";
+    assert!(
+        faults_of(&local_only).iter().any(|f| f == runs_on),
+        "{:?}",
+        faults_of(&local_only)
+    );
 }
 
 // A place the engine does not fill, in the heading a file of the project stands under or in the engine's words, and a
@@ -373,7 +449,7 @@ fn every_place_rule_set_and_tool_that_cannot_be_made_is_said_at_once() {
     let (mut beside, flow) = (beside(), engineer());
     beside.session.heading = "# `{path}` {where}\n\n{text}".to_string();
     beside.rules.remove("engineering");
-    beside.tools.remove("run_tests");
+    beside.tools.remove("query");
     let words = beside.words.values_mut().next().expect("the engine's words");
     words.push_str("\n{unknown}\n");
     let faults = faults(&settings(), &beside, &flow);
@@ -387,7 +463,7 @@ fn every_place_rule_set_and_tool_that_cannot_be_made_is_said_at_once() {
         said,
         [
             "agents/rules/rules.toml has no set `engineering`, which a line takes",
-            "the flow names the tool `run_tests`, which agents/tools/ does not have",
+            "the flow names the tool `query`, which agents/tools/ does not have",
             "flow/agents/session.toml: the engine fills no place `{where}`",
             "flow/agents/how_you_work_here.md: the engine fills no place `{unknown}`",
         ]

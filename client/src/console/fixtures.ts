@@ -21,7 +21,7 @@ import type {
 } from '../works-api';
 import type { Source } from './source';
 
-const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
+const LIMITS: Limits = { again: 3 };
 
 type CellIn = {
   id: string;
@@ -403,7 +403,7 @@ export function fixtureItems(start = Date.now()): Items {
     12: {
       title: 'Show the cost of a work',
       dependsOn: [11],
-      work: work({ kind: 'waits', at: 'review_plan', on: [{ kind: 'limit', runs: 3 }] }, cellsAt('review_plan', 'again'), {
+      work: work({ kind: 'waits', at: 'review_plan', on: [{ kind: 'limit', by: 'review', runs: 3 }] }, cellsAt('review_plan', 'again'), {
           hours: 26,
           dollars: 9.8,
           rounds: 70,

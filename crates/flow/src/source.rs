@@ -294,12 +294,9 @@ pub struct LaidOutFlowFile {
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LimitsFile {
-    /// How many runs of a cell in a row may be ways round.
-    pub runs: i64,
-    /// How often a return may be sent back within one run.
-    pub returns: i64,
-    /// How many calls one run may make.
-    pub calls: i64,
+    /// How many times in a row one sender may send a cell back: a cell after it by what it wrote, or the engine by a
+    /// return it sent back.
+    pub again: i64,
 }
 
 /// A line as written.
@@ -464,6 +461,9 @@ pub struct TriggerFile {
     pub block: String,
     /// Who writes the block: [`OWNER`], or a name of a source outside the work that the engine has.
     pub from: Option<String>,
+    /// The act of the engine's whose cells write the block as their rounds end, where one does: the block is among the
+    /// outputs of each cell that carries the act out, and holds what it hands in.
+    pub act: Option<String>,
     /// What the engine says of what happened, where it says something: the name of a place it fills in a run.
     pub detail: Option<String>,
     /// The data the agent reads for it, each among those its cell is given.
@@ -579,8 +579,8 @@ pub struct CellFile {
     /// The block whose first line names the work's merge where the host shows it, as the title of its pull request
     /// and of the commit the merge makes; the act of an engine cell that merges reads it.
     pub named_by: Option<String>,
-    /// How many runs of the cell in a row may be ways round, if not the flow's limit.
-    pub limit: Option<i64>,
+    /// How many times in a row one sender may send the cell back, if not the flow's limit.
+    pub again: Option<i64>,
     /// The reasoning effort an agent cell's rounds run at, whatever the model; every agent cell sets one.
     pub effort: Option<Effort>,
     /// Whether the work's branch takes the latest main in as each run of the agent cell starts: a cell that changes

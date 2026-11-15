@@ -28,7 +28,9 @@
 //!
 //! The work's branch is drawn beside the records, as its carriers read it: its work head is a commit named by a
 //! number, which an agent's round on a line that may change the work moves in two of five, and a person in one act in
-//! twenty, and once more in one of three steered refusals, after the check passed. As the carriers do, an agent's round
+//! twenty, and once more in one of three steered refusals, after the check passed; and in one content continuation of
+//! ten once just before the check's round begins, and in one of ten once just before the merge's, so that each way the
+//! check and the merge fail in passing is reached on purpose. As the carriers do, an agent's round
 //! on a line that may change the work hands in the head with its return where it moved; a round on a line that only
 //! reads, and the start, write it from outside before they end; the check, as it judges, writes it from outside for
 //! its round where no version says it, and fails in passing, judging nothing, where a judge of the head dealt last with
@@ -179,10 +181,22 @@ fn read_head(d: &Driver, roles: &Roles, branch: Branch) -> Option<(BlockId, Stri
     (says_now(d, &block) != Some(now.as_str())).then_some((block, now))
 }
 
-/// What the carriers read of the work's head as the round of the cell at this place ends: an agent's round on a line
+/// What the carriers hand in and read as the round of the cell at this place ends: the act that runs the tests, the
+/// result of each entry it gives, as the asking cell's own block of it; and the work's head: an agent's round on a line
 /// that may change the work hands it in with its return; one on a line that only reads, and the start, write it from
 /// outside first. The check reads it as it judges ([`gate`]).
 fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, i: usize, came: &mut Came) {
+    if d.flow.cells[i].act.as_deref() == Some(flow::RUNS_TESTS) {
+        let cell = &d.flow.cells[i].id;
+        for entry in decide::asked_of(&d.flow.flow, &d.work.records, cell) {
+            came.writes.push(Handed {
+                block: entry.result,
+                content: format!("The tests {} asked for passed.", entry.cell),
+                matters: true,
+                value: None,
+            });
+        }
+    }
     let Some((block, content)) = read_head(d, roles, branch) else {
         return;
     };
@@ -274,10 +288,10 @@ fn engineer() -> Compiled {
             "head",
             "tree",
         ]),
-        acts: names(&["start", "check", "merge"]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.
-        tools: names(&["query", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -384,6 +398,7 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
     reached.extend((roles.judges.iter()).map(|(j, b)| refused(&cells[*j].id, b, &roles.refusals[b])));
     reached.extend(roles.refusals.keys().map(person_wrote));
     reached.extend(roles.check_passes(flow).map(|(b, pass)| check_failed(b, pass)));
+    reached.extend(cells.iter().filter(|c| !c.asks.is_empty()).map(|c| tests_ran(&c.id)));
     reached.extend(
         [
             CELL_LIMIT,
@@ -449,6 +464,10 @@ fn skipped(cell: &CellId) -> String {
 
 fn refused(cell: &CellId, block: &BlockId, refusal: &str) -> String {
     format!("{cell} wrote {block} = {refusal}")
+}
+
+fn tests_ran(cell: &CellId) -> String {
+    format!("the tests {cell} asked for ran, and their result came in")
 }
 
 fn person_wrote(block: &BlockId) -> String {
@@ -744,7 +763,19 @@ impl Random {
                     handed_in.push(handed(b, cell, true, None));
                 }
             } else if d.rng.chance(80) {
+                // A cell asks for tests in one of five of the returns that may: each asks for a round of T3, and the
+                // histories still reach the check and the merge.
+                let asks = (d.flow.flow.cells()[i].asks.iter()).any(|a| &a.record == b);
+                if asks && !d.rng.chance(20) {
+                    continue;
+                }
+                // An entry of a record is new whoever writes it: where another block is written as a change that does
+                // not matter, a record is not written at all, so that a question, an answer to the owner or an ask is
+                // written as often as a change that matters.
                 let matters = d.rng.chance(70);
+                if d.flow.flow.adds_entries(b) && !matters {
+                    continue;
+                }
                 let mut h = handed(b, cell, matters, None);
                 // A block a test of content reads is at times handed in holding nothing.
                 if self.roles.contents.contains(b) && d.rng.chance(30) {
@@ -1114,7 +1145,10 @@ impl Content {
         // cell fixes what it was told, and says its writes matter.
         let act = d.flow.cells[i].kind == Kind::Engine;
         let answering = answering(d, run, i);
+        // A cell content with its work asks for no tests, which would leave it waiting.
+        let asks = &d.flow.flow.cells()[i].asks;
         let handed_in = (d.flow.flow.cells()[i].outputs.iter())
+            .filter(|b| !asks.iter().any(|a| &a.record == *b))
             .filter_map(|b| {
                 if d.flow.blocks[b].values.is_some() {
                     Some(handed(b, cell, true, Some(self.choices[b].clone())))
@@ -1124,7 +1158,9 @@ impl Content {
                 } else if opinion(&d.flow, b, i) {
                     None
                 } else {
-                    let matters = act || answering || !ever_written(&d.work.records, b);
+                    // An entry of a record is new whoever writes it.
+                    let records = d.flow.flow.adds_entries(b);
+                    let matters = act || answering || records || !ever_written(&d.work.records, b);
                     Some(handed(b, cell, matters, None))
                 }
             })
@@ -1282,6 +1318,17 @@ struct History {
     merged: bool,
     /// The work's branch, as its parts move it.
     branch: Shared,
+    /// Where a person commits on the branch in the content continuation, once, where it is steered so.
+    commits: Option<Commits>,
+}
+
+/// The round a person commits on the work's branch just before, in a content continuation steered so: the check's, so
+/// that the check fails in passing on a head no judge of it dealt with; or the merge's, the check having passed, so
+/// that the merge fails in passing on a head moved since.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Commits {
+    BeforeTheCheck,
+    BeforeTheMerge,
 }
 
 impl History {
@@ -1521,6 +1568,11 @@ impl History {
                 reached.push(person_wrote(&w.block));
             }
         }
+        for w in records.finished.iter().flat_map(|f| &f.writes) {
+            if let Some(asker) = cells.iter().find(|c| c.asks.iter().any(|a| a.result == w.block)) {
+                reached.push(tests_ran(&asker.id));
+            }
+        }
         if self.d.seen.limits > 0 {
             reached.push(RUN_LIMIT.to_string());
         }
@@ -1558,11 +1610,15 @@ impl History {
             return None;
         };
         on.iter().find_map(|w| match w {
-            Waited::Limit { .. } | Waited::Calls { .. } => Some((Event::LetGo { cell: at.clone() }, false)),
+            Waited::Limit { .. } => Some((Event::LetGo { cell: at.clone() }, false)),
             Waited::Precondition { on, .. } => {
                 (make_hold(&self.d, on).map(|e| (e, false))).or_else(|| ask_a_cell(&self.d, on).map(|e| (e, true)))
             }
-            Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } | Waited::Outside { .. } => None,
+            Waited::Call { .. }
+            | Waited::Result { .. }
+            | Waited::Slot
+            | Waited::Answer { .. }
+            | Waited::Outside { .. } => None,
         })
     }
 
@@ -1622,6 +1678,7 @@ impl History {
                 assert!(self.d.take(event), "the continuation's act was refused");
             } else {
                 let effect = doable[self.d.rng.below(doable.len())].clone();
+                self.commit_before(&effect);
                 self.d.carry_out(effect, &mut part, true);
             }
             steps += 1;
@@ -1629,6 +1686,25 @@ impl History {
         }
         self.verdict.steps = Some((steps, bound));
         self.count_runs(from);
+    }
+
+    /// A person's commit on the branch, once, where the continuation is steered so, just before the round of the check
+    /// or of the merge is carried out: nothing is written until a carrier reads it, as the round begins.
+    fn commit_before(&mut self, effect: &Effect) {
+        let (Some(commits), Effect::Round { cell, .. }) = (self.commits, effect) else {
+            return;
+        };
+        let at = match commits {
+            Commits::BeforeTheCheck => self.roles.check,
+            Commits::BeforeTheMerge => self.roles.last,
+        };
+        if place(&self.d.flow, cell.as_str()) != at {
+            return;
+        }
+        self.d
+            .note(format!("a person commits on the branch before the round of {cell}"));
+        commit(&self.branch);
+        self.commits = None;
     }
 
     /// Of each cell, the runs beyond its first that finished from this place on, and those of them that changed no
@@ -1685,6 +1761,13 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         _ => Steer::Not,
     };
     let random = if steer == Steer::Not { random } else { RANDOM };
+    // Where a person commits in the content continuation, drawn by a generator of its own so that the other draws keep
+    // their order.
+    let commits = match Rng::new(seed ^ 0x57EE_4ED0_C4EC_0002).below(10) {
+        0 => Some(Commits::BeforeTheCheck),
+        1 => Some(Commits::BeforeTheMerge),
+        _ => None,
+    };
     let roles = Roles::new(flow);
     let branch: Shared = Rc::default();
     let mut part = Random {
@@ -1707,6 +1790,7 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         ended: false,
         merged: false,
         branch,
+        commits,
     };
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         h.d.take(started(&h.d.flow));

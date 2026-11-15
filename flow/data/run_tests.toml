@@ -1,0 +1,14 @@
+# The test runs the cells ask for: one record, each entry the tests and checks a run of a cell asked for, as it wrote
+# them in `outputs`. The cell the record runs runs each asking cell's latest entry, and hands the result in as that
+# cell's own block of `../triggers/of_a_cell/on_tested.toml`. `words` is told to a cell that writes it, after the list
+# of what it returns, its places filled as `../agents/acts/run_tests.toml` says, by how the installation runs the
+# project's tests, and `[shape]` is what the form of its line holds it to.
+what = "The tests and checks each cell asked to have run, an entry for each time it asked."
+words = '''
+`run_tests`: {runs_on} Write `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says and checks
+among {named_checks}; {named_run} The work waits at this cell, and you are entered again with the result: {result_gives}'''
+
+[shape]
+type = "object"
+properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } } }
+additionalProperties = false

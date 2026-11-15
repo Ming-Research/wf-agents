@@ -17,9 +17,7 @@ fn noted() -> flow::Compiled {
         name = "noted"
         order = ["write", "merge"]
         [limits]
-        runs = 2
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.request]
         people = true

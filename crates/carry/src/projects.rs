@@ -21,15 +21,13 @@ use store::{Item, WorkNumber};
 use work::Spent;
 
 use crate::settings::{Project, Settings};
-use crate::tools;
 
 /// A project as the carriers carry its works out.
 #[derive(Clone, Debug)]
 pub struct Declared {
     /// Its settings.
     pub settings: Project,
-    /// What is written beside the flows, with the project's declaration in place of the one beside them and, where its
-    /// host is its local repository, the words of `run_tests` for that host.
+    /// What is written beside the flows, with the project's declaration in place of the one beside them.
     pub beside: flow::agents::Agents,
 }
 
@@ -55,7 +53,7 @@ pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap
     }
     let mut declared = BTreeMap::new();
     for (name, project) in &settings.projects {
-        let mut beside = match declaration(project, beside) {
+        let beside = match declaration(project, beside) {
             Ok(beside) => beside,
             Err(why) => {
                 faults.push(format!("projects.{name}: {why}"));
@@ -64,9 +62,6 @@ pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap
         };
         let wrong = crate::permissions::heavy_faults(&beside.project, &settings.agents.permissions);
         faults.extend(wrong.into_iter().map(|fault| format!("projects.{name}: {fault}")));
-        if project.github.is_none() {
-            local_words(&mut beside);
-        }
         declared.insert(
             name.clone(),
             Declared {
@@ -97,16 +92,6 @@ fn declaration(project: &Project, beside: &flow::agents::Agents) -> Result<flow:
     }
     let text = String::from_utf8(read.stdout).map_err(|_| format!("{at}: the declaration is not UTF-8"))?;
     beside.declared(&text, &at)
-}
-
-/// What `run_tests` is told to do where the host is the local repository: its own words for it, in place of those for
-/// GitHub.
-pub(crate) fn local_words(beside: &mut flow::agents::Agents) {
-    if let Some(tool) = beside.tools.get_mut(tools::RUN_TESTS)
-        && let Some(local) = tool.words_local.take()
-    {
-        tool.words = local;
-    }
 }
 
 /// What of these, by the name of a project, is the item's project's; or why the item has none of them, in words for the

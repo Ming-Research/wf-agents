@@ -187,11 +187,9 @@ pub fn made(
                 });
             }
             SessionPart::Returns(ReturnsPart { returns }) => {
-                let (mut texts, filling, missing) = returning(agents, flow);
+                let (texts, missing) = returning(agents, flow);
                 wrong.extend(missing);
                 let pieces = with_slots(&texts.iter().map(|s| s.text.as_str()).collect::<String>());
-                // What fills a place of a tool's words is sent as well.
-                texts.extend(filling);
                 out.push(Part {
                     of: Of::Returns,
                     name: returns.name().to_string(),
@@ -239,7 +237,7 @@ fn rules(agents: &Agents, flow: &Compiled, name: &str) -> Result<Part, String> {
 /// and each tool the flow names with its words, in the order `[how_you_return]` of `return.toml` sets. Or that the flow
 /// names a tool that `agents/tools/` does not define.
 pub fn how_you_return(agents: &Agents, flow: &Compiled) -> Result<Vec<Piece>, Vec<String>> {
-    let (texts, _, wrong) = returning(agents, flow);
+    let (texts, wrong) = returning(agents, flow);
     if !wrong.is_empty() {
         return Err(wrong);
     }
@@ -247,9 +245,8 @@ pub fn how_you_return(agents: &Agents, flow: &Compiled) -> Result<Vec<Piece>, Ve
 }
 
 /// The texts how a cell returns is made of, each with its file, in their order, which written one after another are
-/// its text; the words that may fill a place of a tool's words, each with its tool's file; and each tool the flow
-/// names that `agents/tools/` does not define.
-fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<String>) {
+/// its text; and each tool the flow names that `agents/tools/` does not define.
+fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<String>) {
     let told = &agents.returns.how_you_return;
     let ret = agents.source(RETURN_FILE);
     let field = |name: &str| agents.source(&format!("{AGENTS_DIR}/return/fields/{name}.toml"));
@@ -314,7 +311,6 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<Str
         );
     }
     let mut wrong = Vec::new();
-    let mut filling = Vec::new();
     // The tools of the flow's form, which every agent cell of it has.
     let tools = crate::form::tools(flow);
     if !tools.is_empty() {
@@ -325,13 +321,6 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<Str
                 Some(words) => {
                     put(tool(name), if first { "\n\n" } else { "\n" }, &item(&words.words));
                     first = false;
-                    for text in words.places.values().flat_map(|ways| ways.values()) {
-                        filling.push(Said {
-                            source: tool(name),
-                            text: text.clone(),
-                            places: false,
-                        });
-                    }
                 }
                 None => wrong.push(format!(
                     "the flow names the tool `{name}`, which agents/tools/ does not have"
@@ -339,7 +328,7 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<Str
             }
         }
     }
-    (said, filling, wrong)
+    (said, wrong)
 }
 
 /// What is wrong with the texts the parts are made of, each with the file that holds it, each once: a place that

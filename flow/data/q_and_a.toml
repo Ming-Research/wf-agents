@@ -13,9 +13,7 @@ a wrong choice costs much; decide the rest yourself. Set `waits` where you canno
 going on by your recommendation would likely be undone at a cost: the work stops at this cell, and you are entered
 again with the answer. Otherwise the work goes on by your recommendation. A text points to a question as `{{name}}`;
 `recommends` counts the options from 1. Write a question again under its name to rewrite it, or give its name and why
-to withdraw it; a question you do not write stands, with its answer.
-
-A return with a question you wait for may leave out the blocks marked "hand it in every time", since the work stops at this cell until the answer comes.'''
+to withdraw it; a question you do not write stands, with its answer.'''
 
 [shape]
 type = "array"

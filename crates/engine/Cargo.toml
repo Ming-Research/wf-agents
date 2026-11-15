@@ -12,5 +12,9 @@ decide = { path = "../decide" }
 flow = { path = "../flow" }
 work = { path = "../work" }
 
+[dev-dependencies]
+# The histories judge what the engine does by the records read as the design tree says, apart from the walk.
+reading = { path = "../reading" }
+
 [lints]
 workspace = true

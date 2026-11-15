@@ -23,9 +23,7 @@ fn flow() -> Compiled {
         name = "sessions"
         order = ["load", "build", "review", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.engineer]
         [lines.review]
         [tests.going]
@@ -93,9 +91,7 @@ fn two_lines() -> Compiled {
         name = "sessions"
         order = ["load", "build", "look", "review", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.engineer]
         [lines.review]
         [blocks.request]
@@ -533,8 +529,8 @@ fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own(
             "head",
             "tree",
         ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };

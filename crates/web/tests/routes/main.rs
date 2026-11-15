@@ -47,9 +47,7 @@ name = "tiny"
 order = ["plan", "review", "merge"]
 
 [limits]
-runs = 3
-returns = 2
-calls = 40
+again = 2
 
 [lines.engineer]
 
@@ -93,7 +91,7 @@ line = "engineer"
 task = """
 Review the plan.
 Say whether it is content."""
-limit = 5
+again = 5
 inputs = ["plan"]
 outputs = ["opinions", "content"]
 must_write = ["content"]

@@ -29,6 +29,7 @@ triggered_by = [
   "on_reply_plan_doubts",
   "on_spoken",
   "on_answer",
+  "on_tested",
   "on_review",
   "on_testing",
   "on_check",
@@ -58,6 +59,7 @@ outputs = [
   "reply_testing",
   "plan_doubts",
   "q_and_a",
+  "run_tests",
   "discussion",
 ]
 

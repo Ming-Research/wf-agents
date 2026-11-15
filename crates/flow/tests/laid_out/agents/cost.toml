@@ -30,6 +30,8 @@ line = "of its line"
 [work]
 spent = "work W{work} has spent ${value} since {since}, past the line of ${line} that {works} other works of its flow give"
 time = "work W{work} has taken {value} minutes in its rounds since {since}, past the line of {line} that {works} other works of its flow give"
+asking = "work W{work}: {cell} asked {value} times in a row, past the line of {line} that {from} give"
+asked_from = "{samples} rows {scope}"
 started = "it started"
 let_on = "it was last let on"
 between = "; and "

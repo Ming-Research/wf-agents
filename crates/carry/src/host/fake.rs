@@ -1,7 +1,7 @@
 //! A host for the tests of the acts: it gives the head of main it is set to and the verdicts it is given, in order,
 //! merges by saying main is where it is, and keeps what it was asked, the title of each branch it was given, and what
-//! asked for each verdict and each run of the tests. It runs no test for the agents' tool, and keeps what it was asked
-//! to run, giving the words it is set to.
+//! asked for each verdict and each run of the tests. It runs no test a cell asks for, and keeps what it was asked to
+//! run and to cancel, giving the words it is set to.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -22,6 +22,8 @@ pub(crate) struct Fake {
     titles: Mutex<Vec<String>>,
     /// What asked for each verdict and each run of the tests, in order.
     askings: Mutex<Vec<Asking>>,
+    /// Why cancelling what runs the tests fails, where it does.
+    cancelling: Mutex<Option<String>>,
 }
 
 /// What the host was asked.
@@ -31,8 +33,10 @@ pub(crate) enum Asked {
     Main,
     /// The verdict on this commit.
     Verdict(String),
-    /// The agents' request to run these tests and checks, as they named them.
+    /// To run these tests and checks, as a cell named them.
     RunTests(Named),
+    /// To cancel what these asked it to run of the tests.
+    Cancel(Vec<Asking>),
     /// To merge, the check having passed this commit.
     Merge(Option<String>),
     /// To let go of what it holds for the branch, the work having merged or not.
@@ -56,7 +60,14 @@ impl Fake {
             tests: Mutex::new(None),
             titles: Mutex::new(Vec::new()),
             askings: Mutex::new(Vec::new()),
+            cancelling: Mutex::new(None),
         }
+    }
+
+    /// Fails to cancel what runs the tests, with these words.
+    pub(crate) fn refuses_cancel(self, why: &str) -> Fake {
+        *lock(&self.cancelling) = Some(why.to_string());
+        self
     }
 
     /// Fails to let go, with these words, until it is told otherwise.
@@ -108,7 +119,7 @@ impl Host for Fake {
         branch: &Branch<'_>,
         commit: &str,
         _: &str,
-        asking: Asking,
+        (asking, _): (Asking, &[Asking]),
         _: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
         self.given(branch);
@@ -134,12 +145,21 @@ impl Host for Fake {
         named: &Named,
         asking: Asking,
         _: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         self.given(branch);
         lock(&self.askings).push(asking);
         lock(&self.asked).push(Asked::RunTests(named.clone()));
         let said = lock(&self.tests).clone();
-        said.map(Some).ok_or_else(|| NO_TOOLS.to_string())
+        said.map(Some).ok_or_else(|| Failed::refused(NO_TOOLS))
+    }
+
+    async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[Asking]) -> Result<(), Failed> {
+        self.given(branch);
+        lock(&self.asked).push(Asked::Cancel(asking.to_vec()));
+        match lock(&self.cancelling).clone() {
+            Some(why) => Err(Failed::refused(why)),
+            None => Ok(()),
+        }
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
@@ -156,5 +176,5 @@ impl Host for Fake {
     }
 }
 
-/// What the fake host says where the agents' tool asks it to run tests and it is set to say nothing.
-pub(crate) const NO_TOOLS: &str = "the fake host runs no test for the agents' tool";
+/// What the fake host says where it is asked to run the tests a cell asked for and it is set to say nothing.
+pub(crate) const NO_TOOLS: &str = "the fake host runs no test a cell asks for";

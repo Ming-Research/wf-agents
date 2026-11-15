@@ -37,8 +37,8 @@ fn engineer() -> Compiled {
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
+        tools: names(&["query"]),
         system: flow::system::reserved(&beside).into_iter().collect(),
         details: names(&["files"]),
     };

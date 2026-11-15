@@ -1550,11 +1550,12 @@ fn waited(waited: &Waited) -> String {
             let by: Vec<String> = by.iter().map(maker).collect();
             format!("{}: {words}", by.join(" or "))
         }
-        Waited::Limit { runs } => {
-            format!("the owner to let it go on, its last {runs} runs having each been for what a cell after it wrote")
+        Waited::Limit { by, runs } => {
+            format!("the owner to let it go on, {by} having sent it back {runs} times since its counts last began anew")
         }
-        Waited::Calls { runs } => format!(
-            "the owner to let it go on, its last {runs} runs having each asked for calls and dealt with nothing"
+        Waited::Result { record, by } => format!(
+            "{} to give the result of what it asked for in {record}",
+            by.join(" or ")
         ),
         Waited::Slot {} => "a free slot".to_string(),
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
@@ -2138,11 +2139,7 @@ mod tests {
             history,
             flow: web::view::Flow {
                 name: "trial".to_string(),
-                limits: web::view::Limits {
-                    runs: 3,
-                    returns: 3,
-                    calls: 3,
-                },
+                limits: web::view::Limits { again: 3 },
                 lines: Vec::new(),
                 tests: Vec::new(),
                 tools: Vec::new(),

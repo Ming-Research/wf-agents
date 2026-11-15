@@ -28,10 +28,10 @@ fn engineer() -> Compiled {
             "head",
             "tree",
         ]),
-        acts: names(&["start", "check", "merge"]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.
-        tools: names(&["query", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };

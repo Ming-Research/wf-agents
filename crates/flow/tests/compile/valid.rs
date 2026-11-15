@@ -35,13 +35,17 @@ fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_that_run_each_and
     answer.requires = vec![Condition::Test(TestName::from("plan_confirmed"))];
     answer.runs_on = blocks(&["comments", "plan"]);
     answer.outputs = blocks(&["reply"]);
-    answer.limit = 5;
+    answer.again = 5;
     let mut check = Cell::new("check");
     check.runs_on = blocks(&["main", "design"]);
     check.outputs = blocks(&["ci"]);
     let mut merge = Cell::new("merge");
     merge.requires = vec![Condition::Test(TestName::from("may_merge"))];
     merge.runs_on = blocks(&["ci"]);
+    // The flow's own count of times in a row, but where a cell gives its own.
+    for cell in [&mut plan, &mut judge, &mut design, &mut check, &mut merge] {
+        cell.again = 2;
+    }
     let expected = [plan, judge, design, answer, check, merge];
 
     let cells = compiled.flow.cells();
@@ -52,8 +56,7 @@ fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_that_run_each_and
         assert_eq!(cell.requires, expected.requires, "{}", cell.id);
         assert_eq!(cell.runs_on, expected.runs_on, "{}", cell.id);
         assert_eq!(cell.outputs, expected.outputs, "{}", cell.id);
-        assert_eq!(cell.limit, expected.limit, "{}", cell.id);
-        assert_eq!(cell.calls, 40, "{}", cell.id);
+        assert_eq!(cell.again, expected.again, "{}", cell.id);
     }
 }
 
@@ -61,11 +64,7 @@ fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_that_run_each_and
 fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_limits() {
     let compiled = compiled(&valid());
     assert_eq!(compiled.name, "small");
-    let limits = Limits {
-        runs: 3,
-        returns: 2,
-        calls: 40,
-    };
+    let limits = Limits { again: 2 };
     assert_eq!(compiled.limits, limits);
 
     let spec = |id: &str, title: &str, kind, line: Option<&str>| CellSpec {
@@ -85,8 +84,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         given: Vec::new(),
         tools: Vec::new(),
         system: Vec::new(),
-        returns: 2,
-        calls: 40,
+        again: 2,
         effort: None,
         levels_above: 0,
         takes_main: false,
@@ -161,14 +159,17 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
                 "Design what the plan asks for.",
                 &["plan"]
             ),
-            // A task of several lines keeps its line breaks.
-            agent(
-                "answer",
-                "Answer comments",
-                "engineer",
-                "Answer the comments on the plan.\nSay what you changed for each.\n",
-                &["comments", "plan"],
-            ),
+            // A task of several lines keeps its line breaks; the cell gives its own count of times in a row.
+            CellSpec {
+                again: 5,
+                ..agent(
+                    "answer",
+                    "Answer comments",
+                    "engineer",
+                    "Answer the comments on the plan.\nSay what you changed for each.\n",
+                    &["comments", "plan"],
+                )
+            },
             engine("check", "Check with the latest main", "check", &["main", "design"]),
             engine("merge", "Merge", "merge", &["ci"]),
         ]
@@ -279,7 +280,7 @@ fn faults_in_several_files_are_all_reported_flow_toml_first_then_the_cells_in_th
         "kind = \"engine\"\nline = \"engineer\"",
     );
     let source = edit(source, "plan.toml", "line = \"engineer\"", "line = \"designer\"");
-    let source = edit(source, FLOW_FILE, "calls = 40", "calls = 0");
+    let source = edit(source, FLOW_FILE, "again = 2", "again = 0");
     let no_line = NoSuchLine {
         line: "designer".to_string(),
     };
@@ -289,7 +290,7 @@ fn faults_in_several_files_are_all_reported_flow_toml_first_then_the_cells_in_th
     assert_eq!(
         faults(&source),
         [
-            at(FLOW_FILE, "limits.calls", LimitOutOfRange { value: 0 }),
+            at(FLOW_FILE, "limits.again", LimitOutOfRange { value: 0 }),
             at("plan.toml", "line", no_line),
             at("check.toml", "line", engine),
         ]

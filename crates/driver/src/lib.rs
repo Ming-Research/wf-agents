@@ -910,6 +910,14 @@ impl Driver {
         let time: Vec<f64> = others.iter().map(|(_, ms)| *ms).collect();
         lines.work_spent = history::works_line(&spent, policy.samples);
         lines.work_time = history::works_line(&time, policy.samples);
+        // The rows in which a cell asked before it handed in its work, in every work of the flow.
+        let rows: Vec<(decide::CellId, f64)> = (self.works.values())
+            .filter(|other| other.head.flow == held.head.flow)
+            .flat_map(|other| history::asking_rows(&other.flow, &other.work))
+            .collect();
+        let own: Vec<f64> = rows.iter().filter(|(c, _)| *c == cell.id).map(|(_, v)| *v).collect();
+        let any: Vec<f64> = rows.iter().map(|(_, v)| *v).collect();
+        lines.asking = history::asking_line(&own, &any, policy.samples);
         lines
     }
 

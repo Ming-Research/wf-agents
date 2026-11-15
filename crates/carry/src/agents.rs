@@ -225,7 +225,7 @@ impl Rounds for Agents {
                     let Some(reply) = inner.held.take(key) else {
                         return;
                     };
-                    match inner.to_wait(&round, &spent) {
+                    match inner.to_wait(&round, &spent, Some(&came)) {
                         Some(why) => reply.ended_and_paused(came, spent, why),
                         None => reply.ended(came, spent),
                     }
@@ -239,7 +239,7 @@ impl Rounds for Agents {
                     // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
                         let resets = resets(failure, &why, &said, &*inner.clock);
-                        match inner.to_wait(&round, &spent) {
+                        match inner.to_wait(&round, &spent, None) {
                             Some(over) => {
                                 let pause = format!("{why}; and {over}");
                                 reply.failed_and_paused(failure, resets, why, spent, pause);
@@ -391,8 +391,15 @@ impl Inner {
         if let Some(root) = files.parent() {
             tools::sweep(root, std::time::SystemTime::now()).await;
         }
-        tools::keep_wholes(work, &of.beside.tools, &files).await?;
-        let results = tools::given(work, &of.beside.tools, &files);
+        let tests = &of.beside.acts.run_tests.given;
+        tools::keep_wholes(work, (&of.beside.tools, flow, tests), &files).await?;
+        let results = tools::given(work, (&of.beside.tools, tests), &files);
+        let tested = tools::tested(work, flow, tests, &files);
+        let hosted = match of.project.github {
+            Some(_) => system::Hosted::GitHub,
+            None => system::Hosted::Local,
+        };
+        let places = system::places(&of.filling, &of.beside, hosted);
         let told = main.as_ref().and_then(CaughtUp::told);
         let carried = context::Carried {
             about,
@@ -400,6 +407,8 @@ impl Inner {
             changes: &changes,
             named: &of.filling.named,
             results: &results,
+            tested: &tested,
+            places: &places,
         };
         let enter = |anew| context::enter(flow, &of.beside, work, round.run, round.number, &carried, anew);
         let (going_on, anew) = (enter(false)?, enter(true)?);
@@ -794,13 +803,14 @@ impl Inner {
         }
     }
 
-    /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, or
-    /// its spend or time since it last waited for the owner is past what the flow's other works explain; both where
-    /// both hold.
-    fn to_wait(&self, round: &Round, spent: &Spent) -> Option<String> {
+    /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, its
+    /// spend or time since it last waited for the owner is past what the flow's other works explain, or what came back
+    /// asks once more than the rows of asking of its kind explain; every one that holds.
+    fn to_wait(&self, round: &Round, spent: &Spent, came: Option<&Came>) -> Option<String> {
         let reasons: Vec<String> = [self.over_budget(round, spent)]
             .into_iter()
             .chain(self.past_history(round, spent))
+            .chain([came.and_then(|came| self.past_asking(round, came))])
             .flatten()
             .collect();
         // Two reasons are joined in the project's words, which the second, of the history, is said in.
@@ -868,6 +878,20 @@ impl Inner {
             .filter(|line| ms as f64 > line.value)
             .map(|line| told(&words.time, ms as f64, line, Unit::Minutes));
         vec![spent_past, time_past]
+    }
+
+    /// Why the work is to wait for the owner, where what came back asks once more than the rows of asking of its kind
+    /// explain ([`past_asking`]).
+    fn past_asking(&self, round: &Round, came: &Came) -> Option<String> {
+        let of = crate::projects::of(&self.projects, &round.item).ok()?;
+        let line = round.lines.asking.as_ref()?;
+        past_asking(
+            (&round.flow, &round.kept),
+            (round.work, &round.cell.id),
+            line,
+            came,
+            &of.beside.cost,
+        )
     }
 
     /// Why the work is to wait for the owner, where the round took it over its budget: everything its rounds have
@@ -1063,6 +1087,48 @@ impl Inner {
         );
         Err((why, spent))
     }
+}
+
+/// Why the work is to wait for the owner, in these words, where what came back asks, for calls or for tests in a
+/// record its cell asks in, and so makes the row of its cell's runs in a row that asked before one handed in its work,
+/// counted from where the work was last let on after the engine paused it, longer than the line of the rows of its kind
+/// (principle `judged-by-own-history`). With too few rows to give a line, nothing is judged, as of the work's spend and
+/// time.
+fn past_asking(
+    (compiled, work): (&flow::Compiled, &Work),
+    (number, cell): (WorkNumber, &decide::CellId),
+    line: &driver::history::Line,
+    came: &Came,
+    words: &flow::agents::Cost,
+) -> Option<String> {
+    let cells = compiled.flow.cells();
+    let records = (compiled.flow.place(cell)).map_or(&[][..], |i| &cells[i].asks[..]);
+    let asks = !came.asks.is_empty() || (came.writes.iter()).any(|w| records.iter().any(|a| a.record == w.block));
+    if !asks {
+        return None;
+    }
+    let row = driver::history::asking_now(compiled, work, cell, stretch(work)) + 1;
+    if f64::from(row) <= line.value {
+        return None;
+    }
+    let scope = match line.scope {
+        driver::history::Scope::Cell => &words.guard.scope.cell,
+        _ => &words.guard.scope.flow,
+    };
+    let from = flow::agents::fill(
+        &words.work.asked_from,
+        &[("samples", &line.samples.to_string()), ("scope", scope)],
+    );
+    Some(flow::agents::fill(
+        &words.work.asking,
+        &[
+            ("work", &number.0.to_string()),
+            ("cell", cell.as_str()),
+            ("value", &row.to_string()),
+            ("line", &format!("{:.0}", line.value)),
+            ("from", &from),
+        ],
+    ))
 }
 
 /// Where the work's spend and time are counted from, as its history judges them: the place where it was last let on
@@ -1373,6 +1439,118 @@ mod tests {
             assert_ne!(file(3).ino(), file(1).ino());
             assert_eq!(file(1).nlink(), 3, "the message told three times is stored once");
         }
+    }
+
+    /// The engineer's flow as the repository defines it, and what is written beside it.
+    fn engineer() -> (flow::Compiled, Beside) {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+        let has = flow::Has {
+            sources: names(&[
+                "answer",
+                "asked",
+                "dependencies",
+                "main",
+                "session",
+                "start",
+                "head",
+                "tree",
+                "words",
+            ]),
+            acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
+            tools: names(&["query"]),
+            details: names(&["files"]),
+            ..Default::default()
+        };
+        let source = flow::read(&root.join("engineer")).expect("the flow is read");
+        let flow = flow::compile(&source, &has).expect("the flow compiles");
+        (
+            flow,
+            flow::agents::read(&root).expect("the files beside the flows are read"),
+        )
+    }
+
+    /// A work whose runs of I1 each asked for tests, as many as given, the engine pausing the work and the owner
+    /// letting it on after the first where `let_on`.
+    fn asked_for_tests(runs: u64, let_on: bool) -> Work {
+        let mut work = Work::default();
+        for n in 1..=runs {
+            let run = RunId(n);
+            let at = work.tick();
+            work.records.started.push(decide::Started {
+                run,
+                cell: "I1".into(),
+                at,
+                because: Vec::new(),
+                basis: BTreeMap::new(),
+            });
+            let at = work.tick();
+            work.records.finished.push(decide::Finished {
+                run,
+                at,
+                writes: vec![decide::Write {
+                    block: "run_tests".into(),
+                    meaning_unchanged: false,
+                    empty: false,
+                    value: None,
+                }],
+                dealt_with: Some(Vec::new()),
+                waits_for: None,
+            });
+            if let_on && n == 1 {
+                let at = work.tick();
+                work.records.pauses.push(pause(at.0, true, Pauser::Engine));
+                let at = work.tick();
+                work.records.pauses.push(pause(at.0, false, Pauser::Owner));
+            }
+        }
+        work
+    }
+
+    // A cell that asks once more than the rows of asking of its kind explain has its work wait for the owner, said in
+    // the words of `agents/cost.toml`; a return that asks nothing, and a row within the line, are not judged so; and
+    // the row is counted from where the owner last let the work on after the engine paused it, as the work's spend and
+    // time are. Well under a second alone, the flow compiled from its files; no other test holds the judgment of
+    // asking.
+    #[test]
+    fn a_cell_asking_past_the_line_of_its_kind_has_its_work_wait_counted_from_the_last_let_on() {
+        let (flow, beside) = engineer();
+        let line = driver::history::Line {
+            value: 2.0,
+            samples: 4,
+            scope: driver::history::Scope::Cell,
+        };
+        let asks = Came::hands_in(vec![work::Handed {
+            block: "run_tests".into(),
+            content: "{}".to_string(),
+            matters: true,
+            value: None,
+        }]);
+        let judged = |work: &Work, came: &Came| {
+            past_asking((&flow, work), (WorkNumber(7), &"I1".into()), &line, came, &beside.cost)
+        };
+        let said = judged(&asked_for_tests(2, false), &asks).expect("a third time in a row is past the line of 2");
+        assert!(said.contains("W7"), "{said}");
+        assert!(said.contains("I1"), "{said}");
+        assert!(said.contains(" 3 times in a row"), "{said}");
+        assert!(said.contains("line of 2"), "{said}");
+        assert!(said.contains("4 such rows"), "{said}");
+        assert_eq!(
+            judged(&asked_for_tests(1, false), &asks),
+            None,
+            "a second time is within it"
+        );
+        let hands_in = Came::hands_in(Vec::new());
+        assert_eq!(
+            judged(&asked_for_tests(2, false), &hands_in),
+            None,
+            "a return that asks nothing"
+        );
+        assert_eq!(
+            judged(&asked_for_tests(2, true), &asks),
+            None,
+            "counted from the owner's letting it on"
+        );
     }
 
     #[test]

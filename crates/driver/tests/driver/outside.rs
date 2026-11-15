@@ -13,9 +13,7 @@ fn watched() -> Compiled {
         name = "watched"
         order = ["look", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.main]
         outside = "main"

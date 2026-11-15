@@ -156,12 +156,15 @@ pub struct GuardWords {
     pub no_tools: String,
 }
 
-/// Why the engine paused a work whose spend or time is past the line of the flow's other works.
+/// Why the engine paused a work whose spend or time is past the line of the flow's other works, or one of whose cells
+/// asked in a row past the line of its history.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkWords {
     pub spent: String,
     pub time: String,
+    pub asking: String,
+    pub asked_from: String,
     pub started: String,
     pub let_on: String,
     pub between: String,
@@ -659,6 +662,8 @@ pub struct SentBackFaults {
     pub not_a_trigger: String,
     pub not_a_tool: String,
     pub unchanged_not_written: String,
+    pub entry_unchanged: String,
+    pub not_of_its_shape: String,
     pub question_taken: String,
     pub no_such_question: String,
     pub question_twice: String,
@@ -702,27 +707,40 @@ pub struct Tool {
     /// How many bytes of a result of the tool `query` a message gives; a result longer is given cut and kept whole in
     /// the records and in a file. Only `query` has its results cut. With none, a result is given whole.
     pub given_bytes: Option<usize>,
-    /// The shape of a request of it.
+    /// The shape of a call of it.
     pub request: toml::Value,
-    /// What fills each place of its words that the engine fills by how the installation runs the tool, by the place's
-    /// name: the words for each way, by the way's name, which the engine chooses.
-    #[serde(default)]
-    pub places: BTreeMap<String, BTreeMap<String, String>>,
-    /// What a round is told of a request of it that cannot be read as that shape: `{error}` what the reading said.
-    pub unread: Option<String>,
     /// How much of a result of it a round is given.
     pub given: Option<ResultGiven>,
-    /// What it says where the host is the local repository, in place of `words`.
-    pub words_local: Option<String>,
-    /// What it says of what a run found, whatever the host.
-    pub result: Option<ResultWords>,
-    /// What it says where the host is GitHub.
-    pub github: Option<GithubWords>,
-    /// What it says where the host is the local repository.
-    pub local: Option<LocalWords>,
 }
 
-/// What a result of `run_tests` says of the tests and checks a run found. `{...}` are filled in a run.
+/// `agents/acts/run_tests.toml`: what the engine's act that runs the tests the cells ask for writes of what a run
+/// found, into the block of each asking cell's own; and what fills the places of the words of the record a cell asks in
+/// that the engine fills by how the installation runs the tests, by the place's name: the words for each way, by the
+/// way's name, which the engine chooses.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunTests {
+    /// How much of a result a round of the asking cell is given.
+    pub given: ResultGiven,
+    /// What it says of what a run found, whatever the host.
+    pub result: ResultWords,
+    /// What it says where the host is GitHub.
+    pub github: GithubWords,
+    /// What it says where the host is the local repository.
+    pub local: LocalWords,
+    #[serde(default)]
+    pub places: BTreeMap<String, BTreeMap<String, String>>,
+    /// What a call of the tool of the same name is answered, from a work kept from before the cells asked for tests in
+    /// a record, where the call's cell asks for tests in the record: `{name}` the record's name.
+    pub as_a_tool: String,
+    /// What the act's round keeps as an observation where what the entries a newer one replaced asked the host for
+    /// could not be cancelled: `{entries}` those entries, `{why}` the host's words.
+    pub not_cancelled: String,
+    /// What a result says where the tests an entry asks for could not be run, said once: `{why}` why.
+    pub could_not: String,
+}
+
+/// What a result of the tests a cell asked for says of the tests and checks a run found. `{...}` are filled in a run.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResultWords {
@@ -783,7 +801,7 @@ pub struct ResultWords {
     pub all_skipped: String,
 }
 
-/// What `run_tests` says where the host is GitHub.
+/// What a run of the tests a cell asked for says where the host is GitHub.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GithubWords {
@@ -803,7 +821,7 @@ pub struct GithubWords {
     pub runner_missing: String,
 }
 
-/// What `run_tests` says where the host is the local repository.
+/// What a run of the tests a cell asked for says where the host is the local repository.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LocalWords {
@@ -818,7 +836,7 @@ pub struct LocalWords {
     pub not_apart: String,
 }
 
-/// How much of a tool's result a round is given: the result is kept whole, and given cut where it is longer.
+/// How much of a result a round is given: the result is kept whole, and given cut where it is longer.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResultGiven {
@@ -965,8 +983,9 @@ pub struct GivenKind {
     pub whole: Option<String>,
 }
 
-/// `agents/message/results.toml`: what a round is told of the results of the calls it is given. In a text, `{name}` is
-/// a tool's name, `{input}` what it was run on, `{question}` a question as it was put, `{call}` a call's number.
+/// `agents/message/results.toml`: what a round is told of the results of what it asked for. In a text, `{name}` is a
+/// tool's name, `{input}` what it was run on, or the entry in which a cell asked for tests, `{question}` a question as
+/// it was put, `{call}` a call's number.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Results {
@@ -980,6 +999,8 @@ pub struct Results {
     pub at_limit: String,
     /// A call the work does not hold.
     pub unknown: String,
+    /// The tests the cell asked for in a record, by the entry it wrote.
+    pub tests: String,
     /// What stands in place of a result where a call has none.
     pub none: String,
     /// What follows the results.
@@ -1016,6 +1037,7 @@ pub struct Acts {
     pub check: Check,
     pub merge: Merge,
     pub deliver: Deliver,
+    pub run_tests: RunTests,
 }
 
 /// `agents/acts/start.toml`.
@@ -1268,6 +1290,7 @@ pub fn acts(root: &Path) -> Result<Acts, String> {
         check: file(&at.join("check.toml"))?,
         merge: file(&at.join("merge.toml"))?,
         deliver: file(&at.join("deliver.toml"))?,
+        run_tests: file(&at.join("run_tests.toml"))?,
     })
 }
 

@@ -33,7 +33,7 @@ fn a_paused_run_let_go_on_at_its_limit_is_held_from_the_round_that_sends_its_ret
     let log = Log {
         rounds: vec![wanting(), wanting(), wanting()],
         let_go: 3,
-        let_on: 0,
+        ..Log::default()
     };
     assert_eq!(next(&log, spec().requires(), Hold::Rounds), Step::Held);
 }

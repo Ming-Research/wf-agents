@@ -666,15 +666,13 @@ const SOURCES: [&str; 9] = [
 ];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
-/// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
-/// of the items it depends on, is delivered.
-const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
+/// in, `run_tests` runs the tests the cells ask for, `check` checks the work before its merge, `merge` merges it, and
+/// `deliver` says that a deliverable item, made of the items it depends on, is delivered.
+const ACTS: [&str; 5] = ["start", "run_tests", "check", "merge", "deliver"];
 
 /// The names of the tools an agent may ask the engine for in its return: `query`, one read-only query on the engine's
-/// records, and `run_tests`, which runs named tests and checks, or all of them, where the host checks the work. A cell
-/// may name them; the system prompt of its line tells of those its flow names, with their words beside the flows
-/// (`agents/tools/`), and the form of the return holds them.
-const TOOLS: [&str; 2] = ["query", "run_tests"];
+/// records, with its words beside the flows (`agents/tools/`).
+const TOOLS: [&str; 1] = ["query"];
 
 /// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
 /// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
@@ -825,6 +823,16 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::AsksAndCannotBeSpokenTo { block } => {
             format!(
                 "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
+            )
+        }
+        F::ShapeNotChecked { block, word } => {
+            format!(
+                "the shape of {block} is written in {word}, which the engine holds no return to as it reads one: a return would be held to less than the shape says"
+            )
+        }
+        F::AsksWithNoResult { block } => {
+            format!(
+                "the cell writes {block}, which runs the cell that runs the tests, but no block that cell's act hands in runs it: the result would reach no cell, and it would wait for it for ever"
             )
         }
         F::TriggerNeverRuns {

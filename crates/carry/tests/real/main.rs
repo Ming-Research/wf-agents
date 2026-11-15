@@ -65,6 +65,11 @@ pub struct Fake {
     /// the run entered for the answer, before it hands in; with `lose_session`, its last run is the one told the
     /// session is not found.
     pub question_first: bool,
+    /// Whether the build, with `question_first`, hands in at once in the run entered for the answer, asking for no
+    /// query.
+    pub quiet_after_answer: bool,
+    /// Whether the build, the first time it runs, asks for the tests in `run_tests`, all of them, dealing with nothing.
+    pub asks_tests: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
@@ -112,6 +117,8 @@ impl Default for Fake {
             crashes_first: false,
             lose_session: false,
             question_first: false,
+            quiet_after_answer: false,
+            asks_tests: false,
             plan_sleeps: 0,
             context: None,
             compacts: false,
@@ -189,6 +196,9 @@ pub enum On {
     Trial,
     /// The flow here, with a start, a check and a merge.
     Acts,
+    /// The flow here, its build asking for tests in `run_tests`, which a cell of the act that runs them gives the
+    /// result of, before the check.
+    Tested,
     /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
     Deliver,
     /// The trial flow with a plan that loads the engineer's session (`loading` here).
@@ -292,7 +302,7 @@ pub fn beside() -> flow::agents::Agents {
 fn compiled(on: On) -> Compiled {
     let dir = match on {
         On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
-        On::Acts => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
+        On::Acts | On::Tested => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
         On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
@@ -308,6 +318,27 @@ fn compiled(on: On) -> Compiled {
     }
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");
+    }
+    // The build asks for tests in a record, which runs the cell of the act that runs them, whose result runs the build.
+    if matches!(on, On::Tested) {
+        let build = source.cells.get_mut("build").expect("the flow has a build");
+        *build = (build.replace(
+            "inputs = [\"request\", \"place\", \"failures\"]",
+            "inputs = [\"request\", \"place\", \"failures\", \"build_tested\"]",
+        ))
+        .replace(
+            "outputs = [\"code\", \"title\"]",
+            "outputs = [\"code\", \"title\", \"run_tests\"]",
+        );
+        let tests = "title = \"Run tests\"\nkind = \"engine\"\nact = \"run_tests\"\ninputs = [\"run_tests\"]\noutputs = [\"build_tested\"]\n";
+        source.cells.insert("tests".to_string(), tests.to_string());
+        source.flow = source.flow.replace(
+            "order = [\"start\", \"build\", \"check\", \"merge\"]",
+            "order = [\"start\", \"build\", \"tests\", \"check\", \"merge\"]",
+        );
+        source
+            .flow
+            .push_str("\n[blocks.run_tests]\n\n[blocks.run_tests.shape]\ntype = \"object\"\n\n[blocks.build_tested]\n");
     }
     // A build the owner's answer runs may ask the owner: the record of the work's questions, which the engine's source
     // of answers writes, is among its outputs, and the owner's words run it as well, as they run every cell that may ask.
@@ -334,7 +365,7 @@ fn compiled(on: On) -> Compiled {
             flow::WORDS,
             "main",
         ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
+        acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
         // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
         // the tree.
         details: names(&["files"]),
@@ -433,14 +464,19 @@ case "$first" in
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `answered`' && answered=yes
-        if [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
+        if [ '{tests}' = yes ] && [ ! -f "$log/tested" ]; then
+            # It asks for the tests, and leaves all that ran it for after their result.
+            touch "$log/tested"
+            dealt=''
+            out='"run_tests":{{"tests":[],"checks":[]}}'
+        elif [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
             # It leaves all that ran it for after the answer.
             dealt=''
             out='"q_and_a":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
         elif [ "$results" = no ] && [ '{then_asks}' = yes ]; then
             built
             calls='"query":[{{"sql":"select the check"}}]'
-        elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
+        elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ] && [ '{quiet}' = no ]; }}; then
             calls='"query":[{{"sql":"select the check"}}]'
         else
             if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then
@@ -505,6 +541,8 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         crash = yes(fake.crashes_first),
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),
+        quiet = yes(fake.quiet_after_answer),
+        tests = yes(fake.asks_tests),
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
         compacts = yes(fake.compacts),

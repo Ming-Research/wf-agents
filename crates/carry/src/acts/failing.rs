@@ -31,7 +31,7 @@ pub(crate) async fn kind(failed: &Failed, reached: impl AsyncFnOnce() -> Option<
 /// word it: a connection refused, reset or closed, a host that does not resolve, a timeout, a server that fails. Words
 /// it does not know are not the network's, so that an act that fails for any other cause (the configuration, a
 /// permission, a conflict) is not run again.
-fn network(why: &str) -> bool {
+pub(crate) fn network(why: &str) -> bool {
     const SIGNS: &[&str] = &[
         "open failed",
         "administratively prohibited",
