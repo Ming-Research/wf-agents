@@ -166,8 +166,10 @@ fn at_cell(
 ) {
     let cell = at.as_str();
     match waited {
-        Waited::Call { call, .. } => match kept.work.calls.get(call) {
-            Some(Call::AtLimit(limit)) => {
+        // Of the calls, the engine's own at a run's limit alone waits on the owner (decision
+        // no-call-is-made-on-a-person).
+        Waited::Call { call, .. } => {
+            if let Some(Call::AtLimit(limit)) = kept.work.calls.get(call) {
                 let why = match limit {
                     // The engine is one of the cell's senders, for the returns it sent back.
                     Limit::Returns { sent_back } => {
@@ -182,8 +184,7 @@ fn at_cell(
                 };
                 push(waits, LIMIT.to_string(), why, Ends::GoOn { call: *call });
             }
-            _ => {}
-        },
+        }
         Waited::Precondition { on: key, by } if by.contains(&Maker::Owner) => {
             for block in decide::keeping(&kept.flow.flow, records, at, key) {
                 let Some(outsiders) = kept.flow.flow.outsiders(&block) else {

@@ -425,8 +425,8 @@ fn what_rests_for_a_person_comes_first_the_longest_waiting_first() {
     }
     h.hands_in(wa, &[("text", None)]);
     h.hands_in(wa, &[("merged", None)]);
-    asks_the_owner(&mut h, wc);
-    asks_the_owner(&mut h, wb);
+    waits_for_the_owner(&mut h, wc);
+    waits_for_the_owner(&mut h, wb);
     assert_eq!(
         heeds(&since(&h, Some(&mark))),
         vec![
@@ -448,7 +448,7 @@ fn lines_past_the_most_are_counted_and_come_again_at_the_next_mark() {
         .collect();
     for w in &works {
         h.let_on(*w);
-        asks_the_owner(&mut h, *w);
+        waits_for_the_owner(&mut h, *w);
     }
     let first = since(&h, None);
     let shown = |works: &[WorkNumber]| -> Vec<Heed> { works.iter().map(|w| Heed::ForAPerson { work: *w }).collect() };
@@ -512,7 +512,7 @@ fn a_work_whose_records_are_at_fault_is_a_line_first() {
     let added = Time(h.clock);
     let (_, wb) = h.add(new_item("b", &[], "plain"));
     h.let_on(wb);
-    asks_the_owner(&mut h, wb);
+    waits_for_the_owner(&mut h, wb);
     at_fault(&mut h, wa);
     assert_eq!(
         heeds(&since(&h, None)),
@@ -550,7 +550,7 @@ fn a_work_waiting_for_an_item_that_rests_for_a_person_is_idle() {
     let (_, wb) = h.add(new_item("b", &[a], "judged"));
     h.let_on(wa);
     h.let_on(wb);
-    asks_the_owner(&mut h, wa);
+    waits_for_the_owner(&mut h, wa);
     assert_eq!(
         heeds(&since(&h, None)),
         vec![
