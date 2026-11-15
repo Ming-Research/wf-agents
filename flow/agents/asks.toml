@@ -8,11 +8,11 @@
 # that the work stops at the cell until the owner answers, and the merge waits while it stands unanswered; the answer
 # is said to the last cell of the walk that has a trigger of an answer. Asked again under its name where that change is
 # another, or the work gives another reason for it before the owner answered, or it was answered with another option
-# than `merges`; withdrawn, with `withdrawn`, where the work no longer touches such a path. In `ask`, `{files}` is the files the change touches,
-# each as `file` says, a blank line between two: `{path}` its path, `{change}` one of `added`, `changed` and `deleted`,
-# `{why}` why the work says the change is needed, in its agent's words, or `no_reason` where it says nothing, as where
-# the check finds a change no round explained, and `{diff}` the file's change itself, against where the work's branch
-# left main.
+# than `merges`; withdrawn, with `withdrawn`, where the work no longer touches such a path. In `ask`, `{files}` is the
+# files the change touches, each as `file` says, a blank line between two: `{path}` its path, `{change}` one of
+# `added`, `changed` and `deleted`, `{why}` why the work says the change is needed, in its agent's words, or
+# `no_reason` where it says nothing, as where the check finds a change no round explained, and `{diff}` the file's
+# change itself, against where the work's branch left main.
 [protected]
 name = "protected_files"
 ask = '''

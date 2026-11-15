@@ -8,8 +8,8 @@
 //! question of `agents/asks.toml` (`[protected]`), which shows each file with why the work says it is needed and its
 //! change, waits, and recommends none of its options: asked again under its name where the change is another, or where
 //! the work gives another reason for it before the owner answered, withdrawn once the work touches none of the paths.
-//! The owner's yes to the change holds while the change is the same, whatever reason is given for it after. The question is the engine's,
-//! beside what the round returns, and no agent writes it.
+//! The owner's yes to the change holds while the change is the same, whatever reason is given for it after. The
+//! question is the engine's, beside what the round returns, and no agent writes it.
 //!
 //! Why a file is changed is the work's, said in the field `protected_changes` of a return that does the cell's work,
 //! under the file's path, and it stands for the file as it then is: the question asked carries it, and a later version

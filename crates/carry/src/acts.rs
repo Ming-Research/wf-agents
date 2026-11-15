@@ -592,27 +592,29 @@ fn naming_blocks(flow: &Compiled, check: &decide::CellId) -> Vec<BlockId> {
 }
 
 impl<H: Host> Inner<H> {
-    /// Looks at main's head every so often and after each merge, saying each head it reads.
+    /// Looks at main's head every so often and after each merge, saying each head it reads as it reads it, the
+    /// repository held: a check tells its round of the head it reads the same way, so that the two are said in the
+    /// order they were read, and main's block never goes back to an older head.
     async fn watch(&self, every: Duration, say: Say) {
         let mut failing: Option<String> = None;
         loop {
-            let head = {
+            {
                 let _held = self.repository.lock().await;
-                match git::repository_configuration(&self.project).await {
+                let head = match git::repository_configuration(&self.project).await {
                     Ok(()) => self.host.main().await,
                     Err(why) => Err(why),
+                };
+                match head {
+                    Ok(head) => {
+                        failing = None;
+                        say(head);
+                    }
+                    Err(why) if failing.as_ref() != Some(&why) => {
+                        eprintln!("The head of {} could not be read: {why}", self.project.main);
+                        failing = Some(why);
+                    }
+                    Err(_) => {}
                 }
-            };
-            match head {
-                Ok(head) => {
-                    failing = None;
-                    say(head);
-                }
-                Err(why) if failing.as_ref() != Some(&why) => {
-                    eprintln!("The head of {} could not be read: {why}", self.project.main);
-                    failing = Some(why);
-                }
-                Err(_) => {}
             }
             tokio::select! {
                 () = tokio::time::sleep(every) => {}
@@ -1488,10 +1490,10 @@ mod tests {
         );
     }
 
-    // A work a pause holds neither takes the turn nor keeps it once its check passed, since it cannot merge: its check's
-    // wait stands aside, in its place, until it is let on, and the works behind it go on. Paused works took the turn,
-    // ran the full CI for a merge that could not come and kept it from the others for a quarter of an hour (works 6, 7
-    // and 9).
+    // A work a pause holds neither takes the turn nor keeps it once its check passed, since it cannot merge: its
+    // check's wait stands aside, in its place, until it is let on, and the works behind it go on. Paused works took the
+    // turn, ran the full CI for a merge that could not come and kept it from the others for a quarter of an hour (works
+    // 6, 7 and 9).
     #[tokio::test]
     async fn a_paused_work_neither_takes_the_turn_nor_keeps_it_once_its_check_passed() {
         let repo = Repo::new("true");

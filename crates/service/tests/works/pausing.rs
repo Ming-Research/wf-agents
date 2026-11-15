@@ -1,4 +1,5 @@
-//! A pause holds back what would begin a round, and nothing else (decision `stops-from-outside-are-no-cells`).
+//! A pause holds back what would begin a round, and a check's taking of the project's turn to check and merge, for
+//! which the carriers are told of each work's pause; nothing else (decision `stops-from-outside-are-no-cells`).
 
 use decide::Decision;
 use service::Act;

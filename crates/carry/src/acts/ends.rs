@@ -296,8 +296,8 @@ fn checking(item: Item, kept: Work) -> Round {
 }
 
 // The check's round is told of the head of main the check takes in, in the words the watch of main writes it, as the
-// check reads it: main's block at that head is then what the round read, and runs the check no more. A check that waited
-// for its turn while main moved, and took that main in, was run again for it (work 5).
+// check reads it: main's block at that head is then what the round read, and runs the check no more. A check that
+// waited for its turn while main moved, and took that main in, was run again for it (work 5).
 #[tokio::test]
 async fn the_checks_round_is_told_of_the_head_of_main_it_takes_in() {
     let repo = Repo::new("true");
