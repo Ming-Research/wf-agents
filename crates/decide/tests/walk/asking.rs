@@ -118,10 +118,9 @@ fn a_wait_for_a_result_no_cell_will_give_is_stalled_whoever_writes_what_skips_it
 
 /// The plan, which the background runs, writes whether the implementation is ready, a choice only cells write; the
 /// implementation, which the plan and the owner's words run, requires it and asks for tests; the cell that runs the
-/// tests gives the implementation's result, while `gives` says yes where `gated`. The plan said yes, the implementation
-/// asked for tests, and the plan, run again, said no: only the plan makes the implementation's precondition hold, and
-/// nothing new runs it.
-fn unready(gated: bool) -> World {
+/// tests gives the implementation's result, while `gives` says yes where `gated`. The plan said yes, and the
+/// implementation asked for tests.
+fn ready_and_asked(gated: bool) -> World {
     let mut implement = asking(
         "tests",
         "implement_tested",
@@ -149,6 +148,13 @@ fn unready(gated: bool) -> World {
     w.person_writes("background");
     w.run("plan", &[("plan", Matters), ("ready", Value("yes"))]);
     asks_for_tests(&mut w);
+    w
+}
+
+/// [`ready_and_asked`], and the plan, run again, said no: only the plan makes the implementation's precondition hold,
+/// and nothing new runs it.
+fn unready(gated: bool) -> World {
+    let mut w = ready_and_asked(gated);
     w.person_writes("background");
     w.run("plan", &[("ready", Value("no"))]);
     w
@@ -189,6 +195,28 @@ fn a_run_of_a_waiting_cell_at_rest_at_a_call_goes_on_before_the_cell_that_gives_
     w.done(call);
     w.go_on("implement");
     w.finish_dealing("implement", &["implement_spoken"], &[]);
+    assert_eq!(
+        reasons(&w.decide()),
+        ("run tests".into(), vec![("tests".into(), false)])
+    );
+}
+
+// The round of a waiting cell entered for the owner's words rested at a call, which has its result; before the run goes
+// on, the plan before it says it is not ready, a precondition only the plan makes hold. The run, at rest on no call of
+// its own, will not go on soon: the cell that gives the result runs meanwhile, and the work is not left waiting for
+// good on a giver that never begins. Well under a millisecond alone; no other test holds a waiting cell's run at rest
+// by a precondition.
+#[test]
+fn a_run_of_a_waiting_cell_at_rest_on_no_call_of_its_own_lets_the_cell_that_gives_its_result_run() {
+    let mut w = ready_and_asked(false);
+    w.outside_writes("implement_spoken");
+    assert_eq!(reasons(&w.decide()).0, "implement");
+    w.start("implement");
+    let call = w.calls("implement", None);
+    w.done(call);
+    w.person_writes("background");
+    assert_eq!(reasons(&w.decide()).0, "plan");
+    w.run("plan", &[("ready", Value("no"))]);
     assert_eq!(
         reasons(&w.decide()),
         ("run tests".into(), vec![("tests".into(), false)])
