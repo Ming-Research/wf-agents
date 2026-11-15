@@ -211,8 +211,9 @@ pub fn commits_place(place: &Place) -> Place {
 /// none, and takes away what is in it untracked and not ignored, so that what the repository ignores, the build's
 /// output among it, stays and a run builds warm. With the same guards as the work's own worktree: refused while the
 /// repository's configuration names a program git could run, since a checkout runs its filters; and what is at its
-/// place that is a symbolic link, or no worktree git lists, was not made by the engine, and is left as it is. The
-/// caller holds the repository.
+/// place that is a symbolic link, or no worktree git lists, was not made by the engine, and is left as it is. A step of
+/// git that fails in the worktree, as a checkout does at the lock of one the engine was killed in, is tried once more on
+/// the worktree made again: it holds nothing of the work's but what a build left. The caller holds the repository.
 pub async fn at_commit(project: &Project, place: &Place, commit: &str) -> Result<Place, String> {
     let at = commits_place(place);
     configuration(project, &at).await?;
@@ -221,28 +222,57 @@ pub async fn at_commit(project: &Project, place: &Place, commit: &str) -> Result
     if a_link(&at.dir) {
         return Err(format!("{dir} is a symbolic link, which the engine did not make"));
     }
-    if at.dir.exists() {
-        let canonical = tokio::fs::canonicalize(&at.dir)
-            .await
-            .map_err(|e| format!("{dir}: {e}"))?;
-        let listed = git(repo, &["worktree", "list", "--porcelain"]).await?;
-        let mut ours = false;
-        for listed in listed.lines().filter_map(|line| line.strip_prefix("worktree ")) {
-            ours |= tokio::fs::canonicalize(listed)
+    if at.dir.exists() && !listed(repo, &at.dir).await? {
+        return Err(format!("{dir} is there already, and is no worktree of the repository"));
+    }
+    match checked_out(repo, &at, commit).await {
+        Ok(()) => Ok(at),
+        Err(first) if at.dir.exists() && !a_link(&at.dir) => {
+            let again = async {
+                git(repo, &["worktree", "remove", "--force", &dir]).await?;
+                checked_out(repo, &at, commit).await
+            };
+            again
                 .await
-                .is_ok_and(|listed| listed == canonical);
+                .map_err(|why| format!("{first}; and with the worktree made again: {why}"))?;
+            Ok(at)
         }
-        if !ours {
-            return Err(format!("{dir} is there already, and is no worktree of the repository"));
-        }
+        Err(first) => Err(first),
+    }
+}
+
+/// Checks the commit out, detached, in the worktree of named commits at `at`, made where there is none, and takes away
+/// what is in it untracked and not ignored.
+async fn checked_out(repo: &Path, at: &Place, commit: &str) -> Result<(), String> {
+    if at.dir.exists() {
         git(&at.dir, &["checkout", "--quiet", "--detach", "--force", commit]).await?;
     } else {
         // A worktree whose directory was taken away is still named by the repository until it is pruned.
         git(repo, &["worktree", "prune"]).await?;
-        git(repo, &["worktree", "add", "--quiet", "--detach", &dir, commit]).await?;
+        git(
+            repo,
+            &["worktree", "add", "--quiet", "--detach", &text(&at.dir), commit],
+        )
+        .await?;
     }
     git(&at.dir, &["clean", "-ffd", "--quiet"]).await?;
-    Ok(at)
+    Ok(())
+}
+
+/// Whether the directory is a worktree of the repository, as git lists them: asked of git's list rather than read from
+/// what it answers, which is in the language of the machine's locale, and compared by the paths' canonical forms.
+async fn listed(repo: &Path, dir: &Path) -> Result<bool, String> {
+    let canonical = tokio::fs::canonicalize(dir)
+        .await
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    let listed = git(repo, &["worktree", "list", "--porcelain"]).await?;
+    let mut ours = false;
+    for listed in listed.lines().filter_map(|line| line.strip_prefix("worktree ")) {
+        ours |= tokio::fs::canonicalize(listed)
+            .await
+            .is_ok_and(|listed| listed == canonical);
+    }
+    Ok(ours)
 }
 
 /// Whether there is a symbolic link at the path itself, read by the link's own metadata and not its target's.
@@ -258,19 +288,8 @@ pub(crate) fn a_link(path: &Path) -> bool {
 pub async fn remove(project: &Project, place: &Place) -> Result<(), String> {
     configuration(project, place).await?;
     let repo = &project.repo;
-    if place.dir.exists() && !a_link(&place.dir) {
-        let dir = tokio::fs::canonicalize(&place.dir)
-            .await
-            .map_err(|e| format!("{}: {e}", place.dir.display()))?;
-        // Asked of git's list rather than read from what it answers, which is in the language of the machine's locale.
-        let listed = git(repo, &["worktree", "list", "--porcelain"]).await?;
-        let mut ours = false;
-        for listed in listed.lines().filter_map(|line| line.strip_prefix("worktree ")) {
-            ours |= tokio::fs::canonicalize(listed).await.is_ok_and(|listed| listed == dir);
-        }
-        if ours {
-            git(repo, &["worktree", "remove", "--force", &text(&place.dir)]).await?;
-        }
+    if place.dir.exists() && !a_link(&place.dir) && listed(repo, &place.dir).await? {
+        git(repo, &["worktree", "remove", "--force", &text(&place.dir)]).await?;
     }
     // A worktree whose directory was taken away by hand is named by the repository until it is pruned.
     git(repo, &["worktree", "prune"]).await?;

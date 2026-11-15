@@ -597,3 +597,46 @@ async fn the_runs_of_a_replaced_entry_are_cancelled_on_the_commit_it_named() {
         hub.github().asked()
     );
 }
+
+// The runs of several replaced entries, each named or not, are found in one list of each workflow's runs, and a run
+// whose cancel GitHub refuses leaves the others cancelled all the same, the refusal said. Well under a second alone, a
+// bare repository for GitHub; no other test holds a cancel to more than one entry.
+#[tokio::test]
+async fn the_runs_of_several_replaced_entries_are_listed_once_and_each_cancelled_whatever_one_refuses() {
+    let hub = Hub::new();
+    let fork = run(&hub.repo.project.repo, &["rev-parse", "main"]);
+    let head = hub.committed().await;
+    hub.github().runs_go_on();
+    let replaced = [
+        (Asking::Entry(decide::Seq(1)), Some(fork.clone())),
+        (Asking::Entry(decide::Seq(2)), Some(head.clone())),
+        (Asking::Entry(decide::Seq(3)), None),
+    ];
+    for (asking, on) in &replaced {
+        let commit = on.as_deref().unwrap_or(&head);
+        let request = super::super::fast::Request {
+            work: WORK,
+            commit,
+            asking: *asking,
+        };
+        let call = hub.host.call(request, "fast.yml");
+        let inputs = [("commit".to_string(), commit.to_string()), ("call".to_string(), call)];
+        super::super::api::Api::dispatch(hub.github(), "fast.yml", "main", &inputs)
+            .await
+            .unwrap();
+    }
+    hub.github()
+        .refuse_cancel(1000, "HTTP 409: Cannot cancel a workflow run that is completed");
+    let place = hub.place();
+    let refused = hub
+        .host
+        .cancel_tests(&branch(&place), &replaced)
+        .await
+        .expect_err("one cancel was refused");
+    assert!(refused.why.contains("HTTP 409: Cannot cancel"), "{refused:?}");
+    let asked = hub.github().asked();
+    for run in [1000, 1001, 1002] {
+        assert!(asked.contains(&Asked::Cancel(run)), "{run}: {asked:?}");
+    }
+    assert_eq!(hub.github().listed(), 2, "one list of each workflow's runs");
+}

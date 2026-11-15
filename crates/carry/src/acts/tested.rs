@@ -608,6 +608,123 @@ mod tests {
         assert!(git::a_link(&commits), "left as it is");
     }
 
+    // From one run of a named commit to the next, the worktree of commits loses what is in it untracked and keeps what
+    // the repository ignores, where a build keeps its output warm. Under a second alone, a repository and two
+    // worktrees; no other test holds what the worktree of commits keeps.
+    #[tokio::test]
+    async fn the_worktree_of_commits_loses_what_is_untracked_and_keeps_what_is_ignored() {
+        let repo = Repo::new("true");
+        let place = repo.place(WORK);
+        git::start(&repo.project, &place, "main").await.unwrap();
+        let ignoring = crate::git::tests::commit(&place.dir, ".gitignore", "target/\n");
+        let tests = crate::git::tests::commit(&place.dir, "tests.txt", "The tests.\n");
+        let mut stop = Stop::never();
+        on_commit(&repo, Some(&ignoring), &mut stop)
+            .await
+            .unwrap()
+            .expect("run");
+        let commits = git::commits_place(&place).dir;
+        std::fs::write(commits.join("left.txt"), "Untracked.\n").unwrap();
+        std::fs::create_dir_all(commits.join("target")).unwrap();
+        std::fs::write(commits.join("target/warm.txt"), "Built.\n").unwrap();
+        on_commit(&repo, Some(&tests), &mut stop).await.unwrap().expect("run");
+        assert!(!commits.join("left.txt").exists(), "what is untracked is taken away");
+        assert!(commits.join("target/warm.txt").exists(), "what is ignored stays");
+    }
+
+    // A worktree of commits whose index a checkout killed with the engine left locked is made again, once, and the
+    // entry runs on it. Under a second alone, a repository and two worktrees; no other test holds a worktree of commits
+    // made again.
+    #[tokio::test]
+    async fn a_worktree_of_commits_left_locked_is_made_again_and_the_entry_runs() {
+        let repo = Repo::new("git rev-parse HEAD");
+        let place = repo.place(WORK);
+        git::start(&repo.project, &place, "main").await.unwrap();
+        let tests = crate::git::tests::commit(&place.dir, "tests.txt", "The tests.\n");
+        let change = crate::git::tests::commit(&place.dir, "change.txt", "The change.\n");
+        let mut stop = Stop::never();
+        on_commit(&repo, Some(&tests), &mut stop).await.unwrap().expect("run");
+        let commits = git::commits_place(&place).dir;
+        let path = ["rev-parse", "--path-format=absolute", "--git-path", "index.lock"];
+        let lock = crate::git::tests::run(&commits, &path);
+        std::fs::write(&lock, "").unwrap();
+        let said = on_commit(&repo, Some(&change), &mut stop).await.unwrap().expect("run");
+        assert!(said.starts_with(&format!("On the commit {change}:\n")), "{said}");
+        assert!(said.ends_with(&format!("{change}\n")), "{said}");
+        assert!(!std::path::Path::new(&lock).exists(), "made again");
+    }
+
+    // A plain directory at the place of the worktree of commits, which git does not know, is left as it is, what it
+    // holds and all, and runs nothing. Well under a second alone; no other test holds a directory the engine did not
+    // make at that place.
+    #[tokio::test]
+    async fn a_plain_directory_at_the_place_of_the_worktree_of_commits_is_left_as_it_is() {
+        let repo = Repo::new("true");
+        let place = repo.place(WORK);
+        git::start(&repo.project, &place, "main").await.unwrap();
+        let tests = crate::git::tests::commit(&place.dir, "tests.txt", "The tests.\n");
+        let commits = git::commits_place(&place).dir;
+        std::fs::create_dir_all(&commits).unwrap();
+        std::fs::write(commits.join("kept.txt"), "A person's.\n").unwrap();
+        let why = on_commit(&repo, Some(&tests), &mut Stop::never())
+            .await
+            .expect_err("refused");
+        assert!(why.why.contains("is no worktree of the repository"), "{why:?}");
+        let kept = std::fs::read_to_string(commits.join("kept.txt")).expect("left");
+        assert_eq!(kept, "A person's.\n");
+        assert_eq!(std::fs::read_dir(&commits).unwrap().count(), 1, "nothing is added");
+    }
+
+    // An entry that named the point the branch left main at, or a commit of its own, is run the same after the branch
+    // takes main in, as a round of the act started again runs it: the branch still reaches each, though the first is
+    // none of its commits since main. Under a second alone, a repository and two worktrees; no other test holds an
+    // entry to a branch that took main in after it.
+    #[tokio::test]
+    async fn an_entry_is_run_the_same_after_the_branch_takes_main_in() {
+        let repo = Repo::new("git rev-parse HEAD");
+        let place = repo.place(WORK);
+        git::start(&repo.project, &place, "main").await.unwrap();
+        let fork = crate::git::tests::run(&place.dir, &["rev-parse", "HEAD"]);
+        let tests = crate::git::tests::commit(&place.dir, "tests.txt", "The tests.\n");
+        let mut stop = Stop::never();
+        let ran = |said: &str, named: &str| said.starts_with(&format!("On the commit {named}:\n"));
+        for named in [&fork, &tests] {
+            let said = on_commit(&repo, Some(named), &mut stop).await.unwrap().expect("run");
+            assert!(ran(&said, named), "{said}");
+        }
+        let main = &repo.project.repo;
+        crate::git::tests::commit(main, "farewell.txt", "Bye.\n");
+        crate::git::tests::run(&place.dir, &["merge", "--quiet", "--no-edit", "main"]);
+        let since = crate::git::tests::run(main, &["rev-list", &format!("main..{}", place.reference())]);
+        assert!(!since.contains(&fork) && since.contains(&tests), "{since}");
+        for named in [&fork, &tests] {
+            let said = on_commit(&repo, Some(named), &mut stop).await.unwrap().expect("run");
+            assert!(ran(&said, named), "{said}");
+        }
+    }
+
+    // The tests of a worktree in which a merge is under way are refused, as every act is, while the repository's
+    // configuration names a program git could run, before git looks at the worktree or the command runs: the look at
+    // whether the branch merges into main lets a merge under way through unread. Under a second alone, a repository and
+    // its worktree; no other test holds the local host's run to the repository's configuration.
+    #[tokio::test]
+    async fn the_tests_of_a_worktree_mid_merge_are_refused_where_the_configuration_names_a_program() {
+        let repo = Repo::new("touch ran.txt");
+        let place = repo.place(WORK);
+        git::start(&repo.project, &place, "main").await.unwrap();
+        let main = &repo.project.repo;
+        crate::git::tests::commit(main, "farewell.txt", "Bye.\n");
+        crate::git::tests::run(&place.dir, &["merge", "--quiet", "--no-commit", "--no-ff", "main"]);
+        crate::git::tests::run(main, &["config", "core.fsmonitor", "/bin/true"]);
+        let said = said_on(&local(&repo), &repo, &Named::default()).await;
+        assert!(
+            said.starts_with("The check `touch ran.txt` could not be run: "),
+            "{said}"
+        );
+        assert!(said.contains("core.fsmonitor"), "{said}");
+        assert!(!place.dir.join("ran.txt").exists(), "the command ran");
+    }
+
     // An entry names its commit as a string; one that is no string is no entry, said by its reading. Well under a
     // millisecond alone; no other test holds the reading of an entry's commit.
     #[test]

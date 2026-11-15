@@ -531,24 +531,32 @@ impl<A: Api> Host for GitHub<A> {
 
     async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[(Asking, Option<String>)]) -> Result<(), Failed> {
         // An entry that named a commit ran on it; one that named none ran on the head its branch had then, which is
-        // among the branch's commits since main.
-        let unnamed: Vec<Asking> = (asking.iter())
-            .filter(|(_, at)| at.is_none())
-            .map(|(a, _)| *a)
+        // among the branch's commits since main. What could not be found or cancelled is said, every part of it, once
+        // all the rest is cancelled.
+        let mut on: Vec<(Asking, Vec<String>)> = (asking.iter())
+            .filter_map(|(asked, at)| at.as_ref().map(|at| (*asked, vec![at.clone()])))
             .collect();
-        for (asked, at) in asking {
-            if let Some(at) = at {
-                self.cancel_runs(branch.work, &[*asked], &[at.as_str()]).await?;
+        let mut failed = Vec::new();
+        if asking.iter().any(|(_, at)| at.is_none()) {
+            let repo = &self.project.repo;
+            let span = format!("{}..{}", self.kept_main(), branch.place.reference());
+            match git::git(repo, &["rev-list", "--max-count=100", &span]).await {
+                Ok(commits) => {
+                    let commits: Vec<String> = (commits.lines().map(str::trim))
+                        .filter(|c| !c.is_empty())
+                        .map(str::to_string)
+                        .collect();
+                    let unnamed = asking.iter().filter(|(_, at)| at.is_none());
+                    on.extend(unnamed.map(|(asked, _)| (*asked, commits.clone())));
+                }
+                Err(why) => failed.push(why),
             }
         }
-        if unnamed.is_empty() {
-            return Ok(());
+        failed.extend(self.cancel_runs(branch.work, &on).await);
+        match failed.is_empty() {
+            true => Ok(()),
+            false => Err(failed.join("; ").into()),
         }
-        let repo = &self.project.repo;
-        let span = format!("{}..{}", self.kept_main(), branch.place.reference());
-        let commits = git::git(repo, &["rev-list", "--max-count=100", &span]).await?;
-        let commits: Vec<&str> = commits.lines().map(str::trim).filter(|c| !c.is_empty()).collect();
-        self.cancel_runs(branch.work, &unnamed, &commits).await
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

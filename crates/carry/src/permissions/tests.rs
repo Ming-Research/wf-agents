@@ -559,13 +559,38 @@ fn no_lock_command_undoes_what_the_files_beside_the_flows_or_the_declaration_ref
 }
 
 // A round may read the directory of the whole results beside its worktree, told to the command line before its tool
-// rules; with none given, nothing more. Well under a millisecond alone; no other test holds the directory a round may
-// read.
+// rules, and is refused every edit under it, on a line that writes as on one that only reads, by its path from the
+// root and by where its links lead; with none given, nothing more. Well under a millisecond alone; no other test holds
+// the directory a round may read.
 #[test]
-fn a_round_is_let_read_the_directory_it_is_given_before_its_tool_rules() {
-    let given = of(false, &[]).reading(std::path::Path::new("/tmp/wf-agents-tag-results"));
-    let arguments = given.arguments();
-    assert_eq!(arguments[..2], ["--add-dir", "/tmp/wf-agents-tag-results"]);
-    assert_eq!(arguments[2..], of(false, &[]).arguments()[..]);
-    assert!(!of(false, &[]).arguments().iter().any(|a| a == "--add-dir"));
+fn a_round_is_let_read_the_directory_it_is_given_before_its_tool_rules_and_edit_nothing_in_it() {
+    let dir = tempfile::tempdir().expect("a directory");
+    let real = std::fs::canonicalize(dir.path())
+        .expect("the directory is there")
+        .join("results");
+    std::fs::create_dir_all(&real).unwrap();
+    let linked = real.with_file_name("linked");
+    std::os::unix::fs::symlink(&real, &linked).unwrap();
+    let (given, real) = (linked.display().to_string(), real.display().to_string());
+    for reads_only in [false, true] {
+        let arguments = of(reads_only, &[]).reading(&linked).arguments();
+        assert_eq!(arguments[..2], ["--add-dir", given.as_str()]);
+        let refused = (arguments.iter())
+            .skip_while(|a| *a != "--disallowedTools")
+            .collect::<Vec<_>>();
+        for rule in [format!("Edit(/{given}/**)"), format!("Edit(/{real}/**)")] {
+            assert!(refused.contains(&&rule), "{rule}: {refused:?}");
+        }
+        let without = of(reads_only, &[]).arguments();
+        assert!(
+            !without
+                .iter()
+                .any(|a| a == "--add-dir" || a.contains(&given) || a.contains(&real))
+        );
+    }
+    let plain = of(false, &[]).reading(std::path::Path::new("/nowhere/wf-agents-tag-results"));
+    assert_eq!(
+        plain.refused.last().map(String::as_str),
+        Some("Edit(//nowhere/wf-agents-tag-results/**)")
+    );
 }

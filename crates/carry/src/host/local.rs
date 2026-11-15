@@ -128,13 +128,16 @@ impl Host for Local {
         stop: &mut Stop,
     ) -> Result<Option<String>, Failed> {
         let words = self.words()?;
-        let ran = match git::worktree(branch.place) {
-            Ok(dir) => match self.ran_on(&dir).await {
-                Ok(first) => (self.run(&dir, stop).await).map(|said| said.map(|said| format!("{first}\n{said}"))),
-                Err(why) => Err(why),
-            },
-            Err(why) => Err(why),
-        };
+        // Refused, as every act is, while the repository's configuration names a program git could run: the status of
+        // the worktree runs its filters, and the check before it lets a merge under way through unread.
+        let ran = async {
+            let dir = git::worktree(branch.place)?;
+            git::configuration(&self.project, branch.place).await?;
+            let first = self.ran_on(&dir).await?;
+            let said = self.run(&dir, stop).await?;
+            Ok::<_, String>(said.map(|said| format!("{first}\n{said}")))
+        }
+        .await;
         // What could not be run is said with the command, as what ran is.
         let check = &self.project.check;
         let said = ran.unwrap_or_else(|why| Some(fill(&words.could_not, &[("command", check), ("why", &why)])));
