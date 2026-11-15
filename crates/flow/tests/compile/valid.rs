@@ -73,6 +73,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         kind,
         line: line.map(str::to_string),
         reads_only: false,
+        tests_only: false,
         task: None,
         task_file: None,
         act: None,

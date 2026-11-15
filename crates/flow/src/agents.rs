@@ -243,7 +243,7 @@ pub struct Commands {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tests {
-    /// Where the project's tests are, as git pathspecs.
+    /// Where the project's tests are, as git pathspecs: the files a line that changes only the tests may change.
     pub paths: Vec<String>,
     /// The expected-value data of its tests, as git pathspecs.
     pub expected: Vec<String>,
@@ -433,7 +433,8 @@ impl OfTheReturn {
 }
 
 /// [`YOUR_LINE_FILE`]: what the place `{your_line}` in the engine's words says the line may do in the worktree, as its
-/// file says whether it only reads, and as the installation lets it update a lock file.
+/// file says whether it only reads or changes only the project's tests, and as the installation lets it update a lock
+/// file.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct YourLine {
@@ -445,6 +446,9 @@ pub struct YourLine {
     /// with, each between backticks, joined by commas, and the last by `or`.
     pub locks: String,
     pub or: String,
+    /// Of a line that changes only the project's tests, after `writes`, in place of `locks`: `{paths}` the paths of the
+    /// project's tests, each between backticks, joined by commas, and the last by `or`.
+    pub tests_only: String,
     /// Of a line that writes, where the project protects paths, after the rest: `{paths}` those paths, each between
     /// backticks, joined by commas, and the last by `and`.
     pub protected: String,
@@ -668,6 +672,8 @@ pub struct SentBackFaults {
     pub not_answered: String,
     /// `{path}` a file the project protects that the work changes, and of which it says not why.
     pub unexplained: String,
+    /// `{path}` a file that the run of a line that changes only the project's tests changed, and that is none of them.
+    pub not_a_test: String,
     /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
     pub unanswered: String,
 }

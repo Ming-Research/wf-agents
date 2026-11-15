@@ -35,8 +35,8 @@ use decide::{
     Started, TestKind, Waited, decide, decide_in, view,
 };
 
-use crate::reading::{Reading, Reason, Writer};
 use crate::{Rng, VERDICT};
+use reading::{Reading, Reason, Writer};
 
 pub const UNSEEN: &str = "nothing is written over unseen";
 pub const CONSUMED: &str = "a datum is consumed only by a return that dealt with it";

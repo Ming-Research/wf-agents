@@ -169,6 +169,7 @@ pub fn made(
                         &line.writes,
                         &line.locks.replace("{commands}", ""),
                         &line.or,
+                        &line.tests_only.replace("{paths}", ""),
                     ] {
                         texts.push(Said {
                             source: source.clone(),

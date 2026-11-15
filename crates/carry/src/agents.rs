@@ -41,7 +41,10 @@
 //! under the paths the project protects, and asks the owner by itself where it is a change not asked of yet, beside
 //! the return, each file with why the work says it is needed; where a file of it has no reason, it asks nothing, and a
 //! return that does the cell's work is found wanting for each such file, and so sent back
-//! ([`protected`](crate::protected)).
+//! ([`protected`](crate::protected)). As a round of a line that changes only the project's tests ends with a return of
+//! either kind, what the work itself changed from the version of its head the run began on to its head as the round
+//! ended is held to the tests, and the return is found wanting for each file that is none of them; a look that cannot
+//! be made, a read of the branch that failed among them, fails the round ([`tests_only`](crate::tests_only)).
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -89,7 +92,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::{self, Permissions};
 use crate::process::{self, Ran};
 use crate::settings::{Project, Settings};
-use crate::{acts, branch, failure, git, kept, protected, returns, session, system, tools};
+use crate::{acts, branch, failure, git, kept, protected, returns, session, system, tests_only, tools};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -442,7 +445,8 @@ impl Inner {
             // The system prompt is the one the session began with: made from the worktree as it begins, and kept.
             let made = || {
                 let read = |path: &str| system::read_within(&dir, path);
-                let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths);
+                let tests = round.cell.tests_only.then(|| tests_only::paths(&of.beside.project));
+                let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths, tests);
                 system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read)
             };
             let kept_at = |what| system::kept_at(&self.data, session, what);
@@ -550,13 +554,23 @@ impl Inner {
         drop(again);
         // What the round committed is handed in with its return, where its line may change the work; a change found at
         // the end of a round that only reads is none of its own, and the outside's. A round that fails hands in nothing:
-        // what it committed is read at the end of the round that takes it up.
+        // what it committed is read at the end of the round that takes it up. The version of the work's head the run
+        // began on is the latest the records keep, what an earlier round of the run committed being handed in by none.
+        let began = looking.head().map(str::to_string);
         let committed = if round.cell.reads_only {
             looking.tell(&place, teller, false).await;
-            Vec::new()
+            Ok(Vec::new())
         } else {
             looking.handed_in(&place).await
         };
+        // The work's head as the round ended, where the branch could be read.
+        let ended = (committed.as_ref())
+            .map(|_| looking.head().map(str::to_string))
+            .map_err(String::clone);
+        let committed = committed.unwrap_or_else(|why| {
+            eprintln!("the work's branch could not be read: {why}");
+            Vec::new()
+        });
         let had_result = stream.has_result();
         let read = stream.read(begin, before).map(|mut read| {
             read.spent.compactions = compactions;
@@ -596,6 +610,33 @@ impl Inner {
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
                 came.found.extend(unexplained);
+                // Every return of a line that changes only the project's tests is held to what its run changed, one that
+                // asks for calls as well: taken, it ends the run, and the run entered for the results begins on the
+                // head it left.
+                if round.cell.tests_only {
+                    let tests = tests_only::paths(&of.beside.project);
+                    let outside = match &ended {
+                        Ok(now) => {
+                            let (began, now) = (began.as_deref(), now.as_deref());
+                            tests_only::outside(&of.project, &place, &of.main, began, now, tests).await
+                        }
+                        Err(why) => Err(format!("the work's branch could not be read: {why}")),
+                    };
+                    match outside {
+                        Ok(outside) => came
+                            .found
+                            .extend(outside.into_iter().map(|path| Unmet::NotATest { path })),
+                        // Nothing after it holds the line to the tests: the round fails, and the work waits.
+                        Err(why) => {
+                            return Ok(Carried::Failed(
+                                why,
+                                Failure::Other,
+                                failure::Said::default(),
+                                read.spent,
+                            ));
+                        }
+                    }
+                }
                 Ok(Carried::Came(came, read.spent))
             }
             Err(why) => Ok(Carried::Failed(

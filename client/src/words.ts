@@ -119,6 +119,8 @@ export function faultWords(fault: Fault): string {
       return `A set of rules is named ${w.name}, which is a part the engine places in every system prompt itself.`;
     case 'unusedRules':
       return `No line names the rules ${w.name}, so no agent would be given them.`;
+    case 'readsOnlyAndTestsOnly':
+      return "The line says its agents change only the project's tests, and that they only read, which changes no file.";
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
     case 'groupNameTaken':

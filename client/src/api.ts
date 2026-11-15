@@ -200,6 +200,8 @@ export type What =
   | { kind: 'rulesNamedAsEnginePart'; name: string }
   /// A set of the flow's rules that no line names.
   | { kind: 'unusedRules'; name: string }
+  /// A line says its agents change only the project's tests, and that they only read.
+  | { kind: 'readsOnlyAndTestsOnly' }
   | { kind: 'valuesEmpty' }
   /// A group of blocks has the name of a block or of a datum of the flow.
   | { kind: 'groupNameTaken'; group: string }

@@ -54,6 +54,7 @@ pub mod returns;
 pub mod session;
 pub mod settings;
 pub mod system;
+mod tests_only;
 mod tools;
 pub mod tree;
 

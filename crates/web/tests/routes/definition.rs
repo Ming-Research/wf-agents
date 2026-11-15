@@ -40,6 +40,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     "levelsAbove": 0,
                     "file": "flow.toml",
                     "readsOnly": false,
+                    "testsOnly": false,
                     "system": [],
                     "rules": [],
                 }],
@@ -168,6 +169,20 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                 ],
             },
         })
+    );
+}
+
+// A line whose file says its agents change only the project's tests is given so, as written; the definition above holds
+// a line that says neither kind.
+#[tokio::test]
+async fn a_line_that_changes_only_the_tests_is_given_so() {
+    let source = edit(tiny(), None, "[lines.engineer]", "[lines.engineer]\ntests_only = true");
+    let router = serve(&Shared::new(Ok(source)));
+    let answer = get_json(&router, "/api/v1/flow").await;
+    let line = &answer["flow"]["lines"][0];
+    assert_eq!(
+        (&line["name"], &line["testsOnly"], &line["readsOnly"]),
+        (&json!("engineer"), &json!(true), &json!(false))
     );
 }
 

@@ -31,6 +31,7 @@ not_an_option = "`{name}` recommends no option."
 not_answerable = "`{name}` cannot be answered here."
 not_answered = "`{name}` is not answered."
 unexplained = "`{path}` is protected: say why, or take it back."
+not_a_test = "`{path}` is no test: take it back."
 unanswered = "`{block}` is not answered: commit, or ask."
 
 [unread]

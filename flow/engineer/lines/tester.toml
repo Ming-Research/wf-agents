@@ -1,1 +1,2 @@
+tests_only = true
 rules = ["general", "engineering"]

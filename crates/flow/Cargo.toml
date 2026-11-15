@@ -14,5 +14,9 @@ serde.workspace = true
 serde_json.workspace = true
 toml = { workspace = true, features = ["preserve_order"] }
 
+[dev-dependencies]
+# The exploration judges the flow's properties by the records read as the design tree says, apart from the walk.
+reading = { path = "../reading" }
+
 [lints]
 workspace = true

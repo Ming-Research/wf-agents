@@ -29,13 +29,16 @@ gives it (`tests::a_row`: the test binary is no part of it), and a page test by 
 ` > ` (`a describe > its title`), as vitest lists it. Only an exact name names a test: a binary, a module, a file or
 a describe alone names none.'''
 
-# Where the project's tests are, as git pathspecs, and the data its tests expect.
+# Where the project's tests are, as git pathspecs, which are all a line that changes only the tests (`tests_only` in its
+# file) may change; and the data its tests expect.
 [tests]
 paths = [
   ":(glob)crates/**/tests/**",
   ":(glob)crates/**/tests.rs",
   ":(glob)client/**/*.test.ts",
   ":(glob)client/**/*.test.tsx",
+  ":(glob)client/**/testing.ts",
+  ":(glob)client/**/fixtures.ts",
 ]
 expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/laid_out/"]
 

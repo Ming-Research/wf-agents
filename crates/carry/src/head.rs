@@ -3,7 +3,9 @@
 //! main's code where one of its parents is on main and its tree is the tree git makes of a clean merge of its two
 //! parents, as `git merge-tree` computes it, whoever made it and whatever its words; so a merge of the engine's that an
 //! agent amended to slip in a change of its own is the work's, and moves the head. A version is the commit; between two
-//! versions a round is given the command that shows what the work itself changed, without main's code ([`between`]).
+//! versions a round is given the command that shows what the work itself changed, without main's code ([`between`]),
+//! the diff from the base it chooses ([`base`]), whose files the look at the run of a line that changes only the
+//! project's tests takes too (`crate::tests_only`).
 
 use std::path::Path;
 
@@ -108,28 +110,54 @@ async fn held_main(dir: &Path, main: &str, commit: &str) -> Result<Option<String
     }
 }
 
-/// The command that shows what the work itself changed from its head `was` to its head `now`, without main's code:
-/// where `now` holds the main `was` held, the diff of the two; where it holds a later main, the diff from the tree git
-/// makes of a clean merge of `was` with that main to `now`; and where the two cannot be compared so, as where `was`
-/// does not merge with that main without a conflict or `now` holds an older main than `was`, the diff from the main
-/// `now` holds to `now`, the whole change against main.
-pub(crate) async fn between(dir: &Path, main: &str, was: &str, now: &str) -> Result<String, String> {
-    let diff = |from: &str| format!("`git diff {from} {now}`");
+/// What the diff to the work's head `now` that shows what the work itself changed since its head `was` is taken from
+/// ([`base`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Base {
+    /// `was`, or the tree git makes of a clean merge of `was` with the later main `now` holds: the diff from it to
+    /// `now` is what the work itself changed between the two, without main's code.
+    Work(String),
+    /// The main `now` holds, where the two cannot be compared so: the diff from it to `now` is the whole change
+    /// against main.
+    Main(String),
+}
+
+impl Base {
+    /// The commit or the tree the diff is taken from.
+    pub(crate) fn taken_from(&self) -> &str {
+        match self {
+            Base::Work(from) | Base::Main(from) => from,
+        }
+    }
+}
+
+/// What the diff that shows what the work itself changed from its head `was` to its head `now`, without main's code, is
+/// taken from: where `now` holds the main `was` held, `was`; where it holds a later main, the tree git makes of a clean
+/// merge of `was` with that main; and where the two cannot be compared so, as where `was` does not merge with that main
+/// without a conflict or `now` holds an older main than `was`, the main `now` holds.
+pub(crate) async fn base(dir: &Path, main: &str, was: &str, now: &str) -> Result<Base, String> {
     let Some(held) = held_main(dir, main, now).await? else {
-        return Ok(diff(was));
+        return Ok(Base::Work(was.to_string()));
     };
     let held_before = held_main(dir, main, was).await?;
     if held_before.as_deref() == Some(held.as_str()) {
-        return Ok(diff(was));
+        return Ok(Base::Work(was.to_string()));
     }
     let later = match &held_before {
         Some(before) => under(dir, before, &held).await?,
         None => false,
     };
     if later && let Some(tree) = merged(dir, was, &held).await? {
-        return Ok(diff(&tree));
+        return Ok(Base::Work(tree));
     }
-    Ok(diff(&held))
+    Ok(Base::Main(held))
+}
+
+/// The command that shows what the work itself changed from its head `was` to its head `now`, without main's code: the
+/// diff from its [`base`] to `now`, the whole change against main where the two cannot be compared so.
+pub(crate) async fn between(dir: &Path, main: &str, was: &str, now: &str) -> Result<String, String> {
+    let base = base(dir, main, was, now).await?;
+    Ok(format!("`git diff {} {now}`", base.taken_from()))
 }
 
 #[cfg(test)]
