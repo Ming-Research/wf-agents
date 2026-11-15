@@ -1,8 +1,8 @@
 // The list of works: the work of every item, one to a row, what waits for the owner first. A row says what the work
 // does now, how each cell of its flow stands, what it has taken and when something last happened; it opens the work.
 // Where the installation names more than one project, a choice in the view's line shows the works of one project's
-// items, with every work that waits for the owner whatever its project, and says how many it shows; the counts of the
-// works and of those waiting for the owner are always of every work. The choice lasts while the list is shown: it is
+// items, with every work that waits for the owner whatever its project, and says how many it shows; the count of the
+// works, and the one count of what waits for the owner, the bar's, are always of every work. The choice lasts while the list is shown: it is
 // kept nowhere. The list is read again on each change of an item or a work, and whenever the stream of changes opens
 // again, the projects with it; a read that fails keeps the list as it was and says so. With several hundred works, a change of one draws its row again and
 // leaves the others as they are: the items are read once for the list and the bar, each that did not change kept as
@@ -15,7 +15,8 @@ import { CopiesLine } from './Copies';
 import { NowLine, StateLegend, Strip } from './marks';
 import { orderWorks, rank } from './placing';
 import { useChanges, useItems, useReading, useSource } from './source';
-import { clock, fullTime, spentWords } from './words';
+import { waitingCount } from './waiting';
+import { clock, fullTime, spentWords, waitCount } from './words';
 
 /// No change the stream tells of is a change of the projects.
 const noChange = () => undefined;
@@ -52,7 +53,7 @@ export function WorksTable({ items, projects = [], failed = null }: {
   // The project chosen, while the installation names it among others; none shows every work.
   const chosen = projects.length > 1 && picked !== null && projects.includes(picked) ? picked : null;
   const all = useMemo(() => orderWorks(items.items), [items]);
-  const forOwner = all.filter((w) => rank(w.work) === 0).length;
+  const waiting = waitingCount(all.map((w) => w.work));
   // A work that waits for the owner is shown whatever project is chosen.
   const works = useMemo(
     () => all.filter((w) => chosen === null || w.item.project === chosen || rank(w.work) === 0),
@@ -80,7 +81,7 @@ export function WorksTable({ items, projects = [], failed = null }: {
           </label>
         )}
         <span className="view-facts">
-          {all.length} works, {forOwner} waiting for the owner
+          {all.length} works, {waitCount(waiting)}
           {chosen !== null && `, ${works.length} shown`}
         </span>
         <span className="view-end">
@@ -150,7 +151,7 @@ export const WorkRow = memo(function WorkRow({ item }: { item: Item }) {
         </a>
       </td>
       <td className="work-now">
-        <NowLine now={work.now} paused={work.paused} />
+        <NowLine work={work} />
       </td>
       <td>
         <Strip cells={work.cells} />

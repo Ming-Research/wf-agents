@@ -5,6 +5,8 @@ what = "Whether every question of the work that stands has the owner's answer: `
 values = ["waiting", "answered"]
 default = "answered"
 from = "asked"
+# Only the owner's answers change it: a cell that requires it waits on the owner.
+changed_by = "owner"
 shown = true
 
 # What the engine writes with each value: `{questions}` the names of the questions without an answer, with `between`

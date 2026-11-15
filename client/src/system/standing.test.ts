@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { Spent, Summary } from '../works-api';
+import type { Spent, Summary, Wait } from '../works-api';
 import { fixtureItems } from '../works/fixtures';
 import { changeables, problem, unquoted } from './SettingsView';
 import { fixtureSettings } from './fixtures';
-import { cacheShare, mergeAverages, nextWeekStart, standingOf, summed, weekStarts } from './standing';
+import { STANDING_WORDS, cacheShare, mergeAverages, nextWeekStart, standingOf, summed, weekStarts } from './standing';
 
 const spent = (usdMicros: number, inputTokens = 0, cachedTokens = 0): Spent => ({
   usdMicros,
@@ -15,29 +15,47 @@ const spent = (usdMicros: number, inputTokens = 0, cachedTokens = 0): Spent => (
   rounds: 1,
 });
 
-const work = (now: Summary['now'], paused = false): Summary => ({
+/// A work doing this now, waiting on the owner for these, as the engine's list says.
+const work = (now: Summary['now'], waits: Wait[] = []): Summary => ({
   ...fixtureItems().items[0].work,
   now,
-  paused,
+  paused: null,
+  waits,
 });
 
+const wait = (key: string): Wait => ({ key, why: `${key}.`, ends: { kind: 'resume' } });
+
 describe('where a work stands', () => {
+  it('names the tiles by the states\' own words', () => {
+    expect(STANDING_WORDS.owner.name).toBe('Waiting for you');
+    expect(STANDING_WORDS.others.name).toBe('Waiting for others');
+    expect(STANDING_WORDS.halted.name).toBe('Halted');
+  });
+
   it('is in one place, what needs the owner first, and nowhere once it has ended', () => {
     expect(standingOf(work({ kind: 'merged' }))).toBeNull();
     expect(standingOf(work({ kind: 'cancelled' }))).toBeNull();
     expect(standingOf(work({ kind: 'fault', words: 'broken' }))).toBe('halted');
-    expect(standingOf(work({ kind: 'paused', by: 'engine', why: 'failed' }))).toBe('halted');
+    // What the engine's list holds waits for the owner, the engine's pause and its pause of everything among it.
+    expect(standingOf(work({ kind: 'paused', by: 'engine', why: 'failed' }, [wait('pause')]))).toBe('owner');
+    expect(standingOf(work({ kind: 'everything', by: 'engine' }, [wait('held')]))).toBe('owner');
     expect(standingOf(work({ kind: 'paused', by: 'owner', why: null }))).toBe('paused');
     expect(standingOf(work({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }))).toBe('running');
     const question = { kind: 'call', call: 2, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } } as const;
-    expect(standingOf(work({ kind: 'waits', at: 'plan', on: [question, { kind: 'slot' }] }))).toBe('owner');
+    expect(standingOf(work({ kind: 'waits', at: 'plan', on: [question, { kind: 'slot' }] }, [wait('call-2')]))).toBe('owner');
     expect(standingOf(work({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }))).toBe('due');
-    expect(standingOf(work({ kind: 'everything' }))).toBe('due');
+    expect(standingOf(work({ kind: 'everything', by: 'owner' }))).toBe('due');
+    // What the engine's list does not hold is not the owner's, whatever the work does.
+    expect(standingOf(work({ kind: 'paused', by: 'engine', why: 'failed' }))).toBe('paused');
     expect(standingOf(work({ kind: 'next', cell: 'plan' }))).toBe('due');
     const tool = { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } } as const;
     expect(standingOf(work({ kind: 'waits', at: 'build', on: [tool] }))).toBe('others');
+    // A work held for main to move waits for what the owner does not give.
+    const main = { kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' } as const;
+    expect(standingOf(work({ kind: 'waits', at: 'M2', on: [main] }))).toBe('others');
     const stalled = { kind: 'stalled', at: 'M2', on: [{ test: 'checked = yes', words: 'checked = yes' }], by: [{ cell: 'M1', why: { kind: 'nothingNew' } }] } as const;
-    expect(standingOf(work({ ...stalled, on: [...stalled.on], by: [...stalled.by] }))).toBe('owner');
+    // A stalled work is shown as a fault is.
+    expect(standingOf(work({ ...stalled, on: [...stalled.on], by: [...stalled.by], why: 'x' }))).toBe('halted');
   });
 });
 

@@ -36,7 +36,7 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     let page = get_json(router, "/api/v1/works/1").await;
     let paused = json!({ "kind": "paused", "by": "engine", "why": WHY });
     assert_eq!(page["summary"]["now"], paused);
-    assert_eq!(page["summary"]["paused"], true);
+    assert_eq!(page["summary"]["paused"], "engine");
     assert_eq!(
         page["summary"]["cells"][0],
         json!({ "cell": "plan", "state": "failed", "finished": 1, "record": 1, "open": 3 })
@@ -120,7 +120,7 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
         page["summary"]["now"],
         json!({ "kind": "waits", "at": "plan", "on": [{ "kind": "agents", "outage": outage }] })
     );
-    assert_eq!(page["summary"]["paused"], false);
+    assert_eq!(page["summary"]["paused"], Value::Null);
     // Past the reset the engine's check finds the outside well, and the wait no longer holds, though it stands until a
     // round that began after it comes back: the pages are not told it holds "until" a time gone by.
     pass(3_600_000 - 2000 + 100).await;

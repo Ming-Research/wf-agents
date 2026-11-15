@@ -111,8 +111,10 @@ fn a_prompt_too_long_pauses_the_work_saying_so() {
     let (mut w, write, _) = W::requested();
     assert_eq!(w.on(failed_as(write, Failure::PromptTooLong)), vec![]);
     let pause = decide::pause(&w.work.records).expect("the work is paused");
+    // What the round's program said says that the prompt is too long, and the engine adds only what follows.
+    let why = pause.why.as_deref().unwrap_or_default();
     assert!(
-        pause.why.as_deref().unwrap_or_default().contains("prompt is too long"),
+        why.contains("cannot help") && why.contains("it failed: PromptTooLong"),
         "{pause:?}"
     );
 }

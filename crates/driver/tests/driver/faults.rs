@@ -107,3 +107,36 @@ fn a_record_of_what_is_said_that_gives_no_words_for_an_answer_is_a_fault_on_the_
     assert!(faults[0].contains("the block discussion "), "{}", faults[0]);
     assert!(faults[0].ends_with("its writes must give reply"), "{}", faults[0]);
 }
+
+#[test]
+fn a_flow_with_no_words_beside_it_for_the_owner_is_not_run() {
+    let dir = copied();
+    fs::remove_file(dir.path().join("agents/waits.toml")).unwrap();
+    let faults = driver::faults(&engineer(dir.path()));
+    // Every reason the engine says to the owner, and every reason it pauses a work with, would be empty.
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(faults[0].contains("../agents/waits.toml"), "{}", faults[0]);
+    assert!(faults[0].contains("owner.paused"), "{}", faults[0]);
+    assert!(faults[0].contains("paused.let_go"), "{}", faults[0]);
+}
+
+#[test]
+fn a_flow_written_before_flows_were_laid_out_takes_the_words_beside_it_and_without_them_is_not_run() {
+    let flow = "name = \"small\"\norder = [\"merge\"]\n[limits]\nagain = 1\n[blocks.go]\npeople = true\n";
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"go\"]\n";
+    let has = Has {
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    let source = |files: &[(String, String)]| flow::Source {
+        flow: flow.to_string(),
+        cells: [("merge".to_string(), merge.to_string())].into(),
+        files: files.iter().cloned().collect(),
+        ..Default::default()
+    };
+    let bare = flow::compile(&source(&[]), &has).expect("the flow compiles");
+    assert_eq!(driver::faults(&bare).len(), 1, "{:?}", driver::faults(&bare));
+    let words = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/agents/waits.toml")).unwrap();
+    let beside = flow::compile(&source(&[(flow::waits_file(), words)]), &has).expect("the flow compiles");
+    assert_eq!(driver::faults(&beside), Vec::<String>::new());
+}

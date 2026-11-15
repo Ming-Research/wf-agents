@@ -5,8 +5,9 @@
 import { useRef, useState } from 'react';
 
 import { Button } from '../parts';
-import type { Act, Step, Summary } from '../works-api';
-import { CANCEL_DOES, CANCEL_WHY, hasEnded, letGoFailed } from './words';
+import type { Act, Summary } from '../works-api';
+import { waitsOf } from './waiting';
+import { CANCEL_DOES, CANCEL_WHY, ENDS_WORDS, hasEnded } from './words';
 
 /// Sends an act, and gives why it was refused, or none where it was taken.
 export type Send = (what: Act) => Promise<string | null>;
@@ -38,46 +39,29 @@ function Refused({ why }: { why: string | null }) {
   );
 }
 
-/// Letting go of what an ended work held failed, and why, with what tries it again: letting the work on. The Works
-/// view and the console's window both show it.
-export function LetGoAgain({ why, send }: { why: string; send: Send }) {
-  const { pending, refused, go } = useAct(send);
-  return (
-    <span className="acts">
-      <span className="failed small">Letting go of what it held failed: {why}</span>
-      <Button
-        disabled={pending}
-        onClick={() => void go({ kind: 'resume' })}
-        title="Let go of the work's worktree and pull request again"
-      >
-        Try again
-      </Button>
-      <Refused why={refused} />
-    </span>
-  );
-}
-
 /// Pause, let on, a new session for a line, and cancel; cancel asks first, and for why, which is kept with it, and a
-/// new session asks for which line. A work that ended has none of these, but where letting go of what it held failed, that
-/// it is tried again.
-export function ActButtons({
-  summary,
-  steps,
-  lines,
-  send,
-}: {
-  summary: Summary;
-  steps: Step[];
-  lines: string[];
-  send: Send;
-}) {
+/// new session asks for which line. The engine's pause, whose reason the work's state line says, is let on by the
+/// button every card of it has; a work that ended has none of these but that, where the engine paused it as letting go
+/// of what it held failed, which letting it on tries again.
+export function ActButtons({ summary, lines, send }: { summary: Summary; lines: string[]; send: Send }) {
   const [asking, setAsking] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [why, setWhy] = useState('');
   const { pending, refused, go } = useAct(send);
-  const failed = letGoFailed(summary, steps);
-  if (failed !== null) return <LetGoAgain why={failed} send={send} />;
-  if (hasEnded(summary)) return null;
+  const resume = ENDS_WORDS.resume;
+  const engine = waitsOf(summary).some((w) => w.ends.kind === 'resume');
+  const lift = (
+    <Button disabled={pending} onClick={() => void go({ kind: 'resume' })} title={resume.title}>
+      {resume.label}
+    </Button>
+  );
+  if (hasEnded(summary))
+    return engine ? (
+      <span className="acts">
+        {lift}
+        <Refused why={refused} />
+      </span>
+    ) : null;
   const act = (what: Act) => {
     void go(what).then(() => {
       setAsking(false);
@@ -86,7 +70,9 @@ export function ActButtons({
   };
   return (
     <span className="acts">
-      {summary.paused ? (
+      {engine ? (
+        lift
+      ) : summary.paused ? (
         <Button disabled={pending} onClick={() => act({ kind: 'resume' })} title="Let rounds of the work begin again">
           Start
         </Button>

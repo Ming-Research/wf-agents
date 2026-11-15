@@ -11,12 +11,12 @@ use decide::{Asks, BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders,
 
 use serde::de::DeserializeOwned;
 
-use crate::agents::RuleSetFile;
+use crate::agents::{RuleSetFile, Waits};
 use crate::source::{
-    BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, DATA_DIR, Effort, FLOW_FILE, FlowFile, InputKind, Keys, Kind,
-    LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL, OF_A_DATUM, OF_A_GROUP,
+    BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, ChangedBy, DATA_DIR, Effort, FLOW_FILE, FlowFile, InputKind, Keys,
+    Kind, LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL, OF_A_DATUM, OF_A_GROUP,
     OF_A_LINE, OfADatumFile, RULES_DIR, Source, TESTS_DIR, TRIGGERS_DIR, Task, TestFile, Texts, TriggerFile, WHEN_TEST,
-    rules_file, who_writes,
+    rules_file, waits_file, who_writes,
 };
 
 /// A flow's definition compiled.
@@ -45,6 +45,10 @@ pub struct Compiled {
     pub limits: Limits,
     /// The text of each of the flow's sets of rules for the agents, by name: each one a line names.
     pub rules: BTreeMap<String, String>,
+    /// What the engine says to the owner of why a work waits on them and why it paused a work, as the file beside the
+    /// flows says it ([`crate::agents::WAITS_FILE`]); every text empty where there is no such file, a flow the engine
+    /// refuses to run (crate `driver`, `faults`).
+    pub waits: Waits,
 }
 
 /// A line: the cells of a work that share one session, as its file writes it.
@@ -322,6 +326,8 @@ pub struct Writers {
     pub note: bool,
     /// The source outside the work that writes it, where one does.
     pub outside: Option<String>,
+    /// Who changes what that source writes of it by their acts, where only one does.
+    pub changed_by: Option<ChangedBy>,
 }
 
 /// Who reads a block.
@@ -414,6 +420,8 @@ pub enum FaultKind {
     NoteNotByPeople { block: String },
     /// The block is a note, and a choice: a note is words to a cell, which a choice is not.
     NoteIsAChoice { block: String },
+    /// The block says who changes what a source outside the work writes of it, and no such source writes it.
+    ChangedByWithoutSource { block: String },
     /// The block is not declared in `flow.toml`.
     NoSuchBlock { block: String },
     /// The cell must write the block each time, and it is not among its outputs.
@@ -615,6 +623,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 people: b.people,
                 note: b.note,
                 outside: b.outside.clone(),
+                by_owner: b.changed_by == Some(ChangedBy::Owner),
                 interrupts: b.outside.as_deref().is_some_and(|source| TURNING.contains(&source)),
                 entries: b.outside.as_deref().is_some_and(|source| record(name, source)),
             };
@@ -657,6 +666,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         limits,
         // Every set of rules is one a line names, or it would have been a fault.
         rules: source.rules.clone(),
+        waits: parsed.waits.clone(),
     })
 }
 
@@ -678,6 +688,9 @@ struct Parsed {
     rule_sets: BTreeSet<String>,
     /// The triggers beside the flows, by their files, each with whose own it is.
     trigger_files: Vec<(String, TriggerFile, Whose)>,
+    /// What the engine says to the owner of why a work waits on them, as the file beside the flows says it; every
+    /// text empty where there is none.
+    waits: Waits,
     /// What is wrong with how the files make one definition, found as they are gathered: a thing defined twice, a
     /// datum of the engine's the flow names that is not there, and a file beside the flows that lacks the name that
     /// stands for each cell or each datum.
@@ -763,7 +776,12 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
         flow.map(|flow| (flow.data.clone(), flow.tools.clone(), FlowFile::from(flow), files))
     } else {
         let flow = shape::<FlowFile>(FLOW_FILE, &source.flow, &mut faults);
-        flow.map(|flow| (Vec::new(), Vec::new(), flow, LaidOut::default()))
+        // A flow written before it was laid out takes from beside the flows only the words the engine says to the owner.
+        let files = LaidOut {
+            waits: (source.files.get(&waits_file())).and_then(|text| shape(&waits_file(), text, &mut faults)),
+            ..LaidOut::default()
+        };
+        flow.map(|flow| (Vec::new(), Vec::new(), flow, files))
     };
     match parsed {
         Some((data, tools, mut flow, files)) if faults.is_empty() => {
@@ -788,6 +806,7 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
                 trigger_blocks,
                 rule_sets,
                 trigger_files: files.triggers,
+                waits: files.waits.unwrap_or_default(),
                 faults,
             })
         }
@@ -914,6 +933,7 @@ struct LaidOut {
     /// The rules that make a trigger of each group of the flow's blocks, by their files.
     of_a_group: Vec<(String, OfADatumFile)>,
     rule_sets: Option<BTreeMap<String, RuleSetFile>>,
+    waits: Option<Waits>,
 }
 
 impl LaidOut {
@@ -948,6 +968,8 @@ impl LaidOut {
                     .extend(shape(&path, text, faults).map(|f| (path, f, whose)));
             } else if path == rules {
                 laid.rule_sets = shape(&path, text, faults);
+            } else if path == waits_file() {
+                laid.waits = shape(&path, text, faults);
             }
         }
         laid
@@ -1538,6 +1560,12 @@ impl<'a> Definition<'a> {
                 faults.push(at("note", FaultKind::NoteNotByPeople { block: name.clone() }));
             } else if block.note && block.values.is_some() {
                 faults.push(at("note", FaultKind::NoteIsAChoice { block: name.clone() }));
+            }
+            if block.changed_by.is_some() && block.outside.is_none() {
+                faults.push(at(
+                    "changed_by",
+                    FaultKind::ChangedByWithoutSource { block: name.clone() },
+                ));
             }
             if let Some(source) = &block.outside
                 && !has.sources.contains(source)
@@ -2355,6 +2383,7 @@ impl<'a> Definition<'a> {
                         people: declared.people,
                         note: declared.note,
                         outside: declared.outside.clone(),
+                        changed_by: declared.changed_by,
                     },
                     readers: Readers {
                         cells: ids(&uses.readers),

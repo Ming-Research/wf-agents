@@ -140,6 +140,9 @@ export interface Block {
     people: boolean;
     note: boolean;
     outside: string | null;
+    /// Who changes what that source writes of it by their acts, as its file writes it (`owner`); absent where it says
+    /// nobody.
+    changedBy?: string;
   };
   /// `cells`: the cells that name it, that it runs or that are given it. `tests`: the named tests that read its value,
   /// by name. `shown`: the owner's page reads it.
@@ -216,6 +219,7 @@ export type What =
   /// A cell's `when` or `requires` has no keys.
   | { kind: 'emptyCondition' }
   | { kind: 'noteNotByPeople'; block: string }
+  | { kind: 'changedByWithoutSource'; block: string }
   | { kind: 'noteIsAChoice'; block: string }
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.

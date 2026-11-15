@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CellNow, Item, Items, Now, Summary } from '../works-api';
+import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
 import { asksOf, shownTree, type Shown } from './items';
 import { indexTree } from './tree';
 
@@ -13,7 +13,7 @@ function work(item: number, now: Now, states: CellNow['state'][] = ['notYet', 'n
     item,
     flow: 'small',
     added: 0,
-    paused: false,
+    paused: null,
     now,
     cells: CELLS.map((cell, i) => ({
       cell,
@@ -111,14 +111,23 @@ describe('what a card shows of an item', () => {
     ],
   };
 
-  it('counts the things a work waits for that the owner gives, as the engine says: their questions, the preconditions they can make hold, a run let on', () => {
-    expect(asksOf(waits)).toBe(3);
-    expect(asksOf({ kind: 'paused', by: 'owner', why: null })).toBe(0);
+  it('counts the things a work waits on the owner for as the engine\'s list says, and nothing of what it waits for that the list leaves out', () => {
+    const listed = [
+      { key: 'call-1', why: 'Which?', ends: { kind: 'reply' as const, call: 1 } },
+      { key: 'write-confirmed', why: 'implement requires test = confirmed, which confirmed keeps from holding.', ends: { kind: 'write' as const, block: 'confirmed', value: 'yes' } },
+      { key: 'limit', why: '`review` has sent the cell back as often as a sender may since its counts last started anew, its limit of 3.', ends: { kind: 'letGo' as const, cell: 'implement' } },
+    ];
+    expect(asksOf({ waits: listed })).toBe(3);
+    expect(asksOf({ waits: [] })).toBe(0);
+    // A card's mark is the same count.
+    const shown = shownTree({ items: [{ ...item(1, 'open'), work: { ...work(1, waits, ['done', 'resting', 'notYet']), waits: listed } }] });
+    expect(shown[0].asks).toBe(3);
   });
 
   it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
     const notBegun = item(1, 'open', [2, 3]);
-    const begun: Item = { ...item(2, 'open'), work: work(2, waits, ['done', 'resting', 'notYet']) };
+    const listed: Wait[] = ['call-1', 'write-confirmed', 'limit'].map((key) => ({ key, why: `${key}.`, ends: { kind: 'resume' } }));
+    const begun: Item = { ...item(2, 'open'), work: { ...work(2, waits, ['done', 'resting', 'notYet']), waits: listed } };
     const shown = shownTree({ items: [notBegun, begun, item(3, 'done')] });
     expect(shown[0].work).toBeNull();
     expect(shown[0].begun).toBe(false);
@@ -138,7 +147,8 @@ describe('what a card shows of an item', () => {
       at: 'plan',
       on: [{ kind: 'precondition', test: 'read', words: 'The owner read it', by: [{ kind: 'owner' }] }],
     };
-    const waiting: Item = { ...item(3, 'open'), work: work(3, owner) };
+    const ruling: Wait = { key: 'write-read', why: 'plan requires test = read, which read keeps from holding.', ends: { kind: 'write', block: 'read', value: 'yes' } };
+    const waiting: Item = { ...item(3, 'open'), work: { ...work(3, owner), waits: [ruling] } };
     const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open')] });
     expect(shown.map((s) => [s.id, s.begun, s.work?.now.kind])).toEqual([
       [1, false, 'paused'],

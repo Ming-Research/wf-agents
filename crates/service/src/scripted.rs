@@ -1,5 +1,6 @@
 //! The test carriers: agents, engine acts and tools that do what a [`Script`] says, each round and each tool taking
-//! the time the script gives it, so that the pages show works under way.
+//! the time the script gives it, and saying as it goes where it stands where the script says so (the turn an act waits
+//! for, the CI run it runs as), so that the pages show works under way.
 //!
 //! What they return depends on nothing but the round or the call, so that what was under way when the process stopped
 //! is answered again as it would have been. They answer each round and each call once: a round they hold is ended by
@@ -14,7 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use decide::{CallId, RunId};
-use driver::Found;
+use driver::{Along, Found};
 use store::WorkNumber;
 
 use crate::carriers::{CallReply, Carriers, Network, Outside, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
@@ -110,6 +111,7 @@ impl Rounds for Scripted {
     fn give(&self, round: Round, reply: RoundReply) {
         let planned = self.planned(&round);
         let key = (round.work, round.run, round.number);
+        let saying = reply.saying(round.number);
         {
             let mut held = self.inner.held();
             if held.rounds.contains_key(&key) {
@@ -119,7 +121,20 @@ impl Rounds for Scripted {
         }
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(planned.ms)).await;
+            // Where it stands as it goes: waiting for the turn for the first half of its time, then the CI run.
+            let mut waited = 0;
+            if let Some(holder) = planned.turn {
+                saying.say(Some(Along::Turn {
+                    holder: WorkNumber(holder),
+                }));
+                waited = planned.ms / 2;
+                tokio::time::sleep(Duration::from_millis(waited)).await;
+                saying.say(None);
+            }
+            if let Some(at) = &planned.at {
+                saying.say(Some(Along::Runs { at: at.clone() }));
+            }
+            tokio::time::sleep(Duration::from_millis(planned.ms - waited)).await;
             let reply = inner.held().rounds.get_mut(&key).and_then(Option::take);
             if let Some(reply) = reply {
                 end(reply, planned);
@@ -173,7 +188,9 @@ impl Outside for Scripted {
 impl Tools for Scripted {
     fn call(&self, call: ToolCall, reply: CallReply) {
         let (answer, ms) = self.inner.script.tool(&call.name, &call.input);
+        let at = (self.inner.script.tools.get(&call.name)).and_then(|tool| tool.at.clone());
         let key = (call.work, call.call);
+        let saying = reply.saying();
         {
             let mut held = self.inner.held();
             if held.calls.contains_key(&key) {
@@ -183,6 +200,9 @@ impl Tools for Scripted {
         }
         let inner = self.inner.clone();
         tokio::spawn(async move {
+            if let Some(at) = at {
+                saying.say(Some(Along::Runs { at }));
+            }
             tokio::time::sleep(Duration::from_millis(ms)).await;
             let reply = inner.held().calls.get_mut(&key).and_then(Option::take);
             if let Some(reply) = reply {

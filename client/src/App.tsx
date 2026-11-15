@@ -9,7 +9,9 @@ import { Fragment, type ReactNode, Suspense, useCallback, useEffect, useMemo, us
 import { type Definition, type Flow, type Given, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
-import { type BarItems, Engine, useBarItems, waitsForOwner } from './Engine';
+import { type BarItems, Engine, useBarItems } from './Engine';
+import { waitingCount } from './works/waiting';
+import { waitCount } from './works/words';
 import { LazyFlowChart } from './graph/lazy';
 import { GraphLegend } from './graph/legend';
 import { chartOf } from './graph/model';
@@ -73,7 +75,7 @@ export function Views({
           {route.view === 'console' && (
             // The console's drawing library is large: it is read only once the console is first shown.
             <Suspense fallback={<p className="message muted">Reading the console</p>}>
-              <LazyConsolePage named={'item' in route ? route.item : undefined} />
+              <LazyConsolePage named={'item' in route ? route.item : undefined} wait={'item' in route ? route.wait : undefined} />
             </Suspense>
           )}
           {route.view === 'works' && <WorksList />}
@@ -139,12 +141,10 @@ export function Shell({ route, serves = 'all', children }: {
 }) {
   const [theme, setTheme] = useTheme();
   const [bar, setBar] = useState<BarItems>({ items: null, failed: null });
-  // The questions that hold a work, told of by the browser as they come, on the engine's own page only.
+  // What waits on the owner, told of by the browser as it comes, on the engine's own page only.
   useNotifications(bar.items, serves === 'all' && !usesFixtures(window.location.search));
-  const waiting = bar.items?.items.filter((i) => waitsForOwner(i.work.now)).length ?? 0;
-  const views = TABS.map((t) =>
-    t.href === '#/console' ? { ...t, count: waiting, countTitle: `${waiting} waiting for you` } : t,
-  );
+  const waiting = waitingCount(bar.items?.items.map((i) => i.work) ?? []);
+  const views = TABS.map((t) => (t.href === '#/console' ? { ...t, count: waiting, countTitle: waitCount(waiting) } : t));
   return (
     <div className="page">
       <Bar
@@ -196,8 +196,8 @@ export function FlowPage({ definition, given, active = true }: {
   active?: boolean;
 }) {
   const [chosen, setChosen] = useState<Chosen>(null);
-  // The matrix first; the flowchart, once shown, is kept as the owner left it while the matrix is shown.
-  const [chartView, setChartView] = useState<ChartView>('matrix');
+  // The flowchart first; each, once shown, is kept as the owner left it while the other is shown.
+  const [chartView, setChartView] = useState<ChartView>('flowchart');
   const [graphShown, setGraphShown] = useState(false);
   // Whether the flowchart draws every arrow a write runs; else only the chosen cell's, as what it is given.
   const [dataArrows, setDataArrows] = useState(false);
@@ -325,43 +325,43 @@ export function FlowPage({ definition, given, active = true }: {
 
   return (
     <>
-      <div className="view-line">
-        <span className="view-name">{flow.name}</span>
-        <span className="view-facts" title="flow.toml">
-          {limitsWords(flow)}
-          {flow.tools.length > 0 && (
-            <>
-              {' · tools '}
-              {flow.tools.map((t, i) => (
-                <Fragment key={t}>
-                  {i > 0 && ', '}
-                  <button
-                    type="button"
-                    className="link mono"
-                    aria-pressed={tool === t}
-                    onClick={() => choose(tool === t ? null : { tool: t })}
-                  >
-                    {t}
-                  </button>
-                </Fragment>
-              ))}
-            </>
-          )}
-        </span>
-        <span className="view-end">
-          <Switch<ChartView>
-            label="Matrix or flowchart"
-            value={chartView}
-            onChange={setChartView}
-            choices={[
-              { value: 'matrix', name: 'Matrix' },
-              { value: 'flowchart', name: 'Flowchart' },
-            ]}
-          />
-          {chartView === 'matrix' ? (
-            <Legend waysBack={drawn.waysBack} />
-          ) : (
-            <>
+      {/* Two rows, neither wrapping into the other: the flow's name, its facts and the switches; then the legend of the
+          chart shown, alone. */}
+      <div className="view-line view-lines">
+        <div className="view-row">
+          <span className="view-name">{flow.name}</span>
+          <span className="view-facts" title="flow.toml">
+            {limitsWords(flow)}
+            {flow.tools.length > 0 && (
+              <>
+                {' · tools '}
+                {flow.tools.map((t, i) => (
+                  <Fragment key={t}>
+                    {i > 0 && ', '}
+                    <button
+                      type="button"
+                      className="link mono"
+                      aria-pressed={tool === t}
+                      onClick={() => choose(tool === t ? null : { tool: t })}
+                    >
+                      {t}
+                    </button>
+                  </Fragment>
+                ))}
+              </>
+            )}
+          </span>
+          <span className="view-end">
+            <Switch<ChartView>
+              label="Matrix or flowchart"
+              value={chartView}
+              onChange={setChartView}
+              choices={[
+                { value: 'matrix', name: 'Matrix' },
+                { value: 'flowchart', name: 'Flowchart' },
+              ]}
+            />
+            {chartView === 'flowchart' && (
               <label
                 className="view-toggle"
                 title="Every arrow a write runs; else only those into and out of the cell chosen"
@@ -369,10 +369,12 @@ export function FlowPage({ definition, given, active = true }: {
                 <input type="checkbox" checked={dataArrows} onChange={(e) => setDataArrows(e.target.checked)} />
                 Data arrows
               </label>
-              <GraphLegend waysBack={graphWaysBack} />
-            </>
-          )}
-        </span>
+            )}
+          </span>
+        </div>
+        <div className="view-row">
+          {chartView === 'matrix' ? <Legend waysBack={drawn.waysBack} /> : <GraphLegend waysBack={graphWaysBack} />}
+        </div>
       </div>
       {given?.state === 'unread' && (
         <p className="read-failed" role="alert">
