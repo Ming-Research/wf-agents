@@ -37,6 +37,7 @@ fn a_block_written_by_another_since_the_round_was_told_of_it_stands_at_a_later_v
         latest: None,
         value: None,
         added: false,
+        empty: true,
     };
     assert_eq!(told.outputs[&BlockId::from("opinions")], standing);
     let opinion = w.person_writes("opinions");
@@ -46,6 +47,7 @@ fn a_block_written_by_another_since_the_round_was_told_of_it_stands_at_a_later_v
         latest: Some(opinion),
         value: None,
         added: false,
+        empty: false,
     };
     assert_eq!(told.outputs[&BlockId::from("opinions")], standing);
     assert_eq!(told.ran_by, vec![BlockId::from("code")]);
@@ -63,4 +65,28 @@ fn a_block_written_by_another_since_the_round_was_told_of_it_stands_at_a_later_v
     // name it as dealt with to be held to what the cell must write (design document `data-and-context`, 12).
     assert_eq!(told.ran_by, vec![BlockId::from("code")]);
     let _ = code;
+}
+
+// A block holds nothing where its latest version holds nothing, as one with no version does, so that a return that
+// writes it holding nothing takes nothing away (decision a-write-of-nothing-only-empties); one that holds something
+// does not.
+#[test]
+fn a_block_holds_nothing_where_its_latest_version_holds_nothing_or_it_has_none() {
+    let mut w = World::with_gate(vec![cell("implement", &["plan", "opinions"], &["code"])]);
+    let code = BlockId::from("code");
+    let empty = |w: &World, run: RunId| {
+        let told = decide::told(&w.flow, &w.records, run).expect("the run started");
+        told.outputs[&code].empty
+    };
+    w.person_writes("plan");
+    let run = w.start("implement");
+    assert!(empty(&w, run), "with no version");
+    w.finish("implement", &[("code", Matters)]);
+    w.person_writes("opinions");
+    let run = w.start("implement");
+    assert!(!empty(&w, run), "holding something");
+    w.finish("implement", &[("code", Nothing)]);
+    w.person_writes("opinions");
+    let run = w.start("implement");
+    assert!(empty(&w, run), "emptied");
 }
