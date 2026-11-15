@@ -102,6 +102,7 @@ fn round(item: Item) -> Round {
         given: Given::Task,
         item,
         kept: Arc::new(Work::default()),
+        lines: Default::default(),
     }
 }
 

@@ -102,6 +102,9 @@ pub enum Failure {
     Unread,
     /// The service's safety check flagged it: tried again in a new session of its line.
     Flagged,
+    /// The run guard stopped it, its context growing past what its cell's history explains: tried again in a new
+    /// session of its line.
+    Guarded,
     /// The account's usage limit.
     UsageLimit,
     /// The agents' command line cannot run.
@@ -208,8 +211,13 @@ pub struct Summary {
     pub now: Now,
     /// Each cell of its flow as it stands for this work, in the order of the walk.
     pub cells: Vec<CellNow>,
-    /// What all its rounds that ended took.
+    /// What all its rounds that ended took, and its keep-warm pings, which count in what it spent as its rounds do:
+    /// `rounds` counts its rounds alone.
     pub spent: Spent,
+    /// What the keep-warm pings of its sessions took, each ping counted as a round, none of them under way for any
+    /// time the page counts.
+    #[serde(default)]
+    pub pinged: Spent,
     /// When something last happened to it; none where nothing has.
     pub last: Option<u64>,
     /// When its first round began; none before it has one.
@@ -668,7 +676,7 @@ pub enum Step {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SessionWhy {
-    /// The context of the line's session, as its last round ended, was past the limit, in tokens.
+    /// The context of the line's session, as its last round ended, was past the limit of its line, in tokens.
     Limit { context: u64, limit: u64 },
     /// The line's rounds run on another model than this one, which the session was begun on.
     Model { was: String },
@@ -678,6 +686,10 @@ pub enum SessionWhy {
     Owner,
     /// The service's safety check flagged the line's last round.
     Flagged,
+    /// The run guard stopped the line's last round, its context having grown past what its cell's history explains.
+    Guarded,
+    /// The line's last round failed for a prompt too long for the model.
+    TooLong,
     /// The agents' program no longer had the session the line was in.
     Lost,
     /// The agents' program compacted the line's session during a round.
@@ -695,6 +707,8 @@ impl SessionWhy {
             Why::Account { .. } => SessionWhy::Account,
             Why::Owner => SessionWhy::Owner,
             Why::Flagged => SessionWhy::Flagged,
+            Why::Guarded => SessionWhy::Guarded,
+            Why::TooLong => SessionWhy::TooLong,
             Why::Lost => SessionWhy::Lost,
             Why::Compacted => SessionWhy::Compacted,
         }
@@ -757,6 +771,26 @@ pub struct Round {
     pub session: Option<RoundSession>,
     /// Each try of it the records hold, in order; none for a try that began before tries were recorded.
     pub tries: Vec<RoundTry>,
+    /// How it missed its session's prompt cache, where it did. Worked out for a work's page only, as are its tries.
+    pub missed: Option<Missed>,
+    /// Whether what it took was worked out from its calls at the models' prices, its program having printed no result
+    /// to say it, as of a round the run guard stopped: an estimate. Worked out for a work's page only.
+    #[serde(default)]
+    pub estimated: bool,
+}
+
+/// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
+/// call read from the cache less than half of what the session held.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Missed {
+    /// The tokens its first call read from the cache.
+    pub read: u64,
+    /// The tokens its session held.
+    pub held: u64,
+    /// What comes before the session's messages in the prompt and differs from the call before, by name: the cause by
+    /// design; none where nothing does, and the miss is a fault of wf-agents.
+    pub differs: Vec<String>,
 }
 
 /// The session of its line a round runs in.
@@ -857,6 +891,8 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
+    /// The work's branch changes this file the project protects, and nothing says why.
+    Unexplained { path: String },
 }
 
 /// What came back at the end of a round.
@@ -1036,7 +1072,7 @@ pub struct ItemChanges {
     deny_unknown_fields
 )]
 pub enum ChangeAsked {
-    /// The item is given this title, which its merge will be named by.
+    /// The item is given this title, in the owner's language; its merge is named by a line its work writes.
     Title { item: u64, title: String },
     /// The item is put at this level, among those the settings name and at most the highest an item may be at.
     Level { item: u64, level: String },
@@ -1083,8 +1119,17 @@ impl ChangeAsked {
         use store::ItemChange as C;
         let item = ItemNumber(self.item());
         let asked = match self {
-            ChangeAsked::Title { title, .. } => Asked::Item(C::Title(title)),
-            ChangeAsked::Level { level, .. } => Asked::Item(C::Level(levels.of_item(Some(&level))?)),
+            ChangeAsked::Title { title, .. } => {
+                levels
+                    .title_fits(&title)
+                    .map_err(|why| format!("the item's title: {why}"))?;
+                Asked::Item(C::Title(title))
+            }
+            ChangeAsked::Level { level, .. } => Asked::Item(C::Level(
+                levels
+                    .of_item(Some(&level))
+                    .map_err(|why| format!("the item's level: {why}"))?,
+            )),
             ChangeAsked::DependsOn { on, .. } => Asked::Item(C::DependsOn(ItemNumber(on))),
             ChangeAsked::NoLongerDependsOn { on, .. } => Asked::Item(C::NoLongerDependsOn(ItemNumber(on))),
             ChangeAsked::Tag { tag, .. } => Asked::Item(C::Tagged(tag)),
@@ -1453,7 +1498,9 @@ impl Summary {
             paused: decide::paused(&work.records),
             now: Now::of(kept, &view.decision, held, outages)?,
             cells,
-            spent: runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)),
+            spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
+                .with(pinged(work, &|_| true).as_no_round()),
+            pinged: pinged(work, &|_| true),
             last: work.moments.last().map(|moment| moment.at.0),
             from: (runs.iter().flat_map(|run| &run.rounds)).map(|round| round.began).min(),
             bar: bar(kept, &runs),
@@ -1720,6 +1767,34 @@ impl Spent {
     }
 }
 
+impl Spent {
+    /// What this took, counted in a spend beside rounds as no round of it: what keep-warm pings took, in what a work
+    /// or a span spent.
+    pub(crate) fn as_no_round(self) -> Spent {
+        Spent {
+            working_ms: 0,
+            rounds: 0,
+            ..self
+        }
+    }
+}
+
+/// What the keep-warm pings of the work that ended at a time `within` takes took, each counted as a round.
+pub(crate) fn pinged(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Spent {
+    (work.pinged.iter())
+        .filter(|p| work.time_of(p.at).is_some_and(|at| within(at.0)))
+        .fold(Spent::default(), |sum, p| {
+            sum.with(Spent {
+                usd_micros: p.spent.usd_micros,
+                input_tokens: p.spent.input_tokens,
+                cached_tokens: p.spent.cached_tokens,
+                output_tokens: p.spent.output_tokens,
+                working_ms: 0,
+                rounds: 1,
+            })
+        })
+}
+
 impl WorkPage {
     /// The work of this number, as the driver holds it now; none where the driver has no such work.
     pub fn of(driver: &Driver, number: WorkNumber, now: Time) -> Result<Option<WorkPage>, Broken> {
@@ -1771,8 +1846,9 @@ impl WorkPage {
                     .collect(),
             })
             .collect();
+        let misses = driver.misses(number);
         let mut runs = runs(kept)?;
-        in_detail(kept, &mut runs);
+        in_detail(kept, &mut runs, &misses);
         let mut steps: Vec<Step> = runs.into_iter().map(Step::Run).collect();
         for written in &work.records.written {
             let version = (view.blocks.get(&written.block))
@@ -2023,6 +2099,9 @@ impl NewItem {
     /// The item as the driver adds it, at the level it asks for or else at the default of these levels, of the project
     /// it asks for among these; or why it cannot be, in words.
     pub fn taken(self, levels: &Levels, projects: &Projects) -> Result<driver::NewItem, String> {
+        levels
+            .title_fits(&self.title)
+            .map_err(|why| format!("The item's title: {why}"))?;
         let level = levels
             .of_item(self.level.as_deref())
             .map_err(|why| format!("The item's level: {why}"))?;
@@ -2197,14 +2276,16 @@ impl Unmet {
             UnmetOf::QuestionTwice { name } => Unmet::QuestionTwice { name: name.clone() },
             UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
+            UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
         }
     }
 }
 
-/// Gives each round of the runs the session of its line it runs in, by the records' count, and each try of it the
-/// records hold, with what was filled into its session: what a work's page shows of a round, and nothing else needs,
-/// since working out a round's session counts the line's rounds before it.
-fn in_detail(kept: Kept<'_>, runs: &mut [Run]) {
+/// Gives each round of the runs the session of its line it runs in, by the records' count, each try of it the records
+/// hold, with what was filled into its session, and how it missed its session's cache, of these misses: what a work's
+/// page shows of a round, and nothing else needs, since working out a round's session counts the line's rounds before
+/// it.
+fn in_detail(kept: Kept<'_>, runs: &mut [Run], misses: &[driver::cache::Miss]) {
     let work = kept.work;
     let records = &work.records;
     // The line of each run's cell, where the flow puts it on one.
@@ -2218,6 +2299,14 @@ fn in_detail(kept: Kept<'_>, runs: &mut [Run]) {
         let line = line_of(run);
         for round in &mut r.rounds {
             let number = round.number;
+            round.estimated = work::measured::of_round(&work.measured, run, number).is_some_and(|m| m.priced);
+            round.missed = (misses.iter())
+                .find(|m| m.run == run && m.round == number)
+                .map(|m| Missed {
+                    read: m.read,
+                    held: m.held,
+                    differs: m.differs.clone(),
+                });
             round.session = line.map(|line| {
                 let on_line = |other: RunId| line_of(other) == Some(line);
                 RoundSession {
@@ -2324,6 +2413,8 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 compactions: took.map_or(0, |t| t.compactions),
                 session: None,
                 tries: Vec::new(),
+                missed: None,
+                estimated: false,
             });
         }
         let mut calls = Vec::new();
@@ -2432,6 +2523,7 @@ impl Failure {
             FailureOf::Passing => Failure::Passing,
             FailureOf::Unread => Failure::Unread,
             FailureOf::Flagged => Failure::Flagged,
+            FailureOf::Guarded => Failure::Guarded,
             FailureOf::UsageLimit => Failure::UsageLimit,
             FailureOf::CannotRun => Failure::CannotRun,
             FailureOf::Offline => Failure::Offline,

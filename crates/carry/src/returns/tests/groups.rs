@@ -93,7 +93,9 @@ impl W {
             "dealt_with": dealt_with,
             "outputs": {"ok": {"value": "yes", "why": "It says how."}},
         }});
-        let came = came(&r, &self.flow, cell(&self.flow), &words()).expect("it is read");
+        let came = came(&r, &self.flow, cell(&self.flow), &words())
+            .expect("it is read")
+            .came;
         let event = Event::Returned {
             run,
             came,

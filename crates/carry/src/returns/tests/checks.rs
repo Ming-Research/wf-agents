@@ -330,7 +330,9 @@ fn entered(flow: &Compiled, spoken: bool) -> (Work, RunId) {
 /// What comes of a return drawn: it is read against the cell, and the loop takes it.
 fn returned(flow: &Compiled, work: &mut Work, run: RunId, drawn: &Drawn) -> Vec<Effect> {
     let words = super::words();
-    let came = came(&drawn.r, flow, cell(flow), &words).unwrap_or_else(|why| panic!("{} is not read: {why}", drawn.r));
+    let reading =
+        came(&drawn.r, flow, cell(flow), &words).unwrap_or_else(|why| panic!("{} is not read: {why}", drawn.r));
+    let came = reading.came;
     let event = Event::Returned {
         run,
         came,

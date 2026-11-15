@@ -78,7 +78,8 @@ fn cell<'a>(flow: &'a Compiled, line: &str) -> &'a CellSpec {
 fn of(line: &str) -> String {
     let (settings, beside, flow) = (settings(), beside(), engineer());
     let cell = cell(&flow, line);
-    let your_line = Permissions::of(cell.reads_only, &[], &Default::default()).told(&beside.your_line);
+    let protected = &beside.project.protected.paths;
+    let your_line = Permissions::of(cell.reads_only, &[], &Default::default()).told(&beside.your_line, protected);
     of_line(&beside, &filling(&settings, &beside), &flow, cell, &your_line, project).expect("it is made")
 }
 
@@ -102,7 +103,15 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
     assert!(places.windows(2).all(|w| w[0] < w[1]), "{engineer}");
     assert!(engineer.starts_with(order[0]), "{engineer}");
     assert!(
-        engineer.contains("worktree of the work's own branch. Make your changes there and commit them there. Never"),
+        engineer.contains(
+            "worktree of the work's own branch. Make your changes there and commit them there. The project protects \
+             `AGENTS.md`, "
+        ),
+        "{engineer}"
+    );
+    assert!(engineer.contains("`.github/workflows/`: change what is there only where the work needs it. Never"));
+    assert!(
+        engineer.contains("\n- `protected_changes`: of each file the project protects"),
         "{engineer}"
     );
     for named in [
@@ -469,4 +478,19 @@ fn the_real_store_opened_to_agents_is_described_in_the_system_prompt_without_the
             "{table}.{hidden}:\n{section}"
         );
     }
+}
+
+// The words of what a cell returns are sent in a message, which gives each setting they name with its value: one with no
+// value is refused as the engine starts, as in any other text sent.
+#[test]
+fn the_words_of_what_a_cell_returns_naming_a_setting_with_no_value_are_refused_as_the_engine_starts() {
+    let (mut beside, flow) = (beside(), engineer());
+    beside.returns.outputs.none = "This cell writes no block; it reads `project.research`.".to_string();
+    assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
+    beside.project.project.remove("research");
+    beside.installation.names.push("project.research".to_string());
+    let said = "flow engineer: flow/agents/return/return.toml, [outputs]: names the setting `project.research`, which \
+                has no value";
+    let faults = faults(&settings(), &beside, &flow);
+    assert!(faults.iter().any(|f| f == said), "{faults:#?}");
 }

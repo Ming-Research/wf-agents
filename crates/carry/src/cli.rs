@@ -278,8 +278,9 @@ pub struct InSession {
 }
 
 /// The session the round of this number of the run of a cell on the line runs in: it goes on in it where an earlier
-/// round of the line in the same session ended having spent tokens, which a round that never reached the model has
-/// not; and the session cost before it what those earlier rounds cost.
+/// round of the line in the same session put its message into it, having reached the model or its program having said
+/// it took the message in (`work::sessions::wrote_into`); and the session cost before it what those earlier rounds
+/// cost, and the keep-warm pings it was sent before it.
 pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize) -> InSession {
     let on_line = |run: RunId| {
         let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
@@ -295,7 +296,11 @@ pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: 
             b < at && sessions::number_at(work, line, b) == session
         })
         .map(|(_, spent)| spent.usd_micros)
-        .sum();
+        .sum::<u64>()
+        + (work.pinged.iter())
+            .filter(|p| p.line == line && p.session == session && p.at < at)
+            .map(|p| p.spent.usd_micros)
+            .sum::<u64>();
     InSession {
         number: session,
         begin: if begins { Begin::New } else { Begin::Resume },
@@ -376,7 +381,9 @@ pub const STRUCTURED_OUTPUT: &str = "StructuredOutput";
 const PARTIAL: &str = r#"{"type":"stream_event""#;
 
 /// The command line's stream as it comes, line by line: its result, and each attempt at a return, rebuilt from the
-/// partial messages, with what the command line said of those it refused.
+/// partial messages, with what the command line said of those it refused; and the calls of the session's own agent to
+/// the model, each as its first partial message tells its prompt, with the tools the agent used, and the program's
+/// version, as its first line tells it.
 #[derive(Debug, Default)]
 pub struct Stream {
     /// Whether it gave any line.
@@ -393,7 +400,50 @@ pub struct Stream {
     calls: Vec<(String, String, cost::Tokens)>,
     /// Whether the service has answered a call of the main loop with a message that is no error.
     answered: bool,
+    /// The calls of the session's own agent.
+    pub own: Calls,
+    /// The uses of tools of the session's own agent, by the use's id, in order: the tool and what it was used on, cut.
+    pub tools: Vec<(String, String, String)>,
+    /// The program's version, where its first line told it.
+    pub program: Option<String>,
 }
+
+/// The calls of the session's own agent to the model, as their first partial messages tell their prompts: a call made
+/// by a subagent is left out, its context not being the session's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Calls {
+    /// How many.
+    pub count: u32,
+    /// The first's prompt: what it read from the cache, and its whole, in tokens.
+    pub first: Option<(u64, u64)>,
+    /// The latest's whole prompt.
+    pub last: Option<u64>,
+    /// The tokens the prompt rose by from each call to the next, each rise counted, a fall taking none back.
+    pub added: u64,
+    /// The tokens of the prompts sent fresh, read from the cache and written to it, over the calls.
+    pub fresh: u64,
+    pub read: u64,
+    pub written: u64,
+}
+
+impl Calls {
+    /// Takes a call whose prompt was sent fresh, read from the cache and written to it in these tokens.
+    fn take(&mut self, fresh: u64, read: u64, written: u64) {
+        let whole = fresh + read + written;
+        (self.fresh, self.read, self.written) = (self.fresh + fresh, self.read + read, self.written + written);
+        self.count += 1;
+        if self.first.is_none() {
+            self.first = Some((read, whole));
+        }
+        if let Some(last) = self.last {
+            self.added += whole.saturating_sub(last);
+        }
+        self.last = Some(whole);
+    }
+}
+
+/// How much of what a tool was used on is kept to say what the agent was doing, in characters.
+const ON: usize = 160;
 
 impl Stream {
     /// Takes one line of the stream, without its newline, and says whether the line is kept with the round: every
@@ -404,7 +454,9 @@ impl Stream {
         let Ok(text) = std::str::from_utf8(line) else {
             return true;
         };
-        if text.starts_with(PARTIAL) && !self.attempts.wants(text) {
+        // The first partial message of each call tells its prompt, whether or not it rebuilds an attempt at a return.
+        let starts = text.starts_with(PARTIAL) && text.contains(r#""message_start""#);
+        if text.starts_with(PARTIAL) && !starts && !self.attempts.wants(text) {
             return false;
         }
         let Ok(v) = serde_json::from_str::<Value>(text) else {
@@ -413,12 +465,44 @@ impl Stream {
         self.said.line(&v);
         self.called(&v);
         match v["type"].as_str() {
-            Some("stream_event") => return self.attempts.event(&v),
+            Some("stream_event") => {
+                if starts && v["parent_tool_use_id"].is_null() {
+                    let usage = &v["event"]["message"]["usage"];
+                    let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
+                    let (fresh, read) = (tokens("input_tokens"), tokens("cache_read_input_tokens"));
+                    self.own.take(fresh, read, tokens("cache_creation_input_tokens"));
+                }
+                return self.attempts.event(&v);
+            }
             Some("result") => self.result = Some(v),
             Some("user") if v["parent_tool_use_id"].is_null() => self.refusals.extend(refusals(&v)),
+            Some("assistant") if v["parent_tool_use_id"].is_null() => self.used(&v),
+            Some("system") if v["subtype"] == "init" => {
+                self.program = v["claude_code_version"].as_str().map(str::to_string);
+            }
             _ => {}
         }
         true
+    }
+
+    /// Takes the uses of tools a whole message of the agent's own holds, each once by its id.
+    fn used(&mut self, message: &Value) {
+        let content = message["message"]["content"].as_array().into_iter().flatten();
+        for used in content.filter(|c| c["type"] == "tool_use") {
+            let id = used["id"].as_str().unwrap_or_default().to_string();
+            if self.tools.iter().any(|(seen, ..)| *seen == id) {
+                continue;
+            }
+            let name = used["name"].as_str().unwrap_or_default().to_string();
+            let on: String = used["input"].to_string().chars().take(ON).collect();
+            self.tools.push((id, name, on));
+        }
+    }
+
+    /// Whether the program said, as its stream began, that it had taken its message in and opened its session: its
+    /// first line, which it prints once it has read its input.
+    pub fn began(&self) -> bool {
+        self.program.is_some()
     }
 
     /// Whether the stream gave any line.
@@ -458,7 +542,7 @@ impl Stream {
     }
 
     /// What the stream's calls cost at their models' prices, and their tokens; none where it made none.
-    fn priced(&self) -> Option<Spent> {
+    pub fn priced(&self) -> Option<Spent> {
         let last = self.calls.last()?;
         let mut spent = Spent {
             context_tokens: Some(last.2.prompt()),
@@ -471,6 +555,21 @@ impl Stream {
             spent.output_tokens += tokens.output;
         }
         Some(spent)
+    }
+
+    /// What the try's prompts came to as the program's result says: the tokens sent fresh, read from the cache and
+    /// written to it, those thought in, where it says, and the turns; none where it printed no result.
+    pub fn printed(&self) -> Option<(u64, u64, u64, Option<u64>, u64)> {
+        let result = self.result.as_ref()?;
+        let usage = &result["usage"];
+        let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
+        Some((
+            tokens("input_tokens"),
+            tokens("cache_read_input_tokens"),
+            tokens("cache_creation_input_tokens"),
+            usage["output_tokens_details"]["thinking_tokens"].as_u64(),
+            result["num_turns"].as_u64().unwrap_or(0),
+        ))
     }
 
     /// Reads the stream, for a round that began its session or went on in it with the session having cost `before`:
@@ -795,6 +894,29 @@ mod tests {
             }
         );
         assert_eq!(read.structured["hands_in"][0]["content"], "BANANA");
+    }
+
+    #[test]
+    fn the_stream_tells_each_call_of_the_agents_own_its_tools_and_the_programs_version_and_the_result_what_it_took() {
+        let mut stream = Stream::default();
+        for line in STREAM.lines() {
+            stream.line(line.as_bytes());
+        }
+        // Two calls, each as its first partial message tells its prompt: fresh, read from the cache, written to it.
+        let calls = &stream.own;
+        assert_eq!(calls.count, 2);
+        assert_eq!(calls.first, Some((27_199, 2 + 27_199 + 8_950)));
+        assert_eq!(calls.last, Some(2 + 36_149 + 140));
+        assert_eq!(calls.added, (2 + 36_149 + 140) - (2 + 27_199 + 8_950));
+        assert_eq!(
+            (calls.fresh, calls.read, calls.written),
+            (4, 27_199 + 36_149, 8_950 + 140)
+        );
+        assert_eq!(stream.program.as_deref(), Some("2.1.323"));
+        let tools: Vec<&str> = stream.tools.iter().map(|(_, tool, _)| tool.as_str()).collect();
+        assert_eq!(tools, ["Bash", STRUCTURED_OUTPUT]);
+        // The result says the cache writes apart from the fresh tokens and the reads, the thinking and the turns.
+        assert_eq!(stream.printed(), Some((4, 63_348, 9_090, Some(153), 3)));
     }
 
     #[test]

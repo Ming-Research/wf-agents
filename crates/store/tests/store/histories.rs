@@ -15,6 +15,7 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use engine::Call;
+use work::Measures;
 
 use super::*;
 
@@ -169,6 +170,30 @@ impl History {
             }
             _ => Came::asks(vec![]),
         };
+        // What the round's calls came to is told before its end, now and then.
+        if self.rng.chance(50) {
+            let measures = Measures {
+                input_tokens: self.clock % 7,
+                cache_read_tokens: self.clock % 997,
+                cache_written_tokens: self.clock % 991,
+                thinking_tokens: self.rng.chance(50).then_some(self.clock % 13),
+                turns: 1 + self.rng.below(5) as u64,
+                calls: 1 + self.rng.below(5) as u32,
+                first_read: Some(self.clock % 997),
+                first_context: Some(self.clock % 991 + 1000),
+                added: self.clock % 89,
+                given: self.clock % 83,
+                before: [("model".to_string(), format!("m{}", self.rng.below(2)))].into(),
+                received: self.rng.chance(50),
+                crossed: self.rng.chance(10),
+                priced: self.rng.chance(10),
+            };
+            self.take(Event::Measured {
+                run,
+                attempt: 1,
+                measures,
+            });
+        }
         let spent = self.spent(run);
         self.take(Event::Returned { run, came, spent });
     }
@@ -206,7 +231,17 @@ impl History {
                     wrote("checks", Outsider::Outside, true, value)
                 }
             }
-            42..=55 => {
+            42..=47 => {
+                // A keep-warm ping of a line's session ended, or failed.
+                let failed = self.rng.chance(30).then(|| "the network".to_string());
+                Event::Pinged {
+                    line: ["main", "other"][self.rng.below(2)].to_string(),
+                    session: self.rng.below(2) as u32,
+                    spent: self.spent(RunId(self.clock)),
+                    failed,
+                }
+            }
+            48..=55 => {
                 let cells = self.flow.flow.cells();
                 Event::LetGo {
                     cell: cells[self.rng.below(cells.len())].id.clone(),
@@ -268,6 +303,7 @@ impl History {
             Effect::Release { .. } => {
                 self.take(Event::Released);
             }
+            Effect::Ping { .. } => unreachable!("the work's loop gives no ping"),
         }
         true
     }

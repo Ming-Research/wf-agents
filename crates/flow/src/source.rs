@@ -562,6 +562,9 @@ pub struct CellFile {
     /// the work, as the body of its pull request; an engine cell's act reads them.
     #[serde(default)]
     pub describes: Vec<String>,
+    /// The block whose first line names the work's merge where the host shows it, as the title of its pull request
+    /// and of the commit the merge makes; the act of an engine cell that merges reads it.
+    pub named_by: Option<String>,
     /// How many runs of the cell in a row may be ways round, if not the flow's limit.
     pub limit: Option<i64>,
     /// The reasoning effort an agent cell's rounds run at, whatever the model; every agent cell sets one.

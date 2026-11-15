@@ -206,4 +206,9 @@ fn the_engineer_s_form_is_made_of_the_files_beside_the_repository_s_flows() {
         outcome["properties"].get("summary").is_none(),
         "a return has no summary"
     );
+    // Why the work changes each file the project protects: a text under each file's path.
+    assert_eq!(
+        outcome["properties"]["protected_changes"],
+        json!({ "type": "object", "additionalProperties": { "type": "string" } })
+    );
 }

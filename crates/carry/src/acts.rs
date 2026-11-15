@@ -281,9 +281,10 @@ impl<H: Host> Inner<H> {
         let words = &self.words;
         let place = git::place(&self.data, &self.tag, round.work);
         let about = about(&round.flow, &round.kept);
+        let name = name(&round.flow, &round.kept, round.work, &project.commits);
         let branch = Branch {
             work: round.work,
-            title: &round.item.title,
+            title: &name,
             about: &about,
             place: &place,
         };
@@ -380,9 +381,10 @@ impl<H: Host> Inner<H> {
     /// holds for it, and its worktrees are taken away. Tried once: what fails is said, and is not tried again unseen.
     async fn release(&self, release: &Release) -> Result<(), String> {
         let place = git::place(&self.data, &self.tag, release.work);
+        let name = name(&release.flow, &release.kept, release.work, &self.project.commits);
         let branch = Branch {
             work: release.work,
-            title: &release.item.title,
+            title: &name,
             about: "",
             place: &place,
         };
@@ -657,9 +659,10 @@ pub(crate) async fn check(
                 return Ok(Some(checked));
             }
         };
-        checked.asks = protected::asking(gate.work, ask, &change);
+        // The check has no return to say why: it asks with what the question that stands says of each file as it is.
+        checked.asks = protected::asking(gate.work, ask, &change, &Default::default());
         if !change.files.is_empty() && !protected::let_merge(gate.work, ask, &change) {
-            let files: Vec<String> = change.files.iter().map(|(_, path)| path.clone()).collect();
+            let files: Vec<String> = change.files.iter().map(|file| file.path.clone()).collect();
             let failed = fill(
                 &words.found.protected,
                 &[("question", &ask.name), ("files", &files.join("\n"))],
@@ -920,6 +923,23 @@ pub(crate) fn about(flow: &Compiled, work: &Work) -> String {
         .flat_map(|cell| cell.describes.iter().cloned())
         .collect();
     described(&named, work)
+}
+
+/// The name of the work's merge, which the host gives its pull request and the commit its merge makes: the first line
+/// of the latest version of the block the flow's merge is named by, which the work writes in the repository's
+/// language; where the work wrote nothing there, the words of the engine's commits for a work with no name, by its
+/// number. The acts and the tools work it out alike.
+pub(crate) fn name(flow: &Compiled, work: &Work, number: WorkNumber, commits: &flow::agents::Commits) -> String {
+    let named: Vec<BlockId> = (flow.cells.iter())
+        .filter(|cell| cell.act.as_deref() == Some("merge"))
+        .filter_map(|cell| cell.named_by.clone())
+        .collect();
+    let written = described(&named, work);
+    let line = written.lines().map(str::trim).find(|line| !line.is_empty());
+    line.map_or_else(
+        || fill(&commits.unnamed, &[("work", &number.0.to_string())]),
+        str::to_string,
+    )
 }
 
 /// What the work wrote of itself in these blocks, which a cell names to describe it, each at its current version, in
@@ -1401,7 +1421,8 @@ mod tests {
         let repo = Repo::new("true");
         let (_, main) = changing_a_protected_file(&repo).await;
         let host = Fake::new(&main).judges(Ok(Some(passes())));
-        let checked = check_held(&repo, &host, &protecting(&["AGENTS.md", "flow/"]), &Work::default()).await;
+        let protecting = protecting(&["AGENTS.md", "flow/"]);
+        let checked = check_held(&repo, &host, &protecting, &Work::default()).await;
         let failed = checked.failed.as_deref().unwrap_or_default();
         assert!(
             failed.contains("protects") && failed.contains("AGENTS.md"),
@@ -1410,6 +1431,17 @@ mod tests {
         assert!(!failed.contains("farewell.txt"), "{failed}");
         assert!(
             matches!(&checked.asks, Some(Question::Asked { name, waits: true, .. }) if name == "protected_files"),
+            "{checked:?}"
+        );
+        // No round said why: the question says so of the file, above its change.
+        let no_reason = protecting
+            .words
+            .as_ref()
+            .map(|w| w.no_reason.clone())
+            .unwrap_or_default();
+        assert!(
+            matches!(&checked.asks, Some(Question::Asked { ask, .. })
+                if ask.contains(&format!("`AGENTS.md`, added. Why, in the work's words: {no_reason}\n\n```diff\n"))),
             "{checked:?}"
         );
         assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");
@@ -1928,5 +1960,7 @@ mod tests {
         let merged = host.merge(&branch(&place), Some(&head)).await.expect("it merges");
         assert_eq!(merged, run(&repo.project.repo, &["rev-parse", "main"]));
         assert!(repo.project.repo.join("farewell.txt").is_file());
+        let subject = run(&repo.project.repo, &["log", "-1", "--format=%s", "main"]);
+        assert_eq!(subject, "Greet the user", "the merge is named as the branch says");
     }
 }

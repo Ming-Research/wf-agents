@@ -1,6 +1,6 @@
 //! A host for the tests of the acts: it gives the head of main it is set to and the verdicts it is given, in order,
-//! merges by saying main is where it is, and keeps what it was asked. It runs no test for the agents' tool, and keeps
-//! what it was asked to run, giving the words it is set to.
+//! merges by saying main is where it is, and keeps what it was asked, and the title of each branch it was given. It runs
+//! no test for the agents' tool, and keeps what it was asked to run, giving the words it is set to.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -17,6 +17,8 @@ pub(crate) struct Fake {
     asked: Mutex<Vec<Asked>>,
     /// What it says of the tests it is asked to run; its reason for running none where there are none.
     tests: Mutex<Option<String>>,
+    /// The title of each branch it was given, in order.
+    titles: Mutex<Vec<String>>,
 }
 
 /// What the host was asked.
@@ -49,6 +51,7 @@ impl Fake {
             ending: Mutex::new(None),
             asked: Mutex::new(Vec::new()),
             tests: Mutex::new(None),
+            titles: Mutex::new(Vec::new()),
         }
     }
 
@@ -73,6 +76,16 @@ impl Fake {
     pub(crate) fn asked(&self) -> Vec<Asked> {
         lock(&self.asked).clone()
     }
+
+    /// The title of each branch it was given, in order.
+    pub(crate) fn titles(&self) -> Vec<String> {
+        lock(&self.titles).clone()
+    }
+
+    /// Keeps the title of the branch it is given.
+    fn given(&self, branch: &Branch<'_>) {
+        lock(&self.titles).push(branch.title.to_string());
+    }
 }
 
 impl Host for Fake {
@@ -81,13 +94,15 @@ impl Host for Fake {
         Ok(lock(&self.main).clone())
     }
 
-    async fn verdict(&self, _: &Branch<'_>, commit: &str, _: &mut Stop) -> Result<Option<Verdict>, String> {
+    async fn verdict(&self, branch: &Branch<'_>, commit: &str, _: &mut Stop) -> Result<Option<Verdict>, String> {
+        self.given(branch);
         lock(&self.asked).push(Asked::Verdict(commit.to_string()));
         let next = lock(&self.verdicts).pop_front();
         next.unwrap_or_else(|| Err("the fake host has no verdict to give".to_string()))
     }
 
-    async fn merge(&self, _: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
+    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
+        self.given(branch);
         lock(&self.asked).push(Asked::Merge(checked.map(str::to_string)));
         Ok(lock(&self.main).clone())
     }
@@ -96,19 +111,22 @@ impl Host for Fake {
         "refs/heads/main".to_string()
     }
 
-    async fn run_tests(&self, _: &Branch<'_>, named: &Named, _: &mut Stop) -> Result<Option<String>, String> {
+    async fn run_tests(&self, branch: &Branch<'_>, named: &Named, _: &mut Stop) -> Result<Option<String>, String> {
+        self.given(branch);
         lock(&self.asked).push(Asked::RunTests(named.clone()));
         let said = lock(&self.tests).clone();
         said.map(Some).ok_or_else(|| NO_TOOLS.to_string())
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
+        self.given(branch);
         let refused = lock(&self.ending).clone();
         lock(&self.asked).push(Asked::End(branch.place.branch.clone(), merged));
         refused.map_or(Ok(()), Err)
     }
 
     async fn reopen(&self, branch: &Branch<'_>) -> Result<(), String> {
+        self.given(branch);
         lock(&self.asked).push(Asked::Reopen(branch.place.branch.clone()));
         Ok(())
     }

@@ -136,7 +136,7 @@ export function fixtureSettings(): SettingsPage {
       {
         name: 'items',
         leftOut: false,
-        keys: [key('default_level', '"2"'), key('highest_level', '"3"', null, { kind: 'level' })],
+        keys: [key('default_level', '"2"'), key('highest_level', '"3"', null, { kind: 'level' }), key('title_max', '40')],
       },
       { name: 'github', leftOut: false, keys: [key('repository', '"owner/name"'), key('token_env', '"WF_GITHUB_TOKEN"')] },
       {
