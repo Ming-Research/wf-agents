@@ -285,7 +285,7 @@ fn made(list: &str, kind: &str) -> usize {
 // say, starts as they say, and a check its build had wait for the turn says so, of a work whose check or merge is
 // under way. The build is the product's command, and builds here what the test installation builds, exploring the
 // engineer's flow at the bound its own tests explore it at: built at a smaller one, the page's states would be other
-// ones (Article 3). A minute and a half to two minutes alone in CI; the only test that builds the repository's flows.
+// ones (Article 3). One to two minutes alone in CI; the only test that builds the repository's flows.
 #[test]
 fn every_state_the_build_lists_is_reached_and_every_kind_has_one() {
     let started = Instant::now();
