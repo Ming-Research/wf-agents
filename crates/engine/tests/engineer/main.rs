@@ -1347,6 +1347,31 @@ type Case = (u64, String, Vec<String>);
 /// before it fails, and two tests side by side would each take the other's.
 static HOOK: Mutex<()> = Mutex::new(());
 
+/// Runs `f` on each seed below `seeds` on as many threads as the machine has cores, and gives the results in seed order.
+fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
+    let next = std::sync::atomic::AtomicU64::new(0);
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let mut done: Vec<(u64, T)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut mine = Vec::new();
+                    loop {
+                        let seed = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if seed >= seeds {
+                            return mine;
+                        }
+                        mine.push((seed, f(seed)));
+                    }
+                })
+            })
+            .collect();
+        workers.into_iter().flat_map(|w| w.join().expect("a worker")).collect()
+    });
+    done.sort_by_key(|(seed, _)| *seed);
+    done.into_iter().map(|(_, t)| t).collect()
+}
+
 /// Runs the histories, prints what they reached and counted, and fails if one breaks a property, or if none reached a
 /// situation the properties are about. A panic anywhere in a history, raised while the hook is silenced, is kept as a
 /// breach with its message, so that it is said when the test fails.
@@ -1361,7 +1386,7 @@ fn histories() {
     let mut broken: BTreeMap<&str, Vec<Case>> = BTreeMap::new();
     let mut continued = 0;
     let mut most = (0, 1);
-    for seed in 0..SEEDS {
+    let results = in_parallel(SEEDS, |seed| {
         let mut log = Vec::new();
         let verdict = match panic::catch_unwind(AssertUnwindSafe(|| one_history(&flow, seed, &mut log))) {
             Ok(verdict) => verdict,
@@ -1371,6 +1396,9 @@ fn histories() {
                 verdict
             }
         };
+        (verdict, log)
+    });
+    for (seed, (verdict, log)) in (0..SEEDS).zip(results) {
         for r in verdict.reached {
             *reached.entry(r).or_default() += 1;
         }
