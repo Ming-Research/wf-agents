@@ -47,7 +47,8 @@ async fn words_said_to_a_round_under_way_reach_it_by_its_hook_and_are_taken_with
         .as_str()
         .expect("what it gives");
     let opening = format!(
-        "## `discussion`, version {}, said while this round runs\n\n{}\n\nIt is new to this round as `on_spoken`",
+        "## `discussion`, version {}, said while this round runs\n\n```\n{}\n```\n\nIt is new to this round as \
+         `on_spoken`",
         owners.at.0,
         entry(owners.at)
     );

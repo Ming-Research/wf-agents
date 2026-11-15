@@ -21,7 +21,7 @@
 //! those it was given before, as `claude`'s parser of arguments does with every flag that takes a list (checked with
 //! claude 2.1.316).
 
-use flow::agents::{Agents, YourLine};
+use flow::agents::{Agents, YourLine, fill};
 
 use crate::settings::PermissionsAdded;
 
@@ -224,14 +224,14 @@ impl Permissions {
         }
         let mut out = words.writes.clone();
         match tests {
-            Some(tests) => out.push_str(&words.tests_only.replace("{paths}", &listed(tests, &words.or))),
+            Some(tests) => out.push_str(&fill(&words.tests_only, &[("paths", &listed(tests, &words.or))])),
             None if !self.locks.is_empty() => {
-                out.push_str(&words.locks.replace("{commands}", &listed(&self.locks, &words.or)));
+                out.push_str(&fill(&words.locks, &[("commands", &listed(&self.locks, &words.or))]));
             }
             None => {}
         }
         if !protected.is_empty() {
-            out.push_str(&words.protected.replace("{paths}", &listed(protected, &words.and)));
+            out.push_str(&fill(&words.protected, &[("paths", &listed(protected, &words.and))]));
         }
         out
     }
