@@ -1,11 +1,12 @@
 //! A host for the tests of the acts: it gives the head of main it is set to and the verdicts it is given, in order,
-//! merges by saying main is where it is, and keeps what it was asked, and the title of each branch it was given. It runs
-//! no test for the agents' tool, and keeps what it was asked to run, giving the words it is set to.
+//! merges by saying main is where it is, and keeps what it was asked, the title of each branch it was given, and what
+//! asked for each verdict and each run of the tests. It runs no test for the agents' tool, and keeps what it was asked
+//! to run, giving the words it is set to.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::{Branch, Host, Named, NotMerged, Verdict};
+use super::{Asking, Branch, Host, Named, NotMerged, Verdict};
 use crate::held::Stop;
 
 /// The host's answers, and what it was asked.
@@ -19,6 +20,8 @@ pub(crate) struct Fake {
     tests: Mutex<Option<String>>,
     /// The title of each branch it was given, in order.
     titles: Mutex<Vec<String>>,
+    /// What asked for each verdict and each run of the tests, in order.
+    askings: Mutex<Vec<Asking>>,
 }
 
 /// What the host was asked.
@@ -52,6 +55,7 @@ impl Fake {
             asked: Mutex::new(Vec::new()),
             tests: Mutex::new(None),
             titles: Mutex::new(Vec::new()),
+            askings: Mutex::new(Vec::new()),
         }
     }
 
@@ -82,6 +86,11 @@ impl Fake {
         lock(&self.titles).clone()
     }
 
+    /// What asked for each verdict and each run of the tests, in order.
+    pub(crate) fn askings(&self) -> Vec<Asking> {
+        lock(&self.askings).clone()
+    }
+
     /// Keeps the title of the branch it is given.
     fn given(&self, branch: &Branch<'_>) {
         lock(&self.titles).push(branch.title.to_string());
@@ -94,8 +103,15 @@ impl Host for Fake {
         Ok(lock(&self.main).clone())
     }
 
-    async fn verdict(&self, branch: &Branch<'_>, commit: &str, _: &mut Stop) -> Result<Option<Verdict>, String> {
+    async fn verdict(
+        &self,
+        branch: &Branch<'_>,
+        commit: &str,
+        asking: Asking,
+        _: &mut Stop,
+    ) -> Result<Option<Verdict>, String> {
         self.given(branch);
+        lock(&self.askings).push(asking);
         lock(&self.asked).push(Asked::Verdict(commit.to_string()));
         let next = lock(&self.verdicts).pop_front();
         next.unwrap_or_else(|| Err("the fake host has no verdict to give".to_string()))
@@ -111,8 +127,15 @@ impl Host for Fake {
         "refs/heads/main".to_string()
     }
 
-    async fn run_tests(&self, branch: &Branch<'_>, named: &Named, _: &mut Stop) -> Result<Option<String>, String> {
+    async fn run_tests(
+        &self,
+        branch: &Branch<'_>,
+        named: &Named,
+        asking: Asking,
+        _: &mut Stop,
+    ) -> Result<Option<String>, String> {
         self.given(branch);
+        lock(&self.askings).push(asking);
         lock(&self.asked).push(Asked::RunTests(named.clone()));
         let said = lock(&self.tests).clone();
         said.map(Some).ok_or_else(|| NO_TOOLS.to_string())
