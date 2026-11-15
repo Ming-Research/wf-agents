@@ -763,34 +763,36 @@ fn a_line_whose_rounds_now_run_on_another_model_begins_a_new_session_as_the_engi
 }
 
 #[test]
-fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the_engine_opens() {
+fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_once_it_runs_after_the_engine_opens() {
     // The session was begun under the program's own default directory, and the engine opens under a directory set.
     let mut s = S::new();
     s.hands_in(100, true);
-    let (build, _) = s.round();
     s.asks(100);
-    let todos = reopened(&mut s, policy_under("opus", &["second"]));
+    reopened(&mut s, policy_under("opus", &["second"]));
     s.account = Some("second".to_string());
+    assert!(
+        s.sessions().is_empty(),
+        "the build waits on its tool's result: nothing is begun anew yet"
+    );
+    // The result comes and the build's line runs again: it begins anew under the account in use.
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
     assert_eq!(
         s.sessions(),
         [("engineer".to_string(), Why::Account { was: None })],
         "the review's line, which has begun no session, begins none"
     );
     assert_eq!(s.session_block().len(), 1);
-    let loads = todos
-        .iter()
+    let loads = (s.driver.pending().iter())
         .any(|todo| matches!(&todo.effect, Effect::Round { cell, .. } if cell.as_str() == "load"));
-    assert!(loads, "the load runs again before the build goes on: {todos:?}");
+    assert!(loads, "the load runs again before the build goes on");
     // The load's round runs under the new account, and nothing more begins anew.
     s.hands_in(100, false);
-    let call = s.kept().records.called.last().expect("the build's call").call;
-    s.on(Event::Done {
-        call,
-        result: "the request".to_string(),
-    });
-    let (again, cell) = s.round();
+    let (_, cell) = s.round();
     assert_eq!(cell, "build");
-    assert_ne!(again, build);
     assert_eq!(s.sessions().len(), 1);
 }
 

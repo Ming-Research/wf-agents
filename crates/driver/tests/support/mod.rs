@@ -1437,6 +1437,28 @@ impl H {
         self.ticked(at, None, Some(reached))
     }
 
+    /// The owner takes this account as the one the agents run under; gives what is to be done.
+    pub fn take_account(&mut self, account: &str) -> Vec<Todo> {
+        let now = self.now();
+        let todos = self.dm().take_account(now, account).expect("the account is taken");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
+    /// The owner sets the switch that lets the driver move on to another account; gives what is to be done.
+    pub fn move_on(&mut self, on: bool) -> Vec<Todo> {
+        let now = self.now();
+        let todos = self.dm().move_on(now, on).expect("the switch is set");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
     /// The driver is told the time, and what a check of the outside of the agents' rounds under this account found.
     pub fn checked_under(&mut self, at: Time, account: Option<&str>, found: Found) -> Vec<Todo> {
         self.clock = self.clock.max(at.0);

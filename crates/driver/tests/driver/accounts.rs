@@ -83,17 +83,11 @@ fn agents_rounds(todos: &[Todo]) -> Vec<WorkNumber> {
 }
 
 fn take(h: &mut H, account: &str) -> Vec<Todo> {
-    let now = h.now();
-    let todos = h.dm().take_account(now, account).expect("the account is taken");
-    h.check();
-    todos
+    h.take_account(account)
 }
 
 fn move_on(h: &mut H, on: bool) -> Vec<Todo> {
-    let now = h.now();
-    let todos = h.dm().move_on(now, on).expect("the switch is set");
-    h.check();
-    todos
+    h.move_on(on)
 }
 
 /// What the store keeps of the accounts taken.
