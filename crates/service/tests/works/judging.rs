@@ -195,6 +195,12 @@ impl Built {
 
     /// The round under way asks the owner a question named `named`, which it waits for, and hands in nothing.
     fn asks_the_owner(&mut self) {
+        self.asks_the_owner_handing_in(&[]);
+    }
+
+    /// The round under way asks the owner a question named `named`, which it waits for, and hands in these blocks, each
+    /// with its value where it is a choice.
+    fn asks_the_owner_handing_in(&mut self, blocks: &[(&str, Option<&str>)]) {
         let way = |does: &str| Way {
             does: does.to_string(),
             follows: format!("The greeting {does}."),
@@ -208,7 +214,15 @@ impl Built {
             about: None,
             reasons: Default::default(),
         };
-        let mut came = Came::hands_in(Vec::new());
+        let handed = (blocks.iter())
+            .map(|(block, value)| Handed {
+                block: (*block).into(),
+                content: format!("The {block}."),
+                matters: true,
+                value: value.map(str::to_string),
+            })
+            .collect();
+        let mut came = Came::hands_in(handed);
         came.said.questions = vec![question];
         self.returns(came);
     }
@@ -459,6 +473,93 @@ fn a_question_that_waits_is_a_wait_for_its_answer_while_it_stands() {
         }
     );
     assert_eq!(built.judged(&format!("{asked}, {{ runs = \"plan\" }}")), Judged::Took);
+}
+
+/// A research that may find that the deep research is needed, which then alone writes the plan, the research no longer
+/// applying; and the merge, which requires every question to be answered.
+fn deepening() -> Compiled {
+    let flow = r#"
+        name = "deepening"
+        order = ["research", "deep", "merge"]
+        [limits]
+        again = 2
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.answered]
+        outside = "answer"
+        [blocks.asked]
+        values = ["waiting", "answered"]
+        default = "answered"
+        outside = "asked"
+        [blocks.asked.writes]
+        answered = "Every question has the owner's answer."
+        waiting = "Waits for the owner's answer to {questions}."
+        between = ", "
+        [blocks.deep_needed]
+        values = ["yes", "no"]
+        default = "no"
+        [blocks.plan]
+        [blocks.merged]
+        shown = true
+    "#;
+    let agent = |when: &str, inputs: &str, outputs: &str| {
+        format!(
+            "title = \"A cell\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n\
+             when = {{ deep_needed = \"{when}\" }}\ninputs = [{inputs}]\noutputs = [{outputs}]\n"
+        )
+    };
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = { asked = \"answered\" }\n\
+                 inputs = [\"plan\"]\noutputs = [\"merged\"]\n";
+    let cells = [
+        (
+            "research",
+            agent("no", "\"request\", \"answered\"", "\"deep_needed\", \"plan\""),
+        ),
+        ("deep", agent("yes", "\"request\"", "\"plan\"")),
+        ("merge", merge.to_string()),
+    ];
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: cells.into_iter().map(|(id, text)| (id.to_string(), text)).collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        sources: ["answer".to_string(), "asked".to_string()].into(),
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the definition compiles")
+}
+
+// A question that waits, of a cell its own return leaves no longer applying, holds nothing (decision
+// a-wait-of-a-skipped-cell-is-put-away): the work goes on, and waits at the merge for the owner's answer by the block
+// that says how the questions stand, a key of its preconditions the owner's answer alone makes hold.
+#[test]
+fn a_question_of_a_cell_its_return_skips_holds_nothing_and_the_merge_waits_for_the_answer() {
+    let mut built = Built::on(deepening(), None, &[("request", None)]);
+    built.take(Event::Resumed);
+    built.asks_the_owner_handing_in(&[("deep_needed", Some("yes"))]);
+    built.hands_in(&[("plan", None)]);
+    assert!(
+        matches!(&built.shown().decision, Decision::Wait { at, on }
+            if at.as_str() == "merge" && matches!(on[..], [Waited::Precondition { .. }])),
+        "{:?}",
+        built.shown().decision
+    );
+    let waits = r#"{ runs = "research" }, { runs = "deep" }, { waits = "merge", for = "precondition", key = "asked" }"#;
+    assert_eq!(built.judged(waits), Judged::Took);
+    let held = r#"{ runs = "research" }, { waits = "research", for = "answer", question = "named" }"#;
+    assert_eq!(
+        built.judged(held),
+        left(
+            2,
+            r#"{ waits = "research", for = "answer", question = "named" }"#,
+            r#"{ runs = "deep" }"#
+        )
+    );
+    built.answers("named");
+    assert_eq!(built.judged(&format!("{waits}, {{ runs = \"merge\" }}")), Judged::Took);
 }
 
 /// A writer of the text a request asks for; a check of the text, which reads main as well and alone writes whether it

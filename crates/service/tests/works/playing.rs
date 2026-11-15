@@ -3,16 +3,21 @@
 //! act says, main moved once for every item that moves it, and each work judged against its path; and what a script's
 //! items, acts and paths name that the flows lack, told in one pass.
 
+use std::sync::Arc;
+
 use flow::Compiled;
-use service::{Bounds, Judged, Played, Script, play};
+use service::{Bounds, Clock, Judged, Played, Script, Scripted, Service, play};
 use store::{Storage, Store, WorkNumber};
 
 use crate::{START, scoped, trial_dir, trial_flow, words};
 
-/// The trial's script with these items.
+/// The trial's script with these items in place of its own case.
 fn script(items: &str) -> Script {
     let trial = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
-    Script::read(&format!("{trial}\n{items}")).expect("the script reads")
+    let own = Script::read(&trial).expect("the trial's script reads").items.len();
+    let mut script = Script::read(&format!("{trial}\n{items}")).expect("the script reads");
+    script.items.drain(..own);
+    script
 }
 
 /// Plays the script on the trial flow over a store of its own, within an hour of the clock and a thousand things
@@ -30,7 +35,14 @@ async fn played_on(script: &Script, flow: Compiled) -> (Result<Played, Vec<Strin
         ms: 3_600_000,
     };
     let path = dir.path().join("store.sqlite");
-    let played = play(script, &[flow], &words(), &path, "trial", START, bounds).await;
+    let flows = [flow];
+    // The engine as `wf-agents run --script` opens it, its carriers following the script.
+    let open = |clock: Arc<dyn Clock>| {
+        let store = Store::open(&path).map_err(|fault| service::store_fault_words(&fault))?;
+        let carriers = Scripted::new(script.clone(), words()).carriers();
+        Service::open(Box::new(store), flows.to_vec(), carriers, clock).map_err(|fault| fault.to_string())
+    };
+    let played = play(script, &flows, &words(), &open, "trial", START, bounds).await;
     (played, dir)
 }
 
@@ -215,15 +227,53 @@ async fn a_path_left_is_named_at_its_first_step_off_it() {
     );
 }
 
+// Where a play goes as its script says, each of the script's round entries that no round took is named, where the
+// script holds it and with the round it is for, one of a work's own among them; where it goes otherwise, none is, a
+// round not taken saying only where it stopped.
+#[tokio::test(start_paused = true)]
+async fn a_play_that_went_as_its_script_says_names_each_round_entry_no_round_took() {
+    let rounds = r#"
+        [[flows.trial.rounds]]
+        cell = "review"
+        run = 3
+        hands_in = [{ block = "verdict", value = "yes" }]
+
+        [[flows.trial.rounds]]
+        cell = "plan"
+        work = 1
+        run = 3
+        hands_in = [{ block = "plan" }]
+    "#;
+    let went = played(&script(&format!("{rounds}{}", item(ANSWER, MERGED))))
+        .await
+        .expect("the script is played");
+    assert!(went.took(), "{went}");
+    assert_eq!(
+        went.untaken,
+        vec![
+            "flows.trial.rounds[5]: no round of the play took it, round 1 of the cell review's run 3".to_string(),
+            "flows.trial.rounds[6]: no round of the play took it, round 1 of the cell plan's run 3 of work 1"
+                .to_string(),
+        ]
+    );
+    let wrong = MERGED.replacen(
+        r#"{ runs = "review" }, { runs = "build" }"#,
+        r#"{ runs = "review" }, { runs = "merge" }"#,
+        1,
+    );
+    let left = played(&script(&format!("{rounds}{}", item(ANSWER, &wrong))))
+        .await
+        .expect("the script is played");
+    assert!(!left.took());
+    assert_eq!(left.untaken, Vec::<String>::new(), "{left}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_play_starts_its_clock_at_the_time_the_script_names_as_its_start() {
     // The trial's script with a start a day after the tests' own: the work is added then, and not at the play's start.
     let start = START.0 + 86_400_000;
-    let text = format!(
-        "start = {start}\n{}",
-        std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).unwrap()
-    );
-    let script = Script::read(&format!("{text}\n{}", item(ANSWER, MERGED))).expect("the script reads");
+    let mut script = script(&item(ANSWER, MERGED));
+    script.start = Some(start);
     let (played, dir) = played_on(&script, trial_flow()).await;
     assert!(played.expect("the script is played").took());
     let kept = store(&dir).load(WorkNumber(1)).expect("the store has the work");

@@ -168,8 +168,7 @@ pub(crate) fn failing_as(failure: &str, resets: Option<u64>) -> Script {
     let text = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
     let resets = resets.map_or(String::new(), |ms| format!("resets = {ms}\n"));
     let text = format!(
-        "start = {}\n{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nrun = 2\nfails = \"{WHY}\"\nfailure = \"{failure}\"\n{resets}",
-        START.0
+        "{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nrun = 2\nfails = \"{WHY}\"\nfailure = \"{failure}\"\n{resets}"
     );
     let script = Script::read(&text).expect("the script reads");
     assert_eq!(script.check(&[trial_flow()], &crate::words()), Vec::<String>::new());

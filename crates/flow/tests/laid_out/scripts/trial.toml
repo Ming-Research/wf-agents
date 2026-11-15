@@ -1,5 +1,9 @@
-# What the agents, the engine's acts and the tools of the trial flow do, for trying it by hand and for the tests.
-# Every round takes a second and a half, so that the pages show works under way.
+# What the agents, the engine's acts and the tools of the trial flow do, for trying it by hand and for the tests; and
+# the case it plays (`wf-agents play`), one item the owner answers. Every round takes a second and a half, so that the
+# pages show works under way.
+
+# The time the script's play starts at, every other time it names being after it: 2026-11-10, at midnight.
+start = 1794268800000
 
 [took]
 ms = 1500
@@ -50,6 +54,29 @@ hands_in = [{ block = "verdict", value = "yes" }]
 [[flows.trial.rounds]]
 cell = "merge"
 took = { ms = 500 }
+
+# The case: one item, whose plan asks the owner, who answers; the build asks for the query, the review objects to the
+# first build and is content with the second, and the work merges.
+[[items]]
+title = "Greet the user"
+flow = "trial"
+writes = [{ block = "request", content = "Greet the user, please." }]
+acts = [
+    { at = { waits = "plan", for = "answer", question = "named" }, do = "answer", question = "named", option = 1 },
+]
+path = [
+    { runs = "plan" },
+    { waits = "plan", for = "answer", question = "named" },
+    { runs = "plan" },
+    { runs = "build" },
+    { waits = "build", for = "tool" },
+    { runs = "build" },
+    { runs = "review" },
+    { runs = "build" },
+    { runs = "review" },
+    { runs = "merge" },
+    { ends = "merged" },
+]
 
 # To see a round fail and its work paused with the reason, give a round `fails`, as here the plan's second run:
 # [[flows.trial.rounds]]
