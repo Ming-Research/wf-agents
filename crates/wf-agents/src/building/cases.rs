@@ -26,6 +26,7 @@ use decide::{BlockId, CallId, CellId, Decision, End, Outsider, Pauser, Records, 
 use engine::spoken::To;
 use engine::{Came, Effect, Event as Given, Time, Work};
 use explore::model::Model;
+use flow::agents::Agents;
 use flow::{Compiled, Kind};
 use service::Shown;
 use service::judge::{self, Added};
@@ -40,6 +41,9 @@ pub const LONG: u64 = 2 * 86_400_000;
 /// The time the work is added at in the replay of a path, in milliseconds; what it says of the path does not rest on
 /// it.
 const ADDED: u64 = 1_000_000;
+
+/// The head of main as a build's works start, which the act that moves main as their first states come writes.
+pub const MAIN_AT_START: &str = "The head of main as the works start.";
 
 /// The stores of a build, each its own data directory, which holds what the others cannot: the plan's table (design
 /// document `testing`, 18).
@@ -246,7 +250,7 @@ fn source<'f>(flow: &'f Compiled, block: &BlockId) -> Option<&'f str> {
 }
 
 /// The case of the state of this name, which the nearest path the exploration kept to it reaches; or why it is none.
-pub fn case_of(model: &Model, state: &str, path: &explore::Path) -> Result<Case, String> {
+pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents) -> Result<Case, String> {
     let flow = &model.compiled;
     let first = starting(model);
     let given = &path.given;
@@ -265,6 +269,22 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path) -> Result<Case,
     let mut replay = Replay::added(model, unmerged)?;
     let mut rounds: Vec<Table> = Vec::new();
     let mut acts: Vec<Table> = Vec::new();
+    // Main, which the exploration writes as the work starts, moves as the work's first state comes: the act that
+    // moves main, given once every item of a play stands at its own.
+    if let Some(block) = model.sources.get(driver::MAIN) {
+        let mut main = Table::new();
+        main.insert("at".to_string(), step_value(&replay.at()?));
+        main.insert("do".to_string(), text("main"));
+        main.insert("content".to_string(), text(MAIN_AT_START));
+        acts.push(main);
+        replay.give(Given::Wrote {
+            block: block.clone(),
+            by: Outsider::Outside,
+            content: MAIN_AT_START.to_string(),
+            matters: true,
+            value: None,
+        })?;
+    }
     let mut mains = 0;
     // What the engine gives the loop itself, after what asked for it, as the exploration does: in a play, the engine.
     let mut own: VecDeque<Given> = VecDeque::new();
@@ -379,7 +399,7 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path) -> Result<Case,
             }
             Given::Returned { run, came, .. } => {
                 let (cell, nth, number) = replay.round_of(*run)?;
-                rounds.push(round_of(flow, &cell, nth, number, came)?);
+                rounds.push(round_of(flow, &cell, nth, number, came, words)?);
                 if !came.asks.is_empty() {
                     asking = Some(rounds.len() - 1);
                 }
@@ -498,8 +518,16 @@ fn follow(effects: &[Effect], own: &mut VecDeque<Given>) {
 }
 
 /// The round entry of a script for this round of the cell's nth run, as its return came: what it hands in, or the
-/// tools it asks for; what it dealt with; what what it wrote waits for; its questions; what it read of the branch.
-fn round_of(flow: &Compiled, cell: &CellId, nth: usize, number: usize, came: &Came) -> Result<Table, String> {
+/// tools it asks for; what it dealt with; what what it wrote waits for; its questions; what it read of the branch. The
+/// check's return is handed in in the words the real check gives it, passed, failed, or failing on main too.
+fn round_of(
+    flow: &Compiled,
+    cell: &CellId,
+    nth: usize,
+    number: usize,
+    came: &Came,
+    words: &Agents,
+) -> Result<Table, String> {
     let mut round = Table::new();
     round.insert("cell".to_string(), text(cell.as_str()));
     round.insert("run".to_string(), Value::Integer(nth as i64));
@@ -530,7 +558,25 @@ fn round_of(flow: &Compiled, cell: &CellId, nth: usize, number: usize, came: &Ca
         .flat_map(|c| c.asks.iter().map(|a| &a.result))
         .collect();
     let runs_tests = spec.is_some_and(|c| c.act.as_deref() == Some(flow::RUNS_TESTS));
-    let handed: Vec<Value> = (came.writes.iter())
+    let checks = spec.is_some_and(|c| c.act.as_deref() == Some(service::script::CHECK));
+    let worded;
+    let writes = match checks {
+        true => {
+            let choices = |h: &&work::Handed| flow.blocks.get(&h.block).is_some_and(|b| b.values.is_some());
+            let failed = came.writes.iter().any(|h| !choices(&h)) && came.waits_for.is_none();
+            let held = came.waits_for.is_some();
+            worded = carry::check_return(
+                flow,
+                cell,
+                failed.then_some("A test of the work fails."),
+                held.then_some("A test fails on main as well."),
+                &words.acts.check,
+            )?;
+            &worded
+        }
+        false => &came.writes,
+    };
+    let handed: Vec<Value> = (writes.iter())
         .filter(|h| !(runs_tests && results.contains(&h.block)))
         .map(|h| {
             let mut t = Table::new();

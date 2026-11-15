@@ -25,7 +25,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use decide::{BlockId, End, Finished, RunId};
+use decide::{BlockId, CellId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
 use service::{Along, Release, ReleaseReply, Round, RoundReply, Rounds, Teller};
@@ -1058,6 +1058,36 @@ fn checked_in(
         }));
     }
     Ok(handed)
+}
+
+/// What the check of the work's cell, of this flow, hands in, in the words `agents/acts/check.toml` gives, of a check
+/// that passed, that failed for `failed`, or whose failure fails on main too and holds the work (`held`), on a commit
+/// and a main made up: what a build of the page's states that stands the acts in (crate `wf-agents`) words the check's
+/// return by, so that it reads as the real check's does.
+pub fn check_return(
+    flow: &Compiled,
+    cell: &CellId,
+    failed: Option<&str>,
+    held: Option<&str>,
+    words: &CheckWords,
+) -> Result<Vec<Handed>, String> {
+    let place = flow.flow.place(cell);
+    let outputs: Vec<(BlockId, Option<Vec<String>>)> = (place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs))
+        .iter()
+        .map(|block| (block.clone(), flow.blocks.get(block).and_then(|b| b.values.clone())))
+        .collect();
+    let checked = Checked {
+        commit: "4b8e2d1".to_string(),
+        main: "9c0ffee".to_string(),
+        failed: failed.map(str::to_string),
+        held: held.map(str::to_string),
+        by: None,
+        took_in: false,
+        notes: Vec::new(),
+        observations: Vec::new(),
+        asks: None,
+    };
+    checked_in(&outputs, &checked, "main", words)
 }
 
 /// The latest finished run of the flow's check, where it has one and it ran.

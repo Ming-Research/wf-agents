@@ -155,8 +155,9 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
         let group = |work: &work::Work, decision: &decide::Decision| cases::state_of(&model.compiled, work, decision);
         let explored = explore::explore_grouped(&model, EXPLORED, &group);
         let mut of_flow = Vec::new();
+        let words_of = &words[&g.root];
         for (state, path) in &explored.groups {
-            match cases::case_of(&model, state, path) {
+            match cases::case_of(&model, state, path, words_of) {
                 Ok(case) => of_flow.push(case),
                 Err(why) => not.push(Listed {
                     kind: "the exploration's".to_string(),
@@ -692,7 +693,7 @@ mod tests {
         let mut of_flow = Vec::new();
         let mut said = Vec::new();
         for (state, path) in &explored.groups {
-            match cases::case_of(&model, state, path) {
+            match cases::case_of(&model, state, path, words) {
                 Ok(case) => of_flow.push(case),
                 Err(why) => said.push(format!("not {state}: {why}")),
             }

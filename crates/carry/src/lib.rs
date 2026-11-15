@@ -69,7 +69,7 @@ use service::{Carriers, Rounds, Tools as ToolsTrait};
 use settings::Project;
 use tools::Tools;
 
-pub use acts::{MAIN, WATCH, Watch, Words, faults, main_faults, word_faults};
+pub use acts::{MAIN, WATCH, Watch, Words, check_return, faults, main_faults, word_faults};
 pub use agents::{Agents, Of, ROUNDS};
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
