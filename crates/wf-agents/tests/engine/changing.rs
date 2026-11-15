@@ -42,7 +42,7 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
     assert!(!engine.command(&["set-title", "2", "Other"]).status.success());
     let list = engine.says(&["list"]);
     assert!(
-        list.contains("\n#2 \"Say goodbye by name\" at level 1, W2 on trial, after #1: "),
+        list.contains("\n#2 \"Say goodbye by name\" at level 1, project script, W2 on trial, after #1: "),
         "{list}"
     );
     let shown = engine.says(&["show", "2"]);
@@ -129,7 +129,7 @@ fn several_changes_are_made_at_once_or_none_and_tags_classify_items() {
     );
     let list = engine.says(&["list"]);
     assert!(
-        list.contains("\n#2 \"B, the page\" at level 1, W2 on trial, tagged page: "),
+        list.contains("\n#2 \"B, the page\" at level 1, project script, W2 on trial, tagged page: "),
         "{list}"
     );
     let parse = engine.refuses(&["change", "--why", "Tidy", "3:frob"]);
@@ -139,7 +139,7 @@ fn several_changes_are_made_at_once_or_none_and_tags_classify_items() {
     );
     let tagged = engine.says(&["list", "--tag", "parser"]);
     assert!(
-        tagged.contains("\n#3 \"C\" at level 1, W3 on trial, after #1, tagged parser: "),
+        tagged.contains("\n#3 \"C\" at level 1, project script, W3 on trial, after #1, tagged parser: "),
         "{tagged}"
     );
     assert!(!tagged.contains("#1 "), "{tagged}");
