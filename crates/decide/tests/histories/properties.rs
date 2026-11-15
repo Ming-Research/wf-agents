@@ -320,7 +320,10 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
         }
     }
 
-    let reasons = reading.entering(flow, cell, s.at);
+    // As the records stood when it started: a person's write since may change whether a cell applies, which what runs a
+    // cell that gives results again reads.
+    let before = reading.records.before(s.at);
+    let reasons = Reading::of_flow(flow, &before).entering(flow, cell, s.at);
     let given: Vec<Reason> = (s.because.iter())
         .filter_map(|c| match c {
             Cause::NoRecord => None,
