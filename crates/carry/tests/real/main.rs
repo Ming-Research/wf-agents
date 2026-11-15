@@ -21,6 +21,7 @@ mod projects;
 mod protected;
 mod query;
 mod sessions;
+mod speaking;
 mod stopping;
 mod testing;
 mod tree;
@@ -73,6 +74,10 @@ pub struct Fake {
     /// Whether the build, in its first run, commits twice and asks for the tests on the first of the two commits, and,
     /// in the run their result runs, asks for them on its head, each time dealing with nothing.
     pub asks_named_tests: bool,
+    /// Whether the build, the first time it runs, works, running after each use of a tool the hook the command line was
+    /// given for it, until the hook gives it the owner's words, keeps what the hook gave in `<n>.heard`, and answers
+    /// them in the record of what is said as it hands in, saying it dealt with them.
+    pub hears_words: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
@@ -123,6 +128,7 @@ impl Default for Fake {
             quiet_after_answer: false,
             asks_tests: false,
             asks_named_tests: false,
+            hears_words: false,
             plan_sleeps: 0,
             context: None,
             compacts: false,
@@ -206,6 +212,9 @@ pub enum On {
     /// The flow of `Tested`, with a review on a line of its own after the tests, given every result of them, which it
     /// did not ask for.
     Reviewed,
+    /// A build the owner's words run, with the record of what is said, and the merge (`spoken` here), laid out one
+    /// thing to a file, with the repository's record and the triggers its cells name.
+    Spoken,
     /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
     Deliver,
     /// The trial flow with a plan that loads the engineer's session (`loading` here).
@@ -312,10 +321,23 @@ fn compiled(on: On) -> Compiled {
     let dir = match on {
         On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out/trial"),
         On::Acts | On::Tested | On::Reviewed => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
+        On::Spoken => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/spoken"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
         On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
     let mut source = flow::read(&dir).expect("the flow is read");
+    // What a flow laid out one thing to a file reads beside it, the repository's, which the files here keep no copy of.
+    if let On::Spoken = on {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        for beside in [
+            "data/discussion.toml",
+            "triggers/of_a_cell/on_spoken.toml",
+            "triggers/of_a_datum/changed.toml",
+        ] {
+            let text = std::fs::read_to_string(repository.join(beside)).expect("the repository's file is read");
+            source.files.insert(format!("../{beside}"), text);
+        }
+    }
     if let On::Testing = on {
         let line = "[lines.engineer]\n";
         assert!(source.flow.contains(line), "the trial flow has the engineer's line");
@@ -481,6 +503,7 @@ calls=''
 out=''
 unchanged=''
 protected=''
+reply=no
 # Commits the build's file: beside the project's tests, or among them where the round is told its return was sent back
 # for a file beside them, which it takes back.
 built() {{
@@ -515,6 +538,25 @@ case "$first" in
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -qE '^- `(build_)?answered`' && answered=yes
+        if [ '{hears}' = yes ] && [ ! -f "$log/heard" ]; then
+            # It works, running after each use of a tool the hook its settings give for it, as the program does, until
+            # the hook gives it the owner's words.
+            hook=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 \
+                | sed -e 's/.*"PostToolUse":\[{{"hooks":\[{{"command":"//' \
+                    -e 's/","type":"command"}}],"matcher":"\*"}}].*//' -e 's/\\"/"/g')
+            touch "$log/listening"
+            i=0
+            heard=''
+            while [ -z "$heard" ] && [ "$i" -lt 400 ]; do
+                sleep 0.05
+                heard=$(printf '%s' '{{"tool_name":"Bash"}}' | sh -c "$hook")
+                i=$((i + 1))
+            done
+            printf '%s' "$heard" > "$log/$n.heard"
+            touch "$log/heard"
+            dealt="${{dealt:+$dealt,}}\"on_spoken\""
+            reply=yes
+        fi
         if [ '{named}' = yes ] && [ ! -f "$log/named-own" ]; then
             # It commits twice and asks for the tests on the first of the two commits, leaving all that ran it for after
             # their result.
@@ -583,6 +625,9 @@ case "$first" in
         fi ;;
     Review) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
+if [ "$reply" = yes ]; then
+    out="$out,\"discussion\":\"Heard the owner.\""
+fi
 if [ -n "$calls" ]; then
     structured="{{\"tools\":{{$calls}}}}"
 else
@@ -609,6 +654,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         quiet = yes(fake.quiet_after_answer),
         tests = yes(fake.asks_tests),
         named = yes(fake.asks_named_tests),
+        hears = yes(fake.hears_words),
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
         compacts = yes(fake.compacts),
