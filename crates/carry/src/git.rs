@@ -390,7 +390,7 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
     let repo = &project.repo;
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
     if on != project.main {
-        return Err(NotMerged::Failed(format!(
+        return Err(NotMerged::refused(format!(
             "the repository's checkout {} is on {on}, not on the main branch {}",
             repo.display(),
             project.main
@@ -398,7 +398,7 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
     }
     let changes = git(repo, &["status", "--porcelain", "--untracked-files=no"]).await?;
     if !changes.is_empty() {
-        return Err(NotMerged::Failed(format!(
+        return Err(NotMerged::refused(format!(
             "the repository's checkout {} has changes that are not committed:\n{changes}",
             repo.display()
         )));
@@ -410,7 +410,7 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
             .map(|s| s.ok)
     };
     if merging().await? {
-        return Err(NotMerged::Failed(format!(
+        return Err(NotMerged::refused(format!(
             "a merge is under way in the repository's checkout {}",
             repo.display()
         )));
@@ -419,7 +419,7 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
     if let Some(checked) = checked
         && head != checked
     {
-        return Err(NotMerged::Failed(format!(
+        return Err(NotMerged::refused(format!(
             "the branch {} is at {head}, not at {checked}, the commit the check passed: the work is checked again \
              before it merges",
             place.reference()
