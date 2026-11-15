@@ -221,6 +221,8 @@ export type What =
   | { kind: 'noteNotByPeople'; block: string }
   | { kind: 'changedByWithoutSource'; block: string }
   | { kind: 'noteIsAChoice'; block: string }
+  | { kind: 'spokenWithoutText'; block: string; key: string }
+  | { kind: 'spokenTextWithoutPlace'; block: string; key: string; place: string }
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }

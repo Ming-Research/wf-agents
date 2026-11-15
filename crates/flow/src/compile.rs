@@ -81,6 +81,16 @@ pub struct Limits {
 /// `data-and-context`, 39).
 pub const WORDS: &str = "words";
 
+/// The text of a record of what is said ([`WORDS`]) that is the owner's entry: its `writes` give it, with `{words}`, in
+/// it, what the owner said.
+pub const SPOKEN_OWNER: &str = "owner";
+/// The text of a record of what is said that is a cell's answer: with `{reply}` in it, what its return writes.
+pub const SPOKEN_REPLY: &str = "reply";
+/// The place in the owner's text of a record of what is said that the owner's words fill.
+pub const OWNERS_WORDS_PLACE: &str = "words";
+/// The place in the reply's text of a record of what is said that the cell's answer fills.
+pub const REPLY_PLACE: &str = "reply";
+
 /// The source of the block a new version of which is the owner answering a question of the cell it runs with another
 /// option than the one the work goes by, or one the cell waits for (design document `data-and-context`, 35, 36). The
 /// engine writes it as the owner answers; and the record of the work's questions and the owner's answers, which the
@@ -297,10 +307,23 @@ pub struct Block {
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, as the
     /// block's file or the trigger that declares it says; none where neither does.
     pub writes: Texts,
+    /// Of a record of what is said, the two texts its entries are written in: the compile refuses a record that lacks
+    /// either, or one without its place, so each is here whole; none of another block.
+    pub spoken: Option<Spoken>,
     /// Who writes it.
     pub writers: Writers,
     /// Who reads it.
     pub readers: Readers,
+}
+
+/// The texts of a record of what is said, as its `writes` give them: the owner's entry and a cell's answer, each with
+/// its place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Spoken {
+    /// The owner's entry, with `{words}`.
+    pub owner: String,
+    /// A cell's answer, with `{reply}`.
+    pub reply: String,
 }
 
 /// The shape a return holds a block to, as its file gives it. Two are the same where they are written the same.
@@ -420,6 +443,11 @@ pub enum FaultKind {
     NoteNotByPeople { block: String },
     /// The block is a note, and a choice: a note is words to a cell, which a choice is not.
     NoteIsAChoice { block: String },
+    /// A record of what is said gives no text of this name in its `writes`: its entries of that kind would be empty.
+    SpokenWithoutText { block: String, key: String },
+    /// A record of what is said gives the text of this name without its place, `{place}`: its entries of that kind would
+    /// hold none of what was said.
+    SpokenTextWithoutPlace { block: String, key: String, place: String },
     /// The block says who changes what a source outside the work writes of it, and no such source writes it.
     ChangedByWithoutSource { block: String },
     /// The block is not declared in `flow.toml`.
@@ -595,6 +623,44 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         specs.push(spec);
     }
 
+    // A block a trigger of its source has its agent read, but the one it stands on, is a record that source adds
+    // entries to ([`Trigger::records`]).
+    let source_of = |b: &BlockId| flow_file.blocks.get(b.as_str()).and_then(|d| d.outside.as_deref());
+    let record = |name: &str, source: &str| {
+        let of = |b: &BlockId| source_of(b) == Some(source);
+        (specs.iter().flat_map(|s| &s.triggers)).any(|t| t.reads_of(of).any(|b| b.as_str() == name))
+    };
+    // A record of what is said is written in the two texts its `writes` give, each with its place: an entry written from
+    // a text that is not there, or has no place, would hold nothing of what was said.
+    let mut spoken = BTreeMap::new();
+    for (name, block) in flow_file.blocks.iter().filter(|(name, _)| record(name, WORDS)) {
+        let mut text = |key: &str, place: &str| {
+            let at = |what| parsed.places.fault("blocks", name, &format!("writes.{key}"), what);
+            let Some(text) = block.writes.get(key) else {
+                let what = FaultKind::SpokenWithoutText {
+                    block: name.clone(),
+                    key: key.to_string(),
+                };
+                faults.push(at(what));
+                return None;
+            };
+            if text.contains(&format!("{{{place}}}")) {
+                return Some(text.to_string());
+            }
+            let what = FaultKind::SpokenTextWithoutPlace {
+                block: name.clone(),
+                key: key.to_string(),
+                place: place.to_string(),
+            };
+            faults.push(at(what));
+            None
+        };
+        let (owner, reply) = (text(SPOKEN_OWNER, OWNERS_WORDS_PLACE), text(SPOKEN_REPLY, REPLY_PLACE));
+        if let (Some(owner), Some(reply)) = (owner, reply) {
+            spoken.insert(BlockId(name.clone()), Spoken { owner, reply });
+        }
+    }
+
     if !faults.is_empty() {
         sort(&mut faults, Some(&def.place), &parsed.places);
         return Err(faults);
@@ -609,13 +675,6 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
             (TestName(name.clone()), test)
         })
         .collect();
-    // A block a trigger of its source has its agent read, but the one it stands on, is a record that source adds
-    // entries to ([`Trigger::records`]).
-    let source_of = |b: &BlockId| flow_file.blocks.get(b.as_str()).and_then(|d| d.outside.as_deref());
-    let record = |name: &str, source: &str| {
-        let of = |b: &BlockId| source_of(b) == Some(source);
-        (specs.iter().flat_map(|s| &s.triggers)).any(|t| t.reads_of(of).any(|b| b.as_str() == name))
-    };
     let outsiders = (flow_file.blocks.iter())
         .filter(|(_, b)| b.people || b.outside.is_some())
         .map(|(name, b)| {
@@ -640,7 +699,13 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         name: flow_file.name.clone(),
         flow,
         cells: specs,
-        blocks: def.blocks(),
+        blocks: {
+            let mut blocks = def.blocks();
+            for (name, spoken) in spoken {
+                blocks.get_mut(&name).expect("a record is a block").spoken = Some(spoken);
+            }
+            blocks
+        },
         tests: (flow_file.tests.iter())
             .map(|(name, test)| (TestName(name.clone()), test.says.clone()))
             .collect(),
@@ -2378,6 +2443,7 @@ impl<'a> Definition<'a> {
                     shape: declared.shape.clone().map(|shape| Shape(toml::Value::Table(shape))),
                     trigger: self.trigger_blocks.contains(name),
                     writes: declared.writes.clone(),
+                    spoken: None,
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,
