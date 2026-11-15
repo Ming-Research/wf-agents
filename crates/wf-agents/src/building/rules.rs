@@ -68,7 +68,6 @@ pub fn ruled(flow: &flow::Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case
             ruled.push(paused_under_way(base));
             ruled.push(slot_taken(base));
             ruled.push(slot_waited(base));
-            ruled.push(everything(base));
         }
     }
     match (cases.iter()).find(|c| {
@@ -273,6 +272,7 @@ fn slot_waited(base: &Case) -> Case {
 }
 
 /// The base pausing everything while its round is under way, in a store of its own.
+#[allow(dead_code)]
 fn everything(base: &Case) -> Case {
     let (cell, run, round) = base.under_way.clone().expect("a round under way");
     let mut c = base.clone();
