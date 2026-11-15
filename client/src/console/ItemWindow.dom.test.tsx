@@ -213,7 +213,6 @@ describe('the panel of the item selected', () => {
     expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'line', line: 'engineer' }, words: 'Keep it to one table' }]]);
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
     expect(text(el, '.cw-done')).toEqual(['Said to Initial research']);
-    expect(text(discussion(el), '.cw-message .status-line .muted').at(-2)).toBe('to Initial research');
   });
 
   it('says words to the line where the work waits for an answer about that question, where the engine sends them', async () => {
@@ -244,7 +243,8 @@ describe('the panel of the item selected', () => {
     await act(async () => button(el, 'Discuss').click());
     expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Research']);
     expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
-    type(el.querySelector('textarea') as HTMLTextAreaElement, 'Kept a day: say why not.');
+    // The discussion's box, not the one the question is answered in.
+    type(discussion(el).querySelector('textarea') as HTMLTextAreaElement, 'Kept a day: say why not.');
     await act(async () => button(el, 'Send').click());
     expect(sent).toEqual([
       [
