@@ -780,4 +780,42 @@ mod tests {
         let page = web::settings::page_of(&install).expect("it is shown");
         assert_eq!(differ(&page), ["agents.slots runs with 2"]);
     }
+
+    /// What is wrong with each script kept beside the flows in this directory, in `scripts/`, for every flow there,
+    /// compiled as `wf-agents run` compiles it, each fault said with its script's file; and how many scripts there are.
+    fn scripts_beside(root: &Path) -> (usize, Vec<String>) {
+        let flows: Vec<Compiled> = (std::fs::read_dir(root).expect("the flows' directory is read"))
+            .map(|entry| entry.expect("an entry of it").path())
+            .filter(|dir| dir.join(flow::FLOW_FILE).is_file())
+            .map(|dir| {
+                let source = flow::read(&dir).expect("the flow is read");
+                flow::compile(&source, &has(&dir)).expect("the flow compiles")
+            })
+            .collect();
+        let mut faults = Vec::new();
+        let mut scripts = 0;
+        for entry in std::fs::read_dir(root.join("scripts")).expect("the scripts are read") {
+            let path = entry.expect("an entry of it").path();
+            let file = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let text = std::fs::read_to_string(&path).expect("the script is read");
+            let script = Script::read(&text).unwrap_or_else(|e| panic!("{file}: {e}"));
+            faults.extend(script.check(&flows).into_iter().map(|fault| format!("{file}: {fault}")));
+            scripts += 1;
+        }
+        (scripts, faults)
+    }
+
+    // Every script kept beside the repository's flows fits them as a run with it checks it, so that a change of a flow
+    // that a script no longer fits fails at that change, and a script added there is checked with no test added
+    // (design document `testing`, 14). A few milliseconds alone, compiling the flows once; the only test that holds
+    // the scripts kept beside the flows to them.
+    #[test]
+    fn every_script_beside_the_flows_fits_them() {
+        let (scripts, faults) = scripts_beside(&flows());
+        assert!(scripts > 0, "no script is kept beside the flows");
+        assert_eq!(faults, Vec::<String>::new());
+    }
 }

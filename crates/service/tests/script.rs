@@ -114,19 +114,13 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
             "flows.trial.rounds[1]: runs and rounds are counted from 1",
             "flows.trial.rounds[2]: a round either hands in or asks, not both",
             "flows.trial.rounds[2].hands_in[0]: the flow trial has no block kode",
+            "flows.trial.rounds[2].asks[0]: the cell review may not ask for the tool ci",
             "flows.trial.rounds[3]: an act of the engine asks for nothing",
             "flows.trial.rounds[3]: an act of the engine takes no cost and no tokens",
             "flows.trial.rounds[4]: says again what flows.trial.rounds[2] says",
             "flows.trial.rounds[5]: only an act of the engine waits for the turn or runs as a CI run",
         ]
     );
-}
-
-#[test]
-fn the_engineers_script_fits_the_engineers_flow() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/scripts/engineer.toml");
-    let text = std::fs::read_to_string(path).unwrap();
-    assert_eq!(Script::read(&text).unwrap().check(&[engineer()]), Vec::<String>::new());
 }
 
 #[test]
@@ -156,6 +150,7 @@ fn a_script_is_told_a_commit_no_source_outside_the_work_writes_and_one_no_round_
             "flows.engineer.rounds[0].commits[0]: no source outside the work writes code",
             "flows.engineer.rounds[0].commits[1]: the flow engineer has no block hed",
             "flows.engineer.rounds[1]: only a round that does the cell's work commits",
+            "flows.engineer.rounds[1].asks[0]: the cell I1 may not ask for the tool check",
             "flows.engineer.rounds[2]: an act of the engine commits nothing",
         ]
     );
@@ -476,6 +471,7 @@ fn a_round_that_fails_is_told_it_neither_hands_in_nor_asks() {
         script.check(&[trial()]),
         [
             "flows.trial.rounds[0]: a round that fails neither hands in nor asks",
+            "flows.trial.rounds[0].asks[0]: the cell plan may not ask for the tool ci",
             "flows.trial.rounds[1]: a round that fails neither hands in nor asks",
         ]
     );

@@ -1,6 +1,8 @@
 //! `wf-agents run` starting: what keeps it from starting, and going on from the store when started again.
 
+use std::io::{BufRead, BufReader};
 use std::net::{Ipv4Addr, TcpListener};
+use std::process::Stdio;
 
 use crate::{Engine, Place, SCRIPT, run, run_on, trial};
 
@@ -16,6 +18,44 @@ fn a_script_that_names_what_the_flow_lacks_keeps_the_engine_from_starting() {
             place.script().display()
         )
     );
+}
+
+// A run with a script reads what is written beside its flows, as a run with settings does, and does not start where
+// it cannot read it, saying why: the stand-ins find what is wrong with the questions a return asks in its words. Well
+// under a second alone; no other test runs the command on flows with no words beside them.
+#[test]
+fn a_script_run_on_flows_with_no_words_beside_them_does_not_start() {
+    let place = Place::new(SCRIPT);
+    // The trial flow in a directory of its own, with nothing beside it but what the engine says to the owner.
+    let flow = place.dir.path().join("flow");
+    std::fs::create_dir(&flow).unwrap();
+    for entry in std::fs::read_dir(trial()).unwrap() {
+        let path = entry.unwrap().path();
+        std::fs::copy(&path, flow.join(path.file_name().unwrap())).unwrap();
+    }
+    let agents = place.dir.path().join("agents");
+    std::fs::create_dir(&agents).unwrap();
+    std::fs::copy(trial().join("../agents/waits.toml"), agents.join("waits.toml")).unwrap();
+    let mut child = run_on(&place.data(), &flow, &place.script(), 0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the command runs");
+    let mut line = String::new();
+    let stdout = child.stdout.take().expect("the command's output");
+    BufReader::new(stdout)
+        .read_line(&mut line)
+        .expect("the command's first line");
+    let _ = child.kill();
+    let out = child.wait_with_output().expect("the command ends");
+    assert_eq!(line, "", "the engine started");
+    assert!(!out.status.success());
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        said.contains(&format!("{}: ", agents.join("session.toml").display())),
+        "{said}"
+    );
+    assert!(!place.data().join("store.sqlite").exists(), "the store was opened");
 }
 
 #[test]

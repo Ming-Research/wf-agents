@@ -318,12 +318,19 @@ impl Script {
     /// it names that is not there, a default value that is not one of its choice's, a round that does more than one of
     /// handing in, asking and failing, one that asks or fails and says observations or a commit, a block it commits
     /// that no source outside the work writes, a round said twice, and an act of the engine that asks, commits or
-    /// costs. A script that names a block a cell may not write, or a value a choice
-    /// does not have, is not wrong: what it hands in is sent back.
+    /// costs; a tool no flow names, and one a round asks for that its cell may not ask for. A script that names a block
+    /// a cell may not write, or a value a choice does not have, is not wrong: what it hands in is sent back.
     pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
         let mut faults = Vec::new();
         if self.slots == Some(0) {
             faults.push("slots: at least one round must be able to go on".to_string());
+        }
+        let named = |tool: &str| {
+            (flows.iter())
+                .any(|flow| (flow.tools.iter().chain(flow.cells.iter().flat_map(|c| &c.tools))).any(|t| t == tool))
+        };
+        for tool in self.tools.keys().filter(|tool| !named(tool)) {
+            faults.push(format!("tools.{tool}: no flow names the tool {tool}"));
         }
         for (name, script) in &self.flows {
             let Some(flow) = flows.iter().find(|flow| flow.name == *name) else {
@@ -393,7 +400,19 @@ impl Script {
                         Some(_) => {}
                     }
                 }
-                match flow.cells.iter().find(|cell| cell.id.as_str() == round.cell) {
+                let cell = flow.cells.iter().find(|cell| cell.id.as_str() == round.cell);
+                for (j, ask) in round.asks.iter().flatten().enumerate() {
+                    let AskScript::Tool(ToolAsk { tool, .. }) = ask else {
+                        continue;
+                    };
+                    if let Some(cell) = cell.filter(|cell| cell.kind == Kind::Agent && !cell.tools.contains(tool)) {
+                        faults.push(format!(
+                            "{at}.asks[{j}]: the cell {} may not ask for the tool {tool}",
+                            cell.id
+                        ));
+                    }
+                }
+                match cell {
                     None => faults.push(format!("{at}: the flow {name} has no cell {}", round.cell)),
                     Some(cell) if cell.kind == Kind::Engine => {
                         if round.asks.is_some() {
