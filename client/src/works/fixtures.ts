@@ -628,7 +628,8 @@ function long(start: number): Built {
   });
   h.round(deep, { minutes: 2, hands: [{ block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands']) }] });
   h.finish(deep);
-  // The implementation asks the owner a question and rests at it...
+  // The implementation asks the owner a question by a call and rests at it, as one work's old records hold such a
+  // call...
   const first = h.start('implement');
   h.round(first, {
     minutes: 6,
@@ -725,25 +726,22 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   }
 
   {
-    // Waiting for the owner's answer to a question.
+    // Waiting for the owner's answer to a question the plan asked.
     const h = new History(hours(5));
     h.wrote('request', 'person', REQUEST_TEXT('List the works of every item, those that wait for the owner first.'));
-    const run = h.start('plan');
-    h.round(run, {
-      asks: [{ kind: 'question', who: 'owner', question: 'Should the list show the works of cancelled items, or leave them out?' }],
-    });
-    const call = run.calls[0].call;
+    // Its run handed in its question alone, which the engine keeps in the record of questions.
+    h.ran('plan', []);
     const asked: Wait = {
-      key: `call-${call}`,
+      key: 'answer-cancelled',
       why: 'Should the list show the works of cancelled items, or leave them out?',
-      ends: { kind: 'reply', call },
+      ends: { kind: 'answer', question: 'cancelled', version: 1 },
     };
     keep({
       page: h.page(
         43,
         143,
         'List every work',
-        { kind: 'waits', at: 'plan', on: [{ kind: 'call', call, who: 'owner', what: run.calls[0].what }] },
+        { kind: 'waits', at: 'plan', on: [{ kind: 'answer', question: 'cancelled' }] },
         { waits: [asked] },
       ),
       history: h,
