@@ -18,7 +18,7 @@ use decide::{
     BlockId, CallId, Cause, Cell, CellView, Condition, Decision, InputView, OpenRun, RunId, Seq, VersionView, View,
     Who, Writer, view,
 };
-use support::Says::{DoesNotMatter, Matters, Value};
+use support::Says::{DoesNotMatter, Matters, Nothing, Value};
 use support::{World, cell};
 
 /// The work's view.
@@ -49,12 +49,14 @@ fn input(block: &str, current: Option<Seq>, consumed: Option<Seq>, new: bool) ->
     }
 }
 
+/// A version that holds something.
 fn version(at: Seq, by: Writer, meaning: Seq, value: Option<&str>) -> VersionView {
     VersionView {
         at,
         by,
         meaning,
         value: value.map(str::to_string),
+        empty: false,
     }
 }
 

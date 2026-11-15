@@ -100,6 +100,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "value": "merged",
                         "saidTo": null,
                         "chars": 42,
+                        "empty": false,
                     }],
                 },
                 {
@@ -112,6 +113,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "value": null,
                         "saidTo": null,
                         "chars": 23,
+                        "empty": false,
                     }],
                 },
             ],
