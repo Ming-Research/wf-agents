@@ -12,7 +12,8 @@ CREATE TABLE flows (
 -- From this place on, the work ran on this version of its flow: as it was added, at place 0, before every other entry,
 -- and again each time it went on with another version installed. `ids` says how the cells its records named before
 -- read from here on (JSON: each id that names another cell on this version, by the id it is read as). The cell of a
--- run, of a question and of a letting go is kept as it was recorded, and read through each of these after it in turn.
+-- run, of a question and of a letting go, and the cell what was written is said to, are kept as they were recorded, and
+-- read through each of these after them in turn.
 -- A work kept before the versions were has its first as the engine first started with them.
 CREATE TABLE on_flow (
     work INTEGER NOT NULL REFERENCES works (number),

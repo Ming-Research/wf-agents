@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use decide::{CellId, Seq};
+use decide::{CellId, Seq, Written};
 use driver::Asked;
 use engine::Work;
 use flow::Compiled;
@@ -118,6 +118,43 @@ fn a_work_going_on_is_put_on_the_version_installed_and_its_runs_read_as_the_cell
     assert_eq!(h.db.open().load(work).as_ref(), Ok(kept.work));
     assert_eq!(recorded(&h.db.path, work), ["write", "judge"]);
     assert!(kept.ids.is_empty());
+}
+
+// A work going on with words said to a cell, as the driver opens on a version that numbers the cell anew, reads them as
+// said to the cell at its new id, as the driver holds it and as the store loads it; the file keeps them as recorded.
+#[test]
+fn what_a_work_going_on_said_to_a_cell_reads_as_said_to_it_on_the_version_installed() {
+    let mut h = H::new();
+    let (_, work) = h.add(new_item("a", &[], "plain"));
+    h.driver = None;
+    let mut store = h.db.open();
+    let mut kept = store.load(work).expect("the work loads");
+    let at = kept.tick();
+    (kept.contents).insert(("request".into(), at), "Shorter.".to_string());
+    kept.records.written.push(Written {
+        block: "request".into(),
+        by: Outsider::Outside,
+        matters: true,
+        value: None,
+        said_to: Some("write".into()),
+        empty: false,
+        at,
+    });
+    store.save(work, &kept).expect("the work is saved");
+    drop(store);
+    let (driver, _) = opened_on(&mut h, vec![judged(), short(), plain_anew()]);
+    let kept = driver.work(work).expect("the work is there");
+    let said: Vec<&str> = (kept.work.records.written.iter())
+        .filter_map(|w| w.said_to.as_ref().map(|c| c.as_str()))
+        .collect();
+    assert_eq!(said, ["compose"]);
+    assert_eq!(h.db.open().load(work).as_ref(), Ok(kept.work));
+    let file: String = (Connection::open(&h.db.path).expect("the database opens"))
+        .query_row("SELECT said_to FROM written WHERE said_to IS NOT NULL", [], |row| {
+            row.get(0)
+        })
+        .expect("the write said to a cell is there");
+    assert_eq!(file, "write");
 }
 
 // A work that ended is read by the version it ran on, though the one installed numbers its cells anew; the rounds of

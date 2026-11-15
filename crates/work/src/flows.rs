@@ -52,6 +52,11 @@ impl OnFlow {
         for let_go in &mut records.let_go {
             read(let_go.at, &mut let_go.cell);
         }
+        for written in &mut records.written {
+            if let Some(cell) = &mut written.said_to {
+                read(written.at, cell);
+            }
+        }
     }
 }
 
@@ -85,6 +90,7 @@ pub fn cells(records: &Records) -> impl Iterator<Item = &CellId> {
     (records.started.iter().map(|s| &s.cell))
         .chain(records.questions.iter().map(|q| &q.cell))
         .chain(records.let_go.iter().map(|l| &l.cell))
+        .chain(records.written.iter().filter_map(|w| w.said_to.as_ref()))
 }
 
 impl Work {

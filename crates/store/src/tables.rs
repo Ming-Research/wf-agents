@@ -561,7 +561,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     // which is not how it was recorded.
     let naming = (started.iter().map(|s| ("started", s.at)))
         .chain(questions.iter().map(|q| ("questions", q.at)))
-        .chain(let_go.iter().map(|l| ("let_go", l.at)));
+        .chain(let_go.iter().map(|l| ("let_go", l.at)))
+        .chain(
+            (written.iter())
+                .filter(|w| w.said_to.is_some())
+                .map(|w| ("written", w.at)),
+        );
     for (table, at) in naming {
         if flows.iter().any(|f| at < f.at) {
             return Err(Fault::ReadAsMoved { table, at });

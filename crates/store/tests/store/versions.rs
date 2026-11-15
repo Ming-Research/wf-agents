@@ -36,6 +36,39 @@ fn recorded_cells(path: &Path) -> Vec<String> {
     rows.collect::<Result<_, _>>().expect("the runs are read")
 }
 
+/// The owner's entry of the record of what is said, said to this cell, at the work's next place.
+fn said_to(work: &mut Work, cell: &str) -> Seq {
+    let at = work.tick();
+    (work.contents).insert(("discussion".into(), at), "The owner:\n\nShorter.".to_string());
+    work.records.written.push(Written {
+        block: "discussion".into(),
+        by: Outsider::Outside,
+        matters: true,
+        value: None,
+        said_to: Some(cell.into()),
+        empty: false,
+        at,
+    });
+    at
+}
+
+/// The cell each write said to one is said to, as the work reads them.
+fn said(work: &Work) -> Vec<&str> {
+    (work.records.written.iter())
+        .filter_map(|w| w.said_to.as_ref().map(|c| c.as_str()))
+        .collect()
+}
+
+/// The cell each write said to one is said to, as the file holds them.
+fn recorded_said(path: &Path) -> Vec<String> {
+    let db = Connection::open(path).expect("the database opens");
+    let mut query = db
+        .prepare("SELECT said_to FROM written WHERE said_to IS NOT NULL ORDER BY at")
+        .expect("the writes are read");
+    let rows = query.query_map([], |row| row.get(0)).expect("the writes are read");
+    rows.collect::<Result<_, _>>().expect("the writes are read")
+}
+
 #[test]
 fn a_version_is_kept_once_and_read_back_as_it_was_kept() {
     let db = Db::new();
@@ -54,8 +87,8 @@ fn a_version_is_kept_once_and_read_back_as_it_was_kept() {
 }
 
 // A work put on a version that numbers its cells anew reads every run recorded before as the cell of that version, in
-// memory and as a store opened anew loads it, and so does an observation of one; the file keeps each as it was
-// recorded.
+// memory and as a store opened anew loads it, and so do an observation of one and what is said to a cell; the file
+// keeps each as it was recorded.
 #[test]
 fn a_work_put_on_a_renumbered_version_reads_what_it_recorded_before_as_that_versions_cells() {
     let mut d = Driver::saved();
@@ -73,6 +106,9 @@ fn a_work_put_on_a_renumbered_version_reads_what_it_recorded_before_as_that_vers
         ..hands_in(&[("text", None)])
     });
     d.end(Came::asks(vec![question(Who::Owner)]));
+    said_to(&mut d.work, "judge");
+    let s = d.saving.as_mut().expect("saved after each event");
+    s.store.save(s.work, &d.work).expect("what is said is saved");
     d.work.onto(
         Time(d.clock),
         "b".to_string(),
@@ -82,8 +118,10 @@ fn a_work_put_on_a_renumbered_version_reads_what_it_recorded_before_as_that_vers
     s.store.save(s.work, &d.work).expect("the work is saved on the version");
     let cells: Vec<&str> = d.work.records.started.iter().map(|s| s.cell.as_str()).collect();
     assert_eq!(cells, ["draft", "review"]);
+    assert_eq!(said(&d.work), ["review"]);
     assert_eq!(s.db.open().load(s.work), Ok(d.work.clone()));
     assert_eq!(recorded_cells(&s.db.path), ["write", "judge"]);
+    assert_eq!(recorded_said(&s.db.path), ["judge"]);
     let observed: Vec<String> = super::observations::kept(&s.db.path)
         .into_iter()
         .map(|o| o.cell)
@@ -92,7 +130,7 @@ fn a_work_put_on_a_renumbered_version_reads_what_it_recorded_before_as_that_vers
 }
 
 // A work given to be saved with a run it recorded before a version it was put on, neither of which the store holds,
-// would be kept as the version reads it: it is refused, and nothing is kept.
+// would be kept as the version reads it: it is refused, and nothing is kept; and so is one with what it said to a cell.
 #[test]
 fn a_run_not_yet_kept_before_a_version_the_work_was_put_on_is_refused() {
     let mut d = Driver::saved();
@@ -114,6 +152,14 @@ fn a_run_not_yet_kept_before_a_version_the_work_was_put_on_is_refused() {
             table: "started",
             at: run.at
         })
+    );
+    assert_eq!(dump(&s.db.path), before);
+    let mut given = d.work.clone();
+    let at = said_to(&mut given, "write");
+    given.onto(Time(d.clock), "b".to_string(), ids(&[("write", "draft")]));
+    assert_eq!(
+        store.save(s.work, &given),
+        Err(Fault::ReadAsMoved { table: "written", at })
     );
     assert_eq!(dump(&s.db.path), before);
 }
