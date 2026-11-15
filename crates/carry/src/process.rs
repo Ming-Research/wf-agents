@@ -1,9 +1,12 @@
 //! Running a program as a child in a process group of its own, so that it and everything it starts can be stopped
 //! together: told to stop, the group is sent TERM, and KILL once [`STOP_WAIT`] has passed without its ending.
 //!
-//! A program's group may be named in a file while it runs, with the start time of its first process, so that one left
-//! running by a process of the engine that ended is found and stopped before the same thing is run again
-//! ([`stop_left`]), and a number the system has since given to another group is told apart from it.
+//! However the process of the engine ends, a crash and `kill -9` included, the programs it runs end with it: each has
+//! an overseer, a small shell that stops the program's group once a pipe only the engine's process holds closes
+//! ([`Overseer`]). A program's group may also be named in a file while it runs, with the start time of its first
+//! process, so that one left running all the same, as where no overseer could be started, is found and stopped before
+//! the same thing is run again ([`stop_left`]), and a number the system has since given to another group is told apart
+//! from it.
 
 use std::path::Path;
 use std::process::{ExitStatus, Stdio};
@@ -107,12 +110,13 @@ async fn run_with(
         .spawn()
         .map_err(|e| format!("{program} cannot be started: {e}"))?;
     let group = child.id();
+    let overseer = group.and_then(Overseer::of);
     if let (Some(file), Some(group)) = (group_file, group) {
         // A group not written down is only not stopped after a stop of the engine: no reason to stop this one.
         let started = started(group).await.unwrap_or_default();
         let _ = tokio::fs::write(file, format!("{group}\n{started}\n")).await;
     }
-    let ran = wait(child, stdin, group, &program, stop, halt, lines).await;
+    let ran = wait(child, stdin, group, overseer, &program, stop, halt, lines).await;
     if let Some(file) = group_file {
         let _ = tokio::fs::remove_file(file).await;
     }
@@ -120,11 +124,14 @@ async fn run_with(
 }
 
 /// Waits for the child to end, writing its input and reading its output, each line of it given to `lines` where
-/// they are given, or stops its group once told to.
+/// they are given, or stops its group once told to; its overseer is let go before the child is reaped, after which its
+/// group's number may be given to another.
+#[allow(clippy::too_many_arguments)]
 async fn wait(
     mut child: tokio::process::Child,
     stdin: Option<Vec<u8>>,
     group: Option<u32>,
+    overseer: Option<Overseer>,
     program: &str,
     stop: &mut Stop,
     halt: Option<oneshot::Receiver<()>>,
@@ -175,6 +182,7 @@ async fn wait(
                 }
             }
         }
+        drop(overseer);
         let status = (child.wait().await).map_err(|e| format!("{program} could not be waited for: {e}"))?;
         Ok::<_, String>((status, kept))
     };
@@ -198,6 +206,48 @@ async fn wait(
             }
             Ok(Ran::Stopped)
         }
+    }
+}
+
+/// What a program's overseer runs, the group being `$1` and the wait `$2`: it waits for its standard input to close,
+/// then stops the group as a stop does, TERM and then KILL.
+const OVERSEEING: &str = r#"read -r line; kill -s TERM -- "-$1"; sleep "$2"; kill -s KILL -- "-$1""#;
+
+/// What stops a program's process group as the process of the engine that runs it ends, however it ends. The group is
+/// out of reach of the terminal's signals, and no handler of the engine's sees a crash or a `kill -9`: so a small shell
+/// waits on a pipe that only the engine's process holds, which closes as that process ends, and then stops the group.
+/// It is in a process group of its own, so that the terminal's signals do not end it first. Let go of, as the program
+/// ends with the engine there to see it, it ends without touching the group.
+struct Overseer(std::process::Child);
+
+impl Overseer {
+    /// The overseer of the group; none where no shell can be started, the program then running as it would without
+    /// one, and stopped, where it is left, before the same thing is run again ([`stop_left`]).
+    fn of(group: u32) -> Option<Overseer> {
+        let mut command = std::process::Command::new("sh");
+        let wait = STOP_WAIT.as_secs().to_string();
+        command.args(["-c", OVERSEEING, "overseer", &group.to_string(), &wait]);
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        let spawned = (command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()))
+        .spawn();
+        match spawned {
+            Ok(shell) => Some(Overseer(shell)),
+            Err(e) => {
+                eprintln!("no overseer of the program's group {group} could be started: {e}");
+                None
+            }
+        }
+    }
+}
+
+impl Drop for Overseer {
+    /// The shell is killed while its pipe is still open: only the pipe closing makes it stop the group.
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 
@@ -385,6 +435,99 @@ pub(crate) fn tail(output: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The variable that has the test binary, run again, play a process of the engine running a program, in the
+    /// directory it gives, until it is killed.
+    const AN_ENGINE: &str = "WF_AGENTS_TEST_AN_ENGINE";
+
+    // Played by the test binary run again, and only so: runs a program that does not end, and ignores TERM, in a group
+    // of its own named in the directory the variable gives, as a process of the engine runs an agent's program.
+    #[tokio::test]
+    #[ignore = "run only by the test that kills it"]
+    async fn an_engine_running_a_program_until_it_is_killed() {
+        let Ok(dir) = std::env::var(AN_ENGINE) else {
+            return;
+        };
+        let file = Path::new(&dir).join("program.pgid");
+        let mut command = Command::new("sh");
+        command.args(["-c", "trap '' TERM; sleep 120 & wait"]);
+        let _ = run(command, None, Some(&file), &mut Stop::never()).await;
+    }
+
+    // An overseer let go of, as the program ends with the engine there to see it, ends and leaves the group alone; one
+    // whose pipe closes, as it does when the engine's process ends, stops the group, what ignores TERM too. A few
+    // seconds alone; no other test holds the overseer itself.
+    #[tokio::test]
+    async fn an_overseer_let_go_of_leaves_its_group_and_one_whose_pipe_closes_stops_it() {
+        let group = || {
+            let mut command = std::process::Command::new("sh");
+            command.args(["-c", "trap '' TERM; sleep 120 & wait"]);
+            std::os::unix::process::CommandExt::process_group(&mut command, 0);
+            command.spawn().expect("the group starts")
+        };
+        let mut left = group();
+        let overseer = Overseer::of(left.id()).expect("an overseer");
+        let shell = overseer.0.id();
+        drop(overseer);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(alive(left.id()).await, "an overseer let go of stopped the group");
+        assert!(!alive_process(shell).await, "the overseer let go of still runs");
+        let _ = left.kill();
+        signal(left.id(), "KILL").await;
+        let _ = left.wait();
+
+        let mut orphan = group();
+        let mut overseer = Overseer::of(orphan.id()).expect("an overseer");
+        drop(overseer.0.stdin.take());
+        // The group's first process is this one's child, a zombie in the group until it is reaped here.
+        let began = std::time::Instant::now();
+        while orphan.try_wait().expect("the group's first process").is_none() || alive(orphan.id()).await {
+            if began.elapsed() > Duration::from_secs(15) {
+                signal(orphan.id(), "KILL").await;
+                let _ = orphan.wait();
+                panic!("the group outlived its overseer's pipe");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    // However the process of the engine ends, a program it runs ends with it: killed, as by `kill -9` or a crash, it
+    // runs no handler, and the program's group is stopped all the same, what ignores TERM too, once the wait the stop
+    // gives it has passed. A few seconds alone, the program's group being killed after three; no other test holds what
+    // outlives the engine.
+    #[tokio::test]
+    async fn a_program_ends_with_the_process_of_the_engine_that_runs_it_however_that_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = std::env::current_exe().expect("the test binary");
+        let test = "process::tests::an_engine_running_a_program_until_it_is_killed";
+        let mut engine = std::process::Command::new(exe)
+            .args(["--exact", test, "--ignored", "--test-threads=1"])
+            .env(AN_ENGINE, dir.path())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the test binary runs again");
+        let file = dir.path().join("program.pgid");
+        let began = std::time::Instant::now();
+        let group = loop {
+            let named = std::fs::read_to_string(&file).ok();
+            if let Some(group) = named.and_then(|text| text.lines().next()?.trim().parse::<u32>().ok()) {
+                break group;
+            }
+            assert!(began.elapsed() < Duration::from_secs(20), "the engine ran no program");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        engine.kill().expect("the engine is killed");
+        let _ = engine.wait();
+        let began = std::time::Instant::now();
+        while alive(group).await {
+            if began.elapsed() > Duration::from_secs(15) {
+                signal(group, "KILL").await;
+                panic!("the program outlived the process of the engine that ran it");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
 
     #[tokio::test]
     async fn a_left_group_is_stopped_though_its_first_process_has_ended() {
