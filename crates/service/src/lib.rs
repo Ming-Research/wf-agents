@@ -62,9 +62,10 @@ use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
     Back, CallReply, Carriers, Doing, Network, Outside, Ping, PingReply, Release, ReleaseReply, Returned, Round,
-    RoundReply, Rounds, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
+    RoundReply, Rounds, Saying, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
+pub use driver::{Along, Under};
 pub use levels::{Level, Levels, LevelsFault};
 pub use projects::Projects;
 pub use script::Script;
@@ -150,6 +151,12 @@ pub enum Message {
     },
     /// The service of the agents answered the round under way of this run, with a message that is no error.
     Answered { work: WorkNumber, run: RunId },
+    /// What carries out a round or a call of this work says where it stands now, or that it no longer says so.
+    Along {
+        work: WorkNumber,
+        under: Under,
+        along: Option<Along>,
+    },
 }
 
 /// What the owner does to a work.
@@ -391,6 +398,17 @@ impl Service {
                 let now = self.now()?;
                 let todos = self.driver.answered(now, work, run).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
+            }
+            Message::Along { work, under, along } => {
+                // What a work does now may have changed, though no record of it grew.
+                if self.driver.along(work, under, along) {
+                    let _ = self.changed.send(Changed {
+                        works: vec![work],
+                        items: false,
+                        copies: false,
+                    });
+                }
+                return Ok(());
             }
             Message::Act { work, act, reply } => {
                 let now = self.now()?;

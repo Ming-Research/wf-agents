@@ -33,5 +33,5 @@ pub use room::{Holder, Room, begun, taking_slot};
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view, view_in};
 pub use walk::{
     Abandoning, Decision, End, Entry, Judge, Maker, Stalling, Unrun, Waited, again_from, applies, asked_of, decide,
-    decide_in, hold, hold_in, judges, new_to, owed, pause, paused, reached, told,
+    decide_in, hold, hold_in, judges, keeping, new_to, owed, pause, paused, reached, told,
 };

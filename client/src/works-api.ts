@@ -104,8 +104,10 @@ export type Maker = { kind: 'owner' } | { kind: 'outside'; source: string } | { 
 
 /// What a work waits for.
 export type Waited =
-  /// The result of a call a run rests at: from this person, or from the engine where there is none.
-  | { kind: 'call'; call: number; who: Person | null; what: Call }
+  /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this time,
+  /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes. Absent from an engine that does
+  /// not give them yet.
+  | { kind: 'call'; call: number; who: Person | null; what: Call; made?: number; at?: string | null }
   /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
@@ -124,29 +126,38 @@ export type Waited =
   | { kind: 'answer'; question: string }
   /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
   /// wrote, `why` in its own words, waits for that source before the cell runs again.
-  | { kind: 'outside'; source: string; cell: string; why: string };
+  | { kind: 'outside'; source: string; cell: string; why: string }
+  /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
+  /// time, waits for it. The works of a project check and merge one at a time.
+  | { kind: 'turn'; holder: number; since: number }
+  /// The items the work's item depends on that have not merged, by their numbers: a precondition only they make hold,
+  /// as they merge; and those of them that were cancelled, which never will, so that the work waits for good. Absent
+  /// where none was.
+  | { kind: 'items'; items: number[]; cancelled?: number[] };
 
 /// What a work does now.
 export type Now =
   | { kind: 'fault'; words: string }
   | { kind: 'merged' }
   | { kind: 'cancelled' }
-  /// A round of this run of this cell is under way, since this time.
-  | { kind: 'round'; cell: string; run: number; round: number; since: number }
+  /// A round of this run of this cell is under way, since this time; where it is an engine cell's act that runs as a
+  /// CI run, the run's link. The link is absent from an engine that does not give it yet.
+  | { kind: 'round'; cell: string; run: number; round: number; since: number; at?: string | null }
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
   /// for this one.
   | { kind: 'paused'; by: Pauser; why: string | null }
-  /// The owner's pause of everything holds it back, and what it would do next is begin a round; its own pause does not.
-  | { kind: 'everything' }
+  /// The pause of everything holds it back, and what it would do next is begin a round; its own pause does not. `by` is
+  /// who set it: the owner, or the engine as it started again with works going on.
+  | { kind: 'everything'; by: Pauser }
   /// It waits at this cell, for each of these.
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
   | { kind: 'next'; cell: string }
   /// It can go on by itself no further at this cell, and nothing pauses it: each key of the cell's `requires` that does
   /// not hold, none where it stands at its last cell for want of anything new to run it; and each cell that writes what
-  /// it waits for, none of which runs, with why. It goes on once the owner, or a source outside the work, writes what
-  /// runs a cell.
-  | { kind: 'stalled'; at: string; on: CellKey[]; by: Stalling[] };
+  /// it waits for, none of which runs, with why; and all that in a sentence, as the engine says it in the words beside the
+  /// flows, which every view says. It goes on once the owner, or a source outside the work, writes what runs a cell.
+  | { kind: 'stalled'; at: string; on: CellKey[]; by: Stalling[]; why: string };
 
 /// A key of a cell's `when` or `requires`: the named test, or the block's key as the cell's file writes it
 /// (`checked = yes`); and the words shown for it, the test's or the same key.
@@ -162,10 +173,11 @@ export interface Stalling {
   why: { kind: 'skipped'; on: CellKey[] } | { kind: 'nothingNew' } | { kind: 'held' };
 }
 
-/// How a cell stands for a work: a round of its run is under way; its run is at rest; its run's last round failed,
-/// and is given again once the work is let on; its condition is not met; it never finished a run; it has a record and
-/// runs again when the walk reaches it; its record knows everything.
-export type CellState = 'running' | 'resting' | 'failed' | 'skipped' | 'notYet' | 'again' | 'done';
+/// How a cell stands for a work: a round of its run, an agent's, is under way; the engine carries out something for
+/// its run that takes its time, an engine cell's act or a tool's call; its run is at rest, or its act waits for the
+/// project's turn; its run's last round failed, and is given again once the work is let on; its condition is not met;
+/// it never finished a run; it has a record and runs again when the walk reaches it; its record knows everything.
+export type CellState = 'running' | 'calling' | 'resting' | 'failed' | 'skipped' | 'notYet' | 'again' | 'done';
 
 export interface CellNow {
   cell: string;
@@ -197,8 +209,8 @@ export interface Summary {
   item: number;
   flow: string;
   added: number;
-  /// Only a note to a cell is answered; a round under way goes on.
-  paused: boolean;
+  /// Who paused it, where it is paused: only a note to a cell is answered; a round under way goes on.
+  paused: Pauser | null;
   now: Now;
   /// In the order of the walk.
   cells: CellNow[];
@@ -209,14 +221,51 @@ export interface Summary {
   last: number | null;
   /// When its first round began; none before it has one. Absent from an engine that does not give it yet.
   from?: number | null;
-  /// Where its time went, from its first round's begin to its last round's end, cut into equal cells, one character
-  /// each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls, `.` neither. Empty with no round;
-  /// absent from an engine that does not give it yet.
+  /// Where its time went, from its first round's begin to the end of its last round or tool's call, cut into equal
+  /// cells, one character each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls; where neither
+  /// ran, what the work waited for: `o` the owner, as the engine's one definition of what waits on the owner says, `p` a
+  /// pause, its own or the owner's pause of everything, `w` the items its item depends on, `.` anything else. Empty with no round; absent from an engine that does
+  /// not give it yet.
   bar?: string;
   /// How many of its rounds were given back what the round before handed in; absent from an engine that does not give
   /// it yet.
   sentBack?: number;
+  /// Everything it waits on the owner for now, in the order it waits for them, as the engine defines it once: what the
+  /// count, each item's mark, the cards and the notifications read, and nothing else. Absent from an engine that does
+  /// not give it yet.
+  waits?: Wait[];
 }
+
+/// One thing a work waits on the owner for: its key within the work, which a notification's address and the card that
+/// shows it carry; why, in a sentence, what it asks for a question; and what the owner does that ends it.
+export interface Wait {
+  key: string;
+  why: string;
+  ends: Ends;
+  /// For a question a cell's precondition waits for, which the work went on past at the cell that asked it, why the
+  /// work waits for it there, in a sentence: said by the question's card alone, under what it asks. Absent for
+  /// anything else.
+  under?: string | null;
+}
+
+/// What the owner does that ends a wait on them.
+export type Ends =
+  /// Answers this version of the work's question by one of its options, on its card at the plan's end.
+  | { kind: 'answer'; question: string; version: number }
+  /// Answers in words the question this call puts, on its card at the plan's end.
+  | { kind: 'reply'; call: number }
+  /// Lets the run at its limit go on, as the result of this call.
+  | { kind: 'goOn'; call: number }
+  /// Lets the cell go on past its limit.
+  | { kind: 'letGo'; cell: string }
+  /// Writes the block with this value, which makes the precondition hold; none where its values do not make it plain.
+  | { kind: 'write'; block: string; value: string | null }
+  /// Lets the work go on, lifting the engine's pause.
+  | { kind: 'resume' }
+  /// Lets every work go on, lifting the pause of everything the engine set.
+  | { kind: 'resumeEverything' }
+  /// Does what this says, which no control of the page does.
+  | { kind: 'outside'; what: string };
 
 export interface Item {
   number: number;
@@ -546,6 +595,32 @@ export interface WorkPage {
   /// Where the owner's words would go now, as the engine chooses it: to each line of the flow, then about each question
   /// that stands; absent from an engine that does not give it.
   speaking?: Speaking[];
+  /// Each question put to the owner, as it stands, in the order of their names; absent from an engine that does not
+  /// give them.
+  questions?: Question[];
+}
+
+/// A question put to the owner, as it stands: its latest version, with the keys a return writes it with, and the
+/// owner's answer to that version, where there is one.
+export interface Question {
+  name: string;
+  /// The cell it belongs to.
+  cell: string;
+  /// The version an answer names: the place of the latest.
+  version: number;
+  /// The engine itself asked it, and not the cell's agent.
+  engine: boolean;
+  /// The cell waits for the answer: the work goes past it to no later cell until it is answered; else it goes on by
+  /// the option it recommends.
+  waits: boolean;
+  /// The latest version withdraws it, for this reason; none while it stands.
+  withdrawn: string | null;
+  /// What it asks, its options and the one it recommends, counted from one; of a question withdrawn, none.
+  ask: string | null;
+  options: { does: string; follows: string }[];
+  recommends: number | null;
+  /// The owner's answer to the latest version: the option taken, counted from one, when, and why where said.
+  answer: { option: number; at: number; why: string | null } | null;
 }
 
 /// What the owner's words are said to: a line of the work's flow, or a question of the work they are about.

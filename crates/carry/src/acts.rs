@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
-use service::{Release, ReleaseReply, Round, RoundReply, Rounds, Teller};
+use service::{Along, Release, ReleaseReply, Round, RoundReply, Rounds, Teller};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Question, Said, Spent, Work};
@@ -223,9 +223,11 @@ impl<H: Host> Rounds for Acts<H> {
         prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
         let teller = reply.teller();
-        let Some(mut stop) = self.inner.held.hold(key, reply) else {
+        let saying = reply.saying(round.number);
+        let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
+        let mut stop = stop.saying(saying);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let done = inner.act(&round, &teller, &mut stop).await;
@@ -558,8 +560,8 @@ impl<H: Host> Inner<H> {
         self.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Waits for the work's turn to check and merge, and takes it, as [`Turn::takes`] says. Says false where the round
-    /// was told to stop meanwhile.
+    /// Waits for the work's turn to check and merge, and takes it, as [`Turn::takes`] says. While it waits, it says
+    /// which work has the turn. Says false where the round was told to stop meanwhile.
     async fn take_turn(&self, work: WorkNumber, stop: &mut Stop) -> bool {
         let _waiting = {
             let mut turn = self.turn();
@@ -578,7 +580,13 @@ impl<H: Host> Inner<H> {
                 let mut turn = self.turn();
                 if turn.takes(work, Instant::now()) {
                     turn.holder = Some((work, None));
+                    drop(turn);
+                    stop.say(None);
                     return true;
+                }
+                if let Some((holder, _)) = turn.holder {
+                    drop(turn);
+                    stop.say(Some(Along::Turn { holder }));
                 }
             }
             // Told when the turn is let go, a wait ends or a pause changes; looked at again now and then, as a turn

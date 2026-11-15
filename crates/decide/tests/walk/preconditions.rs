@@ -108,6 +108,24 @@ fn a_precondition_on_what_a_source_outside_the_work_writes_waits_for_that_source
 }
 
 #[test]
+fn a_precondition_on_what_a_source_writes_as_the_owner_acts_waits_for_the_owner_as_the_flow_declares_it() {
+    let (start, named) = waiting_for_all("answered", &["asked"], cell("start", &["code"], &[]));
+    let mut w = World::with_tests(vec![start, gate()], BTreeMap::from([named]));
+    w.written_outside_by_owner("asked", "asked");
+    w.person_writes("code");
+    // Who can make it hold is what the flow declares of the block, and not the name of its source.
+    assert_eq!(
+        w.decide(),
+        wait("start", vec![precondition("answered", vec![Maker::Owner])])
+    );
+    w.written_outside("asked", "asked");
+    let source = Maker::Outside {
+        source: "asked".to_string(),
+    };
+    assert_eq!(w.decide(), wait("start", vec![precondition("answered", vec![source])]));
+}
+
+#[test]
 fn a_precondition_on_what_only_a_cell_writes_stalls_the_work_once_that_cell_has_nothing_new() {
     let (merge, named) = waiting_for_all("checked", &["checked"], cell("merge", &["code"], &[]));
     let cells = vec![cell("check", &["code"], &["checked"]), merge];

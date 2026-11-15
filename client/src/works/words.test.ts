@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Round, Step, Waited } from '../works-api';
+import type { Now, Round, Summary, Wait, Waited } from '../works-api';
 import {
   RUN_WORDS,
+  STATE,
   callState,
   causeWords,
   clock,
@@ -10,15 +11,20 @@ import {
   duration,
   isOpen,
   isWayRound,
-  letGoFailed,
+  itemsWords,
   nowTone,
   nowWords,
+  outageWords,
   pauseWords,
+  plain,
   runState,
+  sentence,
+  stateOf,
   tokens,
   unmetWords,
+  waitCount,
+  waitCounted,
   waitedWords,
-  waitsForOwner,
 } from './words';
 
 const precondition: Waited = {
@@ -34,84 +40,182 @@ const question: Waited = {
   what: { kind: 'question', who: 'owner', question: 'Show the cached tokens apart?' },
 };
 
+/// A work doing this now, waiting on the owner for these, as the engine's list says.
+const doing = (now: Now, waits: Wait[] = []): Pick<Summary, 'now' | 'cells' | 'waits'> => ({ now, cells: [], waits });
+
+const limit: Wait = {
+  key: 'limit',
+  why: '`review` has sent the cell back as often as a sender may since its counts last started anew, its limit of 3.',
+  ends: { kind: 'letGo', cell: 'merge' },
+};
+
 describe('what a work does now, in words', () => {
-  it('says each kind of now', () => {
+  it('names every state by the one catalogue: the word first, then the cell, then why', () => {
     const since = Date.UTC(2026, 10, 9, 14, 2);
-    expect(nowWords({ kind: 'fault', words: 'Two entries at place 3' })).toBe('Fault: Two entries at place 3');
-    expect(nowWords({ kind: 'merged' })).toBe('Merged');
-    expect(nowWords({ kind: 'cancelled' })).toBe('Cancelled');
-    expect(nowWords({ kind: 'round', cell: 'implement', run: 5, round: 2, since })).toBe(
-      `Running implement, round 2 of run 5, since ${clock(since)}`,
+    expect(nowWords(doing({ kind: 'fault', words: 'Two entries at place 3' }))).toBe('Halted · Two entries at place 3');
+    expect(nowWords(doing({ kind: 'merged' }))).toBe('Merged');
+    expect(nowWords(doing({ kind: 'cancelled' }))).toBe('Cancelled');
+    expect(nowWords(doing({ kind: 'round', cell: 'implement', run: 5, round: 2, since }))).toBe('Running · implement');
+    expect(nowWords(doing({ kind: 'paused', by: 'owner', why: null }))).toBe('Paused');
+    expect(nowWords(doing({ kind: 'everything', by: 'owner' }))).toBe('Paused');
+    // A stall is said as the engine says it, its names bare on the line.
+    const stall = 'Nothing new runs this last cell, and no cell can write what runs it.';
+    expect(nowWords(doing({ kind: 'stalled', at: 'M2', on: [], by: [], why: stall }))).toBe(
+      'Halted · M2 · Nothing new runs this last cell, and no cell can write what runs it.',
     );
-    expect(nowWords({ kind: 'paused', by: 'owner', why: null })).toBe(
-      'Paused: only a note to a cell is answered until it is let on',
+    // What the engine's list holds waits for you, said by the engine's reasons, each a sentence, after the cell the
+    // work waits at, named once where the state names one.
+    const pause: Wait = {
+      key: 'pause',
+      why: 'The engine paused the work. The agent could not start',
+      ends: { kind: 'resume' },
+    };
+    expect(nowWords(doing({ kind: 'paused', by: 'engine', why: 'The agent could not start' }, [pause]))).toBe(
+      'Waiting for you · The engine paused the work. The agent could not start.',
     );
-    expect(nowWords({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe(
-      'Paused by the engine: The agent could not start.',
+    // The cell is said once, in its place: the reason beside it does not name it.
+    const atLimit = nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, { kind: 'limit', by: 'review', runs: 3 }] }, [limit]));
+    expect(atLimit).toBe(
+      'Waiting for you · merge · review has sent the cell back as often as a sender may since its counts last started anew, its limit of 3.',
     );
-    expect(nowWords({ kind: 'waits', at: 'merge', on: [precondition, { kind: 'limit', by: 'review', runs: 3 }] })).toBe(
-      'Waits at merge for The owner approved the merge, which the owner can make hold; ' +
-        'the owner to let the cell go on: review sent it back 3 times since its counts last started anew',
+    expect(atLimit.split('merge').length).toBe(2);
+    // Two reasons are two sentences, a name in backticks said bare on the line.
+    const ruling: Wait = {
+      key: 'write-verdict',
+      why: '`verdict = yes` does not hold, as `verdict` says, and the cell requires it.',
+      ends: { kind: 'write', block: 'verdict', value: 'yes' },
+    };
+    const asked: Wait = { key: 'call-4', why: 'Show the cached tokens apart?', ends: { kind: 'reply', call: 4 } };
+    expect(nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, question] }, [asked, ruling, pause]))).toBe(
+      'Waiting for you · merge · Show the cached tokens apart? verdict = yes does not hold, as verdict says, and the ' +
+        'cell requires it. The engine paused the work. The agent could not start.',
     );
-    expect(nowWords({ kind: 'next', cell: 'plan' })).toBe('About to go on at plan');
+    // A question the merge waits for is said by what it asks, each once: why the merge waits is its card's alone.
+    const merge = (name: string, ask: string): Wait => ({
+      key: `answer-${name}`,
+      why: ask,
+      ends: { kind: 'answer', question: name, version: 4 },
+      under: 'The merge waits for this answer.',
+    });
+    const both = [merge('scope', '选哪一种？'), merge('keep', 'Keep the old table?')];
+    expect(nowWords(doing({ kind: 'waits', at: 'M1', on: [precondition] }, both))).toBe(
+      'Waiting for you · M1 · 选哪一种？ Keep the old table?',
+    );
+    // What waits for another names who gives it.
+    expect(nowWords(doing({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }))).toBe(
+      'Waiting for the engine · plan · a free slot, which the engine gives in its order',
+    );
+    expect(nowWords(doing({ kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 12, since }] }))).toBe(
+      "Waiting for W12 · M2 · the project's turn to check and merge, which W12 holds",
+    );
+    expect(nowWords(doing({ kind: 'next', cell: 'plan' }))).toBe('Running · plan');
   });
 
-  it('says each kind of thing a work waits for, and whether the owner is the one it waits for', () => {
+  it('says the state word of the catalogue, and the cell only where the state names one', () => {
+    expect(stateOf(doing({ kind: 'paused', by: 'owner', why: null }))).toEqual({ tone: 'quiet', word: STATE.paused, cell: null });
+    expect(stateOf(doing({ kind: 'fault', words: 'x' }))).toEqual({ tone: 'failed', word: STATE.halted, cell: null });
+    const architect: Waited = {
+      kind: 'call',
+      call: 3,
+      who: 'architect',
+      what: { kind: 'question', who: 'architect', question: 'Which table?' },
+    };
+    expect(stateOf(doing({ kind: 'waits', at: 'plan', on: [architect] }))).toEqual({
+      tone: 'quiet',
+      word: 'Waiting for the architect',
+      cell: 'plan',
+    });
+    // A call the engine carries out for a cell is running: the cell's yellow says it is a call.
+    const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
+    const calling = { now: { kind: 'waits', at: 'M1', on: [tool] } as Now, cells: [{ cell: 'M1', state: 'calling' as const, finished: 0, record: null, open: 1 }], waits: [] };
+    expect(stateOf(calling)).toEqual({ tone: 'running', word: STATE.running, cell: 'M1' });
+    expect(stateOf(doing({ kind: 'waits', at: 'merge', on: [precondition] }, [limit]))).toEqual({
+      tone: 'owner',
+      word: STATE.owner,
+      cell: 'merge',
+    });
+  });
+
+  it('says each kind of thing a work waits for, each work by its number as W12', () => {
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'shell', input: 'ls' } };
     const returns: Waited = { kind: 'call', call: 3, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } };
-    const calls: Waited = { kind: 'call', call: 3, who: null, what: { kind: 'atLimit', limit: { of: 'calls', made: 40 } } };
-    const dependencies: Waited = {
-      kind: 'precondition',
-      test: 'may_start',
-      words: 'The items it depends on are merged',
-      by: [{ kind: 'outside', source: 'dependencies' }],
-    };
+    const dependencies: Waited = { kind: 'items', items: [5, 7] };
     const settled: Waited = {
       kind: 'precondition',
       test: 'settled',
       words: 'No cell that judged the work says it is not settled',
       by: [{ kind: 'owner' }, { kind: 'cell', cell: 'T1' }],
     };
-    const checked: Waited = {
-      kind: 'precondition',
-      test: 'checked',
-      words: 'The check before the merge passed',
-      by: [{ kind: 'cell', cell: 'M1' }],
-    };
     expect(waitedWords(question)).toBe("the owner's answer to a question");
     expect(waitedWords(tool)).toBe('the result of the tool shell');
     expect(waitedWords(returns)).toBe('the owner to let the run go on: it reached its limit, 2 returns sent back');
-    expect(waitedWords(calls)).toBe('the owner to let the run go on: it reached its limit, 40 calls made');
     expect(waitedWords(precondition)).toBe('The owner approved the merge, which the owner can make hold');
-    expect(waitedWords(dependencies)).toBe(
-      'The items it depends on are merged, which the outside (dependencies) can make hold',
-    );
+    expect(waitedWords(dependencies)).toBe('#5 and #7');
     expect(waitedWords(settled)).toBe(
       'No cell that judged the work says it is not settled, which the owner or cell T1 can make hold',
     );
-    expect(waitedWords(checked)).toBe('The check before the merge passed, which cell M1 can make hold');
     expect(waitedWords({ kind: 'limit', by: 'review', runs: 1 })).toBe(
       'the owner to let the cell go on: review sent it back once since its counts last started anew',
     );
+    // The result of what a cell asked for in a record is given by the cells the record runs, by name.
     const tested: Waited = { kind: 'result', record: 'run_tests', by: ['T3'] };
     expect(waitedWords(tested)).toBe('T3 to give the result of what it asked for in run_tests');
-    const limit: Waited = { kind: 'limit', by: 'review', runs: 3 };
-    const all = [question, tool, returns, calls, precondition, dependencies, settled, checked, limit, tested];
-    expect(all.map(waitsForOwner)).toEqual([true, false, true, true, true, false, true, false, true, false]);
-    expect(nowTone({ kind: 'waits', at: 'plan', on: [tool] })).toBe('quiet');
-    expect(nowTone({ kind: 'waits', at: 'plan', on: [tool, question] })).toBe('owner');
-    // A check held because what fails also fails on main waits for main, and not for the owner.
+    expect(stateOf(doing({ kind: 'waits', at: 'I1', on: [tested] }))).toEqual({
+      tone: 'quiet',
+      word: 'Waiting for T3',
+      cell: 'I1',
+    });
+    expect(nowTone(doing({ kind: 'waits', at: 'plan', on: [dependencies] }))).toBe('quiet');
+    // A work that waits for the items it depends on has one word for it, the bar's too, and its line names them once.
+    expect(stateOf(doing({ kind: 'waits', at: 'S1', on: [dependencies] })).word).toBe(STATE.items);
+    expect(STATE.items).toBe('Waiting for the items it depends on');
+    expect(nowWords(doing({ kind: 'waits', at: 'S1', on: [dependencies] }))).toBe(
+      'Waiting for the items it depends on · S1 · #5 and #7',
+    );
+    // One that was cancelled is said so, in the catalogue's words: the work waits for it for good.
+    const forGood: Waited = { kind: 'items', items: [5, 7], cancelled: [7] };
+    expect(nowWords(doing({ kind: 'waits', at: 'S1', on: [forGood] }))).toBe(
+      'Waiting for the items it depends on · S1 · #5 and #7; it waits for good on #7, cancelled',
+    );
+    expect(itemsWords([5])).toBe('#5');
+    expect(itemsWords([5, 6, 7])).toBe('#5, #6 and #7');
     const main: Waited = { kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' };
     expect(waitedWords(main)).toBe('main to move, before M1 runs again: What fails also fails on main.');
-    expect(waitsForOwner(main)).toBe(false);
-    expect(nowTone({ kind: 'waits', at: 'M2', on: [main] })).toBe('quiet');
+    expect(stateOf(doing({ kind: 'waits', at: 'M1', on: [main] })).word).toBe('Waiting for main');
   });
 
-  it("gives the engine's pause the tone of what failed, and the owner's a quiet one", () => {
-    expect(nowTone({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe('failed');
-    expect(nowTone({ kind: 'paused', by: 'owner', why: null })).toBe('quiet');
-    expect(pauseWords('engine', 'The agent could not start.')).toBe('the engine paused the work: The agent could not start.');
-    expect(pauseWords('owner', null)).toBe('the owner paused the work');
+  it('gives what waits on the owner and a halted work the one red tone of a stop, and the owner\'s pause a quiet one', () => {
+    expect(nowTone(doing({ kind: 'paused', by: 'engine', why: 'x' }, [{ key: 'pause', why: 'x', ends: { kind: 'resume' } }]))).toBe(
+      'owner',
+    );
+    expect(nowTone(doing({ kind: 'fault', words: 'Two entries at place 3' }))).toBe('failed');
+    expect(nowTone(doing({ kind: 'stalled', at: 'M2', on: [], by: [], why: 'x' }))).toBe('failed');
+    expect(nowTone(doing({ kind: 'paused', by: 'owner', why: null }))).toBe('quiet');
+    expect(nowTone(doing({ kind: 'everything', by: 'owner' }))).toBe('quiet');
+    expect(pauseWords('engine', 'The agent could not start.')).toBe('The engine paused the work. The agent could not start.');
+    expect(pauseWords('owner', null)).toBe('The owner paused the work.');
+  });
+
+  it('says the one count one way', () => {
+    expect(waitCount(1)).toBe('1 thing waits for you');
+    expect(waitCount(3)).toBe('3 things wait for you');
+  });
+
+  it('says the work of the round that met the wait every work shares as W12, and no way to mend it of its own', () => {
+    const said = outageWords({
+      service: 'agents',
+      failure: 'cannotRun',
+      why: 'Not logged in',
+      work: 12,
+      run: 3,
+      round: 1,
+      since: 0,
+      checked: null,
+      until: { kind: 'checked', at: 0 },
+      holds: true,
+    });
+    expect(said).toContain(' Round 1 of run 3 of W12 met it. Not logged in.');
+    expect(said).not.toContain('install');
   });
 });
 
@@ -221,20 +325,24 @@ describe('what was taken, in words', () => {
   });
 });
 
-describe('a failed letting go of what an ended work held', () => {
-  const paused = (at: number, by: 'owner' | 'engine'): Step => ({ kind: 'paused', at, time: at, by, why: 'HTTP 502' });
-  const resumed = (at: number): Step => ({ kind: 'resumed', at, time: at });
-  const merged = { now: { kind: 'merged' as const }, paused: true };
-
-  it("is the engine's pause of the ended work that was not let on since", () => {
-    expect(letGoFailed(merged, [paused(1, 'engine')])).toBe('HTTP 502');
-    expect(letGoFailed({ ...merged, now: { kind: 'cancelled' } }, [paused(1, 'engine')])).toBe('HTTP 502');
+describe('reasons said one after another', () => {
+  it('each read as one sentence, a full stop given where it has none, an end in Chinese counted as one', () => {
+    expect(sentence('The agent could not start')).toBe('The agent could not start.');
+    expect(sentence('Which way? ')).toBe('Which way?');
+    expect(sentence('It spent $4.')).toBe('It spent $4.');
+    expect(sentence('选哪一种？')).toBe('选哪一种？');
+    expect(sentence('先做这个。')).toBe('先做这个。');
+    expect(sentence('快！')).toBe('快！');
+    expect(plain('`merge` requires `verdict = yes`.')).toBe('merge requires verdict = yes.');
   });
 
-  it('is none for a work going on, one let on since, one the owner paused, or one not paused', () => {
-    expect(letGoFailed({ now: { kind: 'next', cell: 'plan' }, paused: true }, [paused(1, 'engine')])).toBeNull();
-    expect(letGoFailed(merged, [paused(1, 'engine'), resumed(2)])).toBeNull();
-    expect(letGoFailed(merged, [paused(1, 'owner')])).toBeNull();
-    expect(letGoFailed({ ...merged, paused: false }, [paused(1, 'engine')])).toBeNull();
+  it("say the history's pause of the engine's with its reason as a sentence of its own", () => {
+    expect(pauseWords('engine', 'The agent could not start')).toBe('The engine paused the work. The agent could not start.');
+    expect(pauseWords('engine', null)).toBe('The engine paused the work. It gave no reason.');
+  });
+
+  it('count what waits for the owner after its number, one way', () => {
+    expect(waitCounted(1)).toBe('thing waits for you');
+    expect(waitCounted(2)).toBe('things wait for you');
   });
 });

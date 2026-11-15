@@ -142,7 +142,7 @@ describe('the list of works with several hundred works', () => {
     s.changedWork = changed;
     act(() => s.changed({ works: [changed], items: false, copies: false }));
     await settle();
-    expect(page.querySelector(`tr[data-work="${changed}"] .work-now`)?.textContent).toContain('Running review');
+    expect(page.querySelector(`tr[data-work="${changed}"] .work-now`)?.textContent).toContain('Running · review');
     expect(drawn.rows).toBe(1);
     // Read again with nothing changed, no row is drawn again.
     drawn.rows = 0;

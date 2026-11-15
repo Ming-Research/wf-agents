@@ -45,12 +45,17 @@ pub struct Check {
     network: Arc<dyn Network>,
     /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
     clock: Arc<dyn Clock>,
+    /// Why the short request failed where the command line ended with no result, in the words beside the flows.
+    words: flow::agents::ProgramWords,
+    /// What the check finds down where it says it itself, in the words beside the flows.
+    said: flow::agents::CheckWords,
 }
 
 impl Check {
     /// The check the settings say: with the agents' command, directory of settings and environment, the short request
-    /// on the cheapest level's model, and the network looked at on the service's host ([`failure::Look`]).
-    pub fn of(settings: &Settings) -> Result<Check, String> {
+    /// on the cheapest level's model, and the network looked at on the service's host ([`failure::Look`]); what it
+    /// finds down is said in the words beside the flows of a program's end and of the check's own.
+    pub fn of(settings: &Settings, cost: &flow::agents::Cost) -> Result<Check, String> {
         let levels = settings.levels()?;
         let cheapest =
             (levels.levels().first()).ok_or_else(|| "agents.levels: there is at least one level".to_string())?;
@@ -65,6 +70,8 @@ impl Check {
             dir: std::env::temp_dir(),
             network: Arc::new(failure::Look),
             clock: Arc::new(SystemClock),
+            words: cost.program.clone(),
+            said: cost.check.clone(),
         })
     }
 
@@ -89,7 +96,7 @@ impl Check {
         if !reached.unwrap_or(false) {
             return Found::Down {
                 failure: decide::run::Failure::Offline,
-                why: "the network does not reach the agents' service".to_string(),
+                why: self.said.offline.clone(),
                 resets: None,
             };
         }
@@ -111,12 +118,8 @@ impl Check {
         // Of what it says, only that it is not signed in is kept: the rest names the account, which the page need not.
         let said = String::from_utf8_lossy(&output.stdout);
         let status: serde_json::Value = serde_json::from_str(said.trim()).ok()?;
-        (status["loggedIn"] == false).then(|| {
-            cannot(format!(
-                "the agents' command line is not signed in, as `{} auth status` says",
-                self.command
-            ))
-        })
+        (status["loggedIn"] == false)
+            .then(|| cannot(flow::agents::fill(&self.said.signed_out, &[("command", &self.command)])))
     }
 
     /// What the short request found: well where the service answered it with a message that is no error, else what
@@ -167,10 +170,10 @@ impl Check {
         // What it said, as a round's failure says it: its result's error, or else the end of what it wrote of itself.
         let why = match (output.status.success(), had_result) {
             (true, _) => no.why,
-            (false, true) => format!("{} exited with {}: {}", self.command, output.status, no.why),
+            (false, true) => process::ended(&self.words, &self.command, output.status, &no.why),
             (false, false) => {
                 let tail = process::tail(String::from_utf8_lossy(&output.stderr).trim().as_bytes());
-                format!("{} exited with {}: {tail}", self.command, output.status)
+                process::ended(&self.words, &self.command, output.status, &tail)
             }
         };
         let failure = failure::of(&why, &no.said, no.spent.as_ref());
@@ -233,7 +236,17 @@ mod tests {
             dir: dir.to_path_buf(),
             network: Arc::new(Reached(reached)),
             clock: Arc::new(At),
+            words: words().program,
+            said: words().check,
         }
+    }
+
+    /// What is written beside the repository's flows of the agents' program and of the check.
+    fn words() -> flow::agents::Cost {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        flow::agents::read(&root)
+            .expect("the words beside the flows are read")
+            .cost
     }
 
     /// The arguments of each call the check made of the command line, a line each.
@@ -295,18 +308,23 @@ mod tests {
             panic!("{signed_out:?}");
         };
         assert_eq!(*failure, Failure::CannotRun);
-        assert!(why.contains("not signed in"), "{why}");
+        // In the words beside the flows, which name the command line's own command and not the command line again.
+        let command = dir.path().join("claude").display().to_string();
+        let said = flow::agents::fill(&words().check.signed_out, &[("command", &command)]);
+        assert_eq!(why, &said);
+        assert_eq!(said, format!("It is not signed in, as `{command} auth status` says."));
         assert_eq!(calls(dir.path()), ["auth status"]);
         // Signed in, and the network down: no request is made.
         let dir = tempfile::tempdir().unwrap();
         let offline = check(dir.path(), &answering(true, ANSWERED), false).check().await;
         assert!(
             matches!(
-                offline,
+                &offline,
                 Found::Down {
                     failure: Failure::Offline,
+                    why,
                     ..
-                }
+                } if why == "The network does not reach the agents' service."
             ),
             "{offline:?}"
         );

@@ -103,7 +103,8 @@ export function fakeShown(count: number): Shown[] {
                   at: 'implement',
                   on: [{ kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } }],
                 },
-          paused: false,
+          paused: null,
+          waits: i.state === 'working' ? [] : [{ key: 'call-1', why: '?', ends: { kind: 'reply', call: 1 } }],
           bar: 'mmmtt..mmm',
           sentBack: i.id % 13 === 0 ? 2 : 0,
           cells: cells.map(
@@ -126,7 +127,6 @@ export function fakeShown(count: number): Shown[] {
     unseen: i.id % 7 === 0,
     unread: i.id % 11 === 0 ? 1 : 0,
     asks: i.state === 'waiting' ? 1 : 0,
-    questions: 0,
     deliver: false,
     blocked: 0,
     begun: i.state !== 'new',

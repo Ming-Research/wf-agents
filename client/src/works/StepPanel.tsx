@@ -31,8 +31,10 @@ import {
   givenWords,
   isOpen,
   isWayRound,
+  plain,
   runState,
   runTook,
+  sentence,
   sessionWords,
   spentWords,
   unmetWords,
@@ -453,13 +455,13 @@ export function ActPanel({ step, fold }: PanelProps & { step: Step & { kind: key
     letGo: step.kind === 'letGo' ? `The owner let ${step.cell} go on, and every count of the times it was sent back started anew` : '',
     paused:
       step.kind === 'paused' && step.by === 'engine'
-        ? `The engine paused the work: only a note to a cell is answered until the owner lets it on. Why: ${step.why ?? 'it gave no reason'}`
-        : 'The owner paused the work: only a note to a cell is answered, and a round under way goes on',
+        ? `The engine paused the work. Only a note to a cell is answered until the owner lets it on. ${plain(sentence(step.why ?? 'It gave no reason'))}`
+        : 'The owner paused the work. Only a note to a cell is answered, and a round under way goes on.',
     resumed: 'The owner let the work on: its rounds begin again',
     cancelled: 'The owner cancelled the work: its round under way was stopped, its calls withdrawn, and its runs abandoned',
     reopened:
       step.kind === 'reopened'
-        ? `The work was reopened, paused until it is let on, when it makes its place again and goes on from its records. Why: ${step.why}`
+        ? `The work was reopened, paused until it is let on, when it makes its place again and goes on from its records. ${sentence(step.why)}`
         : '',
     session:
       step.kind === 'session'
