@@ -723,36 +723,28 @@ fn begins_after_runs(v: &mut Verdict, flow: &Flow, reading: &Reading, j: usize) 
     }
 }
 
-/// Whether a run of the cell is at rest with no call of its own that has no result, by the histories' own reading:
-/// begun, neither finished nor abandoned, and no round of it under way.
-fn rests_on_no_call(reading: &Reading, cell: &decide::CellId) -> bool {
+/// Of a run of the cell at rest, by the histories' own reading (begun, neither finished nor abandoned, and no round of
+/// it under way), whether it rests on a call of its own that has no result; none where the cell has no run at rest.
+fn at_rest(reading: &Reading, cell: &decide::CellId) -> Option<bool> {
     let now = Seq(u64::MAX);
     let records = reading.records;
-    (records.started.iter()).any(|s| {
-        let began = records.rounds.iter().filter(|x| x.run == s.run).count();
-        let ended = records.returned.iter().filter(|x| x.run == s.run).count();
-        &s.cell == cell
-            && began == ended
-            && !reading.finished.contains_key(&s.run)
-            && !records.abandoned.iter().any(|a| a.run == s.run)
-            && !(records.called.iter()).any(|c| c.run == s.run && !reading.done(c.call, now))
-    })
+    let open = |s: &&Started| {
+        &s.cell == cell && !reading.finished.contains_key(&s.run) && !records.abandoned.iter().any(|a| a.run == s.run)
+    };
+    let s = records.started.iter().find(open)?;
+    let began = records.rounds.iter().filter(|x| x.run == s.run).count();
+    let ended = records.returned.iter().filter(|x| x.run == s.run).count();
+    (began == ended).then(|| (records.called.iter()).any(|c| c.run == s.run && !reading.done(c.call, now)))
 }
 
-/// Whether a run of the cell rests on a call of its own that has no result, by the histories' own reading: begun,
-/// neither finished nor abandoned, no round of it under way, and a call it made not done.
+/// Whether a run of the cell is at rest with no call of its own that has no result ([`at_rest`]).
+fn rests_on_no_call(reading: &Reading, cell: &decide::CellId) -> bool {
+    at_rest(reading, cell) == Some(false)
+}
+
+/// Whether a run of the cell rests on a call of its own that has no result ([`at_rest`]).
 fn rests_on_a_call(reading: &Reading, cell: &decide::CellId) -> bool {
-    let now = Seq(u64::MAX);
-    let records = reading.records;
-    (records.started.iter()).any(|s| {
-        let began = records.rounds.iter().filter(|x| x.run == s.run).count();
-        let ended = records.returned.iter().filter(|x| x.run == s.run).count();
-        &s.cell == cell
-            && began == ended
-            && !reading.finished.contains_key(&s.run)
-            && !records.abandoned.iter().any(|a| a.run == s.run)
-            && (records.called.iter()).any(|c| c.run == s.run && !reading.done(c.call, now))
-    })
+    at_rest(reading, cell) == Some(true)
 }
 
 /// Property entered-only-for-what-is-new, the order: where the walk enters a cell, goes on with its run or waits at it,

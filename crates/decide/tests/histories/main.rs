@@ -1228,16 +1228,14 @@ impl History {
         };
         let asker = asker.clone();
         let r = &self.w.records;
-        let resting = (r.started.iter()).any(|s| {
+        let open = (r.started.iter()).find(|s| {
+            s.cell == asker && !r.finished.iter().any(|f| f.run == s.run) && !r.abandoned.iter().any(|a| a.run == s.run)
+        });
+        let resting = open.is_some_and(|s| {
             let began = r.rounds.iter().filter(|x| x.run == s.run).count();
             let ended = r.returned.iter().filter(|x| x.run == s.run).count();
             let calls: Vec<_> = r.called.iter().filter(|c| c.run == s.run).collect();
-            s.cell == asker
-                && began == ended
-                && !r.finished.iter().any(|f| f.run == s.run)
-                && !r.abandoned.iter().any(|a| a.run == s.run)
-                && !calls.is_empty()
-                && calls.iter().all(|c| r.done.iter().any(|d| d.call == c.call))
+            began == ended && !calls.is_empty() && calls.iter().all(|c| r.done.iter().any(|d| d.call == c.call))
         });
         let reading = Reading::of_flow(&self.w.flow, r);
         let waits =
