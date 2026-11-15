@@ -193,6 +193,9 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'unexplained', path: 'AGENTS.md' })).toBe(
       'it left AGENTS.md, a file the project protects, changed, and said not why',
     );
+    expect(unmetWords({ kind: 'unanswered', block: 'check' })).toBe(
+      'it dealt with check, and committed nothing and asked nothing',
+    );
   });
 });
 

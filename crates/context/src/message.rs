@@ -786,6 +786,7 @@ impl Build<'_> {
             Unmet::NotAnswerable { name } => (&f.not_answerable, vec![("name", name.clone())]),
             Unmet::NotAnswered { name } => (&f.not_answered, vec![("name", name.clone())]),
             Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
+            Unmet::Unanswered { block } => (&f.unanswered, vec![("block", block.to_string())]),
         };
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))

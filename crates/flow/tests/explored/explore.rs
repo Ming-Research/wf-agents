@@ -473,6 +473,7 @@ impl Explorer<'_> {
             choices: &m.choices,
             returns: spec.returns,
             told: &told,
+            answered_by: &m.answered_by[i],
         };
         let step = run::next(log, requires, Hold::Nothing);
         let sent_back = variant.as_ref() == Some(&Variant::SentBack);

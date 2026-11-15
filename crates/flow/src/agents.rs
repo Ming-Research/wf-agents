@@ -665,6 +665,8 @@ pub struct SentBackFaults {
     pub not_answered: String,
     /// `{path}` a file the project protects that the work changes, and of which it says not why.
     pub unexplained: String,
+    /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
+    pub unanswered: String,
 }
 
 /// Where a field's words go in the part on returning.

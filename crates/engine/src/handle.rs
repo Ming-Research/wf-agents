@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use decide::run::{self, Failure, Pausing, Requires, Step, Told, Unmet};
+use decide::run::{self, Answer, Failure, Pausing, Requires, Step, Told, Unmet};
 use decide::{
     Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, LetGo, Outsider, Pause, Pauser, PutIn,
     Returned, Room, Round, RunId, Seq, Started, Who, Write, Written, decide, decide_in, hold_in, told,
@@ -90,7 +90,8 @@ pub fn handle_then(
         && let Some(told) = told(&flow.flow, &work.records, run)
     {
         let choices = choices(flow);
-        if let Some(requires) = requires(flow, &choices, &told, work, run)
+        let answers = answers(flow, work, run);
+        if let Some(requires) = requires(flow, &choices, &answers, &told, work, run)
             && let Step::Finish { dealt_with, writes } = run::next(
                 &log(work, run, &told),
                 requires,
@@ -672,10 +673,11 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
 /// a wait made or came to rest for the owner at a limit, and not when a round of it began or is held.
 fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<Effect>) -> bool {
     let choices = choices(flow);
+    let answers = answers(flow, work, run);
     let Some(told) = told(&flow.flow, &work.records, run) else {
         return false;
     };
-    let Some(requires) = requires(flow, &choices, &told, work, run) else {
+    let Some(requires) = requires(flow, &choices, &answers, &told, work, run) else {
         return false;
     };
     let Some(started) = work.records.started.iter().find(|s| s.run == run) else {
@@ -815,23 +817,15 @@ fn finish(
         };
         call(work, run, on, Call::Asked(ask), effects);
     }
-    // What the round committed, as the carrier read it of the branch as the round ended, is the run's own version, but
-    // where the block says it already (decision a-version-read-at-a-rounds-end-is-that-rounds).
-    let read: Vec<work::Handed> = (read.into_iter())
-        .filter(|r| !writes.iter().any(|w| w.block == r.block))
-        .filter(|r| says_now(work, &r.block) != Some(r.content.as_str()))
-        .collect();
     let at = work.tick();
     for h in handed {
         work.contents.insert((h.block, at), h.content);
     }
-    for r in read {
-        work.contents.insert((r.block.clone(), at), r.content);
-        writes.push(Write {
-            block: r.block,
-            meaning_unchanged: false,
-            value: None,
-        });
+    // What the round committed, as the carrier read it of the branch as the round ended, is among what the run writes
+    // where the deciding code took it, which it does where the block does not say it already (decision
+    // a-version-read-at-a-rounds-end-is-that-rounds).
+    for r in read.into_iter().filter(|r| writes.iter().any(|w| w.block == r.block)) {
+        work.contents.entry((r.block, at)).or_insert(r.content);
     }
     // The cell's answer to the owner is its entry of the record of what is said, a version of its run's as any block it
     // writes.
@@ -887,6 +881,7 @@ pub(crate) fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
 pub(crate) fn requires<'a>(
     flow: &'a Compiled,
     choices: &'a BTreeMap<BlockId, Vec<String>>,
+    answered_by: &'a BTreeMap<BlockId, Answer>,
     told: &'a Told,
     work: &Work,
     run: RunId,
@@ -901,7 +896,30 @@ pub(crate) fn requires<'a>(
         choices,
         returns: spec.returns,
         told,
+        answered_by,
     })
+}
+
+/// Of each block that runs the run's cell and that an act of the engine's after the cell writes, what runs that act
+/// again, as the flow's graph says it: the blocks that run the act, and whether the block of the questions' standing is
+/// among them. None where the run's cell is not in the flow.
+pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<BlockId, Answer> {
+    let mut answers: BTreeMap<BlockId, Answer> = BTreeMap::new();
+    let started = work.records.started.iter().find(|s| s.run == run);
+    let Some(place) = started.and_then(|s| flow.flow.place(&s.cell)) else {
+        return answers;
+    };
+    let asked = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(asked::ASKED));
+    let cells = flow.flow.cells();
+    for block in &cells[place].runs_on {
+        let acts = (flow.cells.iter().zip(cells)).skip(place + 1);
+        for (_, act) in acts.filter(|(spec, act)| spec.kind == Kind::Engine && act.outputs.contains(block)) {
+            let answer = answers.entry(block.clone()).or_default();
+            answer.runs.extend(act.runs_on.iter().cloned());
+            answer.question |= asked.is_some_and(|(id, _)| act.runs_on.contains(id));
+        }
+    }
+    answers
 }
 
 /// The run so far, as the deciding code reads it. A return of the form before a return said what it dealt with reads
@@ -923,6 +941,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             asks,
             found,
             said,
+            read,
             ..
         } => run::Return::Came {
             dealt_with: dealt_with.clone(),
@@ -936,6 +955,11 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
                     withdrawn: matches!(q, work::Question::Withdrawn { .. }),
                 })
                 .collect(),
+            // What the round committed, where the block does not say it already.
+            read: (read.iter())
+                .filter(|r| says_now(work, &r.block) != Some(r.content.as_str()))
+                .map(|r| r.block.clone())
+                .collect(),
         },
         Back::Asked(asks) => run::Return::Came {
             dealt_with: Vec::new(),
@@ -944,6 +968,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             found: Vec::new(),
             waits: false,
             questions: Vec::new(),
+            read: Vec::new(),
         },
         Back::HandedIn(handed) => run::Return::Came {
             dealt_with: told.ran_by.clone(),
@@ -952,6 +977,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             found: Vec::new(),
             waits: false,
             questions: Vec::new(),
+            read: Vec::new(),
         },
         Back::Failed { why, failure, .. } => run::Return::Failed {
             failure: *failure,

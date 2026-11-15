@@ -65,13 +65,14 @@
 //! the check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses,
 //! or writes a verdict as its refusal, a coin of its own deciding; then the work is let on. In one of ten the check
 //! fails the first time it runs and the random steps end there; in three of ten, they end only once the cell told of
-//! the failure has answered it with nothing that matters, so that the check has no reason to run again and the owner
-//! asks it to. Of the histories not steered, in a third the random steps end early: in a sixth at the first step after
-//! which the check's record failed, in a sixth at the first after which it failed or a judge's own refusal stands. The
-//! content continuation is then tried from where the work must go back.
+//! the failure has answered it with a commit and nothing that matters, the commit running the review and the check
+//! again through the work's head. Of the histories not steered, in a third the random steps end early: in a sixth at
+//! the first step after which the check's record failed, in a sixth at the first after which it failed or a judge's
+//! own refusal stands. The content continuation is then tried from where the work must go back.
 //!
 //! Unless the work was cancelled or merged, the content continuation follows (`Content`): every round of an agent or
-//! act hands in what its cell must write to go forward and says nothing more. Each verdict is written as a value other
+//! act hands in what its cell must write to go forward and says nothing more, an agent's round that deals with what an
+//! act after its cell wrote committing its fix besides, as its return must. Each verdict is written as a value other
 //! than its refusal; each choice a precondition of kind `all` reads, as the value it looks for (the check says yes);
 //! every other choice as it last was, or as the last of its declared values (no) where it was never written. No opinion
 //! for a cell before it is written,
@@ -386,7 +387,6 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             CONTENT_MERGED,
             CONTENT_ON_A_FAILED_CHECK,
             CONTENT_ON_A_REFUSAL,
-            OWNER_ASKED_A_CELL,
             ENGINE_STOPPED,
             LACKING_SENT_BACK,
             MERGED_A_REVIEWED_HEAD,
@@ -460,6 +460,8 @@ const MERGE_BEGAN: &str = "a round of the merge began";
 const CONTENT_MERGED: &str = "the content continuation merged";
 const CONTENT_ON_A_FAILED_CHECK: &str = "the content continuation began as the check's record failed";
 const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's own refusal stood";
+// Not required: the engineer's flow leaves no work stalled at the check for the owner's word to a cell, since a return
+// that deals with a failed check leaves what runs the check again, or is sent back.
 const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a precondition waits on";
 const ENGINE_STOPPED: &str = "the engine stopped";
 const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
@@ -594,8 +596,8 @@ enum Steer {
     Refuse,
     /// The check fails the first time it runs, and the random steps end there.
     FailCheck,
-    /// The check fails the first time it runs, the cell told of it answers with nothing that matters, and the random
-    /// steps end there.
+    /// The check fails the first time it runs, the cell told of it answers with a commit and nothing that matters, and
+    /// the random steps end there.
     FailCheckAnswered,
 }
 
@@ -616,7 +618,7 @@ struct Random {
     refuse_next: bool,
     /// Whether the steered check failure was handed in.
     check_failed: bool,
-    /// The run of the cell told of the failure that answered it with nothing that matters.
+    /// The run of the cell told of the failure that answered it with a commit and nothing that matters.
     answered: Option<RunId>,
     /// The work's branch.
     branch: Shared,
@@ -777,6 +779,24 @@ impl Random {
     }
 }
 
+/// A commit on the work's branch, which moves its head.
+fn commit(branch: &Shared) {
+    let mut b = branch.get();
+    b.head += 1;
+    branch.set(b);
+}
+
+/// Whether the round under way of the run was run by what an act of the engine's after its cell wrote: what its return
+/// answers by what runs the act again, a commit among it.
+fn answers_an_act(d: &Driver, run: RunId, i: usize) -> bool {
+    let Some(told) = decide::told(&d.flow.flow, &d.work.records, run) else {
+        return false;
+    };
+    let acts = (d.flow.cells.iter().zip(d.flow.flow.cells())).skip(i + 1);
+    let written = |b: &BlockId| (acts.clone()).any(|(spec, act)| spec.kind == Kind::Engine && act.outputs.contains(b));
+    told.ran_by.iter().any(written)
+}
+
 /// The check, whose round ends now, passed the work's head as the branch holds it, or failed it.
 fn passes_at(branch: &Shared, passed: bool) {
     let mut b = branch.get();
@@ -802,9 +822,7 @@ impl Part for Random {
         let mut came = self.drawn(d, run, cell);
         let spec = &d.flow.cells[i];
         if spec.kind == Kind::Agent && !spec.reads_only && d.rng.chance(40) {
-            let mut b = self.branch.get();
-            b.head += 1;
-            self.branch.set(b);
+            commit(&self.branch);
         }
         round_end(d, &self.roles, self.branch.get(), i, &mut came);
         came
@@ -832,6 +850,7 @@ impl Random {
             let told = d.flow.flow.cells()[i].runs_on.iter().any(|b| check.contains(b));
             if told {
                 self.answered = Some(run);
+                commit(&self.branch);
                 let handed_in = self.as_it_stands(d, i, cell, false);
                 return hands_in(d, run, i, handed_in);
             }
@@ -1003,7 +1022,8 @@ struct Content {
     /// The value each choice is written with.
     choices: BTreeMap<BlockId, String>,
     roles: Roles,
-    /// The work's branch, which no round of the continuation commits to, but which the carriers read as before.
+    /// The work's branch, which a round of the continuation commits to only as it deals with what an act after its cell
+    /// wrote, and which the carriers read as before.
     branch: Shared,
 }
 
@@ -1048,12 +1068,17 @@ impl Part for Content {
         gate(d, &self.roles, &self.branch, run, place(&d.flow, cell))
     }
 
-    /// What its cell must write to go forward, the branch read as the round ends; the check passes.
+    /// What its cell must write to go forward, the branch read as the round ends; the check passes. An agent's round
+    /// that deals with what an act after its cell wrote commits its fix.
     fn returns(&mut self, d: &mut Driver, run: RunId, cell: &str) -> Came {
         let i = place(&d.flow, cell);
         let mut came = self.forward(d, run, cell);
         if i == self.roles.check {
             passes_at(&self.branch, true);
+        }
+        let spec = &d.flow.cells[i];
+        if spec.kind == Kind::Agent && !spec.reads_only && answers_an_act(d, run, i) {
+            commit(&self.branch);
         }
         round_end(d, &self.roles, self.branch.get(), i, &mut came);
         came

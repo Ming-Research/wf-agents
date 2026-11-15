@@ -58,7 +58,6 @@ outputs = [
   "acceptance",
   "reply_review",
   "reply_testing",
-  "reply_check",
   "plan_doubts",
   "questions",
   "discussion",
@@ -71,7 +70,7 @@ on_spoken = """The owner has said something to you in `discussion`: that comes f
 on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: follow the option the owner took."""
 on_review = """Answer each point of `review` in `reply_review`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 on_testing = """Answer each point of `testing` in `reply_testing`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
-on_check = """Answer each point of `check` in `reply_check`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
+on_check = """Fix what `check` found and commit; where you judge it not this change's to fix, ask the owner."""
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]

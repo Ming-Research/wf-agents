@@ -173,7 +173,7 @@ describe('the flowchart of the engineer flow', () => {
       { name: 'reply_review', group: false },
     ]);
     expect(all['I1>T2']).toBe('acceptance, reply_testing');
-    expect(all['I1>M1']).toBe('code, reply_check');
+    expect(all['I1>M1']).toBe('code');
     expect(all['M1>M2']).toBe('checked');
     const pairs = everyArrow(chart).map((e) => `${e.from}>${e.to}`);
     expect(new Set(pairs).size).toBe(pairs.length);

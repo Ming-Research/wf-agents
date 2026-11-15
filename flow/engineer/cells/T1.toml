@@ -21,8 +21,8 @@ what it can slow measured? Do the entries written into `design/` say what `tree_
 List every point at once in `review`: this is your one chance, and nothing is raised later that could be raised now.
 Leave out preferences: the engineer fixes nearly all a review raises, so a wrong point makes good code worse.
 
-With `review_ok` yes write no opinion. Having said yes to `needs_testing`, keep it while the part of the change that
-made you say so is still there.
+With `review_ok` yes, leave `review` out of your return. Having said yes to `needs_testing`, keep it while the part of
+the change that made you say so is still there.
 '''
 triggered_by = ["on_change", "on_reply_review"]
 context = [

@@ -599,6 +599,7 @@ impl History {
                         found: Vec::new(),
                         waits: false,
                         questions: Vec::new(),
+                        read: Vec::new(),
                     },
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,
@@ -658,6 +659,8 @@ impl History {
             choices: &choices,
             returns: RETURNS,
             told: &told,
+            // No act of the engine's is in these flows.
+            answered_by: &BTreeMap::new(),
         };
         let hold = decide::hold_in(&flow, &self.w.records, run, self.room);
         let step = run::next(&self.log_of(run), requires, hold);

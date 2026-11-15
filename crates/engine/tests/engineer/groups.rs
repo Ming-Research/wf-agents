@@ -136,6 +136,8 @@ fn each_trigger_of_each_cell_named_as_dealt_with_is_taken_for_any_block_it_stand
                     choices: &choices,
                     returns: 3,
                     told: &told,
+                    // What answers an act is another rule's, and this test's returns write nothing.
+                    answered_by: &BTreeMap::new(),
                 };
                 let log = Log {
                     rounds: vec![Round {
@@ -146,6 +148,7 @@ fn each_trigger_of_each_cell_named_as_dealt_with_is_taken_for_any_block_it_stand
                             found: Vec::new(),
                             waits: false,
                             questions: Vec::new(),
+                            read: Vec::new(),
                         }),
                     }],
                     ..Log::default()

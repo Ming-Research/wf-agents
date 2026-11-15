@@ -40,12 +40,18 @@ touches the tree; given as a datum, it is read where the line goes on, by the ce
 
 ### decision the-review-takes-the-head-and-the-head-runs-the-check
 The review takes `head`, the work's head, among the blocks of the change it is run by, and reads the diff from main to
-it; `head`, not `code` or `tests`, runs the check, beside main, the answer to the check and `asked`. No block names a
-commit.
-Why: Whatever a round commits moves the head, under whatever block it hands in or none, as the fix of W9 answered in
-`reply_check` alone did, so the review runs on every change it has not seen and the check on every head; run by `code`
-and `tests`, the check ran on what a block said and not on what lands. The check holds the head to the review
-(decision the-check-holds-the-head-to-what-the-review-saw).
+it; `head`, not `code` or `tests`, runs the check, beside main and `asked`. No block names a commit.
+Why: Whatever a round commits moves the head, under whatever block it hands in or none, as the fix of W9 did, handed in
+under a block the review was not run by, so the review runs on every change it has not seen and the check on every
+head; run by `code` and `tests`, the check ran on what a block said and not on what lands. The check holds the head to
+the review (decision the-check-holds-the-head-to-what-the-review-saw).
+
+### decision the-check-is-answered-by-a-commit-or-a-question
+The implementation answers a red check by fixing it and committing, or, where it judges the red not this change's to
+fix, by asking the owner; no block holds its answer.
+Why: The check reads no words: the fix runs it again through the work's head, and the owner's answer through `asked`
+(decision an-act-is-answered-by-what-runs-it). A block of the answer, which no cell read, ran the check on its words,
+and one that changed nothing left the work at the red check until the owner spoke to a cell.
 
 ### decision the-check-waits-for-the-review
 The check before the merge requires the review's yes beside its other gates, and runs again as the owner's answers

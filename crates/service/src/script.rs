@@ -59,6 +59,17 @@
 //! resets = 1792962000000
 //! ```
 //!
+//! A round that does its cell's work may say what it committed (`commits`): each block of the work's branch that a
+//! source outside the work writes, such as its head, with what its carrier reads it to say as the round ends, handed in
+//! beside its blocks.
+//!
+//! ```toml
+//! [[flows.engineer.rounds]]
+//! cell = "I1"
+//! hands_in = [{ block = "code", content = "The fix." }]
+//! commits = [{ block = "head", content = "4b8e2d1" }]
+//! ```
+//!
 //! A round that fails takes what its entry says, as any round does. Once the owner lets its work on, the run's next
 //! round is given the same, and does what the script says of that round: a script makes a round fail again by saying
 //! so of the next round too.
@@ -174,6 +185,9 @@ pub struct RoundScript {
     pub observations: Option<Vec<String>>,
     /// Its answer to what the owner said to its cell, in `reply`, where it does the cell's work.
     pub reply: Option<String>,
+    /// What it committed, where it does the cell's work: each block of the work's branch it moved, as its carrier reads
+    /// it as the round ends.
+    pub commits: Option<Vec<Commit>>,
     /// Why it fails, where it fails: nothing comes back.
     pub fails: Option<String>,
     /// The kind of cause of its failure, as a carrier tells it apart (`usage_limit`, `passing`, ...); a cause no
@@ -201,6 +215,15 @@ pub struct HandIn {
     /// Whether the round says the change matters to the cells that read the block.
     #[serde(default = "yes")]
     pub matters: bool,
+}
+
+/// A block of the work's branch a round committed, a source outside the work writing it, with what its carrier reads
+/// it to say as the round ends.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Commit {
+    pub block: String,
+    pub content: String,
 }
 
 /// A call a round asks for.
@@ -269,8 +292,9 @@ impl Script {
 
     /// Everything wrong with the script for these flows, each in words with where it is: a flow, a cell or a block
     /// it names that is not there, a default value that is not one of its choice's, a round that does more than one of
-    /// handing in, asking and failing, one that asks or fails and says observations or a reply, a round said twice, and
-    /// an act of the engine that asks or costs. A script that names a block a cell may not write, or a value a choice
+    /// handing in, asking and failing, one that asks or fails and says observations, a reply or a commit, a block it
+    /// commits that no source outside the work writes, a round said twice, and an act of the engine that asks, commits
+    /// or costs. A script that names a block a cell may not write, or a value a choice
     /// does not have, is not wrong: what it hands in is sent back.
     pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
         let mut faults = Vec::new();
@@ -319,6 +343,9 @@ impl Script {
                         "{at}: only a round that does the cell's work answers the owner"
                     ));
                 }
+                if round.commits.is_some() && (round.fails.is_some() || round.asks.is_some()) {
+                    faults.push(format!("{at}: only a round that does the cell's work commits"));
+                }
                 if round.fails.is_none() && (round.failure.is_some() || round.resets.is_some()) {
                     faults.push(format!(
                         "{at}: only a round that fails has a kind of failure or a reset"
@@ -330,11 +357,24 @@ impl Script {
                         faults.push(format!("{at}.hands_in[{j}]: the flow {name} has no block {block}"));
                     }
                 }
+                for (j, commit) in round.commits.iter().flatten().enumerate() {
+                    let block = &commit.block;
+                    match flow.blocks.get(&BlockId::from(block.as_str())) {
+                        None => faults.push(format!("{at}.commits[{j}]: the flow {name} has no block {block}")),
+                        Some(b) if b.writers.outside.is_none() => {
+                            faults.push(format!("{at}.commits[{j}]: no source outside the work writes {block}"));
+                        }
+                        Some(_) => {}
+                    }
+                }
                 match flow.cells.iter().find(|cell| cell.id.as_str() == round.cell) {
                     None => faults.push(format!("{at}: the flow {name} has no cell {}", round.cell)),
                     Some(cell) if cell.kind == Kind::Engine => {
                         if round.asks.is_some() {
                             faults.push(format!("{at}: an act of the engine asks for nothing"));
+                        }
+                        if round.commits.is_some() {
+                            faults.push(format!("{at}: an act of the engine commits nothing"));
                         }
                         let took = round.took;
                         let costs = [
@@ -448,6 +488,15 @@ impl Script {
             came.said.observations = observations;
         }
         came.said.reply = entry.and_then(|entry| entry.reply.clone());
+        // What it committed is read of the branch as it ends, beside the blocks it hands in.
+        came.read = (entry.and_then(|entry| entry.commits.as_ref()).into_iter().flatten())
+            .map(|commit| Handed {
+                block: BlockId(commit.block.clone()),
+                content: commit.content.clone(),
+                matters: true,
+                value: None,
+            })
+            .collect();
         Planned {
             ends: Ends::Came(came),
             spent,

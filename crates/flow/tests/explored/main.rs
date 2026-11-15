@@ -10,7 +10,8 @@
 //! it writes, its choices alone, its content with its opinions for the cells before it (all, or each alone), a judge's
 //! refusal with its reasons, its content with a question that waits for the owner (with the content's choices, or with
 //! choices that skip the cell itself), of the check's act a red check or a merge conflict, and on a path that spent
-//! nothing a return that is sent back. A return that sends work round (opinions, a refusal, a send-back, a red check)
+//! nothing a return that is sent back. An agent's round that deals with what an act after its cell wrote commits, moving
+//! the work's head as it ends. A return that sends work round (opinions, a refusal, a send-back, a red check)
 //! may be given at every round of its cell from then on, for the same one spent: the flow's limits must stop it. What
 //! the outside writes, spending one: the owner speaks to a cell, changes the background, answers a question or takes
 //! another option for one, lets a cell go on at its limit; main moves, a line begins a new session, the tree changes,

@@ -1,12 +1,13 @@
 //! Single works on the engineer's flow taken through `handle` step by step, each to what its merge rests on: the check
 //! waits for the review's yes, whatever main does, so that no branch the review has not seen is checked or merged; the
-//! work's head, which the review takes and which runs the check, holds the merge to the head the review saw; and the
-//! owner's answer to a question the check asked, which only the implementation is told, runs the check again by
-//! itself, so that the answer alone leads to the merge.
+//! work's head, which the review takes and which runs the check, holds the merge to the head the review saw; the
+//! implementation answers a red check by what runs the check again, a commit or a question, and a return that answers
+//! it with neither is sent back; and the owner's answer to a question the check asked, which only the implementation is
+//! told, runs the check again by itself, so that the answer alone leads to the merge.
 
-use decide::run::Failure;
+use decide::run::{Failure, Unmet};
 use decide::{BlockId, CellId, Decision, End, Outsider, Seq, Waited};
-use engine::{Call, Effect, Event, Question, Spent, Way, pending};
+use engine::{Call, Effect, Event, Given, Question, Spent, Way, pending};
 
 use super::single::{W, wrote};
 
@@ -54,14 +55,14 @@ fn reviewed_at_c1() -> W {
 }
 
 // W9's course: the review saw the change at one head; the check found main in conflict; the implementation merged main
-// in, resolving the conflict, and answered the check in `reply_check` alone. What its round committed is a new head,
-// which runs the review, and the review comes before the check, so that the merge lands only the head it saw. Run by
-// what names a commit, the check passed and the merge landed a change of a design decision no review had seen.
+// in, resolving the conflict, and handed in nothing but what it committed. Its new head runs the review and the check,
+// and the review comes before the check, so that the merge lands only the head it saw. Run by what names a commit, the
+// check passed and the merge landed a change of a design decision no review had seen.
 #[test]
-fn a_fix_answered_in_reply_check_alone_runs_the_review_before_the_merge() {
+fn a_fix_run_by_a_red_check_reaches_the_review_and_the_check_through_the_head() {
     let mut w = reviewed_at_c1();
     w.hands_in("M1", &[("checked", Some("no")), ("check", None)], Vec::new());
-    w.commits("I1", &[("reply_check", None)], &[("head", "c2")]);
+    w.commits("I1", &[], &[("head", "c2")]);
     assert_eq!(w.round().1, "T1", "the review runs before the check");
     assert_eq!(seen(&w), [("T1".to_string(), Some("c1".to_string()))]);
     w.hands_in(
@@ -74,6 +75,29 @@ fn a_fix_answered_in_reply_check_alone_runs_the_review_before_the_merge() {
     w.hands_in("M1", &[("checked", Some("yes"))], Vec::new());
     w.hands_in("M2", &[("merged", None)], Vec::new());
     assert_eq!(w.decision(), Decision::Ended(End::Merged));
+}
+
+// The check reads no words: a return that deals with it and commits nothing and asks nothing would leave nothing to run
+// it again, and is sent back. The round given again commits its fix, and the work goes on to the review.
+#[test]
+fn a_return_that_answers_the_check_with_nothing_new_is_sent_back() {
+    let mut w = reviewed_at_c1();
+    w.hands_in("M1", &[("checked", Some("no")), ("check", None)], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "I1");
+    assert_eq!(w.told(run, "I1"), ["on_check"]);
+    let effects = w.returns("I1", &["on_check"], &[("code", None)]);
+    let unmet = (effects.iter()).find_map(|e| match e {
+        Effect::Round {
+            run: r,
+            given: Given::SentBack(unmet),
+            ..
+        } if *r == run => Some(unmet.clone()),
+        _ => None,
+    });
+    assert_eq!(unmet, Some(vec![Unmet::Unanswered { block: "check".into() }]));
+    w.commits("I1", &[("code", None)], &[("head", "c2")]);
+    assert_eq!(w.round().1, "T1", "the fix runs the review");
 }
 
 // A commit no round handed in, as a person's, is read by the check from outside for its round, which fails in passing
