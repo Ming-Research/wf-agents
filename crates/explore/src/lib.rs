@@ -1385,7 +1385,7 @@ impl Explorer<'_> {
         let m = self.model;
         let flow = &m.compiled.flow;
         let cells = m.cells();
-        let r = Reading::of_flow(flow, &s.work);
+        let r = Reading::of_flow(flow, &s.work.records);
         let i = m.place(at);
         let mut wrong = Vec::new();
         let unmet: Vec<&Condition> = (cells[i].requires.iter())
