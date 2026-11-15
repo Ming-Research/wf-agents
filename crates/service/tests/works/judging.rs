@@ -447,6 +447,20 @@ fn an_answer_where_the_records_hold_the_owners_word_at_a_limit_leaves_the_path()
     assert_eq!(built.judged(&let_go), Judged::Took);
 }
 
+// A work never let on stands paused as it was added, which is the item's start and no step its records hold: a held
+// item's path may say so, and only while the pause it was added with stands.
+#[test]
+fn a_held_items_path_may_end_paused_as_it_was_added() {
+    let mut built = Built::held("merged", true);
+    let paused = r#"{ paused = "owner" }"#;
+    assert_eq!(built.judged_as(paused, true, &built.shown()), Judged::Took);
+    let short = built.judged_as(paused, false, &built.shown());
+    assert!(matches!(short, Judged::Short { step: 1, .. }), "{short:?}");
+    built.take(Event::Resumed);
+    let let_on = built.judged_as(paused, true, &built.shown());
+    assert!(!matches!(let_on, Judged::Took), "{let_on:?}");
+}
+
 #[test]
 fn a_question_that_waits_is_a_wait_for_its_answer_while_it_stands() {
     let mut built = Built::added("merged");

@@ -4,59 +4,12 @@
 
 use super::*;
 
-/// A writer of the text a request asks for, which reads main as well; a check of the text, which alone writes whether
-/// it passed; and a merge, the engine's own cell, that waits for the check to say yes.
+/// The stalling flow beside the test flows (the flow crate's `tests/laid_out/stalled`): a writer of the text a request
+/// asks for, which reads main as well; a check of the text, which alone writes whether it passed; and a merge, the
+/// engine's own cell, that waits for the check to say yes.
 fn checked() -> Compiled {
-    let flow = r#"
-        name = "checked"
-        order = ["write", "check", "merge"]
-        [limits]
-        again = 2
-        [lines.main]
-        [blocks.request]
-        people = true
-        [blocks.main]
-        outside = "main"
-        [blocks.text]
-        [blocks.checked]
-        values = ["yes", "no"]
-        [blocks.merged]
-        shown = true
-    "#;
-    let write = r#"
-        title = "Write"
-        kind = "agent"
-        effort = "high"
-        line = "main"
-        task = "Write the text the request asks for."
-        inputs = ["request", "main"]
-        outputs = ["text"]
-    "#;
-    let check = r#"
-        title = "Check"
-        kind = "agent"
-        effort = "high"
-        line = "main"
-        task = "Check the text."
-        inputs = ["text"]
-        outputs = ["checked"]
-    "#;
-    let merge = r#"
-        title = "Merge"
-        kind = "engine"
-        act = "merge"
-        requires = { checked = "yes" }
-        inputs = ["checked"]
-        outputs = ["merged"]
-    "#;
-    let source = Source {
-        flow: flow.to_string(),
-        cells: [("write", write), ("check", check), ("merge", merge)]
-            .iter()
-            .map(|(id, text)| (id.to_string(), text.to_string()))
-            .collect(),
-        ..Default::default()
-    };
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out/stalled");
+    let source = flow::read(&dir).expect("the stalling flow is read");
     compile(&source, &has(&["main"])).expect("the definition compiles")
 }
 

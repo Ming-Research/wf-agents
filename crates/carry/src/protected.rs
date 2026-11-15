@@ -222,6 +222,24 @@ pub(crate) fn asking(
     asked(standing.as_ref(), words, change, given)
 }
 
+/// The question the engine asks of a work's change under the protected paths that touches these files, each with its
+/// kind of change as git says it (`A`, `M` or `D`), its path and its change as text, where no question of it stands and
+/// no return says why the work changes them: as a round's end asks it, so that a build of the page's states that
+/// stands its rounds in (crate `wf-agents`) words it as the engine does.
+pub fn question_of_change(words: &AskProtected, files: &[(char, String, String)]) -> Option<Question> {
+    let change = Change {
+        files: (files.iter())
+            .map(|(status, path, diff)| File {
+                status: *status,
+                path: path.clone(),
+                blob: format!("{path} as the work changed it"),
+                diff: diff.clone(),
+            })
+            .collect(),
+    };
+    asked(None, words, &change, &BTreeMap::new())
+}
+
 fn asked(
     standing: Option<&Standing>,
     words: &AskProtected,

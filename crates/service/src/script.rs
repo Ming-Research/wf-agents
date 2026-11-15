@@ -98,6 +98,11 @@
 //! resets = 7200000
 //! ```
 //!
+//! A round that does its cell's work may name the blocks that ran its run that it dealt with (`dealt_with`), where it
+//! deals with fewer than all of them, as a round that asks for tests in a record deals with none; and the block a
+//! source outside the work writes of whose next version it says that what it wrote waits for one (`waits_for`), as the
+//! check says that what fails fails on main too.
+//!
 //! The questions a round asks are read as a return's are ([`engine::asked::unmet`]): one that recommends none of its
 //! options, or has the name of the question the engine itself asks in the words beside the flows, is found wrong with
 //! the return, which the run's check then sends back. A round that does its cell's work may say what the engine itself
@@ -317,6 +322,12 @@ pub struct RoundScript {
     pub failure: Option<Failure>,
     /// When the usage limit its failure reached resets, in milliseconds after the script's start.
     pub resets: Option<u64>,
+    /// The blocks that ran its run that it says it dealt with, where it names them: where it names none, it deals with
+    /// all of them, and a round that asks deals with none.
+    pub dealt_with: Option<Vec<String>>,
+    /// The block a source outside the work writes, of whose next version it says that what it wrote waits for one
+    /// (decision what-a-run-wrote-may-wait-for-the-outside), as the check says that what fails fails on main too.
+    pub waits_for: Option<String>,
     /// For an act of the engine, the work that holds the project's turn to check and merge, which it says it waits
     /// for during the first half of its time.
     pub turn: Option<u64>,
@@ -612,6 +623,25 @@ impl Script {
                         ));
                     }
                 }
+                if (round.dealt_with.is_some() || round.waits_for.is_some()) && !works {
+                    faults.push(format!(
+                        "{at}: only a round that does the cell's work says what it dealt with or waits for"
+                    ));
+                }
+                for (j, block) in round.dealt_with.iter().flatten().enumerate() {
+                    if !flow.blocks.contains_key(&BlockId::from(block.as_str())) {
+                        faults.push(format!("{at}.dealt_with[{j}]: the flow {name} has no block {block}"));
+                    }
+                }
+                if let Some(block) = &round.waits_for {
+                    match flow.blocks.get(&BlockId::from(block.as_str())) {
+                        None => faults.push(format!("{at}.waits_for: the flow {name} has no block {block}")),
+                        Some(b) if b.writers.outside.is_none() => {
+                            faults.push(format!("{at}.waits_for: no source outside the work writes {block}"));
+                        }
+                        Some(_) => {}
+                    }
+                }
                 for (j, read) in round.reads.iter().flatten().enumerate() {
                     let block = &read.block;
                     match flow.blocks.get(&BlockId::from(block.as_str())) {
@@ -853,6 +883,13 @@ impl Script {
                 )
             }
         };
+        // What it dealt with and the block what it wrote waits for are said where its entry says them.
+        if let Some(dealt_with) = entry.and_then(|entry| entry.dealt_with.as_ref()) {
+            came.dealt_with = Some(dealt_with.iter().map(|b| BlockId(b.clone())).collect());
+        }
+        if let Some(block) = entry.and_then(|entry| entry.waits_for.as_ref()) {
+            came.waits_for = Some(BlockId(block.clone()));
+        }
         // What it came across beyond its work and the questions it asks are said beside the blocks it hands in; what
         // the engine asks as it ends, the carrier names as the words beside the flows name it.
         if let Some(observations) = entry.and_then(|entry| entry.observations.clone()) {
