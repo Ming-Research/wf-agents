@@ -351,7 +351,8 @@ impl Play<'_> {
     /// the loop, where something did, or the engine could not be opened again. Gives how many things sent to the loop
     /// it took out before main moved: main's move reaches the loop after everything said to it already, as the
     /// outside's watch of main sends it through the channel the carriers send by, and a carrier that read main sends
-    /// what it read inside the same lock.
+    /// what it read inside the same lock; and main moves only where every item that moves it still stands at its act's
+    /// state once that is taken.
     fn give(&mut self, open: &dyn Fn() -> Result<(Service, Inbox), String>) -> Result<usize, String> {
         let script = self.script;
         let mut took = 0;
@@ -381,12 +382,19 @@ impl Play<'_> {
                     if !all {
                         continue;
                     }
+                    // What was sent before main moves reaches the loop first, and may take an item past the state
+                    // its act waits for: main then waits for every item to stand at it again.
+                    let sent = self.stepper.take_sent().map_err(|fault| fault.to_string())?;
+                    took += sent;
+                    if sent > 0 && !moving.iter().all(|&m| self.due(m, self.next[m])) {
+                        given = true;
+                        continue;
+                    }
                     let message = Message::Outside {
                         project: self.project.to_string(),
                         source: driver::MAIN.to_string(),
                         content: act.content.clone().unwrap_or_default(),
                     };
-                    took += self.stepper.take_sent().map_err(|fault| fault.to_string())?;
                     self.stepper.take(message).map_err(|fault| fault.to_string())?;
                     for m in moving {
                         self.next[m] += 1;
