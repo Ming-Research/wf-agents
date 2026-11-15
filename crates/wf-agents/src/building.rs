@@ -401,9 +401,10 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         }
         holding += usize::from(case.holds_slot);
     }
+    // Every work's first round may go on at once, so that each work stands at its first state as main moves.
     let slots = match m.store {
         Store::Slots => holding.max(1),
-        _ => 2 * holding + 2,
+        _ => items.len() + holding + 2,
     };
     let mut script = Table::new();
     script.insert("start".to_string(), Value::Integer(m.start as i64));

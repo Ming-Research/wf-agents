@@ -12,12 +12,14 @@
 //! the clock's time has passed; then each item's work is judged against its path (module `judge`), and each act whose
 //! state never came is named, as is each the engine refused.
 
+use std::cell::RefCell;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use decide::Seq;
-use driver::{Asked, FirstWrite, NewItem};
+use decide::{Pauser, Seq};
+use driver::{Along, Asked, FirstWrite, NewItem};
+use engine::Gate;
 use flow::Compiled;
 use flow::agents::Agents;
 use store::{ItemChange, ItemNumber, WorkNumber};
@@ -199,6 +201,7 @@ pub async fn play(
         next: vec![0; script.items.len()],
         refused: vec![Vec::new(); script.items.len()],
         judged: vec![None; script.items.len()],
+        shown: RefCell::new(vec![None; script.items.len()]),
     };
     for item in &script.items {
         let depends_on = (item.depends_on.iter()).map(|place| play.items[place - 1]).collect();
@@ -297,7 +300,13 @@ struct Play<'a> {
     /// How each item's work was last judged, with the next place in its records and what the engine showed of it then:
     /// a work is judged again only once either changed.
     judged: Vec<Option<(Seq, Shown, Judged)>>,
+    /// What the engine last showed of each item's work, with what it was worked out from (`Play::shown`).
+    shown: RefCell<Vec<Option<(Showing, Shown)>>>,
 }
+
+/// What the engine's view of a work rests on: the next place in its records, the slots, the pause of everything, the
+/// gate of its rounds and whether one of them waits for the turn.
+type Showing = (Seq, driver::Slots, Option<Pauser>, Gate, bool);
 
 impl Play<'_> {
     /// Gives the loop a message from someone who is not the loop, and gives its answer, which comes at once.
@@ -330,7 +339,7 @@ impl Play<'_> {
         let item = &self.script.items[k];
         let driver = self.stepper.service().driver();
         let work = self.works[k];
-        let (Some(kept), Some(shown)) = (driver.work(work), Shown::of(driver, work)) else {
+        let (Some(kept), Some(shown)) = (driver.work(work), self.shown(k)) else {
             return Judged::Short {
                 step: 1,
                 said: (item.path.first().and_then(|step| step.step().ok()))
@@ -356,11 +365,36 @@ impl Play<'_> {
         judged
     }
 
+    /// What the engine shows of the item's work now: worked out again only where what it rests on changed since it was
+    /// last, every work's view being worked out at every step of a play otherwise.
+    fn shown(&self, k: usize) -> Option<Shown> {
+        let driver = self.stepper.service().driver();
+        let work = self.works[k];
+        let kept = driver.work(work)?;
+        let turn = (driver.along_of(work).iter()).any(|(_, along)| matches!(along, Along::Turn { .. }));
+        let showing = (
+            kept.work.tick(),
+            driver.slots(),
+            driver.everything_paused().map(|paused| paused.by),
+            driver.gate_of(work),
+            turn,
+        );
+        let mut cache = self.shown.borrow_mut();
+        if let Some((at, shown)) = &cache[k]
+            && *at == showing
+        {
+            return Some(shown.clone());
+        }
+        let shown = Shown::of(driver, work)?;
+        cache[k] = Some((showing, shown.clone()));
+        Some(shown)
+    }
+
     /// The states the engine shows the item's work at now.
     fn states(&self, k: usize) -> Vec<Step> {
         let driver = self.stepper.service().driver();
         let work = self.works[k];
-        match (driver.work(work), Shown::of(driver, work)) {
+        match (driver.work(work), self.shown(k)) {
             (Some(kept), Some(shown)) => judge::states(kept.work, &shown),
             _ => Vec::new(),
         }

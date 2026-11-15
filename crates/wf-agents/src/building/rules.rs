@@ -93,7 +93,7 @@ pub fn ruled(flow: &flow::Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case
     let changing = (flow.cells.iter()).filter(|c| c.kind == Kind::Agent && !c.reads_only);
     for cell in changing {
         match under_way_at(&cell.id) {
-            Some(base) => match engine_question(base, cases, words) {
+            Some(base) => match engine_question(flow, base, cases, words) {
                 Some(case) => ruled.push(case),
                 None => not.push((
                     format!("{ENGINE_QUESTION} at {}", cell.id),
@@ -295,7 +295,7 @@ fn everything(base: &Case) -> Case {
 /// The base's round under way ending with the engine's own question of a change of a protected path, worded as the
 /// engine words it, which the work waits for, the round handing in what that round of the cell hands in on another way
 /// the exploration kept, where one does, and else nothing; none where the words beside the flows make no question.
-fn engine_question(base: &Case, cases: &[Case], words: &Agents) -> Option<Case> {
+fn engine_question(flow: &flow::Compiled, base: &Case, cases: &[Case], words: &Agents) -> Option<Case> {
     let (cell, run, round) = base.under_way.clone()?;
     let (status, path, diff) = PROTECTED;
     let asked = carry::question_of_change(&words.asks.protected, &[(status, path.to_string(), diff.to_string())])?;
@@ -340,7 +340,20 @@ fn engine_question(base: &Case, cases: &[Case], words: &Agents) -> Option<Case> 
             && t.contains_key("hands_in")
             && !t.contains_key("questions")
     };
-    let done = (cases.iter()).flat_map(|c| &c.rounds).find(|t| same(t));
+    // Of those, one whose every choice keeps the value its block starts with, which leaves the work as it was.
+    let kept = |t: &&Table| {
+        let handed = t.get("hands_in").and_then(Value::as_array).into_iter().flatten();
+        handed.filter_map(Value::as_table).all(|h| {
+            let block = h.get("block").and_then(Value::as_str).unwrap_or_default();
+            let default = flow
+                .blocks
+                .get(&decide::BlockId::from(block))
+                .and_then(|b| b.default.as_deref());
+            default.is_none_or(|default| h.get("value").and_then(Value::as_str) == Some(default))
+        })
+    };
+    let rounds: Vec<&Table> = (cases.iter()).flat_map(|c| &c.rounds).filter(|t| same(t)).collect();
+    let done = rounds.iter().find(kept).or(rounds.first()).copied();
     for key in ["hands_in", "dealt_with", "reads"] {
         if let Some(value) = done.and_then(|t| t.get(key)) {
             r.insert(key.to_string(), value.clone());
