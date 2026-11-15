@@ -206,7 +206,7 @@ describe('the list of works', () => {
     const names = fixtureProjects().names;
     const first = draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource());
     pick(first.querySelector('select'), 'Whitefoot');
-    expect(listed(first)).toHaveLength(5);
+    expect(listed(first)).toHaveLength(6);
     expect(listed(draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource()))).toHaveLength(10);
     const one = draw(<WorksList />, fixtureSource({ loadProjects: async () => ({ names: ['Whitefoot'] }) }));
     await settle();
