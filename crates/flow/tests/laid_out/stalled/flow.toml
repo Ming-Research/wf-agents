@@ -18,6 +18,9 @@ people = true
 [blocks.main]
 outside = "main"
 
+[blocks.main.writes]
+text = "The main branch {main} is at {head}."
+
 [blocks.text]
 
 [blocks.checked]

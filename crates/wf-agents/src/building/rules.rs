@@ -90,7 +90,9 @@ pub fn ruled(flow: &Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case>, Vec
             ruled.push(paused_under_way(base));
             ruled.push(slot_taken(base));
             ruled.push(slot_waited(base));
-            ruled.push(everything(base));
+            // The work that pauses everything is cancelled right after: an act waits for no state of the pause
+            // of everything, and another work's round would begin after the pause, which holds it.
+            ruled.push(cancel(&everything(base)));
             ruled.push(held_by(base, Store::Everything, Wait::Shared));
         }
     }
@@ -155,7 +157,8 @@ pub fn cancels(cases: &[Case]) -> (Vec<Case>, Vec<(String, String)>) {
             true => kind_of(&case.end, None),
             false => case.kind.clone(),
         };
-        if matches!(case.end, Step::Ends(_)) || kinds.contains(&kind) {
+        // The pause of everything is cancelled from by its rule ([`ruled`]).
+        if matches!(case.end, Step::Ends(_) | Step::Everything(_)) || kinds.contains(&kind) {
             continue;
         }
         kinds.push(kind.clone());
