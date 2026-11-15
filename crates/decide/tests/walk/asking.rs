@@ -223,6 +223,30 @@ fn a_run_of_a_waiting_cell_at_rest_on_no_call_of_its_own_lets_the_cell_that_give
     );
 }
 
+// The same run, at rest on no call of its own, held by the plan's no; the tests run meanwhile, and the owner speaks to
+// the review, which stands after the implementation and before the tests. The implementation's unfinished run holds
+// the work, so the review does not run before it, and the round of the tests is not stopped for the words: stopped, it
+// would begin again and be stopped again, for good. Well under a millisecond alone; no other test speaks to a cell
+// held behind a waiting cell's run at rest while the tests run.
+#[test]
+fn words_to_a_cell_behind_a_waiting_cells_unfinished_run_stop_no_round_of_the_cell_that_gives_its_result() {
+    let mut w = ready_and_asked(false);
+    let mut cells = w.flow.cells().to_vec();
+    let place = w.flow.place(&"run tests".into()).expect("the flow has it");
+    cells.insert(place, cell("review", &["code", "review_spoken"], &["opinions"]));
+    w.install(cells);
+    w.turning("review_spoken");
+    w.outside_writes("implement_spoken");
+    w.start("implement");
+    let call = w.calls("implement", None);
+    w.done(call);
+    w.person_writes("background");
+    w.run("plan", &[("ready", Value("no"))]);
+    let tests = w.start("run tests");
+    w.outside_writes("review_spoken");
+    assert_eq!(w.decide(), busy("run tests", tests));
+}
+
 // A cell the record runs that gives no result is no giver: it does not run while the asking cell waits, as no later
 // cell does but those that give the result, and where none of those applies the stall names none but them. Well under
 // a millisecond alone; no other test has a record run a cell that gives nothing.
