@@ -352,7 +352,8 @@ impl Inner {
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let permissions = Permissions::of(round.cell.reads_only, args, &permissions::heavy(&of.beside), added);
+        let refused = permissions::refused_commands(&of.beside);
+        let permissions = Permissions::of(round.cell.reads_only, args, &refused, added);
         // One program at a time in a work: a keep-warm ping of it under way ends first, so that what its session holds
         // and cost is worked out with the ping in.
         let lock = self.lock(round.work);
@@ -939,7 +940,8 @@ impl Inner {
         let system = began(system::Begun::System)?;
         let form = began(system::Begun::Form)?;
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let permissions = Permissions::of(cell.reads_only, args, &permissions::heavy(&of.beside), added);
+        let refused = permissions::refused_commands(&of.beside);
+        let permissions = Permissions::of(cell.reads_only, args, &refused, added);
         let base =
             kept::base(&self.data, ping.work, run, number).with_file_name(format!("ping-{line}-{}", ping.session));
         let compacted = Compacted {

@@ -17,8 +17,6 @@ use serde::{Deserialize, Serialize};
 use service::{Levels, LevelsFault};
 use work::RanOn;
 
-use crate::permissions::falls_under;
-
 /// The settings as their file is written.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -358,7 +356,8 @@ pub struct Agents {
     /// permissions and its session.
     #[serde(default)]
     pub args: Vec<String>,
-    /// What the installation adds to the engine's lists of what the agents may run.
+    /// The commands that update a lock file, which the agents of a line that writes may run though a heavy command
+    /// covers them, and the uses of them refused all the same.
     #[serde(default)]
     pub permissions: PermissionsAdded,
     /// The names of the variables of the engine's environment the program is given beside those it is always given
@@ -403,15 +402,13 @@ fn most_subagents() -> u32 {
     3
 }
 
-/// What an installation adds to the engine's lists of what the agents may run (`permissions`): what its project's
-/// toolchain counts as heavy, and the commands that update its lock files, with the uses of them that would build,
-/// run or install after all. It takes nothing away from the engine's lists.
+/// What an installation lets its agents run beside what they are refused (`permissions`): the commands that update its
+/// projects' lock files, though a heavy command covers them, with the uses of them that would build, run or install
+/// after all. What the agents are refused is not the installation's: what every agent is refused whatever its project
+/// is beside the flows, and a project's heavy commands are its declaration's.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermissionsAdded {
-    /// Heavy commands no agent runs, each a command with the start of its arguments.
-    #[serde(default)]
-    pub heavy: Vec<String>,
     /// Commands that update a lock file and build, run and install nothing, each a command with the start of its
     /// arguments: the agents of a line that writes may run them, though a heavy command covers them.
     #[serde(default)]
@@ -462,7 +459,7 @@ const SOURCES_IN_THE_WORKTREE: [&str; 2] = ["project", "local"];
 impl Agents {
     /// What is wrong with these settings of the agents, each in words with its key: arguments that would undo or
     /// swallow those the engine gives after them, settings files read from the worktree, and a command of the added
-    /// permissions that names nothing, could be read as more than one rule, or would allow a heavy command whole.
+    /// permissions that names nothing or could be read as more than one rule.
     fn wrong(&self) -> Vec<String> {
         let mut wrong = Vec::new();
         let given = |flag: &str| (self.args.iter()).any(|a| a == flag || a.starts_with(&format!("{flag}=")));
@@ -499,11 +496,7 @@ impl Agents {
             ));
         }
         let added = &self.permissions;
-        for (key, list) in [
-            ("heavy", &added.heavy),
-            ("locks", &added.locks),
-            ("locks_except", &added.locks_except),
-        ] {
+        for (key, list) in [("locks", &added.locks), ("locks_except", &added.locks_except)] {
             if list.iter().any(|c| c.trim().is_empty()) {
                 wrong.push(format!("agents.permissions.{key}: each entry names a command"));
             }
@@ -522,15 +515,9 @@ impl Agents {
                 wrong.push(format!("agents.permissions.{key}: {c:?} holds {what}"));
             }
         }
-        // The heavy commands of the projects' declarations, and what every agent is refused, are held to the lock
-        // commands as the declarations are read (`permissions::faults`).
-        for lock in &added.locks {
-            if let Some(h) = added.heavy.iter().find(|h| falls_under(h, lock)) {
-                wrong.push(format!(
-                    "agents.permissions.locks: {lock:?} would allow all of the heavy command {h:?}"
-                ));
-            }
-        }
+        // What every agent is refused, and the heavy commands of each project's declaration, are held to the lock
+        // commands as the engine starts, beside the flows and the declarations it reads (`permissions::faults`,
+        // `permissions::heavy_faults`).
         wrong
     }
 }
@@ -590,6 +577,12 @@ const ONE_MODEL: &str = "agents.model: rounds no longer run on one model: each i
      its model. Take out agents.model; add a table [agents.levels.<name>] with desc and model for each level, and a \
      table [items] with default_level, the level an item is added at where it is given none, and, if you like, \
      highest_level. install.sample.toml shows them.";
+
+/// What the settings are told where they name `agents.permissions.heavy`, where an installation once added heavy
+/// commands.
+const HEAVY_MOVED: &str = "agents.permissions.heavy: the heavy commands are a project's, not the installation's: each \
+     project declares its own in its flow/project.toml as [heavy] (commands), and what every agent is refused whatever \
+     its project is in agents/refused.toml beside the flows; take heavy out of agents.permissions.";
 
 /// What the settings are told where they name `agents.owner_language`, where the owner's language once was.
 const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the owner's, not the agents': take it \
@@ -657,6 +650,10 @@ impl Settings {
         }
         if agents.is_some_and(|agents| agents.contains_key("owner_language")) {
             return Err(OWNER_LANGUAGE.to_string());
+        }
+        let permissions = agents.and_then(|a| a.get("permissions")).and_then(|p| p.as_table());
+        if permissions.is_some_and(|permissions| permissions.contains_key("heavy")) {
+            return Err(HEAVY_MOVED.to_string());
         }
         // Settings of the one project an installation once had are told where its tables went.
         let moved: Vec<&str> = (["project", "github"].into_iter())
@@ -1131,10 +1128,11 @@ mod tests {
         assert!(refused.contains("slot"), "{refused}");
     }
 
+    // The sample's lock commands are read, and an entry that names no command is refused. The heavy commands an
+    // installation once added are told where they went: each project's declaration, and the files beside the flows.
     #[test]
-    fn the_samples_permissions_read_and_add_to_the_engines() {
+    fn the_samples_permissions_read_and_the_heavy_commands_are_told_where_they_went() {
         let added = Settings::read(SAMPLE).expect("it reads").agents.permissions;
-        assert_eq!(added.heavy, ["uv"]);
         assert_eq!(added.locks, ["uv lock"]);
         assert_eq!(added.locks_except, ["uv lock *--script*"]);
         let none = SAMPLE.replace("permissions = {", "# permissions = {");
@@ -1142,9 +1140,16 @@ mod tests {
             Settings::read(&none).unwrap().agents.permissions,
             PermissionsAdded::default()
         );
-        let empty = SAMPLE.replace("permissions = {", "permissions = { heavy = [\" \"] } #");
+        let empty = SAMPLE.replace("permissions = {", "permissions = { locks = [\" \"] } #");
         let refused = Settings::read(&empty).expect_err("refused");
-        assert!(refused.contains("agents.permissions.heavy"), "{refused}");
+        assert!(
+            refused.contains("agents.permissions.locks: each entry names a command"),
+            "{refused}"
+        );
+        let heavy = SAMPLE.replace("permissions = { locks", "permissions = { heavy = [\"uv\"], locks");
+        assert_eq!(Settings::read(&heavy), Err(HEAVY_MOVED.to_string()));
+        let table = SAMPLE.replace("permissions = {", "# permissions = {") + "\n[agents.permissions]\nheavy = []\n";
+        assert_eq!(Settings::read(&table), Err(HEAVY_MOVED.to_string()));
     }
 
     #[test]
@@ -1201,19 +1206,14 @@ mod tests {
     }
 
     #[test]
-    fn an_added_command_cannot_take_an_added_refusal_away() {
+    fn an_added_command_is_read_as_one_rule() {
         let with = |permissions: &str| SAMPLE.replace("permissions = {", &format!("permissions = {permissions} #"));
         for (permissions, says) in [
-            (
-                "{ heavy = [\"uv\"], locks = [\"uv\"] }",
-                "would allow all of the heavy command \"uv\"",
-            ),
             ("{ locks = [\"cargo *\"] }", "locks: \"cargo *\" holds a `*`"),
             (
                 "{ locks = [\"cargo update) Bash(cargo test\"] }",
                 "holds a `*` or a parenthesis",
             ),
-            ("{ heavy = [\"uv*\"] }", "heavy: \"uv*\" holds a `*`"),
             (
                 "{ locks_except = [\"uv lock (x)\"] }",
                 "locks_except: \"uv lock (x)\" holds a parenthesis",
@@ -1222,8 +1222,8 @@ mod tests {
             let refused = Settings::read(&with(permissions)).expect_err(permissions);
             assert!(refused.contains(says), "{permissions}: {refused}");
         }
-        // A lock command under a heavy one, and an exception with `*`, are what the lists are for.
-        let fine = with("{ heavy = [\"uv\"], locks = [\"uv lock\"], locks_except = [\"uv lock *--script*\"] }");
+        // An exception with `*` is what the list is for.
+        let fine = with("{ locks = [\"uv lock\"], locks_except = [\"uv lock *--script*\"] }");
         assert!(Settings::read(&fine).is_ok());
     }
 

@@ -1,10 +1,10 @@
-//! What the engine says to every agent, whatever the flow, as it is written beside the flows: the project's files and
-//! settings (`project.toml`), and in `agents/` what a session begins with, the rules for the agents, the engine's own
-//! words, the return and its fields, the tools, the message a cell is sent as it is entered (design document
-//! `data-and-context`, 51), and what the engine writes as it works: into the blocks its acts write, and in the commits
-//! it makes. Every word an agent is sent that is not a flow's is in these files; the code holds none of them, only how
-//! they are put together. A field a file does not know is refused, and what cannot be read is said with the path of
-//! its file.
+//! What the engine says to every agent, whatever the flow, as it is written beside the flows: the project's files,
+//! settings and heavy commands (`project.toml`), and in `agents/` what a session begins with, what every agent is
+//! refused whatever its project, the rules for the agents, the engine's own words, the return and its fields, the
+//! tools, the message a cell is sent as it is entered (design document `data-and-context`, 51), and what the engine
+//! writes as it works: into the blocks its acts write, and in the commits it makes. Every word an agent is sent that is
+//! not a flow's is in these files; the code holds none of them, only how they are put together. A field a file does
+//! not know is refused, and what cannot be read is said with the path of its file.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -22,8 +22,8 @@ pub const AGENTS_DIR: &str = "agents";
 pub const PROJECT_FILE: &str = "project.toml";
 
 /// A project's declaration, the same file as [`PROJECT_FILE`], by its path from the root of the project's repository:
-/// each project an installation names declares its files, its settings, its tests and its workflows there, and the
-/// works of its items are run with it in place of the one beside the flows.
+/// each project an installation names declares its files, its settings, its tests, its workflows and its heavy commands
+/// there, and the works of its items are run with it in place of the one beside the flows.
 pub const DECLARATION: &str = "flow/project.toml";
 
 /// The file, from the directory that holds the flows, that names the sets of rules for the agents, each by its name
@@ -195,7 +195,7 @@ impl Agents {
 }
 
 /// `project.toml`: what is the project's: its design tree, its files the engine gives every agent, its settings the words
-/// sent to the agents may name, its tests and its workflows.
+/// sent to the agents may name, its tests, its workflows, and its heavy commands, which no agent runs.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {

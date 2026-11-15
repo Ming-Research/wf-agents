@@ -6,9 +6,9 @@ fn words() -> YourLine {
     toml::from_str(&std::fs::read_to_string(&path).expect("the file is read")).expect("it reads")
 }
 
-/// What the tests' project is refused, as the files beside the flows and its declaration give it: pushing, which every
-/// agent is refused, and the heavy commands of a project on many toolchains.
-const HEAVY: [&str; 29] = [
+/// The commands a round of the tests' project is refused, as the files beside the flows and its declaration give them:
+/// the heavy commands of a project on many toolchains, and pushing, which every agent is refused.
+const REFUSED: [&str; 29] = [
     "cargo",
     "rustc",
     "rustup",
@@ -40,9 +40,9 @@ const HEAVY: [&str; 29] = [
     "git push",
 ];
 
-/// Those, as a project's are given.
-fn toolchains() -> Vec<String> {
-    HEAVY.map(str::to_string).to_vec()
+/// Those, as a round is given them.
+fn commands() -> Vec<String> {
+    REFUSED.map(str::to_string).to_vec()
 }
 
 /// The lock commands of a project on Cargo and npm, as its installation's settings name them: `cargo update` and
@@ -83,7 +83,6 @@ const LOCKS_EXCEPT: [&str; 12] = [
 fn cargo_and_npm() -> PermissionsAdded {
     let list = |l: &[&str]| l.iter().map(|c| c.to_string()).collect();
     PermissionsAdded {
-        heavy: Vec::new(),
         locks: list(&LOCKS),
         locks_except: list(&LOCKS_EXCEPT),
     }
@@ -91,7 +90,7 @@ fn cargo_and_npm() -> PermissionsAdded {
 
 /// The permissions of a line for the installation's arguments, with the lock commands of a project on Cargo and npm.
 fn of(reads_only: bool, args: &[String]) -> Permissions {
-    Permissions::of(reads_only, args, &toolchains(), &cargo_and_npm())
+    Permissions::of(reads_only, args, &commands(), &cargo_and_npm())
 }
 
 fn args(args: &[&str]) -> Vec<String> {
@@ -146,12 +145,12 @@ fn only_a_line_that_writes_may_update_a_lock_file() {
     ] {
         assert!(writes.refused.iter().any(|r| r == kept), "{kept}");
     }
-    assert_eq!(writes.refused.len(), HEAVY.len() - 2 + LOCKS_EXCEPT.len());
+    assert_eq!(writes.refused.len(), REFUSED.len() - 2 + LOCKS_EXCEPT.len());
 
     let reads = of(true, &[]);
     assert!(reads.allowed.is_empty() && reads.locks.is_empty());
-    for heavy in HEAVY {
-        assert!(reads.refused.contains(&format!("Bash({heavy} *)")), "{heavy}");
+    for command in REFUSED {
+        assert!(reads.refused.contains(&format!("Bash({command} *)")), "{command}");
     }
     assert!(!reads.refused.iter().any(|r| r.contains("-no-")));
 }
@@ -160,11 +159,11 @@ fn only_a_line_that_writes_may_update_a_lock_file() {
 // file, and is refused every heavy command of its project whole.
 #[test]
 fn a_lock_command_is_the_settings_alone() {
-    let writes = Permissions::of(false, &[], &toolchains(), &PermissionsAdded::default());
+    let writes = Permissions::of(false, &[], &commands(), &PermissionsAdded::default());
     assert!(writes.allowed.is_empty() && writes.locks.is_empty());
-    assert_eq!(writes.refused.len(), HEAVY.len());
-    for heavy in HEAVY {
-        assert!(writes.refused.contains(&format!("Bash({heavy} *)")), "{heavy}");
+    assert_eq!(writes.refused.len(), REFUSED.len());
+    for command in REFUSED {
+        assert!(writes.refused.contains(&format!("Bash({command} *)")), "{command}");
     }
     assert_eq!(
         writes.told(&words(), &[]),
@@ -204,7 +203,7 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
         !(refused.iter()).any(|r| r == "Bash(cargo *)" || r.starts_with("Bash(cargo update") || r == "Bash(git *)"),
         "{refused:?}"
     );
-    assert_eq!(refused.len(), HEAVY.len() - 2 + LOCKS_EXCEPT.len() + 1);
+    assert_eq!(refused.len(), REFUSED.len() - 2 + LOCKS_EXCEPT.len() + 1);
     // A value after `=`, an exact command, and several rules in one word split at commas and spaces.
     let exact = args(&["--allowed-tools=Bash(cargo fmt --check) Bash(npm install foo:*)"]);
     let refused = of(false, &exact).refused;
@@ -442,17 +441,16 @@ fn every_use_of_npm_but_its_lock_command_is_refused() {
     }
 }
 
-// The installation adds to the project's heavy commands and names the lock commands: a heavy command of its own is
-// refused, its lock command is allowed though a heavy command covers it, and the uses of it it names are refused;
-// nothing of the project's goes.
+// A heavy command of any toolchain the project's declaration names is refused, and a lock command the installation
+// names under it is allowed, with the uses of it it names refused; nothing else of the project's goes.
 #[test]
-fn the_installation_adds_heavy_and_lock_commands_of_its_own() {
+fn a_heavy_command_of_any_toolchain_is_refused_and_a_lock_command_under_it_allowed() {
     let added = PermissionsAdded {
-        heavy: vec!["uv".to_string()],
         locks: vec!["uv lock".to_string(), "pnpm install --lockfile-only".to_string()],
         locks_except: vec!["pnpm install *--global*".to_string()],
     };
-    let writes = Permissions::of(false, &[], &toolchains(), &added);
+    let with_uv = [commands(), vec!["uv".to_string()]].concat();
+    let writes = Permissions::of(false, &[], &with_uv, &added);
     assert!(
         writes.allowed.iter().any(|a| a == "Bash(uv lock *)"),
         "{:?}",
@@ -468,31 +466,31 @@ fn the_installation_adds_heavy_and_lock_commands_of_its_own() {
         assert!(!writes.refused.iter().any(|r| r == gone), "{gone}");
     }
     assert!(writes.refused.iter().any(|r| r == "Bash(pnpm install *--global*)"));
-    // The project's heavy commands and `uv`, less the two the lock commands fall under, and the one exception.
-    assert_eq!(writes.refused.len(), HEAVY.len() + 1 - 2 + 1);
-    let reads = Permissions::of(true, &[], &toolchains(), &added);
+    // The refused commands and `uv`, less the two the lock commands fall under, and the one exception.
+    assert_eq!(writes.refused.len(), REFUSED.len() + 1 - 2 + 1);
+    let reads = Permissions::of(true, &[], &with_uv, &added);
     for rule in ["Bash(uv *)", "Bash(pnpm *)", "Bash(cargo *)"] {
         assert!(reads.refused.iter().any(|r| r == rule), "{rule}");
     }
     // A heavy command narrower than a lock command still refuses what it names.
-    let narrower = PermissionsAdded {
-        heavy: vec!["cargo update --precise".to_string()],
-        ..cargo_and_npm()
-    };
-    let refused = Permissions::of(false, &[], &toolchains(), &narrower).refused;
+    let narrower = [commands(), vec!["cargo update --precise".to_string()]].concat();
+    let refused = Permissions::of(false, &[], &narrower, &cargo_and_npm()).refused;
     assert!(refused.iter().any(|r| r == "Bash(cargo update --precise *)"));
 }
 
-// The heavy commands are held, as a project's declaration is read, to the shape of a command, and the lock commands
-// the installation names to them: a lock command that falls under what every agent is refused, as pushing, or that a
-// heavy command falls under whole, is refused, and so is a heavy command of either file that names nothing or holds a
-// `*` or a parenthesis. The repository's own files and the lock commands of a project on Cargo and npm hold none.
+// What every agent is refused, beside the flows, and a project's heavy commands, in its declaration, are each held to
+// the shape of a command, and the lock commands the installation names to them: a lock command that falls under what
+// every agent is refused, as pushing, is said against that file, and one that a heavy command falls under whole against
+// the declaration; neither is said against the other. The repository's own files and the lock commands of a project on
+// Cargo and npm hold none of these.
 #[test]
-fn no_lock_command_undoes_a_heavy_one_of_the_files_beside_the_flows_or_the_declaration() {
+fn no_lock_command_undoes_what_the_files_beside_the_flows_or_the_declaration_refuse() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
     let mut beside = flow::agents::read(&root).expect("what is written beside the flows is read");
     assert_eq!(faults(&beside, &cargo_and_npm()), Vec::<String>::new());
-    assert!(heavy(&beside).iter().any(|h| h == "git push") && heavy(&beside).iter().any(|h| h == "cargo"));
+    assert_eq!(heavy_faults(&beside.project, &cargo_and_npm()), Vec::<String>::new());
+    let refused = refused_commands(&beside);
+    assert!(refused.iter().any(|c| c == "git push") && refused.iter().any(|c| c == "cargo"));
     let locks = |lock: &str| PermissionsAdded {
         locks: vec![lock.to_string()],
         ..PermissionsAdded::default()
@@ -500,32 +498,38 @@ fn no_lock_command_undoes_a_heavy_one_of_the_files_beside_the_flows_or_the_decla
     for (lock, says) in [
         (
             "git push",
-            "\"git push\" falls under \"git push\", which every agent is refused",
+            "agents.permissions.locks: \"git push\" falls under \"git push\", which every agent is refused \
+             (flow/agents/refused.toml)",
         ),
-        ("git push origin", "\"git push origin\" falls under \"git push\""),
         (
-            "git push",
-            "\"git push\" would allow all of the heavy command \"git push\"",
+            "git push origin",
+            "agents.permissions.locks: \"git push origin\" falls under \"git push\", which every agent is refused \
+             (flow/agents/refused.toml)",
         ),
-        ("cargo", "would allow all of the heavy command \"cargo\""),
-        ("npm", "would allow all of the heavy command \"npm\""),
     ] {
-        let found = faults(&beside, &locks(lock));
-        assert!(found.iter().any(|f| f.contains(says)), "{lock}: {found:?}");
+        assert_eq!(faults(&beside, &locks(lock)), [says], "{lock}");
+        assert_eq!(
+            heavy_faults(&beside.project, &locks(lock)),
+            Vec::<String>::new(),
+            "{lock}"
+        );
+    }
+    for lock in ["cargo", "npm"] {
+        let says = format!(
+            "agents.permissions.locks: {lock:?} would allow all of the heavy command {lock:?} \
+             (flow/project.toml [heavy])"
+        );
+        assert_eq!(heavy_faults(&beside.project, &locks(lock)), [says], "{lock}");
+        assert_eq!(faults(&beside, &locks(lock)), Vec::<String>::new(), "{lock}");
     }
     beside.project.heavy.commands.push("uv*".to_string());
     beside.refused.commands.push(" ".to_string());
-    let found = faults(&beside, &PermissionsAdded::default());
-    assert!(
-        found
-            .iter()
-            .any(|f| f.contains("flow/project.toml [heavy]: \"uv*\" holds a `*` or a parenthesis")),
-        "{found:?}"
+    assert_eq!(
+        heavy_faults(&beside.project, &PermissionsAdded::default()),
+        ["flow/project.toml [heavy]: \"uv*\" holds a `*` or a parenthesis"]
     );
-    assert!(
-        found
-            .iter()
-            .any(|f| f.contains("agents/refused.toml: each entry names a command")),
-        "{found:?}"
+    assert_eq!(
+        faults(&beside, &PermissionsAdded::default()),
+        ["flow/agents/refused.toml: each entry names a command"]
     );
 }
