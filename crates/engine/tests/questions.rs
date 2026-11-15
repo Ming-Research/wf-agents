@@ -13,7 +13,11 @@
 //! - an answer runs the cell it is said to again, by its block of an answer, exactly where it answers the question's
 //!   latest version with another option than the one the work went by and the cell has a trigger an answer runs: the
 //!   asking cell for a question of an agent's, the last cell of the walk that has such a trigger for one of the
-//!   engine's, whichever round it was asked with; an answer to an earlier version writes nothing.
+//!   engine's, whichever round it was asked with; an answer to an earlier version writes nothing;
+//! - each version the engine's source of answers writes follows straight after the version of a question or the answer
+//!   it is of, with nothing but such versions between: each version of a question has its one entry of the record of
+//!   the questions and the answers, and each answer to a latest version its one, beside the block of an answer where it
+//!   runs the cell, so that what an entry is of is read by what it follows.
 //!
 //! Once people stop, the work comes to rest within a bound, whatever its agents asked for: a cell entered for an answer
 //! that asks for a tool first is not entered again for the same answer before the tool's result.
@@ -28,11 +32,12 @@
 #[allow(dead_code)]
 mod support;
 
+use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::panic::{self, AssertUnwindSafe};
 
 use decide::questions::questions;
-use decide::{Cause, Outsider, Records, RunId, Seq};
+use decide::{BlockId, Cause, Outsider, Records, RunId, Seq, Written};
 use engine::{Came, Event, Handed, Question, Tool, Way, Work};
 use flow::{Compiled, Has, Source, compile};
 use support::{Driver, Part, Rng};
@@ -48,60 +53,131 @@ const AFTER: usize = 400;
 
 /// A research that what people ask for and the owner's answers to it run, writing the plan; an implementation that the
 /// plan and the answers to it run, writing the code; a review of the code; and the merge, which requires every
-/// question to be answered.
+/// question to be answered. The research and the implementation ask the owner, and are given the record of the
+/// questions and the answers, which their trigger of an answer has their agent read, and the record of what is said, as
+/// a cell that asks is spoken to as well. Laid out one thing to a file, its triggers of a datum named as the datum.
 fn asking() -> Compiled {
     let flow = r#"
         name = "asking"
         order = ["research", "implement", "review", "merge"]
+        data = ["asked", "q_and_a", "discussion"]
         [limits]
         again = 2
-        [lines.main]
-        [blocks.request]
-        people = true
-        [blocks.research_answered]
-        outside = "answer"
-        [blocks.implement_answered]
-        outside = "answer"
-        [blocks.asked]
-        values = ["waiting", "answered"]
-        default = "answered"
-        outside = "asked"
-        shown = true
-        [blocks.asked.writes]
-        answered = "Every question has the owner's answer."
-        waiting = "Waits for the owner's answer to {questions}."
-        between = ", "
-        [blocks.plan]
-        [blocks.code]
-        [blocks.verdict]
-        [blocks.merged]
-        shown = true
     "#;
-    let agent = |inputs: &str, outputs: &str| {
+    let agent = |triggers: &str, context: &str, outputs: &str, kinds: &str| {
         format!(
             "title = \"A cell\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n\
-             inputs = [{inputs}]\noutputs = [{outputs}]\n"
+             triggered_by = [{triggers}]\ncontext = [{context}]\noutputs = [{outputs}]\n\n[kinds]\n{kinds}"
+        )
+    };
+    let asks = |input: &str, output: &str| {
+        agent(
+            &format!("\"{input}\", \"on_answer\", \"on_spoken\""),
+            &format!("\"{input}\", \"q_and_a\", \"discussion\""),
+            &format!("\"{output}\", \"q_and_a\", \"discussion\""),
+            &format!("{input} = \"latest\"\nq_and_a = \"all\"\ndiscussion = \"all\"\n"),
         )
     };
     let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = { asked = \"answered\" }\n\
-                 inputs = [\"verdict\"]\noutputs = [\"merged\"]\n";
+                 triggered_by = [\"verdict\"]\noutputs = [\"merged\"]\n";
     let cells = [
-        ("research", agent("\"request\", \"research_answered\"", "\"plan\"")),
-        ("implement", agent("\"plan\", \"implement_answered\"", "\"code\"")),
-        ("review", agent("\"code\"", "\"verdict\"")),
+        ("research", asks("request", "plan")),
+        ("implement", asks("plan", "code")),
+        (
+            "review",
+            agent("\"code\"", "\"code\"", "\"verdict\"", "code = \"latest\"\n"),
+        ),
         ("merge", merge.to_string()),
     ];
+    let files = [
+        ("lines/main.toml", ""),
+        ("blocks/request.toml", "from = \"owner\"\n"),
+        ("blocks/plan.toml", ""),
+        ("blocks/code.toml", ""),
+        ("blocks/verdict.toml", ""),
+        ("blocks/merged.toml", "shown = true\n"),
+        (
+            "../data/asked.toml",
+            "values = [\"waiting\", \"answered\"]\ndefault = \"answered\"\nfrom = \"asked\"\nshown = true\n\n[writes]\n\
+             answered = \"Every question has the owner's answer.\"\nwaiting = \"Waits for the owner's answer to {questions}.\"\n\
+             between = \", \"\n",
+        ),
+        (
+            "../data/q_and_a.toml",
+            "from = \"answer\"\n\n[shape]\ntype = \"array\"\n\n[writes]\ntext = \"`{question}`, version {version}, \
+             answered: option {option}.{why}\"\nwhy = \" Why: {why}\"\nasked = \"`{question}`, version {version}, asked: \
+             {ask}{options}{recommends}{waits}\"\nasked_anew = \"`{question}`, version {version}, asked anew: \
+             {ask}{options}{recommends}{waits}\"\noption = \" {option}: {does}.\"\nrecommends = \" Recommended: \
+             {option}.\"\nwaits = \" It waits.\"\ngoes_on = \" It goes on.\"\nwithdrawn = \"`{question}`, version {was}, \
+             withdrawn.{why}\"\n",
+        ),
+        (
+            "../data/discussion.toml",
+            "from = \"words\"\n\n[writes]\nowner = \"The owner:\\n\\n{words}\"\nreply = \"An agent:\\n\\n{reply}\"\n",
+        ),
+        (
+            "../triggers/of_a_datum/changed.toml",
+            "name = \"{datum}\"\nread = [\"{datum}\"]\n",
+        ),
+        (
+            "../triggers/of_a_cell/on_answer.toml",
+            "block = \"{cell}_answered\"\nfrom = \"answer\"\nread = [\"q_and_a\"]\n",
+        ),
+        (
+            "../triggers/of_a_cell/on_spoken.toml",
+            "block = \"{cell}_spoken_to\"\nfrom = \"words\"\nread = [\"discussion\"]\n",
+        ),
+        ("../agents/waits.toml", include_str!("../../../flow/agents/waits.toml")),
+    ];
     let source = Source {
+        laid_out: true,
         flow: flow.to_string(),
         cells: cells.into_iter().map(|(id, text)| (id.to_string(), text)).collect(),
-        ..Default::default()
+        rules: BTreeMap::new(),
+        files: (files.iter())
+            .map(|(path, text)| (path.to_string(), text.to_string()))
+            .collect(),
     };
     let has = Has {
-        sources: ["answer".to_string(), "asked".to_string()].into(),
+        sources: ["answer", "asked", "words"].map(str::to_string).into(),
         acts: ["merge".to_string()].into(),
         ..Default::default()
     };
-    compile(&source, &has).expect("the definition compiles")
+    compile(&source, &has).unwrap_or_else(|faults| panic!("the definition does not compile: {faults:#?}"))
+}
+
+/// The record of the questions and the answers.
+const RECORD: &str = "q_and_a";
+
+/// Whether the engine's source of answers writes the block: the record, or a cell's block of an answer.
+fn of_answers(block: &BlockId) -> bool {
+    block.as_str() == RECORD || block.as_str().ends_with("_answered")
+}
+
+/// What the engine's source of answers wrote right after this place, in order: the versions at each place after it,
+/// one after another, while they are its. The records are in the order of their places.
+fn written_after(r: &Records, at: Seq) -> Vec<&Written> {
+    let from = r.written.partition_point(|w| w.at <= at);
+    (r.written[from..].iter().enumerate())
+        .take_while(|(i, w)| w.at.0 == at.0 + 1 + *i as u64 && of_answers(&w.block))
+        .map(|(_, w)| w)
+        .collect()
+}
+
+/// Whether a version of a question, or an answer, is recorded at this place, before which the engine's source of
+/// answers wrote what follows it: the place before the versions of that source that end at this one.
+fn of_what_it_follows(r: &Records, at: Seq) -> bool {
+    let answers = |place: u64| {
+        r.written
+            .binary_search_by_key(&place, |w| w.at.0)
+            .is_ok_and(|i| of_answers(&r.written[i].block))
+    };
+    let mut place = at.0.saturating_sub(1);
+    while place > 0 && answers(place) {
+        place -= 1;
+    }
+    r.questions.binary_search_by_key(&place, |q| q.at.0).is_ok()
+        || r.answers.binary_search_by_key(&place, |a| a.at.0).is_ok()
 }
 
 /// The question the engine itself asks in these histories.
@@ -283,11 +359,14 @@ fn asked_value(records: &Records) -> Option<&str> {
         .and_then(|w| w.value.as_deref())
 }
 
-/// How far [`check`] has read the records: how many of the runs started and of the answers it has checked.
+/// How far [`check`] has read the records: how many of the runs started, the answers, the versions of questions and the
+/// writes it has checked.
 #[derive(Default)]
 struct Checked {
     started: usize,
     answers: usize,
+    questions: usize,
+    written: usize,
 }
 
 /// What must hold of the questions after every step: of the runs started and the answers the step added, each checked
@@ -295,8 +374,11 @@ struct Checked {
 fn check(work: &Work, checked: &mut Checked) {
     let r = &work.records;
     assert!(
-        r.started.len() >= checked.started && r.answers.len() >= checked.answers,
-        "runs started or answers were taken out of the records"
+        r.started.len() >= checked.started
+            && r.answers.len() >= checked.answers
+            && r.questions.len() >= checked.questions
+            && r.written.len() >= checked.written,
+        "runs started, answers, versions of questions or writes were taken out of the records"
     );
     for started in &r.started[checked.started..] {
         let before = r.before(started.at);
@@ -367,20 +449,13 @@ fn check(work: &Work, checked: &mut Checked) {
         let answerable = answering.is_some_and(|cell| matches!(cell, "research" | "implement"));
         let block = answering.map(|cell| format!("{cell}_answered"));
         let went_by = goes_by(work, &before, &answer.question);
-        let next = Seq(answer.at.0 + 1);
-        // What the answer wrote is at the place after it, in the same thing that happened: no later one begins there.
-        let same = !work.moments.iter().any(|m| m.from == next);
+        // What the answer wrote is at the places right after it.
+        let wrote = written_after(r, answer.at);
         let answered =
-            |w: &&decide::Written| w.at == next && w.by == Outsider::Outside && w.block.as_str().ends_with("_answered");
-        let turned = same
-            && (r.written.iter())
-                .filter(answered)
-                .any(|w| Some(w.block.as_str()) == block.as_deref());
+            || (wrote.iter()).filter(|w| w.by == Outsider::Outside && w.block.as_str().ends_with("_answered"));
+        let turned = answered().any(|w| Some(w.block.as_str()) == block.as_deref());
         assert!(
-            !(same
-                && (r.written.iter())
-                    .filter(answered)
-                    .any(|w| Some(w.block.as_str()) != block.as_deref())),
+            !answered().any(|w| Some(w.block.as_str()) != block.as_deref()),
             "the answer at {:?} to {} ran another cell than {answering:?}",
             answer.at,
             answer.question
@@ -396,14 +471,43 @@ fn check(work: &Work, checked: &mut Checked) {
         );
         if !latest {
             assert!(
-                !(same && r.written.iter().any(|w| w.at == next)),
+                wrote.is_empty(),
                 "the answer at {:?} to an earlier version wrote something",
                 answer.at
             );
         }
+        let entries = wrote.iter().filter(|w| w.block.as_str() == RECORD).count();
+        assert_eq!(
+            entries,
+            usize::from(latest),
+            "the answer at {:?} to {} has not its entry right after it",
+            answer.at,
+            answer.question
+        );
+    }
+    // Each version of a question has its one entry right after it, which runs no cell; and each version the source of
+    // answers wrote follows a question's version or an answer with nothing but such versions between. Both are
+    // written in the step that records the question or the answer, so each is checked at the step that adds it.
+    for q in &r.questions[checked.questions..] {
+        let wrote = written_after(r, q.at);
+        assert!(
+            wrote.len() == 1 && wrote[0].block.as_str() == RECORD,
+            "the version at {:?} of {} has not its one entry right after it",
+            q.at,
+            q.name
+        );
+    }
+    for w in r.written[checked.written..].iter().filter(|w| of_answers(&w.block)) {
+        assert!(
+            of_what_it_follows(r, w.at),
+            "the source of answers wrote at {:?}, right after no question or answer",
+            w.at
+        );
     }
     checked.started = r.started.len();
     checked.answers = r.answers.len();
+    checked.questions = r.questions.len();
+    checked.written = r.written.len();
 }
 
 /// One history of the seed, with the engine stopping or not.
@@ -462,9 +566,7 @@ fn reached(work: &Work) -> Reached {
         let latest = questions(&before)
             .get(answer.question.as_str())
             .is_some_and(|q| q.latest.at == answer.version);
-        let next = Seq(answer.at.0 + 1);
-        let same = !work.moments.iter().any(|m| m.from == next);
-        let turned = same && (r.written.iter()).any(|w| w.at == next && w.block.as_str().ends_with("_answered"));
+        let turned = (written_after(r, answer.at).iter()).any(|w| w.block.as_str().ends_with("_answered"));
         match (latest, turned) {
             (false, _) => reached.earlier += 1,
             (true, true) => reached.ran += 1,

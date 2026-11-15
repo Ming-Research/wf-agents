@@ -149,12 +149,9 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
     ];
-    // The records the sources of the owner's turning write entries of: of what is said, the owner's entries and the
-    // cells' answers; of the questions and the answers, each kind of entry.
-    let records: [(&str, &[&str]); 2] = [
-        (flow::WORDS, &[engine::spoken::OWNER, engine::spoken::REPLY]),
-        (flow::ANSWER, &engine::asked::ENTRIES),
-    ];
+    // The record the source of the owner's answers writes entries of: of the questions and the answers, each kind of
+    // entry. (The record of what is said is held to its texts by the flow's compile.)
+    let records: [(&str, &[&str]); 1] = [(flow::ANSWER, &engine::asked::ENTRIES)];
     let mut faults = Vec::new();
     for (name, block) in &flow.blocks {
         let found = needs

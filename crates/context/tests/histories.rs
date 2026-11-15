@@ -1,9 +1,12 @@
 //! Simulated histories of works of the small flow (design document `testing`, 4), each round filled by the context
 //! manager as a carrier fills it: people write, the lines' sessions are reopened by the owner, lost by the agents'
 //! program or compacted during a round, rounds fail before they reach the model, return sent back, ask for a tool,
-//! and hand in. Beside the work, the test keeps its own account of what each line's session holds, from what each
-//! round that reached the model was filled with and handed in, and of the version of each datum each cell last
-//! worked from.
+//! and hand in; the review's returns ask the owner one question or two at once, ask one anew or withdraw one, the
+//! engine asks one of its own beside a round, and the owner answers, between rounds or while one runs, which stops a
+//! round of a cell after the review. Beside the work, the test keeps its own account of
+//! what each line's session holds, from what each round that reached the model was filled with and handed in, a
+//! question's entries of the record of the questions and the answers among what its return handed in, which it reads
+//! from what each entry says, and of the version of each datum each cell last worked from.
 //!
 //! What is checked of every round, as it is entered in its session and in one that holds nothing:
 //! - it is filled with exactly what its cell is given and its session lacks, each datum by its kind, in the cell's
@@ -20,8 +23,10 @@
 //!   of what the engine sends in it, each place standing for what fills it.
 //!
 //! The histories must reach each of these: a change sent, one of the tree, several versions of a datum given `all` sent at once, a
-//! session reopened, lost and compacted, results given and a return sent back; each is counted, and a test of no
-//! history reaching one fails. A failing case prints its seed.
+//! session reopened, lost and compacted, results given and a return sent back; a question asked, two asked at once, one
+//! withdrawn, one of the engine's, an answer, one while a round runs and a round it stopped, and a round in a session
+//! that holds the entry of a question its own return asked, of the cell that asked and of another of its line; each is
+//! counted, and a test of no history reaching one fails. A failing case prints its seed.
 
 mod support;
 
@@ -32,7 +37,7 @@ use context::text::as_written;
 use context::{Entered, Form, Piece, Stands};
 use decide::run::Unmet;
 use decide::{BlockId, CallId, CellId, RunId, Seq, Writer};
-use engine::{Back, Came, Fill, Given, Handed, Tool, Why};
+use engine::{Back, Came, Event, Fill, Given, Handed, Question, Tool, Way, Why};
 use flow::InputKind;
 use flow::agents::Part;
 use support::{Given as Round, Sim};
@@ -42,6 +47,15 @@ const SEEDS: u64 = 60;
 
 /// How many steps each takes.
 const STEPS: usize = 120;
+
+/// The record of the questions and the answers.
+const RECORD: &str = "q_and_a";
+
+/// The questions the review's agent may ask.
+const ASKED: [&str; 2] = ["which", "how"];
+
+/// The question the engine itself asks in these histories.
+const ENGINES: &str = "protected_files";
 
 pub struct Rng(u64);
 
@@ -81,6 +95,8 @@ struct Held {
     sent_back: BTreeSet<(RunId, usize)>,
     /// What the last return in it handed in.
     taken: Vec<(BlockId, Seq)>,
+    /// The entries of the questions its returns asked, which they handed in.
+    asked: BTreeSet<Seq>,
     /// How often each task was filled into it.
     tasks: BTreeMap<String, u32>,
 }
@@ -135,6 +151,20 @@ struct Reached {
     wrote: usize,
     /// New versions given whole that said what one the session held said.
     said_again: usize,
+    /// Questions a return asked or asked anew, returns that asked two at once, and questions a return withdrew.
+    asked: usize,
+    two: usize,
+    withdrawn: usize,
+    /// Questions the engine asked beside a round, and the owner's answers.
+    engines: usize,
+    answers: usize,
+    /// Rounds given the record in a session that holds the entry of a question its own return asked: of the cell that
+    /// asked, and of another of its line.
+    held_entries: usize,
+    held_by_another: usize,
+    /// Answers while a round ran, and rounds they stopped.
+    answered_under_way: usize,
+    stopped: usize,
 }
 
 /// One history, and the test's account beside it.
@@ -196,7 +226,7 @@ impl History {
     fn step(&mut self, reached: &mut Reached) {
         let roll = self.rng.below(100);
         if roll < 14 {
-            let block = ["request", "notes", "tree", "plan", "opinions"][self.rng.below(5)];
+            let block = ["request", "notes", "tree", "plan", "opinions", "remarks"][self.rng.below(6)];
             let content = self.content(block);
             self.sim.writes(block, &content);
         } else if roll < 18 {
@@ -204,6 +234,11 @@ impl History {
             self.sim.anew(line, Why::Owner);
             self.lines.insert(line.to_string(), Held::default());
             reached.reopened += 1;
+        } else if roll < 24
+            && self.sim.round().is_none()
+            && let Some(answer) = self.answer()
+        {
+            self.sim.take(answer);
         } else if let Some(round) = self.sim.round() {
             self.carry(&round, reached);
         } else if let Some(call) = self.sim.calls().first() {
@@ -269,16 +304,37 @@ impl History {
             return;
         }
         self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
-        let compactions = u32::from(self.rng.chance(10));
-        let came = self.came(round);
+        // Now and then the owner answers while the round runs, which stops it where the answer runs a cell before it,
+        // as a round of the note is stopped by one that runs the review: its program then ends, and what came back of
+        // it is dropped.
+        let chance = if round.cell.as_str() == "note" { 30 } else { 6 };
+        if self.rng.chance(chance)
+            && let Some(answer) = self.answer()
+        {
+            self.sim.take(answer);
+            reached.answered_under_way += 1;
+        }
+        let stopped = (self.sim.work.records.abandoned.iter()).any(|a| a.run == round.run);
+        reached.stopped += usize::from(stopped);
+        let compactions = u32::from(!stopped && self.rng.chance(10));
+        let came = if stopped {
+            Came::asks(Vec::new())
+        } else {
+            self.came(round)
+        };
         self.sim.returns(round, came, compactions);
+        if stopped {
+            return;
+        }
         if compactions > 0 {
             self.lines.insert(line.clone(), Held::default());
             reached.compacted += 1;
         }
-        // What the round handed in, where its run finished at it.
+        // What the round handed in, where its run finished at it: the blocks it wrote, and the entries of the questions
+        // its return asked.
         let records = &self.sim.work.records;
         let finished = records.finished.iter().find(|f| f.run == round.run).cloned();
+        let entries = self.entries_of(round.run);
         let held = self.lines.entry(line).or_default();
         held.taken = Vec::new();
         if let Some(f) = &finished {
@@ -286,8 +342,86 @@ impl History {
                 held.versions.entry(w.block.clone()).or_default().insert(f.at);
                 held.taken.push((w.block.clone(), f.at));
             }
+            for at in &entries {
+                held.versions.entry(BlockId::from(RECORD)).or_default().insert(*at);
+                held.taken.push((BlockId::from(RECORD), *at));
+                held.asked.insert(*at);
+            }
             self.worked_from(round, f);
         }
+    }
+
+    /// The entries of the record of the questions and the answers of the questions the run's return asked, asked anew
+    /// or withdrew, in their order, by the test's own reading of what each entry says: of a version of a question of
+    /// the run's, and not its answer. The engine's own questions are no return's.
+    fn entries_of(&self, run: RunId) -> Vec<Seq> {
+        let records = &self.sim.work.records;
+        let own: Vec<(&str, u64)> = (records.questions.iter())
+            .filter(|q| q.run == run && !q.engine)
+            .map(|q| (q.name.as_str(), q.at.0))
+            .collect();
+        (self.sim.versions(RECORD).into_iter())
+            .filter(|at| {
+                support::entry(self.sim.content(RECORD, *at))
+                    .is_some_and(|(name, version, says)| says != "answered" && own.contains(&(name, version)))
+            })
+            .collect()
+    }
+
+    /// The entries the returns of the cell's runs handed in of the questions they asked, of those written before this
+    /// place.
+    fn entries_of_cell(&self, cell: &CellId, before: Seq) -> BTreeSet<Seq> {
+        (self.sim.work.records.started.iter())
+            .filter(|s| s.cell == *cell)
+            .flat_map(|s| self.entries_of(s.run))
+            .filter(|at| *at < before)
+            .collect()
+    }
+
+    /// The questions the review's agent writes now: none, one or two, each asked, asked anew or, where it stands as the
+    /// review's own, withdrawn.
+    fn questions(&mut self) -> Vec<Question> {
+        let standing: Vec<String> = (decide::questions::questions(&self.sim.work.records).into_iter())
+            .filter(|(_, q)| q.stands() && !q.latest.engine)
+            .map(|(name, _)| name.to_string())
+            .collect();
+        let mut out = Vec::new();
+        for name in ASKED {
+            if !self.rng.chance(20) {
+                continue;
+            }
+            if standing.iter().any(|s| s == name) && self.rng.chance(30) {
+                out.push(Question::Withdrawn {
+                    name: name.to_string(),
+                    why: "Settled by the request.".to_string(),
+                });
+            } else {
+                let (waits, recommends) = (self.rng.chance(50), 1 + self.rng.below(2) as u64);
+                out.push(asked(name, waits, Some(recommends), self.count));
+            }
+        }
+        out
+    }
+
+    /// The owner's answer to a question that stands with no answer to its latest version, where one does: to that
+    /// version, with either of its options.
+    fn answer(&mut self) -> Option<Event> {
+        let open: Vec<(String, Seq)> = (decide::questions::questions(&self.sim.work.records).into_iter())
+            .filter(|(_, q)| q.unanswered())
+            .map(|(name, q)| (name.to_string(), q.latest.at))
+            .collect();
+        if open.is_empty() {
+            return None;
+        }
+        let (question, version) = open[self.rng.below(open.len())].clone();
+        let option = 1 + self.rng.below(2) as u64;
+        let why = self.rng.chance(50).then(|| "Because.".to_string());
+        Some(Event::Answer {
+            question,
+            version,
+            option,
+            why,
+        })
     }
 
     /// What the round returns: a tool asked for in one in ten, the review's verdict left out in one in seven, and
@@ -305,7 +439,10 @@ impl History {
         let outputs = self.sim.flow.flow.cells()[place].outputs.clone();
         let leaves_out = !cell.must_write.is_empty() && self.rng.chance(14);
         let mut writes = Vec::new();
-        for block in outputs {
+        // What a source outside the work writes, the records of what is said and of the questions, no return hands in
+        // as a block.
+        let outputs = (outputs.into_iter()).filter(|b| self.sim.flow.blocks[b].writers.outside.is_none());
+        for block in outputs.collect::<Vec<_>>() {
             let must = cell.must_write.contains(&block);
             if (must && !leaves_out) || (!must && self.rng.chance(70)) {
                 let value = self.sim.flow.blocks[&block]
@@ -321,7 +458,15 @@ impl History {
                 });
             }
         }
-        Came::hands_in(writes)
+        let mut came = Came::hands_in(writes);
+        if cell.id.as_str() == "review" {
+            came.said.questions = self.questions();
+        }
+        // Now and then the engine asks its own beside the round, the work waiting for its answer.
+        if self.rng.chance(5) {
+            came.engine = vec![asked(ENGINES, true, None, self.count)];
+        }
+        came
     }
 
     /// The versions the run that finished worked from, by the cell's account: of a datum that runs the cell, the one
@@ -359,6 +504,12 @@ impl History {
                 .or_insert(finished.at);
             *worked = (*worked).max(finished.at);
         }
+        // The entries of the questions its return asked are versions it handed in.
+        let id = cell.id.clone();
+        for at in self.entries_of(round.run) {
+            let worked = self.worked.entry((id.clone(), BlockId::from(RECORD))).or_insert(at);
+            *worked = (*worked).max(at);
+        }
     }
 
     /// How the session should stand with a datum the round's cell is given, by the test's account of it, what it should
@@ -378,13 +529,18 @@ impl History {
         };
         let latest = all.last().expect("a version").at;
         let last = self.worked.get(&(cell.id.clone(), block.clone())).copied();
-        let own = |w: &Writer| match w {
+        // What a run of the cell handed in is its own: what it wrote, and the entries of the questions it asked.
+        let theirs = match block.as_str() {
+            RECORD => self.entries_of_cell(&cell.id, began),
+            _ => BTreeSet::new(),
+        };
+        let own = |w: &Writer, at: Seq| match w {
             Writer::Run(r) => records.started.iter().any(|s| s.run == *r && s.cell == cell.id),
-            _ => false,
+            _ => theirs.contains(&at),
         };
         let new = all
             .iter()
-            .any(|v| Some(v.at) > last && v.meaning == v.at && !own(&v.by));
+            .any(|v| Some(v.at) > last && v.meaning == v.at && !own(&v.by, v.at));
         let whole = |at: Seq| Fill::Whole {
             block: block.clone(),
             version: at,
@@ -528,6 +684,12 @@ impl History {
         let given: Vec<&BlockId> = (cell.given.iter().map(|g| &g.block))
             .chain(entered.run.written_over.iter().map(|(b, _)| b))
             .collect();
+        if given.iter().any(|b| b.as_str() == RECORD) && !held.asked.is_empty() {
+            match cell.id.as_str() {
+                "review" => reached.held_entries += 1,
+                _ => reached.held_by_another += 1,
+            }
+        }
         reached.written_over += entered.run.written_over.len();
         // How the session stands with each datum, and the line of one it holds that is new to the cell.
         for g in &cell.given {
@@ -654,6 +816,23 @@ impl History {
     }
 }
 
+/// A question asked with two options, its words told apart by `n`, so that asking it anew changes them.
+fn asked(name: &str, waits: bool, recommends: Option<u64>, n: u64) -> Question {
+    let way = |does: &str| Way {
+        does: does.to_string(),
+        follows: format!("what follows from {does}"),
+    };
+    Question::Asked {
+        name: name.to_string(),
+        waits,
+        recommends,
+        ask: format!("Which way for {name}, the {n}th time?"),
+        options: vec![way("the short way"), way("the long way")],
+        about: None,
+        reasons: Default::default(),
+    }
+}
+
 /// Whether the text is the pieces with each place filled by some text: a place, and the places right after it, stand
 /// for what comes before a place where the text after them is found.
 fn fits(pieces: &[Piece], text: &str) -> bool {
@@ -682,7 +861,17 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
             for _ in 0..STEPS {
                 history.step(&mut reached);
             }
-            reached.put_in += history.sim.work.records.put_in.len();
+            let r = &history.sim.work.records;
+            reached.put_in += r.put_in.len();
+            let agents = || r.questions.iter().filter(|q| !q.engine);
+            reached.asked += agents().filter(|q| !q.withdrawn).count();
+            reached.withdrawn += agents().filter(|q| q.withdrawn).count();
+            reached.engines += r.questions.iter().filter(|q| q.engine).count();
+            reached.answers += r.answers.len();
+            let runs: BTreeSet<RunId> = agents().map(|q| q.run).collect();
+            reached.two += (runs.iter())
+                .filter(|run| agents().filter(|q| q.run == **run).count() > 1)
+                .count();
         }));
         if let Err(e) = ran {
             eprintln!("the history of seed {seed} failed");
@@ -724,6 +913,21 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
         ("a return sent back", reached.sent_back),
         ("a round that failed after its program had its message", reached.wrote),
         ("a new version given that said what one held said", reached.said_again),
+        ("a question a return asked", reached.asked),
+        ("two questions a return asked at once", reached.two),
+        ("a question a return withdrew", reached.withdrawn),
+        ("a question the engine asked beside a round", reached.engines),
+        ("an answer of the owner's", reached.answers),
+        (
+            "a round given the record in a session that holds the entry of a question its own return asked",
+            reached.held_entries,
+        ),
+        (
+            "a round of another cell of the line given the record in a session that holds the entry of the asker's question",
+            reached.held_by_another,
+        ),
+        ("an answer while a round ran", reached.answered_under_way),
+        ("a round an answer stopped", reached.stopped),
     ] {
         assert!(n > 0, "no history reached {what}");
     }
