@@ -323,6 +323,11 @@ pub struct LineFile {
     /// tests or anything else it commits leaves it out.
     #[serde(default)]
     pub reads_only: bool,
+    /// The line's agents change only the project's tests, the files `paths` of `[tests]` in the project's declaration
+    /// matches: a round of the line is sent back for any other file its run changed. A line that writes anything else
+    /// leaves it out.
+    #[serde(default)]
+    pub tests_only: bool,
     /// How many levels above its item's the line's rounds run at, none above the highest an item may be at; none
     /// where it is left out.
     #[serde(default)]
@@ -342,6 +347,11 @@ pub struct LaidOutLineFile {
     /// tests or anything else it commits leaves it out.
     #[serde(default)]
     pub reads_only: bool,
+    /// The line's agents change only the project's tests, the files `paths` of `[tests]` in the project's declaration
+    /// matches: a round of the line is sent back for any other file its run changed. A line that writes anything else
+    /// leaves it out.
+    #[serde(default)]
+    pub tests_only: bool,
     /// How many levels above its item's the line's rounds run at, none above the highest an item may be at; none
     /// where it is left out.
     #[serde(default)]

@@ -59,6 +59,8 @@ pub struct Line {
     pub file: String,
     /// Its agents only read.
     pub reads_only: bool,
+    /// Its agents change only the project's tests.
+    pub tests_only: bool,
     /// How many levels above its item's its rounds run at.
     pub levels_above: u32,
     /// Of a flow written before it was laid out, its `system`, as written; none of a flow laid out.
@@ -123,6 +125,8 @@ pub struct CellSpec {
     pub line: Option<String>,
     /// The agents of the cell's line only read, as the line says; an engine cell's do not.
     pub reads_only: bool,
+    /// The agents of the cell's line change only the project's tests, as the line says; an engine cell's do not.
+    pub tests_only: bool,
     /// What an agent cell's agent is told to do; an engine cell has none.
     pub task: Option<String>,
     /// The file the task is written in, from the flow's directory, where it is not written in place.
@@ -408,6 +412,9 @@ pub enum FaultKind {
     RulesNamedAsEnginePart { name: String },
     /// A set of the flow's rules that no line names: no agent would be given it.
     UnusedRules { name: String },
+    /// A line says its agents change only the project's tests, and that they only read: one that only reads changes
+    /// no file, tests or other.
+    ReadsOnlyAndTestsOnly,
     /// A choice has no values to choose from.
     ValuesEmpty,
     /// The block is a note, and people do not write it: a note is their words to the cells that read it.
@@ -642,6 +649,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 let line = Line {
                     file: parsed.places.file("lines", name),
                     reads_only: line.reads_only,
+                    tests_only: line.tests_only,
                     levels_above: line.levels_above,
                     system: if laid_out { Vec::new() } else { line.system.clone() },
                     rules: if laid_out { line.system.clone() } else { Vec::new() },
@@ -992,6 +1000,7 @@ impl LaidOut {
             .map(|(path, line)| {
                 let line = LineFile {
                     reads_only: line.reads_only,
+                    tests_only: line.tests_only,
                     levels_above: line.levels_above,
                     system: line.rules.clone(),
                 };
@@ -1633,9 +1642,10 @@ impl<'a> Definition<'a> {
         }
     }
 
-    /// The faults of the lines' sets of rules: a line naming one twice, one there is not, or a part the engine places
-    /// itself. Of a flow written before it was laid out one thing to a file, whose sets of rules are its own, a set that
-    /// has the name of such a part, or that no line names; the sets beside the flows are every flow's.
+    /// The faults of the lines: of their sets of rules, a line naming one twice, one there is not, or a part the engine
+    /// places itself; and a line that says it only reads and changes only the project's tests. Of a flow written before
+    /// it was laid out one thing to a file, whose sets of rules are its own, a set that has the name of such a part, or
+    /// that no line names; the sets beside the flows are every flow's.
     fn check_lines(&self, parts: &BTreeSet<String>, rules: &BTreeMap<String, String>, faults: &mut Vec<Fault>) {
         let laid_out = self.places.laid_out;
         let list = if laid_out { "rules" } else { "system" };
@@ -1655,6 +1665,10 @@ impl<'a> Definition<'a> {
             };
             for (field, what) in check_list(&line.system, list, known) {
                 faults.push(self.places.fault("lines", name, &field, what));
+            }
+            if line.reads_only && line.tests_only {
+                let what = FaultKind::ReadsOnlyAndTestsOnly;
+                faults.push(self.places.fault("lines", name, "tests_only", what));
             }
         }
         if laid_out {
@@ -1870,6 +1884,8 @@ impl<'a> Definition<'a> {
             line: file.line.clone(),
             reads_only: (file.line.as_ref())
                 .is_some_and(|line| self.flow.lines.get(line).is_some_and(|l| l.reads_only)),
+            tests_only: (file.line.as_ref())
+                .is_some_and(|line| self.flow.lines.get(line).is_some_and(|l| l.tests_only)),
             task: match &file.task {
                 Some(Task::Text(text)) => Some(text.clone()),
                 Some(Task::File(_)) => self.tasks.get(id).cloned(),

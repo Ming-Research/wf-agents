@@ -11,7 +11,10 @@
 //! the check to find its mistakes; which they are is the project's toolchain's, and only the installation's settings
 //! name them (`agents.permissions.locks`, with the uses of them refused all the same). A line that only reads, as its
 //! line in the flow says, is refused the tools that edit files and the git commands that change the repository; those
-//! that only read, such as `show`, `diff` and `log`, it may run. Those two lists are the engine's.
+//! that only read, such as `show`, `diff` and `log`, it may run. Those two lists are the engine's. A line that changes
+//! only the project's tests is refused nothing more than any line that writes, the look at its run's change as each
+//! round ends holding it to them (`tests_only`); it is told the paths of the tests, and no lock command, since a lock
+//! file is none of them.
 //!
 //! The command line allows what a rule of the installation's arguments or of these allows, unless a rule of either
 //! refuses it, and refuses what any rule refuses even where another allows it. A flag given twice adds its values to
@@ -187,14 +190,19 @@ impl Permissions {
 
     /// What the agent is told its line may do in the worktree, in one line of the system prompt, which no rule says by
     /// itself, in the words beside the flows (`agents/your_line.toml`): that it changes no file there, or that it
-    /// commits there, the commands it may update a lock file with, and the paths the project protects, these.
-    pub fn told(&self, words: &YourLine, protected: &[String]) -> String {
+    /// commits there, and either the commands it may update a lock file with or, of a line that changes only the
+    /// project's tests, the paths of those, `tests`; and the paths the project protects, these.
+    pub fn told(&self, words: &YourLine, protected: &[String], tests: Option<&[String]>) -> String {
         if self.reads_only {
             return words.reads_only.clone();
         }
         let mut out = words.writes.clone();
-        if !self.locks.is_empty() {
-            out.push_str(&words.locks.replace("{commands}", &listed(&self.locks, &words.or)));
+        match tests {
+            Some(tests) => out.push_str(&words.tests_only.replace("{paths}", &listed(tests, &words.or))),
+            None if !self.locks.is_empty() => {
+                out.push_str(&words.locks.replace("{commands}", &listed(&self.locks, &words.or)));
+            }
+            None => {}
         }
         if !protected.is_empty() {
             out.push_str(&words.protected.replace("{paths}", &listed(protected, &words.and)));

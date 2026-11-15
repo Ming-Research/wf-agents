@@ -67,6 +67,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     );
     assert_eq!(read.your_line.reads_only, "You only read.");
     assert_eq!(read.your_line.locks, " Lock with {commands}.");
+    assert_eq!(read.your_line.tests_only, " Tests only: {paths}.");
 
     let rules: Vec<(&str, &str, &str)> = (read.rules.iter())
         .map(|(name, set)| (name.as_str(), set.file.as_str(), set.text.as_str()))

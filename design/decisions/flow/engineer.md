@@ -33,8 +33,8 @@ of another.
 
 ### decision the-tree-runs-no-cell
 The design tree is a datum each cell that reads the tree is given `last_and_latest`, the files that changed since the
-version its session read, and runs no cell; of what comes from outside the work, only main and `asked` run a cell, the
-check before the merge, and the work's head, where no round of the work committed it, the review and the check.
+version its session read, and runs no cell; of what comes from outside the work, a cell is run by what it names in its
+`triggered_by`, as the flow's triggers and data declare, and none names the tree.
 Why: A changed tree run as a trigger would run the reading cell again, and every cell after it, for each commit that
 touches the tree; given as a datum, it is read where the line goes on, by the cell that next enters the session.
 
