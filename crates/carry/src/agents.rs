@@ -80,7 +80,7 @@ use crate::catch_up::{self, CaughtUp};
 use crate::cli::{self, Begin, Calls, Compacted, InSession, Words};
 use crate::guard::{Crossing, Guard};
 use crate::held::{Failing, Held, Stop};
-use crate::permissions::Permissions;
+use crate::permissions::{self, Permissions};
 use crate::process::{self, Ran};
 use crate::settings::{Project, Settings};
 use crate::{acts, failure, git, kept, protected, returns, session, system, tools, tree};
@@ -319,7 +319,7 @@ impl Inner {
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let permissions = Permissions::of(round.cell.reads_only, args, added);
+        let permissions = Permissions::of(round.cell.reads_only, args, &permissions::heavy(&of.beside), added);
         // One program at a time in a work: a keep-warm ping of it under way ends first, so that what its session holds
         // and cost is worked out with the ping in.
         let lock = self.lock(round.work);
@@ -821,7 +821,7 @@ impl Inner {
             .map_err(|e| failed(fill(&said.no_system, &[("why", &e.to_string())])))?;
         let form = flow::form::form(flow, &of.beside).map_err(failed)?;
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let permissions = Permissions::of(cell.reads_only, args, added);
+        let permissions = Permissions::of(cell.reads_only, args, &permissions::heavy(&of.beside), added);
         let base =
             kept::base(&self.data, ping.work, run, number).with_file_name(format!("ping-{line}-{}", ping.session));
         let compacted = Compacted {

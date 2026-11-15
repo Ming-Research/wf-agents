@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use service::{Levels, LevelsFault};
 use work::RanOn;
 
-use crate::permissions::{HEAVY, NEVER_A_LOCK, falls_under};
+use crate::permissions::falls_under;
 
 /// The settings as their file is written.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -521,18 +521,10 @@ impl Agents {
                 wrong.push(format!("agents.permissions.{key}: {c:?} holds {what}"));
             }
         }
-        let heavy: Vec<&str> = HEAVY
-            .iter()
-            .copied()
-            .chain(added.heavy.iter().map(String::as_str))
-            .collect();
+        // The heavy commands of the projects' declarations, and what every agent is refused, are held to the lock
+        // commands as the declarations are read (`permissions::faults`).
         for lock in &added.locks {
-            if let Some(h) = NEVER_A_LOCK.iter().find(|h| falls_under(lock, h)) {
-                wrong.push(format!(
-                    "agents.permissions.locks: {lock:?} would push, which is the engine's alone ({h:?})"
-                ));
-            }
-            if let Some(h) = heavy.iter().find(|h| falls_under(h, lock)) {
+            if let Some(h) = added.heavy.iter().find(|h| falls_under(h, lock)) {
                 wrong.push(format!(
                     "agents.permissions.locks: {lock:?} would allow all of the heavy command {h:?}"
                 ));
@@ -1208,19 +1200,9 @@ mod tests {
     }
 
     #[test]
-    fn an_added_command_cannot_take_an_engine_refusal_away() {
+    fn an_added_command_cannot_take_an_added_refusal_away() {
         let with = |permissions: &str| SAMPLE.replace("permissions = {", &format!("permissions = {permissions} #"));
         for (permissions, says) in [
-            (
-                "{ locks = [\"git push\"] }",
-                "\"git push\" would allow all of the heavy command \"git push\"",
-            ),
-            (
-                "{ locks = [\"cargo\"] }",
-                "would allow all of the heavy command \"cargo\"",
-            ),
-            ("{ locks = [\"npm\"] }", "would allow all of the heavy command \"npm\""),
-            ("{ locks = [\"git push origin\"] }", "\"git push origin\" would push"),
             (
                 "{ heavy = [\"uv\"], locks = [\"uv\"] }",
                 "would allow all of the heavy command \"uv\"",

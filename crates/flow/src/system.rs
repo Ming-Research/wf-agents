@@ -688,7 +688,8 @@ mod tests {
     /// `agents.subagents.most` and `github.checks`, the last with no value.
     fn settings() -> Settings {
         let project: Project = toml::from_str(
-            "tree = \"design/\"\n[files]\n[project]\nresearch = \"research/\"\ntest_names = \"By its own name.\"\n",
+            "tree = \"design/\"\n[files]\n[project]\nresearch = \"research/\"\ntest_names = \"By its own name.\"\n\
+             [heavy]\ncommands = []\n",
         )
         .unwrap();
         let names = Installation {

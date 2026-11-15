@@ -66,6 +66,9 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
 /// The file, in `agents/`, of the questions the engine itself asks the owner.
 pub const ASKS_FILE: &str = "asks.toml";
 
+/// The file, in `agents/`, of what every agent is refused whatever its project.
+pub const REFUSED_FILE: &str = "refused.toml";
+
 /// The field of a return that holds the blocks a cell writes, each under its name. The form does not list them: the
 /// cell is told its own with its task, and the engine checks what it writes against them.
 pub const OUTPUTS: &str = "outputs";
@@ -101,6 +104,16 @@ pub struct Agents {
     pub asks: Asks,
     /// What the engine says as it guards what rounds cost and keeps their sessions' caches: `agents/cost.toml`.
     pub cost: Cost,
+    /// What every agent is refused whatever its project: [`REFUSED_FILE`].
+    pub refused: Commands,
+}
+
+/// Commands, each a command with the start of its arguments: what every agent is refused whatever its project
+/// ([`REFUSED_FILE`]), and a project's heavy commands (`[heavy]` of its declaration).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Commands {
+    pub commands: Vec<String>,
 }
 
 /// `agents/cost.toml`: what the engine says as it guards what the agents' rounds cost and keeps their sessions' prompt
@@ -207,6 +220,9 @@ pub struct Project {
     /// The paths the project protects; none where it protects none.
     #[serde(default)]
     pub protected: Protected,
+    /// The project's heavy commands, which no agent runs. A declaration names them, none where its project has none,
+    /// so that one that leaves them out is refused rather than taken to refuse nothing.
+    pub heavy: Commands,
 }
 
 /// The paths of the project's checkout that govern its agents, which the owner changes (principles
@@ -1193,6 +1209,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         commits: writes.commits,
         asks: asks(&at.join(ASKS_FILE))?,
         cost: file(&at.join("cost.toml"))?,
+        refused: file(&at.join(REFUSED_FILE))?,
     })
 }
 

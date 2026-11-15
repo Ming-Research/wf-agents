@@ -79,7 +79,7 @@ fn of(line: &str) -> String {
     let (settings, beside, flow) = (settings(), beside(), engineer());
     let cell = cell(&flow, line);
     let protected = &beside.project.protected.paths;
-    let your_line = Permissions::of(cell.reads_only, &[], &Default::default()).told(&beside.your_line, protected);
+    let your_line = Permissions::of(cell.reads_only, &[], &[], &Default::default()).told(&beside.your_line, protected);
     of_line(&beside, &filling(&settings, &beside), &flow, cell, &your_line, project).expect("it is made")
 }
 

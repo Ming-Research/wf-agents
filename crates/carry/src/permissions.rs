@@ -2,62 +2,71 @@
 //! own arguments (`agents.args`), and what the agent is told in its system prompt that no rule says by itself, in the
 //! words beside the flows.
 //!
-//! On every line the heavy commands are refused: compiling, type checking, building, test suites, benchmarks, and
-//! pushing. The project's tests are had through the tool `run_tests`, and only the engine pushes; run by an agent, they
-//! would fight the owner for the processor, and push what no check passed. On a line that writes, the commands that
-//! update the project's lock files and build, run and install nothing are allowed, though a heavy command covers them,
-//! rather than leave the agent to write a lock file by hand and the check to find its mistakes; which they are is the
-//! project's toolchain's, and only the installation's settings name them (`agents.permissions.locks`, with the uses of
-//! them refused all the same). A line that only reads, as its line in the flow says, is refused the tools that edit
-//! files and the git commands that change the repository; those that only read, such as `show`, `diff` and `log`, it
-//! may run. The other lists are the engine's, and an installation's settings may add to them (`agents.permissions`)
-//! for its project's toolchain.
+//! On every line the heavy commands are refused: what every agent is refused whatever its project, pushing
+//! (`agents/refused.toml` beside the flows), and the heavy commands of the project's declaration (`[heavy]`), its
+//! compiling, type checking, building, test suites and benchmarks. The project's tests are had through the tool
+//! `run_tests`, and only the engine pushes; run by an agent, they would fight the owner for the processor, and push what
+//! no check passed. On a line that writes, the commands that update the project's lock files and build, run and install
+//! nothing are allowed, though a heavy command covers them, rather than leave the agent to write a lock file by hand and
+//! the check to find its mistakes; which they are is the project's toolchain's, and only the installation's settings
+//! name them (`agents.permissions.locks`, with the uses of them refused all the same). A line that only reads, as its
+//! line in the flow says, is refused the tools that edit files and the git commands that change the repository; those
+//! that only read, such as `show`, `diff` and `log`, it may run. The other lists are the engine's. An installation's
+//! settings may add heavy commands (`agents.permissions.heavy`).
 //!
 //! The command line allows what a rule of the installation's arguments or of these allows, unless a rule of either
 //! refuses it, and refuses what any rule refuses even where another allows it. A flag given twice adds its values to
 //! those it was given before, as `claude`'s parser of arguments does with every flag that takes a list (checked with
 //! claude 2.1.316).
 
-use flow::agents::YourLine;
+use flow::agents::{Agents, YourLine};
 
 use crate::settings::PermissionsAdded;
 
-/// The heavy commands, each a command with the start of its arguments: no agent runs them.
-pub const HEAVY: [&str; 29] = [
-    "cargo",
-    "rustc",
-    "rustup",
-    "make",
-    "cmake",
-    "ninja",
-    "bazel",
-    "tsc",
-    "npx",
-    "pnpm",
-    "yarn",
-    "bun",
-    "deno",
-    "npm",
-    "node --test",
-    "vitest",
-    "jest",
-    "go build",
-    "go test",
-    "go run",
-    "pytest",
-    "python -m pytest",
-    "mvn",
-    "gradle",
-    "swift build",
-    "swift test",
-    "xcodebuild",
-    "hyperfine",
-    "git push",
-];
+/// The heavy commands of the project whose declaration these hold, each a command with the start of its arguments:
+/// what every agent is refused whatever its project, then the heavy commands its declaration names.
+pub fn heavy(beside: &Agents) -> Vec<String> {
+    (beside.refused.commands.iter())
+        .chain(&beside.project.heavy.commands)
+        .cloned()
+        .collect()
+}
 
-/// The heavy commands that no lock command may fall under, as an installation may add one under another heavy
-/// command: pushing is the engine's alone.
-pub const NEVER_A_LOCK: [&str; 1] = ["git push"];
+/// What is wrong, for the project whose declaration these hold, with its heavy commands and the lock commands the
+/// installation names, each said with where it is written: a command that names nothing, or holds a `*` or a
+/// parenthesis, which would stand for any text or end the rule it is written into; a lock command that falls under what
+/// every agent is refused whatever its project, as pushing, which is the engine's alone; and one that a heavy command
+/// falls under whole, which would allow all of it.
+pub fn faults(beside: &Agents, added: &PermissionsAdded) -> Vec<String> {
+    let refused_at = beside.source(&format!("{}/{}", flow::agents::AGENTS_DIR, flow::agents::REFUSED_FILE));
+    let heavy_at = format!("{} [heavy]", flow::agents::DECLARATION);
+    let mut faults = Vec::new();
+    for (at, commands) in [
+        (&refused_at, &beside.refused.commands),
+        (&heavy_at, &beside.project.heavy.commands),
+    ] {
+        if commands.iter().any(|c| c.trim().is_empty()) {
+            faults.push(format!("{at}: each entry names a command"));
+        }
+        if let Some(c) = commands.iter().find(|c| c.contains(['(', ')', '*'])) {
+            faults.push(format!("{at}: {c:?} holds a `*` or a parenthesis"));
+        }
+    }
+    let heavy = heavy(beside);
+    for lock in &added.locks {
+        if let Some(r) = beside.refused.commands.iter().find(|r| falls_under(lock, r)) {
+            faults.push(format!(
+                "agents.permissions.locks: {lock:?} falls under {r:?}, which every agent is refused ({refused_at})"
+            ));
+        }
+        if let Some(h) = heavy.iter().find(|h| falls_under(h, lock)) {
+            faults.push(format!(
+                "agents.permissions.locks: {lock:?} would allow all of the heavy command {h:?}"
+            ));
+        }
+    }
+    faults
+}
 
 /// The tools that edit files, which a line that only reads is refused.
 pub const EDIT_TOOLS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
@@ -99,8 +108,8 @@ pub struct Permissions {
 }
 
 impl Permissions {
-    /// The permissions of a line that only reads or that writes, for the installation's arguments `args` and what its
-    /// settings add to the engine's lists, `added`.
+    /// The permissions of a line that only reads or that writes, for the installation's arguments `args`, the heavy
+    /// commands of its project, `heavy` ([`heavy`]), and what its settings add, `added`.
     ///
     /// A heavy command that a lock command falls under, such as `cargo` for `cargo update`, is not refused whole on a
     /// line that writes, since the command line would then refuse the lock command too. Its other uses are then
@@ -109,12 +118,8 @@ impl Permissions {
     /// heavy command, as `Bash(carg*)` does, or every command, it is refused whole, and the lock commands under it are
     /// not allowed. The uses of the lock commands that would build, run or install after all are refused wherever a
     /// lock command is allowed.
-    pub fn of(reads_only: bool, args: &[String], added: &PermissionsAdded) -> Permissions {
-        let heavy: Vec<&str> = HEAVY
-            .iter()
-            .copied()
-            .chain(added.heavy.iter().map(String::as_str))
-            .collect();
+    pub fn of(reads_only: bool, args: &[String], heavy: &[String], added: &PermissionsAdded) -> Permissions {
+        let heavy: Vec<&str> = (heavy.iter()).chain(&added.heavy).map(String::as_str).collect();
         let allows = allows(args);
         let rules: Vec<Allow> = allows.iter().filter_map(Allow::of).collect();
         let locks: Vec<String> = if reads_only {

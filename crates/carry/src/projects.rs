@@ -33,8 +33,9 @@ pub struct Declared {
 }
 
 /// Each project the settings name whose declaration can be read, by its name, with its declaration; and every fault
-/// found, each said with the projects' keys: a declaration that cannot be read from its project's main, and two
-/// projects that name one repository, whose main, branches and merges they would share.
+/// found, each said with the projects' keys: a declaration that cannot be read from its project's main, heavy commands
+/// of it or lock commands of the settings that would undo what an agent is refused, and two projects that name one
+/// repository, whose main, branches and merges they would share.
 pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap<String, Declared>, Vec<String>) {
     let mut faults = Vec::new();
     let mut by_repository: BTreeMap<PathBuf, Vec<&str>> = BTreeMap::new();
@@ -59,6 +60,8 @@ pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap
                 continue;
             }
         };
+        let wrong = crate::permissions::faults(&beside, &settings.agents.permissions);
+        faults.extend(wrong.into_iter().map(|fault| format!("projects.{name}: {fault}")));
         if project.github.is_none() {
             local_words(&mut beside);
         }
