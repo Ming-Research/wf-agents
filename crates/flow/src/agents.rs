@@ -41,6 +41,9 @@ pub const COMMITS_FILE: &str = "commits.toml";
 /// name, and what a tool's result says where the work's item belongs to no project the installation names.
 pub const INSTALLATION_FILE: &str = "installation.toml";
 
+/// The file, in `agents/`, of what every agent is refused whatever its project.
+pub const REFUSED_FILE: &str = "refused.toml";
+
 /// The file, in `agents/`, of what the place `{your_line}` in the engine's words says: what the line may do in the
 /// worktree.
 pub const YOUR_LINE_FILE: &str = "your_line.toml";
@@ -66,9 +69,6 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
 /// The file, in `agents/`, of the questions the engine itself asks the owner.
 pub const ASKS_FILE: &str = "asks.toml";
 
-/// The file, in `agents/`, of what every agent is refused whatever its project.
-pub const REFUSED_FILE: &str = "refused.toml";
-
 /// The field of a return that holds the blocks a cell writes, each under its name. The form does not list them: the
 /// cell is told its own with its task, and the engine checks what it writes against them.
 pub const OUTPUTS: &str = "outputs";
@@ -85,6 +85,8 @@ pub struct Agents {
     pub your_line: YourLine,
     /// What the texts take from the installation: `agents/installation.toml`.
     pub installation: Installation,
+    /// What every agent is refused whatever its project: [`REFUSED_FILE`].
+    pub refused: Commands,
     /// The sets of rules for the agents, by name, as `agents/rules/rules.toml` names them, each with its text.
     pub rules: BTreeMap<String, RuleSet>,
     pub returns: Return,
@@ -104,16 +106,6 @@ pub struct Agents {
     pub asks: Asks,
     /// What the engine says as it guards what rounds cost and keeps their sessions' caches: `agents/cost.toml`.
     pub cost: Cost,
-    /// What every agent is refused whatever its project: [`REFUSED_FILE`].
-    pub refused: Commands,
-}
-
-/// Commands, each a command with the start of its arguments: what every agent is refused whatever its project
-/// ([`REFUSED_FILE`]), and a project's heavy commands (`[heavy]` of its declaration).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Commands {
-    pub commands: Vec<String>,
 }
 
 /// `agents/cost.toml`: what the engine says as it guards what the agents' rounds cost and keeps their sessions' prompt
@@ -233,6 +225,14 @@ pub struct Project {
 pub struct Protected {
     /// Each path from the root of the checkout: a file, or a directory, ending in `/`, and everything in it.
     pub paths: Vec<String>,
+}
+
+/// Commands, each a command with the start of its arguments: what every agent is refused whatever its project
+/// ([`REFUSED_FILE`]), and a project's heavy commands (`[heavy]` of its declaration).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Commands {
+    pub commands: Vec<String>,
 }
 
 /// `[tests]` of `project.toml`.
@@ -1197,6 +1197,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         words,
         your_line: file(&at.join(YOUR_LINE_FILE))?,
         installation: file(&at.join(INSTALLATION_FILE))?,
+        refused: file(&at.join(REFUSED_FILE))?,
         rules,
         returns,
         sent_back: file(&at.join("return").join("sent_back.toml"))?,
@@ -1209,7 +1210,6 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         commits: writes.commits,
         asks: asks(&at.join(ASKS_FILE))?,
         cost: file(&at.join("cost.toml"))?,
-        refused: file(&at.join(REFUSED_FILE))?,
     })
 }
 
