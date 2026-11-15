@@ -311,7 +311,8 @@ impl Agents {
 }
 
 /// `project.toml`: what is the project's: its design tree, its files the engine gives every agent, its settings the words
-/// sent to the agents may name, its tests, its workflows, and its heavy commands, which no agent runs.
+/// sent to the agents may name, its tests, its workflows, its heavy commands, which no agent runs, and the variables
+/// its toolchain reads, which every agent's command line is given.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
@@ -332,6 +333,10 @@ pub struct Project {
     /// The project's heavy commands, which no agent runs. A declaration names them, none where its project has none,
     /// so that one that leaves them out is refused rather than taken to refuse nothing.
     pub heavy: Commands,
+    /// The variables, by name, every agent's command line of the project's works is given beside the engine's own:
+    /// what the project's toolchain reads, so that a command an agent may run reaches no further than its worktree. A
+    /// declaration names them, none where its project needs none, as it names its heavy commands.
+    pub environment: BTreeMap<String, String>,
 }
 
 /// The paths of the project's checkout that govern its agents, which the owner changes (principles
