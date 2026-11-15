@@ -488,8 +488,8 @@ fn a_record_of_what_is_said_with_no_text_for_the_owner_or_for_a_cell_is_refused(
 #[test]
 fn a_record_of_what_is_said_with_a_text_that_has_no_place_for_the_words_is_refused() {
     let (source, has) = engineers();
-    let source = edit(source, DISCUSSION, "{words}", "(nothing)");
-    let source = edit(source, DISCUSSION, "{reply}", "(nothing)");
+    let source = edit(source, DISCUSSION, "\\n\\n{words}\"", "\"");
+    let source = edit(source, DISCUSSION, "\\n\\n{reply}\"", "\"");
     let refused = flow::compile(&source, &has).expect_err("the texts have no place");
     let lacks = |key: &str, place: &str| SpokenTextWithoutPlace {
         block: "discussion".to_string(),
