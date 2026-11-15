@@ -240,11 +240,11 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
     let a = said.find("- tools::tests::a: passed in 0.12 s").expect("a");
     assert!(b < a, "{said}");
     assert!(said.contains("assertion failed: said.is_empty()"), "{said}");
-    // What did not pass and the jobs come before what passed, which a result cut short loses first.
+    // The jobs come before what did not pass, and that before what passed, which a result cut short loses first.
     let jobs = "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 \
                 s https://github.example/checks/test";
     let at = said.find(jobs).expect("the jobs");
-    assert!(b < at && at < a, "{said}");
+    assert!(at < b && b < a, "{said}");
     assert!(
         said.ends_with("The tests that passed:\n- tools::tests::a: passed in 0.12 s"),
         "{said}"
@@ -256,6 +256,38 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
             branch: "main".to_string(),
             inputs: full_inputs(&head),
         }]
+    );
+}
+
+// Each job, a line, comes before every test and what a failed one said, however long: a result cut at the bound a round
+// is given keeps every job, how it ended and its time, and what the cut takes away is tests. Well under a second
+// alone, a bare repository for GitHub; no other test holds the jobs to the bound.
+#[tokio::test]
+async fn every_job_comes_before_what_the_tests_said_and_stays_within_the_bound_a_round_is_given() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let bound = crate::acts::words().run_tests.given.bound;
+    let long = "x".repeat(bound + 1000);
+    let xml = format!(
+        r#"<testsuites><testsuite name="carry"><testcase name="tools::tests::a" time="0.12"/><testcase name="tools::tests::b" time="0.3"><failure message="assertion failed">{long}</failure></testcase></testsuite></testsuites>"#
+    );
+    let lint = Check {
+        took: Some(192),
+        ..passed("lint")
+    };
+    let jobs = vec![lint, job("test", Outcome::Failed("failure".into()), 5)];
+    let results = vec![("test.xml".to_string(), xml.into_bytes())];
+    hub.github().fast(&head, jobs, Some(("test-results", results)));
+    let said = hub.named_check(&Named::default()).await.unwrap().expect("run");
+    assert!(said.len() > bound, "the result is longer than a round is given");
+    let jobs = "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 \
+                s https://github.example/checks/test";
+    let at = said.find(jobs).expect("the jobs");
+    assert!(at + jobs.len() <= bound, "the jobs end at byte {}", at + jobs.len());
+    assert!(
+        at < said.find("- tools::tests::b: failed").expect("b"),
+        "{}",
+        &said[..at]
     );
 }
 
