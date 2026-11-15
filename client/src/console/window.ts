@@ -16,8 +16,10 @@ export type MessageCell = string;
 export type Passage = { kind: 'text'; text: string; changed?: boolean };
 
 /// A part of the body: a passage, or a choice that waits for the owner where it stands in the text, which the owner
-/// may already have confirmed while others still wait. A choice a cell asked while working (`asks`) stops the work at
-/// that call until the owner's answer is sent to it.
+/// may already have confirmed while others still wait. A choice a cell asked while working (`asks`) is answered to the
+/// call that waits for it, or to the version of the work's question of that name; what waits for the answer (`stops`)
+/// is the work, at the cell that asked it, or the merge; none yet where the work has gone on past it, and it is still
+/// to confirm.
 export type Part =
   | Passage
   | {
@@ -28,7 +30,8 @@ export type Part =
       chosen: number | null;
       confirmed?: boolean;
       changed?: boolean;
-      asks?: { call: number; cell: string };
+      asks?: { cell: string; call: number } | { cell: string; question: string; version: number };
+      stops?: 'work' | 'merge' | 'later';
       /// What the owner wrote as the answer to a question with no options, which is answered in words.
       answer?: string;
     };

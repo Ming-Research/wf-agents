@@ -4,8 +4,8 @@
 // back's; the arrows a write runs are drawn over it (`data.ts`): those into and out of the cell chosen, or every one
 // while the owner shows them all, the layout staying as it is. Choosing a cell, a name an arrow carries, a key of the way into a cell or a tag opens what the same thing
 // opens on the matrix, in the same panel; a click on the chart's background lets go of what is chosen. The chart opens
-// on its top at a zoom one can read, or whole where that is larger; a cell chosen, here or elsewhere, as in a panel, is
-// brought into what the window over the chart leaves, the zoom kept.
+// on its top at its own size, 100%, or fitted to its width where that does not fit, the rest scrolled to; a cell
+// chosen, here or elsewhere, as in a panel, is brought into what the window over the chart leaves, the zoom kept.
 //
 // Brought over from the chart of `old-main` (`client/src/graph/FlowChart.tsx`), but for what this page has no use for:
 // several graphs side by side, the stores, a work's marks and a comparison's.
@@ -21,8 +21,9 @@ import { mapOf, Minimap } from './Minimap';
 import { cellNode, chartOf, shownArrows } from './model';
 import { Viewer, type ViewerHandle } from './Viewer';
 
-/// The least zoom the chart opens at; and the room round the layout.
-const READABLE = 0.62;
+/// The zoom the chart opens at, its cells and labels at their own size, unless its width does not fit; and the room
+/// round the layout.
+const FULL = 1;
 const PAD = 24;
 
 export function FlowChart({ flow, dataArrows = false, chosen, onChoose, covered = 0 }: {
@@ -71,12 +72,13 @@ export function FlowChart({ flow, dataArrows = false, chosen, onChoose, covered 
     () => (current && size ? mapOf(size, chart, current, PAD, engines) : null),
     [current, size, chart, engines],
   );
-  // Once laid out, open on the top of the chart at a zoom one can read, or on the whole of it where that is larger.
+  // Once laid out, open on the top of the chart at its own size, or fitted to its width where that does not fit; the
+  // rest scrolls. Laid out again, it opens again; the owner's own zoom is kept otherwise.
   const opened = useRef<Laid | null>(null);
   useEffect(() => {
     if (current === null || opened.current === current || !viewer.current) return;
     opened.current = current;
-    viewer.current.start(READABLE, null);
+    viewer.current.start(FULL);
   }, [current]);
   // The arrows a write runs that are drawn, routed over the layout: the chosen cell's, or every one; the layout stays.
   const chosenCell = chosen && 'cell' in chosen ? chosen.cell : null;

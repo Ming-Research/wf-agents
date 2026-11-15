@@ -25,13 +25,14 @@ export type MarkLook =
   | { shape: 'dash'; fill: string };
 
 /// Done filled in a light step of the accent, running filled in a deep one, at rest a ring of that deep one, failed a
-/// red ring, runs again an orange ring, not run yet a hairline ring, skipped a muted dash.
+/// red ring, runs again a ring of done's light step, hollow, not run yet a hairline ring, skipped a muted dash. Running
+/// is the only bright mark; orange is kept for what waits for the owner, and marks no cell.
 export const MARKS: Record<CellState, MarkLook> = {
   done: { shape: 'square', fill: '--mark-done', edge: '--mark-done', width: 'ring' },
   running: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
   resting: { shape: 'square', fill: null, edge: '--mark-running', width: 'ring' },
   failed: { shape: 'square', fill: null, edge: '--red', width: 'ring' },
-  again: { shape: 'square', fill: null, edge: '--orange', width: 'ring' },
+  again: { shape: 'square', fill: null, edge: '--mark-done', width: 'ring' },
   notYet: { shape: 'square', fill: null, edge: '--muted', width: 'hairline' },
   skipped: { shape: 'dash', fill: '--muted' },
 };

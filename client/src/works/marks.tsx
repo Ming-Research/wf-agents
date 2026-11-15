@@ -8,9 +8,9 @@ import type { CellNow, CellState, Now } from '../works-api';
 import { markStyle, stripStyle } from './state-marks';
 import { STATE_WORDS, nowTone, nowWords } from './words';
 
-/// A cell's state as a square: filled green when done, filled blue while running, a blue ring at rest, a red ring when
-/// its last round failed, an orange ring when it runs again, a hairline ring before its first run, a dash when skipped. Its look is `state-marks.ts`'s, which
-/// the console's cards draw too.
+/// A cell's state as a square: filled when done, filled in a deep step while running, a ring of that step at rest, a
+/// red ring when its last round failed, a ring of done's colour when it runs again, a hairline ring before its first
+/// run, a dash when skipped. Its look is `state-marks.ts`'s, which the console's cards draw too.
 export function StateMark({ state, title }: { state: CellState; title?: string }) {
   return (
     <span

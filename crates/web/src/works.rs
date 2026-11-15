@@ -232,6 +232,12 @@ pub struct Summary {
     /// How many of its rounds were given back what the round before handed in, sent back as it did not do.
     #[serde(default)]
     pub sent_back: usize,
+    /// The questions put to the owner that hold the work now, by their names, in the order of their names: each it
+    /// waits for at its cell, and, while it waits for a precondition that only the engine's word of how the questions
+    /// stand makes hold, as the check before the merge does, each that stands without the owner's answer to its latest
+    /// version.
+    #[serde(default)]
+    pub holding: Vec<String>,
 }
 
 /// How many equal cells a work's time bar is cut into.
@@ -1490,13 +1496,15 @@ impl Summary {
                 open: cell.open.as_ref().map(|open| open.run.0),
             })
             .collect();
+        let now = Now::of(kept, &view.decision, held, outages)?;
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
             flow: kept.head.flow.clone(),
             added: kept.head.added.0,
             paused: decide::paused(&work.records),
-            now: Now::of(kept, &view.decision, held, outages)?,
+            holding: holding(work, &now),
+            now,
             cells,
             spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
                 .with(pinged(work, &|_| true).as_no_round()),
@@ -1509,6 +1517,28 @@ impl Summary {
                 .count(),
         })
     }
+}
+
+/// The questions put to the owner that hold the work now ([`Summary::holding`]).
+fn holding(work: &Work, now: &Now) -> Vec<String> {
+    let Now::Waits { on, .. } = now else {
+        return Vec::new();
+    };
+    let merge = on.iter().any(|waited| match waited {
+        Waited::Precondition { by, .. } => {
+            (by.iter()).any(|maker| matches!(maker, Maker::Outside { source } if source == engine::asked::ASKED))
+        }
+        _ => false,
+    });
+    (decide::questions::questions(&work.records).into_iter())
+        .filter(|(name, q)| {
+            (merge && q.unanswered())
+                || on
+                    .iter()
+                    .any(|waited| matches!(waited, Waited::Answer { question } if question == name))
+        })
+        .map(|(name, _)| name.to_string())
+        .collect()
 }
 
 /// The work's time bar ([`Summary::bar`]): its span from its first round's begin to its last round's end cut into
@@ -2531,5 +2561,83 @@ impl Failure {
             FailureOf::NoModel => Failure::NoModel,
             FailureOf::Other => Failure::Other,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use decide::{Answered, Questioned};
+
+    use super::*;
+
+    /// A work whose records ask these questions, by their names and whether their cells wait for them, and answer
+    /// the latest version of those named.
+    fn asking(asked: &[(&str, bool)], answered: &[&str]) -> Work {
+        let mut work = Work::default();
+        for (at, (name, waits)) in asked.iter().enumerate() {
+            work.records.questions.push(Questioned {
+                name: name.to_string(),
+                cell: CellId::from("R2"),
+                run: RunId(1),
+                engine: false,
+                waits: *waits,
+                withdrawn: false,
+                at: Seq(at as u64 + 1),
+            });
+        }
+        for name in answered {
+            let version = (work.records.questions.iter()).find(|q| q.name == *name).map(|q| q.at);
+            work.records.answers.push(Answered {
+                question: name.to_string(),
+                version: version.unwrap_or(Seq(0)),
+                option: 1,
+                why: None,
+                at: Seq(100),
+            });
+        }
+        work
+    }
+
+    fn waits(on: Vec<Waited>) -> Now {
+        Now::Waits {
+            at: "M1".to_string(),
+            on,
+        }
+    }
+
+    #[test]
+    fn a_question_holds_a_work_that_waits_for_it_at_its_cell_and_every_one_unanswered_once_the_merge_waits() {
+        let work = asking(&[("a", true), ("b", false), ("c", false)], &["c"]);
+        let answer = Waited::Answer {
+            question: "a".to_string(),
+        };
+        assert_eq!(holding(&work, &waits(vec![answer])), ["a"]);
+        // Gone past, a question raises nothing until the merge waits for the owner's answers.
+        let ci = Waited::Precondition {
+            test: "ci = green".to_string(),
+            words: "ci = green".to_string(),
+            by: vec![Maker::Outside {
+                source: "ci".to_string(),
+            }],
+        };
+        assert!(holding(&work, &waits(vec![ci])).is_empty());
+        let asked = Waited::Precondition {
+            test: "asked = answered".to_string(),
+            words: "asked = answered".to_string(),
+            by: vec![Maker::Outside {
+                source: engine::asked::ASKED.to_string(),
+            }],
+        };
+        assert_eq!(holding(&work, &waits(vec![asked])), ["a", "b"]);
+        assert!(
+            holding(
+                &work,
+                &Now::Paused {
+                    by: Pauser::Owner,
+                    why: None
+                }
+            )
+            .is_empty()
+        );
     }
 }

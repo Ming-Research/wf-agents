@@ -14,6 +14,7 @@ import type {
   Item,
   Items,
   Now,
+  Question,
   Spent,
   Summary,
   Waited,
@@ -291,22 +292,14 @@ export function fixtureItems(start = Date.now()): Items {
     1: {
       title: 'Run works without anyone watching',
       dependsOn: [5, 6, 7],
-      work: work(
-          {
-            kind: 'waits',
-            at: 'research',
-            on: [
-              {
-                kind: 'call',
-                call: 7,
-                who: 'owner',
-                what: { kind: 'question', who: 'owner', question: 'Should a stale run be abandoned at once or kept a day?' },
-              },
-            ],
-          },
+      work: {
+        ...work(
+          { kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'stale-runs' }] },
           cellsAt('research', 'resting'),
           { hours: 9, dollars: 0.84, rounds: 4, quiet: 95 },
         ),
+        holding: ['stale-runs'],
+      },
     },
     2: {
       title: 'See every work at one glance',
@@ -523,8 +516,45 @@ export function fixtureItems(start = Date.now()): Items {
   };
 }
 
+/// The questions put to the owner, by the item whose work they are of: one the work waits for at its cell, and one it
+/// went on past, still to confirm.
+const QUESTIONS: Record<number, Question[]> = {
+  1: [
+    {
+      name: 'stale-runs',
+      cell: 'research',
+      version: 12,
+      engine: false,
+      waits: true,
+      withdrawn: null,
+      ask: 'Should a stale run be abandoned at once or kept a day?',
+      options: [
+        { does: 'Abandon it at once', follows: 'Its round is stopped and its cell runs again' },
+        { does: 'Keep it a day', follows: 'It is abandoned the next day, unless it goes on' },
+      ],
+      recommends: 1,
+      answer: null,
+    },
+    {
+      name: 'stale-limit',
+      cell: 'research',
+      version: 9,
+      engine: false,
+      waits: false,
+      withdrawn: null,
+      ask: 'How long may a run rest before it is stale?',
+      options: [
+        { does: 'An hour', follows: 'Most runs that rest longer were lost' },
+        { does: 'A day', follows: 'A run waiting for a person is left alone overnight' },
+      ],
+      recommends: 2,
+      answer: null,
+    },
+  ],
+};
+
 /// A work as its page gives it: the details the console does not read are left empty.
-function pageOf(item: Item, summary: Summary): WorkPage {
+function pageOf(item: Item, summary: Summary, questions: Record<number, Question[]>): WorkPage {
   const cells: CellDetail[] = FLOW.cells.map((c) => ({
     cell: c.id,
     needs: [],
@@ -540,12 +570,14 @@ function pageOf(item: Item, summary: Summary): WorkPage {
     cells,
     blocks: [],
     steps: [],
+    questions: questions[item.number] ?? [],
   };
 }
 
 /// The made-up items as a source the console reads: what the owner does changes them, and the console is told.
 export function fixtureSource(start = Date.now()): Source {
   const data = fixtureItems(start);
+  const questions = structuredClone(QUESTIONS);
   const listeners = new Set<(c: Changed) => void>();
   const find = (work: number) => {
     const item = data.items.find((i) => i.work.number === work);
@@ -559,6 +591,16 @@ export function fixtureSource(start = Date.now()): Source {
   const change = (s: Summary, what: Act) => {
     const ended = s.now.kind === 'merged' || s.now.kind === 'cancelled';
     switch (what.kind) {
+      case 'answer': {
+        // The answer is kept; a question the work waited for at its cell holds it no more, and the cell runs.
+        const q = (questions[s.item] ?? []).find((x) => x.name === what.question && x.version === what.version);
+        if (q === undefined) throw new Error(`There is no question ${what.question} at ${what.version}`);
+        q.answer = { option: what.option, at: Date.now(), why: what.why ?? null };
+        s.holding = (s.holding ?? []).filter((n) => n !== q.name);
+        if (s.now.kind === 'waits' && s.now.on.some((w) => w.kind === 'answer' && w.question === q.name))
+          s.now = { kind: 'next', cell: q.cell };
+        return;
+      }
       case 'pause':
         if (ended) throw new Error('The work has ended');
         s.paused = true;
@@ -590,7 +632,7 @@ export function fixtureSource(start = Date.now()): Source {
     loadWork: (work) => {
       try {
         const { item, summary } = find(work);
-        return Promise.resolve(structuredClone(pageOf(item, summary)));
+        return Promise.resolve(structuredClone(pageOf(item, summary, questions)));
       } catch (e) {
         return Promise.reject(e instanceof Error ? e : new Error(String(e)));
       }

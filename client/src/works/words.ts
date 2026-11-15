@@ -245,13 +245,21 @@ export function askWords(ask: Ask): string {
   return ask.kind === 'tool' ? `the tool ${ask.name}` : `a question to ${personWords(ask.who)}`;
 }
 
+/// The engine's source of whether every question put to the owner has the owner's answer (`flow/data/asked.toml`):
+/// only the owner's answers change what it writes.
+export const ASKED = 'asked';
+
+/// Whether what can make a precondition hold is the owner's: the owner, or the engine's word of how the questions put
+/// to the owner stand, which only the owner's answers change.
+export const ownerMakes = (m: Maker): boolean => m.kind === 'owner' || (m.kind === 'outside' && m.source === ASKED);
+
 /// Whether the owner is the one a work waits for, on this.
 export function waitsForOwner(waited: Waited): boolean {
   switch (waited.kind) {
     case 'call':
       return waited.who === 'owner' || waited.what.kind === 'atLimit';
     case 'precondition':
-      return waited.by.some((m) => m.kind === 'owner');
+      return waited.by.some(ownerMakes);
     case 'limit':
     case 'calls':
       return true;

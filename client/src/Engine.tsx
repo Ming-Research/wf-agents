@@ -9,19 +9,9 @@ import { useCallback, useState } from 'react';
 import { useMockEngine } from './engine-mock';
 import { mocksShown } from './mock-data';
 import { Button, Switch } from './parts';
-import { whoGives } from './console/items';
-import type { Items, Now } from './works-api';
+import type { Items } from './works-api';
 import { useStreamLost } from './changes';
 import { useChanges, useItems, useReading, useSource } from './works/source';
-
-/// Whether a work waits for the owner: for an answer, for a test only the owner can make hold, at a limit, stalled,
-/// or stopped by the engine or by a fault.
-export function waitsForOwner(now: Now): boolean {
-  if (now.kind === 'fault' || now.kind === 'stalled') return true;
-  if (now.kind === 'paused') return now.by === 'engine';
-  if (now.kind !== 'waits') return false;
-  return now.on.some((w) => whoGives(w) === 'owner');
-}
 
 /// The items read for the bar, and read again whenever something happened.
 export type BarItems = { items: Items | null; failed: string | null };

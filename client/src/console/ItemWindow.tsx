@@ -4,10 +4,12 @@
 // cancel it); two tabs; and under them, while something in the item is new to the owner, a strip that says what
 // changed, with a link to mark the item read. The first tab holds the body (where the item came from, the problem it
 // solves, the plan, with each choice that waits for the owner where it stands in the plan, and after them each question
-// a cell asked the owner that the work waits at, drawn as they are with a line in red that it stops the work, each
-// picked by a press on an option and let go by another, and at the plan's end a button as wide as the body to confirm
-// them, which counts the picks, waits until each choice has one and sends each question's answer to the engine; once
-// confirmed, the picks stand; and last, each ruling of a cell that keeps the work from going on and that the owner may
+// put to the owner that stands, drawn as they are, one that holds the work on the red tint and one the merge waits for
+// saying so in red, muted where the work has gone on past it and it is still to confirm, an answered one with the
+// answer picked, each picked by a
+// press on an option and let go by another, and at the plan's end a button as wide as the body to confirm them, which
+// counts the picks, waits until each choice has one and sends each question's answer to the engine; once confirmed,
+// the picks stand; and last, each ruling of a cell that keeps the work from going on and that the owner may
 // overrule, drawn as such a question is, with a button as wide to count it as settled), each passage
 // changed since the owner read it marked at its left, and under the body the messages: the owner's and the replies, and a
 // box to write one into a block of the work that people write, chosen above it, which a passage selected in the body
@@ -34,8 +36,9 @@ import {
   useState,
 } from 'react';
 
-import { Attr, Button, Confirm, PanelPart, Switch } from '../parts';
+import { Button, Confirm, PanelPart, Switch } from '../parts';
 import { mocksShown } from '../mock-data';
+import { questionsHolding } from '../notify';
 import {
   type Act,
   type Item,
@@ -128,46 +131,76 @@ const pageIn = (p: PageState): WorkPage | null => (p !== null && 'page' in p ? p
 /// A cell's title in the work's flow, or its id where the flow does not name it.
 const titleOf = (page: WorkPage | null, cell: string) => page?.flow.cells.find((c) => c.id === cell)?.title ?? cell;
 
-/// Whether what a work waits for is a question a cell asked the owner, which is drawn in the plan as a choice rather
-/// than said on the status line.
+/// Whether what a work waits for is a question a cell asked the owner as a call, which is drawn in the plan as a choice
+/// rather than said on the status line.
 const asked = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { kind: 'question' } } =>
   w.kind === 'call' && w.what.kind === 'question';
 
-/// The questions a cell asked the owner that the work waits at, as choices at the plan's end.
+/// The questions a cell asked the owner as a call the work waits at, as choices at the plan's end.
 function askedOf(now: Summary['now']): Choice[] {
   if (now.kind !== 'waits') return [];
-  return now.on.flatMap((w) => (asked(w) && w.who === 'owner' ? [askedChoice(w.what.question, w.call, now.at)] : []));
+  return now.on.flatMap((w) =>
+    asked(w) && w.who === 'owner' ? [{ ...askedChoice(w.what.question, w.call, now.at), stops: 'work' as const }] : [],
+  );
 }
 
-/// What the work waits for at a cell, in a few words for the status line.
-function lineWords(w: Waited, cell: string): string {
+/// The questions put to the owner that stand, as the work's page gives them, each as a choice at the plan's end: its
+/// options, the one it recommends, and the owner's answer to its latest version, which confirms it; what waits for an
+/// answer not given yet, the work at its cell, or the merge, where the question holds the work (`holding`); else it is
+/// still to confirm.
+function questionsOf(page: WorkPage | null, holding: Set<string>): Choice[] {
+  return (page?.questions ?? []).flatMap((q): Choice[] => {
+    if (q.withdrawn !== null || q.ask === null) return [];
+    const answered = q.answer !== null;
+    return [
+      {
+        kind: 'choice',
+        question: q.ask,
+        options: q.options.map((o) => ({ label: o.does, detail: o.follows })),
+        recommended: q.recommends === null ? null : q.recommends - 1,
+        chosen: q.answer === null ? null : q.answer.option - 1,
+        confirmed: answered,
+        asks: { cell: q.cell, question: q.name, version: q.version },
+        stops: answered ? undefined : q.waits ? 'work' : holding.has(q.name) ? 'merge' : 'later',
+      },
+    ];
+  });
+}
+
+/// What the owner's pick of a question is kept by: the call that waits for it, or the version of the question.
+const pickKey = (c: Choice): string =>
+  c.asks === undefined ? '' : 'call' in c.asks ? `call ${c.asks.call}` : `${c.asks.question}@${c.asks.version}`;
+
+/// What the work waits for at the cell the status line names, in a few words; none for a question to the owner, which
+/// is shown where it arises, in the plan.
+function lineWords(w: Waited): string | null {
   switch (w.kind) {
     case 'call':
       switch (w.what.kind) {
         case 'question':
-          return `at ${cell}, for an answer`;
+          return null;
         case 'tool':
-          return `at ${cell}, for ${w.what.name} to run`;
+          return `for ${w.what.name} to run`;
         case 'atLimit':
           return w.what.limit.of === 'returns'
-            ? `${cell} reached its limit: ${w.what.limit.sentBack} returns sent back`
-            : `${cell} reached its limit: ${w.what.limit.made} calls made`;
+            ? `reached its limit: ${w.what.limit.sentBack} returns sent back`
+            : `reached its limit: ${w.what.limit.made} calls made`;
         case 'wait':
-          return `at ${cell}, for ${callWords(w.what)}`;
+          return `for ${callWords(w.what)}`;
       }
-      return '';
+      return null;
     case 'precondition':
       return `until ${w.words.charAt(0).toLowerCase()}${w.words.slice(1)}`;
     case 'limit':
-      return `${cell} reached its limit: ${w.runs} runs in a row for what a cell after it wrote`;
+      return `reached its limit: ${w.runs} runs in a row for what a cell after it wrote`;
     case 'calls':
-      return `${cell} reached its limit: ${w.runs} runs in a row that only asked for calls`;
+      return `reached its limit: ${w.runs} runs in a row that only asked for calls`;
     case 'slot':
-      return `at ${cell}, for a free slot, which the engine gives in its order`;
+      return 'for a free slot, which the engine gives in its order';
     case 'agents':
-      return `at ${cell}, for the wait every work shares: ${outageWords(w.outage)}`;
+      return `for the wait every work shares: ${outageWords(w.outage)}`;
     case 'answer':
-      return `at ${cell}, for your answer to ${w.question}`;
+      return null;
   }
 }
 
@@ -182,40 +215,58 @@ function goOnOf(now: Summary['now']): Act | null {
   return null;
 }
 
-/// What the work does now, as a word and the facts after it.
-export function nowWords(s: Summary, page: WorkPage | null): { word: string; facts: string | null } {
+/// What the work does now, as a word, the cell it waits at, and the facts after them.
+export function nowWords(s: Summary, page: WorkPage | null): { word: string; at: string | null; facts: string | null } {
   const now = s.now;
   switch (now.kind) {
     case 'round':
       return {
         word: MOOD_WORDS.running,
+        at: null,
         facts: `${titleOf(page, now.cell)}, round ${now.round}, for ${ago(now.since)}${s.paused ? ', paused after it' : ''}`,
       };
     case 'next':
-      return { word: MOOD_WORDS.running, facts: `next ${titleOf(page, now.cell)}` };
+      return { word: MOOD_WORDS.running, at: null, facts: `next ${titleOf(page, now.cell)}` };
     case 'waits': {
-      const cell = titleOf(page, now.at);
       const who = [...new Set(now.on.flatMap((w) => whom(w, page) ?? []))];
-      const said = now.on.flatMap((w) => (asked(w) ? [] : [lineWords(w, cell)]));
-      const facts = said.length > 0 ? said.join('; ') : `at ${cell}`;
+      const said = now.on.flatMap((w) => lineWords(w) ?? []);
+      const facts = said.length > 0 ? said.join('; ') : null;
       // A work that waits only for what a source outside it gives, such as the items it depends on being merged,
       // waits for that.
-      if (who.length === 0) return { word: MOOD_WORDS.waiting, facts };
-      return { word: `Waiting for ${who.join(' and ')}`, facts };
+      if (who.length === 0) return { word: MOOD_WORDS.waiting, at: now.at, facts };
+      return { word: `Waiting for ${who.join(' and ')}`, at: now.at, facts };
     }
     case 'paused':
-      return now.by === 'engine' ? { word: MOOD_WORDS.halted, facts: now.why } : { word: MOOD_WORDS.paused, facts: null };
+      return now.by === 'engine'
+        ? { word: MOOD_WORDS.halted, at: null, facts: now.why }
+        : { word: MOOD_WORDS.paused, at: null, facts: null };
     case 'everything':
-      return { word: MOOD_WORDS.paused, facts: 'with every work' };
+      return { word: MOOD_WORDS.paused, at: null, facts: 'with every work' };
     case 'fault':
-      return { word: MOOD_WORDS.halted, facts: now.words };
+      return { word: MOOD_WORDS.halted, at: null, facts: now.words };
     case 'merged':
-      return { word: 'Merged', facts: null };
+      return { word: 'Merged', at: null, facts: null };
     case 'cancelled':
-      return { word: 'Cancelled', facts: null };
+      return { word: 'Cancelled', at: null, facts: null };
     case 'stalled':
-      return { word: MOOD_WORDS.owner, facts: `at ${titleOf(page, now.at)}: ${stalledWords(now)}` };
+      return { word: MOOD_WORDS.owner, at: now.at, facts: stalledWords(now) };
   }
+}
+
+/// A cell as the page shows one: its id in the monospace, muted, and its title semibold, which the work's flow gives.
+function CellName({ cell, page }: { cell: string; page: WorkPage | null }) {
+  const title = page?.flow.cells.find((c) => c.id === cell)?.title;
+  return (
+    <span>
+      <span className="cell-id">{cell}</span>
+      {title !== undefined && (
+        <>
+          {' '}
+          <span className="cell-title">{title}</span>
+        </>
+      )}
+    </span>
+  );
 }
 
 /// The tone of a dot: an item's standing, or what its work does.
@@ -424,15 +475,16 @@ function ItemView({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [open, fresh, markAsRead]);
-  // The questions a cell asked the owner that the work waits at, after the plan's own, each with the option picked.
-  const [answers, setAnswers] = useState<Record<number, number | null>>({});
-  // What the owner wrote to a question with no options, by its call.
-  const [written, setWritten] = useState<Record<number, string>>({});
-  const questions = askedOf(work.now).map((c) => ({
-    ...c,
-    chosen: answers[c.asks?.call ?? -1] ?? null,
-    answer: written[c.asks?.call ?? -1] ?? '',
-  }));
+  // The questions put to the owner, after the plan's own: those of the work's own that stand, and those a cell asked
+  // as a call the work waits at; each not yet answered with the option picked, or the words written to one with no
+  // options, by what its answer is sent to.
+  const [answers, setAnswers] = useState<Record<string, number | null>>({});
+  const [written, setWritten] = useState<Record<string, string>>({});
+  const questions = [...questionsOf(read, new Set(questionsHolding(work))), ...askedOf(work.now)].map((c) =>
+    c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null, answer: written[pickKey(c)] ?? '' },
+  );
+  // Those still to answer, which Confirm sends.
+  const toAnswer = questions.filter((q) => q.confirmed !== true);
   // Whether a question has its answer: an option picked, or for one with no options, words written.
   const answered = (q: Choice) => (q.options.length === 0 ? (q.answer ?? '').trim() !== '' : q.chosen !== null);
   // The plan as drawn: its own parts, a choice of them open while the plan waits to be confirmed, then the questions.
@@ -442,9 +494,10 @@ function ItemView({
   ];
   // A press on an option picks it, and a press on the one picked lets it go.
   const choose = (at: number, option: number) => {
-    const call = questions[at - body.plan.length]?.asks?.call;
-    if (call !== undefined) {
-      setAnswers((was) => ({ ...was, [call]: was[call] === option ? null : option }));
+    const q = questions[at - body.plan.length];
+    if (q !== undefined) {
+      const key = pickKey(q);
+      setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
       return;
     }
     setBody((was) => ({
@@ -456,23 +509,30 @@ function ItemView({
   };
   // Words written to a question with no options.
   const write = (at: number, text: string) => {
-    const call = questions[at - body.plan.length]?.asks?.call;
-    if (call !== undefined) setWritten((was) => ({ ...was, [call]: text }));
+    const q = questions[at - body.plan.length];
+    if (q !== undefined) setWritten((was) => ({ ...was, [pickKey(q)]: text }));
   };
-  // One Confirm for the plan's choices and the questions: each question's answer, the label of its option or the
-  // words written to it, is sent to the call that waits for it, one after another; once all are taken, the plan's
-  // picks stand.
+  // One Confirm for the plan's choices and the questions: each question's answer is sent, one after another, to what
+  // it answers: the option picked, counted from one, to the version of the work's question; the label of its option or
+  // the words written to it, to the call that waits for it. Once all are taken, the plan's picks stand.
   const answering = useSending(send);
   const ownPicks = body.planWaits ? picks(body) : { picked: 0, all: 0 };
   const count = {
-    picked: ownPicks.picked + questions.filter(answered).length,
-    all: ownPicks.all + questions.length,
+    picked: ownPicks.picked + toAnswer.filter(answered).length,
+    all: ownPicks.all + toAnswer.length,
   };
   const confirm = async () => {
-    for (const q of questions) {
+    for (const q of toAnswer) {
       if (q.asks === undefined || !answered(q)) continue;
-      const result = q.chosen === null ? (q.answer ?? '').trim() : q.options[q.chosen].label;
-      const taken = await answering.send({ kind: 'result', call: q.asks.call, result });
+      const taken = await answering.send(
+        'call' in q.asks
+          ? {
+              kind: 'result',
+              call: q.asks.call,
+              result: q.chosen === null ? (q.answer ?? '').trim() : q.options[q.chosen].label,
+            }
+          : { kind: 'answer', question: q.asks.question, version: q.asks.version, option: (q.chosen ?? 0) + 1, why: null },
+      );
       if (!taken) return;
     }
     if (body.planWaits) setBody((was) => ({ ...was, planWaits: false }));
@@ -507,11 +567,7 @@ function ItemView({
             {item.title}
           </button>
         </h2>
-        {item.project !== null && (
-          <span className="drawer-belongs">
-            <Attr name="project" value={item.project} />
-          </span>
-        )}
+        {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
       </header>
       <ItemLine item={item} waitsFor={waitsFor} goal={goal} tier={mock.tier} />
       <WorkLine w={work} page={read} />
@@ -565,14 +621,14 @@ function ItemView({
                 title="Plan"
                 parts={plan}
                 keep={rulings.length > 0}
-                choose={body.planWaits || questions.length > 0 ? choose : undefined}
-                write={questions.length > 0 ? write : undefined}
+                choose={body.planWaits || toAnswer.length > 0 ? choose : undefined}
+                write={toAnswer.length > 0 ? write : undefined}
                 discuss={discuss}
                 about={about}
                 jump={jump}
                 after={
                   <>
-                    {body.planWaits || questions.length > 0 ? (
+                    {body.planWaits || toAnswer.length > 0 ? (
                       <button
                         type="button"
                         className="button button-primary cw-confirm"
@@ -611,6 +667,7 @@ function ItemView({
             <Discussion
               work={work}
               page={page}
+              askers={[...new Set(toAnswer.flatMap((q) => (q.asks === undefined ? [] : [q.asks.cell])))]}
               messages={body.messages}
               messageTo={messageTo}
               setMessageTo={setMessageTo}
@@ -663,10 +720,11 @@ function ItemLine({ item, waitsFor, goal, tier }: {
 }
 
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
-  const { word, facts } = nowWords(w, page);
+  const { word, at, facts } = nowWords(w, page);
   return (
     <Line tone={ended(w) ? 'ended' : moodOf(w)} word={word}>
-      {/* What it does in one phrase, then where. */}
+      {/* Where it waits, as a cell is shown elsewhere; what it does in one phrase; then the work. */}
+      {at !== null && <CellName cell={at} page={page} />}
       {facts !== null && <span className="muted">{facts}</span>}
       <a href={`#/works/${w.number}`} className="link mono" title={`Open work ${w.number}`}>
         W{w.number}
@@ -870,7 +928,8 @@ function Section({
 
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
 /// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about
-/// it, which brings the first into view. A question with no options is answered in words, in a box in their place.
+/// it, which brings the first into view. A question with no options is answered in words, in a box in their place. A
+/// question that holds the work, at its cell or at the merge, is on the red tint, edged in red.
 function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   p: Choice;
   pick?: (option: number) => void;
@@ -879,10 +938,14 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   messages: number[];
   jump?: (at: number) => void;
 }) {
+  const holds = p.stops === 'work' || p.stops === 'merge';
   return (
-    <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}>
-      <p className="cw-choice-q">{p.question}</p>
-      {p.asks !== undefined && <p className="cw-choice-stops">The work waits for this answer</p>}
+    <div className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${holds ? ' cw-choice-holds' : ''}`}>
+      <div className="cw-choice-q">
+        <Markdown text={p.question} />
+      </div>
+      {p.stops === 'merge' && <p className="cw-choice-stops">The merge waits for this answer</p>}
+      {p.stops === 'later' && <p className="cw-choice-later">Still to confirm</p>}
       {p.options.length === 0 && p.asks !== undefined ? (
         <textarea
           rows={3}
@@ -989,9 +1052,11 @@ const MESSAGE_TO = [
   { cell: 'I1', name: 'Implementation' },
 ] as const;
 
-function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
+function Discussion({ work, page, askers, messages, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
+  /// The cells that asked the owner a question still to answer.
+  askers: string[];
   messages: Message[];
   /// Whom the owner chose the message goes to; none where they did not.
   messageTo: MessageCell | null;
@@ -1005,10 +1070,9 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   const read = pageIn(page);
   const blocks = (read?.flow.blocks ?? []).filter((b) => b.writtenBy.people && b.values === null);
   // Whom a message goes to: the research, the deep research or the implementation, and a cell that asked the owner a
-  // question the work waits at, each by the block of the owner's words its cell reads. The deep research cannot be
-  // chosen where the work did not go through it. Once the work has come to the implementation, a message goes there
+  // question still to answer, each by the block of the owner's words its cell reads. A cell the work has not reached,
+  // which has never run in it, cannot be chosen. Once the work has come to the implementation, a message goes there
   // unless the owner picks another; before that, to the research.
-  const askers = [...new Set(askedOf(work.now).flatMap((c) => (c.asks === undefined ? [] : [c.asks.cell])))];
   const cells: { cell: MessageCell; name: string }[] = [
     ...MESSAGE_TO,
     ...askers.filter((c) => !MESSAGE_TO.some((t) => t.cell === c)).map((c) => ({ cell: c, name: titleOf(read, c) })),
@@ -1019,7 +1083,7 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
     // does. A block several cells read, such as the background, is no message to one of them and is never written
     // from here.
     block: blocks.find((b) => b.readBy.cells.length === 1 && b.readBy.cells[0] === t.cell),
-    off: t.cell === 'D1' && !went(work, 'D1'),
+    off: !went(work, t.cell),
   }));
   const usable = targets.filter((t) => t.block !== undefined && !t.off);
   const target = usable.find((t) => t.cell === (messageTo ?? (went(work, 'I1') ? 'I1' : 'R1'))) ?? usable[0];
@@ -1055,7 +1119,13 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
                 aria-checked={t.cell === target?.cell}
                 aria-pressed={t.cell === target?.cell}
                 disabled={t.block === undefined || t.off}
-                title={t.off ? 'The work did not go through the deep research' : undefined}
+                title={
+                  !t.off
+                    ? undefined
+                    : t.cell === 'D1'
+                      ? 'The work did not go through the deep research'
+                      : `The work has not reached ${t.name}`
+                }
                 onClick={() => setMessageTo(t.cell)}
               >
                 {t.name}
