@@ -84,7 +84,7 @@ function withWaits(item: number, waits: Wait[]): Items {
 const KINDS: Wait[] = [
   question(3, 'Which?'),
   wait('answer-scope', 'What of scope?', { kind: 'answer', question: 'scope', version: 4 }),
-  wait('limit', 'The engine sent the cell back 2 times since its counts last started anew, its limit.', { kind: 'goOn', call: 4 }),
+  wait('limit', 'The engine has sent the cell back as often as a sender may since its counts last started anew, its limit of 2.', { kind: 'goOn', call: 4 }),
   wait('pause', 'The engine paused the work. A round failed.'),
   wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
   wait('write-content', '`test = may_merge` does not hold, as `content` says, and the cell requires it.', {

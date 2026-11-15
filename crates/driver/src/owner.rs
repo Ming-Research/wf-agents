@@ -639,7 +639,8 @@ mod tests {
         // cell after it for what it wrote; beside the cell, which it does not name.
         assert_eq!(
             run[0].why,
-            "The engine sent the cell back 2 times since its counts last started anew, its limit."
+            "The engine has sent the cell back as often as a sender may since its counts last started anew, its limit \
+             of 2."
         );
         assert_eq!(run[0].ends, Ends::GoOn { call: CallId(9) });
         let limit = Waited::Limit {
@@ -649,9 +650,20 @@ mod tests {
         let cell = of(&work, &at("write", vec![limit]));
         assert_eq!(
             cell[0].why,
-            "`review` sent the cell back 3 times since its counts last started anew, its limit."
+            "`review` has sent the cell back as often as a sender may since its counts last started anew, its limit \
+             of 3."
         );
         assert_eq!(cell[0].ends, Ends::LetGo { cell: "write".into() });
+        // A count of one needs no plural: a flow may let a sender send the cell back once.
+        let once = Waited::Limit {
+            by: "review".into(),
+            runs: 1,
+        };
+        assert_eq!(
+            of(&work, &at("write", vec![once]))[0].why,
+            "`review` has sent the cell back as often as a sender may since its counts last started anew, its limit \
+             of 1."
+        );
         // A run kept from before at the limit of calls a run made, which no run reaches now, is said so.
         work.calls.insert(CallId(9), Call::AtLimit(Limit::Calls { made: 40 }));
         let old = of(&work, &at("write", vec![at_limit]));

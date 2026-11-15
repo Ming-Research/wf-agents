@@ -772,7 +772,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     const call = h.atLimit(run, limit);
     const atLimit: Wait = {
       key: 'limit',
-      why: 'The engine sent the cell back 2 times since its counts last started anew, its limit.',
+      why: 'The engine has sent the cell back as often as a sender may since its counts last started anew, its limit of 2.',
       ends: { kind: 'goOn', call },
     };
     keep({
@@ -795,7 +795,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.ran('review', [{ block: 'opinions_implement', content: 'Finding 4: the arrow points the wrong way.' }, { block: 'content', content: '', value: 'no' }]);
     const limit: Wait = {
       key: 'limit',
-      why: '`review` sent the cell back 3 times since its counts last started anew, its limit.',
+      why: '`review` has sent the cell back as often as a sender may since its counts last started anew, its limit of 3.',
       ends: { kind: 'letGo', cell: 'implement' },
     };
     keep({

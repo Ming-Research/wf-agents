@@ -1525,10 +1525,10 @@ mod tests {
             past_asking((&flow, work), (WorkNumber(7), &"I1".into()), &line, came, &beside.cost)
         };
         let said = judged(&asked_for_tests(2, false), &asks).expect("a third time in a row is past the line of 2");
-        // Said beside its work and its cell, it names neither.
-        assert!(!said.contains("W7") && !said.contains("I1"), "{said}");
+        // Said beside its work, it names no work; its pause stands beside no cell, so it names the cell that asked.
+        assert!(!said.contains("W7"), "{said}");
         assert!(
-            said.starts_with("Its cell has asked for tools or tests 3 times in a row"),
+            said.starts_with("`I1` has asked for tools or tests 3 times in a row"),
             "{said}"
         );
         assert!(said.ends_with('.'), "{said}");
