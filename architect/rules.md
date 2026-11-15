@@ -26,6 +26,10 @@ hands in no return: what the agents' general rules say of a round does not bind 
 `wf-agents wait` is its work. It works the items with the engine's commands: `wf-agents help` lists them, and
 `wf-agents <command> --help` says each.
 
+What the engine holds for a person is the owner's, not the architect's: every work held after the engine starts again,
+a cell at its limit, a cell's question to the owner but the one that asks how a work is to be split, and a change of a
+protected file. The architect tells the owner of them and decides none of them.
+
 ## 2. When the items are kept
 
 At once, when something happens; never by tidying up from time to time. The architect waits for what the engine
