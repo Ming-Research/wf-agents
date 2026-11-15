@@ -63,7 +63,7 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     let list = engine.says(&["list"]);
     assert!(
         list.contains(
-            "\n#2 \"Deliver it\" at level 1, W2 on deliver, after #1: waits at V1 for the outside \
+            "\n#2 \"Deliver it\" at level 1, project script, W2 on deliver, after #1: waits at V1 for the outside \
              (dependencies): dependencies = merged\n"
         ),
         "{list}"
@@ -71,7 +71,7 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     // The items it depends on merging, not the owner, let it start.
     assert!(
         list.contains(
-            "\n#3 \"Build on it\" at level 1, W3 on engineer, after #2: waits at S1 for the outside \
+            "\n#3 \"Build on it\" at level 1, project script, W3 on engineer, after #2: waits at S1 for the outside \
              (dependencies): dependencies = merged\n"
         ),
         "{list}"
@@ -79,15 +79,15 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
 
     engine.says(&["resume", "1"]);
     engine.until(&["list", "--all"], |line| {
-        line == "#3 \"Build on it\" at level 1, W3 on engineer, after #2: merged"
+        line == "#3 \"Build on it\" at level 1, project script, W3 on engineer, after #2: merged"
     });
     let list = engine.says(&["list", "--all"]);
     assert!(
-        list.contains("#1 \"Build it\" at level 1, W1 on engineer: merged\n"),
+        list.contains("#1 \"Build it\" at level 1, project script, W1 on engineer: merged\n"),
         "{list}"
     );
     assert!(
-        list.contains("#2 \"Deliver it\" at level 1, W2 on deliver, after #1: merged\n"),
+        list.contains("#2 \"Deliver it\" at level 1, project script, W2 on deliver, after #1: merged\n"),
         "{list}"
     );
     let shown = engine.says(&["show", "2"]);

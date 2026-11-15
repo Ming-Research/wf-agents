@@ -568,10 +568,11 @@ fn list(items: &Items, listing: &Listing) -> String {
             false => format!(" It waits for good on {}, cancelled.", on.join(", ")),
         };
         lines.push(format!(
-            "#{} \"{}\" at {}, W{} on {}{after}{tags}: {}{good}",
+            "#{} \"{}\" at {}, {}, W{} on {}{after}{tags}: {}{good}",
             item.number,
             item.title,
             level(item.level.as_deref()),
+            project(item.project.as_deref()),
             work.number,
             work.flow,
             now(&work.now)
@@ -608,11 +609,12 @@ fn show(page: &WorkPage) -> String {
     let summary = &page.summary;
     let mut lines = vec![
         format!(
-            "Work {} of item {} \"{}\" at {}, on the flow {}.",
+            "Work {} of item {} \"{}\" at {}, {}, on the flow {}.",
             summary.number,
             summary.item,
             page.title,
             level(page.level.as_deref()),
+            project(page.project.as_deref()),
             summary.flow
         ),
         format!("Now: {}.", now(&summary.now)),
@@ -811,6 +813,14 @@ fn level(level: Option<&str>) -> String {
     match level {
         Some(level) => format!("level {level}"),
         None => "no level".to_string(),
+    }
+}
+
+/// An item's project, in words: the name the installation's settings give it.
+fn project(project: Option<&str>) -> String {
+    match project {
+        Some(project) => format!("project {project}"),
+        None => "no project".to_string(),
     }
 }
 
@@ -1596,15 +1606,15 @@ mod tests {
         // What ended is left out, and counted, unless all are asked for.
         assert_eq!(
             list(&some, &page(false)),
-            "#2 \"item 2\" at level 1, W2 on trial, after #1, tagged page: stalled at merge, its last cell, which nothing \
-             new runs; what runs it no cell can write It waits for good on #1, cancelled.\nAnd 1 item that ended, merged or \
-             cancelled: wf-agents list --tag page --all"
+            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge, its last \
+             cell, which nothing new runs; what runs it no cell can write It waits for good on #1, cancelled.\nAnd 1 \
+             item that ended, merged or cancelled: wf-agents list --tag page --all"
         );
         assert_eq!(
             list(&some, &page(true)),
-            "#2 \"item 2\" at level 1, W2 on trial, after #1, tagged page: stalled at merge, its last cell, which nothing \
-             new runs; what runs it no cell can write It waits for good on #1, cancelled.\n#3 \"item 3\" at level 1, W3 on trial, \
-             tagged page: merged"
+            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge, its last \
+             cell, which nothing new runs; what runs it no cell can write It waits for good on #1, cancelled.\n#3 \"item \
+             3\" at level 1, project script, W3 on trial, tagged page: merged"
         );
         let none = Listing {
             tag: Some("none".to_string()),
@@ -1616,6 +1626,24 @@ mod tests {
         assert_eq!(
             list(&ended, &Listing::default()),
             "No item that has not ended.\nAnd 1 item that ended, merged or cancelled: wf-agents list --all"
+        );
+    }
+
+    #[test]
+    fn a_list_says_each_items_project_and_an_item_kept_before_projects_as_none() {
+        let mut other = item(1, false, &[], &[]);
+        other.project = Some("wf-agents".to_string());
+        let mut kept = item(2, false, &[], &[]);
+        kept.project = None;
+        let said = list(&items(vec![other, kept]), &Listing::default());
+        let lines: Vec<&str> = said.lines().collect();
+        assert!(
+            lines[0].starts_with("#1 \"item 1\" at level 1, project wf-agents, W1 on trial: "),
+            "{said}"
+        );
+        assert!(
+            lines[1].starts_with("#2 \"item 2\" at level 1, no project, W2 on trial: "),
+            "{said}"
         );
     }
 
