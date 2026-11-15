@@ -30,6 +30,7 @@
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
+import { accentNow, turning } from '../accent';
 import { MARK, MARKS } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { STATE, stateOf } from '../works/words';
@@ -113,7 +114,8 @@ export const PACE = 1.5;
 
 /// The console's colours: words, marks and lines in greys; one accent for what runs; red for a stop, what waits for the
 /// owner or what the engine halted; and for a work's age amber, then red past an hour. These are the
-/// console's own, in light; `themed` gives those the page's tokens came from as the tokens say, light or dark.
+/// console's own, in light, its purples in the page's own violet; `themed` gives those the page's tokens came from as the
+/// tokens say, light or dark, and turns the other purples to the accent picked in the Settings view.
 const LIGHT = {
   ink: '#1f2937',
   muted: '#6b7280',
@@ -177,9 +179,21 @@ function token(name: string, fallback: string): string {
 const between = (a: string, b: string, k: number) => `#${mix(a, b, k).toString(16).padStart(6, '0')}`;
 
 /// The scene's colours as the page's theme has them. Those the page's tokens came from are read from the
-/// tokens, which in light are the console's own; in dark, the colours the tokens have no step for are worked out from
-/// the tokens, keeping their relations to the card and the ground, as the console had no dark ground.
+/// tokens, which in light are the console's own; the console's other purples are turned to the accent in force, as the
+/// accent's own tones are (accent.ts), read as the scene is made and as the theme changes: the accent is picked in the
+/// Settings view, where the console is not drawn. In dark, the colours the tokens have no step for are worked out from
+/// the tokens and those purples, keeping their relations to the card and the ground, as the console had no dark ground.
 export function themed(): typeof LIGHT {
+  const turn = turning(accentNow());
+  const own = {
+    unseen: turn(LIGHT.unseen, 'read'),
+    accent: turn(LIGHT.accent, 'read'),
+    over: turn(LIGHT.over, 'read'),
+    branch: turn(LIGHT.branch, 'read'),
+    mapBar: turn(LIGHT.mapBar, 'read'),
+    hoverRibbon: turn(LIGHT.hoverRibbon, 'tint'),
+    chosenRibbon: turn(LIGHT.chosenRibbon, 'tint'),
+  };
   const t = {
     ink: token('--text', LIGHT.ink),
     muted: token('--muted', LIGHT.muted),
@@ -196,18 +210,19 @@ export function themed(): typeof LIGHT {
     tools: token('--track-tool', LIGHT.tools),
     idle: token('--track-gap', LIGHT.idle),
   };
-  if (getComputedStyle(document.documentElement).colorScheme !== 'dark') return { ...LIGHT, ...t };
+  if (getComputedStyle(document.documentElement).colorScheme !== 'dark') return { ...LIGHT, ...own, ...t };
   return {
     ...LIGHT,
+    ...own,
     ...t,
     faint: between(t.muted, t.card, 0.3),
     pale: between(t.muted, t.card, 0.55),
     line: between(t.hair, t.muted, 0.35),
     edge: t.hair,
-    branch: between(t.card, LIGHT.over, 0.45),
-    hoverRibbon: between(t.card, LIGHT.over, 0.3),
+    branch: between(t.card, own.over, 0.45),
+    hoverRibbon: between(t.card, own.over, 0.3),
     chosenRibbon: between(t.card, t.chosen, 0.3),
-    mapBar: between(t.card, LIGHT.over, 0.6),
+    mapBar: between(t.card, own.over, 0.6),
     paused: t.muted,
     amber: token('--orange-text', LIGHT.amber),
     other: '#656c76',

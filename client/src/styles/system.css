@@ -142,3 +142,79 @@
   background: var(--ground);
   user-select: all;
 }
+
+/* The accent: the presets as the page's switch, each choice with a mark of the accent it gives, drawn as a cell's mark
+   is, and a colour of the owner's own beside them, which looks as a choice of the switch does: taken, on the accent's
+   tint, in its text, ringed in it. */
+.accent-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.accent-pick .switch-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.accent-mark {
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--space-2);
+  background: var(--accent-mark);
+}
+
+.accent-own {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--control);
+  padding: 0 var(--space-8);
+  border-radius: var(--corner);
+  color: var(--muted);
+  font-size: var(--size-small);
+  cursor: pointer;
+  transition: background-color var(--hover-time);
+}
+
+.accent-own:hover {
+  background-image: linear-gradient(var(--step), var(--step));
+}
+
+.accent-own-taken {
+  background-color: var(--accent-tint);
+  color: var(--accent-text);
+  box-shadow: 0 0 0 var(--hairline) var(--accent);
+}
+
+/* The browser's own box of a colour, as small as a tag, its colour to its hairline edge. Its focus stands outside it,
+   where the colour in it does not hide the accent's outline. */
+.accent-box {
+  width: var(--control);
+  height: var(--tag);
+  padding: 0;
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--space-2);
+  background: var(--card);
+  cursor: pointer;
+}
+
+.accent-box:focus-visible {
+  outline-offset: var(--space-2);
+}
+
+.accent-box::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.accent-box::-webkit-color-swatch {
+  border: 0;
+  border-radius: var(--space-2);
+}
+
+.accent-box::-moz-color-swatch {
+  border: 0;
+  border-radius: var(--space-2);
+}
