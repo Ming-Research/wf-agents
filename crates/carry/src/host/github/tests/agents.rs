@@ -20,7 +20,7 @@ impl Hub {
     async fn agents_check(&self) -> Result<Option<String>, String> {
         let place = self.place();
         self.host
-            .run_tests(&branch(&place), &Named::default(), &mut Stop::never())
+            .run_tests(&branch(&place), &Named::default(), self.call(), &mut Stop::never())
             .await
     }
 }
