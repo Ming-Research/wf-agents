@@ -510,3 +510,30 @@ async fn a_head_moved_since_the_check_fails_the_merge_in_passing_and_is_written_
     assert!(failed.why.contains("latest check did not pass"), "{failed:?}");
     assert_eq!(written_from_outside(&mut told), Vec::new());
 }
+
+// A merge that cannot read the work's branch fails its round with what the read found, as the check does, and asks the
+// host nothing: going on, it took a head nobody read for one that had not moved. Well under a second alone: a
+// repository on disk and the fake host; no other test holds the merge to a read that fails.
+#[tokio::test]
+async fn a_merge_that_cannot_read_the_works_branch_fails_its_round_as_the_check_does() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let place = repo.place(WORK);
+    let checked = run(&repo.project.repo, &["rev-parse", &place.reference()]);
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    // The branch is gone, as where a person deleted it.
+    run(&repo.project.repo, &["update-ref", "-d", &place.reference()]);
+    let acts = acts(&repo, Fake::new(&main));
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    let merged = acts.inner.act(&merging(&checked), &teller, &mut Stop::never()).await;
+    let Err(failed) = merged else {
+        panic!("the merge went on over a branch it could not read");
+    };
+    assert!(failed.why.contains(&place.reference()), "{failed:?}");
+    assert_eq!(written_from_outside(&mut told), Vec::new());
+    assert!(
+        !(acts.inner.host.asked().iter()).any(|a| matches!(a, Asked::Merge(_))),
+        "the host is asked to merge nothing"
+    );
+}
