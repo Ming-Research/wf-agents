@@ -119,6 +119,15 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        // The store is made and migrated here, once and before anything else opens its file: what keeps the copies of
+        // it opens it as it is made, and the loop is opened on this one.
+        let store = match open_store(data) {
+            Ok(store) => store,
+            Err(why) => {
+                eprintln!("{why}");
+                return ExitCode::FAILURE;
+            }
+        };
         let levels = match &with {
             Read::Script(..) => script_levels(),
             Read::Settings(settings, ..) => match settings.levels() {
@@ -178,7 +187,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 }
             }
         };
-        let (service, inbox) = match engine(data, flows, carriers, Arc::new(SystemClock)) {
+        let (service, inbox) = match open_engine(store, flows, carriers, Arc::new(SystemClock)) {
             Ok(opened) => opened,
             Err(why) => {
                 eprintln!("{why}");
@@ -236,21 +245,38 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
     })
 }
 
+/// The store in the data directory, made with its schema where there is none and migrated where it is of an earlier
+/// version: the one place that does either, which whatever else opens the file comes after; or why it cannot be
+/// opened, in words.
+pub fn open_store(data: &Path) -> Result<Store, String> {
+    let path = data.join(store::FILE);
+    Store::open(&path).map_err(|fault| {
+        let words = service::store_fault_words(&fault);
+        format!("{}: the store cannot be opened: {words}", path.display())
+    })
+}
+
+/// The engine's loop opened on this store, with these flows and carriers, on this clock; or why it cannot be opened,
+/// in words.
+fn open_engine(
+    store: Store,
+    flows: Vec<Compiled>,
+    carriers: Carriers,
+    clock: Arc<dyn Clock>,
+) -> Result<(Service, Inbox), String> {
+    Service::open(Box::new(store), flows, carriers, clock).map_err(|fault| format!("The engine cannot start: {fault}."))
+}
+
 /// The engine's loop opened on the store in the data directory, with these flows and carriers, on this clock: what
-/// `run` serves and `play` plays, made by one function so that a play is played on the engine a run runs; or why it
-/// cannot be opened, in words.
+/// `run` serves and `play` plays, made by the same two steps so that a play is played on the engine a run runs; or why
+/// it cannot be opened, in words.
 pub fn engine(
     data: &Path,
     flows: Vec<Compiled>,
     carriers: Carriers,
     clock: Arc<dyn Clock>,
 ) -> Result<(Service, Inbox), String> {
-    let path = data.join(store::FILE);
-    let store = Store::open(&path).map_err(|fault| {
-        let words = service::store_fault_words(&fault);
-        format!("{}: the store cannot be opened: {words}", path.display())
-    })?;
-    Service::open(Box::new(store), flows, carriers, clock).map_err(|fault| format!("The engine cannot start: {fault}."))
+    open_engine(open_store(data)?, flows, carriers, clock)
 }
 
 /// The carriers of an engine whose agents, acts and tools follow the script, reading what is written beside the flows
