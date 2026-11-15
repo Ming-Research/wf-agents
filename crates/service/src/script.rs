@@ -1,5 +1,6 @@
 //! The script the test carriers follow: a TOML file saying, for each flow, what each cell's agent or act returns, run
-//! by run and round by round, and what each tool answers.
+//! by run and round by round, and what each tool answers; and, for a play of it, the items it adds, what people and the
+//! outside do at states of their works, and the path each work must take (module [`items`]).
 //!
 //! ```toml
 //! # How many rounds of agents go on at once; two where it is left out, as the installation's sample settings give.
@@ -100,6 +101,8 @@
 
 use std::collections::BTreeMap;
 
+pub mod items;
+
 use flow::{CellSpec, Compiled, Kind};
 use serde::Deserialize;
 use work::{Ask, Handed, Spent, Time};
@@ -143,6 +146,9 @@ pub struct Script {
     /// What the cells of each flow return, by the flow's name.
     #[serde(default)]
     pub flows: BTreeMap<String, FlowScript>,
+    /// The items a play of the script adds, in order.
+    #[serde(default)]
+    pub items: Vec<items::ItemScript>,
 }
 
 /// What a round takes; what is left out is taken from the script's own, or else from the defaults above.
@@ -417,6 +423,7 @@ impl Script {
                 }
             }
         }
+        faults.extend(items::check(self, flows));
         faults
     }
 
