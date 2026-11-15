@@ -283,7 +283,7 @@ function pickOwn(root: ParentNode, colour: string, close = true) {
 }
 
 describe("the Settings view's accent", () => {
-  it("stands last, whatever became of reading the file, in the page's own violet at first, with nothing set on the root", async () => {
+  it("stands last once the file is read or could not be, in the page's own violet at first, with nothing set on the root", async () => {
     const page = draw(settingsSource().source);
     await settle();
     const parts = [...page.querySelectorAll('.panel-part-label')].map((h) => h.textContent);
