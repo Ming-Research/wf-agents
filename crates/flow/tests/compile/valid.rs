@@ -184,7 +184,8 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             values: values.map(|v| v.iter().map(|s| s.to_string()).collect()),
             default: None,
             what: None,
-            field: None,
+            words: None,
+            shape: None,
             trigger: false,
             writes: Texts::default(),
             writers: Writers {
@@ -255,7 +256,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
     let test = |kind, reads: &str, is: &str| Test {
         kind,
         reads: vec![reads.into()],
-        is: is.to_string(),
+        is: Some(is.to_string()),
     };
     let expected: BTreeMap<TestName, Test> = [
         ("has_comment", test(TestKind::Any, "commented", "yes")),

@@ -214,15 +214,15 @@ async fn a_cancel_says_why_is_refused_under_a_dependant_and_a_cancelled_item_is_
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_title_wider_than_the_installation_allows_is_refused_as_added_and_as_changed_and_nothing_is_made() {
+async fn a_title_longer_than_the_installation_allows_is_refused_as_added_and_as_changed_and_nothing_is_made() {
     let running = running();
     let router = &running.router;
     greeted(router).await;
     let wide = "\u{4e2d}".repeat(21);
-    let why = "the title is 42 wide and a title is 40 wide at most (spaces are not counted, and a character of East \
-               Asian wide or full width counts 2): write it shorter";
-    // Twenty Chinese characters, or forty letters between spaces, fit.
-    let fits = format!("{} {}", "a".repeat(20), "b ".repeat(10));
+    let why = "the title has 21 words and a title has 20 at most (a Chinese character counts as a word): write it \
+               shorter";
+    // Twenty Chinese characters, or twenty words, fit.
+    let fits = format!("{} {}", "a".repeat(20), "b ".repeat(19));
     assert_eq!(
         post(router, "/api/v1/items", &item(&fits, json!([]))).await.0,
         StatusCode::OK

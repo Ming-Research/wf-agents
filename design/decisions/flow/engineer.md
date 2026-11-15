@@ -15,7 +15,8 @@ Why: Fixing them once the first design is made is too strict.
 
 ### decision opinions-are-inputs
 What someone has to say to a cell about what it did is written into a block that cell reads: the owner's words into
-the cell's own block of notes, a judging cell's findings into a block for that pair. The flow has no cell for fixing
+the record of what is said to the work (data-and-context 30 to 38), a judging cell's findings into a block for that
+pair. The flow has no cell for fixing
 and none for checking a fix: what was objected to is fixed by its cell running again, and the fix is looked at by the
 judging cell running again, because what it judged changed.
 Why: Going back is then the same thing as going on: an input changed. Cells of their own for the two needed rules of
@@ -33,13 +34,28 @@ of another.
 ### decision the-tree-runs-no-cell
 The design tree is a datum each cell that reads the tree is given `last_and_latest`, the files that changed since the
 version its session read, and runs no cell; of what comes from outside the work, only main and `asked` run a cell, the
-check before the merge.
+check before the merge, and the work's head, where no round of the work committed it, the review and the check.
 Why: A changed tree run as a trigger would run the reading cell again, and every cell after it, for each commit that
 touches the tree; given as a datum, it is read where the line goes on, by the cell that next enters the session.
 
+### decision the-review-takes-the-head-and-the-head-runs-the-check
+The review takes `head`, the work's head, among the blocks of the change it is run by, and reads the diff from main to
+it; `head`, not `code` or `tests`, runs the check, beside main and `asked`. No block names a commit.
+Why: Whatever a round commits moves the head, under whatever block it hands in or none, as the fix of W9 did, handed in
+under a block the review was not run by, so the review runs on every change it has not seen and the check on every
+head; run by `code` and `tests`, the check ran on what a block said and not on what lands. The check holds the head to
+the review (decision the-check-holds-the-head-to-what-the-review-saw).
+
+### decision the-check-is-answered-by-a-commit-or-a-question
+The implementation answers a red check by fixing it and committing, or, where it judges the red not this change's to
+fix, by asking the owner; no block holds its answer.
+Why: The check reads no words: the fix runs it again through the work's head, and the owner's answer through `asked`
+(decision an-act-is-answered-by-what-runs-it). A block of the answer, which no cell read, ran the check on its words,
+and one that changed nothing left the work at the red check until the owner spoke to a cell.
+
 ### decision the-check-waits-for-the-review
 The check before the merge requires the review's yes beside its other gates, and runs again as the owner's answers
-change whether every question is answered (`asked`), as well as on the change and on main.
+change whether every question is answered (`asked`), as well as on the work's head and on main.
 Why: The watch of main writes main into every work, and before anything is judged the check's other gates hold: a
 research that handed in no plan, or an implementation that handed in nothing, let main run the check on a branch no one
 reviewed, holding the research's commits or nothing, whose CI passed and which merged. The old flow merged only after

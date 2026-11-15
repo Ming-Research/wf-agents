@@ -9,7 +9,7 @@ use super::*;
 /// Why a merge was refused, where it was refused for another cause than a moved main.
 fn failed(refused: NotMerged) -> String {
     match refused {
-        NotMerged::Failed(why) => why,
+        NotMerged::Failed(failed) => failed.why,
         moved => panic!("refused for a moved main: {moved:?}"),
     }
 }

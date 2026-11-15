@@ -197,6 +197,8 @@ fn written(blocks: &[(&str, &str)]) -> Work {
             by: Outsider::Person,
             matters: true,
             value: None,
+            said_to: None,
+            empty: false,
             at,
         });
         work.contents.insert(((*block).into(), at), (*content).to_string());
@@ -255,24 +257,15 @@ async fn the_host_is_asked_by_the_checks_round_and_given_the_name_of_the_works_m
     let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
     let passes = Verdict {
         failed: None,
+        held: None,
         by: None,
         notes: Vec::new(),
+        observations: Vec::new(),
     };
     let acts = acts(&repo, Fake::new(&main).judges(Ok(Some(passes))));
-    let flow = Arc::new(acts_flow());
-    let check = (flow.cells.iter()).find(|cell| cell.act.as_deref() == Some("check"));
     let code = format!("Greets the user, in commit {head}.");
-    let round = Round {
-        work: WORK,
-        flow: flow.clone(),
-        cell: check.expect("the flow has a check").clone(),
-        run: RunId(4),
-        number: 2,
-        given: work::Given::Task,
-        item: item(owners),
-        kept: Arc::new(written(&[("code", code.as_str()), ("title", "Greet the user by name")])),
-        lines: Default::default(),
-    };
+    let kept = written(&[("code", code.as_str()), ("title", "Greet the user by name")]);
+    let round = checking(item(owners), kept);
     let (to, _told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(4), to).teller();
     let checked = acts.inner.act(&round, &teller, &mut Stop::never()).await;
@@ -289,15 +282,117 @@ async fn the_host_is_asked_by_the_checks_round_and_given_the_name_of_the_works_m
     assert_eq!(acts.inner.host.askings(), [Asking::Round(RunId(4), 2)]);
 }
 
+/// The second round of the check's run 4 of the work as it is kept.
+fn checking(item: Item, kept: Work) -> Round {
+    let flow = Arc::new(acts_flow());
+    let check = (flow.cells.iter()).find(|cell| cell.act.as_deref() == Some("check"));
+    Round {
+        work: WORK,
+        flow: flow.clone(),
+        cell: check.expect("the flow has a check").clone(),
+        run: RunId(4),
+        number: 2,
+        given: work::Given::Task,
+        item,
+        kept: Arc::new(kept),
+        lines: Default::default(),
+    }
+}
+
+// The check's round is told of the head of main the check takes in, in the words the watch of main writes it, as the
+// check reads it: main's block at that head is then what the round read, and runs the check no more. A check that
+// waited for its turn while main moved, and took that main in, was run again for it (work 5).
+#[tokio::test]
+async fn the_checks_round_is_told_of_the_head_of_main_it_takes_in() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+    let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
+    let passes = Verdict {
+        failed: None,
+        held: None,
+        by: None,
+        notes: Vec::new(),
+        observations: Vec::new(),
+    };
+    let acts = acts(&repo, Fake::new(&main).judges(Ok(Some(passes))));
+    let code = format!("Greets the user, in commit {head}.");
+    let round = checking(item("Greet the user"), written(&[("code", code.as_str())]));
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(4), to).teller();
+    let checked = acts.inner.act(&round, &teller, &mut Stop::never()).await;
+    assert!(
+        matches!(checked, Ok(Done::HandsIn(..))),
+        "the check hands in what it found"
+    );
+    let mut said = Vec::new();
+    while let Ok(message) = told.try_recv() {
+        if let service::Message::Happened {
+            event: engine::Event::WroteForRound { run, block, content },
+            ..
+        } = message
+        {
+            said.push((run, block.to_string(), content));
+        }
+    }
+    assert_eq!(said, [(RunId(4), "main".to_string(), format!("Main is at {main}."))]);
+}
+
+// A verdict that holds the work, what failed failing on main as well, writes the check's choice alone, saying so, and
+// none of the blocks a failure is written into, so that no cell is told of a failure that is not the work's; and what
+// the host found beyond the work is handed in as the check's observations. Well under a second alone: a repository on
+// disk and the fake host; no other test holds what a held check hands in.
+#[tokio::test]
+async fn a_held_check_writes_its_choice_alone_and_hands_in_what_the_host_observed() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+    let held = Verdict {
+        held: Some("Failed on main as well: `b`.".to_string()),
+        observations: vec!["The test `a` may be flaky.".to_string()],
+        ..Verdict::default()
+    };
+    let acts = acts(&repo, Fake::new(&main).judges(Ok(Some(held))));
+    let code = format!("Greets the user, in commit {head}.");
+    let round = checking(item("Greet the user"), written(&[("code", code.as_str())]));
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    acts.give(round, RoundReply::new(WORK, RunId(4), to));
+    let came = loop {
+        if let service::Message::Happened {
+            event: engine::Event::Returned { came, .. },
+            ..
+        } = told.recv().await.expect("the round ends")
+        {
+            break came;
+        }
+    };
+    let written: Vec<(String, Option<String>)> = (came.writes.iter())
+        .map(|h| (h.block.to_string(), h.value.clone()))
+        .collect();
+    assert_eq!(written, [("passed".to_string(), Some("no".to_string()))]);
+    let content = &came.writes[0].content;
+    assert!(
+        content.contains("and what fails also fails on main: the work waits for main to pass, and is checked again")
+            && content.ends_with("Failed on main as well: `b`."),
+        "{content}"
+    );
+    assert_eq!(came.said.observations, ["The test `a` may be flaky."]);
+    // What it wrote waits for main to move, so that the work waits for main and not for the owner.
+    assert_eq!(came.waits_for, Some(BlockId::from("main")));
+}
+
 #[test]
 fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
     let checked = Checked {
         commit: "c0ffee".to_string(),
         main: "beef".to_string(),
         failed: None,
+        held: None,
         by: None,
         took_in: false,
         notes: vec!["test: its latest run on this commit passed; its earlier runs on it: failure.".to_string()],
+        observations: Vec::new(),
         asks: None,
     };
     let outputs = vec![
@@ -310,4 +405,108 @@ fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
         "Checked commit c0ffee\n\nThe work's branch was checked against main at beef: it passed.\n\nAlso:\n- test: \
          its latest run on this commit passed; its earlier runs on it: failure."
     );
+}
+
+/// The flow of the end-to-end tests with a block of the work's head, which the owner reads.
+fn acts_flow_with_head() -> Compiled {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
+    let mut source = flow::read(&dir).unwrap();
+    source
+        .flow
+        .push_str("\n[blocks.head]\noutside = \"head\"\nshown = true\n");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = flow::Has {
+        sources: names(&["tree", "main", "head"]),
+        acts: names(&["start", "check", "merge"]),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).unwrap()
+}
+
+/// The first round of the merge's run 5 of the work as it is kept, whose head's latest version says `head`.
+fn merging(head: &str) -> Round {
+    let flow = Arc::new(acts_flow_with_head());
+    let merge = (flow.cells.iter()).find(|cell| cell.act.as_deref() == Some("merge"));
+    let mut kept = Work::default();
+    let at = kept.tick();
+    kept.records.written.push(Written {
+        block: "head".into(),
+        by: Outsider::Outside,
+        matters: true,
+        value: None,
+        said_to: None,
+        empty: false,
+        at,
+    });
+    kept.contents.insert(("head".into(), at), head.to_string());
+    Round {
+        work: WORK,
+        flow: flow.clone(),
+        cell: merge.expect("the flow has a merge").clone(),
+        run: RunId(5),
+        number: 1,
+        given: work::Given::Task,
+        item: item("Greet the user"),
+        kept: Arc::new(kept),
+        lines: Default::default(),
+    }
+}
+
+/// What the outside wrote while the round was under way, as the teller said it: each block and its content.
+fn written_from_outside(told: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> Vec<(String, String)> {
+    let mut written = Vec::new();
+    while let Ok(message) = told.try_recv() {
+        if let service::Message::Happened {
+            event:
+                engine::Event::Wrote {
+                    block,
+                    by: Outsider::Outside,
+                    content,
+                    ..
+                },
+            ..
+        } = message
+        {
+            written.push((block.to_string(), content));
+        }
+    }
+    written
+}
+
+// A commit made after the check passed and before the merge moves the work's head: the merge reads it as the check
+// does, writes it from outside and fails in passing, asking the host nothing, so that the review and the check run on
+// it first. Refused for the branch it moved, the merge stopped the work for the owner, and letting it on refused it
+// again, as nothing ran the check on it. A head that did not move lets the merge go on to what the check passed.
+#[tokio::test]
+async fn a_head_moved_since_the_check_fails_the_merge_in_passing_and_is_written_from_outside() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let place = repo.place(WORK);
+    let checked = run(&repo.project.repo, &["rev-parse", &place.reference()]);
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let after = commit(&place.dir, "weather.txt", "Sunny.\n");
+    let acts = acts(&repo, Fake::new(&main));
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    let merged = acts.inner.act(&merging(&checked), &teller, &mut Stop::never()).await;
+    let Err(failed) = merged else {
+        panic!("the merge went on over a head the check did not pass");
+    };
+    let said = fill(&super::words().merge.unreviewed, &[("head", &after)]);
+    assert_eq!(failed, Failed::passing(said));
+    assert_eq!(written_from_outside(&mut told), [("head".to_string(), after.clone())]);
+    assert!(
+        !(acts.inner.host.asked().iter()).any(|a| matches!(a, Asked::Merge(_))),
+        "the host is asked to merge nothing"
+    );
+    // Its head as its latest version says it, the merge goes on to what the check passed, which here is nothing.
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    let merged = acts.inner.act(&merging(&after), &teller, &mut Stop::never()).await;
+    let Err(failed) = merged else {
+        panic!("the merge went on with no check that passed");
+    };
+    assert_ne!(failed.kind, Some(decide::run::Failure::Passing), "{failed:?}");
+    assert!(failed.why.contains("latest check did not pass"), "{failed:?}");
+    assert_eq!(written_from_outside(&mut told), Vec::new());
 }

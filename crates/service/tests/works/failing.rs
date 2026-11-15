@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use decide::{Decision, End, Pauser};
 use engine::{Came, Event};
-use service::{Act, Carriers, Message, Round, RoundReply, Rounds, Script, Scripted, Service, TokioClock};
+use service::{Act, Acted, Carriers, Message, Round, RoundReply, Rounds, Script, Scripted, Service, TokioClock};
 use store::Store;
 use work::{Back, Call, Handed, Spent, Time, Work};
 
@@ -288,7 +288,7 @@ async fn a_round_that_ends_with_its_work_to_wait_is_taken_and_no_round_begins_af
         }),
         acts: Arc::new(scripted.clone()),
         tools: Arc::new(scripted.clone()),
-        network: Arc::new(scripted.clone()),
+        outside: Arc::new(scripted.clone()),
         host: Some(Arc::new(scripted)),
         slots: crate::SLOTS,
         calls: Scripted::calls(),
@@ -296,7 +296,7 @@ async fn a_round_that_ends_with_its_work_to_wait_is_taken_and_no_round_begins_af
     let clock = Arc::new(TokioClock::new(START));
     let (mut service, mut inbox) = Service::open(Box::new(store), vec![trial_flow()], carriers, clock).unwrap();
     let (_, work) = add_to(&mut service, new_item("Greet the user", &[]));
-    assert_eq!(act_on(&mut service, work, Act::Resume), (Ok(()), Ok(())));
+    assert_eq!(act_on(&mut service, work, Act::Resume), (Ok(Acted::default()), Ok(())));
     let decision = |service: &Service| service.driver().view(work).unwrap().decision;
     let records = |service: &Service| service.driver().work(work).unwrap().work.records.clone();
 

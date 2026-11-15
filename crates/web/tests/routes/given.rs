@@ -37,19 +37,25 @@ async fn each_agent_s_cell_is_given_its_parts_in_the_order_sent_and_each_act_wha
     let cells = given["cells"].as_object().expect("the cells");
     assert_eq!(cells.keys().collect::<Vec<_>>(), ["plan", "review"]);
     let plan = given["cells"]["plan"].as_array().expect("the plan's parts");
-    // The program's own part, then the form, given with every call, then the system prompt and the message.
+    // The program's own part, then the form, given with every call, in its parts: the engine's fields and the blocks
+    // of the line, the small flow naming no tool; then the system prompt and the message.
+    let head: Vec<(&serde_json::Value, &serde_json::Value)> =
+        plan[..3].iter().map(|p| (&p["name"], &p["carried"])).collect();
     assert_eq!(
-        (
-            &plan[0]["name"],
-            &plan[0]["carried"],
-            &plan[1]["name"],
-            &plan[1]["carried"]
-        ),
-        (&json!("program"), &json!("program"), &json!("form"), &json!("call"))
+        head,
+        [
+            (&json!("program"), &json!("program")),
+            (&json!("form"), &json!("call")),
+            (&json!("outputs"), &json!("call")),
+        ]
+    );
+    assert_eq!(plan[3]["carried"], json!("system"));
+    assert_eq!(
+        plan[1]["source"],
+        json!("flow/agents/return/return.toml, flow/agents/return/fields/")
     );
     let task = plan.iter().find(|p| p["what"] == json!("task")).expect("the task");
     assert_eq!(task["carried"], json!("message"));
-    assert_eq!(given["tools"], json!(["query", "run_tests"]));
     // The merge is an act of the engine's: what it writes is read from its file beside the flows, key by key.
     assert_eq!(given["acts"]["merge"]["source"], json!("flow/agents/acts/merge.toml"));
     assert_eq!(given["acts"]["merge"]["words"][0][0], json!("text"));
@@ -60,18 +66,20 @@ async fn each_agent_s_cell_is_given_its_parts_in_the_order_sent_and_each_act_wha
 fn the_engine_s(_: &flow::Source) -> flow::Has {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     flow::Has {
-        sources: names(&["answer", "asked", "dependencies", "main", "session", "start", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),
-        fields: names(&[
-            "dealt_with",
-            "meaning_unchanged",
-            "observations",
-            "questions",
-            "reply",
-            "summary",
-        ]),
         details: names(&["files"]),
     }
 }
@@ -209,11 +217,6 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
     let definition = get_json(&router, "/api/v1/flow").await;
     assert_eq!(definition["state"], json!("compiled"), "{definition}");
     let flow = &definition["flow"];
-    let blocks = flow["blocks"].as_array().expect("the blocks");
-    let field_of = |block: &str| {
-        let found = blocks.iter().find(|b| b["name"] == json!(block));
-        found.is_some_and(|b| !b["field"].is_null())
-    };
     let agents: Vec<&serde_json::Value> = (flow["cells"].as_array().unwrap().iter())
         .filter(|c| c["kind"] == json!("agent"))
         .collect();
@@ -228,23 +231,31 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
                 .find(|p| p["what"] == json!(what) && p["name"] == json!(name))
                 .unwrap_or_else(|| panic!("{id}: no part {what} {name}"))
         };
-        // The form holds the cell's own tools among its calls, and its outcome holds the blocks it writes.
-        let form: serde_json::Value = serde_json::from_str(&text_of(named("form", "form"))).expect("the form is JSON");
+        // The form's parts: the engine's fields, in the kind that does the cell's work; the cell's own tools, in the
+        // kind that asks for them; and among the blocks of its line, each it writes, with its own file and its cell's.
+        let part = |name: &str| -> serde_json::Value {
+            serde_json::from_str(&text_of(named("form", name))).expect("the part of the form is JSON")
+        };
+        let fields = part("form");
         let tools = strings(&cell["tools"]);
         assert!(!tools.is_empty(), "{id}: the flow gives its agent cells tools");
-        let asked = form["properties"]["calls"]["properties"]
-            .as_object()
-            .expect("the calls");
+        let asked = part("tools")["properties"].as_object().expect("the tools").clone();
         for tool in &tools {
             assert!(asked.contains_key(tool), "{id}: the form lacks the tool {tool}");
         }
-        let outcome = form["properties"]["outcome"]["properties"]
+        let outcome = fields["properties"]["outcome"]["properties"]
             .as_object()
             .expect("the outcome");
+        assert!(outcome.contains_key("outputs"), "{id}: the outcome holds the blocks");
+        let blocks = part("outputs")["properties"].as_object().expect("the blocks").clone();
+        let files = named("form", "outputs")["source"].as_str().unwrap().to_string();
         assert!(
-            outcome.contains_key("outputs"),
-            "{id}: the outcome holds the blocks it writes"
+            files.contains(&format!("flow/engineer/cells/{id}.toml")),
+            "{id}: {files}"
         );
+        for block in strings(&cell["outputs"]) {
+            assert!(blocks.contains_key(&block), "{id}: the form lacks the block {block}");
+        }
         // How it returns tells each of its tools in the words of the tool's file.
         let told = text_of(named("system", "how_you_return"));
         for tool in &tools {
@@ -261,7 +272,7 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
             .find(|p| p["what"] == json!("outputs"))
             .expect("what it returns");
         let outputs = text_of(outputs);
-        for block in strings(&cell["outputs"]).iter().filter(|b| !field_of(b)) {
+        for block in strings(&cell["outputs"]).iter() {
             assert!(
                 outputs.contains(&format!("`{block}`")),
                 "{id}: what it returns lacks {block}"
@@ -307,15 +318,31 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
 }
 
 #[tokio::test]
-async fn the_form_each_cell_is_shown_is_the_one_the_engine_gives_the_program_for_the_flow() {
+async fn the_form_each_cell_is_shown_is_the_one_the_engine_gives_the_program_for_its_line() {
     let given = get_json(&beside_the_repository_s_flows(), "/api/v1/flow/given").await;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
     let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
     let compiled = flow::compile(&tiny(), &has(&tiny())).expect("the small flow compiles");
-    let form = flow::form::form(&compiled, &beside).expect("the form is made");
     for (cell, parts) in given["cells"].as_object().expect("the cells") {
-        let parts = parts.as_array().expect("its parts");
-        let shown = parts.iter().find(|p| p["name"] == json!("form")).expect("the form");
-        assert_eq!(shown["pieces"], json!([{ "piece": "text", "text": form }]), "{cell}");
+        let line = (compiled.cells.iter())
+            .find(|c| c.id.as_str() == cell)
+            .and_then(|c| c.line.clone())
+            .expect("an agent's cell has a line");
+        let made = flow::form::parts(&compiled, &beside, &line).expect("the form is made");
+        let shown: Vec<(&serde_json::Value, &serde_json::Value)> = (parts.as_array().expect("its parts").iter())
+            .filter(|p| p["what"] == json!("form"))
+            .map(|p| (&p["name"], &p["pieces"]))
+            .collect();
+        let text = |text: &str| json!([{ "piece": "text", "text": text }]);
+        let blocks = made.blocks.as_deref().expect("the form has outputs");
+        assert_eq!(
+            shown,
+            [
+                (&json!("form"), &text(&made.fields)),
+                (&json!("outputs"), &text(blocks)),
+            ],
+            "{cell}"
+        );
+        assert_eq!(made.tools, None, "the small flow names no tool");
     }
 }

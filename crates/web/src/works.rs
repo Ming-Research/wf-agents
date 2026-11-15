@@ -43,28 +43,49 @@ pub struct Items {
     pub outage: Option<Outage>,
 }
 
-/// A wait every work shares: a round of an agent failed for a cause that is no one work's, and no agent's round of any
-/// work begins while it stands.
+/// A wait every work shares: a round of an agent failed for a cause outside every work, and no agent's round of any
+/// work begins while it holds; the engine checks the outside by itself meanwhile.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Outage {
     /// The service whose rounds it holds: the agents', or the host's the acts reach.
     pub service: Service,
-    /// The kind of the cause: the usage limit, a command line that cannot run, or no network.
+    /// The kind of the cause the latest round that failed so met: the usage limit, a command line that cannot run, no
+    /// network, or a service that does not serve.
     pub failure: Failure,
-    /// Why the round failed, as what carried it out said.
+    /// Why that round failed, as what carried it out said.
     pub why: String,
-    /// The round that failed so, the latest that did: of this work, this run, this number.
+    /// That round: of this work, this run, this number.
     pub work: u64,
     pub run: u64,
     pub round: usize,
-    /// When it ended.
+    /// Since when what the rounds need is down: when the first round that failed so in the wait ended.
     pub since: u64,
-    /// When the agents' rounds may begin again.
+    /// The latest check of the outside in the wait, where one was taken.
+    pub checked: Option<Checked>,
+    /// When the rounds it holds may begin again.
     pub until: Until,
-    /// Whether it holds rounds now: once its time has come, it stands only until a round that began after it comes
-    /// back, and holds nothing meanwhile.
+    /// Whether it holds rounds now: once a check found the outside well, it stands only until a round that began after
+    /// the latest that failed so comes back, and holds nothing meanwhile.
     pub holds: bool,
+}
+
+/// The latest check of the outside of the agents' rounds in a wait: when, how many were taken in the wait, and what it
+/// found.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Checked {
+    pub at: u64,
+    pub taken: u32,
+    pub found: Found,
+}
+
+/// What a check of the outside found: everything well, or what is down, as a failed round's kind of cause, and why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Found {
+    Well,
+    Down { failure: Failure, why: String },
 }
 
 /// A service the works reach, each with its wait.
@@ -81,15 +102,13 @@ pub enum Service {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Until {
-    /// At this time, every work's: as the usage limit resets.
-    At { at: u64 },
-    /// One round, of whichever work comes to one first, tries at this time; where `look`, the network is looked at
-    /// every half minute from then, and the round tries once a look reaches it.
-    Trial { at: u64, look: bool },
-    /// Every round, once a look at the host, taken every half minute from this time, reaches it.
+    /// Once a check of the outside of the agents' rounds, which the engine takes at this time, finds it well: at a
+    /// usage limit whose reset was said, at the reset.
+    Checked { at: u64 },
+    /// Now: the check taken at this time found the outside well, and every work goes on.
+    Well { at: u64 },
+    /// Every act, once a look at the host, taken every half minute from this time, reaches it.
     Looked { at: u64 },
-    /// Once the round that tries now has ended, or the service has answered it.
-    Tried,
 }
 
 /// The kind of cause of a round that failed, as what carried it out told it apart.
@@ -111,6 +130,8 @@ pub enum Failure {
     CannotRun,
     /// The network cannot be reached.
     Offline,
+    /// The agents' service is down, overloaded, throttling the account's requests or not answering in time.
+    Unavailable,
     /// The prompt is too long for the model.
     PromptTooLong,
     /// The service has no model of the name the round's level gives.
@@ -331,6 +352,9 @@ pub enum Waited {
     Agents { outage: Outage },
     /// The owner's answer to the latest version of this question, which the cell asked and waits for.
     Answer { question: String },
+    /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
+    /// wrote, `why` in the run's own words, waits for that source before the cell runs again.
+    Outside { source: String, cell: String, why: String },
 }
 
 /// A person who can give what a work waits for.
@@ -466,6 +490,67 @@ pub struct WorkPage {
     /// Each question put to the owner, as it stands, in the order of their names.
     #[serde(default)]
     pub questions: Vec<QuestionPage>,
+    /// Where the owner's words would go now, as the engine chooses it: to each line of the flow, in the order of the
+    /// names of the lines, then about each question that stands, in the order of their names.
+    #[serde(default)]
+    pub speaking: Vec<Speaking>,
+}
+
+/// What the owner's words said to a line, or about a question, would reach now, as the engine chooses it: the cell,
+/// or why no cell can take them, when they are not sent (crate `engine`, module `spoken`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Speaking {
+    pub to: SpokenTo,
+    /// The cell the words would reach; none where no cell can take them.
+    pub cell: Option<String>,
+    /// Why no cell can take them, in words; none where one can.
+    pub refused: Option<String>,
+}
+
+/// What the owner's words are said to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum SpokenTo {
+    /// A line of the work's flow.
+    Line { line: String },
+    /// A question of the work, by its name: the words are about it.
+    Question { name: String },
+}
+
+impl SpokenTo {
+    fn taken(self) -> engine::spoken::To {
+        match self {
+            SpokenTo::Line { line } => engine::spoken::To::Line(line),
+            SpokenTo::Question { name } => engine::spoken::To::Question(name),
+        }
+    }
+}
+
+impl Speaking {
+    /// Where the owner's words would go now, to each line of the work's flow and about each question that stands.
+    fn all(kept: &Kept) -> Vec<Speaking> {
+        let lines = (kept.flow.lines.keys()).map(|line| SpokenTo::Line { line: line.clone() });
+        let standing = decide::questions::questions(&kept.work.records);
+        let questions = (standing.into_iter())
+            .filter(|(_, q)| q.stands())
+            .map(|(name, _)| SpokenTo::Question { name: name.to_string() });
+        (lines.chain(questions))
+            .map(|to| {
+                let chosen = engine::spoken::receiver(kept.flow, kept.work, &to.clone().taken());
+                Speaking {
+                    to,
+                    cell: chosen.as_ref().ok().map(|cell| cell.to_string()),
+                    refused: chosen.err().map(|why| service::no_one_words(&why)),
+                }
+            })
+            .collect()
+    }
 }
 
 /// A question put to the owner, as it stands: its latest version, with the keys a return writes it with, and the
@@ -614,6 +699,8 @@ pub struct Version {
     pub meaning: u64,
     /// The block's value, where it is a choice.
     pub value: Option<String>,
+    /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
+    pub said_to: Option<String>,
     /// How long its content is, in characters.
     pub chars: usize,
 }
@@ -777,6 +864,105 @@ pub struct Round {
     /// to say it, as of a round the run guard stopped: an estimate. Worked out for a work's page only.
     #[serde(default)]
     pub estimated: bool,
+    /// What it cost and how long it took, or has taken so far while it is under way, against the lines of their
+    /// history. Worked out for a work's page only.
+    #[serde(default)]
+    pub judged: Judged,
+}
+
+/// What a round cost and how long it took against the lines of their history, as they stood when it began: worked out
+/// whenever it is read, and stopping nothing (principle `judged-by-own-history`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Judged {
+    /// What it cost, in millionths of a dollar, against what rounds of its kind on its model cost: none while it is
+    /// under way, for a round of an act, which costs nothing, and where too few rounds tell the line.
+    pub cost: Option<Against>,
+    /// How long it took, or has taken so far while it is under way, in milliseconds: none where too few rounds tell
+    /// the line.
+    pub time: Option<Against>,
+}
+
+/// A measure against the line of its history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Against {
+    /// The measure: millionths of a dollar for a cost, milliseconds for a time.
+    pub value: u64,
+    /// Its line, in the same units.
+    pub line: Line,
+    /// Whether the measure is past its line.
+    pub past: bool,
+}
+
+/// The line of a measure's history, which stands past the largest of the values of its kind by as much as that is
+/// past their median.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Line {
+    /// Where it stands, in the measure's units, to the nearest whole one.
+    pub value: u64,
+    /// How many values gave it.
+    pub samples: usize,
+    /// What gave it.
+    pub scope: Scope,
+}
+
+impl Line {
+    pub(crate) fn of(line: &driver::history::Line) -> Line {
+        Line {
+            value: line.value.round() as u64,
+            samples: line.samples,
+            scope: Scope::of(line.scope),
+        }
+    }
+}
+
+/// What gave a line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Scope {
+    /// The rounds of the cell.
+    Cell,
+    /// Every agent's round of the flow.
+    Flow,
+    /// The calls of the tool.
+    Tool,
+    /// The flow's other works.
+    Works,
+    /// The rounds of the line.
+    Line,
+}
+
+impl Scope {
+    pub(crate) fn of(scope: driver::history::Scope) -> Scope {
+        match scope {
+            driver::history::Scope::Cell => Scope::Cell,
+            driver::history::Scope::Flow => Scope::Flow,
+            driver::history::Scope::Tool => Scope::Tool,
+            driver::history::Scope::Works => Scope::Works,
+            driver::history::Scope::Line => Scope::Line,
+        }
+    }
+}
+
+impl Against {
+    pub(crate) fn of(against: &driver::judged::Against) -> Against {
+        Against {
+            value: against.value.round() as u64,
+            line: Line::of(&against.line),
+            past: against.past(),
+        }
+    }
+}
+
+impl Judged {
+    pub(crate) fn of(round: &driver::judged::Round) -> Judged {
+        Judged {
+            cost: round.cost.as_ref().map(Against::of),
+            time: round.time.as_ref().map(Against::of),
+        }
+    }
 }
 
 /// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
@@ -891,8 +1077,12 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
+    /// It deals with the owner's words, by this trigger, and writes no answer in the record of what is said.
+    NotAnswered { name: String },
     /// The work's branch changes this file the project protects, and nothing says why.
     Unexplained { path: String },
+    /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question.
+    Unanswered { block: String },
 }
 
 /// What came back at the end of a round.
@@ -943,6 +1133,10 @@ pub struct CallRow {
     pub done: Option<u64>,
     /// How long its result is, in characters.
     pub chars: Option<usize>,
+    /// How long a call of a tool took, or has taken so far while it has no result, in milliseconds, against the line
+    /// of the calls of its tool as it stood when it was made. Worked out for a work's page only.
+    #[serde(default)]
+    pub time: Option<Against>,
 }
 
 /// How a run ended.
@@ -1303,6 +1497,16 @@ pub enum Act {
     },
     /// Has the line begin a new session at its next round.
     NewSession { line: String },
+    /// Says words to a line of the work's flow, or about a question of the work: to the cell the engine chooses, which
+    /// the work's page shows (`speaking`), and which the act answers with ([`Said`]).
+    Say { to: SpokenTo, words: String },
+}
+
+/// What the act that says the owner's words answers with: the cell the engine gave them to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Said {
+    pub reached: String,
 }
 
 /// An item the owner adds, with its work, which is added paused: it begins no round until the owner lets it on.
@@ -1405,10 +1609,10 @@ pub struct Refusal {
 pub struct Broken(pub String);
 
 impl Items {
-    /// Every item the driver holds, each with its work, as they stand at this time.
-    pub fn of(driver: &Driver, now: Time) -> Result<Items, Broken> {
+    /// Every item the driver holds, each with its work, as they stand now.
+    pub fn of(driver: &Driver) -> Result<Items, Broken> {
         let mut items = Vec::new();
-        let outages = Outages::of(driver, now);
+        let outages = Outages::of(driver);
         let outage = outages.agents.clone();
         for kept in driver.works() {
             let view = viewed(driver, kept.head.number)?;
@@ -1665,6 +1869,7 @@ impl Now {
                             WaitedOf::Answer { question } => Waited::Answer {
                                 question: question.clone(),
                             },
+                            WaitedOf::Outside { source, run, block } => outside(work, source, *run, block)?,
                         })
                     })
                     .collect::<Result<_, Broken>>()?,
@@ -1823,6 +2028,7 @@ impl WorkPage {
                         by: writer(&version.by)?,
                         meaning: version.meaning.0,
                         value: version.value.clone(),
+                        said_to: said_to(work, block, version.at),
                         chars: chars(work, block, version.at)?,
                     })
                 })
@@ -1847,8 +2053,9 @@ impl WorkPage {
             })
             .collect();
         let misses = driver.misses(number);
+        let judged = driver.judged(Some(number), now);
         let mut runs = runs(kept)?;
-        in_detail(kept, &mut runs, &misses);
+        in_detail(kept, &mut runs, &misses, &judged);
         let mut steps: Vec<Step> = runs.into_iter().map(Step::Run).collect();
         for written in &work.records.written {
             let version = (view.blocks.get(&written.block))
@@ -1913,7 +2120,7 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view, driver.held(number), &Outages::of(driver, now))?,
+            summary: Summary::of(kept, &view, driver.held(number), &Outages::of(driver))?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             project: kept.item.project.clone(),
@@ -1924,6 +2131,7 @@ impl WorkPage {
             blocks,
             steps,
             questions: QuestionPage::all(work),
+            speaking: Speaking::all(&kept),
         }))
     }
 }
@@ -2091,6 +2299,7 @@ impl Act {
                 why,
             },
             Act::NewSession { line } => service::Act::NewSession { line },
+            Act::Say { to, words } => service::Act::Say { to: to.taken(), words },
         }
     }
 }
@@ -2177,6 +2386,13 @@ fn chars(work: &Work, block: &BlockId, at: Seq) -> Result<usize, Broken> {
         .ok_or_else(|| Broken(format!("the version of {block} at {} has no content", at.0)))
 }
 
+/// The cell the version of the block written at this place is said to, where it is said to one.
+fn said_to(work: &Work, block: &BlockId, at: Seq) -> Option<String> {
+    (work.records.written.iter())
+        .find(|w| w.at == at && w.block == *block)
+        .and_then(|w| w.said_to.as_ref().map(|c| c.0.clone()))
+}
+
 /// Whether the run's last round that ended failed.
 fn failed(work: &Work, run: RunId) -> bool {
     let ended = work.records.returned.iter().filter(|r| r.run == run).count();
@@ -2189,6 +2405,20 @@ fn cell_of(work: &Work, run: RunId) -> Result<String, Broken> {
         .find(|started| started.run == run)
         .map(|started| started.cell.to_string())
         .ok_or_else(|| Broken(format!("run {} never started", run.0)))
+}
+
+/// What a work waits for from a source outside it, as the run that said so gives it: its cell, and what it wrote in the
+/// block that keeps the work, in its own words.
+fn outside(work: &Work, source: &str, run: RunId, block: &BlockId) -> Result<Waited, Broken> {
+    let finished = (work.records.finished.iter()).find(|f| f.run == run);
+    let finished = finished.ok_or_else(|| Broken(format!("run {} never finished", run.0)))?;
+    let why = (work.contents.get(&(block.clone(), finished.at)))
+        .ok_or_else(|| Broken(format!("run {} wrote no {block}", run.0)))?;
+    Ok(Waited::Outside {
+        source: source.to_string(),
+        cell: cell_of(work, run)?,
+        why: why.clone(),
+    })
 }
 
 /// What the call is.
@@ -2276,16 +2506,21 @@ impl Unmet {
             UnmetOf::QuestionTwice { name } => Unmet::QuestionTwice { name: name.clone() },
             UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
+            UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
+            UnmetOf::Unanswered { block } => Unmet::Unanswered {
+                block: block.to_string(),
+            },
         }
     }
 }
 
 /// Gives each round of the runs the session of its line it runs in, by the records' count, each try of it the records
-/// hold, with what was filled into its session, and how it missed its session's cache, of these misses: what a work's
-/// page shows of a round, and nothing else needs, since working out a round's session counts the line's rounds before
-/// it.
-fn in_detail(kept: Kept<'_>, runs: &mut [Run], misses: &[driver::cache::Miss]) {
+/// hold, with what was filled into its session, how it missed its session's cache, of these misses, and how it went
+/// against the lines of its history, as each call of a tool did, as judged: what a work's page shows of a round, and
+/// nothing else needs, since working out a round's session counts the line's rounds before it.
+fn in_detail(kept: Kept<'_>, runs: &mut [Run], misses: &[driver::cache::Miss], judged: &driver::judged::Judged) {
+    let of_work = kept.head.number;
     let work = kept.work;
     let records = &work.records;
     // The line of each run's cell, where the flow puts it on one.
@@ -2297,8 +2532,12 @@ fn in_detail(kept: Kept<'_>, runs: &mut [Run], misses: &[driver::cache::Miss]) {
     for r in runs {
         let run = RunId(r.run);
         let line = line_of(run);
+        for call in &mut r.calls {
+            call.time = judged.calls.get(&(of_work, CallId(call.call))).map(Against::of);
+        }
         for round in &mut r.rounds {
             let number = round.number;
+            round.judged = (judged.rounds.get(&(of_work, run, number))).map_or_else(Judged::default, Judged::of);
             round.estimated = work::measured::of_round(&work.measured, run, number).is_some_and(|m| m.priced);
             round.missed = (misses.iter())
                 .find(|m| m.run == run && m.round == number)
@@ -2415,6 +2654,7 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 tries: Vec::new(),
                 missed: None,
                 estimated: false,
+                judged: Judged::default(),
             });
         }
         let mut calls = Vec::new();
@@ -2426,6 +2666,7 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 made: time(work, called.at)?,
                 done: done.map(|done| time(work, done.at)).transpose()?,
                 chars: work.results.get(&called.call).map(|result| result.chars().count()),
+                time: None,
             });
         }
         let finished = records.finished.iter().find(|finished| finished.run == run);
@@ -2482,9 +2723,9 @@ pub struct Outages {
 }
 
 impl Outages {
-    /// The waits as the driver works them out at this time, each saying whether it holds its rounds now.
-    pub(crate) fn of(driver: &Driver, now: Time) -> Outages {
-        let gate = driver.gate(now);
+    /// The waits as the driver works them out, each saying whether it holds its rounds now.
+    pub(crate) fn of(driver: &Driver) -> Outages {
+        let gate = driver.gate();
         let (agents, host) = (gate.holds_agents(), gate.holds_acts());
         Outages {
             agents: driver.outage().map(|outage| Outage::of(&outage, agents)),
@@ -2506,11 +2747,21 @@ impl Outage {
             run: outage.run.0,
             round: outage.round,
             since: outage.since.0,
+            checked: (outage.checked.as_ref()).map(|checked| Checked {
+                at: checked.at.0,
+                taken: checked.taken,
+                found: match &checked.found {
+                    driver::Found::Well => Found::Well,
+                    driver::Found::Down { failure, why, .. } => Found::Down {
+                        failure: Failure::of(*failure),
+                        why: why.clone(),
+                    },
+                },
+            }),
             until: match outage.until() {
-                UntilOf::At(at) => Until::At { at: at.0 },
-                UntilOf::Trial { at, look } => Until::Trial { at: at.0, look },
+                UntilOf::Checked { at } => Until::Checked { at: at.0 },
+                UntilOf::Well { at } => Until::Well { at: at.0 },
                 UntilOf::Looked { at } => Until::Looked { at: at.0 },
-                UntilOf::Tried => Until::Tried,
             },
             holds,
         }
@@ -2527,6 +2778,7 @@ impl Failure {
             FailureOf::UsageLimit => Failure::UsageLimit,
             FailureOf::CannotRun => Failure::CannotRun,
             FailureOf::Offline => Failure::Offline,
+            FailureOf::Unavailable => Failure::Unavailable,
             FailureOf::PromptTooLong => Failure::PromptTooLong,
             FailureOf::NoModel => Failure::NoModel,
             FailureOf::Other => Failure::Other,

@@ -202,7 +202,7 @@ class History {
     const was = this.current(block);
     const choice = FLOW.blocks.find((b) => b.name === block)?.values !== null;
     const changed = !was || (choice ? was.value !== value : matters);
-    const v: Version = { at: this.place, time: this.time, by, meaning: changed ? this.place : was.meaning, value, chars: content.length };
+    const v: Version = { at: this.place, time: this.time, by, meaning: changed ? this.place : was.meaning, value, saidTo: null, chars: content.length };
     this.versions.set(block, [...(this.versions.get(block) ?? []), v]);
     this.contents.set(`${block}@${v.at}`, content);
     return v;
@@ -307,6 +307,7 @@ class History {
           : [{ attempt: 1, ran: { level: '2', model: 'claude-sonnet-5-5', effort: defined?.effort ?? null }, filled: [fills] }],
       missed: null,
       estimated: false,
+      judged: { cost: null, time: null },
     };
     run.rounds.push(round);
     const results = given.kind === 'results' ? given.calls.map((c) => this.callPages.get(c) as CallPage) : [];
@@ -350,6 +351,7 @@ class History {
           made: this.time,
           done: result === null ? null : this.time + Math.round((ask.after ?? 0.2) * MINUTE),
           chars: result === null ? null : result.length,
+          time: null,
         };
         run.calls.push(row);
         this.callPages.set(row.call, { call: row.call, what, result });
@@ -373,7 +375,7 @@ class History {
   /// The run rests at a call the engine makes for it: the owner letting it go on at its limit.
   atLimit(run: RunStep, limit: CallRow['what'] & { kind: 'atLimit' }) {
     this.calls += 1;
-    const row: CallRow = { call: this.calls, what: limit, made: this.time, done: null, chars: null };
+    const row: CallRow = { call: this.calls, what: limit, made: this.time, done: null, chars: null, time: null };
     run.calls.push(row);
     this.callPages.set(row.call, { call: row.call, what: limit, result: null });
     return row.call;
@@ -516,7 +518,7 @@ const REQUEST_TEXT = (what: string) =>
 function upToReview(h: History, what: string, deepResearch: boolean) {
   h.wrote('request', 'person', REQUEST_TEXT(what));
   h.ran('plan', [
-    { block: 'plan', content: prose('Plan', [what, 'Add the part to look.md', 'Test it in happy-dom']) },
+    { block: 'plan', content: prose('Plan', [what, 'Add the part to parts.tsx', 'Test it in happy-dom']) },
     { block: 'needs_deep_research', content: '', value: deepResearch ? 'yes' : 'no' },
   ]);
   if (deepResearch) h.ran('deep_research', [{ block: 'solution', content: prose('Solution', ['One table, sticky heads']) }]);
@@ -556,7 +558,7 @@ const PLAN_TOLD: ToldPage = {
         '## Results of your calls',
         '',
         '- call 1, `read` `{"block":"request"}`: Show what each round of a work cost…',
-        "- call 2, `read` `{\"path\":\"client/look.md\"}`: # The page's look…",
+        "- call 2, `read` `{\"path\":\"client/src/parts.tsx\"}`: // The page's parts…",
       ].join('\n'),
       cut: null,
       back: {
@@ -597,7 +599,7 @@ function long(start: number): Built {
     minutes: 2,
     asks: [
       { kind: 'tool', name: 'read', input: '{"block":"request"}', result: 'Show what each round of a work cost…' },
-      { kind: 'tool', name: 'read', input: '{"path":"client/look.md"}', result: '# The page\'s look\n\nThe owner\'s page is an instrument panel…' },
+      { kind: 'tool', name: 'read', input: '{"path":"client/src/parts.tsx"}', result: '// The page\'s parts, its own small design system…' },
     ],
   });
   const handed = h.round(plan, {

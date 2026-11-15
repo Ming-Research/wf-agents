@@ -76,8 +76,12 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
         engine.says(&["cancel", "2", "--why", "Joined into item 1."]),
         "Work 2 is cancelled.\n"
     );
-    let shown = engine.until(&["show", "2"], |line| line.starts_with("Cancelled at "));
-    assert!(shown.ends_with(": \"Joined into item 1.\"."), "{shown}");
+    // A cancel is said among what happened to the item, with why.
+    let shown = engine.until(&["show", "2"], |line| line.contains(": cancelled, because "));
+    assert!(
+        shown.ends_with(": cancelled, because \"Joined into item 1.\""),
+        "{shown}"
+    );
     assert_eq!(
         engine.refuses(&["set-title", "2", "Other", "--why", "Clearer."]),
         "#2 is cancelled: an item that has ended takes no change, and is what it ended as; reopen it first.\n"
@@ -86,8 +90,25 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
         engine.says(&["reopen", "2", "--why", "Not joined after all."]),
         "#2 is reopened, paused: let it on with `wf-agents resume 2`.\n"
     );
-    let shown = engine.until(&["show", "2"], |line| line.starts_with("Reopened at "));
-    assert!(shown.ends_with(": \"Not joined after all.\"."), "{shown}");
+    let shown = engine.until(&["show", "2"], |line| line.contains(": reopened, because "));
+    assert!(
+        shown.ends_with(": reopened, because \"Not joined after all.\""),
+        "{shown}"
+    );
+    // The item's history given alone, as `show` names it, holds everything that happened to it, in order.
+    let history = engine.says(&["show", "2", "history", "--from", "1"]);
+    assert!(
+        history.starts_with("Work 2, what happened to its item, 1 to "),
+        "{history}"
+    );
+    assert!(
+        history.contains(": cancelled, because \"Joined into item 1.\"\n"),
+        "{history}"
+    );
+    assert!(
+        history.ends_with(": reopened, because \"Not joined after all.\"\n"),
+        "{history}"
+    );
     assert_eq!(
         engine.refuses(&["reopen", "2", "--why", "Again."]),
         "#2 is not cancelled: only a cancelled item is reopened.\n"

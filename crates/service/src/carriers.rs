@@ -16,12 +16,14 @@
 //! carrier keeps nothing of a failed round, and tries nothing again itself: when a round is tried again is the engine's
 //! to say, as its records show, and whatever made the round fail is shown on the page.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
-use driver::Policy;
 use driver::history::Lines;
+use driver::{Found, Policy};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -29,6 +31,8 @@ use tokio::sync::mpsc;
 use work::{Fill, Given, Measures, RanOn, Spent, Time, Why, Work};
 
 use crate::Message;
+
+pub use engine::spoken::Telling;
 
 /// What carries out the rounds of cells of one kind: an agent's rounds, or the engine's own acts.
 ///
@@ -44,6 +48,22 @@ pub trait Rounds: Send + Sync {
     /// saying what it took; what came back is dropped. A round has one end: where the reply it was given with is
     /// still held, that one is used and this one dropped, and where the round has ended already this one is dropped.
     fn stop(&self, round: Round, reply: RoundReply);
+
+    /// Tells the round, which is under way, what the owner said to it, to be handed to its session after its program's
+    /// next use of one of its own tools; once it was, the carrier says so by its teller
+    /// ([`Teller::said_to_round`]), and words that reached the round before it ended are said before its end. Rounds
+    /// carried out in no session are told nothing, as by default, and their cells take the words in their next round.
+    fn tell(&self, round: Round, told: Telling) {
+        let _ = (round, told);
+    }
+
+    /// Says whether a pause holds the work back now, its own or the owner's pause of everything: of every work as the
+    /// loop opens, before any round is given, and again whenever it may have changed, the same said again changing
+    /// nothing. What a carrier holds a round back for itself, as the acts the check for the project's turn to check
+    /// and merge, a pause holds back too, as the walk holds back what would begin a round; by default nothing is held.
+    fn paused(&self, work: WorkNumber, paused: bool) {
+        let _ = (work, paused);
+    }
 
     /// What the round of this number of the run was told and what came back of it, each try in order, as far as
     /// this carrier keeps them; no try where it keeps nothing, as by default. Unlike the others, this is called off
@@ -288,6 +308,16 @@ pub trait Network: Send + Sync {
     fn reached(&self) -> bool;
 }
 
+/// What checks the outside the agents' rounds need while they wait for it, by itself and with no round: the sign-in of
+/// their command line, the network to their service and a short request the service answers, each in turn, so that
+/// what is down is said by the first that is. It touches no work's session, and costs at most that short request.
+///
+/// It is called off the loop, and may take as long as the short request may.
+pub trait Outside: Send + Sync {
+    /// What the outside is now.
+    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
+}
+
 /// What carries out each kind of todo.
 #[derive(Clone)]
 pub struct Carriers {
@@ -299,8 +329,8 @@ pub struct Carriers {
     /// How many rounds of agents may go on at once: the engine gives the agents no more than this, and the others wait
     /// for a slot in the engine's order. The engine's own acts take none.
     pub slots: usize,
-    /// The look at the network to the agents' service.
-    pub network: Arc<dyn Network>,
+    /// The check of the outside the agents' rounds need, while they wait for it.
+    pub outside: Arc<dyn Outside>,
     /// The look at the network to the host the acts reach; none where no network reaches it, as the local repository.
     pub host: Option<Arc<dyn Network>>,
     /// The result a call has where the engine ends it itself, which the loop gives a person's call, a run at its limit
@@ -555,12 +585,22 @@ impl Teller {
     }
 
     /// As [`Teller::outside_wrote`], for the round: the version is put into it, so that the round is told of it and its
-    /// run consumes it. The carrier does it for what it did before its program began, as taking main in.
+    /// run consumes it; where the block says it already, the version that says it is put in, and none is written. The
+    /// carrier does it for what it did or read itself for the round, as taking main in.
     pub fn outside_wrote_for_round(&self, block: BlockId, content: String) {
         self.tell(Event::WroteForRound {
             run: self.run,
             block,
             content,
+        });
+    }
+
+    /// The round was given what the owner said to it, which the engine gave to be told it ([`Rounds::tell`]): these
+    /// versions are put into it. Said before the round's end.
+    pub fn said_to_round(&self, versions: Vec<(BlockId, decide::Seq)>) {
+        self.tell(Event::SaidToRound {
+            run: self.run,
+            versions,
         });
     }
 
@@ -630,11 +670,11 @@ mod tests {
         fn withdraw(&self, _: ToolCall, _: CallReply) {}
     }
 
-    struct Reached;
+    struct Well;
 
-    impl Network for Reached {
-        fn reached(&self) -> bool {
-            true
+    impl Outside for Well {
+        fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+            Box::pin(async { Found::Well })
         }
     }
 
@@ -644,7 +684,7 @@ mod tests {
             acts: Arc::new(Keeps(acts)),
             tools: Arc::new(NoTools),
             slots: 1,
-            network: Arc::new(Reached),
+            outside: Arc::new(Well),
             host: None,
             calls: crate::Scripted::calls(),
         }

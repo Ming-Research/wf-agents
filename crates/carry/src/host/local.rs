@@ -6,7 +6,7 @@ use std::path::Path;
 
 use flow::agents::{LocalWords, Tool, fill};
 
-use super::{Asking, Branch, Host, Named, NotMerged, Verdict};
+use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::git;
 use crate::held::Stop;
 use crate::process::{self, Ran};
@@ -80,9 +80,10 @@ impl Host for Local {
         &self,
         branch: &Branch<'_>,
         _: &str,
+        _: &str,
         _: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<Verdict>, String> {
+    ) -> Result<Option<Verdict>, Failed> {
         let dir = git::worktree(branch.place)?;
         let check = &self.project.check;
         let failed = match process::run(process::shell(check, &dir, &self.env), None, None, stop).await? {
@@ -95,8 +96,7 @@ impl Host for Local {
         };
         Ok(Some(Verdict {
             failed,
-            by: None,
-            notes: Vec::new(),
+            ..Verdict::default()
         }))
     }
 

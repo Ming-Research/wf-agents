@@ -99,13 +99,14 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     let mut writes: BTreeMap<RunId, Vec<Write>> = BTreeMap::new();
     for (run, write) in rows(
         db,
-        "SELECT run, block, matters, value FROM writes WHERE work = ?1 ORDER BY run, n",
+        "SELECT run, block, matters, value, empty FROM writes WHERE work = ?1 ORDER BY run, n",
         w,
         |row| {
             let write = Write {
                 block: BlockId(row.get(1)?),
                 meaning_unchanged: !row.get::<_, bool>(2)?,
                 value: row.get(3)?,
+                empty: row.get(4)?,
             };
             Ok((RunId(row.get(0)?), write))
         },
@@ -114,11 +115,18 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     }
     let finished = rows(
         db,
-        "SELECT at, run, dealt_with FROM finished WHERE work = ?1 ORDER BY at",
+        "SELECT at, run, dealt_with, waits_for FROM finished WHERE work = ?1 ORDER BY at",
         w,
-        |row| Ok((Seq(row.get(0)?), RunId(row.get(1)?), row.get::<_, Option<String>>(2)?)),
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                RunId(row.get(1)?),
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        },
     )?;
-    for (at, run, dealt_with) in finished {
+    for (at, run, dealt_with, waits_for) in finished {
         let writes = writes.remove(&run).unwrap_or_default();
         let dealt_with = dealt_with.map(|names| parse("finished", &names)).transpose()?;
         r.finished.push(Finished {
@@ -126,6 +134,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             at,
             writes,
             dealt_with,
+            waits_for: waits_for.map(BlockId),
         });
     }
 
@@ -157,7 +166,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
 
     let written = rows(
         db,
-        "SELECT at, block, writer, matters, value FROM written WHERE work = ?1 ORDER BY at",
+        "SELECT at, block, writer, matters, value, said_to, empty FROM written WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok((
@@ -166,15 +175,19 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 row.get::<_, String>(2)?,
                 row.get::<_, bool>(3)?,
                 row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?.map(CellId),
+                row.get::<_, bool>(6)?,
             ))
         },
     )?;
-    for (at, block, writer, matters, value) in written {
+    for (at, block, writer, matters, value, said_to, empty) in written {
         r.written.push(Written {
             block,
             by: from_name("written", writer)?,
             matters,
             value,
+            empty,
+            said_to,
             at,
         });
     }
@@ -561,14 +574,23 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     }
     for f in finished {
         let dealt_with = f.dealt_with.as_ref().map(|names| json("finished", names)).transpose()?;
+        let waits_for = f.waits_for.as_ref().map(|block| block.0.as_str());
         db.execute(
-            "INSERT INTO finished (work, at, run, dealt_with) VALUES (?1, ?2, ?3, ?4)",
-            params![w, f.at.0, f.run.0, dealt_with],
+            "INSERT INTO finished (work, at, run, dealt_with, waits_for) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![w, f.at.0, f.run.0, dealt_with, waits_for],
         )?;
         for (n, write) in (1..).zip(&f.writes) {
             db.execute(
-                "INSERT INTO writes (work, run, n, block, matters, value) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![w, f.run.0, n, write.block.0, !write.meaning_unchanged, write.value],
+                "INSERT INTO writes (work, run, n, block, matters, value, empty) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    w,
+                    f.run.0,
+                    n,
+                    write.block.0,
+                    !write.meaning_unchanged,
+                    write.value,
+                    write.empty
+                ],
             )?;
         }
     }
@@ -587,8 +609,18 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     for e in written {
         let writer = name("written", &e.by)?;
         db.execute(
-            "INSERT INTO written (work, at, block, writer, matters, value) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![w, e.at.0, e.block.0, writer, e.matters, e.value],
+            "INSERT INTO written (work, at, block, writer, matters, value, said_to, empty) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                w,
+                e.at.0,
+                e.block.0,
+                writer,
+                e.matters,
+                e.value,
+                e.said_to.as_ref().map(|c| c.0.as_str()),
+                e.empty
+            ],
         )?;
     }
     for q in questions {

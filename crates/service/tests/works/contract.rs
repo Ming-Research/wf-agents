@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use decide::RunId;
 use driver::Failed;
 use engine::{Came, Refused};
-use service::{Act, Carriers, Fault, Round, RoundReply, Rounds, Scripted, Service, TokioClock};
+use service::{Act, Acted, Carriers, Fault, Round, RoundReply, Rounds, Scripted, Service, TokioClock};
 use store::Store;
 use work::Spent;
 
@@ -39,7 +39,7 @@ async fn a_carrier_that_answers_a_round_twice_stops_the_loop() {
         agents: twice.clone(),
         acts: twice,
         tools: Arc::new(Scripted::new(Default::default())),
-        network: Arc::new(Scripted::new(Default::default())),
+        outside: Arc::new(Scripted::new(Default::default())),
         host: None,
         slots: crate::SLOTS,
         calls: Scripted::calls(),
@@ -47,8 +47,11 @@ async fn a_carrier_that_answers_a_round_twice_stops_the_loop() {
     let clock = Arc::new(TokioClock::new(START));
     let (mut service, mut inbox) = Service::open(Box::new(store), vec![trial_flow()], carriers, clock).unwrap();
     let (_, work) = add_to(&mut service, new_item("Greet the user", &[]));
-    assert_eq!(act_on(&mut service, work, Act::Resume), (Ok(()), Ok(())));
-    assert_eq!(act_on(&mut service, work, Act::Cancel { why: None }), (Ok(()), Ok(())));
+    assert_eq!(act_on(&mut service, work, Act::Resume), (Ok(Acted::default()), Ok(())));
+    assert_eq!(
+        act_on(&mut service, work, Act::Cancel { why: None }),
+        (Ok(Acted::default()), Ok(()))
+    );
     // The first end of the round is taken; the second cannot have happened.
     service.take(inbox.recv().await.unwrap()).unwrap();
     assert_eq!(

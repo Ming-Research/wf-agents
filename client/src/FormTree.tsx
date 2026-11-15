@@ -1,7 +1,7 @@
-// The form of a return as a tree, read from its JSON: each property under its name with its type, a required one
-// marked; where a return holds one of several, each in a box with an `or` line between them; a node that holds others
-// folds away at a press. A name is drawn by what it is: a kind of return, a tool, the blocks a cell writes under their
-// own names, or a field.
+// A part of the form of a return as a tree, read from its JSON: each property under its name with its type, a required
+// one marked; where a return holds one of several, each in a box with an `or` line between them; a node that holds
+// others folds away at a press. A name is drawn by what it is: a kind of return, a tool, a block, what a field holds
+// under names of its own, or a field.
 
 import { Fragment, type ReactNode } from 'react';
 
@@ -18,19 +18,23 @@ interface Schema {
   enum?: string[];
 }
 
-/// What the tree needs to know beside the form: which names are the engine's tools.
-interface Known {
-  tools: string[];
+/// What the names at the top of the tree are, by the key of the part of the form it draws: of `tools`, the flow's
+/// tools; of `outputs`, the blocks of a line; of `form`, the kinds of return.
+function topStyle(part: string): string {
+  if (part === 'tools') return 'tree-tool';
+  if (part === 'outputs') return 'tree-own';
+  return 'tree-kind';
 }
 
-export function FormTree({ text, tools }: { text: string; tools: string[] }) {
+/// The part of the form keyed so in the files, as a tree.
+export function FormTree({ text, part }: { text: string; part: string }) {
   let schema: Schema;
   try {
     schema = JSON.parse(text) as Schema;
   } catch {
     return <pre className="content">{text}</pre>;
   }
-  return <div className="form-tree">{inside(schema, null, { tools })}</div>;
+  return <div className="form-tree">{inside(schema, null, topStyle(part))}</div>;
 }
 
 /// The type of a node as the form writes it: an array by what it holds.
@@ -67,33 +71,29 @@ function oneOf(boxes: ReactNode[]) {
 }
 
 /// What a node holds, laid out: one of its alternatives, or one of its properties where it may hold one only, or each
-/// of its properties.
-function inside(node: Schema, parent: string | null, known: Known): ReactNode {
+/// of its properties; the names at the top of the tree in the style of what they are.
+function inside(node: Schema, parent: string | null, top: string): ReactNode {
   const s = held(node);
   if (s.anyOf) {
     // An alternative that holds nothing, as a plain string, is shown by its type.
     return oneOf(
       s.anyOf.map((alt) =>
-        holdsAny(alt) ? inside(alt, parent, known) : <span className="tree-type">{typeOf(alt)}</span>,
+        holdsAny(alt) ? inside(alt, parent, top) : <span className="tree-type">{typeOf(alt)}</span>,
       ),
     );
   }
   const properties = Object.entries(s.properties ?? {});
   const required = s.required ?? [];
   const named = (name: string, child: Schema, style: string) => (
-    <Item key={name} name={name} schema={child} required={required.includes(name)} style={style} known={known} />
+    <Item key={name} name={name} schema={child} required={required.includes(name)} style={style} top={top} />
   );
-  const style = (name: string) => {
-    if (parent === null) return 'tree-kind';
-    if (known.tools.includes(name)) return 'tree-tool';
-    return '';
-  };
+  const style = parent === null ? top : '';
   if (s.minProperties === 1 && s.maxProperties === 1) {
-    return oneOf(properties.map(([name, child]) => named(name, child, style(name))));
+    return oneOf(properties.map(([name, child]) => named(name, child, style)));
   }
   return (
     <>
-      {properties.map(([name, child]) => named(name, child, style(name)))}
+      {properties.map(([name, child]) => named(name, child, style))}
       {typeof s.additionalProperties === 'object' && named('additionalProperties', s.additionalProperties, 'tree-own')}
     </>
   );
@@ -104,13 +104,13 @@ function Item({
   schema,
   required,
   style,
-  known,
+  top,
 }: {
   name: string;
   schema: Schema;
   required: boolean;
   style: string;
-  known: Known;
+  top: string;
 }) {
   const head = (
     <>
@@ -123,7 +123,7 @@ function Item({
   return (
     <details open>
       <summary>{head}</summary>
-      <div className="tree-children">{inside(schema, name, known)}</div>
+      <div className="tree-children">{inside(schema, name, top)}</div>
     </details>
   );
 }

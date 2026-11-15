@@ -8,13 +8,16 @@
 //! on is a new round, which they carry out as the script says of it.
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use decide::{CallId, RunId};
+use driver::Found;
 use store::WorkNumber;
 
-use crate::carriers::{CallReply, Carriers, Network, Round, RoundReply, Rounds, ToolCall, Tools};
+use crate::carriers::{CallReply, Carriers, Network, Outside, Round, RoundReply, Rounds, ToolCall, Tools};
 use crate::script::{Ends, Planned, Script};
 
 /// Agents, engine acts and tools that follow a script.
@@ -53,7 +56,7 @@ impl Scripted {
             acts: Arc::new(self.clone()),
             tools: Arc::new(self.clone()),
             slots: self.inner.script.slots.unwrap_or(crate::script::SLOTS),
-            network: Arc::new(self.clone()),
+            outside: Arc::new(self.clone()),
             host: Some(Arc::new(self.clone())),
             calls: Self::calls(),
         }
@@ -143,6 +146,14 @@ fn end(reply: RoundReply, planned: Planned) {
 impl Network for Scripted {
     fn reached(&self) -> bool {
         true
+    }
+}
+
+/// The outside of the agents' rounds a script runs on is always well: what the script makes a round fail of passes
+/// once the engine checks it.
+impl Outside for Scripted {
+    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+        Box::pin(async { Found::Well })
     }
 }
 

@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_none() {
+fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_skipped() {
     let job = |status: &str, conclusion: Option<&str>| {
         job(
             &json!({ "name": "test", "status": status, "conclusion": conclusion, "html_url": "https://github.com/o/r/runs/1/job/2" }),
@@ -23,10 +23,205 @@ fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_none() {
     );
     assert_eq!(job("in_progress", None).map(|j| j.outcome), Some(Outcome::Pending));
     assert_eq!(
-        job("completed", Some("skipped")),
-        None,
-        "a job whose condition was false did not run"
+        job("completed", Some("skipped")).map(|j| j.outcome),
+        Some(Outcome::Skipped),
+        "a job whose condition was false did not run, and is not left out"
     );
+}
+
+// The time of a job is the whole seconds from its `started_at` to its `completed_at`, and only a job that ran to a
+// conclusion has one: a cancelled job, one not complete and one that did not run did not finish.
+#[test]
+fn a_jobs_wall_time_is_read_from_its_two_stamps_when_it_ran_to_a_conclusion() {
+    let took = |status: &str, conclusion: Option<&str>, started: Value, completed: Value| {
+        job(&json!({
+            "name": "test", "status": status, "conclusion": conclusion,
+            "started_at": started, "completed_at": completed,
+        }))
+        .map(|j| j.took)
+    };
+    let (start, end) = (json!("2026-11-14T10:00:00Z"), json!("2026-11-14T10:03:12Z"));
+    assert_eq!(
+        took("completed", Some("success"), start.clone(), end.clone()),
+        Some(Some(192))
+    );
+    assert_eq!(
+        took("completed", Some("failure"), start.clone(), end.clone()),
+        Some(Some(192))
+    );
+    assert_eq!(
+        took("completed", Some("timed_out"), start.clone(), end.clone()),
+        Some(Some(192))
+    );
+    for (status, conclusion) in [
+        ("completed", Some("cancelled")),
+        ("completed", Some("skipped")),
+        ("in_progress", None),
+    ] {
+        assert_eq!(
+            took(status, conclusion, start.clone(), end.clone()),
+            Some(None),
+            "{status} {conclusion:?} did not finish"
+        );
+    }
+    // No usable stamp, no time: a missing one, a null, an order reversed, and any other form of a time.
+    for (started, completed) in [
+        (json!(null), end.clone()),
+        (start.clone(), json!(null)),
+        (end.clone(), start.clone()),
+        (start.clone(), json!("2026-11-14T10:03:12.000Z")),
+        (start.clone(), json!("2026-11-14T11:03:12+01:00")),
+        (start.clone(), json!("2026-13-14T10:03:12Z")),
+        (start.clone(), json!("2026-02-29T10:03:12Z")),
+        (start.clone(), json!("2026-11-14T24:00:00Z")),
+        (start.clone(), json!("2026-11-14 10:03:12Z")),
+        (start.clone(), json!("2026-11-1\u{e9}T10:03:12Z")),
+    ] {
+        assert_eq!(
+            took("completed", Some("success"), started.clone(), completed.clone()),
+            Some(None),
+            "{started} to {completed}"
+        );
+    }
+}
+
+// The seconds between two stamps hold over a day, a month, a year and a leap day, and none is lost at the March of a
+// leap year.
+#[test]
+fn the_seconds_between_two_stamps_hold_across_days_months_years_and_leap_days() {
+    let between = |from: &str, to: &str| seconds_between(from, to);
+    assert_eq!(between("2026-11-14T10:00:00Z", "2026-11-14T10:00:00Z"), Some(0));
+    assert_eq!(between("2026-11-14T23:59:59Z", "2026-11-15T00:00:00Z"), Some(1));
+    assert_eq!(between("2026-11-30T23:59:00Z", "2026-12-01T00:01:00Z"), Some(120));
+    assert_eq!(between("2026-12-31T23:59:59Z", "2027-01-01T00:00:00Z"), Some(1));
+    assert_eq!(
+        between("2024-02-28T00:00:00Z", "2024-03-01T00:00:00Z"),
+        Some(2 * 86_400),
+        "2024 has a 29th of February"
+    );
+    assert_eq!(
+        between("2026-02-28T00:00:00Z", "2026-03-01T00:00:00Z"),
+        Some(86_400),
+        "2026 has none"
+    );
+    assert_eq!(
+        between("2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
+        Some(366 * 86_400)
+    );
+    assert_eq!(
+        between("1999-12-31T00:00:00Z", "2000-03-01T00:00:00Z"),
+        Some(61 * 86_400),
+        "2000 is a leap year"
+    );
+    assert_eq!(
+        between("2100-02-28T00:00:00Z", "2100-03-01T00:00:00Z"),
+        Some(86_400),
+        "2100 is not"
+    );
+    assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
+    assert_eq!(epoch("2026-11-14T10:03:12Z"), Some(1_794_650_592));
+}
+
+// Reference: the Unix time of a day is 86 400 s times the days counted from 1970-01-01 on the Gregorian calendar, which
+// this walk counts one day at a time, with no formula, and a day past a month's last is no day.
+#[test]
+fn the_epoch_of_every_day_from_1970_to_2400_is_what_counting_the_days_one_by_one_gives() {
+    let leap = |year: i64| (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let mut days = 0i64;
+    for year in 1970..=2400i64 {
+        let february = if leap(year) { 29 } else { 28 };
+        for (month, length) in [31, february, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            .into_iter()
+            .enumerate()
+        {
+            let month = month + 1;
+            for day in 1..=length {
+                let at = |time: &str| epoch(&format!("{year:04}-{month:02}-{day:02}T{time}Z"));
+                assert_eq!(at("00:00:00"), Some(days * 86_400), "{year}-{month}-{day}");
+                assert_eq!(at("23:59:59"), Some(days * 86_400 + 86_399), "{year}-{month}-{day}");
+                assert_eq!(at("12:34:56"), Some(days * 86_400 + 45_296), "{year}-{month}-{day}");
+                days += 1;
+            }
+            let past = epoch(&format!("{year:04}-{month:02}-{:02}T00:00:00Z", length + 1));
+            assert_eq!(past, None, "{year}-{month} has no day {}", length + 1);
+        }
+    }
+}
+
+// Reference: the Unix times the system's `date -u` gives for these stamps, and the two constants every Unix reference
+// gives for the first and the last day of the years 1 to 9999.
+#[test]
+fn a_stamp_is_the_unix_time_the_systems_date_gives_for_it() {
+    for (stamp, unix) in [
+        ("2026-11-14T10:03:12Z", 1_794_650_592),
+        ("2024-02-29T23:59:59Z", 1_709_251_199),
+        ("2024-12-31T23:59:59Z", 1_735_689_599),
+        ("2026-02-28T00:00:00Z", 1_772_236_800),
+        ("2038-01-19T03:14:07Z", 2_147_483_647),
+        ("2100-03-01T00:00:00Z", 4_107_542_400),
+        ("2000-02-29T00:00:00Z", 951_782_400),
+        ("1999-12-31T23:59:59Z", 946_684_799),
+        ("2200-03-01T00:00:00Z", 7_263_216_000),
+        ("2400-02-29T12:00:00Z", 13_574_606_400),
+        ("0001-01-01T00:00:00Z", -62_135_596_800),
+        ("9999-12-31T23:59:59Z", 253_402_300_799),
+    ] {
+        assert_eq!(epoch(stamp), Some(unix), "{stamp}");
+    }
+    assert_eq!(
+        seconds_between("0001-01-01T00:00:00Z", "9999-12-31T23:59:59Z"),
+        Some(253_402_300_799 + 62_135_596_800)
+    );
+}
+
+// A stamp is the one form GitHub gives and no other: a sign, a blank, a lower-case mark or a letter that is not an
+// ASCII digit in a field, or a form of another length, gives no time and never a wrong one.
+#[test]
+fn a_stamp_with_anything_but_digits_in_a_field_or_in_another_form_is_no_stamp() {
+    for stamp in [
+        "",
+        "2026-11-14T10:03:12",
+        "2026-11-14T10:03:12ZZ",
+        "2026-11-14t10:03:12Z",
+        "2026-11-14T10:03:12z",
+        "+026-11-14T10:03:12Z",
+        "2026-+1-14T10:03:12Z",
+        "2026-11--4T10:03:12Z",
+        "2026-11-14T 0:03:12Z",
+        "2026-11-14T10:0 :12Z",
+        "2026-11-14T10:03:1-Z",
+        "2026-11-14T10:03:\u{e9}Z",
+        "2026-11-14T10:03:12\u{e9}",
+        "\u{663}026-11-14T10:03:12Z",
+        "2026-00-14T10:03:12Z",
+        "2026-11-00T10:03:12Z",
+        "2026-11-31T10:03:12Z",
+        "2026-11-14T10:60:00Z",
+        "2026-11-14T10:00:60Z",
+    ] {
+        assert_eq!(epoch(stamp), None, "{stamp:?}");
+        assert_eq!(seconds_between("2026-11-14T10:00:00Z", stamp), None, "{stamp:?}");
+        assert_eq!(seconds_between(stamp, "2026-11-14T10:00:00Z"), None, "{stamp:?}");
+    }
+}
+
+// Only a conclusion that judged the code gives a time: `neutral` counts as passed, while the others that end a job
+// without judging it, GitHub's `action_required`, `stale` and `startup_failure`, give none.
+#[test]
+fn a_neutral_job_is_timed_and_one_that_ended_without_judging_the_code_is_not() {
+    let took = |conclusion: &str| {
+        job(&json!({
+            "name": "test", "status": "completed", "conclusion": conclusion,
+            "started_at": "2026-11-14T10:00:00Z", "completed_at": "2026-11-14T10:00:07Z",
+        }))
+        .map(|j| (j.outcome, j.took))
+    };
+    assert_eq!(took("neutral"), Some((Outcome::Passed, Some(7))));
+    for conclusion in ["action_required", "stale", "startup_failure", "cancelled"] {
+        let (outcome, took) = took(conclusion).expect("a job");
+        assert!(matches!(outcome, Outcome::Broken(_)), "{conclusion}");
+        assert_eq!(took, None, "{conclusion}");
+    }
 }
 
 #[test]
@@ -156,6 +351,33 @@ fn an_answer_is_read_with_its_status_and_a_refusal_in_githubs_words() {
     assert_eq!(included("gh: not logged in"), None);
 }
 
+// GitHub's refusal is of the kind its status tells, whatever its words: its own fault, or its limit on the requests it
+// takes, passes by itself; any other refusal waits for the owner, though its words name a timeout.
+#[test]
+fn a_refusal_is_of_the_kind_its_status_tells_whatever_its_words() {
+    use decide::run::Failure;
+    let kind = |head: &str| {
+        let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"Connection timed out\"}}");
+        refused(&included(&out).expect("an answer")).kind
+    };
+    for passes in [
+        "HTTP/2.0 500 Internal Server Error",
+        "HTTP/2.0 502 Bad Gateway",
+        "HTTP/2.0 429 Too Many Requests",
+        "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 0",
+        "HTTP/2.0 403 Forbidden\r\nretry-after: 60",
+    ] {
+        assert_eq!(kind(passes), Some(Failure::Passing), "{passes}");
+    }
+    for refused in [
+        "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 4999",
+        "HTTP/2.0 405 Method Not Allowed",
+        "HTTP/2.0 422 Unprocessable Entity",
+    ] {
+        assert_eq!(kind(refused), Some(Failure::Other), "{refused}");
+    }
+}
+
 #[test]
 fn gh_is_given_the_token_and_nothing_else_of_the_engines_but_what_git_is() {
     let engine = [
@@ -200,6 +422,10 @@ async fn a_gh_that_never_answers_is_given_up_within_its_limit() {
         .within(std::time::Duration::from_millis(500));
     let began = std::time::Instant::now();
     let given_up = gh.pulls("work-1").await.expect_err("given up");
-    assert!(given_up.contains("did not end within"), "{given_up}");
+    assert!(given_up.why.contains("did not end within"), "{given_up}");
+    assert_eq!(
+        given_up.kind, None,
+        "no answer tells no kind: the words are read for the network's"
+    );
     assert!(began.elapsed() < std::time::Duration::from_secs(10));
 }

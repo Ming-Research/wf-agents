@@ -304,6 +304,8 @@ impl History {
                 self.take(Event::Released);
             }
             Effect::Ping { .. } => unreachable!("the work's loop gives no ping"),
+            // Nobody speaks in these histories.
+            Effect::Tell { .. } => unreachable!("no words are said"),
         }
         true
     }
