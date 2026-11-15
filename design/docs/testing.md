@@ -84,13 +84,20 @@ and the scripts that stand in for agents are built; what is not is said at the e
     run and round and the versions its run started from, so that a run stopped and started again goes on as it would
     have. Such a run shows what the engine and the page do with the case.
 
-12. **An agent that plays a part.** Where the case shows only in the agents' real program, the round runs that program
-    as any round does, in a session of its line, and its message carries, after all its cell gives it, the part the
-    script says the agent plays in that round. Such a run shows what only that program does: what the context manager
-    filled into a real session, how that session's cache was read and written, what the program printed for a session
-    lost, a compaction or a refusal, and what it all cost. It never judges the cell's words, since the agent knows it
-    is playing a part (27). It runs on an installation apart from the real one, in a repository made for it, so that
-    nothing it does reaches a project.
+12. **An agent that plays a part.** What a round is given can be wrong only at one moment, such as an input that
+    contradicts itself in one state of the work, and only an agent given it at that moment can see it. So a round can
+    run the agents' real program as any round does, in a session of its line, its message carrying, after all its cell
+    gives it, the part the script says the agent plays in that round. The agent is told that it is a test agent, there
+    to find what is wrong: it plays its part, and reports in its `observations` each thing it found wrong in what the
+    round gave it (missing, contradicting itself or another input, given twice or though the session already held it,
+    out of the order the flow declares, unneeded, or readable another way), in what came of its earlier returns, and in
+    what the form and the cell's words let it return. A part only carried out is what a script in its place does at no
+    cost (11). The run goes one round at a time (26). Such a run also shows what only that program does: what the
+    context manager filled into a real session, how that session's cache was read and written, what the program printed
+    for a session lost, a compaction or a refusal, and what it all cost. What the agent does shows nothing of how an
+    agent acts in real work, since it knows it is in a test; only a trial shows that, where an agent not told it is
+    tested reports what it meets in the same way (27, 28). It runs on an installation apart from the real one, in a
+    repository made for it, so that nothing it does reaches a project.
 
 13. **What a script says**, for one case: what each round of each cell returns (what it hands in, asks or fails with,
     and what it takes), or the part its agent plays; what each tool answers; what people and the outside do, each at a
@@ -183,10 +190,11 @@ and the scripts that stand in for agents are built; what is not is said at the e
 
 28. What is read of each round is read where it shows: its inputs on the round's panel, as they were sent, and in its
     line's system prompt, against what its cell names and the order the flow declares (principle cache-order); its
-    return, what was sent back and why, and the engine's reason for what runs next, on the work's page; its numbers on
-    the same panel, each against the line of its own history (principle judged-by-own-history), and in the System view
-    what went past those lines; and in the engine's log, what the engine met outside any work. The assistant reads the
-    same through the commands that show a work (principle a-look-brings-back-little).
+    return, what was sent back and why, and the engine's reason for what runs next, on the work's page; what its agent
+    reported in `observations`, in the Observations view; its numbers on the same panel, each against the line of its
+    own history (principle judged-by-own-history), and in the System view what went past those lines; and in the
+    engine's log, what the engine met outside any work. The assistant reads the same through the commands that show a
+    work (principle a-look-brings-back-little).
 
 29. Every return sent back, and every way round between the same two cells after the first, is a finding (principles
     converging-fixes and report-all-at-once). Each finding is recorded at once, as an observation or an item. A fault of
