@@ -9,8 +9,10 @@ name: fast
 #
 # A test is named by the name its JUnit result gives it: a Rust test by its name as nextest gives it, `tests::a_row`,
 # and a page test by its describes and its title joined by ` > `, as vitest lists it. The workflow takes each name as
-# it is, and runs exactly the tests that have it: a Rust test by nextest's exact name (`test(=name)`), for a name made
-# only of letters, digits, `_` and `::`, and a page test by vitest's own list of the page's tests, for any other.
+# it is, and runs exactly the tests that have it, whatever its form: each name is looked for among the page's tests, by
+# vitest's own list of them, and a name made only of letters, digits, `_` and `::`, which a Rust test's name is and
+# which a page test's may be too (a top-level `it('works')`), is also selected among the Rust tests by nextest's exact
+# name (`test(=name)`). A name that no test has runs nothing, and the engine says so, since it reads the results.
 #
 # The tests job uploads what became of each test it ran as JUnit XML, in the artifact `test-results`, which the engine
 # reads (crates/carry/src/host/github/results.rs): each test with its name, its outcome, its time and what a failed one
@@ -117,9 +119,9 @@ jobs:
           persist-credentials: false
       - run: git clean -ffdxq -e target -e client/node_modules -e client/dist
       # The names given: one a line when the input holds a line break, as the engine gives them; else split at white
-      # space. Each is trimmed, as the engine trims a name, and listed in the log. A name made only of letters, digits,
-      # `_` and `::` is a Rust test's, selected by nextest's exact name; any other is a page test's, looked for in the
-      # list vitest gives of the page's tests, below.
+      # space. Each is trimmed, as the engine trims a name, and listed in the log. Each is looked for in the list vitest
+      # gives of the page's tests, below; one made only of letters, digits, `_` and `::` can be a Rust test's as well,
+      # and is selected by nextest's exact name too, and kept in `rust` for the step below that says which was found.
       - name: Read the names
         id: names
         env:
@@ -131,11 +133,13 @@ jobs:
           if [[ $TESTS == *$'\n'* ]]; then mapfile -t given <<< "$TESTS"; else read -ra given <<< "$TESTS"; fi
           rust=()
           : > "$names/page"
+          : > "$names/rust"
           for n in "${given[@]}"; do
             n=$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<< "$n")
             [ -n "$n" ] || continue
             echo "Named: $n"
-            if [[ $n =~ ^[A-Za-z0-9_]+(::[A-Za-z0-9_]+)*$ ]]; then rust+=("test(=$n)"); else printf '%s\n' "$n" >> "$names/page"; fi
+            printf '%s\n' "$n" >> "$names/page"
+            if [[ $n =~ ^[A-Za-z0-9_]+(::[A-Za-z0-9_]+)*$ ]]; then rust+=("test(=$n)"); printf '%s\n' "$n" >> "$names/rust"; fi
           done
           rust_selected=false
           if [ ${#rust[@]} -gt 0 ]; then
@@ -279,9 +283,11 @@ jobs:
           done
           exit 101
       # The page's tests named, found by the name vitest lists for each: the exact name, as the JUnit gives it, which the
-      # file the test is in comes with. The tests that run in the browser are in the files named *.browser.test.tsx:
-      # a name no test of the Node project has is looked for among them, which is the one time Chromium is installed and
-      # started. A name no test has is said, and no test is reported for it.
+      # file the test is in comes with. Every name is looked for here, one that may be a Rust test's too, since a page
+      # test's name may be of the same form. The tests that run in the browser are in the files named
+      # *.browser.test.tsx: a name no test of the Node project has is looked for among them, which is the one time
+      # Chromium is installed and started. A name that only a page test could have and none has is said, and no test is
+      # reported for it; one that may be a Rust test's is left to the results, which tell whether any test has it.
       #
       # The page's tests are Vitest projects (client/vite.config.ts): `unit` always, and `browser`, which draws the page
       # in a real Chromium, only when a name is a browser test's. Playwright installs the Chromium its version drives
@@ -314,7 +320,7 @@ jobs:
           fi
           cut -f1 "$names/found" | sort -u > "$names/matched"
           while IFS= read -r n; do
-            grep -qxF -- "$n" "$names/matched" || echo "No page test is named: $n"
+            grep -qxF -- "$n" "$names/matched" || grep -qxF -- "$n" "$names/rust" || echo "No page test is named: $n"
           done < "$names/page"
           cut -f2 "$names/found" | sort -u > "$names/files"
           # vitest matches the pattern against a test's name as its describes and its title joined by a space.
