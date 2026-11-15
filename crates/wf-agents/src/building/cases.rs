@@ -4,17 +4,19 @@
 //! The states of a work's routing come from the exploration of its flow (crate `explore`): every state it keeps is
 //! named by what the page shows of the work there, as the judge reads the engine's view (`service::judge::states`):
 //! under way at a cell, waiting at a cell for each thing it waits for, stalled, ended; a work merged is told apart as
-//! well by its ways back and the cells it went without, so that each way through the flow is a state of its own. Of
-//! each name the nearest path is taken, and played again on a work added as a play adds an item: paused as it is
-//! added, its block of dependencies written, what people write for it written, then let on. What the path gave the
-//! engine's loop becomes the item's script: each round's return as the exploration's model made it, never left to the
-//! script's default round; each write by a person, each of the owner's words and answers and each cell let go, an act
-//! at the state the engine showed the work in as it came; main moving, the act that moves main; a session begun anew,
-//! the act that begins one; and what the engine gives the loop itself, a call withdrawn, a round stopped, what an
-//! ended work held let go, nothing. The steps the records of that play hold are the item's path, the state it was kept
-//! for its end; a round or a call left under way there takes longer than a play's bound of clock time, so that the
-//! play ends while it is under way. A path that writes what a script writes only as the round that reads it does (the
-//! tree, the head), or that a play cannot add an item for, is no case: it is listed with why.
+//! well by its ways back, the cells it went without and how often main moved, so that each way through the flow is a
+//! state of its own. Main, which the exploration writes as a work starts, moves as the work's first state comes, by the
+//! act that moves main, given once every item of a play stands at its own. Of each name the nearest path is taken, and
+//! played again on a work added as a play adds an item: paused as it is added, its block of dependencies written, what
+//! people write for it written, then let on. What the path gave the engine's loop becomes the item's script: each
+//! round's return as the exploration's model made it, never left to the script's default round; each write by a person,
+//! each of the owner's words and answers and each cell let go, an act at the state the engine showed the work in as it
+//! came; main moving, the act that moves main; a session begun anew, the act that begins one; and what the engine gives
+//! the loop itself, a call withdrawn, a round stopped, what an ended work held let go, nothing. The steps the records
+//! of that play hold are the item's path, the state it was kept for its end; a round or a call left under way there
+//! takes longer than a play's bound of clock time, so that the play ends while it is under way. A path that writes what
+//! a script writes only as the round that reads it does (the tree, the head), or that a play cannot add an item for, is
+//! no case: it is listed with why.
 //!
 //! Nothing here names a cell, a block or a trigger of a flow: each is read of the flow, or of the source the engine
 //! writes it by.
@@ -165,8 +167,8 @@ fn general(step: Step) -> Step {
     }
 }
 
-/// The ways a work went back and the cells it went without, as words after its end: each run of a cell that came
-/// after a run of a cell later in the flow is a way back, from that cell to it.
+/// The ways a work went back, the cells it went without and how often main moved, as words after its end: each run of
+/// a cell that came after a run of a cell later in the flow is a way back, from that cell to it.
 fn ways(flow: &Compiled, records: &Records) -> String {
     let mut started: Vec<&decide::Started> = records.started.iter().collect();
     started.sort_by_key(|s| s.at);
@@ -193,6 +195,20 @@ fn ways(flow: &Compiled, records: &Records) -> String {
         .collect();
     if !without.is_empty() {
         said.push_str(&format!(", without {}", without.join(", ")));
+    }
+    // Main moving is a way through the flow too: the check runs again on it. Its first version is the work's start.
+    let main = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(driver::MAIN));
+    let moves = main.map_or(0, |(main, _)| {
+        let written = records
+            .written
+            .iter()
+            .filter(|w| w.block == *main && w.by == Outsider::Outside);
+        written.count().saturating_sub(1)
+    });
+    match moves {
+        0 => {}
+        1 => said.push_str(", main moving once"),
+        n => said.push_str(&format!(", main moving {n} times")),
     }
     said
 }
