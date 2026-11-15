@@ -68,6 +68,9 @@ pub struct VersionView {
     pub meaning: Seq,
     /// The block's value, where it is a choice.
     pub value: Option<String>,
+    /// Whether it holds nothing, as its write recorded it, which a test of content reads: it has no value, and its
+    /// content is empty or only whitespace.
+    pub empty: bool,
 }
 
 /// Who wrote a version of a block.
@@ -144,6 +147,7 @@ fn shown(versions: &BTreeMap<&BlockId, Vec<Version<'_>>>) -> BTreeMap<BlockId, V
                     },
                     meaning: v.meaning,
                     value: v.value.map(str::to_string),
+                    empty: v.empty,
                 })
                 .collect();
             ((*block).clone(), versions)

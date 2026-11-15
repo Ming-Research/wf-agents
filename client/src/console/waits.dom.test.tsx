@@ -78,7 +78,7 @@ const RULED: Flow = {
 const SAID_NO: Block = {
   name: 'content',
   versions: [
-    { at: 7, time: 0, by: { kind: 'run', run: 5, cell: 'review' }, meaning: 7, value: 'no', saidTo: null, chars: 0 },
+    { at: 7, time: 0, by: { kind: 'run', run: 5, cell: 'review' }, meaning: 7, value: 'no', saidTo: null, chars: 0, empty: false },
   ],
 };
 

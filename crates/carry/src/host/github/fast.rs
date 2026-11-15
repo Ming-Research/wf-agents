@@ -386,8 +386,9 @@ impl<A: Api> GitHub<A> {
     /// flaky, and is said so. Where every test passed there and every check did, the commit passes; where every test
     /// that failed again failed on main as well, the commit is held, its change not being what fails it; and otherwise
     /// it failed, said as the full workflows found it, then as each run again found it. A run again that judged
-    /// nothing, as one whose results cannot be read, and tests that could not be run again, fail the commit as the full
-    /// workflows found it, saying why. None where it was told to stop.
+    /// nothing, as one whose results cannot be read, and tests that could not be run again, not run, skipped or not
+    /// built on the commit, fail the commit as the full workflows found it and as that run found it, which says why;
+    /// such a test is not said to have failed again. None where it was told to stop.
     async fn again(
         &self,
         request: Request<'_>,
@@ -442,16 +443,19 @@ impl<A: Api> GitHub<A> {
             })
             .collect();
         let red_again: Vec<String> = (rows.iter())
-            .filter(|row| row.became != Became::Passed)
+            .filter(|row| row.became == Became::Failed)
             .map(|row| row.named.to_string())
             .collect();
+        // A test the run again did not run, skipped or could not build was not run again, and has not failed again: the
+        // commit fails as the run again found it, which says what became of the test, and nothing is run on main.
+        let not_run_again = (rows.iter()).any(|row| !matches!(row.became, Became::Passed | Became::Failed));
         let checks_red = (named.checks.iter()).any(|check| {
             let jobs: Vec<&Check> = (on_commit.iter().flat_map(|r| &r.jobs))
                 .filter(|j| &j.name == check)
                 .collect();
             jobs.is_empty() || jobs.into_iter().any(red_job)
         });
-        if checks_red {
+        if checks_red || not_run_again {
             return Ok(Some(Again {
                 flaky,
                 ..Again::failed(vec![first, again_on_commit])
@@ -489,6 +493,8 @@ impl<A: Api> GitHub<A> {
             let tests = named.join(&check.tests_between);
             fill(word, &[("main", &self.project.main), ("head", main), ("tests", &tests)])
         };
+        // A test that failed again and did not fail on main, passing there or not run there, as one the change adds, is
+        // no red of main's: it fails the commit.
         let only_here: Vec<&str> = (rows.iter())
             .filter(|row| row.became != Became::Failed)
             .map(|row| row.named)
