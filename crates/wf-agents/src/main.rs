@@ -328,7 +328,7 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    /// Gives a call that waits for a person its result: the owner's word that a run at its limit goes on.
     Result {
         work: u64,
         call: u64,

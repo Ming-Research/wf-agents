@@ -487,7 +487,7 @@ impl Explorer<'_> {
             }
             if let Effect::Call {
                 call,
-                what: engine::Call::Asked(Ask::Tool { .. }),
+                what: engine::Call::Asked(Ask::Tool(_)),
                 ..
             } = &effect
             {
