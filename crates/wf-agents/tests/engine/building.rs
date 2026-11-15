@@ -96,12 +96,28 @@ fn build(flows: &[PathBuf]) -> Built {
     for flow in flows {
         command.arg("--flow").arg(flow);
     }
-    let out = command.output().expect("the command runs");
-    let said = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
+    // Stopped short of the test runner's limit, so that what it said so far is shown.
+    let printed = dir.path().join("printed");
+    let file = std::fs::File::create(&printed).expect("the file of what it prints");
+    let mut child = (command.stdout(file.try_clone().expect("the file again")).stderr(file))
+        .spawn()
+        .expect("the command runs");
+    let began = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("the command is waited for") {
+            break Some(status);
+        }
+        if began.elapsed().as_secs() > 50 {
+            let _ = child.kill();
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
+    let said = std::fs::read_to_string(&printed).unwrap_or_default();
+    let said = match status {
+        Some(_) => said,
+        None => format!("{said}\nstopped after 50 s"),
+    };
     let mut list = std::fs::read_to_string(data.join("states.md")).unwrap_or_default();
     for entry in std::fs::read_dir(&data).into_iter().flatten().flatten() {
         if let Ok(store) = std::fs::read_to_string(entry.path().join("states.md")) {
@@ -109,7 +125,7 @@ fn build(flows: &[PathBuf]) -> Built {
         }
     }
     Built {
-        ok: out.status.success(),
+        ok: status.is_some_and(|s| s.success()),
         said,
         list,
         dir,

@@ -153,7 +153,15 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
         let model = Model::new(g.compiled.clone());
         people.insert(g.compiled.name.clone(), model.people.clone());
         let group = |work: &work::Work, decision: &decide::Decision| cases::state_of(&model.compiled, work, decision);
+        let began = std::time::Instant::now();
         let explored = explore::explore_grouped(&model, EXPLORED, &group);
+        println!(
+            "{}: {} states explored, {} of them shown apart, in {:.1?}",
+            g.compiled.name,
+            explored.stats.states,
+            explored.groups.len(),
+            began.elapsed()
+        );
         let mut of_flow = Vec::new();
         let words_of = &words[&g.root];
         for (state, path) in &explored.groups {
@@ -226,13 +234,15 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
             store,
             cases,
         };
+        let began = std::time::Instant::now();
         let made = make(&making, &mut pool)?;
         reached_all &= made.reached_all;
         println!(
-            "{}: {} states made, {} not",
+            "{}: {} states made, {} not, in {:.1?}",
             store.dir(),
             made.list.iter().filter(|l| l.made.is_ok()).count(),
-            made.list.iter().filter(|l| l.made.is_err()).count()
+            made.list.iter().filter(|l| l.made.is_err()).count(),
+            began.elapsed()
         );
         listed.push((store.dir(), made.list, made.serving));
     }
