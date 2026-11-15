@@ -128,7 +128,8 @@ const RESULT_LEFT_OUT: &str = "a work waits at a cell for other than a result no
 const RESULT_RUN_FIRST: &str = "a cell whose run has not finished goes on while a cell that gives its result applies";
 /// Not required: the owner turning to a waiting cell while no slot is free is rare.
 const RESULT_FOR_A_SLOT: &str = "a cell entered but for a slot waits for it while a cell that gives its result applies";
-pub const RESULT_WAITS: &str = "a work waits at a cell for its result only while no cell that gives it would run";
+pub const RESULT_WAITS: &str =
+    "a waited result's giver runs, after any unfinished run of the waiting cell, and a wait names only what can come";
 pub const OUTSIDE: &str = "a work waits for the outside only for what the latest run of a cell said it waits for";
 const OUTSIDE_WAITED: &str = "a work waits for main to move, as a check said what it wrote waits for";
 
@@ -587,6 +588,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
         Decision::Run { cell, .. } => {
             let i = flow.place(cell).expect("a cell of the flow");
             first_entered(v, flow, reading, i);
+            begins_after_runs(v, flow, reading, i);
         }
         Decision::GoOn { run, .. } => {
             v.count(GOING_ON);
@@ -678,6 +680,32 @@ fn result_waits(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, on: &
                     cell.id, on, asks.result
                 ),
             ),
+        }
+    }
+}
+
+/// Property a-wait-holds-its-cell, of results, the order: a cell that gives a result begins while no cell that awaits
+/// it, by the histories' own reading, has a run that has not finished, which goes on to hand its return in first.
+fn begins_after_runs(v: &mut Verdict, flow: &Flow, reading: &Reading, j: usize) {
+    let now = Seq(u64::MAX);
+    let records = reading.records;
+    let giver = &flow.cells()[j].id;
+    for cell in flow.cells() {
+        let awaits = (cell.asks.iter())
+            .any(|asks| reading.awaits(cell, asks, now) && givers(flow, asks).any(|(_, c)| &c.id == giver));
+        let unfinished = (records.started.iter()).any(|s| {
+            s.cell == cell.id
+                && !reading.finished.contains_key(&s.run)
+                && !records.abandoned.iter().any(|a| a.run == s.run)
+        });
+        if awaits && unfinished {
+            v.fail(
+                RESULT_WAITS,
+                format!(
+                    "{giver} begins while a run of {}, which awaits its result, has not finished",
+                    cell.id
+                ),
+            );
         }
     }
 }
