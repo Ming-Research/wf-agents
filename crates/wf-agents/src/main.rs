@@ -798,9 +798,6 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
-        F::DescribedNotRunOn { block } => {
-            format!("the cell says what the work is by {block}, but {block} does not run it")
-        }
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }

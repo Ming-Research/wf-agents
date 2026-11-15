@@ -1,7 +1,7 @@
 # What the engine reads of a work's branch
 
 ### decision the-branch-is-read-in-one-step
-The data of a work's branch, its design tree and the work's head, are read in one step, at the branch and not at what its worktree has checked out: in the round that takes main in for a run, as each round of the work ends, and by the check as it judges. A version is written only where what is read differs from the latest, and each datum says in one place what makes one.
+The data of a work's branch, its design tree and the work's head, are read in one step, at the branch and not at what its worktree has checked out: in the round that takes main in for a run, as each round of the work ends, by the check as it judges and by the merge before it merges. A version is written only where what is read differs from the latest, and each datum says in one place what makes one.
 Why: Two readings would drift apart in when they read and in what they count as new. A run's later rounds read nothing as main is taken in, since what they would find is what the run's earlier rounds committed.
 
 ### decision a-version-read-at-a-rounds-end-is-that-rounds

@@ -18,22 +18,22 @@
 //!    are counted, written to the standard error, and held to the bound `content_bound` rests on.
 //! 5. No finished run lacks a write of a block its cell must write (`must_write`), read from the records of the
 //!    finishes and the cells' definitions after every step (property a-run-is-one-mechanism).
-//! 6. The work's head the merge merges is a version the review dealt with: as a round of the merge begins on a branch
-//!    the work committed to, the branch is at the head the check last passed, and each judge that the head runs and
-//!    that applies, a cell that writes a choice the check's preconditions read, was told of a version that says that
-//!    head by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
+//! 6. The work's head that merges is a version the review dealt with: as the merge's run finishes on a branch the work
+//!    committed to, the branch is at the head the check last passed, and each judge that the head runs and that
+//!    applies, a cell that writes a choice the check's preconditions read, was told of a version that says that head
+//!    by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
 //!
-//! The first two and the sixth are judged as each round of the merge begins, by the histories' own reading of the
-//! records as they were then (`reading`), never by the deciding code's tests.
+//! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
+//! own reading of the records as they were then (`reading`), never by the deciding code's tests.
 //!
 //! The work's branch is drawn beside the records, as its carriers read it: its work head is a commit named by a
 //! number, which an agent's round on a line that may change the work moves in two of five, and a person in one act in
-//! twenty, but while the check's record passed or a round of the merge is held, where the merge refuses a branch moved
-//! since the check and waits for the owner. As the carriers do, an agent's round on a line that may change the work
-//! hands in the head with its return where it moved; a round on a line that only reads, and the start, write it from
-//! outside before they end; and the check, as it judges, writes it from outside for its round where no version says it,
-//! and fails in passing, judging nothing, where a judge of the head dealt last with another. No head is read before the
-//! work commits, its branch holding no change of its own.
+//! twenty, and once more in one of three steered refusals, after the check passed. As the carriers do, an agent's round
+//! on a line that may change the work hands in the head with its return where it moved; a round on a line that only
+//! reads, and the start, write it from outside before they end; the check, as it judges, writes it from outside for
+//! its round where no version says it, and fails in passing, judging nothing, where a judge of the head dealt last with
+//! another; and the merge, as it begins, writes it from outside where no version says it and fails in passing. No head
+//! is read before the work commits, its branch holding no change of its own.
 //!
 //! What a history is. It begins with the owner's start, the block that runs the first cell, which the outside writes
 //! once; then, with a chance of four in five, with the outside making the first cell's precondition hold (the items
@@ -145,12 +145,14 @@ const HEAD: &str = "head";
 
 /// The work's branch beside the records, shared by the parts of a history and the history itself: its work head, a
 /// commit named by a number, none before the work commits; the work head the check last passed, where its record
-/// passes; and how often the check failed in passing on a head a judge had not dealt with.
+/// passes; how often the check failed in passing on a head a judge had not dealt with, and how often the merge on a
+/// head moved since the check passed.
 #[derive(Clone, Copy, Debug, Default)]
 struct Branch {
     head: u64,
     passed: Option<u64>,
     gated: u64,
+    moved: u64,
 }
 
 impl Branch {
@@ -209,8 +211,25 @@ fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, i: usize, came: &mut
 /// The check's read of the work's head and its gate, as the check takes them as it judges: the head is told to its
 /// round as the outside's word, written as a new version where none says it, so that the round consumes the head it
 /// judged; and where a judge of the head dealt last with another, or with none, the round fails in passing, judging
-/// nothing.
+/// nothing. And the merge's read, as it begins: a head moved since its latest version, by a commit no round made, is
+/// written from outside, and the merge fails in passing, merging nothing.
 fn gate(d: &mut Driver, roles: &Roles, branch: &Shared, run: RunId, i: usize) -> Option<(Failure, String)> {
+    if i == roles.last {
+        let (block, content) = read_head(d, roles, branch.get())?;
+        let wrote = Event::Wrote {
+            block,
+            by: Outsider::Outside,
+            content: content.clone(),
+            matters: true,
+            value: None,
+        };
+        assert!(d.take(wrote), "the merge's read of the head was refused");
+        let mut b = branch.get();
+        b.moved += 1;
+        branch.set(b);
+        let why = format!("The work's head moved to {content} since the check passed.");
+        return Some((Failure::Passing, why));
+    }
     if i != roles.check {
         return None;
     }
@@ -372,6 +391,7 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             LACKING_SENT_BACK,
             MERGED_A_REVIEWED_HEAD,
             CHECK_GATED,
+            MERGE_ON_A_MOVED_HEAD,
         ]
         .map(String::from),
     );
@@ -443,9 +463,9 @@ const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's 
 const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a precondition waits on";
 const ENGINE_STOPPED: &str = "the engine stopped";
 const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
-const MERGED_A_REVIEWED_HEAD: &str =
-    "a round of the merge began on a head the work committed and the review dealt with";
+const MERGED_A_REVIEWED_HEAD: &str = "the merge merged a head the work committed and the review dealt with";
 const CHECK_GATED: &str = "the check failed in passing on a head a judge of it had not dealt with";
+const MERGE_ON_A_MOVED_HEAD: &str = "the merge failed in passing on a head moved since the check passed";
 
 /// The source of the block the driver writes as the owner starts a work, which runs the first cell.
 const START: &str = "start";
@@ -602,20 +622,6 @@ struct Random {
     branch: Shared,
 }
 
-/// Whether a person may commit on the work's branch now: neither while the check's record passed, nor while a round
-/// of the merge is held, where the merge would find the branch moved since the check and wait for the owner.
-fn may_commit(d: &Driver, roles: &Roles) -> bool {
-    let flow = &d.flow.flow;
-    let reading = Reading::new(flow, &d.work.records, None);
-    let passed = reading.record(&flow.cells()[roles.check].id).is_some_and(|f| {
-        (roles.check_passes(&d.flow))
-            .all(|(b, pass)| f.writes.iter().any(|w| &w.block == b && w.value.as_ref() == Some(pass)))
-    });
-    let last = &flow.cells()[roles.last].id;
-    let merging = (d.held.iter()).any(|e| matches!(e, Effect::Round { cell, .. } if cell == last));
-    !passed && !merging
-}
-
 /// Whether the check's record passed, and no run of the merge has started.
 fn passed_before_merge(d: &Driver, roles: &Roles) -> bool {
     let flow = &d.flow.flow;
@@ -651,8 +657,9 @@ impl Random {
     }
 
     /// What the steering through a refusal does now, where it does anything: pauses the work while the check's round
-    /// is under way; once the check passed under the pause, writes for a judge that applies (who then refuses) or a
-    /// verdict as its refusal, a coin of its own deciding; then lets the work on. Where the check failed under its
+    /// is under way; once the check passed under the pause, commits on the branch as a person, in one of three, or
+    /// writes for a judge that applies (who then refuses) or a verdict as its refusal, a coin of its own deciding; then
+    /// lets the work on. Where the check failed under its
     /// pause, it lets the work on, to try at the next check.
     fn steered(&mut self, d: &Driver) -> Option<Event> {
         if self.steer != Steer::Refuse || self.stage >= 2 {
@@ -680,6 +687,13 @@ impl Random {
             return Some(Event::Resumed);
         }
         self.stage = 1;
+        // A person commits on the branch, which the merge finds moved since the check passed.
+        if self.steering.chance(33) {
+            let mut b = self.branch.get();
+            b.head += 1;
+            self.branch.set(b);
+            return Some(Event::Look);
+        }
         let reading = Reading::new(&d.flow.flow, &d.work.records, None);
         let only_people = |b: &&BlockId| {
             let block = &d.flow.blocks[*b];
@@ -973,11 +987,9 @@ impl Random {
             }),
             // A person commits on the work's branch, outside any round: nothing is written until a carrier reads it.
             85..=89 => {
-                if may_commit(d, &self.roles) {
-                    let mut b = self.branch.get();
-                    b.head += 1;
-                    self.branch.set(b);
-                }
+                let mut b = self.branch.get();
+                b.head += 1;
+                self.branch.set(b);
                 None
             }
             _ => None,
@@ -1202,6 +1214,8 @@ struct History {
     merges: usize,
     /// Whether the work has ended.
     ended: bool,
+    /// Whether the merge's finish was judged.
+    merged: bool,
     /// The work's branch, as its parts move it.
     branch: Shared,
 }
@@ -1236,6 +1250,17 @@ impl History {
         for at in merges.split_off(self.merges.min(merges.len())) {
             self.merges += 1;
             self.judge_merge(at);
+        }
+        let merged = {
+            let records = &self.d.work.records;
+            let last = &self.d.flow.flow.cells()[self.roles.last].id;
+            (records.finished.iter())
+                .find(|f| records.started.iter().any(|s| s.run == f.run && &s.cell == last))
+                .map(|f| f.at)
+        };
+        if let Some(at) = merged.filter(|_| !self.merged) {
+            self.merged = true;
+            self.judge_merged(at);
         }
         let flow = &self.d.flow.flow;
         let records = &self.d.work.records;
@@ -1364,37 +1389,42 @@ impl History {
                 }
             }
         }
+        for (property, what) in broken {
+            self.breach(property, what);
+        }
+    }
+
+    /// Property 6, as the run of the merge finishes at this place, merging: the branch is at the head the check last
+    /// passed, and each judge of the head that applies dealt with a version that says it.
+    fn judge_merged(&mut self, at: Seq) {
+        let flow = &self.d.flow.flow;
+        let r = Reading::new(flow, &self.d.work.records, Some(at));
         let branch = self.branch.get();
+        let mut broken = Vec::new();
         let mut seen = false;
         if let (Some(head), Some(now)) = (&self.roles.head, branch.says()) {
             seen = true;
             if branch.passed != Some(branch.head) {
-                seen = false;
-                broken.push((
-                    MERGE_UNSEEN,
-                    format!(
-                        "the merge's round at {at:?} began with the branch at {now}, and the check last passed {:?}",
-                        branch.passed
-                    ),
+                broken.push(format!(
+                    "the merge at {at:?} merged the branch at {now}, and the check last passed {:?}",
+                    branch.passed
                 ));
             }
             for &j in self.roles.head_judges.iter().filter(|&&j| r.applies(j)) {
                 let judge = &flow.cells()[j].id;
                 let said = |v: &Seq| self.d.work.contents.get(&(head.clone(), *v)).map(String::as_str);
                 if !r.dealt_with(judge, head).iter().any(|v| said(v) == Some(now.as_str())) {
-                    seen = false;
-                    broken.push((
-                        MERGE_UNSEEN,
-                        format!("the merge's round at {at:?} began on {now}, of which {judge} dealt with no version"),
+                    broken.push(format!(
+                        "the merge at {at:?} merged {now}, of which {judge} dealt with no version"
                     ));
                 }
             }
         }
-        for (property, what) in broken {
-            self.breach(property, what);
-        }
-        if seen {
+        if seen && broken.is_empty() {
             self.reach(MERGED_A_REVIEWED_HEAD.to_string());
+        }
+        for what in broken {
+            self.breach(MERGE_UNSEEN, what);
         }
     }
 
@@ -1438,6 +1468,9 @@ impl History {
         }
         if self.branch.get().gated > 0 {
             reached.push(CHECK_GATED.to_string());
+        }
+        if self.branch.get().moved > 0 {
+            reached.push(MERGE_ON_A_MOVED_HEAD.to_string());
         }
         for r in reached {
             self.reach(r);
@@ -1610,6 +1643,7 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         verdict: Verdict::default(),
         merges: 0,
         ended: false,
+        merged: false,
         branch,
     };
     let result = panic::catch_unwind(AssertUnwindSafe(|| {

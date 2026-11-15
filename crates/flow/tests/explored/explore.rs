@@ -22,8 +22,8 @@ use decide::{
 };
 
 use crate::model::{
-    ANSWERS, BACKGROUND, DEPENDENCIES, DISCUSSION, Event, MAIN, Model, START, TREE, Variant, ran, ran_back_on, ran_on,
-    reply_loop, show_key, skipped, waited_at_gate,
+    ANSWERS, BACKGROUND, DEPENDENCIES, DISCUSSION, Event, HEAD, MAIN, Model, START, TREE, Variant, ran, ran_back_on,
+    ran_on, reply_loop, show_key, skipped, waited_at_gate,
 };
 use crate::reading::{Reading, Reason, Writer};
 use crate::support::World;
@@ -615,7 +615,7 @@ impl Explorer<'_> {
                     if s.spent == 0 {
                         events.push(Event::Background);
                         for (source, block) in &m.sources {
-                            if *source == MAIN && cells[i].runs_on.contains(block) {
+                            if (*source == MAIN || *source == HEAD) && cells[i].runs_on.contains(block) {
                                 events.push(Event::Source(source));
                             }
                         }
@@ -702,9 +702,11 @@ impl Explorer<'_> {
         }
         events.push(Event::Source(MAIN));
         events.extend(m.sessions.keys().map(|line| Event::Session(line.clone())));
-        // The tree runs no cell: once is enough to show it.
+        // The tree runs no cell: once is enough to show it. A commit no round made moves the work's head, as a
+        // person's, once.
         if s.spent == 0 {
             events.push(Event::Source(TREE));
+            events.push(Event::Source(HEAD));
         }
         for c in r.called.iter().filter(|c| c.on == Some(Who::Owner)) {
             if !r.done.iter().any(|d| d.call == c.call) {

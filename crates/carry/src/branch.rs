@@ -1,8 +1,8 @@
 //! What the engine reads of a work's branch as data of the work, in one step for each: the design tree (`crate::tree`)
 //! and the work's head (`crate::head`), each the block of its source, read at the work's branch and not at what its
 //! worktree has checked out. A version is written only where what is read differs from the latest. The step is taken
-//! as the branch takes main in for a run, at the end of each round of the work, and by the check before it judges
-//! (decision a-version-read-at-a-rounds-end-is-that-rounds): read at the end of an agent's round on a line that may
+//! as the branch takes main in for a run, at the end of each round of the work, by the check before it judges and by
+//! the merge before it merges (decision a-version-read-at-a-rounds-end-is-that-rounds): read at the end of an agent's round on a line that may
 //! change the work, a version is what the round committed, which its run hands in; read anywhere else, it is no round's
 //! doing and is written from outside, put into the round where the round's own act read it, as taking main in. A round
 //! that failed hands in nothing: what it committed is read at the end of the round that takes it up.
@@ -146,6 +146,14 @@ impl Looking {
             }
             Err(why) => eprintln!("the work's branch could not be read: {why}"),
         }
+    }
+
+    /// The work's head among these new versions, where one of them is of the head.
+    pub(crate) fn head_in<'n>(&self, new: &'n [(BlockId, String)]) -> Option<&'n str> {
+        let head = self.kept.iter().find(|k| k.datum == Datum::Head)?;
+        (new.iter())
+            .find(|(block, _)| *block == head.block)
+            .map(|(_, content)| content.as_str())
     }
 
     /// What each block of the branch's data says at its latest version, as the last read left it, where it has one.

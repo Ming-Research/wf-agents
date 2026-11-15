@@ -223,8 +223,6 @@ export type What =
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }
-  /// The cell says what the work is by the block, and the block does not run it.
-  | { kind: 'describedNotRunOn'; block: string }
   /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
   | { kind: 'takenNotRead'; block: string }
   /// The cell names what it takes in two forms of three.

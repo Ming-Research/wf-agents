@@ -13,7 +13,8 @@
 //! nothing a return that is sent back. A return that sends work round (opinions, a refusal, a send-back, a red check)
 //! may be given at every round of its cell from then on, for the same one spent: the flow's limits must stop it. What
 //! the outside writes, spending one: the owner speaks to a cell, changes the background, answers a question or takes
-//! another option for one, lets a cell go on at its limit; main moves, a line begins a new session, the tree changes.
+//! another option for one, lets a cell go on at its limit; main moves, a line begins a new session, the tree changes,
+//! a commit no round made moves the work's head.
 //! It writes while the work waits or is stalled, on a path that spent at most one before; while a round is under way,
 //! the owner speaks to its cell on such a path, and on a path that spent nothing the background or what runs the cell
 //! from outside is written too. The owner answers a question the work waits on whatever the path spent. Past a write

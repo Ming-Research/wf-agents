@@ -76,9 +76,6 @@ describe('the words of the page', () => {
     expect(
       faultWords({ file: 'judge.toml', field: 'must_write[1]', what: { kind: 'notAnOutput', block: 'plan' } }),
     ).toBe('The cell must write plan every time, but plan is not among the blocks it may write.');
-    expect(
-      faultWords({ file: 'check.toml', field: 'describes[0]', what: { kind: 'describedNotRunOn', block: 'ci' } }),
-    ).toBe('The cell says what the work is by ci, but ci does not run it.');
     expect(faultWords({ file: 'plan.toml', field: 'give.request', what: { kind: 'notGiven', block: 'request' } })).toBe(
       'The cell says how it is given request, but it is not given request.',
     );

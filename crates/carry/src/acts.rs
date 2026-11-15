@@ -394,6 +394,22 @@ impl<H: Host> Inner<H> {
                 if !self.take_turn(round.work, stop).await {
                     return Ok(Done::Stopped);
                 }
+                // A commit made since the check passed moves the work's head: no round made it, and it is written from
+                // outside, so that the review and the check run on it before the merge is tried again. A read that
+                // fails is said, and the merge itself refuses a branch moved since the check.
+                let mut looking = looking();
+                let new = looking.read(&place).await.unwrap_or_else(|why| {
+                    eprintln!("the work's branch could not be read before its merge: {why}");
+                    Vec::new()
+                });
+                let moved = looking.head_in(&new).map(str::to_string);
+                for (block, content) in new {
+                    teller.outside_wrote(block, content);
+                }
+                if let Some(head) = moved {
+                    self.end_turn(round.work);
+                    return Err(Failed::passing(fill(&words.merge.unreviewed, &[("head", &head)])));
+                }
                 let checked = match passed(&round.flow, &round.kept, &words.check) {
                     Ok(checked) => checked,
                     Err(why) => {

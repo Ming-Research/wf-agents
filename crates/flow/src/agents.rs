@@ -1024,6 +1024,8 @@ pub struct Start {
 pub struct Merge {
     pub text: String,
     pub moved: String,
+    /// The work's head moved since the check passed: the merge fails in passing, and the review and the check run first.
+    pub unreviewed: String,
 }
 
 /// `agents/acts/deliver.toml`.
