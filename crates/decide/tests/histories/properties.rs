@@ -125,7 +125,10 @@ const STALLED_FOR_A_RESULT: &str = "a work is stalled for a result no cell will 
 /// Not required: a wait names a result only while a run of its cell goes first, which is rare.
 const RESULT_WAITED: &str = "a work waits for a result a cell that gives it applies to";
 const RESULT_LEFT_OUT: &str = "a work waits at a cell for other than a result no cell that gives it applies to";
-const RESULT_RUN_FIRST: &str = "a cell whose run has not finished goes on while a cell that gives its result applies";
+/// What the histories whose rounds fail often must reach: a round of the asking cell fails in passing while it waits,
+/// and its run waits for the engine.
+pub const RESULT_RUN_FIRST: &str =
+    "a cell whose run has not finished goes on while a cell that gives its result applies";
 /// Not required: the owner turning to a waiting cell while no slot is free is rare.
 const RESULT_FOR_A_SLOT: &str = "a cell entered but for a slot waits for it while a cell that gives its result applies";
 pub const RESULT_WAITS: &str =
@@ -146,7 +149,6 @@ pub const WAITS_REACHED: &[&str] = &[
     WAITING_HOLDS_A_STOP,
     STALLED_FOR_A_RESULT,
     RESULT_LEFT_OUT,
-    RESULT_RUN_FIRST,
 ];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";

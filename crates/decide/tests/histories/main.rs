@@ -1592,7 +1592,7 @@ fn random_works_keep_the_engines_properties_and_come_to_rest() {
 
 #[test]
 fn rounds_failing_often_while_people_pause_and_write_keep_the_engines_properties() {
-    histories(FAILING, 600, &[pausing::UNPAUSED_ANSWERS]);
+    histories(FAILING, 600, &[pausing::UNPAUSED_ANSWERS, properties::RESULT_RUN_FIRST]);
 }
 
 #[test]
