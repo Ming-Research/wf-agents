@@ -9,7 +9,7 @@
 import { useEffect, useRef } from 'react';
 
 import { hashOf } from './route';
-import type { Item, Items, Now } from './works-api';
+import type { Item, Items, Summary } from './works-api';
 
 /// Where this browser keeps that the page asked for leave.
 const ASKED = 'wf-agents.notifications-asked';
@@ -46,31 +46,38 @@ function askOnce(): (() => void) | undefined {
 /// Whether the owner looks at the page now.
 const looking = (): boolean => document.visibilityState === 'visible' && document.hasFocus();
 
-/// The questions to the owner that hold a work now, in the order the work waits for them: a question its cell asked,
-/// by its name, or one put to the owner as a call, by its words.
-export function questionsHolding(now: Now): string[] {
-  if (now.kind !== 'waits') return [];
-  return now.on.flatMap((w) => {
-    if (w.kind === 'answer') return [w.question];
-    return w.kind === 'call' && w.what.kind === 'question' && w.what.who === 'owner' ? [w.what.question] : [];
-  });
+/// The questions to the owner that hold a work now: those the engine names as holding it, a question a cell asked by
+/// its name, among them those the check before the merge waits for; and those put to the owner as a call, by their
+/// words. From an engine that names none, the questions the work waits for at its cell.
+export function questionsHolding(work: Pick<Summary, 'now' | 'holding'>): string[] {
+  const now = work.now;
+  const on = now.kind === 'waits' ? now.on : [];
+  const named = work.holding ?? on.flatMap((w) => (w.kind === 'answer' ? [w.question] : []));
+  const calls = on.flatMap((w) =>
+    w.kind === 'call' && w.what.kind === 'question' && w.what.who === 'owner' ? [w.what.question] : [],
+  );
+  return [...named, ...calls];
 }
 
 /// How many questions to the owner hold each work, by the work's number, for those that hold any.
 export function heldByWork(items: Item[]): Map<number, number> {
   const out = new Map<number, number>();
   for (const i of items) {
-    const n = questionsHolding(i.work.now).length;
+    const n = questionsHolding(i.work).length;
     if (n > 0) out.set(i.work.number, n);
   }
   return out;
 }
 
+/// How many questions to the owner hold works now, all told: the one count the owner sees.
+export const questionsWaiting = (items: Item[]): number =>
+  items.reduce((n, i) => n + questionsHolding(i.work).length, 0);
+
 /// The items whose works hold more questions to the owner than they did before; none at the first reading (`before`
 /// none), when every question is old. A question answered among others is no new one.
 export function newlyHeld(before: Map<number, number> | null, items: Item[]): Item[] {
   if (before === null) return [];
-  return items.filter((i) => questionsHolding(i.work.now).length > (before.get(i.work.number) ?? 0));
+  return items.filter((i) => questionsHolding(i.work).length > (before.get(i.work.number) ?? 0));
 }
 
 /// A notification that takes the place of one with its tag, and alerts again as it does.
@@ -98,7 +105,7 @@ export function useNotifications(items: Items | null, on: boolean): void {
     left.current = [...before.current.values()].reduce((a, b) => a + b, 0);
     if (fresh.length === 0 || !can() || Notification.permission !== 'granted' || looking()) return;
     for (const i of fresh) {
-      const questions = questionsHolding(i.work.now);
+      const questions = questionsHolding(i.work);
       tell(
         `Waits for you: #${i.number} ${i.title}`,
         questions[questions.length - 1],

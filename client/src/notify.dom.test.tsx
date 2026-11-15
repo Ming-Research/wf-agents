@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AGAIN_MS, heldByWork, newlyHeld, questionsHolding, useNotifications } from './notify';
+import { AGAIN_MS, heldByWork, newlyHeld, questionsHolding, questionsWaiting, useNotifications } from './notify';
 import type { Item, Items, Now, Waited } from './works-api';
 import { fixtureItems } from './works/fixtures';
 
@@ -85,16 +85,43 @@ function withNow(item: number, now: Now): Items {
 
 describe('the questions that hold a work', () => {
   it('are the questions to the owner it waits for, and nothing else the owner gives', () => {
-    expect(questionsHolding(waiting(question(3, 'Which?'), { kind: 'slot' }))).toEqual(['Which?']);
-    expect(questionsHolding(waiting({ kind: 'answer', question: 'scope' }, question(4, 'Why?')))).toEqual([
-      'scope',
-      'Why?',
-    ]);
+    const of = (now: Now) => questionsHolding({ now });
+    expect(of(waiting(question(3, 'Which?'), { kind: 'slot' }))).toEqual(['Which?']);
+    expect(of(waiting({ kind: 'answer', question: 'scope' }, question(4, 'Why?')))).toEqual(['scope', 'Why?']);
     const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
-    expect(questionsHolding(waiting({ kind: 'call', call: 4, who: 'owner', what: limit }))).toEqual([]);
-    expect(questionsHolding(waiting({ kind: 'limit', runs: 3 }))).toEqual([]);
-    expect(questionsHolding({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toEqual([]);
-    expect(questionsHolding({ kind: 'fault', words: 'Two entries at 3' })).toEqual([]);
+    expect(of(waiting({ kind: 'call', call: 4, who: 'owner', what: limit }))).toEqual([]);
+    expect(of(waiting({ kind: 'limit', runs: 3 }))).toEqual([]);
+    expect(of({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toEqual([]);
+    expect(of({ kind: 'paused', by: 'owner', why: null })).toEqual([]);
+    expect(of({ kind: 'fault', words: 'Two entries at 3' })).toEqual([]);
+  });
+
+  it('are those the engine names, the questions the check before the merge waits for among them', () => {
+    // At the merge's check, which waits for the owner's answers: the questions a work had gone on past hold it now.
+    const merge: Now = {
+      kind: 'waits',
+      at: 'M1',
+      on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'outside', source: 'asked' }] }],
+    };
+    expect(questionsHolding({ now: merge, holding: ['measure-the-page-job', 'page-job-time-read-by-owner'] })).toEqual([
+      'measure-the-page-job',
+      'page-job-time-read-by-owner',
+    ]);
+    // Named by the engine, a question a work only waits for at its cell is not counted twice.
+    expect(questionsHolding({ now: waiting({ kind: 'answer', question: 'scope' }), holding: ['scope'] })).toEqual(['scope']);
+  });
+
+  it('are the one count the bar shows: every question that holds a work, and no work that waits for anything else', () => {
+    const base = fixtureItems().items;
+    const one = base[0];
+    const items: Item[] = [
+      { ...one, number: 1, work: { ...one.work, number: 1, now: waiting({ kind: 'answer', question: 'scope' }), holding: ['scope'] } },
+      { ...one, number: 2, work: { ...one.work, number: 2, now: waiting({ kind: 'slot' }), holding: ['a', 'b'] } },
+      { ...one, number: 3, work: { ...one.work, number: 3, now: { kind: 'paused', by: 'owner', why: null }, holding: [] } },
+      { ...one, number: 4, work: { ...one.work, number: 4, now: { kind: 'fault', words: 'Two entries at 3' }, holding: [] } },
+      { ...one, number: 5, work: { ...one.work, number: 5, now: waiting({ kind: 'limit', runs: 3 }), holding: [] } },
+    ];
+    expect(questionsWaiting(items)).toBe(3);
   });
 
   it('are new where a work holds more of them than before, not where one of several was answered', () => {

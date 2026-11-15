@@ -24,14 +24,17 @@ export type MarkLook =
   | { shape: 'square'; fill: string | null; edge: string; width: 'ring' | 'hairline' }
   | { shape: 'dash'; fill: string };
 
-/// Done filled in a light step of the accent, running filled in a deep one, at rest a ring of that deep one, failed a
-/// red ring, runs again an orange ring, not run yet a hairline ring, skipped a muted dash.
+/// Done filled in a light step of the accent, running filled in a deep one, a call under way filled in the yellow of a
+/// call, at rest a ring of running's deep step, failed a red ring, runs again a ring of done's light step, hollow, not
+/// run yet a hairline ring, skipped a muted dash. Running and a call under way are the bright marks; orange is kept for
+/// what waits for the owner, and marks no cell.
 export const MARKS: Record<CellState, MarkLook> = {
   done: { shape: 'square', fill: '--mark-done', edge: '--mark-done', width: 'ring' },
   running: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
+  calling: { shape: 'square', fill: '--yellow', edge: '--yellow', width: 'ring' },
   resting: { shape: 'square', fill: null, edge: '--mark-running', width: 'ring' },
   failed: { shape: 'square', fill: null, edge: '--red', width: 'ring' },
-  again: { shape: 'square', fill: null, edge: '--orange', width: 'ring' },
+  again: { shape: 'square', fill: null, edge: '--mark-done', width: 'ring' },
   notYet: { shape: 'square', fill: null, edge: '--muted', width: 'hairline' },
   skipped: { shape: 'dash', fill: '--muted' },
 };

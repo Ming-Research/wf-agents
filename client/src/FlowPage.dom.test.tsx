@@ -16,13 +16,16 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-/// Draws the page for this definition, with what an agent is sent where it is given, and gives its root.
+/// Draws the page for this definition, with what an agent is sent where it is given, switched to the matrix, which
+/// these tests are of, and gives its root.
 function draw(definition: Definition, given?: Given): HTMLElement {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   act(() => root.render(<FlowPage definition={definition} given={given} />));
   unmount = () => act(() => root.unmount());
+  const matrix = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Matrix');
+  if (matrix !== undefined) act(() => matrix.click());
   return container;
 }
 

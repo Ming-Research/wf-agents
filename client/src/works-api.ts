@@ -94,8 +94,10 @@ export type Maker = { kind: 'owner' } | { kind: 'outside'; source: string } | { 
 
 /// What a work waits for.
 export type Waited =
-  /// The result of a call a run rests at: from this person, or from the engine where there is none.
-  | { kind: 'call'; call: number; who: Person | null; what: Call }
+  /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this time,
+  /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes. Absent from an engine that does
+  /// not give them yet.
+  | { kind: 'call'; call: number; who: Person | null; what: Call; made?: number; at?: string | null }
   /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
@@ -109,15 +111,19 @@ export type Waited =
   /// The wait every work shares: the cell's agent's round does not begin until it is over.
   | { kind: 'agents'; outage: Outage }
   /// The owner's answer to the latest version of this question, which the cell asked and waits for.
-  | { kind: 'answer'; question: string };
+  | { kind: 'answer'; question: string }
+  /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
+  /// time, waits for it. The works of a project check and merge one at a time.
+  | { kind: 'turn'; holder: number; since: number };
 
 /// What a work does now.
 export type Now =
   | { kind: 'fault'; words: string }
   | { kind: 'merged' }
   | { kind: 'cancelled' }
-  /// A round of this run of this cell is under way, since this time.
-  | { kind: 'round'; cell: string; run: number; round: number; since: number }
+  /// A round of this run of this cell is under way, since this time; where it is an engine cell's act that runs as a
+  /// CI run, the run's link. The link is absent from an engine that does not give it yet.
+  | { kind: 'round'; cell: string; run: number; round: number; since: number; at?: string | null }
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
   /// for this one.
   | { kind: 'paused'; by: Pauser; why: string | null }
@@ -147,10 +153,11 @@ export interface Stalling {
   why: { kind: 'skipped'; on: CellKey[] } | { kind: 'nothingNew' } | { kind: 'held' };
 }
 
-/// How a cell stands for a work: a round of its run is under way; its run is at rest; its run's last round failed,
-/// and is given again once the work is let on; its condition is not met; it never finished a run; it has a record and
-/// runs again when the walk reaches it; its record knows everything.
-export type CellState = 'running' | 'resting' | 'failed' | 'skipped' | 'notYet' | 'again' | 'done';
+/// How a cell stands for a work: a round of its run, an agent's, is under way; the engine carries out something for
+/// its run that takes its time, an engine cell's act or a tool's call; its run is at rest, or its act waits for the
+/// project's turn; its run's last round failed, and is given again once the work is let on; its condition is not met;
+/// it never finished a run; it has a record and runs again when the walk reaches it; its record knows everything.
+export type CellState = 'running' | 'calling' | 'resting' | 'failed' | 'skipped' | 'notYet' | 'again' | 'done';
 
 export interface CellNow {
   cell: string;
@@ -194,13 +201,18 @@ export interface Summary {
   last: number | null;
   /// When its first round began; none before it has one. Absent from an engine that does not give it yet.
   from?: number | null;
-  /// Where its time went, from its first round's begin to its last round's end, cut into equal cells, one character
-  /// each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls, `.` neither. Empty with no round;
-  /// absent from an engine that does not give it yet.
+  /// Where its time went, from its first round's begin to the end of its last round or tool's call, cut into equal
+  /// cells, one character each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls; where neither
+  /// ran, what the work waited for: `o` the owner, `p` a pause, `w` the items its item depends on, `.` anything else.
+  /// Empty with no round; absent from an engine that does not give it yet.
   bar?: string;
   /// How many of its rounds were given back what the round before handed in; absent from an engine that does not give
   /// it yet.
   sentBack?: number;
+  /// The questions put to the owner that hold it now, by their names: each it waits for at its cell, and, while the
+  /// check before the merge waits for the owner's answers (`asked = answered`), each that stands unanswered. Absent
+  /// from an engine that does not give it yet.
+  holding?: string[];
 }
 
 export interface Item {
@@ -489,6 +501,31 @@ export interface WorkPage {
   blocks: Block[];
   /// In the order it happened.
   steps: Step[];
+  /// Each question put to the owner, as it stands, in the order of their names; absent from an engine that does not
+  /// give them yet.
+  questions?: Question[];
+}
+
+/// A question put to the owner, as it stands: its latest version, with the keys a return writes it with, and the
+/// owner's answer to that version, where there is one.
+export interface Question {
+  name: string;
+  /// The cell it belongs to.
+  cell: string;
+  /// The version an answer names: the place of the latest.
+  version: number;
+  /// The engine itself asked it, and not the cell's agent.
+  engine: boolean;
+  /// The cell waits for the answer: the work goes past it to no later cell until it is answered.
+  waits: boolean;
+  /// The latest version withdraws it, for this reason; none while it stands.
+  withdrawn: string | null;
+  /// What it asks, its options and the one it recommends, counted from one; of a question withdrawn, none.
+  ask: string | null;
+  options: { does: string; follows: string }[];
+  recommends: number | null;
+  /// The owner's answer to the latest version: the option taken, counted from one, when, and why where said.
+  answer: { option: number; at: number; why: string | null } | null;
 }
 
 export interface VersionPage {

@@ -26,7 +26,7 @@ use std::time::Duration;
 use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
-use service::{Release, ReleaseReply, Round, RoundReply, Rounds, Teller};
+use service::{Along, Release, ReleaseReply, Round, RoundReply, Rounds, Teller};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Question, Spent, Work};
@@ -207,9 +207,11 @@ impl<H: Host> Rounds for Acts<H> {
         prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
         let teller = reply.teller();
-        let Some(mut stop) = self.inner.held.hold(key, reply) else {
+        let saying = reply.saying(round.number);
+        let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
+        let mut stop = stop.saying(saying);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let done = inner.act(&round, &teller, &mut stop).await;
@@ -416,8 +418,8 @@ struct Turn {
 
 impl<H: Host> Inner<H> {
     /// Waits for the work's turn to check and merge, and takes it: where nobody has it, the work has it already, or
-    /// the work that has it passed its check longer ago than [`TURN_LEFT`]. Says false where the round was told to stop
-    /// meanwhile.
+    /// the work that has it passed its check longer ago than [`TURN_LEFT`]. While it waits, it says which work has the
+    /// turn. Says false where the round was told to stop meanwhile.
     async fn take_turn(&self, work: WorkNumber, stop: &mut Stop) -> bool {
         loop {
             let freed = self.turn_freed.notified();
@@ -431,7 +433,13 @@ impl<H: Host> Inner<H> {
                 };
                 if free {
                     turn.holder = Some((work, None));
+                    drop(turn);
+                    stop.say(None);
                     return true;
+                }
+                if let Some((holder, _)) = turn.holder {
+                    drop(turn);
+                    stop.say(Some(Along::Turn { holder }));
                 }
             }
             // Told when the turn is let go; looked at again now and then, as a turn left grows old by itself.

@@ -16,7 +16,7 @@ import type { CellNow, CellState } from '../works-api';
 import type { Shown } from './items';
 import { type DrawnStrip, SnapScene } from './snap';
 
-const STATES: CellState[] = ['done', 'running', 'resting', 'failed', 'again', 'notYet', 'skipped'];
+const STATES: CellState[] = ['done', 'running', 'calling', 'resting', 'failed', 'again', 'notYet', 'skipped'];
 
 const cellsOf = (states: CellState[]): CellNow[] =>
   states.map((state, i) => ({
@@ -24,7 +24,7 @@ const cellsOf = (states: CellState[]): CellNow[] =>
     state,
     finished: state === 'done' ? 1 : 0,
     record: null,
-    open: state === 'running' || state === 'resting' || state === 'failed' ? 1 : null,
+    open: state === 'running' || state === 'calling' || state === 'resting' || state === 'failed' ? 1 : null,
   }));
 
 /// An item whose work, a round under way, stands as `cells` say.
@@ -129,8 +129,8 @@ describe("a card's strip", () => {
     expect(light.marks.map((m) => m.state)).toEqual(STATES);
     expect(light.more).toBe(0);
     expect(drawn(light)).toEqual(laidOut(cells));
-    // Only the mark of the cell running pulses.
-    expect(light.marks.map((m) => m.pulses)).toEqual([false, true, false, false, false, false, false]);
+    // Only the marks of the cell running and of the cell with a call under way pulse.
+    expect(light.marks.map((m) => m.pulses)).toEqual([false, true, true, false, false, false, false, false]);
     // Under the title, so that the number stands alone at the card's left, and short of where the work's time went.
     expect(light.marks[0].x).toBe(36);
     const last = light.marks[light.marks.length - 1];

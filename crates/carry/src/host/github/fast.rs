@@ -29,6 +29,7 @@ use super::{GitHub, output};
 use crate::held::Stop;
 use crate::host::{Asking, Named, Verdict};
 use crate::process;
+use service::Along;
 
 /// A request for runs of the workflows: the commit they run on, and which of the work's asks it is, by which its runs
 /// are found again.
@@ -273,6 +274,10 @@ impl<A: Api> GitHub<A> {
             let mine = (runs.into_iter())
                 .filter(|r| !cancelled.contains(&r.id))
                 .min_by_key(|r| r.id);
+            // Once its run is found, the call or the act runs as it, at its link.
+            if let Some(run) = &mine {
+                stop.say(Some(Along::Runs { at: run.url.clone() }));
+            }
             let waited = began.elapsed();
             match mine {
                 Some(run) if run.completed => break run,

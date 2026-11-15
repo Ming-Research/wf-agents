@@ -69,6 +69,10 @@
 //! by as it runs, and each line of a work the context past which its session begins anew. It gives the keep-warm pings
 //! of the sessions of lines that wait as their time comes, the time being among what it asks to be told ([`warm`]);
 //! and it tells a round that missed its session's prompt cache from the records ([`cache`]).
+//!
+//! It keeps, while a round or a call is under way, where it stands as what carries it out says as it goes ([`along`]).
+
+pub mod along;
 
 pub mod attention;
 
@@ -87,6 +91,7 @@ use std::sync::Arc;
 
 pub mod outage;
 
+pub use along::{Along, Under};
 use decide::run::Failure;
 use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
@@ -176,6 +181,9 @@ pub struct Driver {
     /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a work is,
     /// no round of the work begins. Lost in a stop, when a ping still due is given again.
     pinging: BTreeSet<(WorkNumber, String)>,
+    /// Where each round or call under way stands, of a work, as what carries it out last said ([`along`]). What the
+    /// outside says at a moment, kept only in memory: lost in a stop, it is said again as what is given again goes on.
+    along: BTreeMap<(WorkNumber, Under), Along>,
 }
 
 /// When the driver is to be told the time again: the rounds a wait holds may begin then, or, where `look`, the
@@ -379,6 +387,7 @@ impl Driver {
             ticked: None,
             answered: BTreeSet::new(),
             pinging: BTreeSet::new(),
+            along: BTreeMap::new(),
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
@@ -921,6 +930,49 @@ impl Driver {
     /// The waits of every service, as they stand.
     fn outages(&self) -> (Option<Outage>, Option<Outage>) {
         (self.outage(), self.host_outage())
+    }
+
+    /// What carries out a round or a call of the work says where it stands now, or, with none, that it no longer says
+    /// so; taken while it is under way, and dropped otherwise. Gives whether what is kept changed. What it kept of the
+    /// work's rounds and calls no longer under way is let go.
+    pub fn along(&mut self, work: WorkNumber, under: Under, along: Option<Along>) -> bool {
+        let Some(held) = self.works.get(&work) else {
+            return false;
+        };
+        let records = &held.work.records;
+        self.along
+            .retain(|(of, under), _| *of != work || under.under_way(records));
+        let key = (work, under);
+        let was = self.along.get(&key).cloned();
+        match along {
+            Some(along) if under.under_way(records) => {
+                self.along.insert(key, along);
+            }
+            _ => {
+                self.along.remove(&key);
+            }
+        }
+        self.along.get(&key) != was.as_ref()
+    }
+
+    /// Where each round or call of the work under way stands, as what carries it out last said.
+    pub fn along_of(&self, work: WorkNumber) -> Vec<(Under, &Along)> {
+        let Some(held) = self.works.get(&work) else {
+            return Vec::new();
+        };
+        (self.along.range(
+            (
+                work,
+                Under::Round {
+                    run: decide::RunId(0),
+                    round: 0,
+                },
+            )..,
+        ))
+        .take_while(|((of, _), _)| *of == work)
+        .filter(|((_, under), _)| under.under_way(&held.work.records))
+        .map(|((_, under), along)| (*under, along))
+        .collect()
     }
 
     /// Takes, at the time the caller's clock gives, that the agents' service answered the round under way of the run:

@@ -42,10 +42,9 @@ async function until(done: () => boolean) {
   expect(done()).toBe(true);
 }
 
-/// Draws the page and switches it to the flowchart, once laid out.
+/// Draws the page, which opens on the flowchart, once laid out.
 async function flowchart(): Promise<HTMLElement> {
   const page = draw();
-  click(button(page, 'Flowchart'));
   await until(() => page.querySelector('.graph-cell') !== null);
   return page;
 }
@@ -54,24 +53,37 @@ const texts = (root: ParentNode, selector: string) =>
   [...root.querySelectorAll(selector)].map((e) => e.textContent?.trim() ?? '');
 
 describe('the switch between the matrix and the flowchart', () => {
-  it('shows the matrix first, the flowchart once switched to, and the matrix again as it was', async () => {
+  it('shows the flowchart first, the matrix once switched to, and the flowchart again as it was', async () => {
     const page = draw();
     const matrix = page.querySelector('.frame') as HTMLElement;
-    expect(matrix.hidden).toBe(false);
-    expect(button(page, 'Matrix')?.getAttribute('aria-pressed')).toBe('true');
-    expect(page.querySelector('.graph-place')).toBeNull();
-
-    click(button(page, 'Flowchart'));
-    await until(() => page.querySelector('.graph-cell') !== null);
     expect(matrix.hidden).toBe(true);
     expect(button(page, 'Flowchart')?.getAttribute('aria-pressed')).toBe('true');
+    await until(() => page.querySelector('.graph-cell') !== null);
     expect(texts(page, '.graph-cell .cell-id')).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
     expect(texts(page, '.legend li')).toContain('way back (1)');
 
     click(button(page, 'Matrix'));
     expect(matrix.hidden).toBe(false);
+    expect(button(page, 'Matrix')?.getAttribute('aria-pressed')).toBe('true');
     expect((page.querySelector('.graph-place') as HTMLElement).hidden).toBe(true);
     expect(texts(page, 'thead .cell-head .cell-id')).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
+
+    click(button(page, 'Flowchart'));
+    expect(matrix.hidden).toBe(true);
+    expect((page.querySelector('.graph-place') as HTMLElement).hidden).toBe(false);
+  });
+
+  it("lays its line out in two rows: the flow's name, its facts and the switches, and under them the legend alone", async () => {
+    const page = await flowchart();
+    const rows = () =>
+      [...page.querySelectorAll('.view-lines > .view-row')].map((r) =>
+        [...r.children].map((c) => c.className.split(' ')[0]),
+      );
+    expect(rows()).toEqual([['view-name', 'view-facts', 'view-end'], ['legend']]);
+    expect(texts(page, '.view-row .view-end > *')).toEqual(['MatrixFlowchart', 'Data arrows']);
+    click(button(page, 'Matrix'));
+    expect(rows()).toEqual([['view-name', 'view-facts', 'view-end'], ['legend']]);
+    expect(texts(page, '.view-row .view-end > *')).toEqual(['MatrixFlowchart']);
   });
 });
 
@@ -167,6 +179,7 @@ describe('the lines of the flowchart', () => {
 
   it('keeps the toggle out of the view line while the matrix is shown', () => {
     const page = draw();
+    click(button(page, 'Matrix'));
     expect(page.querySelector('.view-toggle')).toBeNull();
   });
 });
