@@ -427,7 +427,7 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
         for effect in &effects {
             if let Effect::Call { call, run, what } = effect {
                 match what {
-                    Call::Asked(Ask::Tool { .. }) => {
+                    Call::Asked(Ask::Tool(_)) => {
                         if let Some(k) = asking {
                             asked.insert(*call, (k, j));
                             j += 1;
@@ -557,13 +557,10 @@ fn round_of(
             return Err("its path has a round that both hands in and asks".to_string());
         }
         let mut asks = Vec::new();
-        for ask in &came.asks {
-            let Ask::Tool { name, input } = ask else {
-                return Err("its path has a round ask a person, which no carrier but a script's does".to_string());
-            };
+        for tool in &came.asks {
             let mut t = Table::new();
-            t.insert("tool".to_string(), text(name));
-            t.insert("input".to_string(), text(input));
+            t.insert("tool".to_string(), text(&tool.name));
+            t.insert("input".to_string(), text(&tool.input));
             asks.push(Value::Table(t));
         }
         round.insert("asks".to_string(), Value::Array(asks));
