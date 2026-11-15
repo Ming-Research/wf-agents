@@ -382,36 +382,48 @@ impl<'a> Reading<'a> {
         (flow.cells()[i].applies.iter()).all(|key| self.key_holds(flow, key, i))
     }
 
-    /// Whether one key of the condition or of the preconditions of the cell at place `i` holds now: its named test, or
-    /// the block's value, which is its default where the flow gives one and it was never written.
+    /// Whether one key of the condition or of the preconditions of the cell at place `i` holds now: no block keeps it
+    /// from holding ([`Reading::keeping`]).
     pub fn key_holds(&self, flow: &Flow, key: &Condition, i: usize) -> bool {
-        match key {
-            Condition::Test(name) => self.holds(flow, name, i),
-            Condition::Is { block, value } => {
-                let now = match self.current(block) {
-                    Some(v) => v.value.as_deref(),
-                    None => flow.default_of(block),
-                };
-                now == Some(value.as_str())
-            }
-        }
+        self.keeping(flow, key, i).is_empty()
     }
 
-    /// Whether the named test holds now for the cell at place `i`, by the current versions of the blocks it reads that
-    /// have the value it tests for: all of them, one, none. A test of what stands holds unless it is refused, as
-    /// [`Reading::refused`] says from the records; a test of content where the current version of one holds anything.
+    /// Whether the named test holds now for the cell at place `i`: no block it reads keeps it from holding.
     pub fn holds(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
+        self.key_holds(flow, &Condition::Test(name.clone()), i)
+    }
+
+    /// The blocks that keep one key of the condition or of the preconditions of the cell at place `i` from holding now,
+    /// by the value each has, its default where the flow gives one and it was never written: none where the key holds,
+    /// and a write of any of them can make it hold. A key of a block's value is kept by the block where its value is
+    /// another; a named test, where it looks for its value in every block it reads, by those that lack it, where it
+    /// looks for it, or for content, in one, by every block it reads where none has it, and where it looks for it in
+    /// none, by those that have it: of a test of what stands, those whose value is refused ([`Reading::refused`]).
+    pub fn keeping<'f>(&self, flow: &'f Flow, key: &'f Condition, i: usize) -> Vec<&'f BlockId> {
+        let value = |block: &BlockId| match self.current(block) {
+            Some(v) => v.value.clone(),
+            None => flow.default_of(block).map(str::to_string),
+        };
+        let name = match key {
+            Condition::Is { block, value: is } if value(block).as_deref() == Some(is.as_str()) => return Vec::new(),
+            Condition::Is { block, .. } => return vec![block],
+            Condition::Test(name) => name,
+        };
         let test = &flow.tests()[name];
-        let with_value: Vec<&Version> = (test.reads.iter())
-            .filter_map(|b| self.current(b))
-            .filter(|v| v.value.is_some() && v.value == test.is)
-            .collect();
+        let is = test.is.as_deref();
+        let has = |block: &BlockId| match (test.kind, is) {
+            (TestKind::AnyContent, _) => self.current(block).is_some_and(|v| !v.empty),
+            // A test of a value that names none, which the compiler refuses, finds it in no block.
+            (_, None) => false,
+            (TestKind::NoneStanding, Some(is)) => self.refusing(flow, block, is, i),
+            (_, Some(is)) => value(block).as_deref() == Some(is),
+        };
+        let reads = test.reads.iter();
         match test.kind {
-            TestKind::All => with_value.len() == test.reads.len(),
-            TestKind::Any => !with_value.is_empty(),
-            TestKind::None => with_value.is_empty(),
-            TestKind::NoneStanding => !self.refused(flow, name, i),
-            TestKind::AnyContent => (test.reads.iter()).any(|b| self.current(b).is_some_and(|v| !v.empty)),
+            TestKind::All => reads.filter(|block| !has(block)).collect(),
+            TestKind::Any | TestKind::AnyContent if test.reads.iter().any(&has) => Vec::new(),
+            TestKind::Any | TestKind::AnyContent => reads.collect(),
+            TestKind::None | TestKind::NoneStanding => reads.filter(|block| has(block)).collect(),
         }
     }
 
@@ -422,24 +434,29 @@ impl<'a> Reading<'a> {
     /// no person and nothing outside wrote the block since.
     pub fn refused(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
         let test = &flow.tests()[name];
-        let is = test.is.as_deref();
-        test.reads.iter().any(|block| {
-            let versions = self.of(block);
-            let outsider = |v: &Version| matches!(v.by, Writer::Person | Writer::Outside);
-            let by_outsider = versions.last().is_some_and(|v| outsider(v) && v.value.as_deref() == is);
-            let by_judge = (flow.cells()[..i].iter().enumerate()).any(|(j, c)| {
-                let own = versions
-                    .iter()
-                    .rev()
-                    .find(|v| matches!(&v.by, Writer::Cell(cell, _) if *cell == c.id));
-                own.is_some_and(|own| {
-                    own.value.as_deref() == is
-                        && !versions.iter().any(|v| v.at > own.at && outsider(v))
-                        && self.applies(flow, j)
-                })
-            });
-            by_outsider || by_judge
-        })
+        (test.is.as_deref()).is_some_and(|is| test.reads.iter().any(|block| self.refusing(flow, block, is, i)))
+    }
+
+    /// Whether this block, which a test of what stands reads looking for this value, refuses for the cell at place
+    /// `i`, as [`Reading::refused`] says.
+    fn refusing(&self, flow: &Flow, block: &BlockId, is: &str, i: usize) -> bool {
+        let versions = self.of(block);
+        let outsider = |v: &Version| matches!(v.by, Writer::Person | Writer::Outside);
+        let by_outsider = versions
+            .last()
+            .is_some_and(|v| outsider(v) && v.value.as_deref() == Some(is));
+        let by_judge = (flow.cells()[..i].iter().enumerate()).any(|(j, c)| {
+            let own = versions
+                .iter()
+                .rev()
+                .find(|v| matches!(&v.by, Writer::Cell(cell, _) if *cell == c.id));
+            own.is_some_and(|own| {
+                own.value.as_deref() == Some(is)
+                    && !versions.iter().any(|v| v.at > own.at && outsider(v))
+                    && self.applies(flow, j)
+            })
+        });
+        by_outsider || by_judge
     }
 
     /// The cells after the cell at place `i` that wrote what these causes of a run of it, starting at this place, are

@@ -17,7 +17,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use decide::{Decision, Waited};
+use decide::{Decision, Seq, Waited};
 use driver::{Asked, FirstWrite, NewItem};
 use flow::Compiled;
 use store::{ItemChange, ItemNumber, Store, WorkNumber};
@@ -168,6 +168,7 @@ pub async fn play(
         works: Vec::new(),
         next: vec![0; script.items.len()],
         refused: vec![Vec::new(); script.items.len()],
+        judged: vec![None; script.items.len()],
     };
     for item in &script.items {
         let depends_on = (item.depends_on.iter()).map(|place| play.items[place - 1]).collect();
@@ -223,25 +224,12 @@ pub async fn play(
             break;
         }
     }
-    let driver = play.stepper.service().driver();
     let items = (script.items.iter().enumerate())
-        .map(|(k, item)| {
-            let work = play.works[k];
-            let path: Vec<Step> = item.path.iter().filter_map(|step| step.step().ok()).collect();
-            let judged = match (driver.work(work), Shown::of(driver, work)) {
-                (Some(kept), Some(shown)) => judge::judge(kept.flow, kept.work, added(item), &path, &shown),
-                _ => Judged::Short {
-                    step: 1,
-                    said: path.first().map(Step::to_string).unwrap_or_default(),
-                    shown: Some("no work: the engine holds none of this number".to_string()),
-                },
-            };
-            ItemPlayed {
-                work,
-                judged,
-                unreached: (play.next[k]..item.acts.len()).map(|j| j + 1).collect(),
-                refused: play.refused[k].clone(),
-            }
+        .map(|(k, item)| ItemPlayed {
+            work: play.works[k],
+            judged: play.judge(k),
+            unreached: (play.next[k]..item.acts.len()).map(|j| j + 1).collect(),
+            refused: play.refused[k].clone(),
         })
         .collect();
     Ok(Played { items, steps, fault })
@@ -260,6 +248,9 @@ struct Play<'a> {
     next: Vec<usize>,
     /// Each item's acts the engine refused, by their places counted from one, with why.
     refused: Vec<Vec<(usize, String)>>,
+    /// How each item's work was last judged, with the next place in its records and what the engine showed of it then:
+    /// a work is judged again only once either changed.
+    judged: Vec<Option<(Seq, Shown, Judged)>>,
 }
 
 impl Play<'_> {
@@ -278,18 +269,45 @@ impl Play<'_> {
 
     /// Whether the play can end before its bounds: every item stands at its path's end with no act left to give, or
     /// has left its path for good.
-    fn done(&self) -> bool {
-        let driver = self.stepper.service().driver();
-        (self.script.items.iter().enumerate()).all(|(k, item)| {
-            let path: Vec<Step> = item.path.iter().filter_map(|step| step.step().ok()).collect();
-            let judged = (driver.work(self.works[k]).zip(Shown::of(driver, self.works[k])))
-                .map(|(kept, shown)| judge::judge(kept.flow, kept.work, added(item), &path, &shown));
-            match judged {
-                Some(Judged::Took) => self.next[k] == item.acts.len(),
-                Some(Judged::Left { .. }) => true,
-                _ => false,
-            }
+    fn done(&mut self) -> bool {
+        let script = self.script;
+        (0..script.items.len()).all(|k| match self.judge(k) {
+            Judged::Took => self.next[k] == script.items[k].acts.len(),
+            Judged::Left { .. } => true,
+            Judged::Short { .. } => false,
         })
+    }
+
+    /// How the item's work stands against its path now: judged again only where its records grew or what the engine
+    /// shows of it changed since it was last judged.
+    fn judge(&mut self, k: usize) -> Judged {
+        let item = &self.script.items[k];
+        let driver = self.stepper.service().driver();
+        let work = self.works[k];
+        let (Some(kept), Some(shown)) = (driver.work(work), Shown::of(driver, work)) else {
+            return Judged::Short {
+                step: 1,
+                said: (item.path.first().and_then(|step| step.step().ok()))
+                    .map(|step| step.to_string())
+                    .unwrap_or_default(),
+                shown: Some("no work: the engine holds none of this number".to_string()),
+            };
+        };
+        let tick = kept.work.tick();
+        if let Some((at, then, judged)) = &self.judged[k]
+            && *at == tick
+            && *then == shown
+        {
+            return judged.clone();
+        }
+        let path: Vec<Step> = item.path.iter().filter_map(|step| step.step().ok()).collect();
+        let added = Added {
+            writes: item.writes.len(),
+            held: item.held,
+        };
+        let judged = judge::judge(kept.flow, kept.work, added, &path, &shown);
+        self.judged[k] = Some((tick, shown, judged.clone()));
+        judged
     }
 
     /// The states the engine shows the item's work at now.
@@ -471,13 +489,5 @@ impl Play<'_> {
             Waited::Call { call, on: Some(_) } => Some(*call),
             _ => None,
         })
-    }
-}
-
-/// How the item's work was added.
-fn added(item: &crate::script::items::ItemScript) -> Added {
-    Added {
-        writes: item.writes.len(),
-        held: item.held,
     }
 }

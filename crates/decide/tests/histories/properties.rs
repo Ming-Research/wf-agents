@@ -723,31 +723,7 @@ fn stalled(
     };
     // No person or source outside the work writes a block that keeps a key from holding, as the reading sees it.
     for key in on {
-        let keeping: Vec<BlockId> = match key {
-            Condition::Is { block, .. } => vec![block.clone()],
-            Condition::Test(test) => {
-                let named = &flow.tests()[test];
-                let has = |b: &BlockId| {
-                    reading
-                        .current(b)
-                        .is_some_and(|x| x.value.is_some() && x.value == named.is)
-                };
-                let by_outsider = |b: &BlockId| {
-                    reading
-                        .current(b)
-                        .is_some_and(|x| matches!(x.by, Writer::Person | Writer::Outside) && has(b))
-                };
-                (named.reads.iter())
-                    .filter(|b| match named.kind {
-                        TestKind::All => !has(b),
-                        TestKind::Any | TestKind::AnyContent => true,
-                        TestKind::None => has(b),
-                        TestKind::NoneStanding => by_outsider(b),
-                    })
-                    .cloned()
-                    .collect()
-            }
-        };
+        let keeping = reading.keeping(flow, key, i);
         if let Some(b) = keeping
             .iter()
             .find(|b| flow.outsiders(b).is_some_and(|o| o.people || o.outside.is_some()))
@@ -864,19 +840,9 @@ fn made_by(
     by: &[Maker],
 ) {
     v.count(MAKERS_CHECKED);
-    let named = &flow.tests()[test];
-    let has = |b: &BlockId| {
-        reading
-            .current(b)
-            .is_some_and(|x| x.value.is_some() && x.value == named.is)
-    };
-    let holding: Vec<&BlockId> = (named.reads.iter())
-        .filter(|b| match named.kind {
-            TestKind::All => !has(b),
-            TestKind::Any | TestKind::AnyContent => true,
-            TestKind::None | TestKind::NoneStanding => has(b),
-        })
-        .collect();
+    let i = flow.place(at).expect("the work waits at a cell of the flow");
+    let key = Condition::Test(test.clone());
+    let holding = reading.keeping(flow, &key, i);
     let writes = |m: &Maker, b: &BlockId| {
         let outsiders = flow.outsiders(b);
         match m {

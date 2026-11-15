@@ -545,6 +545,14 @@ fn read_script(script: &Path, flows: &[Compiled], compiled_all: bool, wrong: &mu
                 eprintln!("{}: {fault}", script.display());
                 *wrong = true;
             }
+            // What a play of the script adds and does is checked, and a run carries none of it out.
+            if !read.items.is_empty() {
+                println!(
+                    "{}: its items, their acts and their paths are checked, and none is carried out: a run adds no \
+                     item a script names",
+                    script.display()
+                );
+            }
             Some(read)
         }
         Err(e) => {

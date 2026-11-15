@@ -13,12 +13,11 @@ use engine::asked::ASKED;
 use engine::{Ask, Came, Handed, Question, Way};
 use flow::{ANSWER, Compiled, Kind, WORDS};
 
-/// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines, each line
-/// writing a block of its own, the design tree, and the work's head, as a commit no round made moves it.
-pub const START: &str = "start";
-pub const DEPENDENCIES: &str = "dependencies";
-pub const MAIN: &str = "main";
-pub const SESSION: &str = "session";
+/// The sources outside the work the driver names: the start, the items the work depends on, main, and the sessions of
+/// the lines, each line writing a block of its own.
+pub use driver::{DEPENDENCIES, MAIN, SESSION, START};
+/// The sources outside the work the carriers read of its branch: the design tree, and the work's head, as a commit no
+/// round made moves it.
 pub const TREE: &str = "tree";
 pub const HEAD: &str = "head";
 

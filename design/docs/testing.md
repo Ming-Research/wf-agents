@@ -110,11 +110,11 @@ and the scripts that stand in for agents are built; what is not is said at the e
     `wf-agents run` makes it, on a clock of its own that passes as the engine waits, each act given as its state comes
     about, and reads each work's records against the path its script states, by the reading of the records the histories
     and the exploration judge by (4, 5) and not by the deciding code the run tests, but for what no record holds (a
-    stall, a slot, the turn, the wait every work shares), which it takes from the engine's view; it names the first step
-    that left the path, with what the records hold there. A script kept beside the flows whose agents are all stood in
-    for is run by a test of the suite, so that a change of the flow it no longer fits fails at that change, not when
-    someone next runs it. A case met in a real run that no script reaches becomes a script, and a fault it showed gets
-    its test at its layer (2).
+    stall, a slot, the turn, the wait every work shares, the pause of everything), which it takes from the engine's
+    view; it names the first step that left the path, with what the records hold there. A script kept beside the flows
+    whose agents are all stood in for is run by a test of the suite, so that a change of the flow it no longer fits
+    fails at that change, not when someone next runs it. A case met in a real run that no script reaches becomes a
+    script, and a fault it showed gets its test at its layer (2).
 
 15. Not built: the command that plays a script, and the suite running the scripts kept beside the flows; and agents
     that play a part.

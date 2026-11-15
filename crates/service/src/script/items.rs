@@ -46,12 +46,14 @@
 //! - `waits`: the work waits at the cell, `for` what: `tool`, a tool's result; `person`, a person's result to a call,
 //!   `who` being the owner unless it says the architect; `retry`, the engine's wait before a round that failed in
 //!   passing is tried again; `answer`, the owner's answer to a question, the one named `question` where it names one;
-//!   `outside`, a new version from outside the work of the block a run of the cell wrote that what it wrote waits for,
-//!   that `block` where it names one; `limit`, the owner's word on the cell at its limit of a sender, the cell after it
-//!   named `by`, or, where it names none, the engine, which sent the cell's returns back; `precondition`, a key of the
-//!   cell's preconditions that does not hold, the one named `key` (a named test, or the block a key reads) where it
-//!   names one; `result`, the result of what the cell asked for in a record; `slot`, a free slot; `turn`, the turn to
-//!   check and merge, which another work holds; `shared`, the wait every work shares.
+//!   `outside`, a new version of a block a source outside the work writes, where only cells write what keeps a key of
+//!   the cell's preconditions from holding and the latest run of each said that what it wrote waits for that version
+//!   (decision what-a-run-wrote-may-wait-for-the-outside), the block it wrote being `block` where it names one;
+//!   `limit`, the owner's word on the cell at its limit of a sender, the cell after it named `by`, or, where it names
+//!   none, the engine, which sent the cell's returns back; `precondition`, a key of the cell's preconditions that does
+//!   not hold, the one named `key` (a named test, or the block a key reads) where it names one; `result`, the result of
+//!   what the cell asked for in a record; `slot`, a free slot; `turn`, the turn to check and merge, which another work
+//!   holds; `shared`, the wait every work shares.
 //! - `paused`: the work is paused, by the `owner` or the `engine`.
 //! - `let_on = true`: the owner lets the work on.
 //! - `let_go`: the owner lets the cell go on at its limit.
@@ -61,20 +63,21 @@
 //! - `everything`: the pause of everything holds, set by the `owner` or the `engine`.
 //!
 //! A key that says more of a step, left out, matches whatever it would have said, but for a limit's `by`, which names
-//! the engine where it is left out. What a work stands at now, and no step before it, is a path's end only: a round
-//! under way, and what no record holds, which is read from the engine's view of the work: a stall, a wait for a slot,
-//! for the turn or for what every work shares, and the pause of everything. The result of what a cell asked for in a
-//! record is no step of a path: the runs of the cells that give it are.
+//! the engine where it is left out, and a person's `who`, which names the owner. What a work stands at now, and no step
+//! before it, is a path's end only: a round under way, and what no record holds, which is read from the engine's view
+//! of the work: a stall, a wait for a slot, for the turn or for what every work shares, and the pause of everything.
+//! The result of what a cell asked for in a record is no step of a path: the runs of the cells that give it are.
 //!
 //! An act's `at` is a state of the work as the engine shows it, in the same words: a round under way, a wait at a cell
 //! (but for the turn and what every work shares), paused, stalled or ended. Its `do` is one of what people do to a
 //! work: `write` the `block` with `content` and a `value` where it is a choice; `let_go` the `cell`; `pause`; `resume`;
-//! `cancel`, for a reason `why` where one is given; `result`, giving the person's call the work waits for its `result`;
-//! `say` the `words` to a `line`, or about a `question`; `answer` the `question`, taking the `option` counted from one,
-//! for a reason `why` where one is given; and `new_session` of a `line`. Or one of what whoever plans the work does to
-//! its item, for a reason `why`: give it a `title`; make it depend on the `item` of a place among the items
-//! (`depends_on`) or no longer (`no_longer_depends_on`); `tag` or `untag` it with a `tag`; `reopen` it. Or one of what
-//! is done to the engine as a whole: `pause_everything`; `resume_everything`; `restart`, stopping the engine and
+//! `cancel`, for a reason `why` where one is given, which is the change of the item whoever plans the work makes too,
+//! refused while an item that depends on it has not ended; `result`, giving the person's call the work waits for its
+//! `result`; `say` the `words` to a `line`, or about a `question`; `answer` the `question`, taking the `option` counted
+//! from one, for a reason `why` where one is given; and `new_session` of a `line`. Or one of what whoever plans the
+//! work does to its item, for a reason `why`: give it a `title`; make it depend on the `item` of a place among the
+//! items (`depends_on`) or no longer (`no_longer_depends_on`); `tag` or `untag` it with a `tag`; `reopen` it. Or one of
+//! what is done to the engine as a whole: `pause_everything`; `resume_everything`; `restart`, stopping the engine and
 //! opening it again on its store; and `main`, main moving to a head that says `content`, which the engine writes into
 //! every going work of the project whose flow has its block, and which a play gives once every item with a `main` act
 //! still to give stands at its next one, so that the one write is each work's own. The head is no act, nor the tree:
@@ -248,9 +251,10 @@ pub enum Step {
         round: Option<usize>,
     },
     SentBack(CellId),
+    /// A round of the cell failed, of this kind where it is given.
     Fails {
         cell: CellId,
-        failure: Failure,
+        failure: Option<Failure>,
     },
     Waits {
         cell: CellId,
@@ -299,6 +303,7 @@ impl Step {
                     round: n,
                 },
             ) => cell == c && or(run, r) && or(round, n),
+            (Step::Fails { cell, failure }, Step::Fails { cell: c, failure: f }) => cell == c && or(failure, f),
             (Step::Waits { cell, on }, Step::Waits { cell: c, on: o }) => {
                 cell == c
                     && match (on, o) {
@@ -376,7 +381,11 @@ impl fmt::Display for Step {
                 f.write_str(" }")
             }
             Step::SentBack(cell) => write!(f, "{{ sent_back = \"{cell}\" }}"),
-            Step::Fails { cell, failure } => write!(f, "{{ fails = \"{cell}\", failure = \"{}\" }}", named(*failure)),
+            Step::Fails { cell, failure: None } => write!(f, "{{ fails = \"{cell}\" }}"),
+            Step::Fails {
+                cell,
+                failure: Some(failure),
+            } => write!(f, "{{ fails = \"{cell}\", failure = \"{}\" }}", named(*failure)),
             Step::Waits { cell, on } => {
                 write!(f, "{{ waits = \"{cell}\", for = ")?;
                 match on {
@@ -512,7 +521,7 @@ impl StepScript {
             "sent_back" => Step::SentBack(cell(&self.sent_back)),
             "fails" => Step::Fails {
                 cell: cell(&self.fails),
-                failure: self.failure.unwrap_or_default(),
+                failure: self.failure,
             },
             "waits" => {
                 let Some(on) = self.on else {
@@ -601,12 +610,14 @@ impl Does {
 }
 
 /// Everything wrong with the script's items for these flows, each in words with where it is: an item of a flow there is
-/// not, of a blank title, depending on an item that does not come before it, or written a block people do not write;
-/// a step or a state that says other than one thing, or names a cell, a block, a key, a question or a sender its flow
-/// does not have; a path whose step that only the engine's view shows is not its end, or that names the result of what
-/// a cell asked for; an act's state that is no state of a work; an act that leaves out a key what it does needs, gives
-/// one it does not take, or names what its flow or the script does not have; and items whose main moves at the same
-/// place to heads that differ.
+/// not, of a blank title, depending on an item that does not come before it, or written a block people do not write or
+/// a value not its block's; a step or a state that says other than one thing, or names a cell, a block, a key, a
+/// question or a sender its flow does not have; a wait for the outside by a block no cell writes, for a slot at a cell
+/// that takes none, for the turn at an agent's cell, or for the result of a record at a cell that asks for nothing in
+/// one; a path whose step that only the engine's view shows is not its end, or that names the result of what a cell
+/// asked for; an act's state that is no state of a work; an act that leaves out a key what it does needs, gives one it
+/// does not take, or names what its flow or the script does not have; and items whose main moves at the same place to
+/// heads that differ.
 pub(super) fn check(script: &Script, flows: &[Compiled]) -> Vec<String> {
     let mut faults = Vec::new();
     let items = &script.items;
@@ -630,9 +641,8 @@ pub(super) fn check(script: &Script, flows: &[Compiled]) -> Vec<String> {
         };
         let names = Names { flow };
         for (j, write) in item.writes.iter().enumerate() {
-            if let Some(fault) = names.people_write(&write.block) {
-                faults.push(format!("{at}.writes[{j}]: {fault}"));
-            }
+            let written = names.written(&write.block, write.value.as_deref());
+            faults.extend(written.into_iter().map(|fault| format!("{at}.writes[{j}]: {fault}")));
         }
         for (j, act) in item.acts.iter().enumerate() {
             let at = format!("{at}.acts[{j}]");
@@ -678,8 +688,8 @@ pub(super) fn check(script: &Script, flows: &[Compiled]) -> Vec<String> {
             }
             if matches!(step, Step::Waits { on: Wait::Result, .. }) {
                 faults.push(format!(
-                    "{at}: the result of what a cell asked for is no step of a path: the runs of the cells that give it \
-                     are"
+                    "{at}: the result of what a cell asked for is no step of a path: the runs of the cells that \
+                     give it are"
                 ));
             }
             faults.extend(names.step(&step).into_iter().map(|fault| format!("{at}: {fault}")));
@@ -721,14 +731,30 @@ impl Names<'_> {
         (!has).then(|| format!("the flow {} has no cell {cell}", self.flow.name))
     }
 
-    /// What is wrong with a block people are to write: none where people write it.
-    fn people_write(&self, block: &str) -> Option<String> {
+    /// Everything wrong with a block people are to write with this value: a block of no such name, one people do not
+    /// write, a choice written with no value or with one that is not its own, and a value for a block that is no
+    /// choice.
+    fn written(&self, block: &str, value: Option<&str>) -> Vec<String> {
         let name = &self.flow.name;
-        match self.flow.blocks.get(&BlockId::from(block)) {
-            None => Some(format!("the flow {name} has no block {block}")),
-            Some(b) if !b.writers.people => Some(format!("people do not write the block {block}")),
-            Some(_) => None,
+        let Some(b) = self.flow.blocks.get(&BlockId::from(block)) else {
+            return vec![format!("the flow {name} has no block {block}")];
+        };
+        let mut faults = Vec::new();
+        if !b.writers.people {
+            faults.push(format!("people do not write the block {block}"));
         }
+        match (&b.values, value) {
+            (Some(values), None) => faults.push(format!(
+                "the block {block} is a choice, written with one of its values: {}",
+                values.join(", ")
+            )),
+            (Some(values), Some(value)) if !values.iter().any(|v| v == value) => {
+                faults.push(format!("{value} is not one of the values of {block}"));
+            }
+            (None, Some(value)) => faults.push(format!("the block {block} is no choice, which {value} would be")),
+            _ => {}
+        }
+        faults
     }
 
     /// What is wrong with a question's name: none where a round of the script asks it. No round of a script asks the
@@ -762,13 +788,18 @@ impl Names<'_> {
                     faults.push(format!("{key} is no key of the preconditions of {cell}"));
                 }
             }
-            Wait::Outside(Some(block)) => match self.flow.blocks.get(block) {
-                None => faults.push(format!("the flow {} has no block {block}", self.flow.name)),
-                Some(b) if b.writers.outside.is_none() => {
-                    faults.push(format!("no source outside the work writes {block}"));
-                }
-                Some(_) => {}
-            },
+            Wait::Outside(Some(block)) if !self.flow.blocks.contains_key(block) => {
+                faults.push(format!("the flow {} has no block {block}", self.flow.name));
+            }
+            Wait::Outside(Some(block)) if self.flow.flow.writers(block).next().is_none() => {
+                faults.push(format!("no cell writes {block}, which a run waits for the outside by"));
+            }
+            Wait::Slot if !self.flow.flow.cells()[i].slot => {
+                faults.push(format!("{cell} takes no slot, as an act of the engine's takes none"));
+            }
+            Wait::Result if self.flow.flow.cells()[i].asks.is_empty() => {
+                faults.push(format!("{cell} asks for nothing in a record"));
+            }
             Wait::Answer(Some(question)) => faults.extend(Self::question(question)),
             Wait::Turn if spec.is_some_and(|spec| spec.kind == Kind::Agent) => {
                 faults.push(format!(
@@ -785,7 +816,12 @@ impl Names<'_> {
         let mut faults = Vec::new();
         let lines = |line: &str| self.flow.lines.contains_key(line);
         match act.does {
-            Does::Write => faults.extend(act.block.as_deref().and_then(|block| self.people_write(block))),
+            Does::Write => faults.extend(
+                act.block
+                    .as_deref()
+                    .map(|block| self.written(block, act.value.as_deref()))
+                    .unwrap_or_default(),
+            ),
             Does::LetGo => faults.extend(act.cell.as_deref().and_then(|cell| self.cell(&CellId::from(cell)))),
             Does::Say | Does::NewSession => {
                 if let Some(line) = act.line.as_deref().filter(|line| !lines(line)) {

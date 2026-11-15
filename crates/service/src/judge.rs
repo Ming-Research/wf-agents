@@ -6,27 +6,29 @@
 //! The records hold, in the order of their places, each step of a path but a few waits: a run of a cell started; a
 //! round that failed, with its kind; a return sent back, which the run's next round is given; a call a run rests at,
 //! for a tool, a person, the engine's wait before a round is tried again, or the owner's word on the engine's own call
-//! at a run's limit; a question that waits for the owner's answer; what a run wrote waiting for a source outside the
-//! work; the work paused and let on, by whom; a cell let go at its limit; a cancel, a reopen, and the merge's finished
-//! run. A wait on a precondition, or at a cell's limit of a sender, no entry records: it is read where the work came to
-//! rest after a thing that happened to it, with nothing of it under way and no call, question or source waited for,
-//! at the cell the reading finds it stands at, where a key of that cell's preconditions does not hold that a person or
-//! a source outside the work can make hold (one only cells make hold, none of which runs, is a stall), or where the
-//! cell would run once more for what a sender wrote that sent it back as often as the flow's `again` lets one since its
-//! counts last began anew (decision the-same-sender-again); the wait that lasts over several things that happened is
-//! one step. The pause the work was added with, and the letting on a play gives it as it adds it, are the item's start
-//! and no step of its path.
+//! at a run's limit; a question that waits for the owner's answer; the work paused and let on, by whom; a cell let go
+//! at its limit; a cancel, a reopen, and the merge's finished run. A wait on a precondition, for the outside or at a
+//! cell's limit of a sender has no entry: it is read where the work came to rest after a thing that happened to it,
+//! with nothing of it under way and no call or question waited for, at the cell the reading finds it stands at. There a
+//! key of the cell's preconditions that does not hold is a wait for the outside where only cells write the blocks
+//! keeping it and the latest run of each said that what it wrote waits for a source outside the work (decision
+//! what-a-run-wrote-may-wait-for-the-outside), a precondition where a person or a source outside the work writes one of
+//! them, and else a stall, which the engine's view shows; with every key holding, the cell waits at its limit where it
+//! would run once more for what a sender wrote that sent it back as often as the flow's `again` lets one since its
+//! counts last began anew (decision the-same-sender-again). A wait that lasts over several things that happened is
+//! one step. The work's adding (the pause it was added with, the write of its block of dependencies and of what people
+//! wrote for it) and the letting on a play gives it then are the item's start: no step of its path, and no rest.
 //!
 //! What no record holds is read from the engine's view of the work now, and so only as a path's end: a stall, which
-//! the reading cross-checks (no cell that applies has anything to be entered for, no call is owed); a wait for a slot,
-//! for the turn to check and merge, and for what every work shares, which are kept in memory only (decisions
-//! slots-in-the-scheduler, one-work-checks-and-merges-at-a-time and the-engine-checks-the-outside-itself); and the
-//! pause of everything, which the installation keeps. A round under way, which the records hold, is a path's end too.
+//! the reading bears out where it finds the work stalled at the same cell; a wait for a slot, for the turn to check and
+//! merge, and for what every work shares, which are kept in memory only (decisions slots-in-the-scheduler,
+//! one-work-checks-and-merges-at-a-time and the-engine-checks-the-outside-itself); and the pause of everything, which
+//! the installation keeps. A round under way, which the records hold, is a path's end too.
 
 use std::collections::BTreeSet;
 use std::fmt;
 
-use decide::{BlockId, CellId, Condition, Decision, End, Flow, Pauser, Records, RunId, Seq, TestKind, Waited};
+use decide::{BlockId, CellId, Condition, Decision, End, Flow, Pauser, Records, RunId, Seq, Waited};
 use driver::{Along, Driver};
 use flow::{Compiled, Kind};
 use reading::{Reading, Reason};
@@ -128,13 +130,24 @@ impl fmt::Display for Judged {
     }
 }
 
-/// How a work began as its item was added, which is the item's start and no step of its path.
+/// How a work began as its item was added, which is the item's start and no step of its path: the driver adds it
+/// paused, writes its block of dependencies where its flow has one and what people write for it, each a thing that
+/// happened to it, and looks at it, which begins nothing under the pause; a play then lets it on, unless it is held.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Added {
     /// How many blocks people wrote for it as it was added.
     pub writes: usize,
     /// Whether it is held, never let on as it was added.
     pub held: bool,
+}
+
+impl Added {
+    /// How many things that happened to a work on this flow its adding was: its pause, the write of its block of
+    /// dependencies where the flow has one, and each of its writes.
+    fn moments(&self, flow: &Compiled) -> usize {
+        let dependencies = (flow.blocks.values()).any(|b| b.writers.outside.as_deref() == Some(driver::DEPENDENCIES));
+        1 + usize::from(dependencies) + self.writes
+    }
 }
 
 /// A step the records hold, with whether the work still stands at it as they end: a wait that has not ended, a pause
@@ -145,10 +158,10 @@ pub struct Seen {
     pub stands: bool,
 }
 
-/// How the work's records stand against its path: `held` says whether its item is held, never let on as it was added;
-/// `shown` is what the engine shows of the work now, for the end the records do not hold.
+/// How the work's records stand against its path, the work having been added as `added` says; `shown` is what the
+/// engine shows of the work now, for the end the records do not hold.
 pub fn judge(flow: &Compiled, work: &Work, added: Added, path: &[Step], shown: &Shown) -> Judged {
-    let seen = seen(flow, work, added.held);
+    let seen = seen(flow, work, added);
     let (steps, end) = match path.split_last() {
         Some((end, before)) if end.ends_only() => (before, Some(end)),
         _ => (path, None),
@@ -231,30 +244,20 @@ fn stands_at_end(flow: &Compiled, records: &Records, end: &Step, shown: &Shown) 
             if !matches!(&shown.decision, Decision::Stalled { at, .. } if at == cell) {
                 return Err(None);
             }
-            // A stall is the walk's own conclusion; the records bear it out where nothing the flow lets run has
-            // anything to be entered for and no call waits.
-            let reading = Reading::of_flow(&flow.flow, records);
-            let now = Seq(u64::MAX);
-            let cells = flow.flow.cells();
-            let entered = (0..cells.len())
-                .find(|&i| reading.applies(&flow.flow, i) && !reading.entering(&flow.flow, &cells[i], now).is_empty());
-            if let Some(i) = entered {
-                return Err(Some(format!(
-                    "something for {} to be entered for, while the engine shows the work stalled",
-                    cells[i].id
-                )));
-            }
-            if let Some(call) = records
-                .called
-                .iter()
-                .find(|c| !records.done.iter().any(|d| d.call == c.call))
-            {
-                return Err(Some(format!(
-                    "call {} with no result, while the engine shows the work stalled",
-                    call.call.0
-                )));
-            }
-            true
+            // A stall is the walk's own conclusion, which the records bear out where the reading finds the work at
+            // rest at that cell and nothing there that a person, the outside or a cell that runs could give.
+            let shown = |what: String| {
+                Err(Some(format!(
+                    "{what}, while the engine shows the work stalled at {cell}"
+                )))
+            };
+            return match at_rest(flow, records) {
+                Rest::Stalled(at) if at == *cell => Ok(()),
+                Rest::Stalled(at) => shown(format!("a stall at {at}")),
+                Rest::Waits(steps) => shown((steps.iter().map(Step::to_string)).collect::<Vec<_>>().join(" and ")),
+                Rest::Nothing(Some(at)) => shown(format!("{at} standing to go on")),
+                Rest::Nothing(None) => shown("nothing that holds the work".to_string()),
+            };
         }
         Step::Waits { cell, on: Wait::Slot } => {
             matches!(&shown.decision, Decision::Wait { at, on } if at == cell && on.contains(&Waited::Slot))
@@ -277,7 +280,8 @@ fn stands_at_end(flow: &Compiled, records: &Records, end: &Step, shown: &Shown) 
 
 /// The states the engine shows the work at now, as steps: a round under way, each thing it waits for at the cell it
 /// waits at, a stall, its end, the wait every work shares holding its next round, the work's own pause and the pause of
-/// everything. What an act waits for is one of these.
+/// everything. An act waits for one of these but for the turn, the wait every work shares and the pause of everything,
+/// which a path names only as its end (module `script::items`).
 pub fn states(work: &Work, shown: &Shown) -> Vec<Step> {
     let r = &work.records;
     let mut states = Vec::new();
@@ -348,9 +352,8 @@ fn open(records: &Records, run: RunId) -> bool {
     !records.finished.iter().any(|f| f.run == run) && !records.abandoned.iter().any(|a| a.run == run)
 }
 
-/// The steps the work's records hold, in order (the module's own words); `held` says whether its item is held, never
-/// let on as it was added.
-pub fn seen(flow: &Compiled, work: &Work, held: bool) -> Vec<Seen> {
+/// The steps the work's records hold, in order (the module's own words), the work having been added as `added` says.
+pub fn seen(flow: &Compiled, work: &Work, added: Added) -> Vec<Seen> {
     let r = &work.records;
     let cell_of = |run: RunId| (r.started.iter().find(|s| s.run == run)).map(|s| s.cell.clone());
     let mut entries: Vec<(Seq, Seen)> = Vec::new();
@@ -365,7 +368,7 @@ pub fn seen(flow: &Compiled, work: &Work, held: bool) -> Vec<Seen> {
                     at,
                     Step::Fails {
                         cell: s.cell.clone(),
-                        failure: *failure,
+                        failure: Some(*failure),
                     },
                     true,
                 ),
@@ -394,32 +397,17 @@ pub fn seen(flow: &Compiled, work: &Work, held: bool) -> Vec<Seen> {
     questions.sort_by_key(|q| q.at);
     for q in questions {
         let before = reading::questions(r, q.at);
-        let waited = before
-            .get(&q.name)
-            .is_some_and(|b| b.waits && !b.withdrawn && !b.answered);
+        let waited = (before.get(&q.name)).is_some_and(|b| b.waits && !b.withdrawn && !b.answered);
         if !q.waits || q.withdrawn || waited {
             continue;
         }
-        let stands = now.get(&q.name).is_some_and(|n| n.waits && !n.withdrawn && !n.answered);
+        let stands = (now.get(&q.name)).is_some_and(|n| n.waits && !n.withdrawn && !n.answered);
+        let on = Wait::Answer(Some(q.name.clone()));
         push(
             q.at,
             Step::Waits {
                 cell: q.cell.clone(),
-                on: Wait::Answer(Some(q.name.clone())),
-            },
-            stands,
-        );
-    }
-    for f in &r.finished {
-        let (Some(block), Some(cell)) = (&f.waits_for, cell_of(f.run)) else {
-            continue;
-        };
-        let stands = !(r.written.iter()).any(|w| w.block == *block && w.by == decide::Outsider::Outside && w.at > f.at);
-        push(
-            f.at,
-            Step::Waits {
-                cell,
-                on: Wait::Outside(Some(block.clone())),
+                on,
             },
             stands,
         );
@@ -429,7 +417,7 @@ pub fn seen(flow: &Compiled, work: &Work, held: bool) -> Vec<Seen> {
     pauses.sort_by_key(|p| p.at);
     let latest = pauses.last().map(|p| p.at);
     let start = match pauses.get(1) {
-        Some(let_on) if !held && !let_on.paused => 2,
+        Some(let_on) if !added.held && !let_on.paused => 2,
         _ => 1,
     };
     for p in pauses.iter().skip(start) {
@@ -456,12 +444,11 @@ pub fn seen(flow: &Compiled, work: &Work, held: bool) -> Vec<Seen> {
     }
     entries.sort_by_key(|(at, _)| *at);
 
-    // The waits no entry records, read where the work came to rest after each thing that happened to it.
-    // The end of the first thing that happened to it, the pause it was added with, is no place it rested: the rest of
-    // its add followed at once, its block of dependencies among it.
+    // The waits no entry records, read where the work came to rest after each thing that happened to it from the end of
+    // its adding on: within the adding, no cell had what it was added with yet.
     let mut froms: Vec<Seq> = work.moments.iter().map(|m| m.from).collect();
     froms.sort();
-    let mut ends: Vec<Seq> = froms.into_iter().skip(2).collect();
+    let mut ends: Vec<Seq> = froms.into_iter().skip(added.moments(flow)).collect();
     ends.push(Seq(u64::MAX));
     let mut seen = Vec::new();
     let mut entries = entries.into_iter().peekable();
@@ -473,7 +460,10 @@ pub fn seen(flow: &Compiled, work: &Work, held: bool) -> Vec<Seen> {
             }
             seen.push(s);
         }
-        let resting = at_rest(flow, &r.before(end));
+        let resting = match at_rest(flow, &r.before(end)) {
+            Rest::Waits(steps) => steps,
+            Rest::Stalled(_) | Rest::Nothing(_) => Vec::new(),
+        };
         for step in resting.iter().filter(|step| !standing.contains(step)) {
             seen.push(Seen {
                 step: step.clone(),
@@ -496,12 +486,27 @@ pub fn seen(flow: &Compiled, work: &Work, held: bool) -> Vec<Seen> {
     seen
 }
 
-/// The waits no entry records that hold the work as these records stand, where it is at rest: nothing of it under way,
-/// no call without its result, no question waiting for its answer and no source outside the work waited for; at the
-/// cell the reading finds it stands at, each key of that cell's preconditions that does not hold, or else the cell's
-/// limit of the first sender that sent it back as often as its limit lets one, where it would run once more for what
-/// that sender wrote.
-fn at_rest(flow: &Compiled, records: &Records) -> Vec<Step> {
+/// How the work rests as these records stand, by the reading.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Rest {
+    /// Nothing no entry records holds it: something of it is under way, a call or a question waits, it has ended, or
+    /// it would go on, from the cell where it stands where it stands at one.
+    Nothing(Option<CellId>),
+    /// It waits at the cell it stands at for these, which no entry records.
+    Waits(Vec<Step>),
+    /// It can go on by itself no further at this cell, which only the engine's view says.
+    Stalled(CellId),
+}
+
+/// How the work rests as these records stand (decisions conditions-and-preconditions,
+/// what-a-run-wrote-may-wait-for-the-outside, the-same-sender-again): where nothing of it is under way and no call or
+/// question waits, at the cell the reading finds it stands at, each key of that cell's preconditions that does not
+/// hold is a wait for the outside where only cells write the blocks keeping it and the latest run of each said what it
+/// wrote waits for a source outside the work, of which nothing new has come, and a precondition otherwise; where only
+/// cells write what keeps each, none of which waits so, the work is stalled there. With no key unmet, the cell's limit
+/// of the first sender that sent it back as often as its limit lets one, where it would run once more for what that
+/// sender wrote. With no cell to stand at, it is stalled at its last cell, which nothing new runs.
+fn at_rest(flow: &Compiled, records: &Records) -> Rest {
     let reading = Reading::of_flow(&flow.flow, records);
     let now = Seq(u64::MAX);
     let cells = flow.flow.cells();
@@ -515,46 +520,66 @@ fn at_rest(flow: &Compiled, records: &Records) -> Vec<Step> {
     });
     let calling = (records.called.iter()).any(|c| !records.done.iter().any(|d| d.call == c.call));
     let asking = (reading::questions(records, now).values()).any(|q| q.waits && !q.withdrawn && !q.answered);
-    let outside = (cells.iter()).any(|cell| {
-        let latest = (records.finished.iter())
-            .filter(|f| records.started.iter().any(|s| s.run == f.run && s.cell == cell.id))
-            .max_by_key(|f| f.at);
-        latest.is_some_and(|f| {
-            f.waits_for.as_ref().is_some_and(|block| {
-                !(records.written.iter()).any(|w| w.block == *block && w.by == decide::Outsider::Outside && w.at > f.at)
-            })
-        })
-    });
-    if records.cancelled().is_some() || merged || under_way || calling || asking || outside {
-        return Vec::new();
+    let standing = reading.standing(&flow.flow);
+    let at = standing.map(|i| cells[i].id.clone());
+    if records.cancelled().is_some() || merged || under_way || calling || asking {
+        return Rest::Nothing(at);
     }
-    let Some(i) = reading.standing(&flow.flow) else {
-        return Vec::new();
+    let Some(i) = standing else {
+        return Rest::Stalled(cells[cells.len() - 1].id.clone());
     };
     let cell = &cells[i];
     if reading.pending(cell, now) {
-        return Vec::new();
+        return Rest::Nothing(at);
     }
-    let unmet: Vec<Step> = (cell.requires.iter())
+    let unmet: Vec<&Condition> = (cell.requires.iter())
         .filter(|key| !reading.key_holds(&flow.flow, key, i))
-        .map(|condition| Step::Waits {
-            cell: cell.id.clone(),
-            on: Wait::Precondition(Some(key(condition))),
-        })
         .collect();
-    // A precondition only cells can make hold, none of which runs, is a stall, which only the engine's view shows.
     if !unmet.is_empty() {
-        let made = (cell.requires.iter())
-            .filter(|key| !reading.key_holds(&flow.flow, key, i))
-            .any(|key| made_from_outside(&flow.flow, &reading, key));
-        return if made { unmet } else { Vec::new() };
+        let mut waits: Vec<Step> = Vec::new();
+        let mut stalled = true;
+        for condition in unmet {
+            let keeping = reading.keeping(&flow.flow, condition, i);
+            let outsiders =
+                (keeping.iter()).any(|b| (flow.flow.outsiders(b)).is_some_and(|o| o.people || o.outside.is_some()));
+            let outside = if outsiders {
+                None
+            } else {
+                outside(&flow.flow, &reading, &keeping)
+            };
+            match outside {
+                Some(blocks) => {
+                    stalled = false;
+                    for block in blocks {
+                        let wait = Step::Waits {
+                            cell: cell.id.clone(),
+                            on: Wait::Outside(Some(block)),
+                        };
+                        if !waits.contains(&wait) {
+                            waits.push(wait);
+                        }
+                    }
+                }
+                None => {
+                    stalled &= !outsiders;
+                    waits.push(Step::Waits {
+                        cell: cell.id.clone(),
+                        on: Wait::Precondition(Some(key(condition))),
+                    });
+                }
+            }
+        }
+        return match stalled {
+            true => Rest::Stalled(cell.id.clone()),
+            false => Rest::Waits(waits),
+        };
     }
     if records
         .started
         .iter()
         .any(|s| s.cell == cell.id && open(records, s.run))
     {
-        return Vec::new();
+        return Rest::Nothing(at);
     }
     let because: Vec<decide::Cause> = (reading.entering(&flow.flow, cell, now).into_iter())
         .map(|reason| match reason {
@@ -566,43 +591,52 @@ fn at_rest(flow: &Compiled, records: &Records) -> Vec<Step> {
             Reason::Results { calls } => decide::Cause::Results { calls },
         })
         .collect();
-    if because.is_empty() {
-        return Vec::new();
-    }
-    let senders = reading.sent_by(&flow.flow, i, &because, now).unwrap_or_default();
+    let senders = (!because.is_empty())
+        .then(|| reading.sent_by(&flow.flow, i, &because, now))
+        .flatten()
+        .unwrap_or_default();
     let limit =
         (senders.into_iter()).find(|sender| reading.sent_back_since(&flow.flow, i, sender, now) >= cell.again as usize);
-    limit
-        .map(|sender| Step::Waits {
+    match limit {
+        Some(sender) => Rest::Waits(vec![Step::Waits {
             cell: cell.id.clone(),
             on: Wait::Limit(Some(sender)),
-        })
-        .into_iter()
-        .collect()
+        }]),
+        None => Rest::Nothing(at),
+    }
 }
 
-/// Whether a person or a source outside the work writes a block that keeps this key, which does not hold, from holding:
-/// one without the value a test of every block looks for, any a test of one looks for, one with the value a test of
-/// none looks for; or the block a key of a value reads.
-fn made_from_outside(flow: &Flow, reading: &Reading, key: &Condition) -> bool {
-    let keeping: Vec<&BlockId> = match key {
-        Condition::Is { block, .. } => vec![block],
-        Condition::Test(name) => {
-            let test = &flow.tests()[name];
-            let has = |block: &BlockId| match (test.kind, test.is.as_deref()) {
-                (TestKind::AnyContent, _) => reading.current(block).is_some_and(|v| !v.empty),
-                (_, None) => false,
-                (_, Some(is)) => match reading.current(block) {
-                    Some(v) => v.value.as_deref() == Some(is),
-                    None => flow.default_of(block) == Some(is),
-                },
-            };
-            match test.kind {
-                TestKind::All => test.reads.iter().filter(|block| !has(block)).collect(),
-                TestKind::Any | TestKind::AnyContent => test.reads.iter().collect(),
-                TestKind::None | TestKind::NoneStanding => test.reads.iter().filter(|block| has(block)).collect(),
+/// Of the blocks keeping a precondition from holding, which only cells write, the block each such cell's latest
+/// finished run wrote among them, where that run said what it wrote waits for a new version of a block a source
+/// outside the work writes and none has come new to the cell (decision what-a-run-wrote-may-wait-for-the-outside):
+/// the blocks the work waits for that source by. None where any of those cells' latest runs waits for nothing so, or
+/// no cell writes them.
+fn outside(flow: &Flow, reading: &Reading, keeping: &[&BlockId]) -> Option<Vec<BlockId>> {
+    let now = Seq(u64::MAX);
+    let mut makers: Vec<&CellId> = Vec::new();
+    for block in keeping {
+        for writer in flow.writers(block) {
+            if !makers.contains(&&writer.id) {
+                makers.push(&writer.id);
             }
         }
-    };
-    (keeping.into_iter()).any(|block| flow.outsiders(block).is_some_and(|o| o.people || o.outside.is_some()))
+    }
+    if makers.is_empty() {
+        return None;
+    }
+    (makers.into_iter())
+        .map(|cell| {
+            let latest = (reading.finished.values())
+                .filter(|f| reading.started[&f.run].cell == *cell)
+                .max_by_key(|f| f.at)?;
+            let waits = latest.waits_for.as_ref()?;
+            flow.outsiders(waits)?.outside.as_ref()?;
+            if !reading.new_to(cell, waits, now).is_empty() {
+                return None;
+            }
+            (latest.writes.iter())
+                .find(|w| keeping.contains(&&w.block))
+                .map(|w| w.block.clone())
+        })
+        .collect()
 }
