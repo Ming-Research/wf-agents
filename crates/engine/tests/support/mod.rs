@@ -336,6 +336,11 @@ impl Driver {
                     }
                 }
                 self.paused = decide::paused(&self.work.records);
+                // A call the work has its result of now, as the owner's letting a cell go on answers its run's call at a
+                // limit, is no longer to be done.
+                let done = &self.work.records.done;
+                self.held
+                    .retain(|e| !matches!(e, Effect::Call { call, .. } if done.iter().any(|d| d.call == *call)));
                 for effect in effects {
                     match &effect {
                         // Words told to a round under way are handed to it and kept by no one: a stop does not give

@@ -589,7 +589,9 @@ pub fn consumption(v: &mut Verdict, flow: &Flow, reading: &Reading) {
         for input in &seen.runs_on {
             v.count(CONSUMED_CHECKED);
             let consumed = reading.consumed(&cell.id, &input.block, now);
-            let new = !reading.new_to(&cell.id, &input.block, now).is_empty();
+            // A record whose entry waits again for the cell that gives its result enters that cell as a new one does.
+            let taken_up = reading.taken_up(flow, cell, now).contains(&input.block);
+            let new = !reading.new_to(&cell.id, &input.block, now).is_empty() || taken_up;
             if input.consumed != consumed || input.new != new {
                 v.fail(
                     CONSUMED,
@@ -708,6 +710,11 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
                     flow.cells()[i].id
                 ),
             );
+        }
+        // A cell that waits for a result holds the work: the cells after it are passed for what ends the wait, which
+        // the property of waits judges (decision a-wait-holds-its-cell).
+        if reading.pending(flow, cell, now) {
+            return;
         }
     }
 }
@@ -1088,10 +1095,11 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
             return;
         }
     };
-    let reading = Reading::new(&then);
+    let reading = Reading::of_flow(flow, &then);
     let now = Seq(u64::MAX);
     for (i, cell) in cells[..exempt_from].iter().enumerate() {
-        if !reading.applies(flow, i) {
+        // A cell that waits for a result is reached once the wait is over (decision a-wait-holds-its-cell).
+        if !reading.applies(flow, i) || reading.pending(flow, cell, now) {
             continue;
         }
         for block in &cell.runs_on {

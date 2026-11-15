@@ -1144,7 +1144,9 @@ impl Content {
                 } else if opinion(&d.flow, b, i) {
                     None
                 } else {
-                    let matters = act || answering || !ever_written(&d.work.records, b);
+                    // An entry of a record is new whoever writes it.
+                    let records = d.flow.flow.adds_entries(b);
+                    let matters = act || answering || records || !ever_written(&d.work.records, b);
                     Some(handed(b, cell, matters, None))
                 }
             })
