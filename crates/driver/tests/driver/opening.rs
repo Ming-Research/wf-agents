@@ -429,7 +429,6 @@ fn kept_with_old_words(db: &Db) -> (WorkNumber, engine::Work) {
             matters: true,
             value: None,
             said_to: None,
-            read_by: None,
             empty: false,
             at,
         });

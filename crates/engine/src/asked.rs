@@ -198,7 +198,6 @@ fn write(work: &mut Work, block: &BlockId, content: String) {
         value: None,
         empty,
         said_to: None,
-        read_by: None,
         at,
     });
 }
@@ -370,7 +369,6 @@ pub(crate) fn tell(flow: &Compiled, work: &mut Work) {
         value: Some(value.to_string()),
         empty: false,
         said_to: None,
-        read_by: None,
         at,
     });
 }

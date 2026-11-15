@@ -3209,7 +3209,6 @@ mod tests {
             value: None,
             empty: false,
             said_to: None,
-            read_by: None,
             at: Seq(1),
         });
         if let Some(by) = paused {

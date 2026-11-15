@@ -88,6 +88,9 @@ fn failed_words(failed: &Failed) -> String {
             items(on)
         ),
         Failed::NoSuchWork(work) => format!("there is no work {}", work.0),
+        Failed::NoSuchAccount(account) => {
+            format!("the engine runs with no account {account}: it takes those agents.accounts lists as it starts")
+        }
         Failed::NoSuchFlow(flow) => format!("there is no flow named {flow}"),
         Failed::Refused(refused) => refused_words(refused),
         Failed::Stopped { fault, .. } => format!("the engine stopped: {}", driver_fault(fault)),

@@ -280,7 +280,6 @@ fn write(work: &mut Work, block: &BlockId, content: String, said_to: Option<&Cel
         value: None,
         empty,
         said_to: said_to.cloned(),
-        read_by: None,
         at,
     });
     at

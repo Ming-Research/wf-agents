@@ -183,9 +183,8 @@ CREATE TABLE put_in (
 );
 
 -- A person or the outside (`writer`) wrote a block: whether the change matters, its value where it is a choice, the
--- cell it is said to where it is said to one, as the owner's entry of the record of what is said is, whether the
--- version holds nothing, with no value and the content kept of it empty or only whitespace, and the run whose round's
--- carrier read what was written, where a round's did.
+-- cell it is said to where it is said to one, as the owner's entry of the record of what is said is, and whether the
+-- version holds nothing, with no value and the content kept of it empty or only whitespace.
 CREATE TABLE written (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
@@ -195,7 +194,6 @@ CREATE TABLE written (
     value TEXT,
     said_to TEXT,
     empty INTEGER NOT NULL CHECK (empty IN (0, 1)),
-    read_by INTEGER,
     PRIMARY KEY (work, at)
 );
 
@@ -273,6 +271,29 @@ CREATE TABLE everything_paused (
     n INTEGER PRIMARY KEY,
     paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
     pauser TEXT NOT NULL,
+    time INTEGER NOT NULL
+);
+
+-- The account the agents run under was taken at `time`, `n` counting from one: `account` is its directory as the
+-- installation's settings list it, `taker` who took it (`Owner` on the page, or `Engine` moving on at the limit of the
+-- one in use), and for the engine's, `left_account` the account it left and `resets` when that one's limit resets,
+-- where it was known. The latest row whose account the settings still list is the account in use; with none, the first
+-- they list. It is the installation's, not a work's. Hidden from agents.
+CREATE TABLE accounts_taken (
+    n INTEGER PRIMARY KEY,
+    account TEXT NOT NULL,
+    taker TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    left_account TEXT,
+    resets INTEGER
+);
+
+-- The switch that lets the engine move on to another account at the limit of the one in use was set on (1) or off (0)
+-- at `time`, `n` counting from one: the latest row says how it stands, and none that it is off. It is the
+-- installation's, not a work's.
+CREATE TABLE moving_on (
+    n INTEGER PRIMARY KEY,
+    moving INTEGER NOT NULL CHECK (moving IN (0, 1)),
     time INTEGER NOT NULL
 );
 

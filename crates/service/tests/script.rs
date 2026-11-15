@@ -868,6 +868,7 @@ fn round(flow: &Compiled, of: &str, kept: Work) -> Round {
         item: item(),
         kept: Arc::new(kept),
         lines: Default::default(),
+        account: None,
     }
 }
 
@@ -902,7 +903,6 @@ fn written(mut work: Work, block: &str, content: &str) -> Work {
         value: None,
         empty: false,
         said_to: None,
-        read_by: None,
         at,
     });
     work
@@ -937,7 +937,7 @@ async fn an_acts_round_writes_what_it_read_for_its_round_or_from_outside_as_the_
     let merged = carried(&script, round(&flow, "M2", kept(&["M2"], 1, Work::default()))).await;
     assert!(
         matches!(&merged[..], [
-            Event::Read { block, content, .. },
+            Event::Wrote { block, by: Outsider::Outside, content, .. },
             Event::Failed { failure: Failure::Passing, .. },
         ] if block.as_str() == "head" && content == "9c0ffee"),
         "{merged:?}"
@@ -1132,14 +1132,14 @@ async fn the_check_of_the_outside_finds_what_the_script_says_and_else_finds_it_w
     )
     .unwrap();
     assert_eq!(
-        Scripted::new(script, words()).check().await,
+        Scripted::new(script, words()).check(None).await,
         Found::Down {
             failure: Failure::UsageLimit,
             why: "You've hit your limit.".to_string(),
             resets: Some(Time(1_794_268_800_000 + 3_600_000)),
         }
     );
-    assert_eq!(Scripted::new(Script::default(), words()).check().await, Found::Well);
+    assert_eq!(Scripted::new(Script::default(), words()).check(None).await, Found::Well);
 }
 
 // A round of a line that only reads hands in nothing of what it read: as the real carrier does, what it found of the
@@ -1172,7 +1172,7 @@ async fn a_round_of_a_line_that_only_reads_writes_what_it_read_from_outside_as_i
     let reviewed = carried(&script, round(&flow, "T1", kept(&["T1"], 1, Work::default()))).await;
     assert!(
         matches!(&reviewed[..], [
-            Event::Read { block, content, .. },
+            Event::Wrote { block, by: Outsider::Outside, content, .. },
             Event::Returned { came, .. },
         ] if block.as_str() == "head" && content == "9c0ffee" && came.read.is_empty()),
         "{reviewed:?}"

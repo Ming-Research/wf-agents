@@ -21,7 +21,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use decide::run::Failure;
-use decide::{BlockId, CallId, End, Pauser, RunId};
+use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::history::Lines;
 use driver::{Along, Found, Policy, Under};
 use engine::{Came, Event};
@@ -318,8 +318,9 @@ pub trait Network: Send + Sync {
 ///
 /// It is called off the loop, and may take as long as the short request may.
 pub trait Outside: Send + Sync {
-    /// What the outside is now.
-    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
+    /// What the outside is now, under this account: the directory of the agents' program's settings and sign-in, none
+    /// for the program's own.
+    fn check(&self, account: Option<&str>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
 }
 
 /// What carries out each kind of todo.
@@ -407,6 +408,9 @@ pub struct Round {
     /// What the round is judged by while it runs: the lines the history of its cell and its flow give, in every work
     /// on the flow (crate `driver`, module `history`).
     pub lines: Lines,
+    /// The account it runs under: the directory of the agents' program's settings and sign-in in use as it was handed
+    /// out, which the work as kept then counts its session by; none for the program's own.
+    pub account: Option<String>,
 }
 
 /// A call of a run that a tool answers, to make or to withdraw.
@@ -605,13 +609,14 @@ impl Teller {
 
     /// The source outside the work that writes the block says this of it now: the carrier read it of what the round
     /// leaves, as the design tree on the work's branch after a round that committed to it. It is written as a new
-    /// version of the block, while the round is under way, which the round does not take in; where the block says it
-    /// already, or a version written since the round began that the round never knew is the block's latest, none.
+    /// version of the block, while the round is under way.
     pub fn outside_wrote(&self, block: BlockId, content: String) {
-        self.tell(Event::Read {
-            run: self.run,
+        self.tell(Event::Wrote {
             block,
+            by: Outsider::Outside,
             content,
+            matters: true,
+            value: None,
         });
     }
 
@@ -713,7 +718,7 @@ mod tests {
     struct Well;
 
     impl Outside for Well {
-        fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+        fn check(&self, _: Option<&str>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
             Box::pin(async { Found::Well })
         }
     }

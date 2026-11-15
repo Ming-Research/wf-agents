@@ -282,7 +282,7 @@ impl Network for Scripted {
 /// well: what the script makes a round fail of passes once the engine checks it, unless the script says the check finds
 /// it down.
 impl Outside for Scripted {
-    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+    fn check(&self, _: Option<&str>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
         let script = &self.inner.script;
         let found = match &script.outside.finds {
             None => Found::Well,

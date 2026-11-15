@@ -166,7 +166,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
 
     let written = rows(
         db,
-        "SELECT at, block, writer, matters, value, said_to, empty, read_by FROM written WHERE work = ?1 ORDER BY at",
+        "SELECT at, block, writer, matters, value, said_to, empty FROM written WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok((
@@ -177,11 +177,10 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<String>>(5)?.map(CellId),
                 row.get::<_, bool>(6)?,
-                row.get::<_, Option<u64>>(7)?.map(RunId),
             ))
         },
     )?;
-    for (at, block, writer, matters, value, said_to, empty, read_by) in written {
+    for (at, block, writer, matters, value, said_to, empty) in written {
         r.written.push(Written {
             block,
             by: from_name("written", writer)?,
@@ -189,7 +188,6 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             value,
             empty,
             said_to,
-            read_by,
             at,
         });
     }
@@ -611,8 +609,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     for e in written {
         let writer = name("written", &e.by)?;
         db.execute(
-            "INSERT INTO written (work, at, block, writer, matters, value, said_to, empty, read_by) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO written (work, at, block, writer, matters, value, said_to, empty) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 w,
                 e.at.0,
@@ -621,8 +619,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 e.matters,
                 e.value,
                 e.said_to.as_ref().map(|c| c.0.as_str()),
-                e.empty,
-                e.read_by.map(|run| run.0)
+                e.empty
             ],
         )?;
     }

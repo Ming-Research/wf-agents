@@ -25,18 +25,8 @@ pub enum Event {
     /// as taking main in is: the version is written and put into the round, so that the round is told of it and the
     /// run consumes it. Where the block's latest version says it already, as the watch of main may have written the
     /// head a check reads, no version is written and that one is put in, unless the round was told of it already; a
-    /// run abandoned while its round is under way consumes nothing, and the version is only written. What the round
-    /// read is no newer than a version of the block it never knew, written since it began: over one, nothing is
-    /// written, and the latest version that says what it read is put in, where one does.
+    /// run abandoned while its round is under way consumes nothing, and the version is only written.
     WroteForRound {
-        run: RunId,
-        block: BlockId,
-        content: String,
-    },
-    /// What the carrier of the round of this run under way read of the work's branch, written from outside: a version
-    /// the round does not take in, as the merge reads a head that moved since the check, where the block's latest does
-    /// not say it already. As for [`Event::WroteForRound`], nothing is written over a version the round never knew.
-    Read {
         run: RunId,
         block: BlockId,
         content: String,

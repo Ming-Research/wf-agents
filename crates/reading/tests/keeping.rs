@@ -49,7 +49,6 @@ fn a_block_no_one_has_written_counts_as_its_default_until_it_is_written() {
             value: Some("no".to_string()),
             empty: false,
             said_to: None,
-            read_by: None,
             at: Seq(1),
         }],
         ..Records::default()

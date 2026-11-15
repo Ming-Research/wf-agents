@@ -21,7 +21,9 @@
 //! value, in a step of the store after its SQL (decision `a-migration-carries-each-row-whole`).
 //!
 //! The store also keeps what is the installation's and no work's: the pause of everything, set and lifted, with who set
-//! it: the owner, or the engine as it started with works going on.
+//! it: the owner, or the engine as it started with works going on; each account the agents were set to run under,
+//! with who took it, the owner or the engine moving on at a limit; and each setting of the switch that lets the engine
+//! move on.
 //!
 //! - `items`: the items and the works done for them.
 //! - `tables`: a work's entries, table by table.
@@ -41,6 +43,7 @@ use std::path::Path;
 
 use decide::{BlockId, CallId, Pauser, RunId, Seq};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
+use serde::{Deserialize, Serialize};
 use work::{Time, Work};
 
 pub use backups::{Backups, Failure, Kept, Records};
@@ -128,7 +131,7 @@ const MIGRATIONS: &[Migration] = &[
         then: Some(tables::fill_empty),
     },
     Migration::sql(include_str!(
-        "../../../db/migrations/202611160900-say-the-run-whose-round-read-a-version.sql"
+        "../../../db/migrations/202611160100-keep-the-accounts-taken-and-the-switch-that-moves-on.sql"
     )),
 ];
 
@@ -148,6 +151,34 @@ pub struct EverythingPaused {
 pub struct PauseOfEverything {
     pub paused: bool,
     pub by: Pauser,
+    pub at: Time,
+}
+
+/// Who took an account as the one the agents run under: the owner, on the page, or the engine, moving on at the limit
+/// of the one in use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Taker {
+    Owner,
+    Engine,
+}
+
+/// An account taken as the one the agents run under, at this time, by this taker: its directory as the installation's
+/// settings list it; and, taken by the engine, the account it left at that one's limit and when that limit resets,
+/// where it was known.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccountTaken {
+    pub account: String,
+    pub by: Taker,
+    pub at: Time,
+    pub left: Option<String>,
+    pub resets: Option<Time>,
+}
+
+/// The switch that lets the engine move on to another account at the limit of the one in use, set on or off at this
+/// time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MovingOn {
+    pub on: bool,
     pub at: Time,
 }
 
@@ -256,6 +287,19 @@ pub trait Storage {
 
     /// Every pause of everything set or lifted, in the order they were kept.
     fn everything_pauses(&self) -> Result<Vec<PauseOfEverything>, Fault>;
+
+    /// Every account taken as the one the agents run under, in the order they were kept.
+    fn accounts_taken(&self) -> Result<Vec<AccountTaken>, Fault>;
+
+    /// Keeps that this account was taken as the one the agents run under.
+    fn take_account(&mut self, taken: &AccountTaken) -> Result<(), Fault>;
+
+    /// How the switch that lets the engine move on to another account stands: as it was set last; none where it never
+    /// was, which is off.
+    fn moving_on(&self) -> Result<Option<MovingOn>, Fault>;
+
+    /// Keeps that the switch that lets the engine move on to another account was set on or off at this time.
+    fn set_moving_on(&mut self, on: bool, at: Time) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -432,5 +476,65 @@ impl Storage for Store {
             });
         }
         Ok(pauses)
+    }
+
+    fn accounts_taken(&self) -> Result<Vec<AccountTaken>, Fault> {
+        let mut query =
+            (self.db).prepare("SELECT account, taker, time, left_account, resets FROM accounts_taken ORDER BY n")?;
+        let rows = query.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, u64>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<u64>>(4)?,
+            ))
+        })?;
+        let mut taken = Vec::new();
+        for row in rows {
+            let (account, taker, time, left, resets) = row?;
+            taken.push(AccountTaken {
+                account,
+                by: tables::from_name("accounts_taken", taker)?,
+                at: Time(time),
+                left,
+                resets: resets.map(Time),
+            });
+        }
+        Ok(taken)
+    }
+
+    fn take_account(&mut self, taken: &AccountTaken) -> Result<(), Fault> {
+        let taker = tables::name("accounts_taken", &taken.by)?;
+        (self.db).execute(
+            "INSERT INTO accounts_taken (account, taker, time, left_account, resets) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                taken.account,
+                taker,
+                taken.at.0,
+                taken.left,
+                taken.resets.map(|at| at.0)
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn moving_on(&self) -> Result<Option<MovingOn>, Fault> {
+        let latest = (self.db)
+            .query_row(
+                "SELECT moving, time FROM moving_on ORDER BY n DESC LIMIT 1",
+                [],
+                |row| Ok((row.get::<_, bool>(0)?, row.get::<_, u64>(1)?)),
+            )
+            .optional()?;
+        Ok(latest.map(|(on, time)| MovingOn { on, at: Time(time) }))
+    }
+
+    fn set_moving_on(&mut self, on: bool, at: Time) -> Result<(), Fault> {
+        (self.db).execute(
+            "INSERT INTO moving_on (moving, time) VALUES (?1, ?2)",
+            rusqlite::params![on, at.0],
+        )?;
+        Ok(())
     }
 }

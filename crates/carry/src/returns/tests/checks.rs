@@ -329,7 +329,6 @@ fn entered(flow: &Compiled, spoken: bool) -> (Work, RunId) {
             matters: true,
             value: None,
             said_to: None,
-            read_by: None,
             empty: false,
             at,
         });

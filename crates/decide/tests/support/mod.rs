@@ -458,7 +458,6 @@ impl World {
             matters: false,
             value: None,
             said_to: None,
-            read_by: None,
             empty: false,
             at,
         });
@@ -475,7 +474,6 @@ impl World {
             matters: false,
             value: None,
             said_to: None,
-            read_by: None,
             empty: false,
             at,
         });
@@ -490,7 +488,6 @@ impl World {
             matters: true,
             value,
             said_to: None,
-            read_by: None,
             empty: false,
             at,
         });
@@ -506,7 +503,6 @@ impl World {
             matters: false,
             value: Some(value.to_string()),
             said_to: None,
-            read_by: None,
             empty: false,
             at,
         });
