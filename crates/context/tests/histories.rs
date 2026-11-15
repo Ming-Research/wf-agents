@@ -1,4 +1,4 @@
-//! Simulated histories of works of the small flow (principle simulated-histories), each round filled by the context
+//! Simulated histories of works of the small flow (design document `testing`, 4), each round filled by the context
 //! manager as a carrier fills it: people write, the lines' sessions are reopened by the owner, lost by the agents'
 //! program or compacted during a round, rounds fail before they reach the model, return sent back, ask for a tool,
 //! and hand in. Beside the work, the test keeps its own account of what each line's session holds, from what each
