@@ -53,8 +53,11 @@ const BOUNDS: Bounds = Bounds {
     states: 200_000,
 };
 
-/// The bound the flow renamed is explored at, beside the flow as it is at that bound: what is named in the code shows
-/// on the first way it goes, and a smaller bound is reached in a fraction of the time.
+/// The bound the flow renamed is explored at, beside the flow as it is at that bound, in half a second each against ten
+/// for the whole bound (measured in CI). That a name written into the code shows already on the ways within it is a
+/// judgment, which the two names tried bear out; it leaves unreached, on both sides alike, 61 of the items the whole
+/// bound reaches: those that take two spent, as the deep research's runs past its first and every other return of a
+/// path that spent one.
 const RENAMED_BOUNDS: Bounds = Bounds {
     spend: 1,
     outside_after: 1,

@@ -716,11 +716,13 @@ impl Explorer<'_> {
                     {
                         events.push(Event::Speaks(line.clone()));
                     }
+                    // The owner takes another option for a question that stands: its cell runs again, before the cell
+                    // under way, whose round is stopped. Answered as it recommends, it runs nothing.
                     for (name, q) in questions(&s.work.records, NOW) {
                         if !q.withdrawn && !q.answered {
                             events.push(Event::Answer {
                                 question: name,
-                                option: 1,
+                                option: 2,
                             });
                         }
                     }
