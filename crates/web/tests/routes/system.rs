@@ -185,6 +185,9 @@ impl service::Rounds for Judging {
             samples: 2,
             limit: 1_000_000,
             on: Box::new(|_, _| Some(opus())),
+            accounts: Vec::new(),
+            account: None,
+            short_limit_ms: 5 * 60 * 60 * 1000,
             warm: None,
         })
     }
