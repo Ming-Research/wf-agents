@@ -1,8 +1,11 @@
 //! Running a program as a child in a process group of its own, so that it and everything it starts can be stopped
 //! together: told to stop, the group is sent TERM, and KILL once [`STOP_WAIT`] has passed without its ending.
 //!
-//! A program's group may be named in a file while it runs, with the start time of its first process, so that one left
-//! running by a process of the engine that ended is found and stopped before the same thing is run again
+//! However the process of the engine ends, killed, crashed or ending by itself, the programs it runs end with it: each
+//! has an overseer, a small shell that stops the program's group once a pipe only the engine's process holds closes,
+//! and that is let go of only as the program ends with the engine there to see it ([`Overseer`]). A program's group may
+//! also be named in a file while it runs, with the start time of its first process, so that one left running all the
+//! same, as where no overseer could be started, is found and stopped before the same thing is run again
 //! ([`stop_left`]), and a number the system has since given to another group is told apart from it.
 
 use std::path::Path;
@@ -99,8 +102,9 @@ async fn run_with(
 }
 
 /// Waits for the child to end, writing its input and reading its output, each line of it given to `lines` where
-/// they are given, or stops its group once told to; its overseer is let go before the child is reaped, after which its
-/// group's number may be given to another.
+/// they are given, or stops its group once told to. Its overseer is let go of once its output has ended, before the
+/// child is reaped, after which its group's number may be given to another; dropped with this before that, as when the
+/// runtime of a process of the engine that ends by itself drops the round, it stops the group.
 #[allow(clippy::too_many_arguments)]
 async fn wait(
     mut child: tokio::process::Child,
@@ -157,7 +161,9 @@ async fn wait(
                 }
             }
         }
-        drop(overseer);
+        if let Some(overseer) = overseer {
+            overseer.let_go().await;
+        }
         let status = (child.wait().await).map_err(|e| format!("{program} could not be waited for: {e}"))?;
         Ok::<_, String>((status, kept))
     };
@@ -191,24 +197,24 @@ const OVERSEEING: &str = r#"read -r line; kill -s TERM -- "-$1"; sleep "$2"; kil
 /// What stops a program's process group as the process of the engine that runs it ends, however it ends. The group is
 /// out of reach of the terminal's signals, and no handler of the engine's sees a crash or a `kill -9`: so a small shell
 /// waits on a pipe that only the engine's process holds, which closes as that process ends, and then stops the group.
-/// It is in a process group of its own, so that the terminal's signals do not end it first. Let go of, as the program
-/// ends with the engine there to see it, it ends without touching the group.
-struct Overseer(std::process::Child);
+/// It is in a process group of its own, so that the terminal's signals do not end it first. Only let go of, as the
+/// program ends with the engine there to see it, does it end without touching the group: dropped otherwise, as the
+/// rounds are when the runtime of a process of the engine that ends by itself is dropped, it closes its pipe as well,
+/// and the shell, which the runtime reaps, stops the group.
+struct Overseer(tokio::process::Child);
 
 impl Overseer {
     /// The overseer of the group; none where no shell can be started, the program then running as it would without
     /// one, and stopped, where it is left, before the same thing is run again ([`stop_left`]).
     fn of(group: u32) -> Option<Overseer> {
-        let mut command = std::process::Command::new("sh");
+        let mut command = Command::new("sh");
         let wait = STOP_WAIT.as_secs().to_string();
-        command.args(["-c", OVERSEEING, "overseer", &group.to_string(), &wait]);
-        std::os::unix::process::CommandExt::process_group(&mut command, 0);
-        let spawned = (command
+        (command.args(["-c", OVERSEEING, "overseer", &group.to_string(), &wait]))
+            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::null()))
-        .spawn();
-        match spawned {
+            .stderr(Stdio::null());
+        match command.spawn() {
             Ok(shell) => Some(Overseer(shell)),
             Err(e) => {
                 eprintln!("no overseer of the program's group {group} could be started: {e}");
@@ -216,13 +222,12 @@ impl Overseer {
             }
         }
     }
-}
 
-impl Drop for Overseer {
-    /// The shell is killed while its pipe is still open: only the pipe closing makes it stop the group.
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+    /// Lets the overseer go: the shell is killed while its pipe is still open, since only the pipe closing makes it
+    /// stop the group, and waited for.
+    async fn let_go(self) {
+        // To see the test of letting go red: dropped, its pipe closes, and the shell stops the group.
+        drop(self);
     }
 }
 
@@ -536,6 +541,29 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         true
+    }
+
+    // An overseer let go of, as the program ends with the engine there to see it, is gone and has left the group alone,
+    // so that it signals no group the number is given to after the program is reaped. A fraction of a second alone; the
+    // tests of an engine that ends hold only overseers that are not let go of.
+    #[tokio::test]
+    async fn an_overseer_let_go_of_is_gone_and_has_left_its_group_alone() {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", "sleep 120 & wait"]);
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        let mut first = command.spawn().expect("the group starts");
+        let group = first.id();
+        let overseer = Overseer::of(group).expect("an overseer");
+        let shell = overseer.0.id().expect("the overseer runs");
+        overseer.let_go().await;
+        // Long enough for a shell whose pipe closed to have stopped the group.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let left = first.try_wait().expect("the group's first process").is_none();
+        let gone = !alive_process(shell).await;
+        signal(group, "KILL").await;
+        let _ = first.wait();
+        assert!(left, "an overseer let go of stopped the group");
+        assert!(gone, "an overseer let go of still runs");
     }
 
     #[tokio::test]

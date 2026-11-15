@@ -14,11 +14,17 @@ system's, which goes with the process however it ends.
 Why: Two engines would take up the same work, run its round twice with two agents in one worktree, and push twice. A
 lock the process holds leaves nothing to clean up by hand after a crash or a kill.
 
-### decision an-agent-left-running-is-stopped-first
-An agent's program runs in a group of processes of its own and can outlive the engine; a group that an engine which
-ended left running is stopped before its round is run again.
-Why: Left to run, it would meet the next engine running its round again: two agents in one worktree, as with two
-engines on one data directory (decision one-engine-on-a-data-directory).
+### decision an-agent-ends-with-the-engine
+An agent's program, as every program the engine runs in a group of processes of its own, is stopped as the engine's
+process ends, however it ends, by a small shell in a group of its own that waits on a pipe only that process holds; the
+shell is let go of only where the program ends with the engine there to see it, and an agent's group still left, as
+where no shell could be started, is stopped before its round is run again.
+Why: Left to run with no engine, a program spends and changes the worktree where nothing guards, counts or stops it: in
+work 4's trial the implementation's went on eight seconds, four calls, three edits and a commit nobody saw, its return
+lost (principle no-unseen-spending-loop); met by the next engine running its round again, it would be two agents in one
+worktree (decision one-engine-on-a-data-directory). A signal handler of the engine's was turned down, as it sees no
+crash nor `kill -9`; so was letting the shell go whenever the engine drops it, as an engine that ends by itself drops
+the rounds it runs as it ends.
 
 ### decision tool-inputs-are-checked-before-they-stream
 The agents' program is run with the service checking each tool's input as JSON before it streams the input.
