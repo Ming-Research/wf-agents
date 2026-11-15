@@ -14,9 +14,10 @@ Why: Which session a round runs in is counted from the new sessions recorded bef
 A line whose session began under another account than the one in use begins a new session only once a round of the
 line is its work's next; another reason, as a context past the limit, begins one at once, and says the account where
 that differs too.
-Why: An account taken and taken back before the line runs again leaves its session as it was, warm in its cache, where
-a new session recorded at the take would have the line read its context again for nothing; works paused or waiting
-meanwhile would each have been begun anew.
+Why: An account taken and taken back while the line waits on something else, a tool's result, a question or another
+line, leaves its session as it was, warm in its cache, where a new session recorded at the take would have the line
+read its context again for nothing. A work whose next round is the line's but is held, by a pause or the wait every
+work shares, begins anew at the take all the same: the walk says what runs next, not whether it may begin yet.
 
 ### decision no-new-session-when-the-cache-expired
 A line does not begin a new session because its prompt cache expired while it waited: a round after the cache's lifetime goes on in the session, writing it to the cache once.

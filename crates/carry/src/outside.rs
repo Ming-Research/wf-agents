@@ -2,8 +2,8 @@
 //! round and in no work's session, under the account the engine names: the sign-in of their command line, as `auth
 //! status` says it in that account's directory of settings; the network to their service, by a look at its host; and,
 //! once both are well, one short request on the cheapest level's model, in a session that is not kept, with the
-//! agents' command and environment and that directory. What is down is said by the first of them that is, the short request's failure told apart as a round's
-//! is ([`failure`]).
+//! agents' command and environment and that directory. What is down is said by the first of them that is, the short
+//! request's failure told apart as a round's is ([`failure`]).
 
 use std::future::Future;
 use std::path::PathBuf;

@@ -176,6 +176,7 @@ fn policy(model: &str) -> Policy {
         on: Box::new(move |_, _| Some(on(&model))),
         accounts: Vec::new(),
         account: None,
+        short_limit_ms: 5 * 60 * 60 * 1000,
         warm: None,
     }
 }
@@ -823,6 +824,20 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_only_o
 }
 
 #[test]
+fn a_round_under_way_as_another_account_is_taken_is_given_again_under_the_one_its_session_began_under() {
+    let mut s = S::with(policy_under("opus", &["first", "second"]), Some("first"));
+    s.hands_in(100, true);
+    let (run, cell) = s.round();
+    assert_eq!(cell, "build");
+    s.began();
+    s.take("second");
+    let number = s.kept().records.rounds.iter().filter(|r| r.run == run).count();
+    // Given again, as after a stop, it goes on in its session under the directory that holds it.
+    assert_eq!(s.driver.account_of(s.work, run, number).as_deref(), Some("first"));
+    assert_eq!(s.driver.account().as_deref(), Some("second"));
+}
+
+#[test]
 fn another_account_begins_the_new_session_before_a_context_past_the_limit_does() {
     let mut s = S::with(policy_under("opus", &["first", "second"]), Some("first"));
     s.hands_in(100, true);
@@ -1045,6 +1060,7 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
         warm: None,
         accounts: Vec::new(),
         account: None,
+        short_limit_ms: 5 * 60 * 60 * 1000,
         on: Box::new(|item, _| {
             let model = if item.level.as_deref() == Some("2") {
                 "sonnet"

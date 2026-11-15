@@ -126,7 +126,7 @@ export function fixtureSettings(): SettingsPage {
         leftOut: false,
         keys: [
           key('command', '"claude"'),
-          key('config_dir', '"/data/agents/claude"'),
+          key('accounts', '["/data/agents/claude", "/data/agents/claude-second", "/data/agents/claude-third"]'),
           key('slots', '3', '2', { kind: 'count' }),
           key('args', '["--permission-mode", "acceptEdits"]'),
           key('work_budget_usd', '5.0'),

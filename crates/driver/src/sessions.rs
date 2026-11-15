@@ -60,6 +60,10 @@ pub struct Policy {
     pub accounts: Vec<String>,
     /// The account the agents run under now, as the driver keeps it in use (module [`crate::accounts`]).
     pub account: Option<String>,
+    /// How long, in milliseconds, a usage limit of the agents' program lasts at most short of the week's, from when it
+    /// is met, as its carrier knows the program: a limit that resets later is the week's, and one whose reset is not
+    /// known is taken to last this long.
+    pub short_limit_ms: u64,
     /// How the sessions of lines that wait are kept warm; none where the agents' program keeps no prompt cache.
     pub warm: Option<Warm>,
 }
@@ -245,6 +249,16 @@ pub fn due(
         });
     }
     None
+}
+
+/// The account the session the round of this number of the run runs in began under, where that session has begun: a
+/// round handed out again, or held while the account in use changed, goes on under the directory that holds its
+/// session. None where its session has not begun, when it runs under the account in use.
+pub fn began_under(flow: &Compiled, work: &Work, run: RunId, number: usize) -> Option<Option<String>> {
+    let line = line_of_run(flow, work, run)?;
+    let session = number_at(work, line, start(work, run, number));
+    let on_line = |r: RunId| line_of_run(flow, work, r) == Some(line);
+    began_on(work, line, on_line, session).map(|on| on.account.clone())
 }
 
 /// Whether a round of the line is the work's next: a cell of it runs, or a run of it at rest goes on.

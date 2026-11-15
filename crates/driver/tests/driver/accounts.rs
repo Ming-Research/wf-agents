@@ -29,6 +29,7 @@ fn three() -> driver::Policy {
         }),
         accounts: ["a", "b", "c"].map(str::to_string).to_vec(),
         account: None,
+        short_limit_ms: 5 * 60 * 60 * 1000,
         warm: None,
     }
 }
@@ -260,4 +261,91 @@ fn the_account_taken_and_the_switch_come_back_as_the_driver_opens_again() {
     assert_eq!(h.d().account().as_deref(), Some("c"));
     assert!(h.d().moving_on());
     assert_eq!(h.d().accounts_taken().len(), 1);
+}
+
+#[test]
+fn an_account_taken_back_after_its_limits_reset_is_checked_at_the_next_moment_and_the_works_go_on() {
+    let (mut h, a, _) = two();
+    let resets = in_days(&h);
+    limited(&mut h, a, "a", Some(resets));
+    take(&mut h, "b");
+    // The round that met the limit, given again under b, comes back: under b, it ends nothing of a's.
+    h.hands_in(a, &[("text", None)]);
+    // Time passes beyond a's reset, the driver told it: a's limit stands in the records, no round under a having come
+    // back since.
+    let later = Time(resets.0 + HOUR);
+    h.tick(later, None);
+    take(&mut h, "a");
+    let outage = h.d().outage().expect("a's wait stands again");
+    assert!(outage.holds());
+    let wake = h
+        .d()
+        .wake()
+        .expect("a wake is set though the wait's own time has passed");
+    assert!(wake.check);
+    assert_eq!((wake.account.as_deref(), wake.at), (Some("a"), Time(later.0 + 1)));
+    h.tick(wake.at, Some(Found::Well));
+    assert!(
+        h.d().outage().is_none_or(|outage| !outage.holds()),
+        "the check found a well: the works go on"
+    );
+}
+
+#[test]
+fn an_account_found_with_the_outside_down_is_checked_again_and_one_whose_limit_resets_sooner_at_its_reset() {
+    let (mut h, a, b) = two();
+    // c met the week's limit while in use, resetting a day before a's will.
+    take(&mut h, "c");
+    let soon = Time(h.clock + 2 * 24 * HOUR);
+    limited(&mut h, b, "c", Some(soon));
+    take(&mut h, "a");
+    move_on(&mut h, true);
+    let resets = in_days(&h);
+    limited(&mut h, a, "a", Some(resets));
+    let first = h.d().wake().expect("a wake");
+    assert_eq!(first.account.as_deref(), Some("b"));
+    let offline = Found::Down {
+        failure: Failure::Offline,
+        why: "no network".to_string(),
+        resets: None,
+    };
+    h.checked_under(first.at, Some("b"), offline);
+    let again = h.d().wake().expect("a wake");
+    assert_eq!(
+        again.account.as_deref(),
+        Some("b"),
+        "the outside down passes over no account"
+    );
+    assert!(again.at > first.at);
+    let signed_out = Found::Down {
+        failure: Failure::CannotRun,
+        why: "Not logged in".to_string(),
+        resets: None,
+    };
+    h.checked_under(again.at, Some("b"), signed_out);
+    // b is signed out and c at its limit: c is checked at its reset, which comes before a's.
+    let at_reset = h.d().wake().expect("a wake");
+    assert_eq!((at_reset.account.as_deref(), at_reset.at), (Some("c"), soon));
+    h.checked_under(soon, Some("c"), Found::Well);
+    assert_eq!(h.d().account().as_deref(), Some("c"));
+}
+
+#[test]
+fn the_driver_moves_on_after_a_stop_between_the_limit_and_the_take_and_takes_nothing_once_the_switch_is_off() {
+    let (mut h, a, _) = two();
+    move_on(&mut h, true);
+    let resets = in_days(&h);
+    limited(&mut h, a, "a", Some(resets));
+    h.restart();
+    let wake = h.d().wake().expect("a wake");
+    assert_eq!(
+        wake.account.as_deref(),
+        Some("b"),
+        "the move is worked out again from what is kept"
+    );
+    // The switch is turned off while the check of b is under way: found well, it is taken no more.
+    move_on(&mut h, false);
+    h.checked_under(wake.at, Some("b"), Found::Well);
+    assert_eq!(h.d().account().as_deref(), Some("a"));
+    assert!(kept(&h).is_empty());
 }

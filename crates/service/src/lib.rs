@@ -704,7 +704,7 @@ impl Service {
                 item: kept.item.clone(),
                 kept: Arc::new(kept.work.clone()),
                 lines,
-                account: self.driver.account(),
+                account: self.driver.account_of(work, run, number),
             };
             Ok((round, spec.kind))
         };

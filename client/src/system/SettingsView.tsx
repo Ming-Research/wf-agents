@@ -14,7 +14,7 @@ import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, us
 
 import { accentNow, type Meaning, pickAccent, PRESETS, type Refusal, tones, useAccent, VIOLET } from '../accent';
 import { Button, PanelPart, Switch } from '../parts';
-import { useReading } from '../works/source';
+import { useChanges, useReading } from '../works/source';
 import { clock, fullTime } from '../works/words';
 import {
   type AccountsChange,
@@ -204,8 +204,9 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
         reread();
       });
   };
+  // The accounts are shown in a part of their own, where the page adds to them: not again as a key of the file alone.
   const fileOnly = page.tables
-    .map((t) => ({ ...t, keys: t.keys.filter((k) => k.change === null) }))
+    .map((t) => ({ ...t, keys: t.keys.filter((k) => k.change === null && !(t.name === 'agents' && k.key === 'accounts')) }))
     .filter((t) => t.keys.length > 0);
   return (
     <>
@@ -371,6 +372,8 @@ function Accounts({ reread }: { reread: () => void }) {
   const source = useSystemSource();
   const load = useCallback(() => source.loadAccounts(), [source]);
   const { value: page, failed, read } = useReading(load);
+  // Read again as the engine says anything happened: it may have taken another account by itself.
+  useChanges(read, read);
   // What the owner did last, refused or added, said under the part until the next.
   const [said, setSaid] = useState<Said>(null);
   // Whether what the owner did is on its way: nothing is sent again meanwhile.
@@ -458,10 +461,13 @@ function Accounts({ reread }: { reread: () => void }) {
           ))}
         </ViewTable>
       )}
-      <p className="small muted">
-        Another account is taken at once: each line's next round begins a new session under it, which reads its
-        context again.
-      </p>
+      {page.accounts.length > 0 && (
+        <p className="small muted">
+          Another account is taken at once: each line's next round begins a new session under it, which reads its
+          context again.
+        </p>
+      )}
+      {running.length > 1 && (
       <div className="account-line">
         <span className="small">Move on at the week's limit</span>
         <Switch<'off' | 'on'>
@@ -477,14 +483,12 @@ function Accounts({ reread }: { reread: () => void }) {
             {
               value: 'on',
               name: 'On',
-              title:
-                running.length < 2
-                  ? 'With one account listed there is none to move on to'
-                  : "At the week's limit of the account in use, the engine takes the next one in this order that has usage left",
+              title: "At the week's limit of the account in use, the engine takes the next one in this order that has usage left",
             },
           ]}
         />
       </div>
+      )}
       {page.taken.length > 0 && (
         <>
           <h4 className="view-sub label">Taken</h4>

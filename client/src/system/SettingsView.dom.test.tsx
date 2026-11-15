@@ -9,6 +9,7 @@ import { ownName, pickAccent, PRESETS, startAccent, type Theme, TONES, tones, VI
 import type { AccountsChange, Saved, SettingsChange, SettingsPage, SystemSource } from './api';
 import { SystemSourceContext } from './api';
 import { fixtureAccounts, fixtureSettings, fixtureSystem } from './fixtures';
+import { type Source, SourceContext } from '../works/source';
 import { SettingsView } from './SettingsView';
 
 let unmounts: (() => void)[] = [];
@@ -28,6 +29,8 @@ interface SettingsSource {
   changed: AccountsChange[];
   /// Why the next change of the accounts is refused; none where it is taken.
   refuseAccounts: string | null;
+  /// How many times the accounts were read.
+  accountReads: number;
   page: SettingsPage;
   refuse: string | null;
   reads: number;
@@ -42,6 +45,7 @@ function settingsSource(page: SettingsPage = fixtureSettings()): SettingsSource 
     sent,
     changed,
     refuseAccounts: null,
+    accountReads: 0,
     page,
     refuse: null,
     reads: 0,
@@ -56,7 +60,10 @@ function settingsSource(page: SettingsPage = fixtureSettings()): SettingsSource 
         if (s.refuse !== null) throw new Error(s.refuse);
         return { said: 'agents.slots = 4 instead of 3', committed: true };
       },
-      loadAccounts: async () => fixtureAccounts(),
+      loadAccounts: async () => {
+        s.accountReads += 1;
+        return fixtureAccounts();
+      },
       changeAccounts: async (change: AccountsChange): Promise<Saved | null> => {
         changed.push(change);
         if (s.refuseAccounts !== null) throw new Error(s.refuseAccounts);
@@ -73,15 +80,29 @@ async function settle() {
   });
 }
 
+/// The engine's stream of changes as the views hear it: each listener is told when `engine.changed` is called.
+const engine = (() => {
+  const listening = new Set<() => void>();
+  const source = {
+    changes: (onChanged: () => void) => {
+      listening.add(onChanged);
+      return () => listening.delete(onChanged);
+    },
+  } as unknown as Source;
+  return { source, changed: () => listening.forEach((l) => l()) };
+})();
+
 function draw(source: SystemSource): HTMLElement {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   act(() =>
     root.render(
-      <SystemSourceContext.Provider value={source}>
-        <SettingsView />
-      </SystemSourceContext.Provider>,
+      <SourceContext.Provider value={engine.source}>
+        <SystemSourceContext.Provider value={source}>
+          <SettingsView />
+        </SystemSourceContext.Provider>
+      </SourceContext.Provider>,
     ),
   );
   unmounts.push(() => act(() => root.unmount()));
@@ -127,7 +148,6 @@ describe('the Settings view', () => {
     const agents = fileOnly[1];
     expect([...agents.querySelectorAll('dt')].map((d) => d.textContent)).toEqual([
       'command',
-      'config_dir',
       'args',
       'work_budget_usd',
     ]);
@@ -247,6 +267,11 @@ describe('the Settings view', () => {
     expect(use.disabled).toBe(true);
     await settle();
     expect(s.changed).toEqual([{ take: { path: '/data/agents/claude' } }]);
+    // Read again as the engine says something happened, as when it takes another account by itself.
+    const reads = s.accountReads;
+    act(() => engine.changed());
+    await settle();
+    expect(s.accountReads).toBe(reads + 1);
     expect(s.sent).toEqual([]);
     expect(box(page, 'agents.slots').value).toBe('4');
     // The switch is off until set, and set in a click.

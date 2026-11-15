@@ -16,6 +16,7 @@ fn policy() -> driver::Policy {
         on: Box::new(|_, _| Some(on())),
         accounts: Vec::new(),
         account: None,
+        short_limit_ms: 5 * 60 * 60 * 1000,
         warm: None,
     }
 }

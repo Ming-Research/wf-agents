@@ -700,6 +700,12 @@ impl Settings {
         wrong.extend(settings.agents.wrong());
         let accounts = &settings.agents.accounts;
         for (at, account) in accounts.iter().enumerate() {
+            if !account.is_absolute() {
+                wrong.push(format!(
+                    "agents.accounts: {} is not a whole path, from the root: rounds and checks run in other directories",
+                    account.display()
+                ));
+            }
             if accounts[..at].contains(account) {
                 wrong.push(format!(
                     "agents.accounts: {} is listed twice: each account is listed once",
@@ -866,6 +872,7 @@ impl Settings {
             on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell, None).ok()),
             accounts: self.accounts(),
             account: None,
+            short_limit_ms: crate::account::SHORT_LIMIT_MS,
             warm,
         }
     }
@@ -1042,22 +1049,25 @@ mod tests {
 
     #[test]
     fn the_accounts_are_listed_in_the_owners_order_each_once_as_their_directories_are_written() {
-        let settings = Settings::read(&with_accounts(
-            r#"["/data/claude-b", "/data/../data/claude-a", "~/claude"]"#,
-        ))
-        .unwrap();
-        // The name a round's records and the store know an account by is its directory exactly as written, as the one
-        // directory of the settings before was: an installation that lists its one directory goes on in its sessions.
-        assert_eq!(
-            settings.accounts(),
-            ["/data/claude-b", "/data/../data/claude-a", "~/claude"]
-        );
+        let settings = Settings::read(&with_accounts(r#"["/data/claude-b", "/data/../data/claude-a"]"#)).unwrap();
+        // The name a round's records and the store know an account by is its directory exactly as written, as a path
+        // gives it: one directory listed alone is the name its sessions' rounds kept, and they go on in them.
+        assert_eq!(settings.accounts(), ["/data/claude-b", "/data/../data/claude-a"]);
         let old = PathBuf::from("/data/../data/claude-a");
         assert_eq!(settings.accounts()[1], old.to_string_lossy());
         let twice = Settings::read(&with_accounts(r#"["/data/claude", "/data/claude"]"#)).expect_err("listed twice");
         assert!(
             twice.contains("agents.accounts: /data/claude is listed twice"),
             "{twice}"
+        );
+        let relative = Settings::read(&with_accounts(r#"["claude", "~/claude"]"#)).expect_err("not from the root");
+        assert!(
+            relative.contains("agents.accounts: claude is not a whole path"),
+            "{relative}"
+        );
+        assert!(
+            relative.contains("agents.accounts: ~/claude is not a whole path"),
+            "{relative}"
         );
     }
 

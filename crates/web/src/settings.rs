@@ -991,10 +991,12 @@ fn added(install: &Install, base: &str, name: &str) -> Result<Saved, Refused> {
     if let Some(why) = not_signed_in(install, &path)? {
         return Err(refused(why));
     }
-    let mut accounts = toml_edit::Array::new();
-    for account in listed.iter().chain([&path]) {
-        accounts.push(account.as_str());
-    }
+    // The array as the file writes it, its comments and layout kept, with the new one after the rest.
+    let mut accounts = (doc.get("agents").and_then(|agents| agents.get("accounts")))
+        .and_then(Item::as_array)
+        .cloned()
+        .unwrap_or_default();
+    accounts.push(path.as_str());
     let key: Vec<String> = ACCOUNTS.iter().map(|part| part.to_string()).collect();
     write(
         install,

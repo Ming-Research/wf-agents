@@ -1,12 +1,13 @@
 //! A wait every work shares, one for each service the works reach: the agents' service, and the host the engine's acts
 //! reach for the project's repository. A round failed for a cause that is outside every work and the same for all of
 //! them holds every round that service serves while it stands: the agents' rounds, at the usage limit of the account
-//! in use, for a command line that cannot run, without the network to the service or while the service does not serve;
-//! the acts' rounds, without the network to their host. A usage limit is the account's own: a round that met it holds
-//! the rounds only while the account it ran under is the one in use, and only a round under that account coming back
-//! ends it ([`limit_of`]); every other cause holds the rounds whichever account they run under. A cause of one service holds nothing of the other, and nothing that comes
-//! of the other's rounds ends it. Each is one fact, worked out from the records of every work, never written on each
-//! (principle `state-from-records`), and the reason the page gives for every work it holds.
+//! in use, for a command line that cannot run, without the network to the service or while the service does not
+//! serve; the acts' rounds, without the network to their host. A usage limit is the account's own: a round that met it
+//! holds the rounds only while the account it ran under is the one in use, and only a round under that account coming
+//! back ends it ([`limit_of`]); every other cause holds the rounds whichever account they run under. A cause of one
+//! service holds nothing of the other, and nothing that comes of the other's rounds ends it. Each is one fact, worked
+//! out from the records of every work, never written on each (principle `state-from-records`), and the reason the page
+//! gives for every work it holds.
 //!
 //! The agents' wait stands from the first round of an agent, of any work, that failed so after the last that came
 //! back, until a round of an agent that began after the latest that failed so comes back, or the service answers it
@@ -296,8 +297,8 @@ fn standing<'r>(
             _ => None,
         })
         .collect();
-    // Of the rounds that came back, or that the service answered, the latest beginning, of every work and of each, under
-    // any account and under each.
+    // Of the rounds that came back, or that the service answered, the latest beginning, of every work and of each,
+    // under any account and under each.
     let mut any: Option<Time> = None;
     let mut any_at: BTreeMap<WorkNumber, decide::Seq> = BTreeMap::new();
     let mut own: BTreeMap<Option<&str>, Time> = BTreeMap::new();
@@ -333,8 +334,7 @@ fn standing<'r>(
     };
     let standing = || failed.iter().filter(|m| !over(m));
     // The latest of those not over, which says the cause; of two that ended at one time, the later in its work, and of
-    // two works, the one numbered higher, as the driver takes works in their order. Where the latest is over, every
-    // earlier one is.
+    // two works, the one numbered higher, as the driver takes works in their order.
     let key = |m: &&Met| (m.time, m.round.work, m.at);
     let latest = standing().max_by_key(key)?;
     let first = standing().min_by_key(key)?;
