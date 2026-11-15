@@ -10,8 +10,8 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    BlockId, CallId, Cause, Cell, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started, TestKind,
-    TestName,
+    Asks, BlockId, CallId, Cause, Cell, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started,
+    TestKind, TestName,
 };
 
 /// Who wrote a version of a block.
@@ -277,9 +277,13 @@ impl<'a> Reading<'a> {
     /// result after it. Whether the cell applies is the caller's to judge: a cell skipped holds nothing by its wait
     /// (decision a-wait-of-a-skipped-cell-is-put-away).
     pub fn pending(&self, cell: &Cell, place: Seq) -> bool {
-        cell.asks
-            .iter()
-            .any(|asks| self.awaited(cell, &asks.record, &asks.result, place))
+        cell.asks.iter().any(|asks| self.awaits(cell, asks, place))
+    }
+
+    /// Whether the cell waits at this place for the result of what it asked for in this record of its, as
+    /// [`Reading::pending`] reads it.
+    pub fn awaits(&self, cell: &Cell, asks: &Asks, place: Seq) -> bool {
+        self.awaited(cell, &asks.record, &asks.result, place)
     }
 
     /// Whether the cell waits at this place for the owner's answer to a question of its own: the latest version before

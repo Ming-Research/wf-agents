@@ -8,18 +8,19 @@
 //! from the first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting;
 //! at the first that has a run at rest the run goes on, unless it waits for something; at the first that waits for what
 //! it asked for, the results of its calls, the result of what it asked for in a record such as a run of the tests, or
-//! the owner's answer to a question of its that waits, the work waits there: no later cell runs but those its records
-//! run, which give their results, the cell being entered meanwhile only for the owner turning to it (design document
-//! `data-and-context`, 36), and again once every result it waits for is in; at the first whose preconditions do not
-//! hold, or that something new runs and that one sender has sent back as often as its limit allows, the work waits; the
-//! first that something new runs is otherwise entered; the rest are passed. A work that waits only for what cells
-//! write, and in which nothing new runs a cell, nothing is under way and no one is waited for, is stalled: every cell
-//! before where it stands was passed and every one after it is held, so no cell will write what it waits for, and it
-//! goes on only once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One round
-//! of a work is under way at a time: a round of a cell after one the owner turned to, by words or by an answer, is
-//! stopped, nothing else beginning until it has ended, and its cell runs again later. A work has ended when its last
-//! cell has a record or its item is cancelled and not reopened since; a reopened work is walked from its records as any
-//! other, what its cancel abandoned leaving no record.
+//! the owner's answer to a question of its that waits, the work waits there: no later cell runs but those that give the
+//! results of what it asked for in its records, which run while it waits, however the walk came to it, the cell being
+//! entered meanwhile only for the owner turning to it (design document `data-and-context`, 36), and again once every
+//! result it waits for is in; at the first whose preconditions do not hold, or that something new runs and that one
+//! sender has sent back as often as its limit allows, the work waits; the first that something new runs is otherwise
+//! entered; the rest are passed. A work that waits only for what cells write, and in which nothing new runs a cell,
+//! nothing is under way and no one is waited for, is stalled: every cell before where it stands was passed, every one
+//! after it is held, and every one that gives a result it waits for is skipped, so no cell will write what it waits
+//! for, and it goes on only once a person or a source outside the work writes what runs a cell
+//! ([`Decision::Stalled`]). One round of a work is under way at a time: a round of a cell after one the owner turned
+//! to, by words or by an answer, is stopped, nothing else beginning until it has ended, and its cell runs again later.
+//! A work has ended when its last cell has a record or its item is cancelled and not reopened since; a reopened work is
+//! walked from its records as any other, what its cancel abandoned leaving no record.
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
 //! reasons is a note a person wrote, or the owner turning to the cell, since the cell last ran (since the run of its
@@ -89,7 +90,7 @@ pub enum Decision {
         /// stands at its last cell for want of anything new to run it.
         on: Vec<Condition>,
         /// The blocks the results of what that cell asked for in its records come in, for which it waits, each of
-        /// which only the cells its record runs give.
+        /// which only the cells that give it bring, none of which applies.
         results: Vec<BlockId>,
         /// Each cell that writes what the work waits for, in the order of the walk, with why it does not run: a block
         /// that keeps a key of `on` from holding, a result of `results`, or, where it waits for neither, a block that
@@ -793,7 +794,7 @@ impl<'a> Walk<'a> {
             .map(|asks| Waited::Result {
                 record: asks.record.clone(),
                 result: asks.result.clone(),
-                by: self.flow.answering(&asks.record).map(|c| c.id.clone()).collect(),
+                by: self.flow.givers(asks).map(|c| c.id.clone()).collect(),
             })
             .collect()
     }
@@ -826,7 +827,7 @@ impl<'a> Walk<'a> {
     /// for a slot; or it is entered for what is new to it.
     fn at(&self, i: usize, room: Room) -> Option<Decision> {
         let cell = &self.flow.cells()[i];
-        let wait = |on| self.waiting(i, on);
+        let wait = |on| self.wait_at(i, on, room);
         if let Some(run) = self.runs.values().find(|r| r.at_rest() && r.started.cell == cell.id) {
             let mut on = self.open_calls(run);
             on.extend(self.unmet(i));
@@ -847,11 +848,6 @@ impl<'a> Walk<'a> {
         if because.is_empty() {
             if on.is_empty() {
                 return None;
-            }
-            for j in self.giving(i, &on) {
-                if let Some(decision) = self.at(j, room) {
-                    return Some(decision);
-                }
             }
             return Some(wait(on));
         }
@@ -874,8 +870,21 @@ impl<'a> Walk<'a> {
         })
     }
 
+    /// What the work does, waiting at the cell at this place for each of these, of which there is at least one: a cell
+    /// after it that gives the result of what it asked for in a record, and that applies, runs, as the walk would enter
+    /// it or go on with it, the first of them in the order of the walk, whichever way the walk came to the wait
+    /// (decision a-wait-holds-its-cell); else it waits there, or is stalled ([`Walk::waiting`]).
+    fn wait_at(&self, i: usize, on: Vec<Waited>, room: Room) -> Decision {
+        for j in self.giving(i, &self.pending(i)) {
+            if let Some(decision) = self.at(j, room) {
+                return decision;
+            }
+        }
+        self.waiting(i, on)
+    }
+
     /// The places of the cells after the one at this place that give the results it waits for of what it asked for in
-    /// its records, and that apply, in the order of the walk: the cells those records run.
+    /// its records, and that apply, in the order of the walk.
     fn giving(&self, i: usize, on: &[Waited]) -> Vec<usize> {
         let mut places: Vec<usize> = (on.iter())
             .flat_map(|waited| match waited {
@@ -1092,48 +1101,44 @@ impl<'a> Walk<'a> {
         })
     }
 
-    /// What the work does, waiting at the cell at this place for each of these, of which there is at least one: it
-    /// waits for them; or, where each is what only cells can bring, none of which will, it is stalled there (decision
-    /// a-work-no-cell-can-move-is-stalled): a key of its preconditions that only cells make hold, or the result of what
-    /// it asked for in a record, which only the cells the record runs give, where no person and no source outside the
-    /// work can make one of them run. Every cell before it was passed, with nothing new to it or its condition not
-    /// holding, every one after it is held, and each that gives a result it waits for was tried and did not run, so
-    /// none of those cells will write what it waits for.
-    fn waiting(&self, i: usize, on: Vec<Waited>) -> Decision {
+    /// What the work does, waiting at the cell at this place for each of these, of which there is at least one, and for
+    /// what else the cell waits for that the owner turning to it left out: the owner's answer to a question of it, a
+    /// call owed to it that has no result, and the result of what it asked for in a record. Where each is what only
+    /// cells can bring, none of which will, it is stalled there (decision a-work-no-cell-can-move-is-stalled): a key of
+    /// its preconditions that only cells make hold, or a result whose every giving cell is skipped, one that applies
+    /// having run while the cell waits. Every cell before it was passed, with nothing new to it or its condition not
+    /// holding, and every one after it is held, so none of those cells will write what it waits for. Else it waits,
+    /// for all of them but the results no giving cell of which applies, which nothing can bring.
+    fn waiting(&self, i: usize, mut on: Vec<Waited>) -> Decision {
         let at = self.flow.cells()[i].id.clone();
-        // A call owed to the cell that has no result is still to come, from the engine or a person; and so is the
-        // result of what it asked for in a record, where the owner turning to the cell left either out of what the work
-        // waits for.
-        if !self.owed(i).1.is_empty() {
-            return Decision::Wait { at, on };
+        for waited in (self.held(i).into_iter()).chain(self.owed(i).1).chain(self.pending(i)) {
+            if !on.contains(&waited) {
+                on.push(waited);
+            }
         }
-        let pending: Vec<Waited> = (self.pending(i).into_iter())
-            .filter(|waited| !on.contains(waited))
-            .collect();
+        let given = |by: &[CellId]| (by.iter()).any(|cell| self.flow.place(cell).is_some_and(|j| self.applies(j)));
         let (mut keys, mut results) = (Vec::new(), Vec::new());
         let (mut makers, mut givers) = (Vec::new(), Vec::new());
-        for waited in on.iter().chain(&pending) {
+        let mut waits = false;
+        for waited in &on {
             match waited {
-                Waited::Precondition { on: key, by } => {
-                    for maker in by {
-                        match maker {
-                            Maker::Cell { cell } => makers.push(cell),
-                            Maker::Owner | Maker::Outside { .. } => return Decision::Wait { at, on },
-                        }
-                    }
+                Waited::Precondition { on: key, by } if by.iter().all(|m| matches!(m, Maker::Cell { .. })) => {
                     keys.push(key.clone());
+                    makers.extend(by.iter().filter_map(|maker| match maker {
+                        Maker::Cell { cell } => Some(cell),
+                        Maker::Owner | Maker::Outside { .. } => None,
+                    }));
                 }
-                // A result is only the giving cells' to bring, as a key only cells write is theirs to make hold: unless
-                // a person or the outside can make one of them run.
-                Waited::Result { result, by, .. } => {
-                    if by.iter().any(|cell| self.run_from_outside(cell)) {
-                        return Decision::Wait { at, on };
-                    }
+                Waited::Result { result, by, .. } if !given(by) => {
                     results.push(result.clone());
                     givers.extend(by);
                 }
-                _ => return Decision::Wait { at, on },
+                _ => waits = true,
             }
+        }
+        if waits {
+            on.retain(|waited| !matches!(waited, Waited::Result { by, .. } if !given(by)));
+            return Decision::Wait { at, on };
         }
         Decision::Stalled {
             at,
@@ -1141,18 +1146,6 @@ impl<'a> Walk<'a> {
             results,
             by: self.stalling(i, makers, givers),
         }
-    }
-
-    /// Whether a person or a source outside the work can make the cell run where it does not: its condition does not
-    /// hold, and a block that keeps a key of it from holding is one they write.
-    fn run_from_outside(&self, cell: &CellId) -> bool {
-        let Some(j) = self.flow.place(cell) else {
-            return false;
-        };
-        (self.flow.cells()[j].applies.iter()).any(|key| {
-            let keeping = self.keeping(key, j);
-            !keeping.is_empty() && (self.makers(&keeping).iter()).any(|maker| !matches!(maker, Maker::Cell { .. }))
-        })
     }
 
     /// The work stalled at its last cell, which has no record and which nothing new runs, every cell before it passed:
@@ -1177,8 +1170,7 @@ impl<'a> Walk<'a> {
     /// Each of these cells once, the makers of what the work waits for and the givers of the results it waits for, in
     /// the order of the walk, with why it does not run, the work standing at the cell at this place. A maker is held
     /// where the work stands at or after it, skipped where its condition does not hold, and else has nothing new, since
-    /// the walk passed it. A giver, which the walk tries wherever it stands, is skipped where its condition does not
-    /// hold, held where it has something new all the same, and else has nothing new.
+    /// the walk passed it. A giver is skipped: the walk stalls for a result only where each cell that gives it is.
     fn stalling<'c>(
         &self,
         i: usize,
@@ -1203,13 +1195,7 @@ impl<'a> Walk<'a> {
                     Unrun::Skipped { on }
                 };
                 let why = if givers.contains(&j) {
-                    if !self.applies(j) {
-                        skipped()
-                    } else if !self.needs(j).is_empty() {
-                        Unrun::Held
-                    } else {
-                        Unrun::NothingNew
-                    }
+                    skipped()
                 } else if j >= i {
                     Unrun::Held
                 } else if !self.applies(j) {

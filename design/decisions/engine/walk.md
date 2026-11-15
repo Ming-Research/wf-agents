@@ -107,19 +107,21 @@ answered it.
 
 ### decision a-work-no-cell-can-move-is-stalled
 A work that waits only for what cells write, at a cell whose preconditions only cells make hold, at a cell that waits
-for the result of what it asked for in a record, which only the cells its record runs give and no person or source
-outside the work can make run, or at its last cell that nothing new runs, is stalled, unless what those cells wrote
-waits for the outside (decision what-a-run-wrote-may-wait-for-the-outside): the walk says where it stands, what it waits
-for, the keys or the results, and why each cell that writes it does not run, skipped, with nothing new, or held behind
-where the work stands. It is shown halted, as a fault is, with
-that reason, worked out from the walk each time it is shown; it waits on no one, and the planner is given it as a line
-of its own. Nothing is recorded for it: whatever then runs a cell moves it on.
+for the result of what it asked for in a record, which only the cells that give it bring, each of them skipped, or at
+its last cell that nothing new runs, is stalled, unless what those cells wrote waits for the outside (decision
+what-a-run-wrote-may-wait-for-the-outside): the walk says where it stands, what it waits for, the keys or the results,
+and why each cell that writes it does not run, skipped, with nothing new, or held behind where the work stands. It is
+shown halted, as a fault is, with that reason, worked out from the walk each time it is shown; it waits on no one, and
+the planner is given it as a line of its own. Nothing is recorded for it: whatever then runs a cell moves it on.
 Why: A wait that names only cells that will not run names nobody who can act (principle decide-purely): an
 implementation that handed in nothing for a red check left the work at the merge's gate, waiting for the check, and
 nobody was told; and a wait for the result of an entry stayed a wait whatever its giver could do, so a giver whose
-condition nothing would make hold left the work waiting for good, nobody told. A pause of the engine's was turned down: its reason went stale once the work could move again, it
-held what the owner wrote until they let the work on, and what it guarded against, the check run by main moving on a
-branch no one reviewed, the check's own gate on the review's yes holds (decision the-check-waits-for-the-review).
+condition nothing would make hold left the work waiting for good, nobody told. Waiting instead where a person or a
+source outside the work could make a giving cell run was turned down: a key only cells make hold is asked no such thing,
+and that wait named no one, so the work waited unseen all the same. A pause of the engine's was turned down: its reason
+went stale once the work could move again, it held what the owner wrote until they let the work on, and what it guarded
+against, the check run by main moving on a branch no one reviewed, the check's own gate on the review's yes holds
+(decision the-check-waits-for-the-review).
 
 ### decision what-a-run-wrote-may-wait-for-the-outside
 A finished run may say that what it wrote waits for a new version of a block a source outside the work writes and its
