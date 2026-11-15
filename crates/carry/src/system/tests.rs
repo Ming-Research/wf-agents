@@ -145,7 +145,10 @@ fn the_testers_system_prompt_says_it_changes_only_the_projects_tests() {
                 `:(glob)crates/**/tests/**`, ";
     assert!(tester.contains(told), "{tester}");
     assert!(
-        tester.contains("`:(glob)client/**/fixtures.ts` match. The project protects `AGENTS.md`, "),
+        tester.contains(
+            "`:(glob)client/**/fixtures.ts` match; where a test must go into another file, say so in what you hand in. \
+             The project protects `AGENTS.md`, "
+        ),
         "{tester}"
     );
     assert!(!of("engineer").contains("Change only the project's tests"));

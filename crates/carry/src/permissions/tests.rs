@@ -332,7 +332,8 @@ fn a_line_that_changes_only_the_tests_is_told_their_paths_and_no_lock_command() 
     assert_eq!(
         writes.told(&words(), &protected, Some(&tests[..])),
         "Make your changes there and commit them there. Change only the project's tests, the files \
-         `:(glob)crates/**/tests/**` or `:(glob)client/**/*.test.ts` match. The project protects `AGENTS.md`: change \
+         `:(glob)crates/**/tests/**` or `:(glob)client/**/*.test.ts` match; where a test must go into another file, say \
+         so in what you hand in. The project protects `AGENTS.md`: change \
          what is there only where the work needs it."
     );
     assert_eq!(
