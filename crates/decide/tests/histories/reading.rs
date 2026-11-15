@@ -55,6 +55,10 @@ pub struct Reading<'a> {
     pub versions: BTreeMap<BlockId, Vec<Version>>,
     pub started: BTreeMap<RunId, &'a Started>,
     pub finished: BTreeMap<RunId, &'a Finished>,
+    /// The blocks the results of what a cell asked for in a record come in, which a run of the cell that finished
+    /// consumes as it was told of them, naming them in no `dealt_with` (decision a-wait-holds-its-cell): none unless
+    /// the records are read with their flow ([`Reading::of_flow`]).
+    pub results: Vec<BlockId>,
 }
 
 impl<'a> Reading<'a> {
@@ -143,7 +147,18 @@ impl<'a> Reading<'a> {
             versions,
             started,
             finished,
+            results: Vec::new(),
         }
+    }
+
+    /// The reading of these records, with the blocks of the flow's cells that the results of what they ask for in a
+    /// record come in.
+    pub fn of_flow(flow: &Flow, records: &'a Records) -> Self {
+        let mut reading = Self::new(records);
+        reading.results = (flow.cells().iter())
+            .flat_map(|c| c.asks.iter().map(|asks| asks.result.clone()))
+            .collect();
+        reading
     }
 
     pub fn of(&self, block: &BlockId) -> &[Version] {
@@ -185,6 +200,9 @@ impl<'a> Reading<'a> {
         let Some(f) = self.finished.get(&run).filter(|f| f.at < place) else {
             return false;
         };
+        if self.results.contains(block) {
+            return true;
+        }
         match &f.dealt_with {
             Some(named) => named.contains(block),
             None => self.started[&run].basis.contains_key(block),
@@ -252,19 +270,33 @@ impl<'a> Reading<'a> {
         owed.into_iter().map(|(_, call)| call).collect()
     }
 
+    /// Whether the cell waits at this place for the result of what it asked for in a record: its latest entry of the
+    /// record before the place, a version a run of it wrote that changed what the record says, has no version of its
+    /// result after it.
+    pub fn pending(&self, cell: &Cell, place: Seq) -> bool {
+        cell.asks.iter().any(|asks| {
+            let entry = (self.of(&asks.record).iter())
+                .filter(|v| v.at < place && v.changed_meaning() && matches!(&v.by, Writer::Cell(c, _) if *c == cell.id))
+                .map(|v| v.at)
+                .max();
+            entry.is_some_and(|entry| !self.of(&asks.result).iter().any(|v| v.at > entry && v.at < place))
+        })
+    }
+
     /// Whether the call has its result before this place.
     pub fn done(&self, call: CallId, place: Seq) -> bool {
         self.records.done.iter().any(|d| d.call == call && d.at < place)
     }
 
     /// Why the cell would be entered at this place: what is new to it, and the results it is owed once all are in.
-    /// While one has no result, only the owner turning to it (a block that interrupts) enters it, by a version no run of
-    /// the cell started before the place and not abandoned before it was told (decision
+    /// While one has no result, or the cell waits for the result of what it asked for in a record, only the owner
+    /// turning to it (a block that interrupts) enters it, by a version no run of the cell started before the place and
+    /// not abandoned before it was told (decisions a-wait-holds-its-cell,
     /// the-owner-turning-to-a-waiting-cell-enters-it-once).
     pub fn entering(&self, flow: &Flow, cell: &Cell, place: Seq) -> Vec<Reason> {
         let mut reasons = self.reasons(cell, place);
         let owed = self.owed(&cell.id, place);
-        if owed.iter().any(|c| !self.done(*c, place)) {
+        if owed.iter().any(|c| !self.done(*c, place)) || self.pending(cell, place) {
             let abandoned = |run: RunId| (self.records.abandoned.iter()).any(|a| a.run == run && a.at < place);
             let seen = |block: &BlockId| {
                 (self.started.values())
@@ -284,8 +316,8 @@ impl<'a> Reading<'a> {
     }
 
     /// Whether every version of the block new to the cell at place `i` of the flow, before `place`, was written by a
-    /// cell after it in the order (decision every-way-round-has-a-limit). One a person, the outside or a cell before it
-    /// wrote makes it no way round.
+    /// cell after it in the order: what a run of it is sent back for (decision the-same-sender-again). One a person,
+    /// the outside or a cell before it wrote makes it no such run.
     pub fn behind(&self, flow: &Flow, i: usize, block: &BlockId, place: Seq) -> bool {
         let cell = &flow.cells()[i].id;
         let new = self.new_to(cell, block, place);
@@ -294,18 +326,6 @@ impl<'a> Reading<'a> {
                 Writer::Cell(c, _) => flow.place(c).is_some_and(|j| j > i),
                 Writer::Person | Writer::Outside => false,
             })
-    }
-
-    /// Whether a run that starts at this place for these reasons is a way round: something new runs it, and every new
-    /// version was written by a cell after it.
-    pub fn way_round(&self, flow: &Flow, i: usize, reasons: &[Reason], place: Seq) -> bool {
-        let changed: Vec<&BlockId> = (reasons.iter())
-            .filter_map(|r| match r {
-                Reason::Changed { block, .. } => Some(block),
-                Reason::Results { .. } => None,
-            })
-            .collect();
-        !changed.is_empty() && changed.iter().all(|b| self.behind(flow, i, b, place))
     }
 
     /// Whether the condition of the cell at place `i` of the flow is met now: every key of it holds; with none it

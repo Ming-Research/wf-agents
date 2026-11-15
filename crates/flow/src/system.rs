@@ -236,7 +236,7 @@ fn rules(agents: &Agents, flow: &Compiled, name: &str) -> Result<Part, String> {
 /// and each tool the flow names with its words, in the order `[how_you_return]` of `return.toml` sets. Or that the flow
 /// names a tool that `agents/tools/` does not define.
 pub fn how_you_return(agents: &Agents, flow: &Compiled) -> Result<Vec<Piece>, Vec<String>> {
-    let (texts, _, wrong) = returning(agents, flow);
+    let (texts, wrong) = returning(agents, flow);
     if !wrong.is_empty() {
         return Err(wrong);
     }

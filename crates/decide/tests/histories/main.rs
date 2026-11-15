@@ -547,8 +547,8 @@ impl History {
                 "a round is under way and the walk decides {decision:?}"
             );
         }
-        let reading = Reading::new(r);
         let flow = &self.w.flow;
+        let reading = Reading::of_flow(flow, r);
         let v = &mut self.verdict;
         let (started, finished) = self.looked_at;
         for s in &r.started[started..] {

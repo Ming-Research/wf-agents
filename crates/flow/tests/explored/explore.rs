@@ -401,10 +401,12 @@ impl Explorer<'_> {
         });
         let at = s.world.tick();
         s.world.records.rounds.push(Round { run, at });
+        let before = self.sent_back_before(s, run);
         s.logs.insert(
             run,
             run::Log {
                 rounds: vec![run::Round { returned: None }],
+                before,
                 let_go: 0,
                 let_on: 0,
             },
@@ -415,9 +417,28 @@ impl Explorer<'_> {
         run
     }
 
+    /// The returns of the other runs of the run's cell that the engine sent back since the cell's counts last began
+    /// anew, as the engine's loop counts them: each round of theirs after their first, which only a return sent back
+    /// begins here.
+    fn sent_back_before(&self, s: &State, run: RunId) -> u32 {
+        let r = &s.world.records;
+        let Some(cell) = r.started.iter().find(|st| st.run == run).map(|st| &st.cell) else {
+            return 0;
+        };
+        let from = decide::again_from(self.flow(), r, cell);
+        (r.started.iter())
+            .filter(|st| st.run != run && &st.cell == cell)
+            .map(|st| {
+                (r.rounds.iter().filter(|e| e.run == st.run).skip(1))
+                    .filter(|e| from.is_none_or(|from| e.at > from))
+                    .count() as u32
+            })
+            .sum()
+    }
+
     /// Whether a run of the cell at this place for these reasons runs for what the write from outside reached.
     fn tainted(&self, s: &State, i: usize, because: &[Cause], taint: &Taint) -> bool {
-        let r = Reading::new(&s.world.records);
+        let r = Reading::of_flow(self.flow(), &s.world.records);
         let cell = &self.model.cells()[i].id;
         because.iter().any(|cause| match cause {
             Cause::Changed { block, .. } => (r.new_to(cell, block, NOW).iter()).any(|v| taint.versions.contains(&v.at)),
@@ -470,8 +491,9 @@ impl Explorer<'_> {
             outputs: &m.cells()[i].outputs,
             groups: &m.cells()[i].groups,
             must_write: &spec.must_write,
+            asking: &m.cells()[i].asks,
             choices: &m.choices,
-            returns: spec.returns,
+            again: spec.again,
             told: &told,
             answered_by: &m.answered_by[i],
         };
@@ -682,6 +704,22 @@ impl Explorer<'_> {
         if cost {
             c.spent += 1;
         }
+        // The act that runs the tests the cells ask for writes, as its round ends, the result of each entry it gives
+        // into the asking cell's own block, from outside.
+        if self.model.tests == Some(self.model.place(cell)) {
+            let mut results = Vec::new();
+            for entry in decide::asked_of(self.flow(), &c.world.records, cell) {
+                let at = c.world.outside_writes(entry.result.as_str());
+                if let Some(t) = c.outside.as_mut()
+                    && t.runs.contains(&run)
+                {
+                    t.versions.insert(at);
+                }
+                results.push(entry.result.to_string());
+            }
+            self.reach(GAVE_RESULTS.to_string());
+            said.push_str(&format!(", writing {}", results.join(", ")));
+        }
         c.trace = c.trace.then(c.spent, said);
         let at = c.world.tick();
         c.world.records.returned.push(Returned { run, at });
@@ -693,7 +731,7 @@ impl Explorer<'_> {
     fn events(&self, s: &State, d: &Decision) -> Vec<Event> {
         let m = self.model;
         let r = &s.world.records;
-        let reading = Reading::new(r);
+        let reading = Reading::of_flow(self.flow(), r);
         let applies = |i: usize| reading.applies(&m.compiled.flow, i);
         let mut events = vec![Event::Background];
         for (i, cell) in m.cells().iter().enumerate() {
@@ -722,9 +760,7 @@ impl Explorer<'_> {
             }
         }
         if let Decision::Wait { at, on } = d
-            && on
-                .iter()
-                .any(|w| matches!(w, Waited::Limit { .. } | Waited::Calls { .. }))
+            && on.iter().any(|w| matches!(w, Waited::Limit { .. }))
         {
             events.push(Event::LetsGo(at.clone()));
         }
@@ -772,10 +808,19 @@ impl Explorer<'_> {
                         }
                     }
                     None => {
-                        // The owner's word at a run's limit: the run goes on, the counts starting anew.
+                        // The owner's word at a run's limit lets its cell go on: the run goes on, the counts starting
+                        // anew, as the engine records it.
                         let run = w.records.called.iter().find(|x| x.call == *call).map(|x| x.run);
+                        let cell = (w.records.started.iter())
+                            .find(|st| Some(st.run) == run)
+                            .map(|st| st.cell.clone());
+                        if let Some(cell) = cell {
+                            let at = w.tick();
+                            w.records.let_go.push(LetGo { cell, at });
+                        }
                         if let Some(log) = run.and_then(|run| c.logs.get_mut(&run)) {
                             log.let_go = log.rounds.len();
+                            log.before = 0;
                         }
                     }
                 }
@@ -788,6 +833,14 @@ impl Explorer<'_> {
             Event::LetsGo(cell) => {
                 let at = w.tick();
                 w.records.let_go.push(LetGo { cell: cell.clone(), at });
+                let runs: Vec<RunId> = (w.records.started.iter())
+                    .filter(|st| &st.cell == cell)
+                    .map(|st| st.run)
+                    .collect();
+                for log in runs.iter().filter_map(|run| c.logs.get_mut(run)) {
+                    log.let_go = log.rounds.len();
+                    log.before = 0;
+                }
             }
             Event::Source(source) => {
                 let block = m.sources[source].clone();
@@ -831,7 +884,7 @@ impl Explorer<'_> {
         let m = self.model;
         let flow = self.flow();
         let records = &s.world.records;
-        let r = Reading::new(records);
+        let r = Reading::of_flow(flow, records);
         let mut h = DefaultHasher::new();
         for block in m.choices.keys() {
             match r.current(block) {
@@ -859,7 +912,8 @@ impl Explorer<'_> {
             for call in r.owed(&cell.id, NOW) {
                 (r.done(call, NOW), s.questions.contains_key(&call)).hash(&mut h);
             }
-            streaks(records, &cell.id).hash(&mut h);
+            streaks(flow, records, &cell.id).hash(&mut h);
+            r.pending(cell, NOW).hash(&mut h);
             let finished = (r.started.values()).any(|st| st.cell == cell.id && r.finished.contains_key(&st.run));
             finished.hash(&mut h);
         }
@@ -928,7 +982,7 @@ impl Explorer<'_> {
     fn check_run(&mut self, s: &State, cell: &CellId, because: &[Cause]) {
         let m = self.model;
         let flow = &m.compiled.flow;
-        let r = Reading::new(&s.world.records);
+        let r = Reading::of_flow(flow, &s.world.records);
         let i = m.place(cell);
         let def = &m.cells()[i];
         let trace = &s.trace;
@@ -1008,7 +1062,9 @@ impl Explorer<'_> {
             }
         }
         // The cell entered is the first that something new runs: none before it that applies has something new, or a
-        // precondition that does not hold.
+        // precondition that does not hold. A cell that waits for the result of what it asked for holds the work: only
+        // a cell that gives the result runs after it, whatever is new to the cells between.
+        let mut held = false;
         for (j, before) in m.cells().iter().enumerate().take(i) {
             if !r.applies(flow, j) {
                 if !r.reasons(before, NOW).is_empty() {
@@ -1016,13 +1072,25 @@ impl Explorer<'_> {
                 }
                 continue;
             }
-            if !r.entering(flow, before, NOW).is_empty() {
+            if !held && !r.entering(flow, before, NOW).is_empty() {
                 let name = format!("{cell} ran while {} before it had something new", before.id);
                 self.breach(Property::NewToIt, name, trace, String::new());
             }
             if r.owed(&before.id, NOW).iter().any(|c| !r.done(*c, NOW)) {
                 let name = format!("{cell} ran while {} before it waited for an answer", before.id);
                 self.breach(Property::NewToIt, name, trace, String::new());
+            }
+            if r.pending(before, NOW) {
+                if (before.asks.iter()).any(|asks| def.runs_on.contains(&asks.record)) {
+                    held = true;
+                    self.reach(RAN_FOR_A_WAIT.to_string());
+                } else {
+                    let name = format!(
+                        "{cell} ran while {} before it waited for the result of its tests",
+                        before.id
+                    );
+                    self.breach(Property::NewToIt, name, trace, String::new());
+                }
             }
             for key in &before.requires {
                 if !r.key_holds(flow, key, j) {
@@ -1152,7 +1220,7 @@ impl Explorer<'_> {
         let m = self.model;
         let flow = &m.compiled.flow;
         let cells = m.cells();
-        let r = Reading::new(&s.world.records);
+        let r = Reading::of_flow(flow, &s.world.records);
         let i = m.place(at);
         let mut wrong = Vec::new();
         let unmet: Vec<&Condition> = (cells[i].requires.iter())
@@ -1233,7 +1301,10 @@ impl Explorer<'_> {
                 let shown: Vec<String> = on.iter().map(show_waited).collect();
                 let on_purpose = on.iter().any(|w| match w {
                     Waited::Call { on, .. } => on.is_some(),
-                    Waited::Limit { .. } | Waited::Calls { .. } | Waited::Answer { .. } => true,
+                    Waited::Limit { .. } | Waited::Answer { .. } => true,
+                    // The cells that give a result run while their asking cell waits: a work that waits for one
+                    // none of them gives has no next step.
+                    Waited::Result { .. } => false,
                     Waited::Precondition { by, .. } => by
                         .iter()
                         .any(|maker| matches!(maker, Maker::Owner | Maker::Outside { .. })),
@@ -1275,7 +1346,7 @@ impl Explorer<'_> {
         let Some(t) = &s.outside else {
             return;
         };
-        let r = Reading::new(&s.world.records);
+        let r = Reading::of_flow(flow, &s.world.records);
         let upto = match d {
             Decision::Wait { at, .. } => m.place(at),
             Decision::Stalled { at, on, .. } if !on.is_empty() => m.place(at),
@@ -1298,34 +1369,29 @@ impl Explorer<'_> {
     }
 }
 
-/// The runs in a row of the cell, since the owner last let it go on, that were each a way round, and that each asked
-/// for calls and dealt with nothing: what the walk's limits count.
-fn streaks(records: &Records, cell: &CellId) -> (usize, usize) {
-    let let_go = (records.let_go.iter()).filter(|l| &l.cell == cell).map(|l| l.at).max();
-    let mut finished: Vec<(&Finished, &Started)> = (records.started.iter())
-        .filter(|st| &st.cell == cell && let_go.is_none_or(|at| st.at > at))
-        .filter_map(|st| records.finished.iter().find(|f| f.run == st.run).map(|f| (f, st)))
-        .collect();
-    finished.sort_by_key(|(f, _)| f.at);
-    let dealt = |f: &Finished| f.dealt_with.as_ref().is_none_or(|d| !d.is_empty());
-    let way_round = |because: &[Cause]| {
-        because.iter().any(|c| matches!(c, Cause::Changed { .. })) && !because.iter().any(Cause::forward)
-    };
-    let ways = (finished.iter().rev())
-        .take_while(|(_, st)| !st.because.iter().any(Cause::forward))
-        .filter(|(f, st)| way_round(&st.because) && dealt(f))
-        .count();
-    let asked = |st: &Started, f: &Finished| {
-        let ended = (records.returned.iter())
-            .filter(|e| e.run == st.run)
-            .map(|e| e.at)
-            .max();
-        (records.called.iter()).any(|c| c.run == st.run && ended.is_none_or(|e| c.at > e) && c.at < f.at)
-    };
-    let calls = (finished.iter().rev())
-        .take_while(|(f, st)| f.dealt_with.as_ref().is_some_and(Vec::is_empty) && asked(st, f))
-        .count();
-    (ways, calls)
+/// Of the cell's runs that finished since its counts last began anew and dealt with something, how many each block
+/// ran: what the walk's limit counts, by the cell whose writes sent each (decision the-same-sender-again).
+fn streaks(flow: &decide::Flow, records: &Records, cell: &CellId) -> BTreeMap<BlockId, usize> {
+    let from = decide::again_from(flow, records, cell);
+    let mut counts: BTreeMap<BlockId, usize> = BTreeMap::new();
+    for st in records
+        .started
+        .iter()
+        .filter(|st| &st.cell == cell && from.is_none_or(|from| st.at > from))
+    {
+        let Some(f) = records.finished.iter().find(|f| f.run == st.run) else {
+            continue;
+        };
+        if f.dealt_with.as_ref().is_some_and(Vec::is_empty) {
+            continue;
+        }
+        for cause in &st.because {
+            if let Cause::Changed { block, .. } = cause {
+                *counts.entry(block.clone()).or_default() += 1;
+            }
+        }
+    }
+    counts
 }
 
 fn show_waited(w: &Waited) -> String {
@@ -1342,8 +1408,8 @@ fn show_waited(w: &Waited) -> String {
                 .collect();
             format!("{}, which {} can make hold", show_key(on), by.join(" or "))
         }
-        Waited::Limit { runs } => format!("the owner, at its limit of {runs} runs"),
-        Waited::Calls { runs } => format!("the owner, at its limit of {runs} runs that asked"),
+        Waited::Limit { by, runs } => format!("the owner, at its limit of {runs} runs sent by {by}"),
+        Waited::Result { record, .. } => format!("the result of what it asked for in {record}"),
         Waited::Answer { question } => format!("the owner's answer to {question}"),
         Waited::Outside { source, block, .. } => format!("the outside ({source}), of which {block} waits"),
         Waited::Slot => "a slot".to_string(),
@@ -1363,4 +1429,6 @@ pub const MAIN_WHILE_THE_CHECK_WAITS: &str = "main moved while the check waited 
 pub const WAITED_FOR_THE_OWNER: &str = "the work waited for the owner or the outside";
 pub const STALLED_SHOWN: &str = "a stalled work was shown as waiting for the owner";
 pub const A_QUESTION_WAITED: &str = "a question waited for the owner";
+pub const GAVE_RESULTS: &str = "the act that runs tests gave the results of what the cells asked for";
+pub const RAN_FOR_A_WAIT: &str = "a cell ran to give the result a cell before it waited for";
 pub const WRITTEN_OVER: &str = "a return was sent back as it would write over what its round was not told of";
