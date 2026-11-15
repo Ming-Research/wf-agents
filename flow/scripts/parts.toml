@@ -86,7 +86,7 @@ part = "Do your task on the item as briefly as it allows, and return what it ask
 [[flows.engineer.rounds]]
 cell = "R1"
 work = 2
-part = "Ask the owner one question with two options that the work needs answered before it goes on, recommend the first, and wait for the answer; return nothing else."
+part = "Ask the owner one question with two options that the work needs answered before it goes on, recommend the first, and wait for the answer; hand in no block but the question, and report in `observations` what you find, as in every round."
 
 [[flows.engineer.rounds]]
 cell = "R1"
