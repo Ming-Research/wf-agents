@@ -16,7 +16,7 @@ pub fn word(name: &str) -> Test {
     Test {
         kind: TestKind::None,
         reads: vec![name.into()],
-        is: "no".to_string(),
+        is: Some("no".to_string()),
     }
 }
 
@@ -26,7 +26,7 @@ pub fn gate_word() -> Test {
     Test {
         kind: TestKind::All,
         reads: vec![GATE.into()],
-        is: "yes".to_string(),
+        is: Some("yes".to_string()),
     }
 }
 
@@ -68,13 +68,14 @@ fn flow_of(
     Flow::new(cells, tests, outsiders).expect("the cells make a flow")
 }
 
-/// What a run writes of a block: a change that matters to the cells that read it, one that does not, or a value a
-/// condition reads (which matters).
+/// What a run writes of a block: a change that matters to the cells that read it, one that does not, a value a
+/// condition reads (which matters), or a version that holds nothing (which matters).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Says {
     Matters,
     DoesNotMatter,
     Value(&'static str),
+    Nothing,
 }
 
 #[derive(Clone)]
@@ -356,6 +357,7 @@ impl World {
             .map(|(block, says)| Write {
                 block: (*block).into(),
                 meaning_unchanged: *says == Says::DoesNotMatter,
+                empty: *says == Says::Nothing,
                 value: match says {
                     Says::Value(v) => Some((*v).to_string()),
                     _ => None,
@@ -445,6 +447,7 @@ impl World {
             matters: false,
             value: None,
             said_to: None,
+            empty: false,
             at,
         });
         at
@@ -460,6 +463,7 @@ impl World {
             matters: false,
             value: None,
             said_to: None,
+            empty: false,
             at,
         });
         at
@@ -473,6 +477,7 @@ impl World {
             matters: true,
             value,
             said_to: None,
+            empty: false,
             at,
         });
         at
@@ -487,6 +492,7 @@ impl World {
             matters: false,
             value: Some(value.to_string()),
             said_to: None,
+            empty: false,
             at,
         });
         at

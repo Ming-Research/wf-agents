@@ -330,7 +330,7 @@ impl History {
             let unrefused = Test {
                 kind: TestKind::NoneStanding,
                 reads: vec![VERDICT.into()],
-                is: "no".to_string(),
+                is: Some("no".to_string()),
             };
             World::with_tests(cells, [(TestName::from(UNREFUSED), unrefused)].into())
         } else {
@@ -852,6 +852,7 @@ impl History {
             Write {
                 block: block.clone(),
                 meaning_unchanged: !(meets && choice(block)) && rng.chance(50),
+                empty: false,
                 value,
             }
         };

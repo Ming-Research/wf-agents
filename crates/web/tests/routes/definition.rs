@@ -444,6 +444,29 @@ async fn a_test_of_what_stands_is_given_with_its_kind() {
 }
 
 #[tokio::test]
+async fn a_test_of_content_is_given_with_its_kind_and_no_value() {
+    let source = edit(
+        tiny(),
+        None,
+        "kind = \"all\"\nreads = [\"go\"]\nis = \"yes\"",
+        "kind = \"any_content\"\nreads = [\"go\", \"plan\"]",
+    );
+    let router = serve(&Shared::new(Ok(source)));
+    let answer = get_json(&router, "/api/v1/flow").await;
+    assert_eq!(
+        answer["flow"]["tests"][0],
+        json!({
+            "name": "may_merge",
+            "words": "The owner let the work merge",
+            "file": "flow.toml",
+            "kind": "anyContent",
+            "reads": ["go", "plan"],
+            "is": null,
+        })
+    );
+}
+
+#[tokio::test]
 async fn a_definition_that_does_not_compile_is_given_as_its_faults_each_with_its_file_and_field() {
     let source = edit(
         tiny(),

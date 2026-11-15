@@ -30,6 +30,8 @@ pub struct Version {
     /// The version at which what the block says last changed: this one, or an earlier one.
     pub meaning: Seq,
     pub value: Option<String>,
+    /// Whether it holds nothing.
+    pub empty: bool,
 }
 
 impl Version {
@@ -72,6 +74,7 @@ impl<'a> Reading<'a> {
             by: Writer,
             matters: bool,
             value: Option<String>,
+            empty: bool,
         }
         let mut entries: Vec<Entry> = Vec::new();
         for w in &records.written {
@@ -84,6 +87,7 @@ impl<'a> Reading<'a> {
                 },
                 matters: w.matters,
                 value: w.value.clone(),
+                empty: w.empty,
             });
         }
         for f in &records.finished {
@@ -95,6 +99,7 @@ impl<'a> Reading<'a> {
                     by: Writer::Cell(cell.clone(), f.run),
                     matters: !w.meaning_unchanged,
                     value: w.value.clone(),
+                    empty: w.empty,
                 });
             }
         }
@@ -130,6 +135,7 @@ impl<'a> Reading<'a> {
                 by: e.by,
                 meaning,
                 value: e.value,
+                empty: e.empty,
             });
         }
         Self {
@@ -325,18 +331,19 @@ impl<'a> Reading<'a> {
 
     /// Whether the named test holds now for the cell at place `i`, by the current versions of the blocks it reads that
     /// have the value it tests for: all of them, one, none. A test of what stands holds unless it is refused, as
-    /// [`Reading::refused`] says from the records.
+    /// [`Reading::refused`] says from the records; a test of content where the current version of one holds anything.
     pub fn holds(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
         let test = &flow.tests()[name];
         let with_value: Vec<&Version> = (test.reads.iter())
             .filter_map(|b| self.current(b))
-            .filter(|v| v.value.as_deref() == Some(test.is.as_str()))
+            .filter(|v| v.value.is_some() && v.value == test.is)
             .collect();
         match test.kind {
             TestKind::All => with_value.len() == test.reads.len(),
             TestKind::Any => !with_value.is_empty(),
             TestKind::None => with_value.is_empty(),
             TestKind::NoneStanding => !self.refused(flow, name, i),
+            TestKind::AnyContent => (test.reads.iter()).any(|b| self.current(b).is_some_and(|v| !v.empty)),
         }
     }
 
@@ -347,7 +354,7 @@ impl<'a> Reading<'a> {
     /// no person and nothing outside wrote the block since.
     pub fn refused(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
         let test = &flow.tests()[name];
-        let is = Some(test.is.as_str());
+        let is = test.is.as_deref();
         test.reads.iter().any(|block| {
             let versions = self.of(block);
             let outsider = |v: &Version| matches!(v.by, Writer::Person | Writer::Outside);

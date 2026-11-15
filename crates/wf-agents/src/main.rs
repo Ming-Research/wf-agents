@@ -879,6 +879,10 @@ fn words(what: &FaultKind, field: &str) -> String {
         }
         F::UndeclaredTest { test } => format!("the test {test} is not declared in flow.toml"),
         F::ReadsEmpty { test } => format!("the test {test} reads no block"),
+        F::TestNamesNoValue { test } => format!("the test {test} names no value to look for: it has no is"),
+        F::ContentTestNamesValue { test } => {
+            format!("the test {test} looks for content, and names a value to look for, which it does not read")
+        }
         F::UnusedTest { test } => format!("no cell uses the test {test}"),
         F::TestOnOwnOutput { test, block } => format!(
             "the test {test} reads {block}, which the cell itself writes: the cell would decide by what it writes itself \

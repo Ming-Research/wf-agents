@@ -64,7 +64,7 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
                 ("plan_agent", "Add the name to the greeting.", None),
                 ("acceptance", "The greeting names the user.", None),
             ],
-            "R2" => &[("better_found", "", Some("no"))],
+            "R2" => &[],
             "I1" => break round,
             other => panic!("{other} is entered before the implementation"),
         };
@@ -131,7 +131,7 @@ fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
             ],
             "R1" => [("deep_needed", "", Some("no"))].into_iter().chain(plan).collect(),
             "D1" => plan.to_vec(),
-            "R2" | "D2" => vec![("better_found", "", Some("no"))],
+            "R2" | "D2" => vec![],
             "D3" => vec![("plan_ok", "", Some("yes"))],
             "I1" => vec![("code", "abc", None)],
             other => panic!("{other} is entered before {id}"),
@@ -209,12 +209,6 @@ fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_und
         reasons: Default::default(),
     };
     let came = Came {
-        writes: vec![Handed {
-            block: BlockId::from("better_found"),
-            content: String::new(),
-            matters: true,
-            value: Some("no".to_string()),
-        }],
         said: Said {
             questions: vec![asked],
             ..Said::default()
@@ -426,7 +420,7 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
     let rethought = sim.round().expect("a round is given");
     assert_eq!(rethought.cell.as_str(), "D2");
     tried(&mut sim, &rethought);
-    sim.hands_in(&rethought, &[("better_found", "", Some("no"))]);
+    sim.hands_in(&rethought, &[]);
     // The implementation runs again for the words it never dealt with; its session holds them, and is given what it
     // lacks.
     let again = sim.round().expect("a round is given");
@@ -509,12 +503,6 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
     let (mut sim, round) = until("R2");
     tried(&mut sim, &round);
     let came = Came {
-        writes: vec![Handed {
-            block: BlockId::from("better_found"),
-            content: String::new(),
-            matters: true,
-            value: Some("no".to_string()),
-        }],
         said: Said {
             questions: vec![naming()],
             ..Said::default()
@@ -571,7 +559,7 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
     let entered = sim.enter(&round, sim.begins(&round));
     assert!(given_with_its_question(&entered.text), "{}", entered.text);
     sim.tries(&round, 1, entered.fills);
-    sim.hands_in(&round, &[("better_found", "", Some("no"))]);
+    sim.hands_in(&round, &[]);
     // The code review, of a line of its own, takes the record too: it reads the question, and the answer with it.
     let round = loop {
         let round = sim.round().expect("a round is given");
@@ -615,20 +603,12 @@ fn an_answer_added_while_another_cell_was_spoken_to_in_its_round_is_taken() {
     );
     let came = Came {
         dealt_with: Some(vec![BlockId::from("d2_spoken_to")]),
-        writes: vec![
-            Handed {
-                block: BlockId::from("better_found"),
-                content: String::new(),
-                matters: true,
-                value: Some("no".to_string()),
-            },
-            Handed {
-                block: BlockId::from("discussion"),
-                content: "Shorter it is.".to_string(),
-                matters: true,
-                value: None,
-            },
-        ],
+        writes: vec![Handed {
+            block: BlockId::from("discussion"),
+            content: "Shorter it is.".to_string(),
+            matters: true,
+            value: None,
+        }],
         ..Came::default()
     };
     sim.returns(&rethought, came, 0);

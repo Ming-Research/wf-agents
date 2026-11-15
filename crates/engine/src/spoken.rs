@@ -269,12 +269,14 @@ fn under_way(work: &Work, cell: &CellId) -> Option<RunId> {
 /// it is said to one, and gives its place.
 fn write(work: &mut Work, block: &BlockId, content: String, said_to: Option<&CellId>) -> Seq {
     let at = work.tick();
+    let empty = content.trim().is_empty();
     work.contents.insert((block.clone(), at), content);
     work.records.written.push(Written {
         block: block.clone(),
         by: Outsider::Outside,
         matters: true,
         value: None,
+        empty,
         said_to: said_to.cloned(),
         at,
     });

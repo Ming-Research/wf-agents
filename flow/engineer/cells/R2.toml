@@ -19,16 +19,13 @@ context = [
   "tree",
 ]
 outputs = [
-  "better_found",
   "plan_owner",
   "plan_agent",
   "q_and_a",
   "acceptance",
   "tree_edits",
-  "edits_tree",
   "discussion",
 ]
-must_write = ["better_found"]
 
 # Each version of the plan is thought through once; one it wrote itself runs it not again.
 [do]

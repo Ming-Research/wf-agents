@@ -29,8 +29,9 @@ export interface Line {
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
-/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now.
-export type TestKind = 'all' | 'any' | 'none' | 'noneStanding';
+/// `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now; or,
+/// `anyContent`, when at least one holds anything.
+export type TestKind = 'all' | 'any' | 'none' | 'noneStanding' | 'anyContent';
 
 /// A named test: the words shown for it, and what it holds on.
 export interface Test {
@@ -42,8 +43,8 @@ export interface Test {
   kind: TestKind;
   /// The blocks it reads, as the definition lists them.
   reads: string[];
-  /// The value it looks for in each block it reads.
-  is: string;
+  /// The value it looks for in each block it reads; none of a test of content.
+  is: string | null;
 }
 
 export type Kind = 'agent' | 'engine';
@@ -272,6 +273,8 @@ export type What =
   | { kind: 'lastHasCondition' }
   | { kind: 'undeclaredTest'; test: string }
   | { kind: 'readsEmpty'; test: string }
+  | { kind: 'testNamesNoValue'; test: string }
+  | { kind: 'contentTestNamesValue'; test: string }
   | { kind: 'unusedTest'; test: string }
   | { kind: 'testOnOwnOutput'; test: string; block: string }
   | { kind: 'testNotWrittenBefore'; test: string; block: string }

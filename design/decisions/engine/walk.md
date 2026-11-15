@@ -10,6 +10,14 @@ Why: A cell skipped this time has not been undone: a review that finds the tests
 written before worthless. A gate drawn as a cell needed a record of what the work was waiting for, and care to raise
 and withdraw that record at the right moments.
 
+### decision a-test-of-content-reads-the-record
+A named test may hold where a block it reads holds anything (`any_content`): the record of each write says whether the
+version holds nothing, no value and its content empty or only whitespace, and the walk reads that as it reads a
+choice's value.
+Why: A choice beside the block, written yes where the block held an entry, copied by hand what the engine sees itself,
+and its writer could let the two disagree. Giving the walk the contents beside the records was turned down: what
+decides a work would then be more than its records.
+
 ### decision every-way-round-has-a-limit
 Each thing the flow lets repeat has a limit: how many runs of a cell in a row are ways round, how often what a run
 returns is sent back, and how many runs of a cell in a row each ask for calls and deal with nothing before it is entered

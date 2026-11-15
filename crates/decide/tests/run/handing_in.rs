@@ -228,6 +228,7 @@ fn a_return_that_writes_over_a_version_its_round_was_not_told_of_is_sent_back_an
 fn a_choice_handed_in_as_changing_nothing_in_meaning_with_another_value_is_sent_back() {
     let unchanged = |value: &str| Write {
         meaning_unchanged: true,
+        empty: false,
         ..valued("verdict", value)
     };
     let unmet = vec![Unmet::ChoiceChanged {

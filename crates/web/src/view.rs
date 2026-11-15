@@ -87,12 +87,13 @@ pub struct Test {
     pub kind: TestKind,
     /// The blocks it reads, as the definition lists them.
     pub reads: Vec<String>,
-    /// The value it looks for in each block it reads.
-    pub is: String,
+    /// The value it looks for in each block it reads; none of a test of content.
+    pub is: Option<String>,
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
-/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now.
+/// `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now; or,
+/// `anyContent`, when at least one holds anything.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TestKind {
@@ -100,6 +101,7 @@ pub enum TestKind {
     Any,
     None,
     NoneStanding,
+    AnyContent,
 }
 
 /// A cell.
@@ -552,6 +554,12 @@ pub enum What {
     ReadsEmpty {
         test: String,
     },
+    TestNamesNoValue {
+        test: String,
+    },
+    ContentTestNamesValue {
+        test: String,
+    },
     UnusedTest {
         test: String,
     },
@@ -739,6 +747,7 @@ impl Test {
                 KindOfTest::Any => TestKind::Any,
                 KindOfTest::None => TestKind::None,
                 KindOfTest::NoneStanding => TestKind::NoneStanding,
+                KindOfTest::AnyContent => TestKind::AnyContent,
             },
             reads: names(&test.reads),
             is: test.is.clone(),
@@ -853,6 +862,8 @@ impl What {
             F::LastHasCondition => What::LastHasCondition,
             F::UndeclaredTest { test } => What::UndeclaredTest { test },
             F::ReadsEmpty { test } => What::ReadsEmpty { test },
+            F::TestNamesNoValue { test } => What::TestNamesNoValue { test },
+            F::ContentTestNamesValue { test } => What::ContentTestNamesValue { test },
             F::UnusedTest { test } => What::UnusedTest { test },
             F::TestOnOwnOutput { test, block } => What::TestOnOwnOutput { test, block },
             F::TestNotWrittenBefore { test, block } => What::TestNotWrittenBefore { test, block },

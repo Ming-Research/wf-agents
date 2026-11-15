@@ -329,6 +329,7 @@ fn entered(flow: &Compiled, spoken: bool) -> (Work, RunId) {
             matters: true,
             value: None,
             said_to: None,
+            empty: false,
             at,
         });
     }
@@ -389,6 +390,7 @@ fn a_return_the_form_and_its_cell_allow_is_never_sent_back_and_its_run_finishes_
             .map(|(block, _, value, unchanged)| Write {
                 block: block.clone(),
                 meaning_unchanged: *unchanged,
+                empty: false,
                 value: value.clone(),
             })
             .collect();

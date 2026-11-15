@@ -55,6 +55,8 @@ pub enum Variant {
     /// The content with these choices, each another than the content's, and a question that waits for the owner's
     /// answer.
     Asks(BTreeMap<BlockId, String>),
+    /// The content, with each block of its that a test of content reads written holding nothing.
+    Empty,
     /// The check's act, the work not passing: each choice a precondition waits on with another value, and every
     /// other block it writes.
     Fails(&'static str),
@@ -82,6 +84,7 @@ impl fmt::Display for Variant {
                 write!(f, "its content{}, and a question it waits on", values.concat())
             }
             Variant::Fails(why) => write!(f, "{why}"),
+            Variant::Empty => write!(f, "its content, with what a test of content reads holding nothing"),
         }
     }
 }
@@ -134,6 +137,8 @@ pub struct Model {
     pub refusals: BTreeMap<BlockId, String>,
     /// Each choice a precondition waits on, with the value it waits for.
     pub passing: BTreeMap<BlockId, String>,
+    /// Each block a test of content reads.
+    pub contents: BTreeSet<BlockId>,
     /// Of each cell by its place, the blocks it writes that are no choice: those only cells after it run, those a
     /// cell before it runs, and those that run no cell. A cell whose condition wants another value of a block than
     /// the writer's does is no reader, unless the writer writes that block itself: the two never run one after the
@@ -170,10 +175,15 @@ impl Model {
             .collect();
         let mut refusals = BTreeMap::new();
         for test in flow.tests().values().filter(|t| t.kind == TestKind::NoneStanding) {
+            let Some(is) = &test.is else { continue };
             for b in &test.reads {
-                refusals.insert(b.clone(), test.is.clone());
+                refusals.insert(b.clone(), is.clone());
             }
         }
+        let contents = (flow.tests().values())
+            .filter(|t| t.kind == TestKind::AnyContent)
+            .flat_map(|t| t.reads.iter().cloned())
+            .collect();
         let mut passing = BTreeMap::new();
         for key in cells.iter().flat_map(|c| &c.requires) {
             match key {
@@ -181,8 +191,9 @@ impl Model {
                     passing.insert(block.clone(), value.clone());
                 }
                 Condition::Test(name) if flow.tests()[name].kind == TestKind::All => {
+                    let Some(is) = &flow.tests()[name].is else { continue };
                     for b in &flow.tests()[name].reads {
-                        passing.insert(b.clone(), flow.tests()[name].is.clone());
+                        passing.insert(b.clone(), is.clone());
                     }
                 }
                 Condition::Test(_) => {}
@@ -288,6 +299,7 @@ impl Model {
             choices,
             refusals,
             passing,
+            contents,
             forward,
             backward,
             silent,
@@ -405,6 +417,9 @@ impl Model {
         if !self.forward[i].is_empty() {
             out.push((Variant::Bare, false));
         }
+        if self.forward[i].iter().any(|b| self.contents.contains(b)) {
+            out.push((Variant::Empty, false));
+        }
         if !self.backward[i].is_empty() {
             out.push((Variant::Opinions, true));
         }
@@ -444,6 +459,7 @@ impl Model {
             let stray = Write {
                 block: self.stray[i].clone(),
                 meaning_unchanged: false,
+                empty: false,
                 value: None,
             };
             let ret = Return::Came {
@@ -485,7 +501,7 @@ impl Model {
                     }
                     prose.extend(self.backward[i].iter().cloned());
                 }
-                Variant::Content | Variant::SentBack | Variant::Fails(_) => {}
+                Variant::Content | Variant::Empty | Variant::SentBack | Variant::Fails(_) => {}
             }
         } else {
             let fails = matches!(variant, Variant::Fails(_));
@@ -509,6 +525,7 @@ impl Model {
                 (value.is_some() || prose.contains(block)).then(|| Write {
                     block: block.clone(),
                     meaning_unchanged: false,
+                    empty: *variant == Variant::Empty && self.contents.contains(block),
                     value,
                 })
             })

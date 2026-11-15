@@ -808,7 +808,7 @@ export function TestPanel(props: { row: ConditionRow; flow: Flow; onChoose: (c: 
               />
             }
           />
-          <StatusLine word={<Attr name="is" value={test.is} />} />
+          {test.is !== null && <StatusLine word={<Attr name="is" value={test.is} />} />}
         </>
       }
     >

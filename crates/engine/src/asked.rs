@@ -160,12 +160,14 @@ fn entry(writes: &flow::Texts, question: &Question, version: Seq, was: Option<Se
 /// Writes a version of the block with this content, as the engine's source of answers.
 fn write(work: &mut Work, block: &BlockId, content: String) {
     let at = work.tick();
+    let empty = content.trim().is_empty();
     work.contents.insert((block.clone(), at), content);
     work.records.written.push(Written {
         block: block.clone(),
         by: Outsider::Outside,
         matters: true,
         value: None,
+        empty,
         said_to: None,
         at,
     });
@@ -336,6 +338,7 @@ pub(crate) fn tell(flow: &Compiled, work: &mut Work) {
         by: Outsider::Outside,
         matters: true,
         value: Some(value.to_string()),
+        empty: false,
         said_to: None,
         at,
     });

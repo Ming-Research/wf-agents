@@ -663,7 +663,7 @@ fn stalled(
                 let has = |b: &BlockId| {
                     reading
                         .current(b)
-                        .is_some_and(|x| x.value.as_deref() == Some(named.is.as_str()))
+                        .is_some_and(|x| x.value.is_some() && x.value == named.is)
                 };
                 let by_outsider = |b: &BlockId| {
                     reading
@@ -673,7 +673,7 @@ fn stalled(
                 (named.reads.iter())
                     .filter(|b| match named.kind {
                         TestKind::All => !has(b),
-                        TestKind::Any => true,
+                        TestKind::Any | TestKind::AnyContent => true,
                         TestKind::None => has(b),
                         TestKind::NoneStanding => by_outsider(b),
                     })
@@ -801,12 +801,12 @@ fn made_by(
     let has = |b: &BlockId| {
         reading
             .current(b)
-            .is_some_and(|x| x.value.as_deref() == Some(named.is.as_str()))
+            .is_some_and(|x| x.value.is_some() && x.value == named.is)
     };
     let holding: Vec<&BlockId> = (named.reads.iter())
         .filter(|b| match named.kind {
             TestKind::All => !has(b),
-            TestKind::Any => true,
+            TestKind::Any | TestKind::AnyContent => true,
             TestKind::None | TestKind::NoneStanding => has(b),
         })
         .collect();

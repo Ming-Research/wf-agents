@@ -507,6 +507,10 @@ pub enum FaultKind {
     UndeclaredTest { test: String },
     /// A declared test reads no block.
     ReadsEmpty { test: String },
+    /// A declared test of a value names none to look for: it has no `is`.
+    TestNamesNoValue { test: String },
+    /// A declared test of content names a value to look for, which it does not read.
+    ContentTestNamesValue { test: String },
     /// A declared test is used by no cell.
     UnusedTest { test: String },
     /// A cell's precondition is a test that reads a block the cell itself writes, or its condition one that reads a
@@ -1548,15 +1552,22 @@ impl<'a> Definition<'a> {
         }
     }
 
-    /// The faults of the declared tests: one that reads no block; a block read that is not declared, is no choice or
-    /// does not offer the value looked for; and a test that no cell of the order uses.
+    /// The faults of the declared tests: one that reads no block; a test of a value that names none, and one of
+    /// content that names one; a block read that is not declared, or, of a test of a value, is no choice or does not
+    /// offer the value looked for; and a test that no cell of the order uses.
     fn check_tests(&self, faults: &mut Vec<Fault>) {
         for (test, declared) in &self.flow.tests {
             let at = |field: &str, what| self.places.fault("tests", test, field, what);
             if declared.reads.is_empty() {
                 faults.push(at("reads", FaultKind::ReadsEmpty { test: test.clone() }));
             }
-            for (field, what) in check_list(&declared.reads, "reads", |block| self.check_read(block, &declared.is)) {
+            match (declared.kind == TestKind::AnyContent, &declared.is) {
+                (false, None) => faults.push(at("is", FaultKind::TestNamesNoValue { test: test.clone() })),
+                (true, Some(_)) => faults.push(at("is", FaultKind::ContentTestNamesValue { test: test.clone() })),
+                _ => {}
+            }
+            let is = declared.is.as_deref();
+            for (field, what) in check_list(&declared.reads, "reads", |block| self.check_read(block, is)) {
                 faults.push(at(&field, what));
             }
             if declared.kind == TestKind::NoneStanding {
@@ -1578,18 +1589,19 @@ impl<'a> Definition<'a> {
         }
     }
 
-    /// The fault of a block a named test reads, looking for this value: not declared, not a choice, or not offering
-    /// the value.
-    fn check_read(&self, block: &str, is: &str) -> Option<FaultKind> {
+    /// The fault of a block a named test reads, looking for this value, or, with none, for content: not declared, or,
+    /// looking for a value, not a choice or not offering the value.
+    fn check_read(&self, block: &str, is: Option<&str>) -> Option<FaultKind> {
         let name = block.to_string();
-        match self.flow.blocks.get(block).map(|b| &b.values) {
-            None => Some(FaultKind::NoSuchBlock { block: name }),
-            Some(None) => Some(FaultKind::NotAChoice { block: name }),
-            Some(Some(values)) if !values.iter().any(|v| v == is) => Some(FaultKind::NotAValue {
+        match (self.flow.blocks.get(block).map(|b| &b.values), is) {
+            (None, _) => Some(FaultKind::NoSuchBlock { block: name }),
+            (Some(_), None) => None,
+            (Some(None), Some(_)) => Some(FaultKind::NotAChoice { block: name }),
+            (Some(Some(values)), Some(is)) if !values.iter().any(|v| v == is) => Some(FaultKind::NotAValue {
                 block: name,
                 is: is.to_string(),
             }),
-            Some(Some(_)) => None,
+            (Some(Some(_)), Some(_)) => None,
         }
     }
 

@@ -49,6 +49,7 @@ fn every_kind() -> Records {
             writes: vec![Write {
                 block: "q".into(),
                 meaning_unchanged: true,
+                empty: false,
                 value: None,
             }],
             dealt_with: Some(vec!["p".into(), "words".into()]),
@@ -68,6 +69,7 @@ fn every_kind() -> Records {
                 matters: true,
                 value: None,
                 said_to: None,
+                empty: false,
                 at: Seq(1),
             },
             Written {
@@ -76,6 +78,7 @@ fn every_kind() -> Records {
                 matters: true,
                 value: None,
                 said_to: None,
+                empty: false,
                 at: Seq(8),
             },
             Written {
@@ -84,6 +87,7 @@ fn every_kind() -> Records {
                 matters: true,
                 value: None,
                 said_to: None,
+                empty: false,
                 at: Seq(12),
             },
         ],

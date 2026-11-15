@@ -76,6 +76,7 @@ impl W {
                     matters: true,
                     value: None,
                     said_to: None,
+                    empty: false,
                     at,
                 });
                 continue;

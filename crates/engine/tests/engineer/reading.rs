@@ -27,6 +27,8 @@ pub struct Version {
     /// The version at which what the block says last changed: this one, or an earlier one.
     pub meaning: Seq,
     pub value: Option<String>,
+    /// Whether it holds nothing.
+    pub empty: bool,
 }
 
 impl Version {
@@ -68,6 +70,7 @@ impl<'a> Reading<'a> {
             by: Writer,
             matters: bool,
             value: Option<String>,
+            empty: bool,
         }
         let mut entries: Vec<Entry> = Vec::new();
         for w in records.written.iter().filter(|w| counts(w.at)) {
@@ -80,6 +83,7 @@ impl<'a> Reading<'a> {
                 },
                 matters: w.matters,
                 value: w.value.clone(),
+                empty: w.empty,
             });
         }
         for f in &finished {
@@ -90,6 +94,7 @@ impl<'a> Reading<'a> {
                     by: Writer::Run(f.run),
                     matters: !w.meaning_unchanged,
                     value: w.value.clone(),
+                    empty: w.empty,
                 });
             }
         }
@@ -122,6 +127,7 @@ impl<'a> Reading<'a> {
                 by: e.by,
                 meaning,
                 value: e.value,
+                empty: e.empty,
             });
         }
         Self {
@@ -217,19 +223,22 @@ impl<'a> Reading<'a> {
         }
     }
 
-    /// Whether the named test holds now, by the values of the blocks it reads.
+    /// Whether the named test holds now, by the values of the blocks it reads, or, of a test of content, by whether
+    /// one holds anything.
     pub fn holds(&self, name: &TestName) -> bool {
         let test = &self.flow.tests()[name];
+        let Some(is) = test.is.as_deref() else {
+            // A block never written holds nothing.
+            return (test.reads.iter()).any(|block| self.current(block).is_some_and(|v| !v.empty));
+        };
         // A block never written has its default, which no cell wrote and so stands.
         let mut has = (test.reads.iter()).map(|block| match self.current(block) {
-            Some(v) => {
-                v.value.as_deref() == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v))
-            }
-            None => self.flow.default_of(block) == Some(test.is.as_str()),
+            Some(v) => v.value.as_deref() == Some(is) && (test.kind != TestKind::NoneStanding || self.stands(v)),
+            None => self.flow.default_of(block) == Some(is),
         });
         match test.kind {
             TestKind::All => has.all(|h| h),
-            TestKind::Any => has.any(|h| h),
+            TestKind::Any | TestKind::AnyContent => has.any(|h| h),
             TestKind::None | TestKind::NoneStanding => !has.any(|h| h),
         }
     }

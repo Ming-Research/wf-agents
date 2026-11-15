@@ -246,12 +246,14 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 _ => {}
             }
             let at = work.tick();
+            let empty = value.is_none() && content.trim().is_empty();
             work.contents.insert((block.clone(), at), content);
             work.records.written.push(Written {
                 block,
                 by,
                 matters,
                 value,
+                empty,
                 said_to: None,
                 at,
             });
@@ -875,6 +877,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
+                empty: h.value.is_none() && h.content.trim().is_empty(),
             })
             .collect()
     };

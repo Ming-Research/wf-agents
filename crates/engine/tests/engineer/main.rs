@@ -173,8 +173,9 @@ impl Roles {
         let tests = flow.flow.tests();
         let mut refusals = BTreeMap::new();
         for t in tests.values().filter(|t| t.kind == TestKind::NoneStanding) {
+            let Some(is) = &t.is else { continue };
             for b in &t.reads {
-                refusals.insert(b.clone(), t.is.clone());
+                refusals.insert(b.clone(), is.clone());
             }
         }
         let judges = (refusals.keys())
@@ -190,8 +191,9 @@ impl Roles {
                     passing.insert(block.clone(), value.clone());
                 }
                 Condition::Test(name) if tests[name].kind == TestKind::All => {
+                    let Some(is) = &tests[name].is else { continue };
                     for b in &tests[name].reads {
-                        passing.insert(b.clone(), tests[name].is.clone());
+                        passing.insert(b.clone(), is.clone());
                     }
                 }
                 Condition::Test(_) => {}
@@ -410,13 +412,16 @@ fn make_hold(d: &Driver, key: &Condition) -> Option<Event> {
             continue;
         };
         let values = block.values.as_ref()?;
+        // A test of content looks for no value: no choice moves it.
+        let is = test.is.as_ref()?;
         let value = match test.kind {
-            TestKind::All | TestKind::Any => (reading.value(b) != Some(test.is.as_str())).then(|| test.is.clone()),
+            TestKind::All | TestKind::Any => (reading.value(b) != Some(is.as_str())).then(|| is.clone()),
             TestKind::None | TestKind::NoneStanding => reading
                 .current(b)
-                .filter(|v| v.value.as_deref() == Some(test.is.as_str()))
+                .filter(|v| v.value.as_deref() == Some(is.as_str()))
                 .filter(|v| test.kind != TestKind::NoneStanding || reading.stands(v))
-                .and_then(|_| values.iter().find(|v| **v != test.is).cloned()),
+                .and_then(|_| values.iter().find(|v| *v != is).cloned()),
+            TestKind::AnyContent => None,
         };
         if let Some(value) = value {
             return Some(wrote(b, by, true, Some(value)));

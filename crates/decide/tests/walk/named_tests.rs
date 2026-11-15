@@ -11,7 +11,7 @@ fn test(kind: TestKind, reads: &[&str], is: &str) -> Test {
     Test {
         kind,
         reads: reads.iter().map(|b| (*b).into()).collect(),
-        is: is.to_string(),
+        is: Some(is.to_string()),
     }
 }
 
@@ -75,6 +75,51 @@ fn a_test_of_what_stands_holds_as_one_that_no_block_has_the_value_where_people_w
     assert!(standing(&[("a", "no"), ("b", "no")]));
     assert!(!standing(&[("a", "no"), ("b", "yes")]));
     assert!(standing(&[("a", "yes"), ("a", "no")]));
+}
+
+/// A planner writing a plan and its edits of the tree from a brief; a reviewer of the edits, run while they hold
+/// anything, by a test of content; and the merge, run by the plan.
+fn edited() -> World {
+    let cells = vec![
+        cell("planner", &["brief"], &["plan", "edits"]),
+        on_test("edits_held", cell("reviewer", &["plan", "edits"], &["review"])),
+        cell("merge", &["plan"], &[]),
+    ];
+    let content = Test {
+        kind: TestKind::AnyContent,
+        reads: vec!["edits".into()],
+        is: None,
+    };
+    World::with_tests(cells, tests(&[("edits_held", content)]))
+}
+
+/// The cell the walk runs next.
+fn next(w: &World) -> String {
+    reasons(&w.decide()).0
+}
+
+#[test]
+fn a_test_of_content_holds_while_a_block_it_reads_holds_anything_one_never_written_holding_nothing() {
+    // No edits written: the reviewer is skipped, and the merge runs for the plan.
+    let mut w = edited();
+    w.person_writes("brief");
+    w.run("planner", &[("plan", Matters)]);
+    assert_eq!(next(&w), "merge");
+    // Edits that hold something run the reviewer.
+    let mut w = edited();
+    w.person_writes("brief");
+    w.run("planner", &[("plan", Matters), ("edits", Matters)]);
+    assert_eq!(next(&w), "reviewer");
+    w.run("reviewer", &[("review", Matters)]);
+    assert_eq!(next(&w), "merge");
+    // Written again holding nothing, they run it no more, though the plan is new to it.
+    w.person_writes("brief");
+    w.run("planner", &[("plan", Matters), ("edits", Nothing)]);
+    assert_eq!(next(&w), "merge");
+    // And holding something again, they do.
+    w.person_writes("brief");
+    w.run("planner", &[("plan", Matters), ("edits", Matters)]);
+    assert_eq!(next(&w), "reviewer");
 }
 
 /// An asker writing whether a judge runs, from a brief; the judge, run only when asked to, writing a verdict; and the

@@ -136,6 +136,7 @@ fn prose(block: &str) -> Write {
     Write {
         block: block.into(),
         meaning_unchanged: false,
+        empty: false,
         value: None,
     }
 }
@@ -145,6 +146,7 @@ fn valued(block: &str, value: &str) -> Write {
     Write {
         block: block.into(),
         meaning_unchanged: false,
+        empty: false,
         value: Some(value.to_string()),
     }
 }

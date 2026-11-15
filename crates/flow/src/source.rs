@@ -485,18 +485,19 @@ pub struct OfADatumFile {
     pub does: Option<String>,
 }
 
-/// A named test as written: a test of the values of blocks of the work itself.
+/// A named test as written: a test of the blocks of the work itself.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TestFile {
     /// The words shown for the test.
     pub says: String,
-    /// How the blocks it reads make it hold: `all`, `any`, `none` or `none_standing`; another is refused.
+    /// How the blocks it reads make it hold: `all`, `any`, `none`, `none_standing` or `any_content`; another is
+    /// refused.
     pub kind: TestKind,
-    /// The blocks it reads, each a choice.
+    /// The blocks it reads: each a choice, or, of a test of content, any block.
     pub reads: Vec<String>,
-    /// The value it looks for in each block it reads.
-    pub is: String,
+    /// The value it looks for in each block it reads; none of a test of content, which looks for no value.
+    pub is: Option<String>,
 }
 
 /// The file of one cell.

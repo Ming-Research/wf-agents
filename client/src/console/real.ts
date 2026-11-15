@@ -196,9 +196,12 @@ export interface Ruling {
 
 /// Whether a version of a block keeps a test that reads it from holding: for a test that holds when every one or at
 /// least one block has its value, when the version has another; for one that holds when none has it, when the version
-/// has it, and for `noneStanding` only as written by a person, the outside or a cell that is not skipped now.
+/// has it, and for `noneStanding` only as written by a person, the outside or a cell that is not skipped now; for a
+/// test of content, when the version holds nothing.
 function keeps(test: Test, v: Version, skipped: Set<string>): boolean {
   switch (test.kind) {
+    case 'anyContent':
+      return v.chars === 0;
     case 'all':
     case 'any':
       return v.value !== test.is;
@@ -209,9 +212,11 @@ function keeps(test: Test, v: Version, skipped: Set<string>): boolean {
   }
 }
 
-/// The value of a block that makes a test that reads it hold: the test's own where it looks for one, and where it
-/// looks for none, the block's only other value; none where that is not plain.
+/// The value of a block that makes a test that reads it hold: the test's own where it holds when a block has it, and
+/// where it holds when none has it, the block's only other value; none where that is not plain, as of a test of
+/// content, which looks for no value.
 function holding(test: Test, values: string[] | null): string | null {
+  if (test.is === null) return null;
   if (test.kind === 'all' || test.kind === 'any') return values?.includes(test.is) === true ? test.is : null;
   const others = (values ?? []).filter((v) => v !== test.is);
   return others.length === 1 ? others[0] : null;

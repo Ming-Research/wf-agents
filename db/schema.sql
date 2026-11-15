@@ -146,8 +146,9 @@ CREATE TABLE finished (
 );
 
 -- A block a run wrote as it finished, `n` its place among the run's writes, the first being one: whether the change
--- matters, which is 0 where the run handed the version in as changing nothing in meaning and 1 otherwise, and its value
--- where it is a choice.
+-- matters, which is 0 where the run handed the version in as changing nothing in meaning and 1 otherwise, its value
+-- where it is a choice, and whether the version holds nothing, with no value and what the run handed in of it empty
+-- or only whitespace.
 CREATE TABLE writes (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,
@@ -155,6 +156,7 @@ CREATE TABLE writes (
     block TEXT NOT NULL,
     matters INTEGER NOT NULL CHECK (matters IN (0, 1)),
     value TEXT,
+    empty INTEGER NOT NULL DEFAULT 0 CHECK (empty IN (0, 1)),
     PRIMARY KEY (work, run, n),
     FOREIGN KEY (work, run) REFERENCES finished (work, run)
 );
@@ -180,8 +182,9 @@ CREATE TABLE put_in (
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
--- A person or the outside (`writer`) wrote a block: whether the change matters, its value where it is a choice, and
--- the cell it is said to where it is said to one, as the owner's entry of the record of what is said is.
+-- A person or the outside (`writer`) wrote a block: whether the change matters, its value where it is a choice, the
+-- cell it is said to where it is said to one, as the owner's entry of the record of what is said is, and whether the
+-- version holds nothing, with no value and what was written empty or only whitespace.
 CREATE TABLE written (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
@@ -190,6 +193,7 @@ CREATE TABLE written (
     matters INTEGER NOT NULL CHECK (matters IN (0, 1)),
     value TEXT,
     said_to TEXT,
+    empty INTEGER NOT NULL DEFAULT 0 CHECK (empty IN (0, 1)),
     PRIMARY KEY (work, at)
 );
 
