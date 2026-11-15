@@ -414,6 +414,9 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             MERGED_A_REVIEWED_HEAD,
             CHECK_GATED,
             MERGE_ON_A_MOVED_HEAD,
+            WORDS_TAKEN,
+            WORDS_REFUSED,
+            WORDS_TOLD,
         ]
         .map(String::from),
     );
@@ -494,6 +497,9 @@ const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must wri
 const MERGED_A_REVIEWED_HEAD: &str = "the merge merged a head the work committed and the review dealt with";
 const CHECK_GATED: &str = "the check failed in passing on a head a judge of it had not dealt with";
 const MERGE_ON_A_MOVED_HEAD: &str = "the merge failed in passing on a head moved since the check passed";
+const WORDS_TAKEN: &str = "the owner's words were taken, each entry said to the cell the engine chose";
+const WORDS_REFUSED: &str = "the owner's words were refused, no cell taking them, and wrote nothing";
+const WORDS_TOLD: &str = "the owner's words were told to a round under way of the cell they reached";
 
 /// The source of the block the driver writes as the owner starts a work, which runs the first cell.
 const START: &str = "start";
@@ -1581,6 +1587,15 @@ impl History {
         }
         if self.d.seen.stops > 0 {
             reached.push(ENGINE_STOPPED.to_string());
+        }
+        if self.d.seen.words_taken > 0 {
+            reached.push(WORDS_TAKEN.to_string());
+        }
+        if self.d.seen.words_refused > 0 {
+            reached.push(WORDS_REFUSED.to_string());
+        }
+        if self.d.seen.told > 0 {
+            reached.push(WORDS_TOLD.to_string());
         }
         if self.branch.get().gated > 0 {
             reached.push(CHECK_GATED.to_string());

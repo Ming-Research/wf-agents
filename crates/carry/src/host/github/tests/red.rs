@@ -106,6 +106,29 @@ async fn a_failed_test_that_passes_when_the_commit_is_run_again_passes_it_and_is
     assert_eq!(runs(&hub), ran);
 }
 
+// The check given again, as after the engine started again, its runs having ended: it finds the full run, the run
+// again on the commit and the run on main's head by the values it asked for them by, asks for none of them twice, and
+// comes to the same verdict. Well under a second alone, a repository on disk and GitHub in memory; no other test gives
+// a check that ran its failed tests again a second time.
+#[tokio::test]
+async fn a_check_given_again_finds_its_runs_again_and_asks_for_none_twice() {
+    let hub = Hub::new();
+    let (head, main) = hub.red_by_b().await;
+    hub.fast_on(&head, false, Outcome::Passed);
+    hub.fast_on(&main, false, Outcome::Passed);
+    let first = hub.verdict(&head).await.unwrap().expect("judged");
+    assert!(first.held.is_some(), "{first:?}");
+    let asked = runs(&hub);
+    assert_eq!(
+        asked.len(),
+        3,
+        "the full workflows, the run again and the run on main: {asked:?}"
+    );
+    let again = hub.verdict(&head).await.unwrap().expect("judged");
+    assert_eq!((&again.held, &again.failed), (&first.held, &first.failed));
+    assert_eq!(runs(&hub), asked, "nothing is asked for twice");
+}
+
 // The test fails again on the commit, and on main's head too: the commit is held, not failed, saying which test fails
 // on main as well, with what each run found.
 #[tokio::test]

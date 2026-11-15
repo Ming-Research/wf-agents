@@ -1,0 +1,9 @@
+# A build the owner's words run, with the record of what is said, as the engineer's flow has them, and the merge: for
+# the tests of the real carriers that tell a round under way what the owner said. The record, and the triggers its cells
+# name, are the repository's, which the tests read beside it.
+name = "spoken"
+order = ["build", "merge"]
+data = ["discussion"]
+
+[limits]
+again = 2

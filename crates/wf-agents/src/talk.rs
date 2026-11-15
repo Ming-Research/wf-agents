@@ -2500,6 +2500,55 @@ mod tests {
         assert_eq!(lines[13], "Nothing is under way.");
     }
 
+    // Under a run, `show` says a line for each round whose cost or time went past the line of its history, and for each
+    // call of a tool whose time did: what it took, or has taken so far while under way, the line and what gives it; a
+    // round or call within its line it says nothing of. Well under a millisecond alone; no other test holds the lines
+    // `show` gives of what went past its line.
+    #[test]
+    fn a_run_shows_a_line_for_each_round_and_call_past_the_line_of_its_history() {
+        let line = |scope: &str| serde_json::json!({ "value": 25_000, "samples": 19, "scope": scope });
+        let against = |value: u64, scope: &str, past: bool| serde_json::json!({ "value": value, "line": line(scope), "past": past });
+        let round = |number: u64, ended: Option<u64>, time: serde_json::Value| {
+            serde_json::json!({
+                "number": number, "began": 0, "ended": ended, "given": { "kind": "task" }, "back": null,
+                "spent": null, "context": null, "compactions": 0, "session": null, "tries": [], "missed": null,
+                "estimated": false, "judged": { "cost": null, "time": time },
+            })
+        };
+        let call = |call: u64, done: Option<u64>, time: serde_json::Value| {
+            serde_json::json!({
+                "call": call, "what": { "kind": "tool", "name": "run_tests", "input": "{}" }, "made": 0,
+                "done": done, "chars": null, "time": time,
+            })
+        };
+        let run: Run = serde_json::from_value(serde_json::json!({
+            "run": 4, "cell": "I1", "at": 1, "time": 0, "because": [], "basis": [],
+            "rounds": [
+                round(1, Some(100_000), against(100_000, "cell", true)),
+                round(2, Some(20_000), against(20_000, "cell", false)),
+                round(3, None, against(100_000, "flow", true)),
+            ],
+            "calls": [
+                call(7, Some(100_000), against(100_000, "tool", true)),
+                call(8, None, against(100_000, "tool", true)),
+                call(9, Some(1_000), against(1_000, "tool", false)),
+            ],
+            "end": null,
+            "spent": serde_json::to_value(Spent::default()).unwrap(),
+        }))
+        .expect("a run of the work's page");
+        assert_eq!(
+            past_of(&run),
+            [
+                "    round 1 took 1m 40s, past the line of 25s that 19 rounds of its cell give",
+                "    round 3 has been under way for 1m 40s, past the line of 25s that 19 agents' rounds of its flow give",
+                "    call 7 of the tool run_tests took 1m 40s, past the line of 25s that 19 calls of its tool give",
+                "    call 8 of the tool run_tests has waited for its result for 1m 40s, past the line of 25s that 19 \
+                 calls of its tool give",
+            ]
+        );
+    }
+
     #[test]
     fn a_text_in_a_query_is_written_so_that_no_byte_of_it_ends_the_query() {
         assert_eq!(encoded("a b&c=d/é"), "a%20b%26c%3Dd%2F%C3%A9");

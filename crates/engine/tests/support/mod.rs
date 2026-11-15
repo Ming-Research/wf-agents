@@ -74,6 +74,10 @@ pub struct Seen {
     pub released: usize,
     /// Words told to a round under way.
     pub told: usize,
+    /// The owner's words the engine took, each to the cell it chose.
+    pub words_taken: usize,
+    /// The owner's words the engine refused, no cell taking them.
+    pub words_refused: usize,
     /// Results of what a cell asked for in a record, handed in by a cell that gives them.
     pub results: usize,
 }
@@ -317,6 +321,11 @@ impl Driver {
         self.note(format!("event: {event:?}"));
         let before = self.work.clone();
         let failed = matches!(event, Event::Failed { .. });
+        // The cell the owner's words reach, as the engine chooses it before it takes them.
+        let receiver = match &event {
+            Event::Said { to, .. } => Some(engine::spoken::receiver(&self.flow, &self.work, to)),
+            _ => None,
+        };
         // The driver's clock: a second for each thing it hands the engine, so that a history with stops keeps the same
         // times as one without.
         self.clock += 1000;
@@ -324,6 +333,19 @@ impl Driver {
         match handle(&self.flow, &mut self.work, now, event) {
             Ok(effects) => {
                 self.note(format!("effects: {effects:?}"));
+                // Words taken go to the cell the engine chose, and to no other: every entry they wrote is said to it.
+                if let Some(receiver) = &receiver {
+                    let cell = receiver
+                        .as_ref()
+                        .expect("the engine takes words only where a cell takes them");
+                    let written = &self.work.records.written[before.records.written.len()..];
+                    let to: Vec<_> = written.iter().filter_map(|w| w.said_to.as_ref()).collect();
+                    assert!(
+                        to.iter().all(|c| *c == cell),
+                        "words the engine gave {cell} are said to {to:?}"
+                    );
+                    self.seen.words_taken += 1;
+                }
                 if failed && decide::pause(&self.work.records).is_some_and(|p| p.by == Pauser::Engine) {
                     self.seen.failed += 1;
                 }
@@ -407,6 +429,11 @@ impl Driver {
             Err(why) => {
                 self.note(format!("refused: {why:?}"));
                 assert_eq!(self.work, before, "a refused event changed the work");
+                // Words are refused only where no cell takes them.
+                if let Some(receiver) = &receiver {
+                    assert!(receiver.is_err(), "words {receiver:?} takes were refused: {why:?}");
+                    self.seen.words_refused += 1;
+                }
                 self.seen.refused += 1;
                 false
             }
