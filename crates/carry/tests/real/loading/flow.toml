@@ -1,5 +1,6 @@
-# The trial flow (crates/service/tests/trial/flow) with a plan that also loads the engineer's session: it reads the
-# block the engine writes as the line begins a new session, so that it runs again before the line goes on.
+# The trial flow (crates/flow/tests/laid_out/trial) as it was when its build, and not its plan, could be answered by the
+# owner, with a plan that also loads the engineer's session: it reads the block the engine writes as the line begins a
+# new session, so that it runs again before the line goes on.
 name = "loading"
 order = ["plan", "build", "review", "merge"]
 

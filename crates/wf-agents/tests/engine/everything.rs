@@ -7,7 +7,8 @@ use crate::{Engine, Place, SCRIPT};
 fn everything_is_paused_and_let_on_again_from_the_command_line() {
     let place = Place::new(SCRIPT);
     let engine = Engine::start(&place);
-    let paused = "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`";
+    let paused = "Every work is paused: none begins a round but for the owner's words or answers, until \
+                  `wf-agents resume --all`";
     assert_eq!(
         engine.says(&["pause", "--all"]),
         format!("{paused}; 0 of 2 slots taken.\n")

@@ -75,7 +75,7 @@ async fn two_works_held_by_the_wait_both_go_on_by_the_loops_timer_whatever_comes
         };
         while !ended(&trial) {
             for work in [held, busy] {
-                if trial.owners_call(work).is_some() {
+                if trial.waited_question(work).is_some() {
                     trial.answer(work, "Yes, by name.");
                 }
             }

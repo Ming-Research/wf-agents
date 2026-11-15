@@ -85,7 +85,7 @@ fn failing() -> (Service, Arc<Mutex<Option<usize>>>, tempfile::TempDir) {
         store: Store::open(dir.path().join("store.sqlite")).expect("the store opens"),
         saves: saves.clone(),
     };
-    let carriers = Scripted::new(crate::trial_script()).carriers();
+    let carriers = Scripted::new(crate::trial_script(), crate::words()).carriers();
     let clock = Arc::new(TokioClock::new(START));
     let (service, _inbox) =
         Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens");
@@ -140,7 +140,7 @@ async fn a_change_kept_before_the_engine_stopped_is_not_to_be_given_again() {
 async fn the_time_is_asked_of_the_loop_and_is_its_clocks() {
     let dir = tempfile::tempdir().expect("a directory for the store");
     let store = Store::open(dir.path().join("store.sqlite")).expect("the store opens");
-    let carriers = Scripted::new(crate::trial_script()).carriers();
+    let carriers = Scripted::new(crate::trial_script(), crate::words()).carriers();
     let clock = Arc::new(TokioClock::new(START));
     let (mut service, mut inbox) =
         Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens");
