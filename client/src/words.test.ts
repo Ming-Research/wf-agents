@@ -96,6 +96,9 @@ describe('the words of the page', () => {
       }),
     ).toBe('The line names the rules general, but the flow has no rules/general.md.');
     expect(
+      faultWords({ file: 'lines/review.toml', field: 'tests_only', what: { kind: 'readsOnlyAndTestsOnly' } }),
+    ).toBe("The line says its agents change only the project's tests, and that they only read, which changes no file.");
+    expect(
       faultWords({ file: 'check.toml', field: 'input.main.kind', what: { kind: 'engineIsGiven', block: 'main' } }),
     ).toBe("An engine's cell says how it is given main, but it has no session.");
     expect(faultWords({ file: 'plan.toml', field: 'inputs', what: { kind: 'twoForms' } })).toBe(
