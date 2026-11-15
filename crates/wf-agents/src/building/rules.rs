@@ -55,7 +55,7 @@ pub fn ruled(flow: &flow::Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case
         (cases.iter()).find(|c| c.store == Store::Main && c.under_way.as_ref().is_some_and(|(at, ..)| at == cell))
     };
     let first = flow.cells.iter().find(|c| c.kind == Kind::Agent).map(|c| c.id.clone());
-    let base = first.as_ref().and_then(&under_way_at);
+    let base = first.as_ref().and_then(under_way_at);
     match base {
         None => not.push((
             format!("the rules' states on the flow {}", flow.name),

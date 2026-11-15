@@ -273,6 +273,7 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path) -> Result<Case,
     // Of each call on the owner at a run's limit, the run's cell.
     let mut limits: BTreeMap<CallId, CellId> = BTreeMap::new();
     for g in &given[first..] {
+        let g = &replay.translated(g, &path.work.records)?;
         if own.front() == Some(g) {
             own.pop_front();
             let effects = replay.give(g.clone())?;
@@ -716,6 +717,65 @@ impl<'m> Replay<'m> {
         let shown = shown_as(decide::decide(&self.flow.flow, &self.work.records));
         (judge::states(&self.work, &shown).into_iter().next())
             .ok_or_else(|| "its path gives an act where the engine shows the work at nothing".to_string())
+    }
+
+    /// What the exploration gave its loop, with the names it gave its runs and calls and the version of each question
+    /// it answered, as this work names them: the same, run for run and call for call in the order each began, where
+    /// the play goes the way the exploration went.
+    fn translated(&self, given: &Given, explored: &Records) -> Result<Given, String> {
+        let mut runs: Vec<(decide::Seq, RunId)> = explored.started.iter().map(|s| (s.at, s.run)).collect();
+        runs.sort();
+        let mut ours: Vec<(decide::Seq, RunId)> = self.work.records.started.iter().map(|s| (s.at, s.run)).collect();
+        ours.sort();
+        let run = |run: RunId| {
+            let k = runs.iter().position(|(_, r)| *r == run);
+            k.and_then(|k| ours.get(k)).map(|(_, r)| *r).ok_or_else(|| {
+                format!(
+                    "its path gives the run {} of the exploration a round, which played as a play adds its item has \
+                     not started: it started {:?}, standing at {:?}",
+                    run.0,
+                    (ours.iter()).map(|(_, r)| r.0).collect::<Vec<_>>(),
+                    decide::decide(&self.flow.flow, &self.work.records)
+                )
+            })
+        };
+        let mut calls: Vec<(decide::Seq, CallId)> = explored.called.iter().map(|c| (c.at, c.call)).collect();
+        calls.sort();
+        let mut our_calls: Vec<(decide::Seq, CallId)> =
+            self.work.records.called.iter().map(|c| (c.at, c.call)).collect();
+        our_calls.sort();
+        let call = |call: CallId| {
+            let k = calls.iter().position(|(_, c)| *c == call);
+            (k.and_then(|k| our_calls.get(k)).map(|(_, c)| *c))
+                .ok_or_else(|| "its path gives a result to a call that played so was not made".to_string())
+        };
+        Ok(match given {
+            Given::Returned { run: r, came, spent } => Given::Returned {
+                run: run(*r)?,
+                came: came.clone(),
+                spent: *spent,
+            },
+            Given::Done { call: c, result } => Given::Done {
+                call: call(*c)?,
+                result: result.clone(),
+            },
+            Given::Answer {
+                question, option, why, ..
+            } => {
+                let latest = (self.work.records.questions.iter())
+                    .filter(|q| q.name == *question)
+                    .map(|q| q.at)
+                    .max()
+                    .ok_or_else(|| format!("its path answers {question}, which played so was not asked"))?;
+                Given::Answer {
+                    question: question.clone(),
+                    version: latest,
+                    option: *option,
+                    why: why.clone(),
+                }
+            }
+            other => other.clone(),
+        })
     }
 
     /// The cell of the run.
