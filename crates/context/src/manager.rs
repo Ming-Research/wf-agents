@@ -5,11 +5,13 @@
 //! What a session holds is read from what was filled into it, as each try of a round recorded it, and from what its
 //! rounds handed in, since the session last held nothing: since it began, since the agents' program lost it and it was
 //! begun again under its id, or since a round of it was compacted, which counts as the session reopened and leaves it
-//! holding only what that round then handed in. Only a round whose program put its message into the session put
-//! anything into it: one that reached the model, and one whose program said it had taken the message in
-//! (`work::sessions::wrote_into`). A version is held by what it is, never by its content: a new version is new, though
-//! it says what an earlier one said, as a person saying the same twice, or a datum changed and changed back.
-//! Everything is read as the records stood when the round began, so that a round given again is sent the same.
+//! holding only what that round then handed in. What a round hands in is each block its run writes, and each entry the
+//! engine writes, of the records of the questions and the answers, of a question its return asks. Only a round whose
+//! program put its message into the session put anything into it: one that reached the model, and one whose program
+//! said it had taken the message in (`work::sessions::wrote_into`). A version is held by what it is, never by its
+//! content: a new version is new, though it says what an earlier one said, as a person saying the same twice, or a
+//! datum changed and changed back. Everything is read as the records stood when the round began, so that a round given
+//! again is sent the same.
 //!
 //! The round is filled with what its cell is given and its session lacks, in the order of the message: which work it
 //! is, each datum of the cell's context by the kind the cell gives it in, what the cell returns, its task, and the
@@ -110,7 +112,15 @@ pub fn enter(
         false => held(flow, work, line, run, number, began),
     };
     let versions = decide::versions(&records);
-    let own = |v: &VersionView| matches!(v.by, Writer::Run(r) if of_cell(&records, r, cell));
+    // The versions a run of the cell handed in: those it wrote, and the entries of the questions its return asked.
+    let asked = entries_asked(flow, &records);
+    let theirs: BTreeSet<&(BlockId, Seq)> = (asked.iter())
+        .filter(|(r, _)| of_cell(&records, **r, cell))
+        .flat_map(|(_, entries)| entries.iter())
+        .collect();
+    let own = |block: &BlockId, v: &VersionView| {
+        matches!(v.by, Writer::Run(r) if of_cell(&records, r, cell)) || theirs.contains(&(block.clone(), v.at))
+    };
     let mut situation = Situation {
         after_hand_in: !held.taken.is_empty(),
         ..Situation::default()
@@ -142,9 +152,11 @@ pub fn enter(
             value: v.value.clone(),
             content: given_content(carried, work, block, v.at),
         };
-        let last = last_worked_from(flow, &records, cell, block);
+        let last = last_worked_from(flow, &records, &asked, cell, block);
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
-        let new = all.iter().any(|v| Some(v.at) > last && v.meaning == v.at && !own(v));
+        let new = all
+            .iter()
+            .any(|v| Some(v.at) > last && v.meaning == v.at && !own(block, v));
         let mut datum = Datum {
             latest: version(latest),
             last,
@@ -350,12 +362,24 @@ fn of_cell(records: &Records, run: RunId, cell: &CellSpec) -> bool {
 /// The version of the datum the cell last worked from: the latest it consumed, where the datum runs the cell (design
 /// document `data-and-context`, 10); of another, the latest its last finished run was given, which is the one written
 /// last before that run's last round began, every round being filled with the latest; and in either case the latest
-/// a run of the cell wrote, where that is later, a cell's own version being no change to it.
-fn last_worked_from(flow: &Compiled, records: &Records, cell: &CellSpec, block: &BlockId) -> Option<Seq> {
+/// a run of the cell handed in, where that is later, a cell's own version being no change to it: one it wrote, or an
+/// entry of a question its return asked ([`entries_asked`]).
+fn last_worked_from(
+    flow: &Compiled,
+    records: &Records,
+    asked: &BTreeMap<RunId, Vec<(BlockId, Seq)>>,
+    cell: &CellSpec,
+    block: &BlockId,
+) -> Option<Seq> {
     let finished = (records.finished.iter()).filter(|f| of_cell(records, f.run, cell));
+    let entries = (finished.clone())
+        .flat_map(|f| asked.get(&f.run).into_iter().flatten())
+        .filter(|(b, _)| b == block)
+        .map(|(_, at)| *at);
     let wrote = (finished.clone())
         .filter(|f| f.writes.iter().any(|w| &w.block == block))
         .map(|f| f.at)
+        .chain(entries)
         .max();
     let runs_it = (flow.flow.place(&cell.id)).is_some_and(|p| flow.flow.cells()[p].runs_on.contains(block));
     let worked = if runs_it {
@@ -370,6 +394,24 @@ fn last_worked_from(flow: &Compiled, records: &Records, cell: &CellSpec, block: 
         round.and_then(|round| versions.iter().map(|v| v.at).filter(|at| *at < round).max())
     };
     worked.max(wrote)
+}
+
+/// Of each run, the entries the engine wrote of the questions its return asked, each block with its version. A version
+/// the engine's source of answers writes is of the version of a question, or of the answer, recorded last before it,
+/// as the engine writes each right after what it is of: of a question, its entries of the records of the questions and
+/// the answers; of an answer, its entries and the block of the trigger it runs, which no question owns. A question the
+/// engine itself asked with a round's end is no return's.
+fn entries_asked(flow: &Compiled, records: &Records) -> BTreeMap<RunId, Vec<(BlockId, Seq)>> {
+    let record = |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref()) == Some(flow::ANSWER);
+    let mut out: BTreeMap<RunId, Vec<(BlockId, Seq)>> = BTreeMap::new();
+    for w in records.written.iter().filter(|w| record(&w.block)) {
+        let question = (records.questions.iter()).filter(|q| q.at < w.at).max_by_key(|q| q.at);
+        let answer = (records.answers.iter()).map(|a| a.at).filter(|at| *at < w.at).max();
+        if let Some(q) = question.filter(|q| !q.engine && answer.is_none_or(|a| a < q.at)) {
+            out.entry(q.run).or_default().push((w.block.clone(), w.at));
+        }
+    }
+    out
 }
 
 /// Of each block the result of what the run's cell asked for in a record comes in, that the run was entered for, the
@@ -513,6 +555,7 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
     }
     // What the rounds handed in, and what was put into each that reached the model while it ran; and what the last
     // return in the session handed in, a round that failed having returned nothing.
+    let asked = entries_asked(flow, records);
     let mut last: Option<(Seq, Vec<(BlockId, Seq)>)> = None;
     for (r, k, from, ended) in &rounds {
         let into = |p: &&decide::PutIn| p.run == *r && p.at > *from && p.at < *ended && p.at > top;
@@ -525,9 +568,10 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
         let finished = (records.finished.iter()).find(|f| f.run == *r && *k == begun && f.at > *ended);
         let mut taken = Vec::new();
         if let Some(f) = finished.filter(|f| f.at > top && f.at < began) {
-            for w in &f.writes {
-                hold(&mut held, &w.block, f.at);
-                taken.push((w.block.clone(), f.at));
+            let entries = asked.get(r).into_iter().flatten().filter(|(_, at)| *at < began);
+            for (block, at) in (f.writes.iter().map(|w| (&w.block, f.at))).chain(entries.map(|(b, at)| (b, *at))) {
+                hold(&mut held, block, at);
+                taken.push((block.clone(), at));
             }
         }
         let returned = !matches!(work.back.get(&(*r, *k)), Some(Back::Failed { .. }) | None);
