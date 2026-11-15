@@ -431,7 +431,7 @@ pub fn new_to(flow: &Flow, records: &Records, cell: &CellId) -> Vec<BlockId> {
 }
 
 /// Of each cell that asks in a record the cell `giving` is run by and that applies, in the order of the walk, its
-/// entry that waits for its result ([`Walk::waits_for`]): what a run of `giving` gives the results of. A cell skipped
+/// entry that waits for its result ([`Walk::awaited`]): what a run of `giving` gives the results of. A cell skipped
 /// now has its entry put away, and none is given for it (decision a-wait-of-a-skipped-cell-is-put-away). None where
 /// the flow has no cell `giving`.
 pub fn asked_of(flow: &Flow, records: &Records, giving: &CellId) -> Vec<Entry> {
@@ -446,7 +446,7 @@ pub fn asked_of(flow: &Flow, records: &Records, giving: &CellId) -> Vec<Entry> {
             continue;
         }
         for asks in cell.asks.iter().filter(|a| runs_on.contains(&a.record)) {
-            let Some(at) = walk.waits_for(cell, asks) else {
+            let Some(at) = walk.awaited(cell, asks) else {
                 continue;
             };
             let answered = walk.versions(&asks.result).iter().map(|v| v.at).max();
@@ -773,12 +773,12 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    /// Of each record the cell at this place asks in whose entry waits for its result ([`Walk::waits_for`]), the wait
+    /// Of each record the cell at this place asks in whose entry waits for its result ([`Walk::awaited`]), the wait
     /// for that result, which the cells the record runs give; in the order the cell names its records.
     fn pending(&self, i: usize) -> Vec<Waited> {
         let cell = &self.flow.cells()[i];
         (cell.asks.iter())
-            .filter(|asks| self.waits_for(cell, asks).is_some())
+            .filter(|asks| self.awaited(cell, asks).is_some())
             .map(|asks| Waited::Result {
                 record: asks.record.clone(),
                 result: asks.result.clone(),
@@ -790,7 +790,7 @@ impl<'a> Walk<'a> {
     /// The cell's latest entry of what it asks for, where it waits for its result: no version of the result was written
     /// after it, and no run of a cell that gives the result, run since, passed over it, as one passes over the entry of a
     /// cell skipped as it runs (decision a-wait-of-a-skipped-cell-is-put-away); none where none waits.
-    fn waits_for(&self, cell: &Cell, asks: &crate::Asks) -> Option<Seq> {
+    fn awaited(&self, cell: &Cell, asks: &crate::Asks) -> Option<Seq> {
         let entry = self.entry(&cell.id, &asks.record)?;
         if self.versions(&asks.result).iter().any(|v| v.at > entry) {
             return None;

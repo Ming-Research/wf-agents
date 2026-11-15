@@ -164,7 +164,7 @@ function lineWords(w: Waited, cell: string): string {
     case 'precondition':
       return `until ${w.words.charAt(0).toLowerCase()}${w.words.slice(1)}`;
     case 'limit':
-      return `${cell} reached its limit: ${w.by} sent it back ${w.runs} times in a row`;
+      return `${cell} reached its limit: ${w.by} sent it back ${w.runs} times since its counts last started anew`;
     case 'result':
       return `at ${cell}, for the result of what it asked for in ${w.record}`;
     case 'slot':

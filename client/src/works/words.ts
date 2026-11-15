@@ -291,8 +291,8 @@ export function waitedWords(waited: Waited): string {
       return `${waited.words}, which ${waited.by.map(makerWords).join(' or ')} can make hold`;
     case 'limit':
       return `the owner to let the cell go on: ${waited.by} sent it back ${
-        waited.runs === 1 ? 'once' : `${waited.runs} times in a row`
-      }`;
+        waited.runs === 1 ? 'once' : `${waited.runs} times`
+      } since its counts last started anew`;
     case 'result':
       return `${waited.by.join(' or ')} to give the result of what it asked for in ${waited.record}`;
     case 'slot':

@@ -59,10 +59,10 @@ the result, the owner answering; and the cell is entered meanwhile only for the 
 run of it has seen, and for the results of the calls such a run asked for, as the cell stood when the round began; a
 run of it that is at rest still goes on to hand its return in. A return that leaves its cell waiting owes nothing else:
 it may leave out the blocks its cell must write every time and deal with nothing. A result comes in a block of the
-cell's own, which runs the cell alone and which every run of it told of it takes; it is the end of a wait, named in no
-`dealt_with`. An entry replaced by a newer one of the same cell has no result, and what it asked the host for is
-cancelled. The answer runs the cell again by its trigger of an answer; a wait is read from the records, and a question
-is no call.
+cell's own, which the cell that gives it hands in with the end of its round, as one of its outputs, and which runs the
+asking cell alone and every run of it told of it takes; it is the end of a wait, named in no `dealt_with`. An entry
+replaced by a newer one of the same cell has no result, and what it asked the host for is cancelled. The answer runs
+the cell again by its trigger of an answer; a wait is read from the records, and a question is no call.
 Why: Each wait was an exception of its own, the question that waits, the round entered for the owner while its cell
 waited for calls, and those planned for a test run, and each left holes: a test run's commit moved the work's head, and
 the review ran on it while the implementation waited for the result; an implementation given a green result was sent
@@ -77,7 +77,21 @@ answer (work 4); so are the results a round answering them asked for, which othe
 round so entered whose question is answered while it runs owes nothing it was not told it owed: judged as the work
 stands when it returns, it was sent back for not writing what the answer, not the owner's words, asks. A result named
 as dealt with would be held to the rule that an act's block is answered (decision an-act-is-answered-by-what-runs-it),
-and a green result would send the cell back for answering it by nothing but its work.
+and a green result would send the cell back for answering it by nothing but its work. Written from outside in the
+middle of the round that gave it, a result ended the wait before that round ended, and the owner's word to a cell the
+wait had held behind it stopped the round, which lost what it ran from its history and ran again for nothing; handed in
+with the round's end, it is what the round did, on its return and on the chart.
+
+### decision a-wait-of-a-skipped-cell-is-put-away
+A wait of a cell that no longer applies is put away: it holds nothing, the cell that gives what it waits for gives it
+nothing, and it is waited for again once the cell applies again. Of the result of an entry, it is so unless a run of
+the cell that gives results ran meanwhile, told of the entry, and passed over it: the cell then waits for it no more,
+and asks again where it still needs it. Built for the entries of what a cell asks for in a record; for a question, the
+engine's record of the questions' standing still holds the merge, and the rule waits for that part.
+Why: The owner settled it for a question (2026-11-15): a question of a cell skipped is put away, holds nothing, and comes
+back when the cell runs again. Run for a cell that no longer applies, its entry ran later on another cell's commit,
+for a cell whose work no longer counted, and gave a result to none that read it. One rule for every wait keeps a
+skipped cell from holding, or spending, for what it no longer does.
 
 ### decision the-owner-turning-to-a-waiting-cell-enters-it-once
 While a cell waits (decision a-wait-holds-its-cell), the owner turning to it, by words or by an answer, enters it only

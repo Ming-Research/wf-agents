@@ -10,6 +10,7 @@ order = ["V1"]
 # the items it is made of have merged.
 data = ["background", "dependencies"]
 
-# The cell is an act of the engine's, which nothing sends back.
+# The cell is an act of the engine's, which hands in what the flow requires, so nothing sends it back: the count is
+# never reached, and is the one the engineer's flow has.
 [limits]
 again = 3

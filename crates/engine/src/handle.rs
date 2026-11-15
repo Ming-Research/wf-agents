@@ -299,11 +299,12 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             }
             let at = work.tick();
             work.records.let_go.push(LetGo { cell: cell.clone(), at });
-            // A run of the cell that rests at its limit waits for the owner's word, which this is.
+            // A run of the cell that rests at its limit waits for the owner's word, which this is: the round is told so in
+            // the words the message gives a call at a limit, and the result itself says nothing more.
             for call in at_limit(work, &cell) {
                 let at = work.tick();
                 work.records.done.push(Done { call, at });
-                work.results.insert(call, LET_GO.to_string());
+                work.results.insert(call, String::new());
             }
         }
         Event::Paused { by, why } => {
@@ -1061,9 +1062,6 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
         let_on,
     }
 }
-
-/// What the owner's word at a run's limit says, as the engine gives it where the owner lets the run's cell go on.
-const LET_GO: &str = "The owner let the cell go on.";
 
 /// The calls at a limit, of the runs of the cell, that have no result: the owner's word each waits for.
 fn at_limit(work: &Work, cell: &CellId) -> Vec<CallId> {

@@ -1551,7 +1551,7 @@ fn waited(waited: &Waited) -> String {
             format!("{}: {words}", by.join(" or "))
         }
         Waited::Limit { by, runs } => {
-            format!("the owner to let it go on, {by} having sent it back {runs} times in a row")
+            format!("the owner to let it go on, {by} having sent it back {runs} times since its counts last began anew")
         }
         Waited::Result { record, by } => format!(
             "{} to give the result of what it asked for in {record}",

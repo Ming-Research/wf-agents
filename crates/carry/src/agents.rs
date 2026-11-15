@@ -389,7 +389,7 @@ impl Inner {
         }
         let tests = &of.beside.acts.run_tests.given;
         tools::keep_wholes(work, (&of.beside.tools, flow, tests), &files).await?;
-        let results = tools::given(work, &of.beside.tools, &files);
+        let results = tools::given(work, (&of.beside.tools, tests), &files);
         let tested = tools::tested(work, flow, tests, &files);
         let hosted = match of.project.github {
             Some(_) => system::Hosted::GitHub,

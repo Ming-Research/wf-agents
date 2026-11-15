@@ -225,7 +225,7 @@ fn on<H: Host>(
         None => acts,
     };
     let watch = acts.watch(WATCH);
-    let tools = Tools::new(query);
+    let tools = Tools::new(query, words.run_tests.as_a_tool.clone());
     (Arc::new(acts), Arc::new(tools), watch, main)
 }
 

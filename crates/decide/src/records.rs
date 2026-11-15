@@ -347,8 +347,8 @@ pub enum Cause {
 }
 
 impl Cause {
-    /// Whether the cause is no way round: a first run, or a version that a person, the outside or a cell before this
-    /// one wrote.
+    /// Whether the cause comes from no cell after this one: a first run, or a version that a person, the outside or a
+    /// cell before this one wrote, which no sender sent back (decision the-same-sender-again).
     pub fn forward(&self) -> bool {
         match self {
             Cause::NoRecord => true,

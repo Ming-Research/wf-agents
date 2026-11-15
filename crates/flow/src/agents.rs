@@ -707,6 +707,9 @@ pub struct RunTests {
     pub local: LocalWords,
     #[serde(default)]
     pub places: BTreeMap<String, BTreeMap<String, String>>,
+    /// What a call of the tool of the same name is answered, from a work kept from before the cells asked for tests in
+    /// a record, where the call's cell writes the record: `{name}` the record's name.
+    pub as_a_tool: String,
 }
 
 /// What a result of the tests a cell asked for says of the tests and checks a run found. `{...}` are filled in a run.

@@ -172,9 +172,21 @@ describe('the panel of the item selected', () => {
     const [itemLine, workLine] = lines(el);
     expect(itemLine).toBe('Open Added 1.1d ago Waits for 11 to merge');
     expect(workLine).toContain(
-      'Waiting for you Review the plan reached its limit: review sent it back 3 times in a row W12',
+      'Waiting for you Review the plan reached its limit: review sent it back 3 times since its counts last started anew W12',
     );
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
+  });
+
+  it('says a work that waits for the tests a cell asked for at that cell, and the cell that runs them as who gives it', () => {
+    const twelve = itemOf(12);
+    const now = {
+      kind: 'waits' as const,
+      at: 'implement',
+      on: [{ kind: 'result' as const, record: 'run_tests', by: ['test'] }],
+    };
+    const el = draw({ ...twelve, work: { ...twelve.work, now } }, answered([]));
+    const [, workLine] = lines(el);
+    expect(workLine).toContain('Waiting for Write the tests at Implement, for the result of what it asked for in run_tests');
   });
 
   it("names the item's project by its key and value, and nothing for an item added before items had projects", () => {

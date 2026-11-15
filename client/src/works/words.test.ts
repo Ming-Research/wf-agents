@@ -51,7 +51,7 @@ describe('what a work does now, in words', () => {
     );
     expect(nowWords({ kind: 'waits', at: 'merge', on: [precondition, { kind: 'limit', by: 'review', runs: 3 }] })).toBe(
       'Waits at merge for The owner approved the merge, which the owner can make hold; ' +
-        'the owner to let the cell go on: review sent it back 3 times in a row',
+        'the owner to let the cell go on: review sent it back 3 times since its counts last started anew',
     );
     expect(nowWords({ kind: 'next', cell: 'plan' })).toBe('About to go on at plan');
   });
@@ -90,7 +90,9 @@ describe('what a work does now, in words', () => {
       'No cell that judged the work says it is not settled, which the owner or cell T1 can make hold',
     );
     expect(waitedWords(checked)).toBe('The check before the merge passed, which cell M1 can make hold');
-    expect(waitedWords({ kind: 'limit', by: 'review', runs: 1 })).toBe('the owner to let the cell go on: review sent it back once');
+    expect(waitedWords({ kind: 'limit', by: 'review', runs: 1 })).toBe(
+      'the owner to let the cell go on: review sent it back once since its counts last started anew',
+    );
     const tested: Waited = { kind: 'result', record: 'run_tests', by: ['T3'] };
     expect(waitedWords(tested)).toBe('T3 to give the result of what it asked for in run_tests');
     const limit: Waited = { kind: 'limit', by: 'review', runs: 3 };

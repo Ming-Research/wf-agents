@@ -176,11 +176,12 @@ run next all the same, and the note would be filled, since the new session lacks
     and for nothing else. Words that did not reach the round before it ended are still new to the cell, and it runs
     again.
 
-36. While the cell spoken to has no round under way and waits for the result of a call, the engine enters it for the
-    words, and it goes on waiting for the result.
+36. While the cell spoken to has no round under way and waits, for the result of a call, for the result of what it
+    asked for in a record or for the answer to a question, the engine enters it for the words, and it goes on waiting.
 
 37. While a round of a cell later in the flow is under way, that round is told to stop, the cell spoken to runs, and
     the flow comes back to the cell that stopped: a round that stopped so has dealt with nothing (8), and its cell runs
-    again.
+    again. Words to a cell that a waiting cell before it holds back stop nothing: the cell spoken to runs only once the
+    wait is over, and the round under way may be the very one that ends it.
 
 38. A round that says it has dealt with the owner's words and has handed in no answer has its return sent back.

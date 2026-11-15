@@ -31,18 +31,33 @@ struct Inner {
     held: Held<(WorkNumber, CallId), CallReply>,
     /// The tool `query`, closed until the settings open it.
     query: Querying,
+    /// What a call is answered that names a record its cell writes, `{name}` the record's name: in a work kept from
+    /// before, a cell asked for tests by a tool, which it now asks for in the record.
+    as_a_tool: String,
 }
 
 impl Tools {
-    /// The tools, the tool `query` as this says it is.
-    pub fn new(query: Querying) -> Self {
+    /// The tools, the tool `query` as this says it is, a call that names a record its cell writes answered so.
+    pub fn new(query: Querying, as_a_tool: String) -> Self {
         Tools {
             inner: Arc::new(Inner {
                 held: Held::new(),
                 query,
+                as_a_tool,
             }),
         }
     }
+}
+
+/// Whether the call names a record its run's cell writes: what it asked for is asked for by an entry of it now.
+fn names_a_record(call: &ToolCall) -> bool {
+    let block = BlockId::from(call.name.as_str());
+    let cell = (call.kept.records.started.iter())
+        .find(|s| s.run == call.run)
+        .map(|s| &s.cell);
+    let writes = (cell.and_then(|cell| call.flow.flow.place(cell)))
+        .is_some_and(|i| call.flow.flow.cells()[i].outputs.contains(&block));
+    writes && call.flow.flow.adds_entries(&block)
 }
 
 impl ToolsTrait for Tools {
@@ -68,6 +83,8 @@ impl ToolsTrait for Tools {
                         WITHDRAWN.to_string()
                     }
                 }
+            } else if names_a_record(&call) {
+                flow::agents::fill(&inner.as_a_tool, &[("name", &call.name)])
             } else {
                 let tools = flow::form::tools(&call.flow).join(", ");
                 format!("No such tool: {}. The tools are: {tools}.", call.name)
@@ -96,9 +113,14 @@ impl Tools {
 
 /// Each result of the work a message gives otherwise than the records hold it, the records holding each whole: a
 /// result of the tool `query` longer than its file says a message gives, cut as the tool cuts it; one of a tool whose
-/// file gives a bound, cut at it, with the words that follow a cut one; and any, its end of whitespace left off. A
-/// cut one says which file of `dir` holds its whole ([`keep_wholes`]).
-pub fn given(work: &work::Work, tools: &BTreeMap<String, Tool>, dir: &Path) -> BTreeMap<CallId, String> {
+/// file gives a bound, cut at it, with the words that follow a cut one; one of a tool no file defines now, as a call of
+/// `run_tests` kept from before the cells asked for tests in a record, as the tests' results are (`unknown`); and any,
+/// its end of whitespace left off. A cut one says which file of `dir` holds its whole ([`keep_wholes`]).
+pub fn given(
+    work: &work::Work,
+    (tools, unknown): (&BTreeMap<String, Tool>, &ResultGiven),
+    dir: &Path,
+) -> BTreeMap<CallId, String> {
     (work.calls.iter())
         .filter_map(|(call, asked)| {
             let work::Call::Asked(work::Ask::Tool { name, input }) = asked else {
@@ -109,7 +131,7 @@ pub fn given(work: &work::Work, tools: &BTreeMap<String, Tool>, dir: &Path) -> B
             let file = file_of(dir, *call).display().to_string();
             let given = match tool.and_then(|t| t.given_bytes) {
                 Some(bytes) if name == QUERY => Querying::cut(result.trim_end(), input, bytes, &file),
-                _ => cut(result, tool.and_then(|t| t.given.as_ref()), &file),
+                _ => cut(result, tool.map_or(Some(unknown), |t| t.given.as_ref()), &file),
             };
             Some((*call, given))
         })
@@ -176,7 +198,11 @@ pub fn wholes<'a>(
             return None;
         };
         let result = work.results.get(call)?;
-        is_cut(name, result, tools.get(name)).then(|| (file_of(dir, *call), result.as_str()))
+        let cut = match tools.get(name) {
+            Some(tool) => is_cut(name, result, Some(tool)),
+            None => result.len() > tests.bound,
+        };
+        cut.then(|| (file_of(dir, *call), result.as_str()))
     });
     let tested = (results_of_tests(work, flow))
         .filter(|(_, _, result)| result.len() > tests.bound)
@@ -345,10 +371,35 @@ mod tests {
         let of = &given[&(BlockId::from("i1_tested"), Seq(5))];
         assert!(of.contains(&file.display().to_string()), "{of}");
         assert!(!of.contains("the last line"), "the message is cut");
-        let cut: serde_json::Value = serde_json::from_str(&super::given(&work, &tools, &dir)[&CallId(2)]).unwrap();
+        let cut: serde_json::Value =
+            serde_json::from_str(&super::given(&work, (&tools, &tests), &dir)[&CallId(2)]).unwrap();
         assert_eq!(cut["cut"]["file"], dir.join("2.txt").display().to_string());
         // Nothing of it is in the data directory the works' worktrees are in.
         assert!(file.starts_with(temp.path()));
+    }
+
+    // A result of `run_tests` asked as a tool, kept from before the cells asked for tests in a record, whose tool no
+    // file defines now, is given cut as the tests' results are, its whole in a file, never whole however long. Well
+    // under a second alone; no other test holds such a result.
+    #[tokio::test]
+    async fn a_result_of_a_tool_no_file_defines_now_is_given_cut_as_the_tests_results_are() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = files_dir(temp.path(), TAG, WORK);
+        let mut work = work_with("short", "{\"rows\": []}");
+        let asked = work::Call::Asked(work::Ask::Tool {
+            name: "run_tests".to_string(),
+            input: "{}".to_string(),
+        });
+        let whole = format!("{}the last line\n", "a line of the tests\n".repeat(10));
+        work.calls.insert(CallId(3), asked);
+        work.results.insert(CallId(3), whole.clone());
+        let (tools, tests) = bounded();
+        let flow = engineer();
+        keep_wholes(&work, (&tools, &flow, &tests), &dir).await.unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("3.txt")).unwrap(), whole);
+        let given = &super::given(&work, (&tools, &tests), &dir)[&CallId(3)];
+        assert!(!given.contains("the last line"), "{given}");
+        assert!(given.contains(&dir.join("3.txt").display().to_string()), "{given}");
     }
 
     #[tokio::test]
@@ -387,10 +438,63 @@ mod tests {
         assert!(!old.exists() && !young.exists());
     }
 
+    // A call of `run_tests` as a tool, in a work kept from before the cells asked for tests in a record, is answered,
+    // where its run's cell writes the record, that it is asked for there now, in the words of the act's file, so that
+    // the run goes on to write an entry; of a cell that does not write it, as any tool the engine does not have. Well
+    // under a second alone; no other test holds what such a call is answered.
+    #[tokio::test]
+    async fn a_call_of_run_tests_as_a_tool_is_told_to_write_an_entry_where_its_cell_writes_the_record() {
+        let flow = Arc::new(engineer());
+        let words = crate::acts::words().run_tests.as_a_tool;
+        let tools = Tools::new(Querying::closed(), words.clone());
+        for (n, cell) in ["I1", "T1"].into_iter().enumerate() {
+            let (id, run) = (CallId(n as u64 + 1), decide::RunId(n as u64 + 1));
+            let mut kept = work::Work::default();
+            let at = kept.tick();
+            kept.records.started.push(decide::Started {
+                run,
+                cell: cell.into(),
+                at,
+                because: Vec::new(),
+                basis: BTreeMap::new(),
+            });
+            let first = store::First {
+                title: "Greet the user".to_string(),
+                level: None,
+                project: None,
+                depends_on: Vec::new(),
+                tags: Vec::new(),
+            };
+            let call = ToolCall {
+                work: WORK,
+                flow: flow.clone(),
+                run,
+                call: id,
+                name: "run_tests".to_string(),
+                input: "{\"tests\": []}".to_string(),
+                item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
+                kept: Arc::new(kept),
+            };
+            let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+            tools.call(call, CallReply::new(WORK, id, to));
+            let Some(service::Message::Happened {
+                event: engine::Event::Done { result, .. },
+                ..
+            }) = said.recv().await
+            else {
+                panic!("the call is answered with its result");
+            };
+            match cell {
+                "I1" => assert_eq!(result, flow::agents::fill(&words, &[("name", "run_tests")])),
+                _ => assert_eq!(result, "No such tool: run_tests. The tools are: query."),
+            }
+        }
+    }
+
     #[tokio::test]
     async fn a_tool_the_engine_does_not_have_is_none_and_run_tests_is_no_tool() {
         let flow = Arc::new(engineer());
-        let tools = Tools::new(Querying::closed());
+        let tools = Tools::new(Querying::closed(), String::new());
         for (n, name) in ["run_tests", "ci", "check_before"].into_iter().enumerate() {
             let id = CallId(n as u64 + 1);
             let first = store::First {

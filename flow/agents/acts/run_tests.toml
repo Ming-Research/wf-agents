@@ -2,6 +2,10 @@
 # (`../../triggers/of_a_cell/on_tested.toml`), the tests and checks run in the project's CI. A red test is what the run
 # found, not a failure of the act: the round fails only where the host could not be reached.
 
+# What a call of `run_tests` as a tool is answered, from a work kept from before the cells asked for tests in a record,
+# where the call's cell writes the record: `{name}` the record's name.
+as_a_tool = "`{name}` is no tool now: ask for the tests by writing `{name}` in `outputs`, as its words there say."
+
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is
 # whole, `{file}` the file that holds it whole.

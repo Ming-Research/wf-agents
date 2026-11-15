@@ -2,6 +2,8 @@
 # (`../../triggers/of_a_cell/on_tested.toml`), the tests and checks run in the project's CI. A red test is what the run
 # found, not a failure of the act: the round fails only where the host could not be reached.
 
+as_a_tool = "`{name}` is a record now."
+
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is
 # whole, `{file}` the file that holds it whole.
