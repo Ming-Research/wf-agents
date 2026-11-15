@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use decide::{
     Abandoned, Answered, BlockId, CallId, Called, CellId, Done, Finished, LetGo, Pause, PutIn, Questioned, Returned,
-    Round, RunId, Seq, Started, Write, Written,
+    Round, RunId, Seq, Started, Write, Written, holds_nothing,
 };
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
@@ -897,4 +897,57 @@ pub(crate) fn from_name<T: DeserializeOwned>(table: &'static str, name: String) 
         table,
         message: e.to_string(),
     })
+}
+
+/// Sets `empty` of every version of the writes and of what was written from outside that holds nothing, from its
+/// content, by the test the engine applies as it writes one. A version with no content is a fault, not a version that
+/// holds something.
+pub(crate) fn mark_empty(db: &Connection) -> Result<(), Fault> {
+    let missing = |what: &str, work: i64| {
+        Fault::Database(format!("the content of a version of {what} of work {work} is missing"))
+    };
+    let mut written: Vec<(i64, i64, Option<String>, Option<String>)> = Vec::new();
+    {
+        let mut query = db.prepare(
+            "SELECT w.work, w.at, w.value, c.content FROM written w \
+             LEFT JOIN contents c ON c.work = w.work AND c.block = w.block AND c.version = w.at",
+        )?;
+        let found = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?;
+        for row in found {
+            written.push(row?);
+        }
+    }
+    for (work, at, value, content) in written {
+        let content = content.ok_or_else(|| missing("what was written", work))?;
+        if holds_nothing(value.as_deref(), &content) {
+            db.execute(
+                "UPDATE written SET empty = 1 WHERE work = ?1 AND at = ?2",
+                params![work, at],
+            )?;
+        }
+    }
+    let mut writes: Vec<(i64, i64, i64, Option<String>, Option<String>)> = Vec::new();
+    {
+        let mut query = db.prepare(
+            "SELECT w.work, w.run, w.n, w.value, c.content FROM writes w \
+             JOIN finished f ON f.work = w.work AND f.run = w.run \
+             LEFT JOIN contents c ON c.work = w.work AND c.block = w.block AND c.version = f.at",
+        )?;
+        let found = query.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        })?;
+        for row in found {
+            writes.push(row?);
+        }
+    }
+    for (work, run, n, value, content) in writes {
+        let content = content.ok_or_else(|| missing("a write", work))?;
+        if holds_nothing(value.as_deref(), &content) {
+            db.execute(
+                "UPDATE writes SET empty = 1 WHERE work = ?1 AND run = ?2 AND n = ?3",
+                params![work, run, n],
+            )?;
+        }
+    }
+    Ok(())
 }

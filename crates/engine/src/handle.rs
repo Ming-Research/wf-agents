@@ -247,7 +247,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 _ => {}
             }
             let at = work.tick();
-            let empty = value.is_none() && content.trim().is_empty();
+            let empty = decide::holds_nothing(value.as_deref(), &content);
             work.contents.insert((block.clone(), at), content);
             work.records.written.push(Written {
                 block,
@@ -923,7 +923,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
-                empty: h.value.is_none() && h.content.trim().is_empty(),
+                empty: decide::holds_nothing(h.value.as_deref(), &h.content),
             })
             .collect()
     };

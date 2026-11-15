@@ -84,6 +84,10 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/202611151600-say-whether-a-version-holds-anything.sql"),
 ];
 
+/// The migration that made the `empty` column, counted from 1: where a database was made before it, what each version
+/// holds is read from its content once it has run, as the engine reads the content it writes.
+const EMPTY_COLUMN_MADE_BY: usize = 17;
+
 // The migrations bring a database of every earlier version to this one.
 const _: () = assert!(MIGRATIONS.len() as u32 + 1 == SCHEMA_VERSION);
 
@@ -235,8 +239,11 @@ impl Store {
                 // Made with an earlier version: each migration from it on is run, in this transaction, each replacing
                 // the version's one row with its own.
                 Some(earlier @ 1..SCHEMA_VERSION) => {
-                    for migration in &MIGRATIONS[earlier as usize - 1..] {
+                    for (i, migration) in MIGRATIONS.iter().enumerate().skip(earlier as usize - 1) {
                         tx.execute_batch(migration)?;
+                        if i + 1 == EMPTY_COLUMN_MADE_BY {
+                            tables::mark_empty(&tx)?;
+                        }
                     }
                 }
                 _ => {

@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::flow::{BlockId, CellId};
 
+/// Whether a version holds nothing: it has no value, and its content is empty, or only whitespace. The engine records
+/// it as it writes a version, and the store works it out so for a version kept before it was recorded.
+pub fn holds_nothing(value: Option<&str>, content: &str) -> bool {
+    value.is_none() && content.trim().is_empty()
+}
+
 /// The place of an entry in the order of what happened to a work.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Seq(pub u64);
