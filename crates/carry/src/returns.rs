@@ -310,10 +310,11 @@ fn answered(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec
 
 /// Each block the return writes, in the order the cell writes them, then any other in the order of its name: one the
 /// cell writes there, as a string, as a choice's value with its line of why, or, of a block whose file gives it a
-/// shape, as the JSON of that shape it holds ([`shaped`]), which is kept as its content. A block that is not among the
-/// cell's outputs, one in a shape neither a block nor a choice has, and one not of the shape its file gives it, is
-/// found. Beside them, what the return writes of each record of the work's questions, by the record, which is read as
-/// the questions it asks: their entries are the engine's to write.
+/// shape, as the JSON of that shape it holds ([`shaped`]), which is kept as its content, or as a text that holds
+/// nothing, kept as it is. A block that is not among the cell's outputs, one in a shape neither a block nor a choice
+/// has, and one not of the shape its file gives it, is found. Beside them, what the return writes of each record of the
+/// work's questions, by the record, which is read as the questions it asks, none where it holds nothing: their entries
+/// are the engine's to write.
 fn writes(
     outcome: &Outcome,
     flow: &Compiled,
@@ -337,6 +338,23 @@ fn writes(
         }
         let declared = flow.blocks.get(&block);
         let matters = !outcome.meaning_unchanged.contains(name);
+        // A text that holds nothing says nothing of a block of a shape: it is handed in holding nothing, for the run's
+        // check to take as no write where it takes nothing away, and of the questions it asks none (decision
+        // a-write-of-nothing-only-empties).
+        if declared.is_some_and(|d| d.shape.is_some())
+            && let Value::String(text) = &outcome.outputs[name]
+            && decide::holds_nothing(None, text)
+        {
+            if !of_questions(flow, &block) {
+                handed.push(Handed {
+                    block,
+                    content: text.clone(),
+                    matters,
+                    value: None,
+                });
+            }
+            continue;
+        }
         // A block of a shape is held to it as the return is read, the questions among them: the form gives the shape.
         if let Some(shape) = declared.and_then(|d| d.shape.as_ref()) {
             let Some(value) = shaped(&outcome.outputs[name], shape) else {
