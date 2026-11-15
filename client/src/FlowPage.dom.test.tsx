@@ -466,7 +466,6 @@ describe('what an agent is sent', () => {
     held: [],
     heldNew: [],
     whole: [],
-    unwritten: [],
     items: [],
     after: [],
     ...fields,
@@ -526,7 +525,6 @@ describe('what an agent is sent', () => {
           pieces: [text('The request:\n'), { piece: 'slot', name: 'request' }],
           held: [text('The request is as before.')],
           heldNew: [text('The request is here already.')],
-          unwritten: [text('The request has no version yet.')],
         }),
         part({
           what: 'task',
@@ -568,7 +566,7 @@ describe('what an agent is sent', () => {
     // The content of a block is shown as sent, with each place filled in a run by its name, and what is sent where the
     // session holds it already; the task is folded.
     expect(items(partOf(panel, 'Message'))).toEqual([
-      '6 request kind latest blocks/request.toml The request: {request} held The request is as before. held_new The request is here already. unwritten The request has no version yet.',
+      '6 request kind latest blocks/request.toml The request: {request} held The request is as before. held_new The request is here already.',
       '7 task cells/plan.toml 15 characters Show the text',
     ]);
   });

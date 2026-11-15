@@ -23,11 +23,8 @@ use crate::text::{self, Piece, fill, filled, join, put, with_slots, written};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Stands {
-    /// No one has written it yet, and no round of the cell in the session was told so since the session last held
-    /// nothing: the line that says so is sent.
+    /// No one has written it yet: it is left out.
     Unwritten,
-    /// No one has written it yet, and a round of the cell in the session was told so: nothing is sent of it.
-    HoldsUnwritten,
     /// The session lacks its latest version and the version the cell last worked from.
     Lacks,
     /// The session holds the version the cell last worked from, and lacks a later one.
@@ -46,7 +43,6 @@ impl Stands {
     pub fn name(self) -> &'static str {
         match self {
             Stands::Unwritten => "unwritten",
-            Stands::HoldsUnwritten => "holds_unwritten",
             Stands::Lacks => "lacks",
             Stands::HoldsLast => "holds_last",
             Stands::HoldsLatest => "holds_latest",
@@ -235,8 +231,6 @@ pub enum Form {
     Held,
     /// A datum's content whole, in place of its text, where the session lacks what the text needs.
     Whole,
-    /// What stands in a datum's place where it has no version yet.
-    Unwritten,
 }
 
 /// A part of the message as one entry sends it.
@@ -269,8 +263,6 @@ pub struct Defined {
     pub held_new: Vec<Piece>,
     /// Of a datum, what is sent in place of its text where the session lacks what the text needs.
     pub whole: Vec<Piece>,
-    /// Of a datum, what is sent where it has no version yet and no round of the cell in the session was told so.
-    pub unwritten: Vec<Piece>,
     /// Of the triggers, the line of each trigger of the cell, by its name, in the cell's order: the lines of those that
     /// ran it come after `pieces`, and then `after`.
     pub items: Vec<(String, Vec<Piece>)>,
@@ -299,7 +291,6 @@ pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined>
             held: build.held(part),
             held_new: Vec::new(),
             whole: Vec::new(),
-            unwritten: Vec::new(),
             items: Vec::new(),
             after: Vec::new(),
         };
@@ -316,7 +307,6 @@ pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined>
                         held: datum.held,
                         held_new: datum.held_new,
                         whole: datum.whole,
-                        unwritten: datum.unwritten,
                         items: Vec::new(),
                         after: Vec::new(),
                     });
@@ -468,14 +458,13 @@ pub fn text(sent: &[Sent]) -> String {
 }
 
 /// The forms of a datum's content: its kind's text, what stands in its place where the session holds it, as the cell
-/// worked from an earlier version or from none, its content whole where the kind's text needs what the session lacks,
-/// and what stands in its place where it has no version yet.
+/// worked from an earlier version or from none, and its content whole where the kind's text needs what the session
+/// lacks.
 struct DatumForms {
     text: Vec<Piece>,
     held: Vec<Piece>,
     held_new: Vec<Piece>,
     whole: Vec<Piece>,
-    unwritten: Vec<Piece>,
 }
 
 struct Build<'a> {
@@ -884,7 +873,6 @@ impl Build<'_> {
             held: held_as(&given.held),
             held_new: held_as(&given.held_new),
             whole,
-            unwritten: form(&given.unwritten),
         }
     }
 
@@ -893,8 +881,7 @@ impl Build<'_> {
         let forms = self.datum(block, kind);
         let whole = !forms.whole.is_empty();
         match stands {
-            Stands::Unwritten => Some((Form::Unwritten, forms.unwritten)),
-            Stands::HoldsUnwritten | Stands::Holds => None,
+            Stands::Unwritten | Stands::Holds => None,
             Stands::HoldsLatest => Some((Form::Held, forms.held)),
             Stands::HoldsNew => Some((Form::Held, forms.held_new)),
             Stands::Lacks if whole => Some((Form::Whole, forms.whole)),

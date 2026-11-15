@@ -1,18 +1,22 @@
-//! What the tests of the context manager share: a small flow, its works taken through the engine's own loop, and the
-//! words beside the flows of the flow crate's tests.
+//! What the tests of the context manager share: a small flow, laid out one thing to a file, its works taken through
+//! the engine's own loop, and the words beside the flows of the flow crate's tests.
 //!
 //! The flow: `plan` and `build` on the line `engineer`, `review` on the line `reviewer`, and `close`, which nothing
 //! runs, so that a work never ends. People write `request` and `notes`, and the plan, the opinions and the verdict
 //! as well as the cells that write them, so that a return may write over a version it never saw. `plan` is run by the request and by
-//! the review's opinions, and given the request, the notes, the opinions and its own plan; `build` is run by the plan
-//! and given it, the request and its own code, and takes main in; `review` is run by the code and given it, the plan
-//! and the notes, and hands in its verdict every time, which `close` is given. Each kind of datum is given by some
-//! cell: `latest`, `last_and_latest` and `all`. People write `tree` too, which stands for the design tree: `plan` and
-//! `build` are given it, and what changed in it the carrier says, as git would say the files that changed.
+//! the review's opinions, and given the request, the notes, the opinions, its own plan and the record of the questions
+//! and the answers; `build` is run by the plan and given it, the request and its own code, and takes main in; `review`
+//! is run by the code, by the owner's answer to a question of its own and by the owner's words to it, is given the
+//! code, the plan, the notes, what is said to the work and the record of the questions and the answers, and hands in
+//! its verdict every time, which `close` is given; it alone asks the owner. Each kind of datum is given by some cell:
+//! `latest`, `last_and_latest` and `all`. People write `tree` too, which stands for the design tree: `plan` and `build`
+//! are given it, and what changed in it the carrier says, as git would say the files that changed. A trigger of a
+//! datum is named as the datum. An entry of the record of the questions and the answers begins with the question's
+//! name, the version it is of and what it says of it: `asked`, `withdrawn` or `answered`.
 
 #![allow(dead_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use context::{Changes, Entered, For, Main};
@@ -25,36 +29,10 @@ use flow::{CellSpec, Compiled, Has, Source};
 const FLOW: &str = r#"
 name = "sessions"
 order = ["plan", "build", "review", "close"]
+data = ["discussion", "q_and_a"]
 
 [limits]
 again = 1000
-
-[lines.engineer]
-[lines.reviewer]
-
-[blocks.request]
-people = true
-
-[blocks.notes]
-people = true
-
-[blocks.finish]
-people = true
-
-[blocks.tree]
-people = true
-
-[blocks.plan]
-people = true
-
-[blocks.code]
-
-[blocks.opinions]
-people = true
-
-[blocks.verdict]
-values = ["yes", "no"]
-people = true
 "#;
 
 const CELLS: [(&str, &str); 4] = [
@@ -66,24 +44,17 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Write the plan for the request."
-runs_on = ["request", "opinions"]
-given = ["request", "notes", "opinions", "plan", "tree"]
+triggered_by = ["request", "opinions"]
+context = ["request", "notes", "opinions", "plan", "tree", "q_and_a"]
 outputs = ["plan"]
 
-[give.tree]
-kind = "last_and_latest"
-
-[give.request]
-kind = "latest"
-
-[give.notes]
-kind = "all"
-
-[give.opinions]
-kind = "last_and_latest"
-
-[give.plan]
-kind = "latest"
+[kinds]
+request = "latest"
+notes = "all"
+opinions = "last_and_latest"
+plan = "latest"
+tree = "last_and_latest"
+q_and_a = "all"
 "#,
     ),
     (
@@ -95,21 +66,15 @@ effort = "high"
 line = "engineer"
 task = "Build what the plan says."
 takes_main = true
-runs_on = ["plan"]
-given = ["plan", "request", "code", "tree"]
+triggered_by = ["plan"]
+context = ["plan", "request", "code", "tree"]
 outputs = ["code"]
 
-[give.tree]
-kind = "last_and_latest"
-
-[give.plan]
-kind = "last_and_latest"
-
-[give.request]
-kind = "latest"
-
-[give.code]
-kind = "latest"
+[kinds]
+plan = "last_and_latest"
+request = "latest"
+code = "latest"
+tree = "last_and_latest"
 "#,
     ),
     (
@@ -120,19 +85,17 @@ kind = "agent"
 effort = "high"
 line = "reviewer"
 task = "Review the code."
-runs_on = ["code"]
-given = ["code", "plan", "notes"]
-outputs = ["opinions", "verdict"]
+triggered_by = ["code", "on_spoken", "on_answer"]
+context = ["code", "plan", "notes", "discussion", "q_and_a"]
+outputs = ["opinions", "verdict", "discussion", "q_and_a"]
 must_write = ["verdict"]
 
-[give.code]
-kind = "last_and_latest"
-
-[give.plan]
-kind = "latest"
-
-[give.notes]
-kind = "all"
+[kinds]
+code = "last_and_latest"
+plan = "latest"
+notes = "all"
+discussion = "all"
+q_and_a = "all"
 "#,
     ),
     (
@@ -143,29 +106,99 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Close the work."
-runs_on = ["finish"]
-given = ["finish", "verdict"]
+triggered_by = ["finish"]
+context = ["finish", "verdict"]
 outputs = []
 
-[give.finish]
-kind = "latest"
-
-[give.verdict]
-kind = "latest"
+[kinds]
+finish = "latest"
+verdict = "latest"
 "#,
     ),
 ];
 
+/// The files of the small flow beside its cells, and those beside the flows it names, by their paths from its
+/// directory.
+const FILES: [(&str, &str); 16] = [
+    ("lines/engineer.toml", ""),
+    ("lines/reviewer.toml", ""),
+    ("blocks/request.toml", "from = \"owner\"\n"),
+    ("blocks/notes.toml", "from = \"owner\"\n"),
+    ("blocks/finish.toml", "from = \"owner\"\n"),
+    ("blocks/tree.toml", "from = \"owner\"\n"),
+    ("blocks/plan.toml", "from = \"owner\"\n"),
+    ("blocks/code.toml", ""),
+    ("blocks/opinions.toml", "from = \"owner\"\n"),
+    ("blocks/verdict.toml", "values = [\"yes\", \"no\"]\nfrom = \"owner\"\n"),
+    (
+        "../data/discussion.toml",
+        "from = \"words\"\n\n[writes]\nowner = \"The owner:\\n\\n{words}\"\nreply = \"An agent:\\n\\n{reply}\"\n",
+    ),
+    ("../data/q_and_a.toml", Q_AND_A),
+    (
+        "../triggers/of_a_datum/changed.toml",
+        "name = \"{datum}\"\nread = [\"{datum}\"]\n",
+    ),
+    (
+        "../triggers/of_a_cell/on_spoken.toml",
+        "block = \"{cell}_spoken_to\"\nfrom = \"words\"\nread = [\"discussion\"]\n",
+    ),
+    (
+        "../triggers/of_a_cell/on_answer.toml",
+        "block = \"{cell}_answered\"\nfrom = \"answer\"\nread = [\"q_and_a\"]\n",
+    ),
+    (
+        "../agents/waits.toml",
+        include_str!("../../../../flow/agents/waits.toml"),
+    ),
+];
+
+/// The record of the questions and the answers, each entry in words that begin with the question's name, the version
+/// it is of and what it says of it.
+const Q_AND_A: &str = r#"from = "answer"
+
+[shape]
+type = "array"
+
+[writes]
+text = "{question} {version} answered {option}{why}"
+why = " because {why}"
+asked = "{question} {version} asked {ask}{options}{recommends}{waits}"
+asked_anew = "{question} {version} asked anew of {was}: {ask}{options}{recommends}{waits}"
+option = " / {option} {does}"
+recommends = " / recommends {option}"
+waits = " / waits"
+goes_on = " / goes on"
+withdrawn = "{question} {version} withdrawn of {was}{why}"
+"#;
+
 /// The small flow, compiled.
 pub fn flow() -> Compiled {
     let source = Source {
+        laid_out: true,
         flow: FLOW.to_string(),
         cells: (CELLS.iter())
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect::<BTreeMap<_, _>>(),
-        ..Default::default()
+        rules: BTreeMap::new(),
+        files: (FILES.iter())
+            .map(|(path, text)| (path.to_string(), text.to_string()))
+            .collect(),
     };
-    flow::compile(&source, &Has::default()).expect("the small flow compiles")
+    let sources = ["answer", "words"].map(str::to_string);
+    let has = Has {
+        sources: BTreeSet::from(sources),
+        ..Has::default()
+    };
+    flow::compile(&source, &has).unwrap_or_else(|faults| panic!("the small flow does not compile: {faults:#?}"))
+}
+
+/// What an entry of the record of the questions and the answers says, as its words begin: the question's name, the
+/// version it is of, and `asked`, `withdrawn` or `answered`.
+pub fn entry(content: &str) -> Option<(&str, u64, &str)> {
+    let mut words = content.split_whitespace();
+    let (name, version, says) = (words.next()?, words.next()?, words.next()?);
+    Some((name, version.parse().ok()?, says))
 }
 
 /// What is written beside the flows, as the flow crate's tests have it.

@@ -21,13 +21,7 @@ fn of(cell_id: &str) -> Vec<Named> {
 }
 
 fn holding(named: &Named) -> bool {
-    let held = [
-        Stands::HoldsLast,
-        Stands::HoldsLatest,
-        Stands::HoldsNew,
-        Stands::Holds,
-        Stands::HoldsUnwritten,
-    ];
+    let held = [Stands::HoldsLast, Stands::HoldsLatest, Stands::HoldsNew, Stands::Holds];
     named.situation.data.values().any(|s| held.contains(s))
 }
 
@@ -67,23 +61,20 @@ fn a_datum_certainly_written_when_the_cell_runs_is_never_unwritten() {
     // The request starts the work, and the plan, which the plan cell writes on no condition, comes before the build.
     for named in of("build") {
         for block in ["request", "plan"] {
-            let stands = named.situation.data[block];
-            assert!(
-                ![Stands::Unwritten, Stands::HoldsUnwritten].contains(&stands),
+            assert_ne!(
+                named.situation.data[block],
+                Stands::Unwritten,
                 "{}: {block}",
                 named.name
             );
         }
     }
-    // The tree, which only people write, may be: on a later entry the build was told so by its own entry before, on a
-    // first entry or one reopened it was not, though the plan before it on its line is given it.
-    let tree = |stands: Stands| (of("build").into_iter()).filter(move |n| n.situation.data["tree"] == stands);
-    for entry in ["first-", "reopened-"] {
-        assert!(tree(Stands::Unwritten).any(|n| n.name.starts_with(entry)), "{entry}");
-    }
-    assert!(tree(Stands::HoldsUnwritten).next().is_some());
-    assert!(tree(Stands::HoldsUnwritten).all(|n| n.name.starts_with("later-")));
-    assert!(tree(Stands::Unwritten).all(|n| !n.name.starts_with("later-")));
+    // The tree, which only people write, may be.
+    assert!(
+        of("build")
+            .iter()
+            .any(|n| n.situation.data["tree"] == Stands::Unwritten)
+    );
 }
 
 #[test]

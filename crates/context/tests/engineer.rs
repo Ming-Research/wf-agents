@@ -10,7 +10,7 @@ use std::path::Path;
 use context::Stands;
 use decide::{BlockId, CellId, Outsider};
 use engine::spoken::{self, NoOne, To};
-use engine::{Came, Effect, Event, Fill, Handed, Tool};
+use engine::{Came, Effect, Event, Fill, Handed};
 use flow::{Compiled, Has};
 use support::Sim;
 use work::{Question, Said, Way};
@@ -685,76 +685,4 @@ fn a_cell_that_returns_what_the_owner_reads_is_told_its_language_once_with_the_l
     assert_eq!(entered.text.matches(&told).count(), 1, "{}", entered.text);
     let list = entered.text.find("## What this cell returns").expect("the list");
     assert!(entered.text[list..].contains(&told), "{}", entered.text);
-}
-
-// A datum a cell is given that has no version yet is said to have none, once a session, so that its agent can tell it
-// from one the cell is not given, as the design tree's review could not of the questions and answers (works 3 and 4):
-// entered first in a session of its own, it is told so of each datum no one wrote; its next round in that session is
-// not told again; a session that holds nothing is told again.
-#[test]
-fn a_datum_with_no_version_is_said_to_have_none_once_a_session() {
-    let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
-    let mut sim = Sim::of(engineer(), beside);
-    sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
-    sim.writes("background", "Greet the user by name.");
-    // The plan changes the tree, so that the design tree's review is entered after the research's plan.
-    let round = loop {
-        let round = sim.round().expect("a round is given");
-        let blocks: &[(&str, &str, Option<&str>)] = match sim.cell(&round).id.as_str() {
-            "S1" => &[("place", "the branch and its worktree", None)],
-            "R0" | "R2" => &[],
-            "R1" => &[
-                ("deep_needed", "", Some("no")),
-                ("plan_owner", "Greet by name.", None),
-                ("plan_agent", "Add the name to the greeting.", None),
-                ("acceptance", "The greeting names the user.", None),
-                ("tree_edits", "Add a decision on the greeting.", None),
-            ],
-            "D4" => break round,
-            other => panic!("{other} is entered before the design tree's review"),
-        };
-        tried(&mut sim, &round);
-        sim.hands_in(&round, blocks);
-    };
-    let cell = sim.cell(&round).clone();
-    let unwritten: Vec<String> = (cell.given.iter())
-        .map(|g| g.block.to_string())
-        .filter(|block| sim.versions(block).is_empty())
-        .collect();
-    assert!(unwritten.iter().any(|b| b == "q_and_a"), "{unwritten:?}");
-    let named = |entered: &context::Entered, block: &str| {
-        (entered.sent.iter())
-            .filter(|s| s.block.as_deref() == Some(block))
-            .count()
-    };
-    let entered = sim.enter(&round, sim.begins(&round));
-    for block in &unwritten {
-        assert_eq!(named(&entered, block), 1, "{block}:\n{}", entered.text);
-        let said = sim.words.given.unwritten.replace("{block}", block);
-        assert!(
-            entered.text.contains(&format!("\n{said}\n")),
-            "{said}:\n{}",
-            entered.text
-        );
-    }
-    // It asks for a tool, and is entered again for the result, by a run of its own, in the same session.
-    sim.tries(&round, 1, entered.fills);
-    let ask = Tool {
-        name: "query".to_string(),
-        input: "{\"sql\": \"select 1\"}".to_string(),
-    };
-    sim.returns(&round, Came::asks(vec![ask]), 0);
-    let call = *sim.calls().first().expect("the tool is called");
-    sim.done(call, "the rows");
-    let again = sim.round().expect("the review is entered again for the result");
-    assert_eq!(again.cell, round.cell);
-    assert!(!sim.begins(&again), "the review goes on in its session");
-    let entered = sim.enter(&again, sim.begins(&again));
-    for block in &unwritten {
-        assert_eq!(named(&entered, block), 0, "{block}:\n{}", entered.text);
-    }
-    let anew = sim.enter(&again, true);
-    for block in &unwritten {
-        assert_eq!(named(&anew, block), 1, "{block}:\n{}", anew.text);
-    }
 }

@@ -350,9 +350,6 @@ export interface SentPart {
   heldNew: SentPiece[];
   /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
   whole: SentPiece[];
-  /// Of the content of a block, what is sent where it has no version yet and no round of the cell in the session was
-  /// told so: `unwritten`.
-  unwritten: SentPiece[];
   /// Of a part of a list, each item it may hold, by its key, in the order sent: of the triggers, the line of each
   /// trigger of the cell, by the trigger's name, sent after `pieces` where the trigger ran the cell; and then `after`.
   items: [string, SentPiece[]][];
