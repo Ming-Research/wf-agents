@@ -86,7 +86,8 @@ function withNow(item: number, now: Now): Items {
 describe('what waits for the owner in a work', () => {
   it('is counted as `waitsOf` says, whatever its kind', () => {
     const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
-    const n = (now: Now) => heldByWork(withNow(142, now).items).get(142) ?? 0;
+    const work = (fixtureItems().items.find((i) => i.number === 142) as Item).work.number;
+    const n = (now: Now) => heldByWork(withNow(142, now).items).get(work) ?? 0;
     expect(n(waiting(question(3, 'Which?'), { kind: 'slot' }))).toBe(1);
     expect(n(waiting({ kind: 'answer', question: 'scope' }, question(4, 'Why?')))).toBe(2);
     expect(n(waiting({ kind: 'call', call: 4, who: 'owner', what: limit }))).toBe(1);

@@ -22,7 +22,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const base = fixtureItems().items.find((i) => i.number === 142) as Item;
+const base = fixtureItems().items.find((i) => i.number === 12) as Item;
 const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
 
 /// Each thing that waits for the owner, as the work's `now` says it, and the key its card is known by.
@@ -156,8 +156,8 @@ describe('what waits for the owner', () => {
   it('is shown at its card by the address a notification opens: the item and the thing waited for', () => {
     for (const [, now, key] of OWNERS) {
       const [wait] = waitsOf(now);
-      const hash = hashOf({ view: 'console', item: 142, wait: wait.key });
-      expect(routeOf(hash)).toEqual({ view: 'console', item: 142, wait: key });
+      const hash = hashOf({ view: 'console', item: 12, wait: wait.key });
+      expect(routeOf(hash)).toEqual({ view: 'console', item: 12, wait: key });
       const scrolled = vi.fn();
       Element.prototype.scrollIntoView = scrolled;
       const container = draw(now, key, none);
