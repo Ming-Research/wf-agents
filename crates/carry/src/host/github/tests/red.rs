@@ -370,7 +370,8 @@ async fn a_run_again_on_the_commit_or_on_mains_head_that_judged_nothing_fails_th
     assert_eq!(runs(&hub).len(), 3);
 }
 
-/// The JUnit of a run of `tools::tests::b` and `tools::tests::c`, each passed or failed as given.
+/// The JUnit of a run of `tools::tests::b` and `tools::tests::c`, each passed or failed as given, in the file of the
+/// job `test`.
 fn b_and_c(b: bool, c: bool) -> Vec<(String, Vec<u8>)> {
     let case = |name: &str, passed: bool| {
         let failure = if passed {
@@ -385,7 +386,7 @@ fn b_and_c(b: bool, c: bool) -> Vec<(String, Vec<u8>)> {
         case("tools::tests::b", b),
         case("tools::tests::c", c)
     );
-    vec![("junit.xml".to_string(), xml.into_bytes())]
+    vec![("test.xml".to_string(), xml.into_bytes())]
 }
 
 // Where the full workflows failed several tests and nothing else, and each fails again on the commit, the commit is held

@@ -15,8 +15,12 @@ cell = "build"
 asks = [{ question = "Which name does the greeting use?", who = "owner" }]
 "#;
 
-/// The trial flow, its build run by the owner's words, in a directory of the place.
+/// The trial flow, its build run by the owner's words, in a directory of the place, with what is written beside it.
 fn spoken_to(place: &Place) -> PathBuf {
+    let beside = place.dir.path().join("agents");
+    std::fs::create_dir(&beside).unwrap();
+    let waits = trial().join("../agents/waits.toml");
+    std::fs::copy(&waits, beside.join("waits.toml")).unwrap();
     let flow = place.dir.path().join("flow");
     std::fs::create_dir(&flow).unwrap();
     for entry in std::fs::read_dir(trial()).unwrap() {

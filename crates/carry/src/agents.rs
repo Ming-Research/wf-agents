@@ -1697,6 +1697,8 @@ mod tests {
             versions: vec![("discussion".into(), Seq(at)), ("r2_spoken_to".into(), Seq(at + 1))],
         };
         let files = words(&agents.inner.kept(&round));
+        // The round's directory, which the round's message was kept in as it was given.
+        std::fs::create_dir_all(files.waiting.parent().expect("a directory")).unwrap();
         agents.inner.tell(&round, telling(10, "Keep it to one table.")).await;
         let waiting: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&files.waiting).expect("it waits for the hook")).unwrap();
