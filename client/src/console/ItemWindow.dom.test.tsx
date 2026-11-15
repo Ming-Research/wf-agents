@@ -272,15 +272,11 @@ describe('the panel of the item selected', () => {
     ]);
   });
 
-  it('says on the work\'s line what the work waits for and who gives it, and a question a cell asked at the plan\'s end', () => {
+  it('says on the work\'s line what the work waits for and who gives it', () => {
     const el = draw(20, answered([]));
     const [, workLine] = lines(el);
     expect(workLine).toContain('Waiting for you implement Implement');
     expect(noKeys(el)).toBe(true);
-    const asked = el.querySelector('[data-wait="call-12"]') as HTMLElement;
-    expect(text(asked, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
-    // It holds the work: on the red tint, with no line to say so.
-    expect(asked.className).toBe('cw-choice cw-choice-holds');
   });
 
   it("says a message to the chosen cell's line, names the cell the engine says it reaches, and then the one it gave it to", async () => {

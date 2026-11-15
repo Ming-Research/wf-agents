@@ -21,8 +21,8 @@
 import { mocksShown } from '../mock-data';
 import type { Block, Flow, SentPiece } from '../api';
 import type { Item, Version, VersionPage, Wait, WorkPage } from '../works-api';
-import { askedMock, bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
-import type { Body, Choice, Message, Part } from './window';
+import { bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
+import type { Body, Message, Part } from './window';
 
 /// Reads the content of a version of a block.
 export type LoadVersion = (work: number, block: string, at: number) => Promise<VersionPage>;
@@ -33,12 +33,6 @@ export function itemOf(item: Item): ItemMock {
   return { unseen: false, unread: 0, tier: null, verdicts: [] };
 }
 
-/// A question a cell asked the owner, as a choice at the plan's end: with made-up options with the mocks, and with none
-/// without, to be answered in words.
-export function askedChoice(question: string, call: number, cell: string): Choice {
-  if (mocksShown()) return askedMock(question, call, cell);
-  return { kind: 'choice', question, options: [], recommended: null, chosen: null, asks: { call, cell } };
-}
 
 /// The work's tier: made up with the mocks, none without.
 export const workTierOf = (): string | null => (mocksShown() ? workTierMock() : null);

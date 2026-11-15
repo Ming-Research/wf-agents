@@ -98,13 +98,9 @@ export function fakeShown(count: number): Shown[] {
           now:
             i.state === 'working'
               ? { kind: 'round', cell: 'implement', run: 1, round: 2, since: Date.now() - 60000 }
-              : {
-                  kind: 'waits',
-                  at: 'implement',
-                  on: [{ kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } }],
-                },
+              : { kind: 'waits', at: 'implement', on: [{ kind: 'limit', by: 'review', runs: 3 }] },
           paused: null,
-          waits: i.state === 'working' ? [] : [{ key: 'call-1', why: '?', ends: { kind: 'reply', call: 1 } }],
+          waits: i.state === 'working' ? [] : [{ key: 'limit', why: '?', ends: { kind: 'letGo', cell: 'implement' } }],
           bar: 'mmmtt..mmm',
           sentBack: i.id % 13 === 0 ? 2 : 0,
           cells: cells.map(

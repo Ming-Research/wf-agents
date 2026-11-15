@@ -725,25 +725,21 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   }
 
   {
-    // Waiting for the owner's answer to a question.
+    // Waiting for the owner's answer to a question the plan asked.
     const h = new History(hours(5));
     h.wrote('request', 'person', REQUEST_TEXT('List the works of every item, those that wait for the owner first.'));
-    const run = h.start('plan');
-    h.round(run, {
-      asks: [{ kind: 'question', who: 'owner', question: 'Should the list show the works of cancelled items, or leave them out?' }],
-    });
-    const call = run.calls[0].call;
+    h.ran('plan', [{ block: 'plan', content: prose('Plan', ['A list of every work, those waiting for the owner first']) }]);
     const asked: Wait = {
-      key: `call-${call}`,
+      key: 'answer-cancelled',
       why: 'Should the list show the works of cancelled items, or leave them out?',
-      ends: { kind: 'reply', call },
+      ends: { kind: 'answer', question: 'cancelled', version: 1 },
     };
     keep({
       page: h.page(
         43,
         143,
         'List every work',
-        { kind: 'waits', at: 'plan', on: [{ kind: 'call', call, who: 'owner', what: run.calls[0].what }] },
+        { kind: 'waits', at: 'plan', on: [{ kind: 'answer', question: 'cancelled' }] },
         { waits: [asked] },
       ),
       history: h,

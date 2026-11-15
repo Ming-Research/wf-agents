@@ -69,7 +69,6 @@ import { type ItemStanding, standingOf } from './items';
 import { Markdown } from './markdown';
 import { markRead } from './mock';
 import {
-  askedChoice,
   firstBody,
   itemOf,
   type LoadVersion,
@@ -109,29 +108,12 @@ const pageIn = (p: PageState): WorkPage | null => (p !== null && 'page' in p ? p
 /// A cell's title in the work's flow, or its id where the flow does not name it.
 const titleOf = (page: WorkPage | null, cell: string) => page?.flow.cells.find((c) => c.id === cell)?.title ?? cell;
 
-/// Whether what a work waits for is a question a cell asked the owner as a call, which is drawn in the plan as a choice
-/// rather than said on the status line.
-const asked = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { kind: 'question' } } =>
-  w.kind === 'call' && w.what.kind === 'question';
-
 /// What a question's card says of the engine's wait for its answer, where the engine's list names one: that it holds
 /// the work, and why a cell other than the one that asked it waits for it, where the engine says one does.
 function holding(s: Summary, key: string): Pick<Choice, 'holds' | 'under'> {
   const wait = waitsOf(s).find((w) => w.key === key);
   if (wait === undefined) return { holds: false };
   return wait.under ? { holds: true, under: wait.under } : { holds: true };
-}
-
-/// The questions a cell asked the owner as a call the work waits at, as choices at the plan's end, each holding the work
-/// where the engine's list names it.
-function askedOf(s: Summary): Choice[] {
-  const now = s.now;
-  if (now.kind !== 'waits') return [];
-  return now.on.flatMap((w) =>
-    asked(w) && w.who === 'owner'
-      ? [{ ...askedChoice(w.what.question, w.call, now.at), ...holding(s, callKey(w.call)) }]
-      : [],
-  );
 }
 
 /// The key the engine's list gives the wait for a question put as a call, and for one of the work's own by its name.
@@ -400,12 +382,11 @@ function ItemView({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [open, fresh, markAsRead]);
-  // The questions put to the owner, after the plan's own: those of the work's own that stand, and those a cell asked
-  // as a call the work waits at; each not yet answered with the option picked, or the words written to one with no
-  // options, by what its answer is sent to.
+  // The questions put to the owner, after the plan's own: those of the work's own that stand; each not yet answered
+  // with the option picked, or the words written to one with no options, by what its answer is sent to.
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [written, setWritten] = useState<Record<string, string>>({});
-  const questions = [...questionsStanding(read?.questions, work), ...askedOf(work)].map((c) =>
+  const questions = questionsStanding(read?.questions, work).map((c) =>
     c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null, answer: written[pickKey(c)] ?? '' },
   );
   // Those still to answer, which Confirm sends.

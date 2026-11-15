@@ -98,15 +98,6 @@ const wait = (key: string, why: string, ends: Wait['ends']): Wait => ({ key, why
 /// Each kind of thing the engine's list names, as the engine gives it with what the work does now.
 const OWNERS: [string, Now, Wait][] = [
   [
-    'a question put as a call',
-    {
-      kind: 'waits',
-      at: 'plan',
-      on: [{ kind: 'call', call: 9, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } }],
-    },
-    wait('call-9', 'Which?', { kind: 'reply', call: 9 }),
-  ],
-  [
     'a run at its limit of returns',
     { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 4, who: 'owner', what: limit }] },
     wait('limit', 'The engine has sent the cell back as often as a sender may since its counts last started anew, its limit of 2.', { kind: 'goOn', call: 4 }),
@@ -167,14 +158,6 @@ const NOT_OWNERS: [string, Now][] = [
   [
     'a check held for main to move',
     { kind: 'waits', at: 'M2', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' }] },
-  ],
-  [
-    'a question to another',
-    {
-      kind: 'waits',
-      at: 'plan',
-      on: [{ kind: 'call', call: 2, who: 'architect', what: { kind: 'question', who: 'architect', question: 'Where?' } }],
-    },
   ],
 ];
 
@@ -290,7 +273,7 @@ describe("what waits for the owner, as the engine's one list names it", () => {
   });
 
   it("reads the list alone: a work that does what would wait on the owner, with nothing in the list, counts nothing", () => {
-    const [, paused] = OWNERS[3];
+    const [, paused] = OWNERS[2];
     const summary = { ...base.work, now: paused, waits: [] };
     expect(waitsOnOwner(summary)).toBe(false);
     expect(asksOf(summary)).toBe(0);
@@ -313,8 +296,8 @@ describe("the work's state line", () => {
     expect(said(STALLED)).toEqual({ word: 'Halted', cell: 'merge', keys: null });
     expect(said({ kind: 'paused', by: 'owner', why: null })).toEqual({ word: 'Paused', cell: null, keys: null });
     expect(said({ kind: 'everything', by: 'owner' })).toEqual({ word: 'Paused', cell: null, keys: null });
-    expect(said(OWNERS[3][1], [OWNERS[3][2]])).toEqual({ word: 'Waiting for you', cell: null, keys: null });
-    expect(said(OWNERS[2][1], [OWNERS[2][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
+    expect(said(OWNERS[2][1], [OWNERS[2][2]])).toEqual({ word: 'Waiting for you', cell: null, keys: null });
+    expect(said(OWNERS[1][1], [OWNERS[1][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
     expect(said({ kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 12, since: 0 }] })).toEqual({
       word: 'Waiting for W12',
       cell: 'M2',
@@ -352,7 +335,7 @@ describe('a stop that no one waits on', () => {
 
 describe('the cards of what waits for the owner', () => {
   it("say the agents' command line's reason and what the owner does, each once, inside the card", () => {
-    const [, now, w] = OWNERS[8];
+    const [, now, w] = OWNERS[7];
     const container = draw(now, [w], undefined, none);
     const card = container.querySelector('[data-wait="agents"]');
     expect(card?.textContent).toBe(`The agents' command line cannot run. Not logged in.${MEND}`);
@@ -372,7 +355,7 @@ describe('the cards of what waits for the owner', () => {
       act(() => button.click());
     };
     const labels: (string | null | undefined)[] = [];
-    for (const i of [1, 2, 3]) {
+    for (const i of [0, 1, 2]) {
       const [, now, w] = OWNERS[i];
       const el = draw(now, [w], w.key, send);
       labels.push(el.querySelector(`[data-wait="${w.key}"] button`)?.textContent);
@@ -386,7 +369,7 @@ describe('the cards of what waits for the owner', () => {
       { kind: 'letGo', cell: 'plan' },
       { kind: 'resume' },
     ]);
-    const [, held, w] = OWNERS[4];
+    const [, held, w] = OWNERS[3];
     press(
       draw(held, [w], 'held', send, {
         engine: (a) => {
