@@ -1,8 +1,9 @@
-//! A session of a line that began is recorded at its place, as what happened to the work; and what someone outside the
-//! work adds as it takes something is taken before the walk decides.
+//! A session of a line that began is recorded at its place, as what happened to the work; what someone outside the
+//! work adds as it takes something is taken before the walk decides; and a gate that holds a line, as a keep-warm ping
+//! of its session under way does, holds the rounds of that line alone.
 
 use decide::Room;
-use engine::{Gate, Session, Why, handle_then};
+use engine::{Gate, Session, Why, handle_then, handle_with};
 
 use super::*;
 
@@ -78,7 +79,7 @@ fn what_follows_from_outside_is_taken_before_the_walk_decides() {
             spent: spent(1),
         },
         Room::FREE,
-        Gate::Open,
+        Gate::OPEN,
         &then,
     )
     .expect("taken");
@@ -90,4 +91,44 @@ fn what_follows_from_outside_is_taken_before_the_walk_decides() {
         w.work.records.finished.iter().any(|f| f.run == run),
         "the run finished first"
     );
+}
+
+// While a keep-warm ping of a line's session is under way the gate holds that line's rounds, and no other's: the
+// judge's round, of another line, begins beside it, and the writer's, of the line pinged, waits and begins once the gate
+// no longer holds its line. Well under a millisecond alone, the work in memory; no other test of the loop holds a gate
+// of lines.
+#[test]
+fn a_gate_that_holds_a_line_holds_the_rounds_of_its_cells_and_no_others() {
+    let (mut w, write, _) = W::requested();
+    let pinged = Gate {
+        lines: ["main".to_string()].into(),
+        ..Gate::OPEN
+    };
+    let held = |w: &mut W, event| {
+        let now = w.tick();
+        handle_with(&w.flow, &mut w.work, now, event, pinged.clone()).expect("taken")
+    };
+    let returned = Event::Returned {
+        run: write,
+        came: hands_in(&[("text", None)]),
+        spent: spent(1),
+    };
+    let (judge, cell, ..) = round(&held(&mut w, returned));
+    assert_eq!(cell, "judge", "a round of another line is held");
+    // The judge's opinions run the writer again: its run does not start while the gate holds its line.
+    let effects = held(
+        &mut w,
+        Event::Returned {
+            run: judge,
+            came: hands_in(&[("opinions", None), ("verdict", Some("no"))]),
+            spent: spent(2),
+        },
+    );
+    assert_eq!(effects, [], "a round of the line held began");
+    let writes = (w.work.records.started.iter())
+        .filter(|s| s.cell.as_str() == "write")
+        .count();
+    assert_eq!(writes, 1, "a run of the line held started");
+    let (_, cell, ..) = round(&w.on(Event::Look));
+    assert_eq!(cell, "write", "the writer runs once its line is no longer held");
 }

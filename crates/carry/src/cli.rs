@@ -161,21 +161,58 @@ impl Words {
 
 /// A path as a shell reads it back as it is: in single quotes.
 fn quote(path: &Path) -> String {
-    format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
+    quoted(&path.display().to_string())
+}
+
+/// A text as a shell reads it back as it is: in single quotes.
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// Which of its tools the program may use: a round, every one its line's permissions let it; a keep-warm ping, none
+/// but the tool for its return, every other refused as it is called, with these words, so that the ping changes
+/// nothing that a round of another line, or an act, works on beside it in the worktree. Refused by a hook as each is
+/// called and not by the permissions, which would change the tools that open every request of the session, and so the
+/// prompt the ping is there to keep in the cache.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tools<'a> {
+    Permitted,
+    TheReturnAlone { refused: &'a str },
+}
+
+impl Tools<'_> {
+    /// The command of the hook the program runs before each use of a tool, where it refuses some: it reads what the
+    /// program says of the tool, whole, takes the tool's name from its first key `tool_name`, which comes before the
+    /// tool's input, so that no input names another, lets the tool for the return be used, and refuses any other, the
+    /// words on its error output, which the program gives the model.
+    fn command(&self) -> Option<String> {
+        let Tools::TheReturnAlone { refused } = self else {
+            return None;
+        };
+        Some(format!(
+            "input=$(cat); name=${{input#*'\"tool_name\"'}}; name=${{name#*'\"'}}; name=${{name%%'\"'*}}; \
+             [ \"$name\" = {STRUCTURED_OUTPUT} ] || {{ printf '%s\\n' {} >&2; exit 0; }}",
+            quoted(refused)
+        ))
+    }
 }
 
 /// The settings the engine gives the program, as JSON. Its hooks: at the start of a session it compacted, and after
-/// each use of a tool, the program adds what the hook's command prints to the session. And its own memory off
+/// each use of a tool, the program adds what the hook's command prints to the session; and before each use of a tool,
+/// where it may use only some ([`Tools`]), the hook refuses the others. And its own memory off
 /// (`autoMemoryEnabled`, which its settings' schema says keeps it from reading or writing its auto-memory directory):
 /// a session holds what the engine gives it and what its agent reads, and the program's own memory, which its own
 /// system prompt would tell the agent to write, would hold what the engine never sees, against the rule the agents are
 /// given that they keep nothing there.
-fn settings(compacted: &Compacted, words: &Words) -> String {
+fn settings(compacted: &Compacted, words: &Words, tools: Tools<'_>) -> String {
     let hook = |command: String| json!([{ "type": "command", "command": command }]);
-    let hooks = json!({
+    let mut hooks = json!({
         "SessionStart": [{ "matcher": "compact", "hooks": hook(compacted.command()) }],
         "PostToolUse": [{ "matcher": "*", "hooks": hook(words.command()) }],
     });
+    if let Some(command) = tools.command() {
+        hooks["PreToolUse"] = json!([{ "matcher": "*", "hooks": hook(command) }]);
+    }
     json!({ "autoMemoryEnabled": false, "hooks": hooks }).to_string()
 }
 
@@ -184,7 +221,7 @@ fn settings(compacted: &Compacted, words: &Words) -> String {
 /// carries each message in pieces as it is written, which rebuild an attempt at a return the command line refused. The
 /// schema is the form of return of the round's flow, the same for every round of every cell of it, and the system
 /// prompt is the same for every round of a line, so that they open every request of a session alike and the prompt
-/// cache keeps them. The round runs on the model and at the effort it was given.
+/// cache keeps them. The round runs on the model and at the effort it was given, using the tools it may ([`Tools`]).
 #[allow(clippy::too_many_arguments)]
 pub fn arguments(
     agents: &Agents,
@@ -192,8 +229,7 @@ pub fn arguments(
     system: &str,
     schema: &str,
     permissions: &Permissions,
-    compacted: &Compacted,
-    words: &Words,
+    (compacted, words, tools): (&Compacted, &Words, Tools<'_>),
     session: Uuid,
     begin: Begin,
 ) -> Vec<String> {
@@ -217,7 +253,7 @@ pub fn arguments(
     args.extend(["--append-system-prompt".to_string(), system.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
     args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
-    args.extend(["--settings".to_string(), settings(compacted, words)]);
+    args.extend(["--settings".to_string(), settings(compacted, words, tools)]);
     args.extend(agents.args.iter().cloned());
     args.extend(permissions.arguments());
     let flag = match begin {
@@ -1269,8 +1305,7 @@ mod tests {
                 "SYSTEM",
                 "SCHEMA",
                 &permissions,
-                &compacted,
-                &words(),
+                (&compacted, &words(), Tools::Permitted),
                 session,
                 begin,
             )
@@ -1332,13 +1367,119 @@ mod tests {
             "SYSTEM",
             "SCHEMA",
             &permissions,
-            &compacted,
-            &words(),
+            (&compacted, &words(), Tools::Permitted),
             session,
             Begin::New,
         );
         let at = args.iter().position(|a| a == "--model").expect("a model");
         assert_eq!(args[at..at + 4], ["--model", "claude-opus-5-5", "--effort", "xhigh"]);
+    }
+
+    // A keep-warm ping is given the very command line of a round of its session, its tools and permissions included,
+    // which open every request of the session, so that it reads the session's prompt from the cache; its settings alone
+    // add a hook before each use of a tool. Well under a millisecond alone; no other test holds what a ping's command
+    // line is.
+    #[test]
+    fn a_ping_has_the_command_line_of_a_round_of_its_session_and_a_hook_that_refuses_its_tools() {
+        let session = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
+        let ran = RanOn {
+            level: "1".to_string(),
+            model: "claude-haiku-5-5".to_string(),
+            effort: None,
+            account: None,
+        };
+        let compacted = Compacted {
+            marks: PathBuf::from("compacted"),
+            again: PathBuf::from("again.md"),
+        };
+        let permissions = Permissions::of(false, &[], &[], &Default::default());
+        let of = |tools| {
+            arguments(
+                &agents(),
+                &ran,
+                "SYSTEM",
+                "SCHEMA",
+                &permissions,
+                (&compacted, &words(), tools),
+                session,
+                Begin::Resume,
+            )
+        };
+        let round = of(Tools::Permitted);
+        let ping = of(Tools::TheReturnAlone {
+            refused: "Use no tool.",
+        });
+        let settings_of = |args: &[String]| {
+            let at = args.iter().position(|a| a == "--settings").expect("settings");
+            serde_json::from_str::<Value>(&args[at + 1]).expect("the settings' JSON")
+        };
+        let (mut round_settings, ping_settings) = (settings_of(&round), settings_of(&ping));
+        let refusing = &ping_settings["hooks"]["PreToolUse"];
+        assert_eq!(refusing[0]["matcher"], "*", "{ping_settings}");
+        assert!(
+            round_settings["hooks"].get("PreToolUse").is_none(),
+            "a round's tools are refused"
+        );
+        round_settings["hooks"]["PreToolUse"] = refusing.clone();
+        assert_eq!(round_settings, ping_settings, "the settings differ beyond the hook");
+        let at = round.iter().position(|a| a == "--settings").expect("settings");
+        let without = |args: &[String]| [&args[..at], &args[at + 2..]].concat();
+        assert_eq!(
+            without(&round),
+            without(&ping),
+            "the command lines differ beyond the settings"
+        );
+    }
+
+    /// Runs the ping's hook as the command line does before a use of the tool of this name, its input this, and gives
+    /// how it ended and what it said on its error output.
+    fn before(tools: Tools<'_>, tool: &str, input: &str) -> (Option<i32>, String) {
+        use std::io::Write;
+        let mut hook = std::process::Command::new("sh")
+            .args(["-c", &tools.command().expect("a hook")])
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("sh runs");
+        let input = json!({
+            "session_id": "s",
+            "cwd": "/the \"work\"",
+            "hook_event_name": "PreToolUse",
+            "tool_name": tool,
+            "tool_input": { "command": input },
+        });
+        (hook.stdin.take().expect("its input"))
+            .write_all(input.to_string().as_bytes())
+            .expect("the hook's input is written");
+        let output = hook.wait_with_output().expect("the hook ends");
+        (output.status.code(), String::from_utf8(output.stderr).expect("text"))
+    }
+
+    // A ping may use the tool for its return and no other: each other is refused as it is called, the words given the
+    // model, an input that names the return's tool among them; a round has no such hook. Under a second alone, five
+    // runs of the shell the program runs the hook with; no other test holds what a ping may use.
+    #[test]
+    fn a_pings_hook_lets_the_return_be_handed_in_and_refuses_every_other_tool_with_its_words() {
+        let words = "Use no tool: it's a ping.";
+        let ping = Tools::TheReturnAlone { refused: words };
+        assert_eq!(before(ping, STRUCTURED_OUTPUT, "{}"), (Some(0), String::new()));
+        for (tool, input) in [
+            ("Bash", "git commit -am 'x'"),
+            ("Edit", "a file"),
+            ("Bash", r#"echo "tool_name":"StructuredOutput""#),
+            ("StructuredOutputs", "{}"),
+        ] {
+            assert_eq!(
+                before(ping, tool, input),
+                (Some(2), format!("{words}\n")),
+                "{tool} with {input}"
+            );
+        }
+        assert_eq!(
+            Tools::Permitted.command(),
+            None,
+            "a round's tools are refused by a hook"
+        );
     }
 
     /// Runs the hook's command as the command line does after a use of the tool of this name, in the directory, and

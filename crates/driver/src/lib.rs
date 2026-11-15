@@ -70,7 +70,8 @@
 //! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
 //! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
 //! by as it runs, and each line of a work the context past which its session begins anew. It gives the keep-warm pings
-//! of the sessions of lines that wait as their time comes, the time being among what it asks to be told ([`warm`]);
+//! of the lines' sessions as their time comes, whatever else their works are doing, the time being among what it asks
+//! to be told ([`warm`]);
 //! it tells a round that missed its session's prompt cache from the records ([`cache`]); and it tells how each round
 //! and each call of a tool went against the lines of its history, which stops nothing ([`judged`]).
 //!
@@ -265,8 +266,8 @@ pub struct Driver {
     /// Each round, of a work and run by its number, that the agents' service answered while it was under way. What
     /// the outside says at a moment, kept only in memory: lost in a stop, the round is given again and answers again.
     answered: BTreeSet<(WorkNumber, decide::RunId, usize)>,
-    /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a work is,
-    /// no round of the work begins. Lost in a stop, when a ping still due is given again.
+    /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a line is, no
+    /// round of the line begins. Lost in a stop, when a ping still due is given again.
     pinging: BTreeSet<(WorkNumber, String)>,
     /// Where each round or call under way stands, of a work, as what carries it out last said ([`along`]). What the
     /// outside says at a moment, kept only in memory: lost in a stop, it is said again as what is given again goes on.
@@ -687,7 +688,7 @@ impl Driver {
         };
         let gate = self.gate();
         for event in first {
-            effects.extend(handle_held(&flow, &mut work, now, event, taking, gate).map_err(Failed::Refused)?);
+            effects.extend(handle_held(&flow, &mut work, now, event, taking, gate.clone()).map_err(Failed::Refused)?);
         }
         let room = self.room(None, true);
         effects.extend(handle_held(&flow, &mut work, now, Event::Look, room, gate).map_err(Failed::Refused)?);
@@ -872,7 +873,7 @@ impl Driver {
                 let act = cell.is_some_and(|cell| {
                     (held.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == flow::Kind::Engine)
                 });
-                open.then_some(if act { Gate::Acts } else { Gate::Agents })
+                open.then_some(if act { Gate::ACTS } else { Gate::AGENTS })
             }
             _ => None,
         };
@@ -1575,33 +1576,33 @@ impl Driver {
             .min()
     }
 
-    /// The gate a work is stepped with: the wait every work shares, and while a keep-warm ping of the work is under
-    /// way, every round of it, so that its next round begins once the ping has ended, after whatever the ping did to
-    /// its sessions, and is filled as they then stand.
+    /// The gate a work is stepped with: the wait every work shares, and while a keep-warm ping of a line's session is
+    /// under way, the rounds of that line, so that the line's next round begins once the ping has ended, after whatever
+    /// the ping did to its session, and is filled as it then stands. The rounds of the work's other lines, and its
+    /// acts, begin beside the ping.
     pub fn gate_of(&self, work: WorkNumber) -> Gate {
-        match self.pinging.iter().any(|(w, _)| *w == work) {
-            true => Gate::Every,
-            false => self.gate(),
+        let lines = (self.pinging.iter())
+            .filter(|(w, _)| *w == work)
+            .map(|(_, line)| line.clone());
+        Gate {
+            lines: lines.collect(),
+            ..self.gate()
         }
     }
 
     /// Whether a wait every work shares holds rounds now.
     pub fn holds(&self) -> bool {
-        self.gate() != Gate::Open
+        self.gate() != Gate::OPEN
     }
 
     /// Which rounds may begin now, as the waits every work shares say: the agents' wait holds the agents' rounds until
     /// a check of the outside finds it well, and the acts' wait the acts' until a look at their host reaches it.
     pub fn gate(&self) -> Gate {
-        let agents = match self.outage() {
-            Some(outage) if outage.holds() => Gate::Agents,
-            _ => Gate::Open,
-        };
-        let acts = match self.host_outage() {
-            Some(outage) if outage.holds() => Gate::Acts,
-            _ => Gate::Open,
-        };
-        agents.and(acts)
+        Gate {
+            agents: self.outage().is_some_and(|outage| outage.holds()),
+            acts: self.host_outage().is_some_and(|outage| outage.holds()),
+            ..Gate::OPEN
+        }
     }
 
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and
@@ -1675,7 +1676,7 @@ impl Driver {
         let gates: BTreeMap<WorkNumber, Gate> = (self.works.keys()).map(|n| (*n, self.gate_of(*n))).collect();
         let limits: BTreeMap<WorkNumber, Limits> = (self.works.keys()).map(|n| (*n, self.limits(*n))).collect();
         for (number, held) in &mut self.works {
-            let gate = gates.get(number).copied().unwrap_or_default();
+            let gate = gates.get(number).cloned().unwrap_or_default();
             if held.standing != Standing::Going || held.item.project.as_deref() != Some(project) {
                 continue;
             }

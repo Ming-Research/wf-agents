@@ -15,9 +15,10 @@
 //! that is to pause the work, the engine pauses it with the reason in the same step, so that the owner sees the cause
 //! before the round is given again, of any run; a failure in passing has the run wait, as a call the engine makes and
 //! the clock answers, before the round is tried again; one whose cause every work shares holds the agents' rounds of
-//! every work, which whatever drives the engine works out from all their records and says by a [`Gate`]. Who paused a
-//! work and why, and what it waits for, are in its records, and what is to be done is worked out from them alone,
-//! after a stop as before it.
+//! every work, which whatever drives the engine works out from all their records and says by a [`Gate`], as it says
+//! there the line a keep-warm ping of whose session is under way, whose rounds wait for it. Who paused a work and why,
+//! and what it waits for, are in its records, and what is to be done is worked out from them alone, after a stop as
+//! before it.
 //!
 //! The owner's pause of everything and the slots hold back every work at once, and are the scheduler's: the loop is
 //! given them as they stand ([`decide::Room`]), and begins no round that they hold back.

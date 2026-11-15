@@ -7,8 +7,10 @@
 //! the driver shows; no work has two rounds under way; what was given and not yet answered is exactly what is pending,
 //! and nothing is given twice unless it was pending across an opening; the stored records walk to the decision shown;
 //! every dependencies block agrees with which of the items its item depends on have merged; no work whose
-//! dependencies have not all merged has started a run; and a work never let on has started none. When the driver
-//! stops, what it says was kept is what the store holds. A round or a call of a tool that ended is judged against the
+//! dependencies have not all merged has started a run; a work never let on has started none; and a keep-warm ping is
+//! never given beside a round of its line, nor a round of a line beside its ping, while pings beside the rounds of an
+//! act and of another line, and rounds beside a ping, are each reached. When the driver stops, what it says was kept is
+//! what the store holds. A round or a call of a tool that ended is judged against the
 //! lines of its history as it was when first seen, however the history grew since (decision
 //! `judged-by-the-history-as-it-began`).
 //!
@@ -34,7 +36,8 @@
 //! An item is added on one of the small flows of the tests or on the deliver flow as the repository defines
 //! it, whose items are made of the items they depend on and wait for them at their one cell, so that items depending on
 //! a deliverable wait for it in turn. One item in five is a deliverable, drawn by a generator of its own, so that the
-//! other draws keep their order.
+//! other draws keep their order; and, drawn by another, one in four of the rest is on the flow whose act a line waits
+//! for.
 //!
 //! The process stops before a step with a chance of one in sixteen; with one in twenty-five the store is set to fail
 //! at one of its next three calls, and with one in fifty the process to stop right after one of them.
@@ -139,8 +142,13 @@ struct Seen {
     reopened: usize,
     /// Openings on works going on, at which the driver paused everything until the owner lifted it.
     held_at_start: usize,
-    /// Keep-warm pings given.
+    /// Keep-warm pings given; of them, those given while a round of an act of their work was under way, and while a
+    /// round of another line of it was: a ping is timed by its session's last call alone.
     pinged: usize,
+    pinged_beside_an_act: usize,
+    pinged_beside_another_line: usize,
+    /// Rounds given while a keep-warm ping of their work was under way, of another line or of an act.
+    began_beside_a_ping: usize,
     /// Judgments of a round or a call of a tool that ended, seen again unchanged after a later step.
     judged: usize,
 }
@@ -194,6 +202,9 @@ struct History {
     /// Draws when the history waits for what the driver waits for, alone, so that the other draws keep the order they
     /// had before.
     wakes: Rng,
+    /// Draws which items are on the flow whose act runs while a line waits for it, alone, so that the other draws keep
+    /// the order they had before that flow was among the flows.
+    tested: Rng,
     /// Whether the lines' sessions are kept warm, and the history waits for the driver's wakes.
     warming: bool,
     /// The calls that have their result, each with its work.
@@ -220,10 +231,11 @@ struct Ending {
     answered: BTreeSet<String>,
 }
 
-/// The flows the histories add items on: those of the tests, and the deliver flow as the repository defines it, whose
-/// items are made of the items they depend on.
+/// The flows the histories add items on: those of the tests, the one whose act a line waits for, and the deliver flow
+/// as the repository defines it, whose items are made of the items they depend on.
 fn every_flow() -> Vec<flow::Compiled> {
     let mut flows = flows();
+    flows.push(tested());
     flows.push(deliver());
     flows
 }
@@ -243,6 +255,7 @@ impl History {
             step: 0,
             waited: 0,
             wakes: Rng::new(seed ^ 0x0000_00A1_A2B3_C4D5),
+            tested: Rng::new(seed ^ 0x7E57_ED00_0000_0001),
             warming,
             done: Vec::new(),
             log: Vec::new(),
@@ -281,16 +294,34 @@ impl History {
                     what: Call::AtLimit(_), ..
                 } => self.seen.limits += 1,
                 Effect::Withdraw { .. } => self.seen.withdrawn += 1,
-                Effect::Ping { .. } => self.seen.pinged += 1,
+                Effect::Ping { .. } => self.pinged(todo),
                 Effect::Stop { .. } => self.seen.stopped += 1,
-                Effect::Round { number: 1, .. } => {
+                Effect::Round { number, .. } => {
                     if let Act::On(work, _) = act
                         && *work != todo.work
+                        && *number == 1
                     {
                         self.seen.started_at_merge += 1;
                     }
+                    let pinging = (self.h.outstanding.iter())
+                        .any(|t| t.work == todo.work && matches!(t.effect, Effect::Ping { .. }));
+                    if pinging {
+                        self.seen.began_beside_a_ping += 1;
+                    }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Counts a keep-warm ping given, and what of its work was under way beside it.
+    fn pinged(&mut self, todo: &Todo) {
+        self.seen.pinged += 1;
+        let kept = self.h.d().work(todo.work).expect("the work");
+        for (_, line) in under_way_of(kept.flow, kept.work) {
+            match line {
+                None => self.seen.pinged_beside_an_act += 1,
+                Some(_) => self.seen.pinged_beside_another_line += 1,
             }
         }
     }
@@ -316,6 +347,7 @@ impl History {
             .collect();
         let depends_on: Vec<ItemNumber> = numbers.into_iter().filter(|_| self.rng.chance(35)).collect();
         let flow = ["judged", "short", "plain"][self.rng.below(3)];
+        let flow = if self.tested.chance(25) { "tested" } else { flow };
         let flow = if self.delivers.chance(20) { "deliver" } else { flow };
         let has_request = (self.h.d().flows()).any(|f| f.name == flow && f.blocks.contains_key(&block("request")));
         let writes: Vec<FirstWrite> = if self.rng.chance(50) && has_request {
@@ -453,9 +485,9 @@ impl History {
             }
             self.h.clock = self.time().0;
             if let Some(todos) = self.h.wake_up() {
-                self.seen.pinged += (todos.iter())
-                    .filter(|t| matches!(t.effect, Effect::Ping { .. }))
-                    .count();
+                for todo in todos.iter().filter(|t| matches!(t.effect, Effect::Ping { .. })) {
+                    self.pinged(todo);
+                }
             }
         }
         let done = if people && self.rng.chance(25) {
@@ -917,6 +949,9 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
             // The same history with the lines' sessions kept warm, the time waited for now and then.
             let (_, warm) = one_history(seed, false, true, &mut log);
             s.pinged += warm.pinged;
+            s.pinged_beside_an_act += warm.pinged_beside_an_act;
+            s.pinged_beside_another_line += warm.pinged_beside_another_line;
+            s.began_beside_a_ping += warm.began_beside_a_ping;
             s.judged += warm.judged;
             s
         }));
@@ -946,6 +981,9 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.reopened += s.reopened;
                 seen.held_at_start += s.held_at_start;
                 seen.pinged += s.pinged;
+                seen.pinged_beside_an_act += s.pinged_beside_an_act;
+                seen.pinged_beside_another_line += s.pinged_beside_another_line;
+                seen.began_beside_a_ping += s.began_beside_a_ping;
                 seen.judged += s.judged;
             }
             Err(e) => {
@@ -974,6 +1012,18 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("given again by an opening", seen.given_again),
         ("openings that paused everything for works going on", seen.held_at_start),
         ("keep-warm pings given", seen.pinged),
+        (
+            "keep-warm pings given beside a round of an act",
+            seen.pinged_beside_an_act,
+        ),
+        (
+            "keep-warm pings given beside a round of another line",
+            seen.pinged_beside_another_line,
+        ),
+        (
+            "rounds given beside a keep-warm ping of their work",
+            seen.began_beside_a_ping,
+        ),
         ("judgments of what ended seen again unchanged", seen.judged),
         ("refused", seen.refused),
         ("added while people acted", seen.added),

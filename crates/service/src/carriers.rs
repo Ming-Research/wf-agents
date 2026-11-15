@@ -100,7 +100,8 @@ pub trait Rounds: Send + Sync {
         None
     }
 
-    /// Sends the session a keep-warm ping, which only keeps its prompt cache from letting it go while its line waits:
+    /// Sends the session a keep-warm ping, which only keeps its prompt cache from letting it go while no round of its
+    /// line runs:
     /// the reply says once what it took, or why it failed. Rounds carried out in no session are given none; by default
     /// a ping fails, saying so.
     fn ping(&self, ping: Ping, reply: PingReply) {

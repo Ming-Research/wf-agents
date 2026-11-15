@@ -1,22 +1,25 @@
-//! Keeping the sessions of lines that wait warm. The agents' program keeps a session's prompt in its cache a while after
-//! its last call (an hour for `claude`); a round after that writes the whole session to the cache again. A write kept
-//! an hour costs forty reads on Opus 5.5 and Sonnet 5.5, twenty on Haiku 5.5 and eighty on Fable 5.1, so a session read
-//! once by a minimal message a little before the cache lets it go costs a small part of what its next round would pay
+//! Keeping the sessions of lines warm. The agents' program keeps a session's prompt in its cache a while after its last
+//! call (an hour for `claude`); a round after that writes the whole session to the cache again. A write kept an hour
+//! costs forty reads on Opus 5.5 and Sonnet 5.5, twenty on Haiku 5.5 and eighty on Fable 5.1, so a session read once by
+//! a minimal message a little before the cache lets it go costs a small part of what its next round would pay
 //! otherwise.
 //!
-//! So while a work that has not ended waits, the session of each of its lines that can come back is sent a keep-warm
-//! ping `after_ms` after its last call, and again as long as the wait goes on, up to as many pings as cost, each
+//! So while a work has not ended, the session of each of its lines that can come back is sent a keep-warm ping
+//! `after_ms` after the session's last call, and again as long as the line waits, up to as many pings as cost, each
 //! reading the session, no more than writing it again would beyond reading it, on its model ([`Warm::most`]). A line
 //! can come back where a cell of it is where the work stands, or is reached from there by the data the cells write: a
 //! ping of a line the work has passed for good would be paid for nothing. A ping that failed is tried again a minute
 //! after, while the cache keeps the session.
 //!
-//! A ping is a job of its work: none is due while a round of the work is under way, on any line, and the loop holds
-//! back the work's rounds while one of its pings is (crate `service`). What is due is worked out from the work's
-//! records and the time alone: a session's last call is the end of the latest of its rounds that called the model, or
-//! of its latest ping that did not fail, and each ping is recorded as it ends, so that after a stop a ping is given
-//! again only where one is still due. Which pings are under way the driver keeps in memory, so that none is given
-//! twice while it runs.
+//! The cache keeps a session by its last call alone, whatever else the work does, so that is all a ping is timed by:
+//! a session is pinged while the work waits, while one of its acts runs, such as its tests, which may take hours, and
+//! while a round of another of its lines runs. Only the session's own program running, a round of its line under way,
+//! keeps it from a ping, as it keeps the session warm itself and two programs must never run on one session; and the
+//! driver holds back the line's rounds while its ping is ([`crate::Driver::gate_of`]). What is due is worked out from
+//! the work's records and the time alone: a session's last call is the end of the latest of its rounds that called the
+//! model, or of its latest ping that did not fail, and each ping is recorded as it ends, so that after a stop a ping is
+//! given again only where one is still due. Which pings are under way the driver keeps in memory, so that none is
+//! given twice while it runs.
 
 use std::collections::BTreeSet;
 
@@ -46,21 +49,21 @@ pub struct Kept {
     pub life: Time,
 }
 
-/// Each line's session the work keeps warm as of `now`, in the order of the walk: none for a work that has ended, one
-/// with a round under way, or with no policy of keeping sessions warm; and none whose cache has let it go by `now`,
-/// which a ping would write again whole, for nothing.
+/// Each line's session the work keeps warm as of `now`, in the order of the walk: none for a work that has ended, or
+/// with no policy of keeping sessions warm; none of a line a round of which is under way; and none whose cache has let
+/// it go by `now`, which a ping would write again whole, for nothing.
 pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, limits: &Limits, now: Time) -> Vec<Kept> {
     let decision = decide(&flow.flow, &work.records);
     if matches!(
         decision,
         Decision::Ended(_) | Decision::Busy { .. } | Decision::Fault(_)
-    ) || under_way(work)
+    ) || work.records.rounds.len() > work.records.returned.len()
     {
         return Vec::new();
     }
     let back = coming_back(flow, work, &decision);
     (lines(flow))
-        .filter(|line| back.contains(*line))
+        .filter(|line| back.contains(*line) && !under_way(flow, work, line))
         .filter_map(|line| next(flow, work, item, line, policy, limits))
         .filter(|kept| now < kept.life)
         .collect()
@@ -74,9 +77,13 @@ pub fn due(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, limits: &
         .collect()
 }
 
-/// Whether a round of the work has begun and not ended.
-fn under_way(work: &Work) -> bool {
-    work.records.rounds.len() > work.records.returned.len()
+/// Whether a round of the line has begun and not ended: its session's own program runs.
+fn under_way(flow: &Compiled, work: &Work, line: &str) -> bool {
+    let r = &work.records;
+    let on_line = |run: RunId| line_of_run(flow, work, run) == Some(line);
+    let began = r.rounds.iter().filter(|round| on_line(round.run)).count();
+    let ended = r.returned.iter().filter(|end| on_line(end.run)).count();
+    began > ended
 }
 
 /// How a line's session stands for keeping it warm: the session, when its next ping is due, whether or not that time

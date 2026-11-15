@@ -8,6 +8,8 @@
 //! - no round and no call is given twice, and nothing answered is given again;
 //! - what was given and not yet answered is exactly what the driver says is pending;
 //! - no work has two rounds under way (property `one-round-of-a-work-at-a-time`);
+//! - a keep-warm ping is given once at a time for a line, never beside a round of the line, and no round of a line is
+//!   given beside a ping of it: two programs never run on one session;
 //! - what each work does next, as the driver shows it, agrees with what is to be done for it: after a call no run is
 //!   left to start or to abandon, a run goes on with its round held only while the work is paused, a work is busy
 //!   with a run exactly when a round of that run is given to be done, and a work paused began no round after the
@@ -39,11 +41,11 @@ use tempfile::TempDir;
 /// The time of the first thing a test does.
 pub const START: u64 = 1_800_000_000_000;
 
-/// What the engine has: the driver's own sources outside a work, and the act `merge`.
+/// What the engine has: the driver's own sources outside a work, and the acts `merge`, `start` and `test`.
 pub fn has() -> Has {
     Has {
         sources: [DEPENDENCIES.to_string(), driver::START.to_string()].into(),
-        acts: ["merge".to_string(), "start".to_string()].into(),
+        acts: ["merge".to_string(), "start".to_string(), "test".to_string()].into(),
         ..Default::default()
     }
 }
@@ -213,6 +215,69 @@ pub fn plain() -> Compiled {
         outputs = ["merged"]
     "#;
     compiled(&flow, &[("write", write), ("merge", merge)])
+}
+
+/// A writer, run by the owner's start, a request and the judge's opinions; the engine's own act that tests what it
+/// wrote, which may take hours, and whose results the judge reads, so that the writer's line, which the opinions run,
+/// waits for them; the judge, of a line of its own; and the merge.
+pub fn tested() -> Compiled {
+    let flow = format!(
+        r#"
+        name = "tested"
+        order = ["write", "test", "judge", "merge"]
+        [limits]
+        again = 2
+        [lines.main]
+        [lines.other]
+        [blocks.request]
+        people = true
+        [blocks.opinions]
+        people = true
+        [blocks.text]
+        [blocks.results]
+        [blocks.verdict]
+        values = ["yes", "no"]
+        people = true
+        [blocks.merged]
+        shown = true
+        {START_BLOCK}"#
+    );
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the text the request asks for."
+        inputs = ["start", "request", "opinions"]
+        outputs = ["text"]
+    "#;
+    let test = r#"
+        title = "Test"
+        kind = "engine"
+        act = "test"
+        inputs = ["text"]
+        outputs = ["results"]
+    "#;
+    let judge = r#"
+        title = "Judge"
+        kind = "agent"
+        effort = "high"
+        line = "other"
+        task = "Judge the text by its results, and give a verdict."
+        inputs = ["text", "results"]
+        outputs = ["opinions", "verdict"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        inputs = ["text", "verdict"]
+        outputs = ["merged"]
+    "#;
+    compiled(
+        &flow,
+        &[("write", write), ("test", test), ("judge", judge), ("merge", merge)],
+    )
 }
 
 /// Every flow the driver is given.
@@ -1067,6 +1132,15 @@ impl H {
                 Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => {
                     let once = self.once(todo);
                     assert!(self.ever.insert(once), "given twice: {todo:?}");
+                    // A round of a line never begins beside a keep-warm ping of the line: two programs on one session.
+                    if let Effect::Round { cell, .. } = &todo.effect {
+                        let flow = self.d().work(todo.work).expect("the work").flow;
+                        let line = line_of(flow, cell.as_str());
+                        let pinged = (self.outstanding.iter()).any(|t| {
+                            t.work == todo.work && matches!(&t.effect, Effect::Ping { line: l, .. } if Some(l) == line)
+                        });
+                        assert!(!pinged, "a round given beside a ping of its line: {todo:?}");
+                    }
                 }
                 Effect::Stop { run } => {
                     self.undone.insert(key(todo));
@@ -1086,14 +1160,15 @@ impl H {
                 }
                 Effect::Ping { line, .. } => {
                     // A ping is of the time, kept nowhere as to be done: given once at a time, and never beside a
-                    // round of its work.
+                    // round of its line, its session's own program; a round of another line or an act it may be.
                     let twice = (self.outstanding.iter())
                         .any(|t| t.work == todo.work && matches!(&t.effect, Effect::Ping { line: l, .. } if l == line));
                     assert!(!twice, "a ping given while one of its line is under way: {todo:?}");
-                    let work = self.d().work(todo.work).expect("the work").work;
+                    let kept = self.d().work(todo.work).expect("the work");
+                    let beside = under_way_of(kept.flow, kept.work);
                     assert!(
-                        work.records.rounds.len() == work.records.returned.len(),
-                        "a ping given beside a round of its work: {todo:?}"
+                        !beside.iter().any(|(_, of)| of.as_deref() == Some(line.as_str())),
+                        "a ping given beside a round of its line: {todo:?}"
                     );
                     self.outstanding.push(todo.clone());
                     continue;
@@ -1279,7 +1354,7 @@ impl H {
 
     /// What the work does next agrees with what is to be done for it: after a call, no run is left to start and none
     /// left to be abandoned, and a run goes on with its round held only while the work is paused, unless a wait every
-    /// work shares holds the rounds of the cell's agent, or a keep-warm ping of the work every round of it; a work is
+    /// work shares holds the rounds of the cell's agent, or a keep-warm ping of its line its rounds; a work is
     /// busy with a run exactly when a round of that run is given to be done; and a work paused began no round after the
     /// pause but of a run for a note a person wrote ([`for_a_note`]), and none given again after it failed.
     fn agrees_with_what_is_pending(&self, number: WorkNumber, flow: &Compiled, work: &Work, shown: &Decision) {
@@ -1292,16 +1367,15 @@ impl H {
             })
             .collect();
         // A wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to start
-        // or go on: the agents' wait an agent's, and the acts' wait an act's; and a keep-warm ping of the work under way
-        // leaves every run of it so.
+        // or go on: the agents' wait an agent's, and the acts' wait an act's; and a keep-warm ping of a line under way
+        // leaves every run of that line so.
         let agents = |cell: &decide::CellId| {
-            let kind = (flow.cells.iter()).find(|spec| spec.id == *cell).map(|spec| spec.kind);
-            match self.d().gate_of(number) {
-                engine::Gate::Open => false,
-                engine::Gate::Agents => kind == Some(flow::Kind::Agent),
-                engine::Gate::Acts => kind == Some(flow::Kind::Engine),
-                engine::Gate::Every => true,
-            }
+            let gate = self.d().gate_of(number);
+            let held = |spec: &flow::CellSpec| match spec.kind {
+                flow::Kind::Agent => gate.agents || spec.line.as_ref().is_some_and(|line| gate.lines.contains(line)),
+                flow::Kind::Engine => gate.acts,
+            };
+            (flow.cells.iter()).any(|spec| spec.id == *cell && held(spec))
         };
         match shown {
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if agents(cell) => {}
@@ -1730,6 +1804,27 @@ pub fn spent(n: u64) -> Spent {
         output_tokens: 17 * n,
         ..Default::default()
     }
+}
+
+/// The line of the cell, where it has one: an act has none.
+pub fn line_of<'f>(flow: &'f Compiled, cell: &str) -> Option<&'f String> {
+    (flow.cells.iter())
+        .find(|spec| spec.id.as_str() == cell)
+        .and_then(|spec| spec.line.as_ref())
+}
+
+/// The rounds of the work under way, each by its cell and the cell's line, where it has one: read from the records,
+/// as many begun as ended of each run.
+pub fn under_way_of(flow: &Compiled, work: &Work) -> Vec<(String, Option<String>)> {
+    let r = &work.records;
+    (r.started.iter())
+        .filter(|s| {
+            let began = r.rounds.iter().filter(|x| x.run == s.run).count();
+            let ended = r.returned.iter().filter(|x| x.run == s.run).count();
+            began > ended
+        })
+        .map(|s| (s.cell.0.clone(), line_of(flow, s.cell.as_str()).cloned()))
+        .collect()
 }
 
 /// How many rounds of the work are under way.

@@ -225,7 +225,12 @@ impl Trial {
     /// runs on one model, and a line that waits has its session pinged 55 minutes after its last call, at most twice
     /// in a wait.
     pub fn warm() -> Trial {
-        Trial::opened(trial_script(), Some(Pings::default()), None)
+        Trial::warm_with(trial_script())
+    }
+
+    /// The loop with this script, on an empty store, the agents' sessions kept warm and their pings kept in hand.
+    pub fn warm_with(script: Script) -> Trial {
+        Trial::opened(script, Some(Pings::default()), None)
     }
 
     /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand, and
@@ -504,11 +509,13 @@ impl Trial {
             .filter(|unit| !self.answered.contains_key(unit))
             .collect();
         let driver = self.service().driver();
-        // What is to be done for a work whose ping is in hand waits for the ping, the loop handing none of it out.
+        // The letting go of what a work holds waits while a ping of it is in hand, the loop not handing it out; the
+        // rest of what is to be done for the work is handed out beside the ping.
         let pinged = self.pinged();
+        let waits = |unit: &Unit| matches!(unit, Unit::Release(_)) && pinged.contains(&unit.work());
         let pending: BTreeSet<Unit> = (driver.pending().iter())
             .filter_map(|todo| carried(driver, todo))
-            .filter(|unit| !pinged.contains(&unit.work()) || open.contains(unit))
+            .filter(|unit| !waits(unit) || open.contains(unit))
             .collect();
         assert_eq!(
             open, pending,

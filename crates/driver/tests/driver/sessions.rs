@@ -140,6 +140,68 @@ fn two_lines() -> Compiled {
     flow::compile(&source, &has).expect("the flow compiles")
 }
 
+/// The engineer's line waiting for an act: `load` loads its session and `build` goes on in it, writing the code; the
+/// engine's own act `test` runs the code's tests, as long as they take; and `review`, of a line of its own, reads their
+/// results and gives the build its notes, so that the engineer's line waits for the tests' results through the review.
+fn tested() -> Compiled {
+    let flow = format!(
+        r#"
+        name = "sessions"
+        order = ["load", "build", "test", "review", "merge"]
+        [limits]
+        again = 2
+        [lines.engineer]
+        [lines.review]
+        [blocks.request]
+        people = true
+        [blocks.session]
+        outside = "session"
+        {SESSION_WRITES}
+        [blocks.context]
+        [blocks.code]
+        [blocks.results]
+        [blocks.notes]
+        [blocks.verdict]
+        [blocks.merged]
+        shown = true
+    "#
+    );
+    let cell = |line: &str, inputs: &str, outputs: &str| {
+        format!(
+            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\ninputs = {inputs}\noutputs = {outputs}\n"
+        )
+    };
+    let act = |act: &str, inputs: &str, outputs: &str| {
+        format!("title = \"An act\"\nkind = \"engine\"\nact = \"{act}\"\ninputs = {inputs}\noutputs = {outputs}\n")
+    };
+    let source = flow::Source {
+        flow,
+        cells: [
+            ("load", cell("engineer", r#"["request", "session"]"#, r#"["context"]"#)),
+            (
+                "build",
+                cell("engineer", r#"["request", "context", "notes"]"#, r#"["code"]"#),
+            ),
+            ("test", act("test", r#"["code"]"#, r#"["results"]"#)),
+            (
+                "review",
+                cell("review", r#"["code", "results"]"#, r#"["notes", "verdict"]"#),
+            ),
+            ("merge", act("merge", r#"["verdict"]"#, r#"["merged"]"#)),
+        ]
+        .into_iter()
+        .map(|(id, text)| (id.to_string(), text))
+        .collect(),
+        ..Default::default()
+    };
+    let has = Has {
+        sources: [SESSION.to_string()].into(),
+        acts: ["merge".to_string(), "test".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the flow compiles")
+}
+
 /// What a round runs on where the installation's model is this one.
 fn on(model: &str) -> RanOn {
     RanOn {
@@ -1509,17 +1571,20 @@ fn a_session_whose_cache_let_it_go_unpinged_wakes_the_driver_no_more() {
 }
 
 #[test]
-fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_it_is_under_way_are_kept_warm() {
+fn only_the_lines_the_work_can_come_back_to_are_kept_warm_and_none_while_its_own_round_runs() {
     let mut s = S::with(warm("opus"), None);
     s.hands_in(100, true);
     s.hands_in(100, true);
-    // The review's round is under way: nothing of the work is pinged, on any line.
+    // The review's round is under way: the engineer's line, which nothing the review writes runs, does not come back,
+    // and the review's session is its round's own.
     let (_, cell) = s.round();
     assert_eq!(cell, "review");
     s.began();
-    assert!(kept_warm(&s).is_empty(), "a ping beside a round of its work");
-    // The review waits on a tool's result: its line comes back, and the engineer's, which nothing the review writes
-    // runs, does not.
+    assert!(
+        kept_warm(&s).is_empty(),
+        "a line the work cannot come back to, or one whose round runs, kept warm"
+    );
+    // The review waits on a tool's result: its line comes back, and the engineer's does not.
     let ask = Tool {
         name: "read".to_string(),
         input: "code".to_string(),
@@ -1527,6 +1592,131 @@ fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_it_is_unde
     s.ends(100, Came::asks(vec![ask]));
     let lines: Vec<String> = kept_warm(&s).into_iter().map(|k| k.due.line).collect();
     assert_eq!(lines, ["review"]);
+}
+
+/// The act under way hands in the results of the tests, having taken nothing.
+fn tested_by_the_act(s: &mut S) {
+    let (run, cell) = s.round();
+    assert_eq!(cell, "test", "the act's round is under way");
+    let handed = Handed {
+        block: "results".into(),
+        content: "The tests passed.".to_string(),
+        matters: true,
+        value: None,
+    };
+    s.on(Event::Returned {
+        run,
+        came: Came::hands_in(vec![handed]),
+        spent: Spent::default(),
+    });
+}
+
+/// A ping of the session of the line `engineer` ended, having read it from the cache.
+fn read_by_the_ping() -> Event {
+    let read = Spent {
+        cached_tokens: 100,
+        context_tokens: Some(120),
+        ..Default::default()
+    };
+    pinged(read, None)
+}
+
+// A session is timed by its own last call alone: one that waits for the results of an act that takes longer than its
+// cache keeps it, as the tests of some projects take hours, is pinged on time while the act's round runs, and the
+// round of another line that the results run begins beside the ping. Well under a second alone, a store of its own;
+// no other example holds a ping beside an act, which the histories reach only at random.
+#[test]
+fn a_session_that_waits_through_a_long_round_of_an_act_is_pinged_on_time() {
+    let mut s = S::on_flow(tested(), warm("opus"), None);
+    s.hands_in(100, true);
+    s.hands_in(100, true);
+    let last = s.clock;
+    let (_, cell) = s.round();
+    assert_eq!(cell, "test");
+    assert!(matches!(
+        decide::decide(&s.flow.flow, &s.kept().records),
+        Decision::Busy { .. }
+    ));
+    let at = woken(&s);
+    assert_eq!(at, last + 3_300_000, "55 minutes after the session's last call");
+    let todos = s.driver.tick(Time(at), None, None).expect("the driver takes the time");
+    assert_eq!(
+        pings(&s, &todos),
+        [("engineer".to_string(), 0)],
+        "no ping beside the act's round"
+    );
+    // The act ends while the ping is under way: the review, of another line, begins beside it.
+    s.clock = at;
+    tested_by_the_act(&mut s);
+    let (_, cell) = s.round();
+    assert_eq!(cell, "review", "a round of another line waits for the ping");
+    s.clock += 1_000;
+    s.driver.happened(Time(s.clock), s.work, read_by_the_ping()).unwrap();
+    assert_eq!(s.kept().pinged.len(), 1);
+}
+
+// Only a round of the session's own line keeps it from a ping: its program keeps the session warm itself, and two
+// programs never run on one session. Well under a second alone, a store of its own; no other test holds that the
+// line's own round keeps its session from a ping past the time it would be due.
+#[test]
+fn a_session_whose_own_round_runs_is_not_pinged() {
+    let mut s = S::on_flow(tested(), warm("opus"), None);
+    s.hands_in(100, true);
+    let last = s.clock;
+    // The build's round runs past the time the session would be pinged after the load's round.
+    let (_, cell) = s.round();
+    assert_eq!(cell, "build");
+    s.began();
+    let todos = s.driver.tick(Time(last + 3_300_000), None, None).unwrap();
+    assert!(pings(&s, &todos).is_empty(), "a session pinged beside its own round");
+    assert!(kept_warm(&s).is_empty(), "a session kept warm beside its own round");
+}
+
+// A ping of one line runs beside a round of another: the engineer's session, which the review's notes run, is pinged
+// while the review's round runs; and the build, which the notes run, begins once the ping has ended, after what the
+// ping did to its session. Well under a second alone, a store of its own; no other example holds a ping beside a
+// round of another line.
+#[test]
+fn a_ping_of_one_line_runs_beside_a_round_of_another_and_its_own_lines_round_waits_for_it() {
+    let mut s = S::on_flow(tested(), warm("opus"), None);
+    s.hands_in(100, true);
+    s.hands_in(100, true);
+    let last = s.clock;
+    tested_by_the_act(&mut s);
+    let (_, cell) = s.round();
+    assert_eq!(cell, "review");
+    s.began();
+    let at = woken(&s);
+    assert_eq!(at, last + 3_300_000);
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert_eq!(
+        pings(&s, &todos),
+        [("engineer".to_string(), 0)],
+        "no ping beside another line's round"
+    );
+    // The review hands in its notes while the ping is under way: the build, which they run, does not begin.
+    s.clock = at;
+    let notes = Handed {
+        block: "notes".into(),
+        content: "Name the user.".to_string(),
+        matters: true,
+        value: None,
+    };
+    s.ends(100, Came::hands_in(vec![notes]));
+    let builds = |s: &S| {
+        (s.kept().records.started.iter())
+            .filter(|r| r.cell.as_str() == "build")
+            .count()
+    };
+    assert_eq!(builds(&s), 1, "the build started beside a ping of its line");
+    assert!(
+        !(s.driver.pending().iter()).any(|t| matches!(t.effect, Effect::Round { .. })),
+        "a round of the line is to be done beside its ping"
+    );
+    s.clock += 1_000;
+    s.driver.happened(Time(s.clock), s.work, read_by_the_ping()).unwrap();
+    let (_, cell) = s.round();
+    assert_eq!(cell, "build", "the build begins once the ping has ended");
 }
 
 #[test]
@@ -1578,10 +1768,10 @@ fn a_ping_that_compacted_the_session_after_the_loading_cells_round_has_that_cell
     assert_eq!(cell, "load");
 }
 
-// A round that would begin while a ping of its work is under way begins once the ping has ended, after what the ping
+// A round that would begin while a ping of its line is under way begins once the ping has ended, after what the ping
 // did to its session, so that it is filled as the session then stands: a compaction the ping made comes before it.
 #[test]
-fn a_round_due_while_its_works_ping_is_under_way_begins_after_the_ping_and_what_it_did() {
+fn a_round_due_while_a_ping_of_its_line_is_under_way_begins_after_the_ping_and_what_it_did() {
     let mut s = S::with(warm("opus"), None);
     s.hands_in(100, true);
     s.asks(100);

@@ -16,10 +16,10 @@ use crate::spoken;
 use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Ran, Session, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
-/// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
+/// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::OPEN`]). Where the
 /// records cannot be those of a work nothing is given: the deciding code says so when asked.
 pub fn handle(flow: &Compiled, work: &mut Work, now: Time, event: Event) -> Result<Vec<Effect>, Refused> {
-    handle_held(flow, work, now, event, Room::FREE, Gate::Open)
+    handle_held(flow, work, now, event, Room::FREE, Gate::OPEN)
 }
 
 /// Takes one thing that happened to the work as [`handle`] does, in the room the engine leaves the work: under the
@@ -32,7 +32,7 @@ pub fn handle_in(
     event: Event,
     room: Room,
 ) -> Result<Vec<Effect>, Refused> {
-    handle_held(flow, work, now, event, room, Gate::Open)
+    handle_held(flow, work, now, event, room, Gate::OPEN)
 }
 
 /// Takes one thing that happened to the work as [`handle`] does, the rounds of every work being free to begin or held
@@ -105,7 +105,12 @@ pub fn handle_then(
     for event in then(flow, work) {
         take(flow, work, event, &mut effects)?;
     }
-    let at = At { from, now, room, gate };
+    let at = At {
+        from,
+        now,
+        room,
+        gate: &gate,
+    };
     advance(flow, work, at, &mut effects)?;
     // A work that has just ended withdraws the calls its cells were waiting on: no cell is entered for their results.
     // Those of a run abandoned were withdrawn as it was.
@@ -608,16 +613,16 @@ fn reopened_since(work: &Work) -> Result<(), Refused> {
 }
 
 /// When something that happened is taken: the first place given to its entries, the time, the room the engine leaves
-/// the work, and whether the agents' rounds may begin.
+/// the work, and which of its rounds may begin.
 #[derive(Clone, Copy)]
-struct At {
+struct At<'g> {
     from: Seq,
     now: Time,
     room: Room,
-    gate: Gate,
+    gate: &'g Gate,
 }
 
-impl At {
+impl At<'_> {
     /// When the entry at this place was added: now, for one added for what is being taken.
     fn time_of(self, work: &Work, place: Seq) -> Time {
         if place >= self.from {
@@ -626,15 +631,9 @@ impl At {
         work.time_of(place).unwrap_or(self.now)
     }
 
-    /// Whether the gate holds the rounds of the cell: it holds every round, or an agent's and the cell is one an agent
-    /// carries out.
+    /// Whether the gate holds the rounds of the cell ([`Gate::holds`]).
     fn holds(self, flow: &Compiled, cell: &CellId) -> bool {
-        match self.gate {
-            Gate::Open => false,
-            Gate::Every => true,
-            Gate::Agents => (flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent),
-            Gate::Acts => (flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Engine),
-        }
+        (flow.cells.iter()).any(|spec| spec.id == *cell && self.gate.holds(spec))
     }
 }
 
@@ -643,7 +642,7 @@ impl At {
 /// finishes, makes a wait or rests at a limit: so no more often than twice the runs the work has started, and once
 /// for each cell besides. Going round more often, the deciding code decides without end on these records, which is
 /// refused with what it decided last, rather than the engine holding the process for ever.
-fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) -> Result<(), Refused> {
+fn advance(flow: &Compiled, work: &mut Work, at: At<'_>, effects: &mut Vec<Effect>) -> Result<(), Refused> {
     let bound = 2 * work.records.started.len() + flow.cells.len() + 2;
     let mut passes = 0;
     loop {
@@ -695,7 +694,7 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
 
 /// Does what the run does next. Says whether the deciding code is to be asked again: it is when the run finished, had
 /// a wait made or came to rest for the owner at a limit, and not when a round of it began or is held.
-fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<Effect>) -> bool {
+fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut Vec<Effect>) -> bool {
     let choices = choices(flow);
     let questions = questions(flow);
     let answers = answers(flow, work, run);
