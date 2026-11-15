@@ -17,7 +17,10 @@
 //!   the first test, drawn apart from the rest, a judge stands before the merge, run only while "flip" holds and
 //!   writing a verdict, yes or no; the merge then also waits while the verdict stands at no. In a third of the
 //!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
-//!   entered again for the results of what it asked for one to three times in a row.
+//!   entered again for the results of what it asked for one to three times in a row. In about a third of the
+//!   histories, drawn apart, a cell asks for tests in a record, which runs a cell after it that hands in the result of
+//!   each entry it gives, as the engine's act does; the asking cell runs only while "flip" holds in two of five of
+//!   those, and the owner's words run a cell after it in half (properties `WAITS` and `RESULTS`).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -123,6 +126,10 @@ pub const UNREFUSED: &str = "the verdict is no refusal";
 
 /// The block that is the owner's words to a cell: it interrupts.
 const SPOKEN: &str = "spoken";
+
+/// The record a cell asks for tests in, where one does, and the cell that gives their results.
+const TESTS: &str = "tests";
+const GIVER: &str = "giver";
 
 /// From this round of a run on, its agent returns what meets everything the flow requires of it.
 const ROUNDS: usize = 3;
@@ -325,6 +332,33 @@ impl History {
                 c.slot = !rooms.chance(30);
             }
         }
+        // In about a third of the histories, one cell asks for tests in a record, which runs a cell after it that gives
+        // the result of each entry into the asking cell's own block, drawn apart so that the other draws keep their
+        // order.
+        let mut asking = Rng::new(seed ^ 0x7E57_ED00_A5C1_0000);
+        let result = asking.chance(35).then(|| {
+            let i = asking.below(cells.len());
+            let result = format!("{}_tested", cells[i].id);
+            cells[i].outputs.push(TESTS.into());
+            cells[i].runs_on.push(result.as_str().into());
+            cells[i].asks.push(decide::Asks {
+                record: TESTS.into(),
+                result: result.as_str().into(),
+            });
+            // Now and then the asking cell can be skipped, so that its entry is put away, and the owner's words turn to
+            // a cell after it, which its wait holds back.
+            if cells[i].applies.is_empty() && asking.chance(40) {
+                cells[i] = when_flipped(cells[i].clone());
+            }
+            if i + 1 < cells.len() && asking.chance(50) {
+                let k = i + 1 + asking.below(cells.len() - i - 1);
+                if !cells[k].runs_on.contains(&SPOKEN.into()) {
+                    cells[k].runs_on.push(SPOKEN.into());
+                }
+            }
+            cells.push(cell(GIVER, &[TESTS], &[result.as_str()]));
+            result
+        });
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
             judge.again = 2;
@@ -343,6 +377,10 @@ impl History {
         };
         w.notes(&[BRIEF]);
         w.turning(SPOKEN);
+        if let Some(result) = &result {
+            w.written_by_cells(result);
+            w.written_by_cells(TESTS);
+        }
         w.person_writes(BRIEF);
         if rng.chance(40) || judged.is_some() {
             w.says(GATE, true);
@@ -556,12 +594,14 @@ impl History {
         }
         for f in &r.finished[finished..] {
             properties::finished(v, &reading, f.run);
+            properties::results(v, flow, &reading, f.run);
         }
         self.looked_at = (r.started.len(), r.finished.len());
         properties::consumption(v, flow, &reading);
         let seed = properties::last_place(r).0;
         let paused = decide::paused(r) || self.room.paused;
         properties::decision(v, flow, &reading, decision, self.room, paused, seed);
+        properties::waits(v, flow, &reading, decision);
         pausing::decision(v, flow, &reading, decision, self.room, paused);
         room::decision(v, flow, r);
     }
@@ -891,6 +931,24 @@ impl History {
     /// A return drawn from all the form allows; where `meets`, one that does the cell's work, dealing with everything
     /// that ran the round, and writes only what the cell may, each as it may be written.
     fn draw_return(&mut self, spec: &Cell, told: &run::Told, meets: bool) -> Back {
+        // The cell that gives the results of the tests the cells ask for hands in the result of each entry it gives,
+        // as the engine's act does, and deals with all that ran it.
+        let asked = (self.w.flow.cells().iter()).any(|c| c.asks.iter().any(|a| spec.runs_on.contains(&a.record)));
+        if asked {
+            let writes = (decide::asked_of(&self.w.flow, &self.w.records, &spec.id).into_iter())
+                .map(|entry| Write {
+                    block: entry.result,
+                    meaning_unchanged: false,
+                    empty: false,
+                    value: None,
+                })
+                .collect();
+            return Back::Came {
+                dealt_with: told.ran_by.clone(),
+                writes,
+                calls: Vec::new(),
+            };
+        }
         let choice = |b: &BlockId| [CHOICE, VERDICT].contains(&b.as_str());
         let write = |rng: &mut Rng, block: &BlockId, meets: bool| {
             let value = if choice(block) {
@@ -904,9 +962,11 @@ impl History {
             } else {
                 None
             };
+            // An entry of a record is new whoever writes it: what the run's check refuses otherwise is no return drawn
+            // here.
             Write {
                 block: block.clone(),
-                meaning_unchanged: !(meets && choice(block)) && rng.chance(50),
+                meaning_unchanged: !(meets && choice(block)) && block.as_str() != TESTS && rng.chance(50),
                 empty: false,
                 value,
             }
@@ -1354,7 +1414,13 @@ fn random_works_keep_the_engines_properties_and_come_to_rest() {
     histories(
         ANY,
         800,
-        &[properties::REACHED, pausing::REACHED, room::REACHED].concat(),
+        &[
+            properties::REACHED,
+            properties::WAITS_REACHED,
+            pausing::REACHED,
+            room::REACHED,
+        ]
+        .concat(),
     );
 }
 

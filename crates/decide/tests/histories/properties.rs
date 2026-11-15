@@ -114,6 +114,21 @@ const MAKERS_CHECKED: &str = "a work waits on a precondition";
 const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge is not skipped";
 const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
+pub const WAITS: &str = "while a cell waits for a result, only a cell that gives it runs after it, and no round stops";
+pub const RESULTS: &str = "a result is handed in only for an entry that waits for it";
+const WAITED_FOR_A_RESULT: &str = "a cell runs that gives the result a cell before it waits for";
+const RESULT_GIVEN: &str = "the result of an entry is handed in";
+const ENTRY_PASSED_OVER: &str = "the entry of a cell skipped is passed over";
+const WAITING_HOLDS_A_STOP: &str = "the owner turns to a cell a waiting cell holds back while a round is under way";
+
+/// What the histories that draw a cell asking for tests must reach (decisions a-wait-holds-its-cell,
+/// a-wait-of-a-skipped-cell-is-put-away).
+pub const WAITS_REACHED: &[&str] = &[
+    WAITED_FOR_A_RESULT,
+    RESULT_GIVEN,
+    ENTRY_PASSED_OVER,
+    WAITING_HOLDS_A_STOP,
+];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
@@ -432,6 +447,99 @@ fn sent_back_since(flow: &Flow, reading: &Reading, i: usize, sender: &decide::Ce
 /// A run that has just finished (property a-run-is-one-mechanism, nothing written over unseen): of each block it
 /// writes, the version latest just before its finish is the latest its round was told of. A run that dealt with part
 /// of what ran it is counted.
+/// The first cell before place `upto` that applies and waits for the result of what it asked for, by this reading.
+fn waiting(flow: &Flow, reading: &Reading, upto: usize) -> Option<usize> {
+    let now = Seq(u64::MAX);
+    (0..upto).find(|&j| reading.applies(flow, j) && reading.pending(flow, &flow.cells()[j], now))
+}
+
+/// While a cell waits for the result of what it asked for, no later cell runs but one that gives that result; and the
+/// owner's turning to a cell such a wait holds back stops no round under way (decision a-wait-holds-its-cell).
+pub fn waits(v: &mut Verdict, flow: &Flow, reading: &Reading, decision: &Decision) {
+    let cells = flow.cells();
+    match decision {
+        Decision::Run { cell, .. } => {
+            let Some(i) = flow.place(cell) else { return };
+            let Some(j) = waiting(flow, reading, i) else { return };
+            if (cells[j].asks.iter()).any(|asks| cells[i].runs_on.contains(&asks.record)) {
+                v.count(WAITED_FOR_A_RESULT);
+            } else {
+                v.fail(
+                    WAITS,
+                    format!("{cell} runs while {} before it waits for a result", cells[j].id),
+                );
+            }
+        }
+        Decision::Busy { cell, .. } => {
+            // The owner's words to a cell the wait holds back wait for the wait to end.
+            let Some(i) = flow.place(cell) else { return };
+            let Some(j) = waiting(flow, reading, i) else { return };
+            let now = Seq(u64::MAX);
+            let held = (j + 1..i).any(|k| {
+                (reading.reasons(&cells[k], now).iter())
+                    .any(|r| matches!(r, Reason::Changed { block, .. } if flow.interrupts(block)))
+            });
+            if held {
+                v.count(WAITING_HOLDS_A_STOP);
+            }
+        }
+        Decision::Abandon {
+            cell,
+            because: Abandoning::Stopped { cell: to, .. },
+            ..
+        } => {
+            let (Some(i), Some(k)) = (flow.place(cell), flow.place(to)) else {
+                return;
+            };
+            if let Some(j) = waiting(flow, reading, k)
+                && j < i
+            {
+                let what = format!(
+                    "{cell}'s round is stopped for {to}, which {} waiting before it holds back",
+                    cells[j].id
+                );
+                v.fail(WAITS, what);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A result the run handed in is for an entry of the asking cell that waited for it as the run started: an entry it
+/// wrote before, with no result since; and an entry of a cell that does not apply, waiting so, is passed over (decision
+/// a-wait-of-a-skipped-cell-is-put-away).
+pub fn results(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId) {
+    let s = reading.started[&run];
+    let f = reading.finished[&run];
+    let entry_of = |cell: &decide::Cell, record: &BlockId| {
+        (reading.of(record).iter())
+            .filter(|x| x.at < s.at && matches!(&x.by, Writer::Cell(c, _) if *c == cell.id))
+            .map(|x| x.at)
+            .max()
+    };
+    for (j, cell) in flow.cells().iter().enumerate() {
+        for asks in &cell.asks {
+            let entry = entry_of(cell, &asks.record);
+            let answered = |entry: Seq| reading.of(&asks.result).iter().any(|x| x.at > entry && x.at < s.at);
+            let gave = f.writes.iter().any(|w| w.block == asks.result);
+            match entry {
+                Some(entry) if gave && !answered(entry) => v.count(RESULT_GIVEN),
+                _ if gave => v.fail(
+                    RESULTS,
+                    format!("run {run:?} hands in {} for no entry that waits", asks.result),
+                ),
+                Some(entry) if !answered(entry) && !reading.applies(flow, j) => {
+                    let gives = flow.cells().iter().find(|c| c.id == s.cell);
+                    if gives.is_some_and(|g| g.runs_on.contains(&asks.record)) {
+                        v.count(ENTRY_PASSED_OVER);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 pub fn finished(v: &mut Verdict, reading: &Reading, run: RunId) {
     let s = reading.started[&run];
     let f = reading.finished[&run];
