@@ -1,14 +1,16 @@
 //! What the tests of the context manager share: a small flow, laid out one thing to a file, its works taken through
 //! the engine's own loop, and the words beside the flows of the flow crate's tests.
 //!
-//! The flow: `plan` and `build` on the line `engineer`, `review` on the line `reviewer`, and `close`, which nothing
-//! runs, so that a work never ends. People write `request` and `notes`, and the plan, the opinions and the verdict
+//! The flow: `plan` and `build` on the line `engineer`, `review` and `note` on the line `reviewer`, and `close`, which
+//! nothing runs, so that a work never ends. People write `request` and `notes`, and the plan, the opinions and the verdict
 //! as well as the cells that write them, so that a return may write over a version it never saw. `plan` is run by the request and by
 //! the review's opinions, and given the request, the notes, the opinions, its own plan and the record of the questions
 //! and the answers; `build` is run by the plan and given it, the request and its own code, and takes main in; `review`
 //! is run by the code, by the owner's answer to a question of its own and by the owner's words to it, is given the
 //! code, the plan, the notes, what is said to the work and the record of the questions and the answers, and hands in
-//! its verdict every time, which `close` is given; it alone asks the owner. Each kind of datum is given by some cell:
+//! its verdict every time, which `close` is given; it alone asks the owner. `note` is run by the remarks people write,
+//! which no other cell reads, and given them and the record of the questions and the answers, so that a cell after the
+//! one that asks on its line holds what that cell's returns handed in. Each kind of datum is given by some cell:
 //! `latest`, `last_and_latest` and `all`. People write `tree` too, which stands for the design tree: `plan` and `build`
 //! are given it, and what changed in it the carrier says, as git would say the files that changed. A trigger of a
 //! datum is named as the datum. An entry of the record of the questions and the answers begins with the question's
@@ -28,14 +30,14 @@ use flow::{CellSpec, Compiled, Has, Source};
 
 const FLOW: &str = r#"
 name = "sessions"
-order = ["plan", "build", "review", "close"]
+order = ["plan", "build", "review", "note", "close"]
 data = ["discussion", "q_and_a"]
 
 [limits]
 again = 1000
 "#;
 
-const CELLS: [(&str, &str); 4] = [
+const CELLS: [(&str, &str); 5] = [
     (
         "plan",
         r#"
@@ -99,6 +101,23 @@ q_and_a = "all"
 "#,
     ),
     (
+        "note",
+        r#"
+title = "Note"
+kind = "agent"
+effort = "high"
+line = "reviewer"
+task = "Note what the remarks ask of the review."
+triggered_by = ["remarks"]
+context = ["remarks", "q_and_a"]
+outputs = []
+
+[kinds]
+remarks = "latest"
+q_and_a = "all"
+"#,
+    ),
+    (
         "close",
         r#"
 title = "Close"
@@ -119,7 +138,7 @@ verdict = "latest"
 
 /// The files of the small flow beside its cells, and those beside the flows it names, by their paths from its
 /// directory.
-const FILES: [(&str, &str); 16] = [
+const FILES: [(&str, &str); 17] = [
     ("lines/engineer.toml", ""),
     ("lines/reviewer.toml", ""),
     ("blocks/request.toml", "from = \"owner\"\n"),
@@ -129,6 +148,7 @@ const FILES: [(&str, &str); 16] = [
     ("blocks/plan.toml", "from = \"owner\"\n"),
     ("blocks/code.toml", ""),
     ("blocks/opinions.toml", "from = \"owner\"\n"),
+    ("blocks/remarks.toml", "from = \"owner\"\n"),
     ("blocks/verdict.toml", "values = [\"yes\", \"no\"]\nfrom = \"owner\"\n"),
     (
         "../data/discussion.toml",

@@ -2,7 +2,8 @@
 //! manager as a carrier fills it: people write, the lines' sessions are reopened by the owner, lost by the agents'
 //! program or compacted during a round, rounds fail before they reach the model, return sent back, ask for a tool,
 //! and hand in; the review's returns ask the owner one question or two at once, ask one anew or withdraw one, the
-//! engine asks one of its own beside a round, and the owner answers. Beside the work, the test keeps its own account of
+//! engine asks one of its own beside a round, and the owner answers, between rounds or while one runs, which stops a
+//! round of a cell after the review. Beside the work, the test keeps its own account of
 //! what each line's session holds, from what each round that reached the model was filled with and handed in, a
 //! question's entries of the record of the questions and the answers among what its return handed in, which it reads
 //! from what each entry says, and of the version of each datum each cell last worked from.
@@ -23,8 +24,9 @@
 //!
 //! The histories must reach each of these: a change sent, one of the tree, several versions of a datum given `all` sent at once, a
 //! session reopened, lost and compacted, results given and a return sent back; a question asked, two asked at once, one
-//! withdrawn, one of the engine's, an answer, and a round in a session that holds the entry of a question its own return
-//! asked; each is counted, and a test of no history reaching one fails. A failing case prints its seed.
+//! withdrawn, one of the engine's, an answer, one while a round runs and a round it stopped, and a round in a session
+//! that holds the entry of a question its own return asked, of the cell that asked and of another of its line; each is
+//! counted, and a test of no history reaching one fails. A failing case prints its seed.
 
 mod support;
 
@@ -156,8 +158,13 @@ struct Reached {
     /// Questions the engine asked beside a round, and the owner's answers.
     engines: usize,
     answers: usize,
-    /// Rounds given the record in a session that holds the entry of a question its own return asked.
+    /// Rounds given the record in a session that holds the entry of a question its own return asked: of the cell that
+    /// asked, and of another of its line.
     held_entries: usize,
+    held_by_another: usize,
+    /// Answers while a round ran, and rounds they stopped.
+    answered_under_way: usize,
+    stopped: usize,
 }
 
 /// One history, and the test's account beside it.
@@ -219,7 +226,7 @@ impl History {
     fn step(&mut self, reached: &mut Reached) {
         let roll = self.rng.below(100);
         if roll < 14 {
-            let block = ["request", "notes", "tree", "plan", "opinions"][self.rng.below(5)];
+            let block = ["request", "notes", "tree", "plan", "opinions", "remarks"][self.rng.below(6)];
             let content = self.content(block);
             self.sim.writes(block, &content);
         } else if roll < 18 {
@@ -297,9 +304,28 @@ impl History {
             return;
         }
         self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
-        let compactions = u32::from(self.rng.chance(10));
-        let came = self.came(round);
+        // Now and then the owner answers while the round runs, which stops it where the answer runs a cell before it,
+        // as a round of the note is stopped by one that runs the review: its program then ends, and what came back of
+        // it is dropped.
+        let chance = if round.cell.as_str() == "note" { 30 } else { 6 };
+        if self.rng.chance(chance)
+            && let Some(answer) = self.answer()
+        {
+            self.sim.take(answer);
+            reached.answered_under_way += 1;
+        }
+        let stopped = (self.sim.work.records.abandoned.iter()).any(|a| a.run == round.run);
+        reached.stopped += usize::from(stopped);
+        let compactions = u32::from(!stopped && self.rng.chance(10));
+        let came = if stopped {
+            Came::asks(Vec::new())
+        } else {
+            self.came(round)
+        };
         self.sim.returns(round, came, compactions);
+        if stopped {
+            return;
+        }
         if compactions > 0 {
             self.lines.insert(line.clone(), Held::default());
             reached.compacted += 1;
@@ -659,7 +685,10 @@ impl History {
             .chain(entered.run.written_over.iter().map(|(b, _)| b))
             .collect();
         if given.iter().any(|b| b.as_str() == RECORD) && !held.asked.is_empty() {
-            reached.held_entries += 1;
+            match cell.id.as_str() {
+                "review" => reached.held_entries += 1,
+                _ => reached.held_by_another += 1,
+            }
         }
         reached.written_over += entered.run.written_over.len();
         // How the session stands with each datum, and the line of one it holds that is new to the cell.
@@ -893,6 +922,12 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
             "a round given the record in a session that holds the entry of a question its own return asked",
             reached.held_entries,
         ),
+        (
+            "a round of another cell of the line given the record in a session that holds the entry of the asker's question",
+            reached.held_by_another,
+        ),
+        ("an answer while a round ran", reached.answered_under_way),
+        ("a round an answer stopped", reached.stopped),
     ] {
         assert!(n > 0, "no history reached {what}");
     }

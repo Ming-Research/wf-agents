@@ -32,7 +32,7 @@
 #[allow(dead_code)]
 mod support;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::panic::{self, AssertUnwindSafe};
 
@@ -155,15 +155,29 @@ fn of_answers(block: &BlockId) -> bool {
 }
 
 /// What the engine's source of answers wrote right after this place, in order: the versions at each place after it,
-/// one after another, while they are its.
+/// one after another, while they are its. The records are in the order of their places.
 fn written_after(r: &Records, at: Seq) -> Vec<&Written> {
-    let mut out = Vec::new();
-    let mut next = at.0 + 1;
-    while let Some(w) = (r.written.iter()).find(|w| w.at.0 == next && of_answers(&w.block)) {
-        out.push(w);
-        next += 1;
+    let from = r.written.partition_point(|w| w.at <= at);
+    (r.written[from..].iter().enumerate())
+        .take_while(|(i, w)| w.at.0 == at.0 + 1 + *i as u64 && of_answers(&w.block))
+        .map(|(_, w)| w)
+        .collect()
+}
+
+/// Whether a version of a question, or an answer, is recorded at this place, before which the engine's source of
+/// answers wrote what follows it: the place before the versions of that source that end at this one.
+fn of_what_it_follows(r: &Records, at: Seq) -> bool {
+    let answers = |place: u64| {
+        r.written
+            .binary_search_by_key(&place, |w| w.at.0)
+            .is_ok_and(|i| of_answers(&r.written[i].block))
+    };
+    let mut place = at.0.saturating_sub(1);
+    while place > 0 && answers(place) {
+        place -= 1;
     }
-    out
+    r.questions.binary_search_by_key(&place, |q| q.at.0).is_ok()
+        || r.answers.binary_search_by_key(&place, |a| a.at.0).is_ok()
 }
 
 /// The question the engine itself asks in these histories.
@@ -345,11 +359,14 @@ fn asked_value(records: &Records) -> Option<&str> {
         .and_then(|w| w.value.as_deref())
 }
 
-/// How far [`check`] has read the records: how many of the runs started and of the answers it has checked.
+/// How far [`check`] has read the records: how many of the runs started, the answers, the versions of questions and the
+/// writes it has checked.
 #[derive(Default)]
 struct Checked {
     started: usize,
     answers: usize,
+    questions: usize,
+    written: usize,
 }
 
 /// What must hold of the questions after every step: of the runs started and the answers the step added, each checked
@@ -357,8 +374,11 @@ struct Checked {
 fn check(work: &Work, checked: &mut Checked) {
     let r = &work.records;
     assert!(
-        r.started.len() >= checked.started && r.answers.len() >= checked.answers,
-        "runs started or answers were taken out of the records"
+        r.started.len() >= checked.started
+            && r.answers.len() >= checked.answers
+            && r.questions.len() >= checked.questions
+            && r.written.len() >= checked.written,
+        "runs started, answers, versions of questions or writes were taken out of the records"
     );
     for started in &r.started[checked.started..] {
         let before = r.before(started.at);
@@ -456,54 +476,38 @@ fn check(work: &Work, checked: &mut Checked) {
                 answer.at
             );
         }
-    }
-    entries_follow_what_they_are_of(r);
-    checked.started = r.started.len();
-    checked.answers = r.answers.len();
-}
-
-/// Each version the engine's source of answers writes is one that the version of a question, or the answer, recorded
-/// right before it wrote, with nothing but such versions between them, so that an entry of the record of the questions
-/// and the answers is of what it follows: each version of a question has its one entry, which runs no cell; each answer
-/// to a question's latest version its one, beside the block of the answering cell's trigger where the answer runs it;
-/// and an answer to an earlier version writes nothing.
-fn entries_follow_what_they_are_of(r: &Records) {
-    let entries = |wrote: &[&Written]| wrote.iter().filter(|w| w.block.as_str() == RECORD).count();
-    let mut of: BTreeSet<Seq> = BTreeSet::new();
-    for q in &r.questions {
-        let wrote = written_after(r, q.at);
+        let entries = wrote.iter().filter(|w| w.block.as_str() == RECORD).count();
         assert_eq!(
-            (entries(&wrote), wrote.len()),
-            (1, 1),
+            entries,
+            usize::from(latest),
+            "the answer at {:?} to {} has not its entry right after it",
+            answer.at,
+            answer.question
+        );
+    }
+    // Each version of a question has its one entry right after it, which runs no cell; and each version the source of
+    // answers wrote follows a question's version or an answer with nothing but such versions between. Both are
+    // written in the step that records the question or the answer, so each is checked at the step that adds it.
+    for q in &r.questions[checked.questions..] {
+        let wrote = written_after(r, q.at);
+        assert!(
+            wrote.len() == 1 && wrote[0].block.as_str() == RECORD,
             "the version at {:?} of {} has not its one entry right after it",
             q.at,
             q.name
         );
-        of.extend(wrote.iter().map(|w| w.at));
     }
-    for a in &r.answers {
-        let before = r.before(a.at);
-        let latest = questions(&before)
-            .get(a.question.as_str())
-            .is_some_and(|q| q.latest.at == a.version);
-        let wrote = written_after(r, a.at);
-        assert_eq!(
-            entries(&wrote),
-            usize::from(latest),
-            "the answer at {:?} to {} has not its entry right after it",
-            a.at,
-            a.question
+    for w in r.written[checked.written..].iter().filter(|w| of_answers(&w.block)) {
+        assert!(
+            of_what_it_follows(r, w.at),
+            "the source of answers wrote at {:?}, right after no question or answer",
+            w.at
         );
-        of.extend(wrote.iter().map(|w| w.at));
     }
-    let alone: Vec<Seq> = (r.written.iter())
-        .filter(|w| of_answers(&w.block) && !of.contains(&w.at))
-        .map(|w| w.at)
-        .collect();
-    assert!(
-        alone.is_empty(),
-        "the source of answers wrote at {alone:?}, right after no question or answer"
-    );
+    checked.started = r.started.len();
+    checked.answers = r.answers.len();
+    checked.questions = r.questions.len();
+    checked.written = r.written.len();
 }
 
 /// One history of the seed, with the engine stopping or not.
