@@ -749,6 +749,15 @@ mod tests {
         let mut are: Vec<String> = states(&renamed, &words).iter().map(|s| back(s, &names)).collect();
         are.sort();
         assert!(were.len() > 10, "{were:#?}");
-        assert_eq!(are, were);
+        let only =
+            |a: &[String], b: &[String]| a.iter().filter(|s| !b.contains(s)).take(3).cloned().collect::<Vec<_>>();
+        assert!(
+            are == were,
+            "renamed, {} states against {}; only the flow's: {:#?}; only the flow renamed's: {:#?}",
+            are.len(),
+            were.len(),
+            only(&were, &are),
+            only(&are, &were)
+        );
     }
 }

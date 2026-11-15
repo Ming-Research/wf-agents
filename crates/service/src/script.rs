@@ -98,10 +98,10 @@
 //! resets = 7200000
 //! ```
 //!
-//! A round that does its cell's work may name the blocks that ran its run that it dealt with (`dealt_with`), where it
-//! deals with fewer than all of them, as a round that asks for tests in a record deals with none; and the block a
-//! source outside the work writes of whose next version it says that what it wrote waits for one (`waits_for`), as the
-//! check says that what fails fails on main too.
+//! A round that does its cell's work may name the blocks or groups that ran its run that it dealt with (`dealt_with`),
+//! where it deals with fewer than all of them, as a round that asks for tests in a record deals with none; and the
+//! block a source outside the work writes of whose next version it says that what it wrote waits for one (`waits_for`),
+//! as the check says that what fails fails on main too.
 //!
 //! The questions a round asks are read as a return's are ([`engine::asked::unmet`]): one that recommends none of its
 //! options, or has the name of the question the engine itself asks in the words beside the flows, is found wrong with
@@ -629,8 +629,10 @@ impl Script {
                     ));
                 }
                 for (j, block) in round.dealt_with.iter().flatten().enumerate() {
-                    if !flow.blocks.contains_key(&BlockId::from(block.as_str())) {
-                        faults.push(format!("{at}.dealt_with[{j}]: the flow {name} has no block {block}"));
+                    if !flow.blocks.contains_key(&BlockId::from(block.as_str())) && !flow.groups.contains_key(block) {
+                        faults.push(format!(
+                            "{at}.dealt_with[{j}]: the flow {name} has no block or group {block}"
+                        ));
                     }
                 }
                 if let Some(block) = &round.waits_for {
