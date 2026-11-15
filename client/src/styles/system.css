@@ -118,14 +118,22 @@
   color: var(--green-text);
 }
 
-/* The account the file names. */
-.account-named {
+/* The account in use. */
+.account-in-use {
   background: var(--accent);
 }
 
-/* The question asked before the agents run under another account, beside the account. */
-.ask-line {
-  white-space: normal;
+/* The switch that lets the engine move on, with its words before it, on a line of its own. */
+.account-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: var(--space-8) 0;
+}
+
+/* The accounts taken, the latest first, a line each. */
+.account-taken li {
+  padding: var(--space-2) 0;
 }
 
 .account-add {

@@ -5,7 +5,7 @@
 
 import { fixtureItems } from '../works/fixtures';
 import type { Spent } from '../works-api';
-import type { AccountsPage, SettingsPage, System, Week } from './api';
+import type { AccountsChange, AccountsPage, Saved, SettingsPage, System, Week } from './api';
 
 const nothing = (): Spent => ({
   usdMicros: 0,
@@ -126,7 +126,7 @@ export function fixtureSettings(): SettingsPage {
         leftOut: false,
         keys: [
           key('command', '"claude"'),
-          key('config_dir', '"/data/agents/claude"'),
+          key('accounts', '["/data/agents/claude", "/data/agents/claude-second", "/data/agents/claude-third"]'),
           key('slots', '3', '2', { kind: 'count' }),
           key('args', '["--permission-mode", "acceptEdits"]'),
           key('work_budget_usd', '5.0'),
@@ -158,7 +158,16 @@ function levelKeys(desc: string, model: string) {
   return [key('desc', JSON.stringify(desc)), key('model', JSON.stringify(model), null, { kind: 'name' })];
 }
 
-export function fixtureAccounts(): AccountsPage {
+const HOUR = 60 * 60 * 1000;
+
+/// The accounts to look at the view by: one at the week's limit, left by the engine for the one in use; one signed in
+/// and free; one not signed in; and one the file lists that the engine takes as it starts again. What the owner does of
+/// them is done here, in this page alone, so that every state of the part can be looked at.
+let accounts: AccountsPage | null = null;
+
+function made(): AccountsPage {
+  const now = Date.now();
+  const at = (name: string) => `/data/agents/${name}`;
   return {
     command: 'claude',
     variable: 'CLAUDE_CONFIG_DIR',
@@ -166,10 +175,45 @@ export function fixtureAccounts(): AccountsPage {
     dir: '/data/agents',
     stem: 'claude',
     base: 'fixture',
+    movingOn: false,
     accounts: [
-      { name: 'claude', path: '/data/agents/claude', signedInAs: 'owner@example.com', named: true },
-      { name: 'claude-second', path: '/data/agents/claude-second', signedInAs: 'second@example.com', named: false },
-      { name: 'claude-third', path: '/data/agents/claude-third', signedInAs: null, named: false },
+      { name: 'claude', path: at('claude'), signedInAs: 'owner@example.com', inUse: false, running: true, limited: true, resets: now + 3 * 24 * HOUR },
+      { name: 'claude-second', path: at('claude-second'), signedInAs: 'second@example.com', inUse: true, running: true, limited: false, resets: null },
+      { name: 'claude-third', path: at('claude-third'), signedInAs: null, inUse: false, running: true, limited: false, resets: null },
+      { name: 'claude-fourth', path: at('claude-fourth'), signedInAs: 'fourth@example.com', inUse: false, running: false, limited: false, resets: null },
+    ],
+    taken: [
+      { name: 'claude-second', path: at('claude-second'), by: 'engine', at: now - 2 * HOUR, left: 'claude', resets: now + 3 * 24 * HOUR },
+      { name: 'claude', path: at('claude'), by: 'owner', at: now - 30 * HOUR, left: null, resets: null },
     ],
   };
+}
+
+export function fixtureAccounts(): AccountsPage {
+  accounts ??= made();
+  return structuredClone(accounts);
+}
+
+/// What the owner does of the fixtures' accounts, as the engine and the route would do it.
+export function fixtureAccountsChange(change: AccountsChange): Saved | null {
+  const page = (accounts ??= made());
+  if ('movingOn' in change) {
+    page.movingOn = change.movingOn.on;
+    return null;
+  }
+  if ('take' in change) {
+    const to = page.accounts.find((a) => a.path === change.take.path);
+    if (to === undefined || !to.running) throw new Error(`agents.accounts lists no account ${change.take.path}`);
+    if (to.signedInAs === null) {
+      throw new Error(`${to.name} is not signed in: run \`CLAUDE_CONFIG_DIR=${to.path} claude\` and type /login there first`);
+    }
+    if (!to.inUse) {
+      for (const a of page.accounts) a.inUse = a === to;
+      page.taken.unshift({ name: to.name, path: to.path, by: 'owner', at: Date.now(), left: null, resets: null });
+    }
+    return null;
+  }
+  const path = `${page.dir}/${page.stem}-${change.add.name}`;
+  if (page.accounts.some((a) => a.path === path)) throw new Error(`agents.accounts lists ${path} already`);
+  throw new Error(`${page.stem}-${change.add.name} is not signed in: run \`CLAUDE_CONFIG_DIR=${path} claude\` and type /login there first`);
 }

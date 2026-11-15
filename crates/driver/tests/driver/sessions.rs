@@ -3,8 +3,6 @@
 //! runs again before the line's next round; where each line has a block of its own, a new session of one line writes
 //! its block alone and runs again no cell of another line.
 
-use std::sync::{Arc, Mutex};
-
 use decide::BlockId;
 use driver::Policy;
 use driver::{FirstWrite, NewItem, SESSION};
@@ -176,32 +174,19 @@ fn policy(model: &str) -> Policy {
         samples: 1,
         limit: 500,
         on: Box::new(move |_, _| Some(on(&model))),
+        accounts: Vec::new(),
+        account: None,
+        short_limit_ms: 5 * 60 * 60 * 1000,
         warm: None,
     }
 }
 
-/// The account rounds run under, as the installation's settings say it each time the policy is asked: none for the
-/// program's own default directory.
-type Account = Arc<Mutex<Option<String>>>;
-
-fn account(dir: Option<&str>) -> Account {
-    Arc::new(Mutex::new(dir.map(str::to_string)))
-}
-
-/// The policy where every round runs on this model, under the account as it is when asked, a history of one value
-/// giving a line.
-fn policy_under(model: &str, account: Account) -> Policy {
-    let model = model.to_string();
+/// The policy where every round runs on this model, a history of one value giving a line, with these accounts listed
+/// in this order: the first is in use until another is taken.
+fn policy_under(model: &str, accounts: &[&str]) -> Policy {
     Policy {
-        samples: 1,
-        limit: 500,
-        warm: None,
-        on: Box::new(move |_, _| {
-            Some(RanOn {
-                account: account.lock().unwrap().clone(),
-                ..on(&model)
-            })
-        }),
+        accounts: accounts.iter().map(|a| a.to_string()).collect(),
+        ..policy(model)
     }
 }
 
@@ -221,6 +206,14 @@ struct S {
 impl S {
     fn new() -> S {
         S::with(policy("opus"), None)
+    }
+
+    /// The owner takes this account, one the policy lists, as the one the agents run under.
+    fn take(&mut self, account: &str) -> Vec<Todo> {
+        self.clock += 1000;
+        self.driver
+            .take_account(Time(self.clock), account)
+            .expect("the account is taken")
     }
 
     /// A driver with the policy, whose rounds' tries begin under the account.
@@ -770,47 +763,56 @@ fn a_line_whose_rounds_now_run_on_another_model_begins_a_new_session_as_the_engi
 }
 
 #[test]
-fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the_engine_opens() {
+fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_once_it_runs_after_the_engine_opens() {
     // The session was begun under the program's own default directory, and the engine opens under a directory set.
     let mut s = S::new();
     s.hands_in(100, true);
-    let (build, _) = s.round();
     s.asks(100);
-    let todos = reopened(&mut s, policy_under("opus", account(Some("second"))));
+    reopened(&mut s, policy_under("opus", &["second"]));
     s.account = Some("second".to_string());
+    assert!(
+        s.sessions().is_empty(),
+        "the build waits on its tool's result: nothing is begun anew yet"
+    );
+    // The result comes and the build's line runs again: it begins anew under the account in use.
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
     assert_eq!(
         s.sessions(),
         [("engineer".to_string(), Why::Account { was: None })],
         "the review's line, which has begun no session, begins none"
     );
     assert_eq!(s.session_block().len(), 1);
-    let loads = todos
-        .iter()
+    let loads = (s.driver.pending().iter())
         .any(|todo| matches!(&todo.effect, Effect::Round { cell, .. } if cell.as_str() == "load"));
-    assert!(loads, "the load runs again before the build goes on: {todos:?}");
+    assert!(loads, "the load runs again before the build goes on");
     // The load's round runs under the new account, and nothing more begins anew.
     s.hands_in(100, false);
-    let call = s.kept().records.called.last().expect("the build's call").call;
-    s.on(Event::Done {
-        call,
-        result: "the request".to_string(),
-    });
-    let (again, cell) = s.round();
+    let (_, cell) = s.round();
     assert_eq!(cell, "build");
-    assert_ne!(again, build);
     assert_eq!(s.sessions().len(), 1);
 }
 
 #[test]
-fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_at_the_next_event() {
-    let under = account(Some("first"));
-    let mut s = S::with(policy_under("opus", under.clone()), Some("first"));
+fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_only_once_its_next_round_is_the_works_next() {
+    let mut s = S::with(policy_under("opus", &["first", "second"]), Some("first"));
     s.hands_in(100, true);
     s.asks(100);
     assert!(s.sessions().is_empty());
-    // The account is changed while the build waits on its tool's result; the result is the next thing to happen.
-    *under.lock().unwrap() = Some("second".to_string());
+    // The owner takes another account while the build waits on its tool's result: no round of the line is the work's
+    // next, so its session is left as it is, and taking the first back leaves it as it was.
+    s.take("second");
+    assert!(
+        s.sessions().is_empty(),
+        "nothing is begun anew before the line runs again"
+    );
+    s.take("first");
+    s.take("second");
     s.account = Some("second".to_string());
+    // The result is the next thing to happen, and the build goes on: its line begins anew under the account in use.
     let call = s.kept().records.called.last().expect("the build's call").call;
     s.on(Event::Done {
         call,
@@ -824,16 +826,29 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_at_the
 }
 
 #[test]
-fn another_account_begins_the_new_session_before_a_context_past_the_limit_does() {
-    let under = account(None);
-    let mut s = S::with(policy_under("opus", under.clone()), None);
+fn a_round_under_way_as_another_account_is_taken_is_given_again_under_the_one_its_session_began_under() {
+    let mut s = S::with(policy_under("opus", &["first", "second"]), Some("first"));
     s.hands_in(100, true);
     let (run, cell) = s.round();
     assert_eq!(cell, "build");
-    // The build's try began under the account before; it is changed as the try runs, and the round ends past the
+    s.began();
+    s.take("second");
+    let number = s.kept().records.rounds.iter().filter(|r| r.run == run).count();
+    // Given again, as after a stop, it goes on in its session under the directory that holds it.
+    assert_eq!(s.driver.account_of(s.work, run, number).as_deref(), Some("first"));
+    assert_eq!(s.driver.account().as_deref(), Some("second"));
+}
+
+#[test]
+fn another_account_begins_the_new_session_before_a_context_past_the_limit_does() {
+    let mut s = S::with(policy_under("opus", &["first", "second"]), Some("first"));
+    s.hands_in(100, true);
+    let (run, cell) = s.round();
+    assert_eq!(cell, "build");
+    // The build's try began under the account before; another is taken as the try runs, and the round ends past the
     // limit, its run ending: both would begin a new session, and the account says why.
     s.began();
-    *under.lock().unwrap() = Some("second".to_string());
+    s.take("second");
     let handed = Handed {
         block: "code".into(),
         content: "the code".to_string(),
@@ -850,7 +865,15 @@ fn another_account_begins_the_new_session_before_a_context_past_the_limit_does()
         came: Came::hands_in(vec![handed]),
         spent,
     });
-    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Account { was: None })]);
+    assert_eq!(
+        s.sessions(),
+        [(
+            "engineer".to_string(),
+            Why::Account {
+                was: Some("first".to_string())
+            }
+        )]
+    );
 }
 
 /// The version of the tree a carrier says the work's branch has now.
@@ -1037,6 +1060,9 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
         samples: 1,
         limit: 500,
         warm: None,
+        accounts: Vec::new(),
+        account: None,
+        short_limit_ms: 5 * 60 * 60 * 1000,
         on: Box::new(|item, _| {
             let model = if item.level.as_deref() == Some("2") {
                 "sonnet"
@@ -1234,11 +1260,16 @@ fn pinged(spent: Spent, failed: Option<&str>) -> Event {
 /// The sessions of the work's lines that are kept warm, as the policy keeps them.
 fn kept_warm(s: &S) -> Vec<driver::warm::Kept> {
     let held = s.driver.work(s.work).expect("the work");
+    // The policy as the driver holds it: with the account in use.
+    let policy = Policy {
+        account: s.driver.account(),
+        ..warm("opus")
+    };
     driver::warm::kept(
         held.flow,
         held.work,
         held.item,
-        &warm("opus"),
+        &policy,
         &Default::default(),
         Time(s.clock),
     )
@@ -1283,6 +1314,34 @@ fn a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often
     s.driver.happened(Time(s.clock), s.work, pinged(read, None)).unwrap();
     // Two pings were sent in the wait, as many as it is worth: the line's session is pinged no more.
     assert!(kept_warm(&s).is_empty(), "no more pings in this wait");
+}
+
+#[test]
+fn a_session_begun_under_another_account_than_the_one_in_use_is_not_pinged() {
+    let mut s = S::with(
+        Policy {
+            accounts: vec!["first".to_string(), "second".to_string()],
+            ..warm("opus")
+        },
+        Some("first"),
+    );
+    s.hands_in(100, true);
+    s.asks(100);
+    assert_eq!(
+        kept_warm(&s).len(),
+        1,
+        "the build's session waits warm under the account in use"
+    );
+    // Another account is taken while the build waits: its next round begins anew under it, so the session is let go.
+    s.take("second");
+    assert!(kept_warm(&s).is_empty(), "a session of an account not in use is pinged");
+    assert!(
+        s.sessions().is_empty(),
+        "nothing is begun anew before the line runs again"
+    );
+    // Taken back, the session is kept warm again.
+    s.take("first");
+    assert_eq!(kept_warm(&s).len(), 1);
 }
 
 #[test]

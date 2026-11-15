@@ -94,9 +94,12 @@ permissions = { locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
 # and SHELL, and those named here, such as an API key.
 # env = ["ANTHROPIC_API_KEY"]
-# The program's own directory of settings and sign-in, given as CLAUDE_CONFIG_DIR. Left out, the program uses its own
-# default, which an agent can write to: `wf-agents run` says so as it starts.
-# config_dir = "/path/to/a/config/dir"
+# The accounts the program may make its calls under, each a directory of its settings and sign-in, given as
+# CLAUDE_CONFIG_DIR, in the order the engine takes them: the agents run under the first until another is taken, by the
+# owner on the page or by the engine moving on at the week's limit of the one in use, where the owner lets it on the
+# page. Sign each in once by hand: run `CLAUDE_CONFIG_DIR=<the directory> claude` and type /login there. Left out, the
+# program uses its own default, which an agent can write to: `wf-agents run` says so as it starts.
+# accounts = ["/path/to/claude", "/path/to/claude-second"]
 # What a work's rounds may spend in all, in dollars: once a round ends with the work over it, the work is paused for
 # the owner, who may let it on. Left out, there is no budget.
 work_budget_usd = 5.0
@@ -135,7 +138,7 @@ title_max = 20
 
 [sessions]
 # A line of a work keeps one session of the program from round to round. It begins a new one where the model or the
-# config_dir is no longer the one its session was begun with, and where a round of the line ends with more context than
+# account is no longer the one its session was begun with, and where a round of the line ends with more context than
 # the limit: the line its own history gives ([history] below), but never more than this many tokens, which is the limit
 # while the history is too short to give a line. The program compacts a session near its model's window, so a line
 # drawn from history stands past the window once one session came near it, and only this number still bounds what each

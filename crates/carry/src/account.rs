@@ -1,7 +1,7 @@
 //! The account the agents' program makes its calls under: a directory of its settings and sign-in, named to it by a
-//! variable of its environment. The installation names one as `agents.config_dir`; the owner signs a directory in
-//! once, by hand, by running the program with the variable naming the directory and typing the command that signs in,
-//! and the program keeps there the account it is signed in as.
+//! variable of its environment. The installation lists those it may run under as `agents.accounts`; the owner signs
+//! each directory in once, by hand, by running the program with the variable naming the directory and typing the
+//! command that signs in, and the program keeps there the account it is signed in as.
 
 use std::path::Path;
 
@@ -10,6 +10,10 @@ pub const VARIABLE: &str = "CLAUDE_CONFIG_DIR";
 
 /// What the owner types in the program, run with the variable naming a directory, to sign that directory in.
 pub const SIGN_IN: &str = "/login";
+
+/// How long the program's usage limit short of the week's lasts at most from when it is met: `claude`'s five hours. A
+/// limit that resets later is the week's, at which the engine may move on to another account.
+pub const SHORT_LIMIT_MS: u64 = 5 * 60 * 60 * 1000;
 
 /// The account a directory is signed in as, by the address the program keeps for it; none where it is not signed in,
 /// or what the program keeps there cannot be read.
