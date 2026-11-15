@@ -168,9 +168,9 @@ pub enum Return {
         /// The blocks of the work's branch the carrier read new as the round ended, as what the round committed: the
         /// run writes each as it finishes, beside the blocks it writes itself.
         read: Vec<BlockId>,
-        /// The blocks it writes that would leave its cell no longer applying, its condition holding as the round
-        /// ends, while the cell, once the return is taken, still waits ([`crate::skipping`]): worked out for the round
-        /// the run's next step is judged by, and none of another.
+        /// The blocks that would leave its cell no longer applying, its condition holding as the round ends, while
+        /// the cell, the return taken in with all the engine writes as it takes it, still waits
+        /// ([`crate::skipping`]): worked out for the round the run's next step is judged by, and none of another.
         skips: Vec<BlockId>,
     },
     /// The round failed: nothing came back, for this kind of cause, said so.
@@ -182,13 +182,11 @@ pub enum Return {
     },
 }
 
-/// A question a return writes, by its name: asked or asked anew, waiting for the answer or not, or withdrawn.
+/// A question a return writes, by its name: asked or asked anew, or withdrawn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Asking {
     pub name: String,
     pub withdrawn: bool,
-    /// Asked so that its cell waits for the answer; never of a question withdrawn.
-    pub waits: bool,
 }
 
 /// A question of the work as a round of a cell is told of it: whether it is the cell's own, which the cell's agent
@@ -386,9 +384,10 @@ pub enum Unmet {
     /// runs that act, neither by what it hands in, the work's head it committed among it, nor by a question that
     /// stands for the owner ([`Answer`]): the act reads no words, and would never run again.
     Unanswered { block: BlockId },
-    /// The return writes the block so that its cell no longer applies, while the cell, once the return is taken, still
-    /// waits: for the answer to a question of its own, or for the result of an entry of a record it asks in. A wait of
-    /// a cell that does not apply holds nothing (decision a-return-that-waits-keeps-its-cell).
+    /// The block, as the return writes it, or as the engine writes it as it takes the return in, leaves its cell no
+    /// longer applying, while the cell, the return taken in, still waits: for the answer to a question of its own, or
+    /// for the result of an entry of a record it asks in. A wait of a cell that does not apply holds nothing (decision
+    /// a-return-that-waits-keeps-its-cell).
     SkipsItsWait { block: BlockId },
 }
 
@@ -502,19 +501,9 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             };
             let unmet = unmet(&came, requires);
             if unmet.is_empty() {
-                // What the round committed is the run's too, as the carrier read it of the branch.
-                let committed = (read.iter())
-                    .filter(|block| !writes.iter().any(|w| &w.block == *block))
-                    .map(|block| Write {
-                        block: block.clone(),
-                        meaning_unchanged: false,
-                        value: None,
-                        // What the carrier read of the branch, a commit, holds something.
-                        empty: false,
-                    });
                 return Step::Finish {
                     dealt_with: consumed(dealt_with, requires),
-                    writes: writes.iter().cloned().chain(committed).collect(),
+                    writes: taken_writes(writes, read),
                 };
             }
             unmet
@@ -527,6 +516,21 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
         return Step::AtLimit(Limit::Returns { sent_back });
     }
     held(Step::SendBack { unmet }, hold)
+}
+
+/// What a run writes as its return is taken: the blocks it writes, then each block of the work's branch the carrier read
+/// new as the round ended that it does not write itself, as what the round committed.
+pub fn taken_writes(writes: &[Write], read: &[BlockId]) -> Vec<Write> {
+    let committed = (read.iter())
+        .filter(|block| !writes.iter().any(|w| &w.block == *block))
+        .map(|block| Write {
+            block: block.clone(),
+            meaning_unchanged: false,
+            value: None,
+            // What the carrier read of the branch, a commit, holds something.
+            empty: false,
+        });
+    writes.iter().cloned().chain(committed).collect()
 }
 
 /// The step, which begins a round, or its being held where the pause holds that round back.

@@ -876,11 +876,11 @@ impl Explorer<'_> {
         Some(c)
     }
 
-    /// Whether the return's writes leave its cell, at this place, no longer applying, where it applies now, while the
-    /// cell, the return taken, still waits: for the answer to a question of its own that waits, asked now or left before
-    /// and neither withdrawn nor asked anew as not waiting, or for the result of an entry of a record it asks in, as the
-    /// records read apart from the deciding code say. Such a return is sent back (decision
-    /// a-return-that-waits-keeps-its-cell).
+    /// Whether the return's writes, or what the engine writes as it takes the return in, the questions' standing, leave
+    /// its cell, at this place, no longer applying, where it applies now, while the cell, the return taken, still waits:
+    /// for the answer to a question of its own that waits, asked now or left before and neither withdrawn nor asked
+    /// anew as not waiting, or for the result of an entry of a record it asks in, as the records read apart from the
+    /// deciding code say. Such a return is sent back (decision a-return-that-waits-keeps-its-cell).
     fn skips(&self, records: &Records, i: usize, run: RunId, came: &Came) -> bool {
         let cell = &self.model.cells()[i];
         if cell.applies.is_empty() {
@@ -914,11 +914,37 @@ impl Explorer<'_> {
                 at: Seq(u64::MAX - n + k as u64),
             });
         }
+        // And the questions' standing, as the engine writes it as it takes the return in, where it says otherwise.
+        let now = Seq(u64::MAX);
+        let standing = (self.model.compiled.blocks.iter())
+            .find(|(_, b)| b.writers.outside.as_deref() == Some(engine::asked::ASKED));
+        if let Some((block, _)) = standing {
+            let waiting = (questions(&after, now).values()).any(|q| !q.withdrawn && !q.answered);
+            let value = if waiting {
+                engine::asked::WAITING
+            } else {
+                engine::asked::ANSWERED
+            };
+            let says = Reading::of_flow(self.flow(), &after)
+                .current(block)
+                .and_then(|v| v.value.clone());
+            let says = says.or_else(|| self.flow().default_of(block).map(str::to_string));
+            if says.as_deref() != Some(value) {
+                after.written.push(decide::Written {
+                    block: block.clone(),
+                    by: Outsider::Outside,
+                    matters: true,
+                    value: Some(value.to_string()),
+                    empty: false,
+                    said_to: None,
+                    at: now,
+                });
+            }
+        }
         let applies = |records: &Records| Reading::of_flow(self.flow(), records).applies(self.flow(), i);
         if !applies(records) || applies(&after) {
             return false;
         }
-        let now = Seq(u64::MAX);
         let held = (questions(&after, now).values())
             .any(|q| q.cell == cell.id && !q.engine && q.waits && !q.withdrawn && !q.answered);
         held || Reading::of_flow(self.flow(), &after).pending(cell, now)

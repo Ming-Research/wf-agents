@@ -36,11 +36,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
 use crate::questions::{self, Standing as Question};
 use crate::records::{
-    CallId, Called, Cause, Finished, Outsider, Pause, Pauser, PutIn, Questioned, RecordFault, Records, RunId, Seq,
-    Started, Who, Write,
+    CallId, Called, Cause, Finished, Outsider, Pause, Pauser, PutIn, RecordFault, Records, RunId, Seq, Started, Who,
+    Write,
 };
 use crate::room::Room;
-use crate::run::{Asked, Asking, Hold, Standing, Told};
+use crate::run::{Asked, Hold, Standing, Told};
 
 /// What a work does next, with the reason as data (principle decide-purely).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -351,81 +351,72 @@ pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
     flow.place(cell).is_some_and(|i| walk.applies(i))
 }
 
-/// The blocks of these the run writes that leave its cell no longer applying, its condition holding as the records
-/// stand, while the cell, once the run finished with these writes and these questions, still waits: for the answer to
-/// a question of its own that holds it, one asked now or one asked before that the run neither withdrew nor asked anew
-/// as not waiting, or for the result of an entry of a record it asks in, written now or before (decision
-/// a-return-that-waits-keeps-its-cell). The engine's own questions, which no run of the cell withdraws or asks anew,
-/// are not the cell's. Of the blocks the run writes, those that then keep its condition from holding; or, where its
-/// writes skip it through another cell's applying, which decides whether a version a test of what stands reads still
-/// stands, those that condition reads. None where the cell has no condition, does not apply now, still applies after,
-/// or then waits for nothing, or where the run never started.
-pub fn skipping(flow: &Flow, records: &Records, run: RunId, writes: &[Write], questions: &[Asking]) -> Vec<BlockId> {
-    let Some(started) = records.started.iter().find(|s| s.run == run) else {
-        return Vec::new();
-    };
-    let Some(i) = flow.place(&started.cell) else {
+/// The blocks that leave the run's cell no longer applying, its condition holding as the records stand (`before`), while
+/// the cell, its return taken in as `after` holds it, with all the engine writes as it takes it in, still waits: for
+/// the answer to a question of its own that holds it, one the return asked or one asked before that it neither withdrew
+/// nor asked anew as not waiting, or for the result of an entry of a record it asks in, written by the return or before
+/// (decision a-return-that-waits-keeps-its-cell). The engine's own questions, which no return of the cell withdraws or
+/// asks anew, are not the cell's. Named, all at once: each block of these writes of the return's, in their order, that
+/// then keeps the condition from holding, or that changes what it says and is read by the condition of a cell before
+/// it whose applying it changes, where a key of the cell is a test of what stands, which that applying decides; then
+/// each block that keeps the condition from holding that the engine wrote anew as it took the return in, as the
+/// questions' standing. None where the cell has no condition, does not apply before, still applies after, or then waits
+/// for nothing, or where the run never started.
+pub fn skipping(flow: &Flow, before: &Records, after: &Records, run: RunId, writes: &[Write]) -> Vec<BlockId> {
+    let Some(i) = (before.started.iter())
+        .find(|s| s.run == run)
+        .and_then(|s| flow.place(&s.cell))
+    else {
         return Vec::new();
     };
     let cells = flow.cells();
-    // The blocks the cell's condition can turn on: those its keys read, and, where one of them is a test of what
-    // stands, those the conditions of the cells before it read, whose applying decides whether a version stands. Only
-    // the run's writes of these are walked.
-    let reads = |key: &Condition| -> Vec<BlockId> {
-        match key {
-            Condition::Is { block, .. } => vec![block.clone()],
-            Condition::Test(name) => flow.tests().get(name).map_or_else(Vec::new, |t| t.reads.clone()),
+    let was = Walk::new(flow, before);
+    if cells[i].applies.is_empty() || !was.applies(i) {
+        return Vec::new();
+    }
+    let is = Walk::new(flow, after);
+    let cell = &cells[i].id;
+    let holds = (is.questions.values()).any(|q| &q.latest.cell == cell && !q.latest.engine && q.holds());
+    if is.applies(i) || !(holds || !is.pending(i).is_empty()) {
+        return Vec::new();
+    }
+    let mut keeping: Vec<&BlockId> = Vec::new();
+    for block in (cells[i].applies.iter()).flat_map(|key| is.keeping(key, i)) {
+        if !keeping.contains(&block) {
+            keeping.push(block);
         }
-    };
+    }
+    // A test of what stands among the cell's keys turns on whether the cells before it apply.
     let standing = (cells[i].applies.iter()).any(|key| {
         matches!(key, Condition::Test(name) if flow.tests().get(name).is_some_and(|t| t.kind == TestKind::NoneStanding))
     });
-    let reached: Vec<BlockId> = (cells[..=i].iter().enumerate())
-        .filter(|(j, _)| *j == i || standing)
-        .flat_map(|(_, c)| c.applies.iter().flat_map(reads))
-        .collect();
-    let mut leading: Vec<BlockId> = Vec::new();
-    for w in writes.iter().filter(|w| reached.contains(&w.block)) {
-        if !leading.contains(&w.block) {
-            leading.push(w.block.clone());
+    let reads = |key: &Condition, block: &BlockId| match key {
+        Condition::Is { block: b, .. } => b == block,
+        Condition::Test(name) => flow.tests().get(name).is_some_and(|t| t.reads.contains(block)),
+    };
+    let says = |walk: &Walk<'_>, block: &BlockId| {
+        let value = walk.value_now(block).map(str::to_string);
+        (value, walk.current(block).map(|v| v.empty))
+    };
+    let through = |block: &BlockId| {
+        standing
+            && says(&was, block) != says(&is, block)
+            && (0..i).any(|j| cells[j].applies.iter().any(|key| reads(key, block)) && was.applies(j) != is.applies(j))
+    };
+    let mut named: Vec<BlockId> = Vec::new();
+    for w in writes {
+        if !named.contains(&w.block) && (keeping.contains(&&w.block) || through(&w.block)) {
+            named.push(w.block.clone());
         }
     }
-    if leading.is_empty() || !Walk::new(flow, records).applies(i) {
-        return Vec::new();
+    // What the engine wrote anew as it took the return in: a version of the block the records did not hold before.
+    let anew = |block: &BlockId| is.current(block).map(|v| v.at) != was.current(block).map(|v| v.at);
+    for block in keeping {
+        if !writes.iter().any(|w| &w.block == block) && anew(block) && !named.contains(block) {
+            named.push(block.clone());
+        }
     }
-    // The records as the run would leave them: finished with its writes, its questions written after.
-    let n = questions.len() as u64;
-    let mut after = records.clone();
-    after.finished.push(Finished {
-        run,
-        at: Seq(u64::MAX - n - 1),
-        writes: writes.to_vec(),
-        dealt_with: Some(Vec::new()),
-        waits_for: None,
-    });
-    for (k, q) in questions.iter().enumerate() {
-        after.questions.push(Questioned {
-            name: q.name.clone(),
-            cell: started.cell.clone(),
-            run,
-            engine: false,
-            waits: q.waits && !q.withdrawn,
-            withdrawn: q.withdrawn,
-            at: Seq(u64::MAX - n + k as u64),
-        });
-    }
-    let walk = Walk::new(flow, &after);
-    let cell = &started.cell;
-    let holds = (walk.questions.values()).any(|q| &q.latest.cell == cell && !q.latest.engine && q.holds());
-    if walk.applies(i) || !(holds || !walk.pending(i).is_empty()) {
-        return Vec::new();
-    }
-    let keeping: Vec<&BlockId> = (cells[i].applies.iter()).flat_map(|key| walk.keeping(key, i)).collect();
-    let own: Vec<BlockId> = (leading.iter())
-        .filter(|block| keeping.contains(block))
-        .cloned()
-        .collect();
-    if own.is_empty() { leading } else { own }
+    named
 }
 
 /// The blocks that keep this key of the cell's preconditions from holding now, by the value each has: a write of any of

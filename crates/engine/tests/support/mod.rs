@@ -120,9 +120,11 @@ pub struct Seen {
     pub words_refused: usize,
     /// Results of what a cell asked for in a record, handed in by a cell that gives them.
     pub results: usize,
-    /// Hand-ins sent back for asking to wait, by a question that waits or an entry asking for tests, and leaving their
-    /// own cell no longer applying.
+    /// Hand-ins sent back for leaving their own cell no longer applying while it still waits.
     pub skipping: usize,
+    /// Of those, the ones whose return asked no wait itself, neither a question that waits nor an entry asking for
+    /// tests: the cell waited by what an earlier return of it left.
+    pub skipping_left_before: usize,
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
@@ -767,6 +769,10 @@ impl Driver {
                     && hand_in
                     && !came.said.waits()
                     && must.iter().any(|b| !came.writes.iter().any(|h| h.block == *b));
+                // Whether the return asks a wait itself: a question that waits, or an entry of a record its cell asks in.
+                let asking = &self.flow.flow.cells()[place].asks;
+                let own_wait =
+                    came.said.waits() || (came.writes.iter()).any(|h| asking.iter().any(|a| a.record == h.block));
                 let rounds = |r: &Records| r.rounds.iter().filter(|e| e.run == run).count();
                 let began = rounds(&self.work.records);
                 self.returned(run, came);
@@ -775,7 +781,7 @@ impl Driver {
                 if lacks && open {
                     self.seen.lacking += 1;
                 }
-                // Sent back for asking to wait as it left its own cell: the round after it is told so.
+                // Sent back for leaving its own cell as it still waits: the round after it is told so.
                 let next = rounds(r);
                 let skipping = |unmet: &Unmet| matches!(unmet, Unmet::SkipsItsWait { .. });
                 if next > began
@@ -783,6 +789,9 @@ impl Driver {
                     && unmet.iter().any(skipping)
                 {
                     self.seen.skipping += 1;
+                    if !own_wait {
+                        self.seen.skipping_left_before += 1;
+                    }
                 }
             }
             Effect::Call { call, .. } => self.give_result(call),

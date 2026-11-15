@@ -173,19 +173,62 @@ fn wrote(block: &str) -> Write {
 }
 
 /// A question the run asks, waiting for its answer or not, or withdraws.
-fn asking(name: &str, waits: bool, withdrawn: bool) -> decide::run::Asking {
-    decide::run::Asking {
-        name: name.to_string(),
-        withdrawn,
-        waits,
-    }
+#[derive(Clone)]
+struct Asking {
+    name: &'static str,
+    waits: bool,
+    withdrawn: bool,
 }
 
-/// What of these writes of the run, with these questions, leaves its cell no longer applying while it still waits.
-fn skips(w: &World, run: RunId, writes: &[Write], questions: &[decide::run::Asking]) -> Vec<String> {
-    (decide::skipping(&w.flow, &w.records, run, writes, questions).into_iter())
+fn asking(name: &'static str, waits: bool, withdrawn: bool) -> Asking {
+    Asking { name, waits, withdrawn }
+}
+
+/// What of these writes of the run leaves its cell no longer applying while it still waits, the return taken in as the
+/// engine takes it in: the run finished with them, its questions written after, and these blocks written from outside
+/// with these values, as the engine writes the questions' standing.
+fn skips_taken(w: &World, run: RunId, writes: &[Write], questions: &[Asking], engine: &[(&str, &str)]) -> Vec<String> {
+    let cell = (w.records.started.iter())
+        .find(|s| s.run == run)
+        .map_or_else(|| "none".into(), |s| s.cell.clone());
+    let mut after = w.records.clone();
+    after.finished.push(decide::Finished {
+        run,
+        at: Seq(1_000_000),
+        writes: writes.to_vec(),
+        dealt_with: Some(Vec::new()),
+        waits_for: None,
+    });
+    for (k, q) in questions.iter().enumerate() {
+        after.questions.push(decide::Questioned {
+            name: q.name.to_string(),
+            cell: cell.clone(),
+            run,
+            engine: false,
+            waits: q.waits && !q.withdrawn,
+            withdrawn: q.withdrawn,
+            at: Seq(1_000_001 + k as u64),
+        });
+    }
+    for (k, (block, value)) in engine.iter().enumerate() {
+        after.written.push(Written {
+            block: (*block).into(),
+            by: decide::Outsider::Outside,
+            matters: true,
+            value: Some(value.to_string()),
+            empty: false,
+            said_to: None,
+            at: Seq(2_000_000 + k as u64),
+        });
+    }
+    (decide::skipping(&w.flow, &w.records, &after, run, writes).into_iter())
         .map(|b| b.0)
         .collect()
+}
+
+/// The same, the engine writing nothing from outside as it takes the return in.
+fn skips(w: &World, run: RunId, writes: &[Write], questions: &[Asking]) -> Vec<String> {
+    skips_taken(w, run, writes, questions, &[])
 }
 
 /// A research that runs while the deep research is not needed, which it alone decides (`deep`), and asks for tests in
@@ -328,15 +371,19 @@ fn a_named_test_condition_is_left_by_the_run_s_write_and_a_cell_already_skipped_
     assert_eq!(skips(&w, run, &[chose("deep", "yes")], &[waits]), Vec::<String>::new());
 }
 
-// Where the run's writes leave its cell through another cell's applying, which decides whether a version a test of
-// what stands reads still stands, the run's own block that does it is named, never the other cell's, which the run
-// could not leave out: the fix, run while no refusal of the judge's stands, writes what has the judge apply again, and
-// the judge's refusal stands. Well under a millisecond alone; no other test names a block through another cell.
-#[test]
-fn a_run_that_leaves_its_cell_through_another_cell_s_applying_names_its_own_write() {
+/// A judge that runs while `again` says yes, writing a verdict; a fix that runs while no refusal of the judge's stands
+/// and while its own choice `mine` says no, writing both; and the merge. The judge refused, and a person then wrote
+/// `again` as no, so that its refusal no longer stands; the fix's run has begun.
+fn judged() -> (World, RunId) {
     let judge = when("again", "yes", cell("judge", &["brief"], &["verdict"]));
-    let mut fix = cell("fix", &["brief"], &["again", "plan"]);
-    fix.applies = vec![Condition::Test("unrefused".into())];
+    let mut fix = cell("fix", &["brief"], &["again", "mine", "plan"]);
+    fix.applies = vec![
+        Condition::Test("unrefused".into()),
+        Condition::Is {
+            block: "mine".into(),
+            value: "no".into(),
+        },
+    ];
     let unrefused = decide::Test {
         kind: decide::TestKind::NoneStanding,
         reads: vec!["verdict".into()],
@@ -352,18 +399,81 @@ fn a_run_that_leaves_its_cell_through_another_cell_s_applying_names_its_own_writ
     };
     let outsiders = BTreeMap::from([(support::GATE.into(), people.clone()), ("again".into(), people)]);
     let flow = Flow::new(vec![judge, fix, gate()], tests, outsiders).expect("the cells make a flow");
-    let mut w = World::of(flow.with_defaults(BTreeMap::from([("again".into(), "yes".to_string())])));
+    let defaults = BTreeMap::from([("again".into(), "yes".to_string()), ("mine".into(), "no".to_string())]);
+    let mut w = World::of(flow.with_defaults(defaults));
     w.person_writes("brief");
     w.run("judge", &[("verdict", Value("no"))]);
     w.person_sets("again", "no");
     let run = w.start("fix");
+    (w, run)
+}
+
+// Where the run's writes leave its cell through another cell's applying, which decides whether a version a test of
+// what stands reads still stands, the run's own block that does it is named, never the other cell's, which the run
+// could not leave out: the fix writes what has the judge apply again, and the judge's refusal stands. Well under a
+// millisecond alone; no other test names a block through another cell.
+#[test]
+fn a_run_that_leaves_its_cell_through_another_cell_s_applying_names_its_own_write() {
+    let (w, run) = judged();
     let waits = asking("naming", true, false);
     assert_eq!(
-        skips(&w, run, &[chose("again", "yes"), wrote("plan")], &[waits]),
+        skips(
+            &w,
+            run,
+            &[chose("again", "yes"), wrote("plan")],
+            std::slice::from_ref(&waits)
+        ),
         ["again"]
     );
     assert_eq!(
         skips(&w, run, &[chose("again", "yes"), wrote("plan")], &[]),
         Vec::<String>::new()
     );
+}
+
+// Every cause is named in one send-back (principle report-all-at-once): the fix's own choice that its condition reads,
+// and what has the judge apply again, both as the run writes them; and a write of what the judge's condition reads
+// that changes nothing it says causes nothing and is not named. Well under a millisecond alone.
+#[test]
+fn every_block_of_the_run_s_that_leaves_its_cell_is_named_at_once_and_none_that_changes_nothing() {
+    let (w, run) = judged();
+    let waits = asking("naming", true, false);
+    assert_eq!(
+        skips(
+            &w,
+            run,
+            &[chose("mine", "yes"), chose("again", "yes")],
+            std::slice::from_ref(&waits)
+        ),
+        ["mine", "again"]
+    );
+    assert_eq!(
+        skips(
+            &w,
+            run,
+            &[chose("mine", "yes"), chose("again", "no")],
+            std::slice::from_ref(&waits)
+        ),
+        ["mine"]
+    );
+}
+
+// A cell whose condition reads what the engine writes as it takes the cell's return in, the questions' standing, is
+// left by that write where its question waits: the block is named, the return writing none that leaves the cell
+// (decision a-return-that-waits-keeps-its-cell). Well under a millisecond alone; no other test has the walk judge what
+// the engine writes for a return.
+#[test]
+fn what_the_engine_writes_as_it_takes_the_return_in_is_judged_with_it() {
+    let mut w = World::with_gate(vec![when("asked", "answered", cell("research", &["brief"], &["plan"]))]);
+    w.written_outside("asked", "asked");
+    w.flow = (w.flow.clone()).with_defaults(BTreeMap::from([("asked".into(), "answered".to_string())]));
+    w.person_writes("brief");
+    let run = w.start("research");
+    let waits = asking("naming", true, false);
+    let standing = [("asked", "waiting")];
+    assert_eq!(
+        skips_taken(&w, run, &[wrote("plan")], std::slice::from_ref(&waits), &standing),
+        ["asked"]
+    );
+    assert_eq!(skips(&w, run, &[wrote("plan")], &[waits]), Vec::<String>::new());
 }

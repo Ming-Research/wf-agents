@@ -967,16 +967,27 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             })
             .collect::<Vec<Write>>()
     };
-    // The blocks a return writes so that its cell no longer applies while the cell still waits, as the records would
-    // stand once it is taken: worked out only for the round the run's next step is judged by, the last, and only of an
-    // agent's, as an act never waits.
+    // The blocks that would leave a return's cell no longer applying while the cell still waits, judged on the records
+    // as the engine's own taking of the return in would leave them, with all it writes for it (`finish`): worked out
+    // only for the round the run's next step is judged by, the last, only of an agent's, as an act never waits, and
+    // only of a cell with a condition.
     let last = began(work, run);
-    let agent = (work.records.started.iter().find(|s| s.run == run))
-        .and_then(|s| flow.cells.iter().find(|c| c.id == s.cell))
-        .is_some_and(|spec| spec.kind == Kind::Agent);
-    let skips = |i: usize, writes: &[Write], questions: &[run::Asking]| match i + 1 == last && agent {
-        true => decide::skipping(&flow.flow, &work.records, run, writes, questions),
-        false => Vec::new(),
+    let place = (work.records.started.iter().find(|s| s.run == run)).and_then(|s| flow.flow.place(&s.cell));
+    let judged = place.is_some_and(|i| flow.cells[i].kind == Kind::Agent && !flow.flow.cells()[i].applies.is_empty());
+    let skips = |i: usize, writes: &[Write], read: &[BlockId]| {
+        if i + 1 != last || !judged {
+            return Vec::new();
+        }
+        let mut taken = work.clone();
+        finish(
+            flow,
+            &mut taken,
+            run,
+            Vec::new(),
+            run::taken_writes(writes, read),
+            &mut Vec::new(),
+        );
+        decide::skipping(&flow.flow, &work.records, &taken.records, run, writes)
     };
     let returned = |i: usize, b: &Back| match b {
         Back::Returned {
@@ -989,26 +1000,25 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             ..
         } => {
             let writes = writes(handed);
-            let questions: Vec<run::Asking> = (said.questions.iter())
-                .map(|q| run::Asking {
-                    name: q.name().to_string(),
-                    withdrawn: matches!(q, work::Question::Withdrawn { .. }),
-                    waits: matches!(q, work::Question::Asked { waits: true, .. }),
-                })
+            // What the round committed, where the block does not say it already.
+            let read: Vec<BlockId> = (read.iter())
+                .filter(|r| says_now(work, &r.block) != Some(r.content.as_str()))
+                .map(|r| r.block.clone())
                 .collect();
             run::Return::Came {
                 dealt_with: dealt_with.clone(),
-                skips: skips(i, &writes, &questions),
+                skips: skips(i, &writes, &read),
                 writes,
                 calls: asks.len(),
                 found: found.clone(),
                 waits: said.waits(),
-                questions,
-                // What the round committed, where the block does not say it already.
-                read: (read.iter())
-                    .filter(|r| says_now(work, &r.block) != Some(r.content.as_str()))
-                    .map(|r| r.block.clone())
+                questions: (said.questions.iter())
+                    .map(|q| run::Asking {
+                        name: q.name().to_string(),
+                        withdrawn: matches!(q, work::Question::Withdrawn { .. }),
+                    })
                     .collect(),
+                read,
             }
         }
         Back::Asked(asks) => run::Return::Came {
