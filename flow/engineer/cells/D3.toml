@@ -26,7 +26,7 @@ In the why of `plan_ok`, answer each point by its number: none, or what you foun
 Write none with `plan_ok` yes. Leave out what you are not sure is better.
 '''
 when = { deep_needed = "yes" }
-triggered_by = ["on_plan", "on_reply_plan_review", "on_spoken"]
+triggered_by = ["on_plan", "on_reply_plan_review"]
 context = [
   "background",
   "found",
@@ -41,7 +41,7 @@ context = [
   "reply_plan_review",
   "tree",
 ]
-outputs = ["plan_review", "plan_ok", "discussion"]
+outputs = ["plan_review", "plan_ok"]
 must_write = ["plan_ok"]
 
 # What the cell does when each trigger fires; a trigger with none is the task's alone.

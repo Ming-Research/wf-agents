@@ -24,7 +24,7 @@ In the why of `tree_ok`, answer each point by its number: none, or what you foun
 Write none with `tree_ok` yes. Leave out what you are not sure is better.
 '''
 when = { edits_tree = "yes" }
-triggered_by = ["on_plan", "on_reply_tree_review", "on_spoken"]
+triggered_by = ["on_plan", "on_reply_tree_review"]
 context = [
   "background",
   "discussion",
@@ -37,7 +37,7 @@ context = [
   "reply_tree_review",
   "tree",
 ]
-outputs = ["tree_review", "tree_ok", "discussion"]
+outputs = ["tree_review", "tree_ok"]
 must_write = ["tree_ok"]
 
 [do]
