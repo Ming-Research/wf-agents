@@ -48,6 +48,11 @@ fn engineer() -> Compiled {
     flow::compile(&source, &has).expect("the engineer's flow compiles")
 }
 
+/// The files beside the repository's flows.
+fn beside() -> Agents {
+    flow::agents::read(&root()).expect("the files beside the flows are read")
+}
+
 #[test]
 fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_holds_with_its_version() {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
