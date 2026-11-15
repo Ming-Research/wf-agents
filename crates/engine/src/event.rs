@@ -260,6 +260,8 @@ pub enum Refused {
     NoSuchCell(CellId),
     /// No round of the run is under way.
     NoRoundUnderWay(RunId),
+    /// The return asks a person by a call, which no agent does: a person is asked by the work's questions.
+    AsksAPerson(RunId),
     /// The work has no such call.
     NoSuchCall(CallId),
     /// The call has its result already.

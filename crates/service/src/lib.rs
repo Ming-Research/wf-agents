@@ -184,7 +184,7 @@ pub enum Act {
     Cancel {
         why: Option<String>,
     },
-    /// Gives a call that waits for a person its result.
+    /// Gives a call that waits for a person its result: the owner's word that a run at its limit goes on.
     Result {
         call: CallId,
         result: String,

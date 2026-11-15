@@ -324,6 +324,7 @@ pub enum Call {
 pub enum Ask {
     /// A tool the engine runs, with what it is run on.
     Tool { name: String, input: String },
-    /// A question for a person.
+    /// A question for a person, as records kept before an agent's return could ask none hold it: a return that asks
+    /// one is refused, and a person is asked by the work's questions (decision no-call-is-made-on-a-person).
     Person { who: Who, question: String },
 }

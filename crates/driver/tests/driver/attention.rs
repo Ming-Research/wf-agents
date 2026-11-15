@@ -18,20 +18,31 @@ fn since(h: &H, mark: Option<&Mark>) -> Attention {
     h.d().attention(mark).expect("the driver answers")
 }
 
-/// The work's round under way asks the owner a question; gives the time it did.
-fn asks_the_owner(h: &mut H, work: WorkNumber) -> Time {
-    h.returns(work, Came::asks(vec![question(Who::Owner)]));
+/// The work's run reaches its limit, what its cell may not write sent back, and waits for the owner's word; gives the
+/// time it did.
+fn waits_for_the_owner(h: &mut H, work: WorkNumber) -> Time {
+    for _ in 0..5 {
+        h.hands_in(work, &[("merged", None)]);
+        if matches!(h.decision(work), Decision::Wait { .. }) {
+            break;
+        }
+    }
+    assert!(
+        matches!(h.decision(work), Decision::Wait { .. }),
+        "{:?}",
+        h.decision(work)
+    );
     Time(h.clock)
 }
 
 #[test]
-fn a_question_for_the_owner_comes_once_since_it_was_asked_and_a_restart_adds_only_its_pause_of_everything() {
+fn a_wait_on_the_owner_comes_once_since_it_began_and_a_restart_adds_only_its_pause_of_everything() {
     let mut h = H::new();
     let (_, w) = h.add(new_item("a", &[], "plain"));
     h.let_on(w);
     let first = since(&h, None);
     assert_eq!(heeds(&first), vec![], "a work under way is something for the planner");
-    let asked = asks_the_owner(&mut h, w);
+    let asked = waits_for_the_owner(&mut h, w);
     let answer = since(&h, Some(&first.mark));
     assert_eq!(
         answer.lines,

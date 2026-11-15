@@ -34,8 +34,8 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
     assert_eq!(limit.len(), 1, "the limit of returns was not reached: {todos:?}");
     let todos = h.answer(wa, limit[0]);
     assert_eq!(rounds(&todos), [(wa, "write".to_string(), 4)]);
-    // A tool and a question for the architect.
-    let todos = h.returns(wa, Came::asks(vec![tool("a"), question(Who::Architect)]));
+    // Two tools.
+    let todos = h.returns(wa, Came::asks(vec![tool("a"), tool("c")]));
     let asked = calls_of(&todos);
     assert_eq!(asked.len(), 2);
     for call in asked {
@@ -54,16 +54,16 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
     let todos = h.returns(wa, Came::asks(vec![tool("b")]));
     h.answer(wa, calls_of(&todos)[0]);
     h.let_on(wa);
-    // The judge asks the owner, and while it waits a person writes the opinions it may write: the writer runs again for
-    // them, and the question stays asked.
-    let todos = h.returns(wa, Came::asks(vec![question(Who::Owner)]));
-    let question = calls_of(&todos)[0];
+    // The judge asks for a tool, and while it waits a person writes the opinions it may write: the writer runs again
+    // for them, and the call stays made.
+    let todos = h.returns(wa, Came::asks(vec![tool("d")]));
+    let wanted = calls_of(&todos)[0];
     let todos = h.on(wa, wrote("opinions", Outsider::Person, None));
     assert_eq!(rounds(&todos), [(wa, "write".to_string(), 1)]);
     let todos = h.hands_in(wa, &[("text", None)]);
     assert_eq!(rounds(&todos), []);
-    // Answered, the judge is entered again, for the answer and the new text.
-    let todos = h.answer(wa, question);
+    // With its result, the judge is entered again, for the result and the new text.
+    let todos = h.answer(wa, wanted);
     assert_eq!(rounds(&todos), [(wa, "judge".to_string(), 1)]);
     h.on(wa, Event::LetGo { cell: "write".into() });
     // The judge writes opinions: the writer runs again for them, and the work is cancelled with its round under way.

@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited, Who};
+use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited};
 use driver::{Asked, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, Found, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
@@ -1757,13 +1757,6 @@ pub fn tool(name: &str) -> Ask {
     Ask::Tool {
         name: name.to_string(),
         input: format!("what {name} is run on"),
-    }
-}
-
-pub fn question(who: Who) -> Ask {
-    Ask::Person {
-        who,
-        question: "which way?".to_string(),
     }
 }
 

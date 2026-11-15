@@ -285,8 +285,6 @@ pub struct Wait {
 pub enum Ends {
     /// Answers this version of the work's question of this name, by one of its options.
     Answer { question: String, version: u64 },
-    /// Answers in words the question this call puts to them.
-    Reply { call: u64 },
     /// Lets the run that reached its limit go on, as the result of this call.
     GoOn { call: u64 },
     /// Lets the cell go on past its limit.
@@ -313,7 +311,6 @@ impl Wait {
                     question,
                     version: version.0,
                 },
-                EndsOf::Reply { call } => Ends::Reply { call: call.0 },
                 EndsOf::GoOn { call } => Ends::GoOn { call: call.0 },
                 EndsOf::LetGo { cell } => Ends::LetGo { cell: cell.to_string() },
                 EndsOf::Write { block, value } => Ends::Write {
@@ -462,7 +459,6 @@ pub enum Waited {
 #[serde(rename_all = "camelCase")]
 pub enum Person {
     Owner,
-    Architect,
 }
 
 /// Who can make a precondition hold, by writing a block its test reads.
@@ -2250,7 +2246,6 @@ impl Person {
     fn of(who: &Who) -> Person {
         match who {
             Who::Owner => Person::Owner,
-            Who::Architect => Person::Architect,
         }
     }
 }
@@ -3169,8 +3164,8 @@ mod tests {
         compile(&source, &has).expect("the definition compiles")
     }
 
-    /// The character the bar gives a work on these records, with what held every work at once then.
-    fn waited_on(work: &Work, everything: Option<PauserOf>) -> char {
+    /// What this gives of the work on the flow, kept as the driver keeps it.
+    fn of_kept<T>(work: &Work, give: impl FnOnce(Kept<'_>) -> T) -> T {
         let flow = flow();
         let head = WorkHead {
             number: WorkNumber(1),
@@ -3192,11 +3187,16 @@ mod tests {
             flow: &flow,
             work,
         };
+        give(kept)
+    }
+
+    /// The character the bar gives a work on these records, with what held every work at once then.
+    fn waited_on(work: &Work, everything: Option<PauserOf>) -> char {
         let then = driver::owner::Shared {
             everything,
             cannot_run: None,
         };
-        waited(kept, &work.records, then)
+        of_kept(work, |kept| waited(kept, &work.records, then))
     }
 
     /// A work the owner's request runs the writer of, paused by this pauser where one is given.
@@ -3220,6 +3220,67 @@ mod tests {
             });
         }
         work
+    }
+
+    // A question put to the owner by a call, which only records kept before a return that asks a person was refused
+    // hold (decision no-call-is-made-on-a-person), is read in the history as it was recorded: the round's return asked
+    // it, and the call on the owner had its answer. Milliseconds alone; no other test reads one from records.
+    #[test]
+    fn a_question_put_to_the_owner_by_a_call_in_old_records_is_read_as_it_was_recorded() {
+        let flow = flow();
+        let mut work = Work::default();
+        let mut clock = 0;
+        let mut on = |work: &mut Work, event: engine::Event| {
+            clock += 1000;
+            engine::handle(&flow, work, Time(clock), event).expect("the event is taken")
+        };
+        let request = engine::Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet the user.".to_string(),
+            matters: true,
+            value: None,
+        };
+        on(&mut work, request);
+        let run = work.records.started[0].run;
+        let tool = AskOf::Tool {
+            name: "read".to_string(),
+            input: String::new(),
+        };
+        let came = engine::Came::asks(vec![tool]);
+        let spent = engine::Spent::default();
+        on(&mut work, engine::Event::Returned { run, came, spent });
+        // As the records of such a work hold it.
+        let question = AskOf::Person {
+            who: Who::Owner,
+            question: "Which greeting?".to_string(),
+        };
+        let called = work.records.called.last_mut().expect("the call is made");
+        called.on = Some(Who::Owner);
+        let call = called.call;
+        work.calls.insert(call, CallOf::Asked(question.clone()));
+        let Some(BackOf::Returned { asks, .. }) = work.back.get_mut(&(run, 1)) else {
+            panic!("the round's return is not kept");
+        };
+        *asks = vec![question];
+        let answer = "The short one.".to_string();
+        on(&mut work, engine::Event::Done { call, result: answer });
+
+        let runs = of_kept(&work, runs).expect("the history is read");
+        let asked = Ask::Question {
+            who: Person::Owner,
+            question: "Which greeting?".to_string(),
+        };
+        assert_eq!(runs[0].rounds[0].back, Some(Back::Asked { asks: vec![asked] }));
+        let row = &runs[0].calls[0];
+        let what = Call::Question {
+            who: Person::Owner,
+            question: "Which greeting?".to_string(),
+        };
+        assert_eq!((&row.what, row.chars), (&what, Some(14)));
+        assert!(row.done.is_some(), "{row:?}");
+        // The writer is entered again, given the answer.
+        assert_eq!(runs[1].rounds[0].given, Given::Results { calls: vec![call.0] });
     }
 
     #[test]

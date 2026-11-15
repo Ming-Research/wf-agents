@@ -34,10 +34,10 @@
 //!   half of them the agent hands in each block its cell may write with a chance of seven in ten, those its cell must
 //!   write each time too, so that it leaves one out at times, and, in one in ten, a block it may not; a choice with one
 //!   of its values in four of five, a wrong value or none otherwise; prose with a value in one in twenty; each
-//!   mattering or not as a coin says. In three in ten it asks for one to three calls, a tool in seven of ten and a
-//!   question for the owner or the architect otherwise, but where its cell asked [`ASKING`] times in a row it hands in
-//!   instead, as the engine's line of asking would stop it; in two in ten it asks for nothing.
-//! - a call has its result: always for a tool; for a person or the owner's call at a limit only while people act.
+//!   mattering or not as a coin says. In three in ten it asks for one to three tools, but where its cell asked
+//!   [`ASKING`] times in a row it hands in instead, as the engine's line of asking would stop it; in two in ten it asks
+//!   for nothing.
+//! - a call has its result: always for a tool; the owner's call at a limit only while people act.
 //! - a round given to be stopped ends, what it returns being dropped, or, while people act, fails in half of them; a
 //!   call given to be withdrawn is said to have its result, that it was withdrawn.
 //!
@@ -63,7 +63,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
 
-use decide::{BlockId, CallId, Decision, Outsider, Pauser, RunId, Who, decide};
+use decide::{BlockId, CallId, Decision, Outsider, Pauser, RunId, decide};
 use engine::{Ask, Came, Effect, Event, Handed, Spent, Work, pending};
 use flow::{Compiled, Has, Source, compile};
 use support::{Driver, Part, Rng, Seen};
@@ -254,19 +254,9 @@ impl Part for Shape {
                 *asked += 1;
                 let n = 1 + d.rng.below(3);
                 let asks = (0..n)
-                    .map(|i| {
-                        if d.rng.chance(70) {
-                            Ask::Tool {
-                                name: format!("tool {i}"),
-                                input: "x".to_string(),
-                            }
-                        } else {
-                            let who = if d.rng.chance(50) { Who::Owner } else { Who::Architect };
-                            Ask::Person {
-                                who,
-                                question: "which?".to_string(),
-                            }
-                        }
+                    .map(|i| Ask::Tool {
+                        name: format!("tool {i}"),
+                        input: "x".to_string(),
                     })
                     .collect();
                 Came::asks(asks)

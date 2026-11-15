@@ -360,10 +360,40 @@ fn tool(name: &str) -> Ask {
     }
 }
 
-fn question(who: Who) -> Ask {
-    Ask::Person {
-        who,
+/// Makes the call, which the run's last return asked for alone, a question for the owner, as records kept before a
+/// return that asks a person was refused hold it (decision no-call-is-made-on-a-person).
+fn put_to_the_owner(work: &mut Work, call: CallId) {
+    let question = Ask::Person {
+        who: Who::Owner,
         question: "which way?".to_string(),
+    };
+    let called = (work.records.called.iter_mut())
+        .find(|c| c.call == call)
+        .expect("the call is made");
+    called.on = Some(Who::Owner);
+    let run = called.run;
+    work.calls.insert(call, engine::Call::Asked(question.clone()));
+    let back = (work.back.iter_mut())
+        .filter(|((r, _), _)| *r == run)
+        .map(|(_, back)| back)
+        .next_back();
+    let Some(engine::Back::Returned { asks, .. }) = back else {
+        panic!("the run's last return asked for nothing");
+    };
+    *asks = vec![question];
+}
+
+/// The one call among what is to be done.
+fn made(effects: &[Effect]) -> CallId {
+    let calls: Vec<CallId> = (effects.iter())
+        .filter_map(|e| match e {
+            Effect::Call { call, .. } => Some(*call),
+            _ => None,
+        })
+        .collect();
+    match calls[..] {
+        [call] => call,
+        _ => panic!("not one call was made: {effects:?}"),
     }
 }
 
@@ -410,7 +440,7 @@ fn history(d: &mut Driver) {
     }
     d.answer();
     // A return that asks ends the run; the writer is entered again once both calls have their results.
-    d.end(Came::asks(vec![tool("a"), question(Who::Owner)]));
+    d.end(Came::asks(vec![tool("a"), tool("d")]));
     // Two lines begin a new session.
     d.on(Event::Anew {
         line: "main".to_string(),
@@ -437,20 +467,22 @@ fn history(d: &mut Driver) {
     d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
-    // The judge asks the architect during a pause: the call is made, and entering it again waits for the resume.
+    // The judge asks for a tool during a pause: the call is made, and entering it again waits for the resume.
     d.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
     });
-    d.end(Came::asks(vec![question(Who::Architect)]));
+    d.end(Came::asks(vec![tool("e")]));
     d.answer();
     d.on(Event::Resumed);
-    // The judge's round given the architect's answer fails, and the engine pauses the work; let on, the round is given
+    // The judge's round given the tool's result fails, and the engine pauses the work; let on, the round is given
     // again.
     d.fail("The agent's program could not start.");
     d.on(Event::Resumed);
-    // The judge asks the owner, and the writer runs again for a new request while the judge waits for the answer.
-    d.end(Came::asks(vec![question(Who::Owner)]));
+    // The judge asks the owner, as records kept from before hold it, and the writer runs again for a new request while
+    // the judge waits for the answer.
+    let asked = made(&d.end(Came::asks(vec![tool("f")])));
+    put_to_the_owner(&mut d.work, asked);
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
     d.wrote("checks", Outsider::Outside, Some("pass"));

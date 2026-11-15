@@ -80,3 +80,17 @@ takes the record is given it whole, as any datum by the kind its file names, and
 question with its answers; a second way of giving the answer, as the result of a call once was, was turned down
 (design document `data-and-context`). Run by the record, the cells that wrote the plan ran again for their own
 questions.
+
+### decision no-call-is-made-on-a-person
+A return that asks a person by a call is refused: an agent asks the owner by the work's questions alone (decision
+the-questions-and-the-answers-are-one-record), and every call it asks for is a tool's, which waits on nobody. A call on
+a person that old records hold stays readable as it was recorded, in the store, in a work's history and on the command
+line; no round still to come is given its result, and no wait on it, end of a wait or words for it is kept. The engine's
+own call at a run's limit is no question: the engine makes it, never a return, and it waits on the owner for leave to
+let the run go on, which the owner gives as its result and the engine keeps as a let-go of the cell.
+Why: No carrier or script asks a person by a call any more, and a question put so, in free words, could neither be
+answered quickly nor told from a remark (principle a-question-is-a-choice); kept, the engine made such calls from a
+return, and the driver, the page and the words beside the flows held a wait, an end and a result's heading that no
+record could reach (principle every-field-has-a-reader). The installation's store holds one such call, answered (work
+2), which is read as it ran (principle the-past-as-it-ran); no store holds one unanswered, nor one on the architect,
+who is no longer among the persons a call waits on.

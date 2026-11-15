@@ -34,8 +34,8 @@
 //! - agents: each round ends with a return drawn from all the form allows, which the histories' engine judges with
 //!   `decide::run::next` and what `decide::told` gives, as the engine's loop does: it does the cell's work in most,
 //!   dealing with each of what ran the round with a chance of four in five and writing each output with three in five,
-//!   mattering or not, a choice with a value or now and then none or one it has not; it asks for calls, for the owner,
-//!   the architect or the engine, in a fifth; and now and then it mixes the two, deals with what did not run it, writes
+//!   mattering or not, a choice with a value or now and then none or one it has not; it asks for calls, for the owner
+//!   or the engine, in a fifth; and now and then it mixes the two, deals with what did not run it, writes
 //!   what the cell may not, or deals with nothing. A return that meets everything is taken at once, its calls made
 //!   before its run finishes; one that does not is sent back, the next round told of any version it would have written
 //!   over; at the limit of returns the owner is asked. From the third round of a run the agent returns what meets
@@ -1015,8 +1015,7 @@ impl History {
         let callers = |rng: &mut Rng| -> Vec<Option<Who>> {
             (0..1 + rng.below(2))
                 .map(|_| match rng.below(10) {
-                    0 | 1 => Some(Who::Owner),
-                    2 => Some(Who::Architect),
+                    0..=2 => Some(Who::Owner),
                     _ => None,
                 })
                 .collect()
