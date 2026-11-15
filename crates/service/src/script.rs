@@ -119,8 +119,9 @@
 //! head where its cell's line may change the work and it hands in a block an act of the engine's describes the work by:
 //! beside its blocks it hands in a version of the head, saying its cell, run and round, as an agent that wrote the code
 //! would have committed it. The act that checks the work, where its entry says nothing of what it read, takes main in
-//! as the real check does, the latest the work's block of main holds, writing nothing; only where that block holds none
-//! it writes, for its round, a version made up for it, so that it never writes main back to an older head.
+//! as the real check does, telling its round the latest the work's block of main holds, which writes no version and
+//! puts that one into the round; only where that block holds none it writes, for its round, a version made up for it,
+//! so that it never writes main back to an older head.
 //!
 //! ```toml
 //! [[flows.engineer.rounds]]

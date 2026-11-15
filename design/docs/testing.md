@@ -102,10 +102,12 @@ and the scripts that stand in for agents are built; what is not is said at the e
     repository made for it, so that nothing it does reaches a project.
 
 13. **What a script says**, for one case: the items it adds; what each round of each cell returns (what it hands in,
-    asks or fails with, and what it takes), or the part its agent plays; what each tool answers; what people and the
-    outside do, each at a state of the work, such as an answer while the work waits for it, a pause while a round is
-    under way, or the engine stopped at a step; and the path the run must take: the cells in their order, each wait and
-    whom it waits for, and how the work ends.
+    asks or fails with, and what it takes) and what it read of the work's branch, which writes the work's tree and head
+    as the real round's reading does, or the part its agent plays; what each tool answers; what people and the outside
+    do, each at a state of the work, such as an answer while the work waits for it, a pause while a round is under way,
+    or the engine stopped at a step; the path the run must take: the cells in their order, each wait and whom it waits
+    for, and how the work ends; and the time its play starts at, every other time it names being an offset from it, so
+    that its run goes on alike whatever the date.
 
 14. **How its run is judged.** A program plays a script whose agents are all stood in for on an engine made as
     `wf-agents run` makes it, on a clock of its own that passes as the engine waits, each act given as its state comes
