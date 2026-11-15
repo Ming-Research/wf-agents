@@ -83,6 +83,11 @@ pub struct Fake {
     pub hears_words: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
+    /// How many seconds the plan's first call sleeps once it has said, as its stream begins, that it took its message
+    /// in, and has made one call to the model, before it answers.
+    pub plan_sleeps_once_begun: u32,
+    /// How many seconds the plan's first call sleeps once it has printed its result, before it ends.
+    pub plan_sleeps_once_returned: u32,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
     /// says no call.
     pub context: Option<u64>,
@@ -133,6 +138,8 @@ impl Default for Fake {
             asks_named_tests: false,
             hears_words: false,
             plan_sleeps: 0,
+            plan_sleeps_once_begun: 0,
+            plan_sleeps_once_returned: 0,
             context: None,
             compacts: false,
             plan_again_unchanged: false,
@@ -528,6 +535,12 @@ case "$first" in
             touch "$log/slept"
             sleep '{sleeps}'
         fi
+        if [ '{begun_sleeps}' != 0 ] && [ ! -f "$log/begun" ]; then
+            touch "$log/begun"
+            printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
+            printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+            sleep '{begun_sleeps}'
+        fi
         if [ '{unchanged}' = yes ] && [ -f "$log/planned" ]; then
             unchanged='"plan"'
         fi
@@ -648,6 +661,10 @@ if [ -n "$contexts" ]; then
     iterations=",\"iterations\":[{{\"input_tokens\":$ctx,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}]"
 fi
 printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$iterations" "$structured"
+if [ '{returned_sleeps}' != 0 ] && [ "$first" = Plan ] && [ ! -f "$log/returned" ]; then
+    touch "$log/returned"
+    sleep '{returned_sleeps}'
+fi
 "#,
         calls = calls.display(),
         fail = yes(fake.fail_first),
@@ -661,6 +678,8 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         named = yes(fake.asks_named_tests),
         hears = yes(fake.hears_words),
         sleeps = fake.plan_sleeps,
+        begun_sleeps = fake.plan_sleeps_once_begun,
+        returned_sleeps = fake.plan_sleeps_once_returned,
         cost = fake.cost,
         compacts = yes(fake.compacts),
         unchanged = yes(fake.plan_again_unchanged),

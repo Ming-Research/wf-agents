@@ -12,6 +12,8 @@
 //!   sent;
 //! - a session that holds nothing is filled from the top, and the task is filled once a session;
 //! - what the last return in the session handed in is what the message says it is kept as;
+//! - a round is told that nothing the last round in its session returned was taken where that round put its message
+//!   into the session and ended with no return taken, and only there;
 //! - entered again, before its try or after it, the round is sent the same bytes;
 //! - a change sent of a datum given `last_and_latest` rebuilds its latest exactly from the version the session holds,
 //!   and of the tree, whose versions the carrier compares, is what the carrier says changed, from the version the
@@ -81,6 +83,8 @@ struct Held {
     sent_back: BTreeSet<(RunId, usize)>,
     /// What the last return in it handed in.
     taken: Vec<(BlockId, Seq)>,
+    /// Whether the last round that put its message into it ended with no return taken.
+    cut: bool,
     /// How often each task was filled into it.
     tasks: BTreeMap<String, u32>,
 }
@@ -133,6 +137,8 @@ struct Reached {
     sent_back: usize,
     /// Rounds that failed after their program had the message.
     wrote: usize,
+    /// Rounds told that nothing the last round in their session returned was taken.
+    cut: usize,
     /// New versions given whole that said what one the session held said.
     said_again: usize,
 }
@@ -260,7 +266,9 @@ impl History {
             // A round that failed after its program had its message, as at the usage limit, put it into its session;
             // one that failed before its program ran put nothing there.
             if self.rng.chance(50) {
-                self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
+                let held = self.lines.entry(line.clone()).or_default();
+                held.fill(round.run, &used.fills);
+                held.cut = true;
                 self.sim.fails_as(round, decide::run::Failure::UsageLimit, true);
                 reached.wrote += 1;
             } else {
@@ -281,6 +289,7 @@ impl History {
         let finished = records.finished.iter().find(|f| f.run == round.run).cloned();
         let held = self.lines.entry(line).or_default();
         held.taken = Vec::new();
+        held.cut = false;
         if let Some(f) = &finished {
             for w in &f.writes {
                 held.versions.entry(w.block.clone()).or_default().insert(f.at);
@@ -633,6 +642,13 @@ impl History {
             );
         }
         assert_eq!(entered.run.taken, held.taken, "what the last return handed in");
+        let told = entered.sent.iter().any(|s| s.part == "cut_off");
+        assert_eq!(
+            told, held.cut,
+            "told nothing the last round returned was taken: {}",
+            entered.text
+        );
+        reached.cut += usize::from(told);
         assert_eq!(entered.situation.after_hand_in, !held.taken.is_empty());
         // What the page shows for the situation, its places open, is what the engine sends in it.
         let open = context::message(
@@ -723,6 +739,10 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
         ("results given", reached.results),
         ("a return sent back", reached.sent_back),
         ("a round that failed after its program had its message", reached.wrote),
+        (
+            "a round told nothing the last round in its session returned was taken",
+            reached.cut,
+        ),
         ("a new version given that said what one held said", reached.said_again),
     ] {
         assert!(n > 0, "no history reached {what}");

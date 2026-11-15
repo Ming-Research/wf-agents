@@ -688,6 +688,42 @@ fn a_round_whose_program_said_it_took_its_message_in_holds_it_whatever_it_failed
     }
 }
 
+// A round entered in a session whose last round put its message in and ended with nothing it returned taken is told
+// so: after a crash or a limit whose program took its message in, not after one whose program took nothing in, nor
+// after a return. Well under a millisecond alone; no other test holds when the words of it are sent.
+#[test]
+fn a_round_after_one_that_took_its_message_in_and_had_nothing_it_returned_taken_is_told_so() {
+    use decide::run::Failure;
+    let told = |entered: &Entered| entered.sent.iter().any(|s| s.part == "cut_off");
+    for (failure, received) in [
+        (Failure::Passing, true),
+        (Failure::Passing, false),
+        (Failure::UsageLimit, true),
+        (Failure::UsageLimit, false),
+    ] {
+        let mut sim = Sim::new();
+        sim.writes("request", "Greet the user.");
+        let round = sim.round().expect("the plan is entered");
+        let first = sim.enter(&round, sim.begins(&round));
+        assert!(!told(&first), "a first round: {}", first.text);
+        sim.tries(&round, 1, first.fills.clone());
+        sim.fails_as(&round, failure, received);
+        if failure == Failure::Passing {
+            let wait = *sim.calls().last().expect("the wait before it is tried again");
+            sim.done(wait, "over");
+        }
+        let again = sim.round().expect("the plan's round is tried again");
+        let entered = sim.enter(&again, sim.begins(&again));
+        assert_eq!(told(&entered), received, "{failure:?}, {received}: {}", entered.text);
+        // A session that holds nothing holds nothing of it either.
+        assert!(!told(&sim.enter(&again, true)), "{failure:?}, {received}, anew");
+    }
+    let mut sim = reviewed();
+    let round = sim.round().expect("the build is entered again after the review");
+    let entered = sim.enter(&round, sim.begins(&round));
+    assert!(!told(&entered), "after a return: {}", entered.text);
+}
+
 #[test]
 fn a_version_that_says_what_an_earlier_one_said_is_new_and_sent_and_no_repeat() {
     let mut sim = reviewed();
