@@ -140,6 +140,7 @@ fn a_write_said_to_a_cell_loads_back_said_to_it() {
             matters: true,
             value: None,
             said_to: said_to.map(Into::into),
+            empty: false,
             at,
         });
     }

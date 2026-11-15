@@ -88,7 +88,6 @@ fn engineer() -> Compiled {
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        fields: names(&["questions", "reply"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -251,10 +250,6 @@ const NEVER: &[(&str, &str)] = &[
         "I1's opinion in acceptance reaches D2 first, and D2's plan reaches D3 with it, so D3 runs for D2's version \
          too. That it runs for I1's alone takes D2 handing in no plan: a third return besides the content, past the \
          bound.",
-    ),
-    (
-        "D4 ran back on on_plan, written by a cell after it",
-        "As for D3: D2's plan reaches D4 with I1's opinion in acceptance, unless D2 hands in no plan, past the bound.",
     ),
     (
         "M1 ran on on_asked",

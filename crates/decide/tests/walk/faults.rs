@@ -63,6 +63,7 @@ fn a_block_written_twice_by_one_run_is_a_fault() {
     let write = Write {
         block: "p".into(),
         meaning_unchanged: false,
+        empty: false,
         value: None,
     };
     w.records.finished[0].writes.push(write);
@@ -100,6 +101,7 @@ fn two_entries_at_one_place_are_a_fault() {
         matters: true,
         value: None,
         said_to: None,
+        empty: false,
         at,
     });
     assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));

@@ -19,9 +19,9 @@ fn planned(content: &str) -> Result<Came, String> {
 #[test]
 fn a_null_unknown_field_in_a_question_still_fails() {
     for r in [
-        json!({"outcome": {"questions": [{"name": "q", "withdrawn": "x", "bogus": null}]}}),
-        json!({"outcome": {"questions": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
-            "options": [], "bogus": null}]}}),
+        json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "withdrawn": "x", "bogus": null}]}}}),
+        json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
+            "options": [], "bogus": null}]}}}),
     ] {
         assert!(read(&r).is_err(), "{r} is taken");
     }
@@ -39,8 +39,8 @@ fn a_null_unknown_field_in_a_kind_or_the_form_still_fails() {
 
 #[test]
 fn a_question_with_both_shapes_filled_fails() {
-    let r = json!({"outcome": {"questions": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
-        "options": [], "withdrawn": "No longer."}]}});
+    let r = json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
+        "options": [], "withdrawn": "No longer."}]}}});
     assert!(read(&r).is_err());
 }
 
@@ -56,7 +56,7 @@ fn only_one_level_of_wrapping_is_taken() {
 #[test]
 fn a_kind_is_never_unwrapped() {
     assert!(read(&json!({"outcome": form()})).is_err());
-    assert!(read(&json!({"calls": form()})).is_err());
+    assert!(read(&json!({"tools": form()})).is_err());
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn a_list_string_that_is_not_a_list_fails() {
     for list in [json!("{}"), json!("nothing"), json!(1), json!({})] {
         let r = json!({"outcome": {"dealt_with": list}});
         assert!(read(&r).is_err(), "{r} is taken");
-        let r = json!({"calls": {"query": list}});
+        let r = json!({"tools": {"query": list}});
         assert!(read(&r).is_err(), "{r} is taken");
     }
 }
@@ -105,7 +105,7 @@ fn a_wrapped_string_form_with_trailing_brackets_is_read() {
 #[test]
 fn a_return_of_both_kinds_is_read_whole_for_the_run_s_check_to_send_back() {
     let mut r = form();
-    r["calls"] = json!({"query": [{"sql": "select 1"}]});
+    r["tools"] = json!({"query": [{"sql": "select 1"}]});
     let came = read(&r).expect("it is read");
     assert_eq!(came.dealt_with, Some(vec!["request".into()]));
     assert_eq!(came.asks.len(), 1);

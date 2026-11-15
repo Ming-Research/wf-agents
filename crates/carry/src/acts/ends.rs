@@ -198,6 +198,7 @@ fn written(blocks: &[(&str, &str)]) -> Work {
             matters: true,
             value: None,
             said_to: None,
+            empty: false,
             at,
         });
         work.contents.insert(((*block).into(), at), (*content).to_string());
@@ -434,6 +435,7 @@ fn merging(head: &str) -> Round {
         matters: true,
         value: None,
         said_to: None,
+        empty: false,
         at,
     });
     kept.contents.insert(("head".into(), at), head.to_string());

@@ -40,7 +40,6 @@ fn engineer() -> Compiled {
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        fields: names(&["questions", "reply"]),
         details: names(&["files"]),
         ..Default::default()
     };

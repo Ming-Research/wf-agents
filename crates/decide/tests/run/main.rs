@@ -53,6 +53,7 @@ fn spec() -> Spec {
         told: Some(Seq(at)),
         latest: Some(Seq(at)),
         value: value.map(str::to_string),
+        added: false,
     };
     Spec {
         outputs: vec!["plan".into(), "verdict".into()],
@@ -141,6 +142,7 @@ fn prose(block: &str) -> Write {
     Write {
         block: block.into(),
         meaning_unchanged: false,
+        empty: false,
         value: None,
     }
 }
@@ -150,6 +152,7 @@ fn valued(block: &str, value: &str) -> Write {
     Write {
         block: block.into(),
         meaning_unchanged: false,
+        empty: false,
         value: Some(value.to_string()),
     }
 }

@@ -36,14 +36,13 @@ fn reviewed_at_c1() -> W {
         "R1",
         &[
             ("deep_needed", Some("no")),
-            ("edits_tree", Some("no")),
             ("plan_owner", None),
             ("plan_agent", None),
             ("acceptance", None),
         ],
         Vec::new(),
     );
-    w.hands_in("R2", &[("better_found", Some("no"))], Vec::new());
+    w.hands_in("R2", &[], Vec::new());
     w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
     w.hands_in(
         "T1",
@@ -170,11 +169,7 @@ fn the_check_waits_for_the_reviews_yes_whatever_main_does() {
     w.hands_in("S1", &[("place", None)], Vec::new());
     w.hands_in("R0", &[], Vec::new());
     // The research hands in its choices alone: nothing is built, and the review never runs.
-    w.hands_in(
-        "R1",
-        &[("deep_needed", Some("no")), ("edits_tree", Some("no"))],
-        Vec::new(),
-    );
+    w.hands_in("R1", &[("deep_needed", Some("no"))], Vec::new());
     for _ in 0..3 {
         let Decision::Wait { at, on } = w.decision() else {
             panic!("the work does not wait: {:?}", w.decision());

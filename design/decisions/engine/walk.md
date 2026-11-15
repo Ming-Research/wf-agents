@@ -10,6 +10,14 @@ Why: A cell skipped this time has not been undone: a review that finds the tests
 written before worthless. A gate drawn as a cell needed a record of what the work was waiting for, and care to raise
 and withdraw that record at the right moments.
 
+### decision a-test-of-content-reads-the-record
+A named test may hold where a block it reads holds anything (`any_content`): the record of each write says whether the
+version holds nothing, no value and its content empty or only whitespace, and the walk reads that as it reads a
+choice's value.
+Why: A choice beside the block, written yes where the block held an entry, copied by hand what the engine sees itself,
+and its writer could let the two disagree. Giving the walk the contents beside the records was turned down: what
+decides a work would then be more than its records.
+
 ### decision every-way-round-has-a-limit
 Each thing the flow lets repeat has a limit: how many runs of a cell in a row are ways round, how often what a run
 returns is sent back, and how many runs of a cell in a row each ask for calls and deal with nothing before it is entered
@@ -32,7 +40,8 @@ its writer says so: with each write the cell says whether the change matters to 
 with the version at which the meaning last changed. Prose a person writes always changes the meaning, and so does what
 the outside writes, unless whoever approved that write said it does not. A return that would write over a version of
 a block its round was never told of is sent back, the next round told of it, so a cell's word that a change does not
-matter is always said of what it saw. What a change that does not matter leaves undone is in the design of data and
+matter is always said of what it saw; an entry added to a record whose versions all stand, which a trigger of its
+source has its agent read, writes over nothing. What a change that does not matter leaves undone is in the design of data and
 context.
 Why: An agent never writes the same text twice, so judging prose by its text would run every later cell again after
 every rerun. A second agent to check the answer, at a round for every change, was turned down, and so was a count that

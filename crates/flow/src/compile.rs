@@ -81,12 +81,10 @@ pub const WORDS: &str = "words";
 
 /// The source of the block a new version of which is the owner answering a question of the cell it runs with another
 /// option than the one the work goes by, or one the cell waits for (design document `data-and-context`, 35, 36). The
-/// engine writes it as the owner answers.
+/// engine writes it as the owner answers; and the record of the work's questions and the owner's answers, which the
+/// trigger of an answer has its agent read ([`Trigger::records`]): a block of this source a cell writes holds the
+/// questions it asks, and the cells that write one are those that may ask.
 pub const ANSWER: &str = "answer";
-
-/// The field of a return through which a cell asks the owner its questions, asks them anew or withdraws them (design
-/// document `data-and-context`, 32): a block written through it is the work's questions.
-pub const QUESTIONS: &str = "questions";
 
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
 /// to a cell, and an answer ([`WORDS`], [`ANSWER`]). Such a block stops a round under way of a later cell
@@ -105,8 +103,6 @@ pub struct Has {
     /// The parts that the engine places in the system prompt of every line's session itself. A line names none of
     /// them, and no set of the flow's rules has the name of one.
     pub system: BTreeSet<String>,
-    /// The fields of a return that are the engine's: a block written through a field names one of them.
-    pub fields: BTreeSet<String>,
     /// The places the engine fills in a run with what happened: a trigger that says what happened names one of them.
     pub details: BTreeSet<String>,
 }
@@ -207,6 +203,21 @@ impl Trigger {
         let writes = |b: &&BlockId| flow.blocks.get(*b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
         self.blocks().iter().find(writes)
     }
+
+    /// Of the trigger of this source outside the work, the records its agent reads for it that the same source writes
+    /// entries of, but the block it stands on: of the owner's words ([`WORDS`]), the record of what is said, where the
+    /// owner's entries are written and the cell answers them; of an answer ([`ANSWER`]), the record of the work's
+    /// questions and the owner's answers. None of another trigger.
+    pub fn records<'f>(&'f self, flow: &'f Compiled, source: &'f str) -> impl Iterator<Item = &'f BlockId> + 'f {
+        let of = move |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
+        self.reads_of(of)
+    }
+
+    /// The same records, `of` saying whether the source writes a block.
+    fn reads_of<'f>(&'f self, of: impl Fn(&BlockId) -> bool + Copy + 'f) -> impl Iterator<Item = &'f BlockId> + 'f {
+        let own = self.blocks().iter().find(move |b| of(b));
+        (self.read.iter()).filter(move |b| own.is_some_and(|own| *b != own) && of(b))
+    }
 }
 
 impl CellSpec {
@@ -268,8 +279,11 @@ pub struct Block {
     pub default: Option<String>,
     /// What the block is, in a sentence, where the definition says it.
     pub what: Option<String>,
-    /// The field of a return that a cell writes the block through, where it writes it through one.
-    pub field: Option<String>,
+    /// What a cell that writes the block is told of writing it, after the list of what it returns; none where its
+    /// file says nothing.
+    pub words: Option<String>,
+    /// The shape a return holds the block to, where its file gives one: neither a text nor a choice.
+    pub shape: Option<Shape>,
     /// The block stands only for a trigger, which declares it: no cell is given it, writes it or describes the work by
     /// it. A source of the engine's that fires the trigger may write words into it, as its `writes` give them.
     pub trigger: bool,
@@ -281,6 +295,18 @@ pub struct Block {
     /// Who reads it.
     pub readers: Readers,
 }
+
+/// The shape a return holds a block to, as its file gives it. Two are the same where they are written the same.
+#[derive(Clone, Debug)]
+pub struct Shape(pub toml::Value);
+
+impl PartialEq for Shape {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_string() == other.0.to_string()
+    }
+}
+
+impl Eq for Shape {}
 
 /// Who writes a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -413,13 +439,11 @@ pub enum FaultKind {
     /// A value of a file beside the flows that stands for each cell, each datum or each group does not hold the name
     /// that stands for it, `{cell}`, `{datum}` or `{group}`.
     MissingPlaceholder { placeholder: String },
-    /// The block is written through a field of a return that the engine does not have.
-    UnknownReturnField { field: String },
-    /// The cell writes the block, which holds the work's questions ([`QUESTIONS`]), and no block of the source
-    /// [`ANSWER`] runs it: the owner's answer to a question it asks would run no cell.
+    /// The cell writes the block, which holds the work's questions (one the source [`ANSWER`] writes), and no block of
+    /// that source runs it: the owner's answer to a question it asks would run no cell.
     AsksWithNoAnswer { block: String },
-    /// The cell writes the block, which holds the work's questions ([`QUESTIONS`]), and no block of the source
-    /// [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
+    /// The cell writes the block, which holds the work's questions (one the source [`ANSWER`] writes), and no block of
+    /// the source [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
     AsksAndCannotBeSpokenTo { block: String },
     /// A trigger of the cell stands on a block that each of its writers, cells only (no person or outside writes it),
     /// writes only where a block has a value that the cell's own condition rules out, and that block no cell can
@@ -481,6 +505,10 @@ pub enum FaultKind {
     UndeclaredTest { test: String },
     /// A declared test reads no block.
     ReadsEmpty { test: String },
+    /// A declared test of a value names none to look for: it has no `is`.
+    TestNamesNoValue { test: String },
+    /// A declared test of content names a value to look for, which it does not read.
+    ContentTestNamesValue { test: String },
     /// A declared test is used by no cell.
     UnusedTest { test: String },
     /// A cell's precondition is a test that reads a block the cell itself writes, or its condition one that reads a
@@ -562,6 +590,13 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
             (TestName(name.clone()), test)
         })
         .collect();
+    // A block a trigger of its source has its agent read, but the one it stands on, is a record that source adds
+    // entries to ([`Trigger::records`]).
+    let source_of = |b: &BlockId| flow_file.blocks.get(b.as_str()).and_then(|d| d.outside.as_deref());
+    let record = |name: &str, source: &str| {
+        let of = |b: &BlockId| source_of(b) == Some(source);
+        (specs.iter().flat_map(|s| &s.triggers)).any(|t| t.reads_of(of).any(|b| b.as_str() == name))
+    };
     let outsiders = (flow_file.blocks.iter())
         .filter(|(_, b)| b.people || b.outside.is_some())
         .map(|(name, b)| {
@@ -570,6 +605,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 note: b.note,
                 outside: b.outside.clone(),
                 interrupts: b.outside.as_deref().is_some_and(|source| TURNING.contains(&source)),
+                entries: b.outside.as_deref().is_some_and(|source| record(name, source)),
             };
             (BlockId(name.clone()), outsiders)
         })
@@ -1429,8 +1465,8 @@ impl<'a> Definition<'a> {
             || !uses.tests.is_empty()
     }
 
-    /// The faults of the declared blocks: values that make no choice, a source or a field of a return the engine does
-    /// not have, a block with no writer, and one with no reader.
+    /// The faults of the declared blocks: values that make no choice, a source the engine does not have, a block with
+    /// no writer, and one with no reader.
     fn check_blocks(&self, has: &Has, faults: &mut Vec<Fault>) {
         for (name, block) in &self.flow.blocks {
             let at = |field: &str, what| self.places.fault("blocks", name, field, what);
@@ -1473,9 +1509,6 @@ impl<'a> Definition<'a> {
                 // Laid out one thing to a file, who writes a block from outside the cells is said by `from`.
                 faults.push(at(if self.places.laid_out { "from" } else { "outside" }, what));
             }
-            if let Some(field) = block.field.as_ref().filter(|f| !has.fields.contains(*f)) {
-                faults.push(at("field", FaultKind::UnknownReturnField { field: field.clone() }));
-            }
             if !self.written(name) {
                 let what = FaultKind::NoWriter { block: name.clone() };
                 faults.push(self.places.use_fault(name, what));
@@ -1517,15 +1550,24 @@ impl<'a> Definition<'a> {
         }
     }
 
-    /// The faults of the declared tests: one that reads no block; a block read that is not declared, is no choice or
-    /// does not offer the value looked for; and a test that no cell of the order uses.
+    /// The faults of the declared tests: one that reads no block; a test of a value that names none, and one of
+    /// content that names one; a block read that is not declared, or, of a test of a value, is no choice or does not
+    /// offer the value looked for; and a test that no cell of the order uses.
     fn check_tests(&self, faults: &mut Vec<Fault>) {
         for (test, declared) in &self.flow.tests {
             let at = |field: &str, what| self.places.fault("tests", test, field, what);
             if declared.reads.is_empty() {
                 faults.push(at("reads", FaultKind::ReadsEmpty { test: test.clone() }));
             }
-            for (field, what) in check_list(&declared.reads, "reads", |block| self.check_read(block, &declared.is)) {
+            let content = declared.kind == TestKind::AnyContent;
+            match (content, &declared.is) {
+                (false, None) => faults.push(at("is", FaultKind::TestNamesNoValue { test: test.clone() })),
+                (true, Some(_)) => faults.push(at("is", FaultKind::ContentTestNamesValue { test: test.clone() })),
+                _ => {}
+            }
+            // A test of content reads its blocks for content, a value it names besides being its fault alone.
+            let is = declared.is.as_deref().filter(|_| !content);
+            for (field, what) in check_list(&declared.reads, "reads", |block| self.check_read(block, is)) {
                 faults.push(at(&field, what));
             }
             if declared.kind == TestKind::NoneStanding {
@@ -1547,18 +1589,19 @@ impl<'a> Definition<'a> {
         }
     }
 
-    /// The fault of a block a named test reads, looking for this value: not declared, not a choice, or not offering
-    /// the value.
-    fn check_read(&self, block: &str, is: &str) -> Option<FaultKind> {
+    /// The fault of a block a named test reads, looking for this value, or, with none, for content: not declared, or,
+    /// looking for a value, not a choice or not offering the value.
+    fn check_read(&self, block: &str, is: Option<&str>) -> Option<FaultKind> {
         let name = block.to_string();
-        match self.flow.blocks.get(block).map(|b| &b.values) {
-            None => Some(FaultKind::NoSuchBlock { block: name }),
-            Some(None) => Some(FaultKind::NotAChoice { block: name }),
-            Some(Some(values)) if !values.iter().any(|v| v == is) => Some(FaultKind::NotAValue {
+        match (self.flow.blocks.get(block).map(|b| &b.values), is) {
+            (None, _) => Some(FaultKind::NoSuchBlock { block: name }),
+            (Some(_), None) => None,
+            (Some(None), Some(_)) => Some(FaultKind::NotAChoice { block: name }),
+            (Some(Some(values)), Some(is)) if !values.iter().any(|v| v == is) => Some(FaultKind::NotAValue {
                 block: name,
                 is: is.to_string(),
             }),
-            Some(Some(_)) => None,
+            (Some(Some(_)), Some(_)) => None,
         }
     }
 
@@ -1738,7 +1781,7 @@ impl<'a> Definition<'a> {
         let (answered, spoken_to) = (run_by(ANSWER), run_by(WORDS));
         if !unread_triggers {
             for (i, block) in file.outputs.iter().enumerate() {
-                if self.flow.blocks.get(block).and_then(|b| b.field.as_deref()) != Some(QUESTIONS) {
+                if self.flow.blocks.get(block).and_then(|b| b.outside.as_deref()) != Some(ANSWER) {
                     continue;
                 }
                 if !answered {
@@ -2218,7 +2261,8 @@ impl<'a> Definition<'a> {
                     values: declared.values.clone(),
                     default: declared.default.clone(),
                     what: declared.what.clone(),
-                    field: declared.field.clone(),
+                    words: declared.words.clone(),
+                    shape: declared.shape.clone().map(|shape| Shape(toml::Value::Table(shape))),
                     trigger: self.trigger_blocks.contains(name),
                     writes: declared.writes.clone(),
                     writers: Writers {

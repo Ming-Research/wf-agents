@@ -203,7 +203,7 @@ fn a_choice_has_values_each_given_once() {
 
 #[test]
 fn a_cell_that_writes_the_work_s_questions_is_run_by_the_owner_s_answer_and_by_the_owner_s_words() {
-    let asks = "[blocks.plan]\n\n[blocks.asks]\nfield = \"questions\"\nshown = true\n";
+    let asks = "[blocks.plan]\n\n[blocks.asks]\noutside = \"answer\"\nshown = true\n";
     let source = edit(valid(), FLOW_FILE, "[blocks.plan]\n", asks);
     let outputs = r#"outputs = ["plan", "asks"]"#;
     let source = edit(source, "plan.toml", r#"outputs = ["plan"]"#, outputs);
@@ -242,6 +242,38 @@ fn a_cell_that_writes_the_work_s_questions_is_run_by_the_owner_s_answer_and_by_t
     assert!(compiled.is_ok(), "{:?}", compiled.err());
 }
 
+// The records a source of the engine's adds entries to are the blocks of that source a trigger of it has its agent read,
+// but the one it stands on: the record of what is said and that of the questions and the answers, and no other.
+#[test]
+fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+    let source = flow::read(&dir).expect("the engineer's flow is read");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge"]),
+        tools: names(&["query", "run_tests"]),
+        details: names(&["files"]),
+        ..Default::default()
+    };
+    let compiled = flow::compile(&source, &has).expect("the engineer's flow compiles");
+    let records: Vec<&str> = (compiled.blocks.keys())
+        .filter(|b| compiled.flow.adds_entries(b))
+        .map(|b| b.as_str())
+        .collect();
+    assert_eq!(records, ["discussion", "q_and_a"]);
+}
+
 #[test]
 fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
@@ -261,7 +293,6 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        fields: names(&["questions", "reply"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -278,7 +309,7 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
         .replace(with, without);
     let refused = flow::compile(&source, &has).expect_err("R2 asks and cannot be spoken to");
     let what = AsksAndCannotBeSpokenTo {
-        block: "questions".to_string(),
+        block: "q_and_a".to_string(),
     };
     assert!(
         refused.iter().any(|f| f.file == "cells/R2.toml" && f.what == what),

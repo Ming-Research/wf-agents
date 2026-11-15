@@ -6,8 +6,8 @@ line = "engineer"
 effort = "xhigh"
 takes_main = true
 task = '''
-Implement `plan_agent`, changing only what this work needs. Follow for each of `questions` the option the owner took
-in `answers`, or else the one it recommends, and write into `design/` what `tree_edits` holds: an entry may follow
+Implement `plan_agent`, changing only what this work needs. Follow for each question in `q_and_a` the option the
+owner took, or else the one it recommends, and write into `design/` what `tree_edits` holds: an entry may follow
 main's tree in wording and place, not in meaning. Start from a test that shows what the change is for, red on the code
 before it: the research's, where it left one. Run each test you add or extend on the change and on the code before it;
 a test removed, skipped or weakened needs a technical reason. Where cost per operation or request can change, measure
@@ -37,8 +37,7 @@ context = [
   "background",
   "plan_owner",
   "plan_agent",
-  "questions",
-  "answers",
+  "q_and_a",
   "acceptance",
   "tree_edits",
   "reply_plan_doubts",
@@ -58,15 +57,15 @@ outputs = [
   "reply_review",
   "reply_testing",
   "plan_doubts",
-  "questions",
+  "q_and_a",
   "discussion",
 ]
 
 # What the cell does when each trigger fires; a trigger with none is the task's alone.
 [do]
 on_plan = """See what changed in the plan since the version you last built from, the whole of it where you built from none, and bring the code to it."""
-on_spoken = """The owner has said something to you in `discussion`: that comes first. Do what it says, and answer it in `reply`: what you changed for it, or why not."""
-on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: follow the option the owner took."""
+on_spoken = """The owner has said something to you in `discussion`: that comes first. Do what it says, and answer it in `discussion`: what you changed for it, or why not."""
+on_answer = """The owner has answered one of your questions in `q_and_a` with another option than yours, or one you wait for: follow the option the owner took."""
 on_review = """Answer each point of `review` in `reply_review`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 on_testing = """Answer each point of `testing` in `reply_testing`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 on_check = """Fix what `check` found and commit; where you judge it not this change's to fix, ask the owner."""
@@ -79,8 +78,7 @@ background = "latest"
 plan_owner = "last_and_latest"
 plan_doubts = "latest"
 plan_agent = "last_and_latest"
-questions = "latest"
-answers = "all"
+q_and_a = "all"
 acceptance = "last_and_latest"
 tree_edits = "last_and_latest"
 reply_plan_doubts = "latest"

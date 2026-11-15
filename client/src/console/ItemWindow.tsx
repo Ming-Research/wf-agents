@@ -57,6 +57,7 @@ import {
   firstBody,
   itemOf,
   type LoadVersion,
+  questionsOf,
   readBody,
   readRulings,
   type Ruling,
@@ -981,9 +982,6 @@ function RulingBox({ ruling, page, act }: {
   );
 }
 
-/// The block a cell writes the work's questions in, which the flow's definition names among its outputs.
-const QUESTIONS = 'questions';
-
 /// The discussion: the messages written before, the owner's and the replies, and a box to write one. The owner picks
 /// the line it goes to, of the lines that can ask the owner a question, and what they send is said to that line, or,
 /// where the work waits on that line for the owner's answer to a question, about that question; the engine chooses the
@@ -1010,8 +1008,9 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
     now.kind === 'waits' ? now.on.find((w): w is Extract<Waited, { kind: 'answer' }> => w.kind === 'answer') : undefined;
   const heldOn = now.kind === 'waits' ? read?.flow.cells.find((c) => c.id === now.at)?.line : undefined;
   // The lines one of whose cells may write the work's questions, each with what the words said to it would reach.
+  const asks = read ? questionsOf(read.flow)?.name : undefined;
   const targets = (read?.flow.lines ?? [])
-    .filter((l) => read?.flow.cells.some((c) => c.line === l.name && c.outputs.includes(QUESTIONS)))
+    .filter((l) => asks !== undefined && read?.flow.cells.some((c) => c.line === l.name && c.outputs.includes(asks)))
     .map((l) => {
       const to: SpokenTo =
         held !== undefined && heldOn === l.name ? { kind: 'question', name: held.question } : { kind: 'line', line: l.name };

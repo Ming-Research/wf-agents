@@ -208,8 +208,10 @@ pub enum Back {
     },
 }
 
-/// What a return says beside its work: its questions, which are data of their own once its run finishes (design
-/// document `data-and-context`, 32 to 36), its observations and its reply (38 to 40, 49).
+/// What a return says beside the blocks it hands in: its questions, which it writes in the block the engine keeps as
+/// them and which are data of their own once its run finishes (design document `data-and-context`, 26), and its
+/// observations. Its answer to what the owner said to its cell is a block it hands in, the record of what is said; a
+/// return kept before that held it here, and is read without it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Said {
     /// What it asks the owner, each question by its name, in the order it wrote them.
@@ -218,9 +220,6 @@ pub struct Said {
     /// What its agent came across beyond the work, each a text.
     #[serde(default)]
     pub observations: Vec<String>,
-    /// Its answer to what the owner said to its cell, where it gave one.
-    #[serde(default)]
-    pub reply: Option<String>,
 }
 
 impl Said {

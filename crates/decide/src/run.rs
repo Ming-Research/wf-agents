@@ -224,6 +224,9 @@ pub struct Standing {
     pub latest: Option<Seq>,
     /// The latest version's value, where the block is a choice.
     pub value: Option<String>,
+    /// A version written of it is an entry added to a record ([`crate::Flow::adds_entries`]): it replaces no version
+    /// before it, and so writes over none the round was not told of.
+    pub added: bool,
 }
 
 /// What the flow requires of what a cell's run returns.
@@ -317,7 +320,8 @@ pub enum Unmet {
     /// for the owner's answer: the cell would be entered again at once for the same.
     DealtWithNothing,
     /// The block got this version from another writer after the round was told of the one it writes over: the return
-    /// would write over what the round never saw. The next round is told of the version.
+    /// would write over what the round never saw. The next round is told of the version. An entry added to a record
+    /// writes over nothing.
     WrittenOver { block: BlockId, version: Seq },
     /// The block is a choice, written as changing nothing in meaning with another value than the one it has: a choice
     /// changes its meaning when its value does (decision `meaning-told-by-the-writer`).
@@ -340,10 +344,12 @@ pub enum Unmet {
     QuestionTwice { name: String },
     /// The question of this name recommends none of its options, or has none.
     NotAnOption { name: String },
-    /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it.
+    /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it. Returns
+    /// read before a cell could ask only where it writes the work's questions were sent back so; a question of a cell
+    /// that does not write them is now a block that is not among its outputs.
     NotAnswerable { name: String },
-    /// The return names as dealt with the owner's words, by this trigger, and gives no answer in `reply`, which the
-    /// record of what is said is written through (design document `data-and-context`, 38).
+    /// The return names as dealt with the owner's words, by this trigger, and writes no answer in the record of what is
+    /// said that the trigger has its agent read (design document `data-and-context`, 38).
     NotAnswered { name: String },
     /// The work's branch, as the round left it, changes the file of this path, which the project protects, and neither
     /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking
@@ -468,6 +474,8 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
                         block: block.clone(),
                         meaning_unchanged: false,
                         value: None,
+                        // What the carrier read of the branch, a commit, holds something.
+                        empty: false,
                     });
                 return Step::Finish {
                     dealt_with: consumed(dealt_with, requires),
@@ -612,6 +620,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         if let Some(Standing {
             told,
             latest: Some(latest),
+            added: false,
             ..
         }) = standing
             && *told != Some(*latest)

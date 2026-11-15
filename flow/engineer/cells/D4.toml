@@ -9,7 +9,7 @@ effort = "xhigh"
 task = '''
 You review the plan against the design tree, in a session that did not write it. Read the principles, and whole each
 file of decisions whose topic the plan or `tree_edits` touches, where this session has not. The plan is
-`plan_owner`, `plan_agent`, `tree_edits` and `questions`.
+`plan_owner`, `plan_agent`, `tree_edits` and `q_and_a`.
 
 Judge it by the tree's rules, on each of these points:
 1. Each entry of `tree_edits`, as one that must earn its place: whether the tree holds such a thing at all, or a
@@ -17,13 +17,13 @@ Judge it by the tree's rules, on each of these points:
    document it belongs in instead; its form; and what the code says by itself, its reason too, or only this work
    does, which stays out of the tree.
 2. A decision the plan goes against, or a rule later works must follow, that no entry covers.
-3. An entry that changes a principle or the constitution, with no question in `questions` that asks the owner.
+3. An entry that changes a principle or the constitution, with no question in `q_and_a` that asks the owner.
 
 In the why of `tree_ok`, answer each point by its number: none, or what you found. Write what the writer must take in
 `tree_review`, every point at once: this is your one chance, and nothing is raised later that could be raised now.
-Write none with `tree_ok` yes. Leave out what you are not sure is better.
+With `tree_ok` yes, leave `tree_review` out of your return. Leave out what you are not sure is better.
 '''
-when = { edits_tree = "yes" }
+when = { test = "changes_tree" }
 triggered_by = ["on_plan", "on_reply_tree_review"]
 context = [
   "background",
@@ -32,7 +32,7 @@ context = [
   "plan_agent",
   "acceptance",
   "tree_edits",
-  "questions",
+  "q_and_a",
   "tree_review",
   "reply_tree_review",
   "tree",
@@ -50,7 +50,7 @@ tree = "last_and_latest"
 background = "latest"
 discussion = "all"
 # For an entry that changes a principle or the constitution: is the owner asked.
-questions = "last_and_latest"
+q_and_a = "all"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"

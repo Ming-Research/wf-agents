@@ -61,10 +61,15 @@ A cell that asks and takes no answer, or no words, would leave the owner's answe
 would show only once a work waited on it: words about a question of a cell no words ran were sent to the cell before it (work
 4).
 
-### decision an-answer-is-an-entry-of-what-its-cell-reads
-The owner's answer to a question's latest version is written, in the words of the datum's own file, as the owner's
-entry of each datum the asking cell's trigger of an answer has its agent read, `answers` in the engineer's flow, as well
-as kept in the record of answers the walk reads; an answer to an earlier version is no such entry.
-Why: A cell is given what it reads as any datum, by the kind its file names, and so a session reopened holds every
-answer; a second way of giving the answer, as the result of a call once was, was turned down (design document
-`data-and-context`).
+### decision the-questions-and-the-answers-are-one-record
+Each version of a question, asked, asked anew or withdrawn, and the owner's answer to a question's latest version, is an
+entry the engine writes, in the words of the record's own file, of the record the trigger of an answer of the cell the
+answer goes to has its agent read (`q_and_a` in the engineer's flow), beside the records of questions and answers the
+walk reads; every entry says all it needs to be read alone, and an answer to an earlier version is no entry. The record
+runs no cell: the answer runs the asking cell by the block of its trigger.
+Why: Kept in the engine's own records alone, the questions were never a version of the datum a cell was given, which so
+read nothing (works 3 to 9); given apart from them, an answer could reach a cell without its question. Each cell that
+takes the record is given it whole, as any datum by the kind its file names, and so a session reopened holds every
+question with its answers; a second way of giving the answer, as the result of a call once was, was turned down
+(design document `data-and-context`). Run by the record, the cells that wrote the plan ran again for their own
+questions.

@@ -76,22 +76,27 @@ pub struct Outsiders {
     /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls, and is
     /// answered while the work is paused, as a note is.
     pub interrupts: bool,
+    /// It is a record its source adds entries to, which a trigger of that source has its agent read: the record of
+    /// what is said, or of the questions and the answers. A version of it, a cell's as much as its source's, is an
+    /// entry added beside those before it, and replaces none.
+    pub entries: bool,
 }
 
-/// A named test: a test of the values of blocks of the work itself, which the walk works out from the versions it
-/// reads. What people and the outside do reaches it only as blocks they write.
+/// A named test: a test of the blocks of the work itself, which the walk works out from the versions it reads. What
+/// people and the outside do reaches it only as blocks they write.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Test {
     /// How the blocks it reads make it hold.
     pub kind: TestKind,
-    /// The blocks it reads, each a choice.
+    /// The blocks it reads: each a choice, or, of a test of content, any block.
     pub reads: Vec<BlockId>,
-    /// The value it tests for in each block it reads.
-    pub is: String,
+    /// The value it tests for in each block it reads; none of a test of content, which looks for no value.
+    pub is: Option<String>,
 }
 
-/// How the blocks a named test reads make it hold, by which of them have the value it tests for now. A block never
-/// written has no value, or its default where the flow gives it one. A new kind is a new function of the walk.
+/// How the blocks a named test reads make it hold, by which of them have the value it tests for now, or, of a test of
+/// content, hold anything. A block never written has no value, or its default where the flow gives it one, and holds
+/// nothing. A new kind is a new function of the walk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TestKind {
@@ -107,6 +112,9 @@ pub enum TestKind {
     /// is defined for a block that one cell writes, people and the outside besides: of two cells writing it, a skipped
     /// one's write would hide the other's word. The compiler holds definitions to that.
     NoneStanding,
+    /// At least one block read holds anything: its current version has a value, or what was written of it is neither
+    /// empty nor only whitespace. It looks for no value.
+    AnyContent,
 }
 
 /// Why cells do not make a flow.
@@ -199,6 +207,12 @@ impl Flow {
     /// Whether a new version of the block is the owner turning to the cells it runs ([`Outsiders::interrupts`]).
     pub fn interrupts(&self, block: &BlockId) -> bool {
         self.outsiders.get(block).is_some_and(|o| o.interrupts)
+    }
+
+    /// Whether a version of the block is an entry added to a record, which replaces none before it
+    /// ([`Outsiders::entries`]).
+    pub fn adds_entries(&self, block: &BlockId) -> bool {
+        self.outsiders.get(block).is_some_and(|o| o.entries)
     }
 
     /// Who besides the cells writes the block; none where only cells do.

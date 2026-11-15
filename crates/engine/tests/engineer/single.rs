@@ -140,14 +140,13 @@ impl W {
             "R1",
             &[
                 ("deep_needed", Some("no")),
-                ("edits_tree", Some("no")),
                 ("plan_owner", None),
                 ("plan_agent", None),
                 ("acceptance", None),
             ],
             Vec::new(),
         );
-        w.hands_in("R2", &[("better_found", Some("no"))], Vec::new());
+        w.hands_in("R2", &[], Vec::new());
         w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
         w.hands_in(
             "T1",
@@ -178,5 +177,37 @@ pub(super) fn wrote(block: &str, by: Outsider, value: Option<&str>) -> Event {
         content: format!("the {block}"),
         matters: true,
         value: value.map(str::to_string),
+    }
+}
+
+#[test]
+fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is_skipped_where_they_hold_none() {
+    for (edits, next) in [("A decision that a call keeps what it took.", "D4"), (" \n", "I1")] {
+        let mut w = W::started();
+        w.hands_in("S1", &[("place", None)], Vec::new());
+        w.hands_in("R0", &[], Vec::new());
+        let (run, cell) = w.round();
+        assert_eq!(cell, "R1");
+        let names = w.told(run, "R1");
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let plan = [
+            ("deep_needed", Some("no")),
+            ("plan_owner", None),
+            ("plan_agent", None),
+            ("acceptance", None),
+            ("tree_edits", None),
+        ];
+        let mut came = w.read("R1", &names, &plan);
+        for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "tree_edits") {
+            h.content = edits.to_string();
+        }
+        w.on(Event::Returned {
+            run,
+            came,
+            spent: Spent::default(),
+        });
+        // The plan's second look finds no better way, and changes nothing.
+        w.hands_in("R2", &[], Vec::new());
+        assert_eq!(w.round().1, next, "with tree_edits {edits:?}");
     }
 }

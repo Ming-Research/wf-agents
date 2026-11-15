@@ -278,7 +278,6 @@ fn engineer() -> Compiled {
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.
         tools: names(&["query", "run_tests"]),
-        fields: names(&["questions", "reply"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -298,6 +297,8 @@ struct Roles {
     judges: Vec<(usize, BlockId)>,
     /// Each choice a precondition of kind `all` reads, with the value it looks for.
     passing: BTreeMap<BlockId, String>,
+    /// Each block a test of content reads.
+    contents: BTreeSet<BlockId>,
     /// The block of the work's head, where the flow has one.
     head: Option<BlockId>,
     /// Each judge of the head, by its place: a cell the head runs that writes a block the check's preconditions read.
@@ -313,8 +314,9 @@ impl Roles {
         let tests = flow.flow.tests();
         let mut refusals = BTreeMap::new();
         for t in tests.values().filter(|t| t.kind == TestKind::NoneStanding) {
+            let Some(is) = &t.is else { continue };
             for b in &t.reads {
-                refusals.insert(b.clone(), t.is.clone());
+                refusals.insert(b.clone(), is.clone());
             }
         }
         let judges = (refusals.keys())
@@ -330,13 +332,18 @@ impl Roles {
                     passing.insert(block.clone(), value.clone());
                 }
                 Condition::Test(name) if tests[name].kind == TestKind::All => {
+                    let Some(is) = &tests[name].is else { continue };
                     for b in &tests[name].reads {
-                        passing.insert(b.clone(), tests[name].is.clone());
+                        passing.insert(b.clone(), is.clone());
                     }
                 }
                 Condition::Test(_) => {}
             }
         }
+        let contents = (tests.values())
+            .filter(|t| t.kind == TestKind::AnyContent)
+            .flat_map(|t| t.reads.iter().cloned())
+            .collect();
         // The judges of the head, found by the graph as the check finds them: what its preconditions read, and who
         // writes that and is run by the head.
         let head = (flow.blocks.iter())
@@ -356,6 +363,7 @@ impl Roles {
             refusals,
             judges,
             passing,
+            contents,
             head,
             head_judges,
         }
@@ -572,13 +580,16 @@ fn make_hold(d: &Driver, key: &Condition) -> Option<Event> {
             continue;
         };
         let values = block.values.as_ref()?;
+        // A test of content looks for no value: no choice moves it.
+        let is = test.is.as_ref()?;
         let value = match test.kind {
-            TestKind::All | TestKind::Any => (reading.value(b) != Some(test.is.as_str())).then(|| test.is.clone()),
+            TestKind::All | TestKind::Any => (reading.value(b) != Some(is.as_str())).then(|| is.clone()),
             TestKind::None | TestKind::NoneStanding => reading
                 .current(b)
-                .filter(|v| v.value.as_deref() == Some(test.is.as_str()))
+                .filter(|v| v.value.as_deref() == Some(is.as_str()))
                 .filter(|v| test.kind != TestKind::NoneStanding || reading.stands(v))
-                .and_then(|_| values.iter().find(|v| **v != test.is).cloned()),
+                .and_then(|_| values.iter().find(|v| *v != is).cloned()),
+            TestKind::AnyContent => None,
         };
         if let Some(value) = value {
             return Some(wrote(b, by, true, Some(value)));
@@ -734,7 +745,12 @@ impl Random {
                 }
             } else if d.rng.chance(80) {
                 let matters = d.rng.chance(70);
-                handed_in.push(handed(b, cell, matters, None));
+                let mut h = handed(b, cell, matters, None);
+                // A block a test of content reads is at times handed in holding nothing.
+                if self.roles.contents.contains(b) && d.rng.chance(30) {
+                    h.content = String::new();
+                }
+                handed_in.push(h);
             }
         }
         handed_in

@@ -39,8 +39,7 @@ context = [
   "tree_edits",
   "reply_review",
   "background",
-  "questions",
-  "answers",
+  "q_and_a",
   "review",
   "tree",
 ]
@@ -72,5 +71,4 @@ head = "last_and_latest"
 discussion = "all"
 reply_review = "latest"
 background = "latest"
-questions = "latest"
-answers = "all"
+q_and_a = "all"

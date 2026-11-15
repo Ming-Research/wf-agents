@@ -125,6 +125,7 @@ async fn the_tree_and_the_head_are_read_in_one_step_each_a_version_only_where_it
             matters: true,
             value: None,
             said_to: None,
+            empty: false,
             at: Seq(at),
         });
     }
@@ -153,6 +154,7 @@ async fn a_round_is_given_what_changed_from_each_earlier_version_of_the_tree_and
                 matters: true,
                 value: None,
                 said_to: None,
+                empty: false,
                 at: Seq(at),
             });
         }

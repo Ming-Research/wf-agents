@@ -4,7 +4,7 @@
 //! loop, which checks it against the records: it is taken where one of the group's blocks ran the round, and dealing
 //! with it consumes each of them that did, as one trigger.
 
-use decide::{Decision, Outsider, Pauser, RunId};
+use decide::{Decision, Outsider, Pauser, RunId, Written};
 use engine::{Effect, Event, handle};
 use work::{Given, Spent, Time, Work};
 
@@ -14,8 +14,8 @@ use super::*;
 fn grouped() -> Compiled {
     let flow = FLOW
         .replace(
-            r#"data = ["request", "discussion", "answers"]"#,
-            r#"data = ["request", "notes", "discussion", "answers"]"#,
+            r#"data = ["request", "discussion", "q_and_a"]"#,
+            r#"data = ["request", "notes", "discussion", "q_and_a"]"#,
         )
         .replace("[limits]", "[groups]\nbrief = [\"request\", \"notes\"]\n\n[limits]");
     let write = WRITE
@@ -24,8 +24,8 @@ fn grouped() -> Compiled {
             r#"triggered_by = ["on_brief", "on_spoken", "on_answer"]"#,
         )
         .replace(
-            r#"context = ["request", "discussion", "answers"]"#,
-            r#"context = ["request", "notes", "discussion", "answers"]"#,
+            r#"context = ["request", "discussion", "q_and_a"]"#,
+            r#"context = ["request", "notes", "discussion", "q_and_a"]"#,
         )
         .replace("[kinds]", "[kinds]\nnotes = \"latest\"");
     compiled(
@@ -59,14 +59,28 @@ impl W {
         handle(&self.flow, &mut self.work, Time(0), event).expect("the loop takes it")
     }
 
-    /// A person writes these blocks while the work is paused, and the cell `write` is entered for them as it is let
-    /// on: gives the run.
+    /// A person writes these blocks while the work is paused, the engine writing as the owner speaks to the cell
+    /// those its words write, and the cell `write` is entered for them as it is let on: gives the run.
     fn written(&mut self, blocks: &[&str]) -> RunId {
         let mut effects = self.on(Event::Paused {
             by: Pauser::Owner,
             why: None,
         });
         for block in blocks {
+            let declared = &self.flow.blocks[&BlockId::from(*block)];
+            if declared.writers.outside.as_deref() == Some(flow::WORDS) {
+                let at = self.work.tick();
+                self.work.records.written.push(Written {
+                    block: (*block).into(),
+                    by: Outsider::Outside,
+                    matters: true,
+                    value: None,
+                    said_to: None,
+                    empty: false,
+                    at,
+                });
+                continue;
+            }
             effects.extend(self.on(Event::Wrote {
                 block: (*block).into(),
                 by: Outsider::Person,
@@ -86,13 +100,16 @@ impl W {
             .unwrap_or_else(|| panic!("write is not entered for {blocks:?}: {effects:?}"))
     }
 
-    /// The run's return names these as dealt with and hands in its choice: it is read against `write` and the loop
-    /// takes it. Gives why it was sent back, where it was.
+    /// The run's return names these as dealt with and hands in its choice, and answers the owner where it deals with
+    /// the owner's words: it is read against `write` and the loop takes it. Gives why it was sent back, where it was.
     fn returns(&mut self, run: RunId, dealt_with: &[&str]) -> Option<Vec<Unmet>> {
-        let r = json!({"outcome": {
+        let mut r = json!({"outcome": {
             "dealt_with": dealt_with,
             "outputs": {"ok": {"value": "yes", "why": "It says how."}},
         }});
+        if dealt_with.contains(&"on_spoken") {
+            r["outcome"]["outputs"]["discussion"] = json!("As you said.");
+        }
         let came = came(&r, &self.flow, cell(&self.flow), &words())
             .expect("it is read")
             .came;

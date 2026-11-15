@@ -48,7 +48,6 @@ fn planned() -> W {
         "R1",
         &[
             ("deep_needed", Some("no")),
-            ("edits_tree", Some("no")),
             ("plan_owner", None),
             ("plan_agent", None),
             ("acceptance", None),
@@ -71,7 +70,7 @@ fn the_plan_s_second_look_run_by_the_plan_s_group_deals_with_it_by_its_name_once
     let (run, cell) = w.round();
     assert_eq!(cell, "R2");
     assert_eq!(w.told(run, "R2"), ["on_plan"]);
-    let effects = w.returns("R2", &["on_plan"], &[("better_found", Some("no"))]);
+    let effects = w.returns("R2", &["on_plan"], &[]);
     assert!(!sent_back(&effects, run), "the return is sent back: {effects:?}");
     // Each block of the plan the research wrote ran the round, and is dealt with.
     assert_eq!(dealt_with(&w, run), blocks(&["plan_owner", "plan_agent", "acceptance"]));
@@ -90,7 +89,7 @@ fn the_plan_s_second_look_run_by_the_plan_s_group_deals_with_it_by_its_name_once
 #[test]
 fn the_review_run_by_the_change_s_group_deals_with_it_by_its_name_once() {
     let mut w = planned();
-    w.hands_in("R2", &[("better_found", Some("no"))], Vec::new());
+    w.hands_in("R2", &[], Vec::new());
     w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
     let (run, cell) = w.round();
     assert_eq!(cell, "T1");
