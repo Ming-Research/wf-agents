@@ -1,4 +1,4 @@
-//! Random histories (principle simulated-histories): many works, each on a small flow of blocks drawn at random, driven
+//! Random histories (design document `testing`, 4): many works, each on a small flow of blocks drawn at random, driven
 //! step by step as an engine would drive them, agents returning at random and people acting at random in the first
 //! part of each history. After every step the properties the engine must always keep are checked (`properties`, and
 //! those of a pause in `pausing` and of the room in `room`), each stating what a rule of the design protects and

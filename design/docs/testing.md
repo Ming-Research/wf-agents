@@ -9,13 +9,12 @@ and the scripts that stand in for agents are built; what is not is said at the e
 
 1. A test guards: it runs in CI at every change, the whole suite at every pull request and every push to main, and
    fails on a fault of its kind from then on. What no test judges is looked at instead: a cell's words in real rounds
-   (22 to 31), the page by the owner (16 to 21), what rounds cost. A look guards nothing until what it found is a test.
+   (22 to 32), the page by the owner (16 to 21), what rounds cost. A look guards nothing until what it found is a test.
 
 2. A fault, wherever it is found (by a review, in a trial, by the owner on the page), is first written as a test that
    fails on it, at the layer below that catches its kind, and only then fixed. Where that layer checks properties, it
-   is written as a property, which says what the rule protects and so catches the fault's kin, not its one case; and a
-   history test that never reached the case is widened until it does. The test is written where the fault was seen
-   (principle a-defect-is-seen-before-it-is-fixed).
+   is written as a property, which says what the rule protects and so catches the fault's kin, not its one case. The
+   test is written where the fault was seen (principle a-defect-is-seen-before-it-is-fixed).
 
 3. **Each rule, by example.** Every part of the system (the deciding code, the engine's loop, the driver, the store,
    the context manager, the compiler, the carriers, the interface, the command and the page) has tests that each build
@@ -23,21 +22,31 @@ and the scripts that stand in for agents are built; what is not is said at the e
    documentation, never from its code. This layer is the one to catch a rule built otherwise than the design says,
    and the one where each rule a change builds is first pinned.
 
-4. **Random histories.** The parts that keep state over time (the deciding code, the loop, the driver, the store and
-   the context manager) are each kept by histories as principle simulated-histories says. A property is judged by the
-   histories' own reading of the records, never by the code under test. Each such test counts every case it is there
-   to reach and fails where no history reached one, so that no property passes by never being tried; a failing history
-   gives its seed, which replays it. This layer is the one to catch a fault that needs an order of events nobody
-   wrote down: a stop between two steps, a write while a round is under way, a return after a send-back. A fault of
-   the engine found anywhere goes here.
+4. **Random histories.** The engine is kept right by simulated histories run at every change: agents whose returns
+   are drawn from all the flow allows, an owner who confirms, refuses, comments, pauses and cancels at any moment, an
+   engine stopped at any step and a flow changed midway. After every step the properties the engine must always keep
+   are checked. A fault found any other way is added as a history that shows it. An example tests the way its writer
+   thought of. The two defects a review confirmed were in ways no scenario had been written for: a cell that asked for
+   a tool after being sent back, and a work that went to design after it had implemented (5).
 
-5. **The flows as the repository defines them.** Each is compiled with the files beside the flows, the system prompt
-   of each of its lines and the form of its return are made, and every situation an entry of each of its cells can
-   reach is written. The deciding code's own walk goes through it every way a work can go within a bound, or through
-   many random histories, checking at each decision the properties that flow must keep, such as no merge on what is
-   not settled and every work coming to rest. This layer is the one to catch a change of a definition (a cell, a
-   block, a trigger, the words beside the flows) that opens a way nobody ran or sends what it should not. A fault of a
-   flow's routing, wherever it was seen, is written here as a property of that flow (principle flow-tests-formal).
+   Each part that keeps state over time (the deciding code, the loop, the driver, the store and the context manager)
+   has histories of its own. A property is judged by the histories' own reading of the records, never by the code
+   under test. Each such test counts every case it is there to reach and fails where no history reached one, so that
+   no property passes by never being tried; a failing history gives its seed, which replays it. This layer is the one
+   to catch a fault that needs an order of events nobody wrote down: a stop between two steps, a write while a round
+   is under way, a return after a send-back.
+
+5. **The flows as the repository defines them.** The flow's routing is kept right by tests in the suite, which run at
+   every change, not by trying the flow once; trials on past cases judge a cell's text, not its routing. A trial goes
+   one way through the flow; the next change then meets a way no one ever ran.
+
+   Each flow the repository defines is compiled with the files beside the flows, the system prompt of each of its
+   lines and the form of its return are made, and every situation an entry of each of its cells can reach is written.
+   The deciding code's own walk goes through it every way a work can go within a bound, or through many random
+   histories, checking at each decision the properties that flow must keep, such as no merge on what is not settled
+   and every work coming to rest. This layer is the one to catch a change of a definition (a cell, a block, a
+   trigger, the words beside the flows) that opens a way nobody ran or sends what it should not. A fault of a flow's
+   routing, wherever it was seen, is written here as a property of that flow.
 
 6. **The edge with the outside.** The carriers are run against what the engine does not control: git, in a
    repository made for each test; a stand-in for the agents' command line that keeps what it was given and prints a
@@ -80,8 +89,8 @@ and the scripts that stand in for agents are built; what is not is said at the e
     script says the agent plays in that round. Such a run shows what only that program does: what the context manager
     filled into a real session, how that session's cache was read and written, what the program printed for a session
     lost, a compaction or a refusal, and what it all cost. It never judges the cell's words, since the agent knows it
-    is playing a part (principle ask-in-a-fork). It runs on an installation apart from the real one, in a repository
-    made for it, so that nothing it does reaches a project.
+    is playing a part (27). It runs on an installation apart from the real one, in a repository made for it, so that
+    nothing it does reaches a project.
 
 13. **What a script says**, for one case: what each round of each cell returns (what it hands in, asks or fails with,
     and what it takes), or the part its agent plays; what each tool answers; what people and the outside do, each at a
@@ -158,30 +167,41 @@ and the scripts that stand in for agents are built; what is not is said at the e
 
 ### While it runs
 
-26. It goes one round at a time (principle trial-round-by-round): the work is let on and paused again as soon as its
-    round has begun, so that the round ends and the next one waits.
+26. A changed flow is tried one round at a time: before the next round runs, its inputs are read (their order, their
+    size, and nothing given that the session already held), its return and route, and its token and cache numbers;
+    then a fork asks about the cell's text (27). A hundred and one rounds run in a row once missed a problem that was
+    there in the first; a round's numbers show an input given twice or a cache missed, which its return does not. Every
+    trial goes so: the work is let on and paused again as soon as its round has begun, so that the round ends and the
+    next one waits.
 
-27. What is read of each round is read where it shows: its inputs on the round's panel, as they were sent, and in its
+27. What an agent thinks of a cell is asked after its round, in a fork of its session with no tools and nothing of the
+    work changed; the round itself runs as usual, and the agent is not told it is being tested. The fork is asked only
+    about the cell's text: which words can be read another way, what is missing or unneeded, how to fix each, quoting
+    the text. An agent that knows it is being tested does not do what it would in real work (an inference, not
+    measured). The return cannot show which words can be read another way; the fork, holding everything the round saw,
+    can. Asking why it acted as it did is refused whole by the model's safety check (it happened on 2026-11-08).
+
+28. What is read of each round is read where it shows: its inputs on the round's panel, as they were sent, and in its
     line's system prompt, against what its cell names and the order the flow declares (principle cache-order); its
     return, what was sent back and why, and the engine's reason for what runs next, on the work's page; its numbers on
     the same panel, each against the line of its own history (principle judged-by-own-history), and in the System view
     what went past those lines; and in the engine's log, what the engine met outside any work. The assistant reads the
     same through the commands that show a work (principle a-look-brings-back-little).
 
-28. Every return sent back, and every way round between the same two cells after the first, is a finding (principles
+29. Every return sent back, and every way round between the same two cells after the first, is a finding (principles
     converging-fixes and report-all-at-once). Each finding is recorded at once, as an observation or an item. A fault of
     the engine or of the page holds the trial: the work stays paused until the fix is installed, and goes on from its
     records, not from its start (principle keep-what-was-paid-for). A cell's words change only as 24 says.
 
 ### After it
 
-29. Each behaviour listed before is said as seen, with the round it showed in, by its work, run and round, or as not
+30. Each behaviour listed before is said as seen, with the round it showed in, by its work, run and round, or as not
     seen, with why; one not seen is brought about by a script or a part (13), or stays said as unseen.
 
-30. The trial's costs, by cell and in all, are set against the history of the flow's works. Once a work ends, each of
-    its lines' sessions is forked and asked about the rules it worked under (principle ask-in-a-fork).
+31. The trial's costs, by cell and in all, are set against the history of the flow's works. Once a work ends, each of
+    its lines' sessions is forked, as 27 says, and asked about the rules it worked under.
 
-31. Not built: a round's panel showing first what was new to it (document `the-owners-page`, 3), and a work's cost by
+32. Not built: a round's panel showing first what was new to it (document `the-owners-page`, 3), and a work's cost by
     kind of token (the same, 4); asking a fork of a round's session about its cell's text, which is done by hand;
     running one cell on a recorded round's inputs, which 24 needs; and walking a changed flow without acting (document
     `changed-flow-walks-the-records`, 3).
