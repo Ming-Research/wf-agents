@@ -1040,6 +1040,7 @@ mod tests {
             kind: flow::Kind::Agent,
             line: Some("deep_research".to_string()),
             reads_only: false,
+            tests_only: false,
             task: Some("Research.".to_string()),
             task_file: None,
             act: None,
