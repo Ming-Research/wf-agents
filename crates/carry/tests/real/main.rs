@@ -315,7 +315,12 @@ fn compiled(on: On) -> Compiled {
         tools: names(&["query"]),
         ..Default::default()
     };
-    flow::compile(&source, &has).expect("the flow compiles")
+    let mut flow = flow::compile(&source, &has).expect("the flow compiles");
+    // A flow written before flows were laid out has no words beside it: it takes those beside the repository's flows.
+    if !source.laid_out {
+        flow.waits = flow::agents::Waits::of(include_str!("../../../../flow/agents/waits.toml")).expect("the words");
+    }
+    flow
 }
 
 /// Writes the fake command line into the directory, keeping what it is given in `calls`. It is given its message as
