@@ -121,7 +121,7 @@ enum Command {
     },
     /// Gives an item another title, in the owner's language, as the page and the item's agents know it: its merge is
     /// named by a line its work writes in the repository's language, never by its title. The title it had is kept, as
-    /// every change of an item is, with why: `wf-agents show` says each.
+    /// every change of an item is, with why: `wf-agents show` of its work says the latest, and with `history` each.
     SetTitle {
         item: u64,
         title: String,
@@ -249,9 +249,16 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Shows a work: what it does now, its cells, its blocks and its runs.
+    /// Shows a work: what it does now, its cells and its blocks, and the latest ten of what happened to its item, of its
+    /// runs and of its sessions, and ten of its questions, those not answered first, saying how many more there are.
+    /// With a part, that part alone, a hundred at a time.
     Show {
         work: u64,
+        /// The part to give alone.
+        part: Option<talk::Part>,
+        /// The place in the part to give it from, the first being one.
+        #[arg(long, requires = "part", value_name = "N")]
+        from: Option<usize>,
         #[command(flatten)]
         at: At,
     },
@@ -522,7 +529,7 @@ fn main() -> ExitCode {
         }
         Command::Tags { at } => talk::ask(at.port, Asked::Tags),
         Command::Text { item, block, whole, at } => talk::ask(at.port, Asked::Text { item, block, whole }),
-        Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
+        Command::Show { work, part, from, at } => talk::ask(at.port, Asked::Show { work, part, from }),
         Command::Resume { work, all, at } => match (work, all) {
             (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
             _ => talk::ask(at.port, Asked::Everything(EngineAct::Resume {})),
