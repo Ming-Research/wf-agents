@@ -28,6 +28,31 @@ fn each_thing_asked_for_is_one_call_for_a_tool_with_nobody_and_for_a_person_with
     assert_eq!(w.work.calls.get(&calls[0].0), Some(&Call::Asked(tool("search"))));
 }
 
+// No carrier asks a person by a call: the owner is asked by the record of the work's questions. A return that asks
+// one is refused, as nothing that carries a round out says it, and the work is left as it was (decision
+// no-call-is-made-on-a-person). Milliseconds alone, in memory; no other test holds the loop to making no call on a
+// person.
+#[test]
+fn a_return_that_asks_a_person_by_a_call_is_refused() {
+    let (mut w, write, _) = W::requested();
+    let before = w.work.clone();
+    let now = w.tick();
+    let came = Came::asks(vec![tool("search"), question(Who::Owner)]);
+    let taken = handle(
+        &w.flow,
+        &mut w.work,
+        now,
+        Event::Returned {
+            run: write,
+            came,
+            spent: spent(1),
+        },
+    );
+    assert!(taken.is_err(), "{taken:?}");
+    assert_eq!(w.work.records, before.records);
+    assert!(w.work.calls.is_empty(), "a call was made: {:?}", w.work.calls);
+}
+
 #[test]
 fn a_return_that_asks_ends_its_run_having_dealt_with_nothing_and_its_cell_waits_for_every_result() {
     let (mut w, write, request) = W::requested();
