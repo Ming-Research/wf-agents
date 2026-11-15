@@ -18,14 +18,28 @@ use work::{Back, Measures, Spent, Work};
 
 /// The line of a history: past its largest value by as much as that is past its median. None for an empty one.
 pub fn line(values: &[f64]) -> Option<f64> {
-    let largest = values.iter().copied().reduce(f64::max)?;
-    Some(2.0 * largest - median(values)?)
+    line_of_sorted(&sorted(values))
 }
 
 /// The median of values, the mean of the middle two for an even number of them; none for no value.
 pub fn median(values: &[f64]) -> Option<f64> {
+    median_of_sorted(&sorted(values))
+}
+
+/// The values, the smallest first.
+fn sorted(values: &[f64]) -> Vec<f64> {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
+    sorted
+}
+
+/// The line of a history whose values are sorted, the smallest first.
+fn line_of_sorted(sorted: &[f64]) -> Option<f64> {
+    Some(2.0 * sorted.last()? - median_of_sorted(sorted)?)
+}
+
+/// The median of values sorted, the smallest first.
+fn median_of_sorted(sorted: &[f64]) -> Option<f64> {
     let n = sorted.len();
     match n {
         0 => None,
@@ -45,6 +59,8 @@ pub enum Scope {
     Works,
     /// The rounds of the line.
     Line,
+    /// The calls of the tool.
+    Tool,
 }
 
 /// A line, with how many values gave it and from where.
@@ -58,8 +74,19 @@ pub struct Line {
 /// The line of values of one's own, where at least `least` of them have a median above nothing; else of everyone's,
 /// from at least `least`, where a line above nothing; else none.
 fn judged(own: &[f64], any: &[f64], least: usize, own_scope: Scope, any_scope: Scope) -> Option<Line> {
-    if own.len() >= least.max(1) && median(own).is_some_and(|m| m > 0.0) {
-        return line(own).map(|value| Line {
+    judged_sorted(&sorted(own), &sorted(any), least, own_scope, any_scope)
+}
+
+/// [`judged`] of values each sorted, the smallest first.
+pub(crate) fn judged_sorted(
+    own: &[f64],
+    any: &[f64],
+    least: usize,
+    own_scope: Scope,
+    any_scope: Scope,
+) -> Option<Line> {
+    if own.len() >= least.max(1) && median_of_sorted(own).is_some_and(|m| m > 0.0) {
+        return line_of_sorted(own).map(|value| Line {
             value,
             samples: own.len(),
             scope: own_scope,
@@ -68,7 +95,7 @@ fn judged(own: &[f64], any: &[f64], least: usize, own_scope: Scope, any_scope: S
     if any.len() < least.max(1) {
         return None;
     }
-    let value = line(any).filter(|v| *v > 0.0)?;
+    let value = line_of_sorted(any).filter(|v| *v > 0.0)?;
     Some(Line {
         value,
         samples: any.len(),
@@ -83,6 +110,8 @@ fn judged(own: &[f64], any: &[f64], least: usize, own_scope: Scope, any_scope: S
 pub struct Sample {
     /// The place where the round ended, in its work's order.
     pub at: decide::Seq,
+    /// When it ended, where the records tell.
+    pub ended: Option<work::Time>,
     pub cell: CellId,
     pub line: Option<String>,
     /// Which of its line's sessions it ran in, counted from none.
@@ -158,6 +187,7 @@ pub fn samples(flow: &Compiled, work: &Work) -> Vec<Sample> {
         let cut = (line.as_deref().zip(session)).is_some_and(|(l, n)| cut(work, l, n));
         out.push(Sample {
             at: ended.at,
+            ended: work.time_of(ended.at),
             cell: started.cell.clone(),
             line,
             session,
@@ -174,7 +204,12 @@ pub fn samples(flow: &Compiled, work: &Work) -> Vec<Sample> {
 
 /// Whether two names are of one model: a model named with its context window, as `[1m]`, is the model.
 fn same_model(a: &str, b: &str) -> bool {
-    a.split('[').next() == b.split('[').next()
+    model_of(a) == model_of(b)
+}
+
+/// The model a name is of, its context window left out.
+pub(crate) fn model_of(name: &str) -> &str {
+    name.split('[').next().unwrap_or(name)
 }
 
 /// The lines a round of a cell is judged by, each none where too few rounds tell it.
@@ -202,8 +237,13 @@ impl Lines {
     /// The lines of a round of the cell on the model, from the history, a cell's own where at least `least` of its
     /// rounds tell it, else the flow's.
     pub fn of(history: &[Sample], cell: &CellId, model: &str, least: usize) -> Lines {
-        let own: Vec<&Sample> = history.iter().filter(|s| s.cell == *cell).collect();
-        let every: Vec<&Sample> = history.iter().collect();
+        Lines::of_refs(&history.iter().collect::<Vec<_>>(), cell, model, least)
+    }
+
+    /// [`Lines::of`] a history held by reference.
+    pub fn of_refs(history: &[&Sample], cell: &CellId, model: &str, least: usize) -> Lines {
+        let own: Vec<&Sample> = history.iter().copied().filter(|s| s.cell == *cell).collect();
+        let every: Vec<&Sample> = history.to_vec();
         let values = |of: &[&Sample], f: &dyn Fn(&Sample) -> Option<f64>| -> Vec<f64> {
             of.iter().filter_map(|s| f(s)).collect()
         };
@@ -402,6 +442,7 @@ mod tests {
     fn sample(cell: &str, model: &str, calls: u32, added: u64, usd: u64) -> Sample {
         Sample {
             at: decide::Seq(1),
+            ended: Some(work::Time(1)),
             cell: CellId::from(cell),
             line: Some("engineer".to_string()),
             session: Some(0),

@@ -9,9 +9,9 @@
 //!   it was given by more than the line.
 //!
 //! A round the owner let run after the guard stopped its run is judged all the same, so that its record says it went
-//! past the lines and it never joins the history, but it is not stopped: the owner looked, and let it run. What a
-//! round's cost and time are past their lines is read from the records, and stops nothing: neither tells a long round
-//! that is usual from one running away, which a rise of context for each call does.
+//! past the lines and it never joins the history, but it is not stopped: the owner looked, and let it run. Whether a
+//! round's cost and time are past their lines is read from the records (crate `driver`, module `judged`), and stops
+//! nothing: neither tells a long round that is usual from one running away, which a rise of context for each call does.
 
 use driver::history::{Line, Lines, Scope};
 use flow::agents::GuardWords;
@@ -127,6 +127,7 @@ impl Crossing {
             Scope::Flow => &words.scope.flow,
             Scope::Works => &words.scope.works,
             Scope::Line => &words.scope.line,
+            Scope::Tool => &words.scope.tool,
         };
         let from = fill(
             &words.from,
@@ -242,6 +243,7 @@ mod tests {
                 flow: "of its flow".to_string(),
                 works: "of the other works".to_string(),
                 line: "of its line".to_string(),
+                tool: "of its tool".to_string(),
             },
             tool: "{tool} {on}".to_string(),
             between: "; ".to_string(),

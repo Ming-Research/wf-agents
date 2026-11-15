@@ -26,5 +26,7 @@ wf-agents runs coding agents through a defined flow.
   out what merged or was cancelled unless given `--all`; they change items with
   `wf-agents change --why <sentence> <item>:<kind>[=<value>]...`, all or none, or one at a time with `set-title`,
   `set-level`, `add-dependency`, `remove-dependency`, `tag`, `untag`, `cancel` and `reopen`, each with `--why`.
+  `wf-agents system` says how the system ran over the last days: what went past the lines of its history, and what is
+  under way against its own.
 - `client/`: the owner's page, which the `wf-agents` binary carries: build it with `npm ci` and `npm run build` in
   `client/` before building the Rust.

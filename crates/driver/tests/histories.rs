@@ -8,7 +8,9 @@
 //! and nothing is given twice unless it was pending across an opening; the stored records walk to the decision shown;
 //! every dependencies block agrees with which of the items its item depends on have merged; no work whose
 //! dependencies have not all merged has started a run; and a work never let on has started none. When the driver
-//! stops, what it says was kept is what the store holds.
+//! stops, what it says was kept is what the store holds. A round or a call of a tool that ended is judged against the
+//! lines of its history as it was when first seen, however the history grew since (decision
+//! `judged-by-the-history-as-it-began`).
 //!
 //! Once people stop, the works left paused are let on as their last act, and the rounds, the tools' calls, the
 //! withdrawals and the stops are answered until nothing more is given: within a bound each work then waits, saying for
@@ -48,7 +50,7 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{self, AssertUnwindSafe};
 
 use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited, Who};
@@ -139,6 +141,8 @@ struct Seen {
     held_at_start: usize,
     /// Keep-warm pings given.
     pinged: usize,
+    /// Judgments of a round or a call of a tool that ended, seen again unchanged after a later step.
+    judged: usize,
 }
 
 /// The model every agent's round of the histories runs on.
@@ -193,6 +197,8 @@ struct History {
     done: Vec<(WorkNumber, CallId)>,
     log: Vec<String>,
     seen: Seen,
+    /// What each round and call of a tool that ended was judged as when first seen, by its name.
+    judged: BTreeMap<String, String>,
 }
 
 /// How a history ended: every work with its head and all that is kept of it, what each does next, and every round and
@@ -232,6 +238,7 @@ impl History {
             done: Vec::new(),
             log: Vec::new(),
             seen: Seen::default(),
+            judged: BTreeMap::new(),
         }
     }
 
@@ -459,9 +466,33 @@ impl History {
         done
     }
 
-    /// Counts what the step left.
+    /// Counts what the step left, and holds that what ended is judged as it was when first seen.
     fn after(&mut self) {
+        let now = self.time();
         let d = self.h.d();
+        let judged = d.judged(None, now);
+        let rounds = (judged.rounds.iter()).filter_map(|((work, run, number), round)| {
+            let kept = d.work(*work)?;
+            let ended = (kept.work.records.returned.iter()).filter(|r| r.run == *run).count() >= *number;
+            let name = format!("W{} run {} round {number}", work.0, run.0);
+            ended.then(|| (name, format!("{:?} {:?}", round.cost, round.time)))
+        });
+        let calls = (judged.calls.iter()).filter_map(|((work, call), time)| {
+            let kept = d.work(*work)?;
+            let done = kept.work.records.done.iter().any(|done| done.call == *call);
+            done.then(|| (format!("W{} call {}", work.0, call.0), format!("{time:?}")))
+        });
+        for (name, judged) in rounds.chain(calls) {
+            match self.judged.get(&name) {
+                Some(first) => {
+                    assert_eq!(*first, judged, "{name} is judged otherwise than when it was first seen");
+                    self.seen.judged += 1;
+                }
+                None => {
+                    self.judged.insert(name, judged);
+                }
+            }
+        }
         for kept in d.works() {
             let number = kept.head.number;
             if matches!(self.h.decision(number), Decision::Ended(_)) {
@@ -870,6 +901,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
             // The same history with the lines' sessions kept warm, the time waited for now and then.
             let (_, warm) = one_history(seed, false, true, &mut log);
             s.pinged += warm.pinged;
+            s.judged += warm.judged;
             s
         }));
         match outcome {
@@ -898,6 +930,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.reopened += s.reopened;
                 seen.held_at_start += s.held_at_start;
                 seen.pinged += s.pinged;
+                seen.judged += s.judged;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -925,6 +958,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("given again by an opening", seen.given_again),
         ("openings that paused everything for works going on", seen.held_at_start),
         ("keep-warm pings given", seen.pinged),
+        ("judgments of what ended seen again unchanged", seen.judged),
         ("refused", seen.refused),
         ("added while people acted", seen.added),
         ("cancelled", seen.cancels),
