@@ -74,7 +74,7 @@ export function standingOf(i: Item | undefined): ItemStanding {
 export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'limit' || w.kind === 'calls') return 'owner';
   if (w.kind === 'precondition') return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
-  if (w.kind === 'slot') return null;
+  if (w.kind === 'slot' || w.kind === 'outside') return null;
   if (w.kind === 'answer') return 'owner';
   // A wait every work shares is the owner's to end only where the command line cannot run.
   if (w.kind === 'agents') return outageDown(w.outage).failure === 'cannotRun' ? 'owner' : null;

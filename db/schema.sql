@@ -132,12 +132,14 @@ CREATE TABLE done (
 -- A run finished, writing the blocks of `writes`. `dealt_with` is what its return says it has dealt with (JSON: a list
 -- of names, each of a block of the run's `basis` or one put in to it, in the order the return named them, empty where
 -- it dealt with nothing); null where the return did not say, as none of the form before it did: such a run dealt with
--- every block of its `basis`.
+-- every block of its `basis`. `waits_for` is the block written from outside the work, a new version of which what it
+-- wrote waits for, where the engine's own act says one; null otherwise.
 CREATE TABLE finished (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
     dealt_with TEXT,
+    waits_for TEXT,
     PRIMARY KEY (work, at),
     UNIQUE (work, run),
     FOREIGN KEY (work, run) REFERENCES started (work, run)

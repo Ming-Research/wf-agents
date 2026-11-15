@@ -68,6 +68,7 @@ fn a_return_that_meets_everything_finishes_the_run_keeps_each_block_under_the_fi
         // A return that only hands in says nothing of what it dealt with: it dealt with everything that ran its round,
         // which the engine records.
         dealt_with: Some(vec!["request".into()]),
+        waits_for: None,
     };
     assert_eq!(w.work.records.finished, vec![finished]);
     assert_eq!(w.work.contents.get(&("text".into(), at)), Some(&"the text".to_string()));

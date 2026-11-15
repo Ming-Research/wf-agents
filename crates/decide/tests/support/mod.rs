@@ -367,6 +367,7 @@ impl World {
             at,
             writes,
             dealt_with: Some(dealt_with.iter().map(|b| (*b).into()).collect()),
+            waits_for: None,
         });
         at
     }
@@ -382,6 +383,15 @@ impl World {
         self.records.called.push(Called { call, run, on, at });
         self.finish_dealing(cell, &[], &[]);
         call
+    }
+
+    /// Starts and finishes the cell, what it wrote waiting for a new version of this block, which a source outside the
+    /// work writes, as the engine's own check says where what fails also fails on main.
+    pub fn run_waiting_for(&mut self, cell: &str, writes: &[(&str, Says)], block: &str) -> Seq {
+        let at = self.run(cell, writes);
+        let finished = (self.records.finished.iter_mut()).find(|f| f.at == at);
+        finished.expect("the run finished").waits_for = Some(block.into());
+        at
     }
 
     /// Starts and finishes the cell; the place of its finish names the versions it wrote.

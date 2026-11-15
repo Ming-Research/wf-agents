@@ -41,8 +41,9 @@ impl Hub {
     /// The verdict the round of the check finds on the commit.
     async fn judged(&self, commit: &str, round: Asking) -> Result<Option<Verdict>, String> {
         let place = self.place();
-        let branch = branch(&place);
-        (self.host.verdict(&branch, commit, round, &mut Stop::never()).await).map_err(String::from)
+        let (branch, main, mut stop) = (branch(&place), self.main_on_github(), Stop::never());
+        let verdict = self.host.verdict(&branch, commit, &main, round, &mut stop);
+        verdict.await.map_err(String::from)
     }
 
     /// The value of each run GitHub was asked for, in order.

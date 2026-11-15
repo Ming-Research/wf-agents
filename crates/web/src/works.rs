@@ -353,6 +353,9 @@ pub enum Waited {
     Agents { outage: Outage },
     /// The owner's answer to the latest version of this question, which the cell asked and waits for.
     Answer { question: String },
+    /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
+    /// wrote, `why` in the run's own words, waits for that source before the cell runs again.
+    Outside { source: String, cell: String, why: String },
 }
 
 /// A person who can give what a work waits for.
@@ -1865,6 +1868,7 @@ impl Now {
                             WaitedOf::Answer { question } => Waited::Answer {
                                 question: question.clone(),
                             },
+                            WaitedOf::Outside { source, run, block } => outside(work, source, *run, block)?,
                         })
                     })
                     .collect::<Result<_, Broken>>()?,
@@ -2400,6 +2404,20 @@ fn cell_of(work: &Work, run: RunId) -> Result<String, Broken> {
         .find(|started| started.run == run)
         .map(|started| started.cell.to_string())
         .ok_or_else(|| Broken(format!("run {} never started", run.0)))
+}
+
+/// What a work waits for from a source outside it, as the run that said so gives it: its cell, and what it wrote in the
+/// block that keeps the work, in its own words.
+fn outside(work: &Work, source: &str, run: RunId, block: &BlockId) -> Result<Waited, Broken> {
+    let finished = (work.records.finished.iter()).find(|f| f.run == run);
+    let finished = finished.ok_or_else(|| Broken(format!("run {} never finished", run.0)))?;
+    let why = (work.contents.get(&(block.clone(), finished.at)))
+        .ok_or_else(|| Broken(format!("run {} wrote no {block}", run.0)))?;
+    Ok(Waited::Outside {
+        source: source.to_string(),
+        cell: cell_of(work, run)?,
+        why: why.clone(),
+    })
 }
 
 /// What the call is.

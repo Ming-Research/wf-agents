@@ -272,6 +272,8 @@ export function waitsForOwner(waited: Waited): boolean {
       return outageDown(waited.outage).failure === 'cannotRun';
     case 'answer':
       return true;
+    case 'outside':
+      return false;
   }
 }
 
@@ -303,6 +305,8 @@ export function waitedWords(waited: Waited): string {
       return `the agents' rounds to begin again: ${outageWords(waited.outage)}`;
     case 'answer':
       return `the owner's answer to the question ${waited.question}`;
+    case 'outside':
+      return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
   }
 }
 

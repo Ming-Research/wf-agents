@@ -97,6 +97,11 @@ describe('what a work does now, in words', () => {
     expect(all.map(waitsForOwner)).toEqual([true, false, true, true, true, false, true, false, true]);
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool] })).toBe('quiet');
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool, question] })).toBe('owner');
+    // A check held because what fails also fails on main waits for main, and not for the owner.
+    const main: Waited = { kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' };
+    expect(waitedWords(main)).toBe('main to move, before M1 runs again: What fails also fails on main.');
+    expect(waitsForOwner(main)).toBe(false);
+    expect(nowTone({ kind: 'waits', at: 'M2', on: [main] })).toBe('quiet');
   });
 
   it("gives the engine's pause the tone of what failed, and the owner's a quiet one", () => {

@@ -1,7 +1,8 @@
-# What the engine's act `check` writes: into its choice, `first`, then `passed` or `failed`; into each other block it
-# writes, where the work did not pass, `first`, then `why`. After either, `took_in` where the engine took main in for
-# the check, and `notes` where the host said more. The parts are joined by a blank line. The act `merge` reads back the
-# commit it is to merge from the first line of the choice, after what `first` writes before `{commit}`.
+# What the engine's act `check` writes: into its choice, `first`, then `passed`, `failed`, or `held` where what fails
+# also fails on main; into each other block it writes, where it wrote `failed`, `first`, then `why`. After any of them,
+# `took_in` where the engine took main in for the check, and `notes` where the host said more. The parts are joined by
+# a blank line. The act `merge` reads back the commit it is to merge from the first line of the choice, after what
+# `first` writes before `{commit}`.
 #
 # Filled in a run: `{commit}` the commit checked; `{main}` the main branch's name; `{head}` the head of main it was
 # checked against; `{checked}` what `checked` says, `{by}` in it what `by` says where the host says what judged it and
@@ -13,9 +14,26 @@ by = " by {by}"
 passed = "{checked}: it passed."
 failed = "{checked}: it did not pass."
 why = "{checked}. {why}"
+held = "{checked}: it did not pass, and what fails also fails on {main}: the work waits for {main} to pass, and is checked again as {main} moves.\n\n{why}"
 took_in = "The engine merged {main} at {head} into the work's branch for the check, as the commit {commit}, which the worktree holds."
 notes = "Also:{notes}"
 note = "\n- {note}"
+
+# What the check before a merge says where its full workflows failed tests and nothing else, which it runs again by the
+# fast workflow: on the commit, beside every check the fast workflow runs by name; and what failed again there, on the
+# head of main. `{why}` why they were not run again; `{run}` what a run found, as a result says it; `{main}` the main
+# branch's name, `{head}` its head; `{test}` a test, `{commit}` the commit checked, `{failed}` the links of the full
+# workflows' runs, `{again}` the link of the run again on the commit; `{tests}` tests, each as `test_named` says it,
+# joined by `tests_between`. A test that failed and then passed is said as `flaky` among the check's notes, and kept
+# as an observation in the same words.
+again_not_run = "What failed was not run again: {why}"
+again_on_commit = "What failed was run again on the commit by the fast workflow, beside every check it runs by name:\n\n{run}"
+again_on_main = "What failed again was run on the head of {main}, {head}:\n\n{run}"
+flaky = "The test `{test}` failed on the full workflows of the commit {commit} ({failed}) and passed when the fast workflow ran it again on that commit ({again}): it may be flaky."
+only_here = "Failed again on the commit, and not on the head of {main}: {tests}."
+on_main_too = "Failed on the commit, again when it was run again, and on the head of {main}, {head}, as well: {tests}."
+test_named = "`{test}`"
+tests_between = ", "
 
 # The values the check writes in its choice, by name: a flow whose cell of `check` has a choice that does not offer
 # both is not run with the real carriers.

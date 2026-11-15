@@ -151,6 +151,10 @@ pub enum Waited {
     Slot,
     /// The owner's answer to the latest version of this question, which the cell asked and waits for.
     Answer { question: String },
+    /// A precondition does not hold, and only this run's cell can make it hold, which it does not before the source
+    /// outside the work writes a new version of a block that runs it: the run said that what it wrote, this block among
+    /// it, waits for that (the run's `waits_for`), and none has come yet.
+    Outside { source: String, run: RunId, block: BlockId },
 }
 
 /// Who can make a precondition hold, by writing a block its test reads: the flow says who writes each block.
@@ -817,17 +821,55 @@ impl<'a> Walk<'a> {
     }
 
     /// The preconditions of the cell at this place that do not hold, each with who writes a block that keeps it from
-    /// holding.
+    /// holding; or, where only cells write those blocks and the latest run of each said that what it wrote waits for a
+    /// source outside the work, the wait for that source.
     fn unmet(&self, i: usize) -> Vec<Waited> {
-        (self.flow.cells()[i].requires.iter())
-            .filter_map(|key| {
-                let keeping = self.keeping(key, i);
-                (!keeping.is_empty()).then(|| Waited::Precondition {
-                    on: key.clone(),
-                    by: self.makers(&keeping),
+        let mut unmet = Vec::new();
+        for key in &self.flow.cells()[i].requires {
+            let keeping = self.keeping(key, i);
+            if keeping.is_empty() {
+                continue;
+            }
+            let by = self.makers(&keeping);
+            let outside: Option<Vec<Waited>> = (by.iter())
+                .map(|maker| match maker {
+                    Maker::Cell { cell } => self.waits_for(cell, &keeping),
+                    Maker::Owner | Maker::Outside { .. } => None,
                 })
-            })
-            .collect()
+                .collect();
+            match outside {
+                Some(outside) if !outside.is_empty() => {
+                    for waited in outside {
+                        if !unmet.contains(&waited) {
+                            unmet.push(waited);
+                        }
+                    }
+                }
+                _ => unmet.push(Waited::Precondition { on: key.clone(), by }),
+            }
+        }
+        unmet
+    }
+
+    /// What the cell's latest finished run waits for, where it said that what it wrote, one of these blocks among it,
+    /// waits for a new version of a block a source outside the work writes, and none is new to the cell yet: the wait
+    /// for that source. None where the run waits for nothing, or where what it waits for has come.
+    fn waits_for(&self, cell: &CellId, keeping: &[&BlockId]) -> Option<Waited> {
+        let latest = (self.runs.values())
+            .filter(|r| &r.started.cell == cell)
+            .filter_map(|r| r.finished)
+            .max_by_key(|f| f.at)?;
+        let waits = latest.waits_for.as_ref()?;
+        let source = self.flow.outsiders(waits)?.outside.clone()?;
+        if !self.new_to(cell, waits).1.is_empty() {
+            return None;
+        }
+        let written = (latest.writes.iter()).find(|w| keeping.contains(&&w.block))?;
+        Some(Waited::Outside {
+            source,
+            run: latest.run,
+            block: written.block.clone(),
+        })
     }
 
     /// What the work does, waiting at the cell at this place for each of these, of which there is at least one: it

@@ -14,20 +14,20 @@ pub(super) fn named(tests: &[&str], checks: &[&str]) -> Named {
     }
 }
 
-/// The JUnit a run uploads: `tools::tests::a` passed, `tools::tests::b` failed, saying why.
+/// The JUnit a run uploads, in the file of the job `test`: `tools::tests::a` passed, `tools::tests::b` failed, saying why.
 pub(super) fn junit() -> Vec<(String, Vec<u8>)> {
     let xml = r#"<testsuites><testsuite name="carry">
   <testcase name="tools::tests::a" time="0.12"/>
   <testcase name="tools::tests::b" time="0.3"><failure message="assertion failed">thread 'tools::tests::b' panicked at crates/carry/src/tools.rs:9:5:
 assertion failed: said.is_empty()</failure></testcase>
 </testsuite></testsuites>"#;
-    vec![("junit.xml".to_string(), xml.as_bytes().to_vec())]
+    vec![("test.xml".to_string(), xml.as_bytes().to_vec())]
 }
 
-/// The JUnit of a run in which the one test it holds passed.
+/// The JUnit of a run in which the one test it holds passed, in the file of the job `test`.
 pub(super) fn junit_green() -> Vec<(String, Vec<u8>)> {
     let xml = r#"<testsuites><testsuite name="carry"><testcase name="tools::tests::a" time="0.12"/></testsuite></testsuites>"#;
-    vec![("junit.xml".to_string(), xml.as_bytes().to_vec())]
+    vec![("test.xml".to_string(), xml.as_bytes().to_vec())]
 }
 
 pub(super) fn job(name: &str, outcome: Outcome, _: u64) -> Check {
