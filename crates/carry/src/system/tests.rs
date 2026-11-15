@@ -30,11 +30,12 @@ fn engineer() -> Compiled {
             "session",
             "start",
             "head",
+            "tested",
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -120,8 +121,6 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "`agents.subagents.most` (3)",
         "`project.research` (research/)",
         "`owner.language` (Chinese)",
-        "and checks among `lint`;",
-        "`project.test_names` (An agent names to `run_tests` a test by the name its JUnit",
     ] {
         assert!(engineer.contains(named), "{named}:\n{engineer}");
     }
@@ -264,17 +263,19 @@ fn every_text_sent_naming_a_setting_with_no_value_is_refused_as_the_engine_start
     assert_eq!(faults(&settings(), &beside, &flow), expected);
 }
 
-// The checks an agent may name to `run_tests` are said as the project declares its fast workflow: the checks it runs by
+// The checks a cell may name in `run_tests` are said as the project declares its fast workflow: the checks it runs by
 // name, or that it runs none by name; with none declared, that nothing is run alone. No way of declaring it keeps the
 // engine from starting.
 #[test]
 fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workflow() {
     let (beside, flow) = (beside(), engineer());
-    let ways = &beside.tools["run_tests"].places["named_checks"];
+    let ways = &beside.acts.run_tests.places["named_checks"];
     let told = |beside: &Agents| {
         assert_eq!(faults(&settings(), beside, &flow), Vec::<String>::new());
-        let cell = cell(&flow, "engineer");
-        of_line(beside, &filling(&settings(), beside), &flow, cell, "", project).expect("it is made")
+        let named = filling(&settings(), beside)
+            .named_checks
+            .expect("the act's words fill it");
+        format!("and checks among {named};")
     };
     let declared = |checks: &[&str]| {
         let mut declared = beside.clone();
@@ -303,7 +304,6 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
         whole.contains(&format!("and checks among {};", ways["whole"])),
         "{whole}"
     );
-    assert!(!whole.contains("{named_checks}"), "{whole}");
     let mut local = settings();
     local.projects.get_mut("example").unwrap().github = None;
     assert_eq!(faults(&local, &beside, &flow), Vec::<String>::new());
@@ -316,7 +316,7 @@ fn every_place_rule_set_and_tool_that_cannot_be_made_is_said_at_once() {
     let (mut beside, flow) = (beside(), engineer());
     beside.session.heading = "# `{path}` {where}\n\n{text}".to_string();
     beside.rules.remove("engineering");
-    beside.tools.remove("run_tests");
+    beside.tools.remove("query");
     let words = beside.words.values_mut().next().expect("the engine's words");
     words.push_str("\n{unknown}\n");
     let faults = faults(&settings(), &beside, &flow);
@@ -330,7 +330,7 @@ fn every_place_rule_set_and_tool_that_cannot_be_made_is_said_at_once() {
         said,
         [
             "agents/rules/rules.toml has no set `engineering`, which a line takes",
-            "the flow names the tool `run_tests`, which agents/tools/ does not have",
+            "the flow names the tool `query`, which agents/tools/ does not have",
             "flow/agents/session.toml: the engine fills no place `{where}`",
             "flow/agents/how_you_work_here.md: the engine fills no place `{unknown}`",
         ]

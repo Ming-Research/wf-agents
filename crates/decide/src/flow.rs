@@ -130,8 +130,11 @@ pub enum FlowFault {
     ConditionOnOwnOutput(CellId),
     /// The last cell has a condition: a work ends when its last cell has a record, so the last cell always runs.
     LastHasCondition(CellId),
-    /// The cell's limit is zero: it could never run again for what a cell after it wrote, nor be let go on.
+    /// The cell's limit is zero: no sender could send it back even once, nor could the owner let it go on.
     NoLimit(CellId),
+    /// What the cell asks for in a record is amiss: the record is not among its outputs, its result does not run it, or
+    /// no cell is run by the record to give the result.
+    AsksAmiss(CellId),
     /// A key of the cell's condition or of its preconditions names a named test the flow does not have.
     NoSuchTest(CellId, TestName),
     /// A named test a cell uses reads a block that no cell, person or source outside the work writes: nobody could
@@ -156,8 +159,14 @@ impl Flow {
             if cells[..i].iter().any(|c| c.id == cell.id) {
                 return Err(FlowFault::Twice(cell.id.clone()));
             }
-            if cell.limit == 0 {
+            if cell.again == 0 {
                 return Err(FlowFault::NoLimit(cell.id.clone()));
+            }
+            let answered = |record: &BlockId| cells.iter().any(|c| c.runs_on.contains(record));
+            if (cell.asks.iter())
+                .any(|a| !cell.outputs.contains(&a.record) || !cell.runs_on.contains(&a.result) || !answered(&a.record))
+            {
+                return Err(FlowFault::AsksAmiss(cell.id.clone()));
             }
             // A block the cell writes that another writer writes too.
             let shared = |block: &BlockId| {
@@ -209,10 +218,12 @@ impl Flow {
         self.outsiders.get(block).is_some_and(|o| o.interrupts)
     }
 
-    /// Whether a version of the block is an entry added to a record, which replaces none before it
-    /// ([`Outsiders::entries`]).
+    /// Whether a version of the block is an entry added to a record, which replaces none before it: a record its source
+    /// adds entries to ([`Outsiders::entries`]), or one in which cells ask for what takes time ([`Cell::asks`]), each
+    /// asking cell's entries its own.
     pub fn adds_entries(&self, block: &BlockId) -> bool {
         self.outsiders.get(block).is_some_and(|o| o.entries)
+            || (self.cells.iter()).any(|c| c.asks.iter().any(|a| &a.record == block))
     }
 
     /// Who besides the cells writes the block; none where only cells do.
@@ -233,6 +244,17 @@ impl Flow {
     /// The cells, in the order the walk takes them.
     pub fn cells(&self) -> &[Cell] {
         &self.cells
+    }
+
+    /// Whether the block is where the result of what a cell asked for comes ([`Cell::asks`]).
+    pub fn is_result(&self, block: &BlockId) -> bool {
+        (self.cells.iter()).any(|c| c.asks.iter().any(|a| &a.result == block))
+    }
+
+    /// The cells a record of asking runs, in the order of the walk: those that give what the cells that write it ask
+    /// for in it.
+    pub fn answering<'f>(&'f self, record: &'f BlockId) -> impl Iterator<Item = &'f Cell> {
+        self.cells.iter().filter(move |c| c.runs_on.contains(record))
     }
 
     /// The named tests, by name: each that a cell uses, and any other the flow was given.
@@ -265,12 +287,14 @@ pub struct Cell {
     pub groups: BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks the cell may write.
     pub outputs: Vec<BlockId>,
-    /// How many times in a row the cell may run only for what cells after it wrote, before the work waits for the
-    /// owner. At least one.
-    pub limit: u32,
-    /// How many of the cell's runs in a row may each ask for calls and deal with nothing, before the work waits for the
-    /// owner instead of entering the cell again for their results. A definition gives at least one.
-    pub calls: u32,
+    /// Of each record among its outputs in which the cell asks for what takes time, such as a run of the project's
+    /// tests, the block its result comes in, which runs it: a version the cell writes of the record is an entry it
+    /// waits on until a run of it is given a version of the result written after it, which the cells the record runs
+    /// give (decision a-wait-holds-its-cell).
+    pub asks: Vec<Asks>,
+    /// How many times in a row one sender may send the cell back, a cell after it by what it wrote or the engine by
+    /// a return it sent back, before the work waits for the owner. At least one.
+    pub again: u32,
     /// Whether each round of the cell takes one of the slots, which bound how many such rounds go on at once: an
     /// agent's rounds do, and the engine's own acts do not.
     pub slot: bool,
@@ -285,8 +309,9 @@ impl Cell {
         })
     }
 
-    /// A cell of this name that always applies, that nothing runs, that writes nothing, has a limit of three runs and
-    /// of three calls and takes a slot for each of its rounds: what a definition starts from.
+    /// A cell of this name that always applies, that nothing runs, that writes nothing and asks for nothing, that one
+    /// sender may send back three times in a row, and that takes a slot for each of its rounds: what a definition
+    /// starts from.
     pub fn new(id: &str) -> Self {
         Self {
             id: id.into(),
@@ -295,11 +320,25 @@ impl Cell {
             runs_on: Vec::new(),
             groups: BTreeMap::new(),
             outputs: Vec::new(),
-            limit: 3,
-            calls: 3,
+            asks: Vec::new(),
+            again: 3,
             slot: true,
         }
     }
+
+    /// Whether the block is where the result of what the cell asked for comes.
+    pub fn result(&self, block: &BlockId) -> bool {
+        self.asks.iter().any(|a| &a.result == block)
+    }
+}
+
+/// A record in which a cell asks for what takes time, and the block its result comes in ([`Cell::asks`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Asks {
+    /// The record, among the cell's outputs: each version the cell writes of it is an entry, which asks.
+    pub record: BlockId,
+    /// The block of the cell's own that the result of its latest entry comes in, which runs the cell.
+    pub result: BlockId,
 }
 
 /// The blocks a trigger of a cell stands on, by the name a return deals with it by: of a group's trigger, by the

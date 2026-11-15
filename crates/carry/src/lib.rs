@@ -12,7 +12,8 @@
 //! - [`git`]: a work's branch and worktree, what the check before its merge finds there, and the merge into the
 //!   repository's own main branch.
 //! - `host`: where the project's repository is hosted: the head of main, the verdict on a work's commit, the merge.
-//! - `acts`: the engine's acts, as the rounds of the cells they carry out on the host.
+//! - `acts`: the engine's acts, as the rounds of the cells they carry out on the host, the run of the tests the cells
+//!   ask for among them.
 //! - [`returns`]: what came back, read in the form of return of its flow against the cell it was entered for.
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
 //! - [`permissions`]: what the agents of a line may run, and what they are told of it.
@@ -23,7 +24,7 @@
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
-//! - `tools`: the tools, `query` and `run_tests`.
+//! - `tools`: the tool `query`, and how a message gives the results of the tools and of the tests a cell asked for.
 //! - `branch`: what the engine reads of a work's branch as data of the work, in one step: [`tree`], the design tree on
 //!   it, and [`head`], the work's head, each the data of a source outside the work.
 //! - [`session`]: the sessions of each line of each work, worked out from the installation's id.
@@ -72,7 +73,7 @@ pub use agents::{Agents, Of, ROUNDS};
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
-pub use tools::{QUERY, Querying, RUN_TESTS};
+pub use tools::{QUERY, Querying};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
 /// worktrees, and what each round was told and returned. The agents' rounds are told, and given the form of return,
@@ -119,8 +120,7 @@ pub fn carry(
         project.commits = beside.commits.clone();
         let beside = declared.beside;
         project.tree = beside.project.tree.clone();
-        let tool = beside.tools.get(tools::RUN_TESTS).cloned();
-        let unread = unread(&beside);
+        let tool = Some(beside.acts.run_tests.clone());
         // The check before the merge holds a change to what the project protects until the owner lets it merge.
         let protecting = acts::Protecting {
             paths: beside.project.protected.paths.clone(),
@@ -138,7 +138,6 @@ pub fn carry(
                     &tag,
                     (words.clone(), protecting, None),
                     query.clone(),
-                    unread,
                 )
             }
             Some(github) => {
@@ -156,7 +155,6 @@ pub fn carry(
                     &tag,
                     (words.clone(), protecting, Some(look)),
                     query.clone(),
-                    unread,
                 )
             }
         };
@@ -202,11 +200,6 @@ pub fn store(settings: &Settings, beside: &flow::agents::Agents) -> Result<Strin
     querying(settings, beside, Path::new("")).map(|query| query.store())
 }
 
-/// What an agent is told of a request of `run_tests` that cannot be read, from the file of the tool.
-fn unread(beside: &flow::agents::Agents) -> Option<String> {
-    beside.tools.get(tools::RUN_TESTS).and_then(|tool| tool.unread.clone())
-}
-
 /// The acts, with their words and what their check holds to the owner's yes, the tools and the watch of main, on one
 /// host they share, and the reference that holds main's head as the host last gave it.
 fn on<H: Host>(
@@ -216,7 +209,6 @@ fn on<H: Host>(
     tag: &str,
     (words, protecting, look): (Words, acts::Protecting, Option<Arc<dyn service::Network>>),
     query: Querying,
-    unread: Option<String>,
 ) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch, String) {
     let main = host.kept_main();
     let host = Arc::new(host);
@@ -233,24 +225,13 @@ fn on<H: Host>(
         None => acts,
     };
     let watch = acts.watch(WATCH);
-    let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string(), unread).querying(query);
+    let tools = Tools::new(query);
     (Arc::new(acts), Arc::new(tools), watch, main)
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-
-    #[test]
-    fn what_a_request_that_cannot_be_read_is_told_is_what_the_repositorys_file_of_the_tool_says() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
-        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
-        let told = super::unread(&beside).expect("the file of run_tests says it");
-        assert!(
-            told.starts_with("Nothing was run: ") && told.contains("{error}"),
-            "{told}"
-        );
-    }
 
     #[test]
     fn the_project_declares_its_two_workflows_and_where_its_tests_are() {
@@ -267,20 +248,5 @@ mod tests {
         );
         let tests = project.tests.expect("it declares its tests");
         assert!(!tests.paths.is_empty() && !tests.expected.is_empty());
-    }
-
-    #[test]
-    fn the_local_host_is_told_its_own_words_for_run_tests_and_github_the_others() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
-        let mut beside = flow::agents::read(&root).expect("what is written beside the flows is read");
-        let github = beside.tools["run_tests"].words.clone();
-        assert!(github.contains("last commit of the work's branch"), "{github}");
-        crate::projects::local_words(&mut beside);
-        let local = &beside.tools["run_tests"].words;
-        assert!(
-            local.contains("your worktree as it stands, what is not committed included"),
-            "{local}"
-        );
-        assert_ne!(local, &github);
     }
 }

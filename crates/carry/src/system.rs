@@ -11,8 +11,9 @@
 //! session only as a new one (principle one-form-of-return-for-a-session). A file of the project is never read through a symbolic link
 //! ([`read_within`]). The engine fills three places of the texts ([`Filling`]): `{your_line}`, what the line may do in
 //! the worktree ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
-//! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
-//! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
+//! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks a cell may name in `run_tests`, in the words the
+//! act's file gives for how the installation runs the project's CI, which the words of that block a message gives a
+//! cell that writes it hold (crate `context`). Each setting the texts name, but in a file of the project, is given with
 //! its value beside it: the project's from its `project.toml`, and the installation's that `agents/installation.toml`
 //! names, from these settings ([`named`]); so is each setting a message names, in the cell's task, in what a trigger
 //! says the cell does for it, and in the words of what the cell returns (crate `context`), with these settings.
@@ -102,23 +103,23 @@ pub(crate) fn read_within(root: &Path, path: &str) -> std::io::Result<String> {
 pub struct Filling {
     /// The settings the texts may name, with their values.
     pub named: flow::system::Settings,
-    /// What fills `{named_checks}`; none where no tool's file gives words for how the installation runs its CI.
+    /// What fills `{named_checks}`; none where the act's file gives no words for how the installation runs its CI.
     pub named_checks: Option<String>,
     /// What fills `{store}`: what the schema's comments say of the store where the settings open it to the agents, and
     /// the tool's file's words that it is not open where they do not ([`crate::store`]).
     pub store: String,
 }
 
-/// The place of a tool's words that says which checks an agent may name.
-const NAMED_CHECKS: &str = "named_checks";
+/// The place of the words of the record a cell asks for tests in that says which checks it may name.
+pub(crate) const NAMED_CHECKS: &str = "named_checks";
 
 /// What the engine puts into the texts, as these settings and the files beside the flows say. `{named_checks}` is
-/// filled with the words its tool's file gives for how the installation runs the project's CI, as the host takes a
-/// check named: by the project's fast workflow alone (`ci.fast` of its declaration), and only one it runs by name
-/// (`checks`), each between backticks for `{checks}` in `named`, or `none_named` where it runs none by name; where the
-/// project declares no fast workflow, nothing is run alone, `whole`.
+/// filled with the words the file of the act that runs the tests gives for how the installation runs the project's CI,
+/// as the host takes a check named: by the project's fast workflow alone (`ci.fast` of its declaration), and only one
+/// it runs by name (`checks`), each between backticks for `{checks}` in `named`, or `none_named` where it runs none by
+/// name; where the project declares no fast workflow, nothing is run alone, `whole`.
 pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
-    let ways = beside.tools.values().find_map(|tool| tool.places.get(NAMED_CHECKS));
+    let ways = beside.acts.run_tests.places.get(NAMED_CHECKS);
     let fast = beside.project.ci.as_ref().and_then(|ci| ci.fast.as_ref());
     let named_checks = ways.and_then(|ways| match fast {
         Some(fast) if !fast.checks.is_empty() => {
@@ -135,6 +136,14 @@ pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
         named_checks,
         store,
     }
+}
+
+/// What fills each place of the words of a block that the engine fills, by its name, which a message gives a cell that
+/// writes the block: `named_checks`, as `filling` has it, where it has it.
+pub fn places(filling: &Filling) -> std::collections::BTreeMap<String, String> {
+    (filling.named_checks.iter())
+        .map(|named| (NAMED_CHECKS.to_string(), named.clone()))
+        .collect()
 }
 
 /// What fills each place of the texts the engine fills, by its name, for a line whose agents are told `your_line` of

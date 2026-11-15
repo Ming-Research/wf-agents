@@ -77,8 +77,8 @@ pub struct Config {
     pub ci: Option<flow::agents::Ci>,
     /// The runners this installation has, by the name a workflow of the project's declaration gives them.
     pub runners: Vec<String>,
-    /// The words of the tool `run_tests`, from its file beside the flows.
-    pub tool: Option<flow::agents::Tool>,
+    /// The words of the act that runs the tests a cell asks for, from its file beside the flows.
+    pub tool: Option<flow::agents::RunTests>,
     /// The words of the check before a merge, from its file beside the flows, which say what it ran again.
     pub check: Option<flow::agents::Check>,
     /// How often GitHub is asked how a run of a workflow goes.
@@ -137,7 +137,7 @@ impl GitHub<Gh> {
         installation: Uuid,
         env: impl Fn(&str) -> Option<String>,
         ci: Option<flow::agents::Ci>,
-        (tool, check): (Option<flow::agents::Tool>, Option<flow::agents::Check>),
+        (tool, check): (Option<flow::agents::RunTests>, Option<flow::agents::Check>),
     ) -> Result<GitHub<Gh>, String> {
         let token = (env(&github.token_env).filter(|token| !token.is_empty())).ok_or_else(|| {
             format!(
@@ -351,7 +351,7 @@ impl<A: Api> Host for GitHub<A> {
         branch: &Branch<'_>,
         commit: &str,
         main: &str,
-        asking: Asking,
+        (asking, ran): (Asking, &[Asking]),
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
         self.push(branch, commit).await?;
@@ -361,6 +361,16 @@ impl<A: Api> Host for GitHub<A> {
             commit,
             asking,
         };
+        // The full workflows that passed on the very commit for what asked before stand for the check's own.
+        for before in ran {
+            let earlier = fast::Request {
+                asking: *before,
+                ..request
+            };
+            if let Some(passed) = self.passed_full(earlier, stop).await? {
+                return Ok(Some(passed));
+            }
+        }
         self.judge_full(request, main, stop).await
     }
 
@@ -456,13 +466,13 @@ impl<A: Api> Host for GitHub<A> {
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         // What the check before the merge refuses, this refuses the same way: the repository's configuration, a
         // worktree off the work's branch, and in the push, connections sent elsewhere and submodules.
         let place = branch.place;
         let words = (self.config.tool.as_ref())
-            .and_then(|tool| tool.github.as_ref())
-            .ok_or("the words of run_tests (agents/tools/run_tests.toml) have no [github]")?;
+            .map(|tool| &tool.github)
+            .ok_or("the words of run_tests (agents/acts/run_tests.toml) are not given")?;
         let dir = git::worktree(place)?;
         git::configuration(&self.project, place).await?;
         git::on_branch(place).await?;
@@ -497,6 +507,18 @@ impl<A: Api> Host for GitHub<A> {
             asking,
         };
         self.run_role(role, request, named, stop).await
+    }
+
+    async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[Asking]) -> Result<(), Failed> {
+        if asking.is_empty() {
+            return Ok(());
+        }
+        // An entry ran on the head its branch had then, which is among the branch's commits since main.
+        let repo = &self.project.repo;
+        let span = format!("{}..{}", self.kept_main(), branch.place.reference());
+        let commits = git::git(repo, &["rev-list", "--max-count=100", &span]).await?;
+        let commits: Vec<&str> = commits.lines().map(str::trim).filter(|c| !c.is_empty()).collect();
+        self.cancel_runs(branch.work, asking, &commits).await
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

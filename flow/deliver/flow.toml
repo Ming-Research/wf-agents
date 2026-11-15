@@ -10,8 +10,6 @@ order = ["V1"]
 # the items it is made of have merged.
 data = ["background", "dependencies"]
 
-# The cell is an act of the engine's, which makes no call, is no way round and hands in what the flow requires.
+# The cell is an act of the engine's, which nothing sends back.
 [limits]
-runs = 1
-returns = 1
-calls = 1
+again = 3

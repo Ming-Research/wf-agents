@@ -560,9 +560,7 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         name = "gated"
         order = ["write", "merge"]
         [limits]
-        runs = 2
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.request]
         people = true

@@ -100,6 +100,8 @@ pub struct Run {
     pub main: Option<Main>,
     /// The settings the flow's words may name, with their values.
     pub named: Settings,
+    /// What fills each place of the words of a block that the engine fills, by its name.
+    pub places: BTreeMap<String, String>,
     /// Each datum of the cell's context that has a version, by its name.
     pub data: BTreeMap<BlockId, Datum>,
     /// What happened, by the place a trigger's detail names; a place the engine has no value for is left out with its
@@ -195,6 +197,8 @@ pub enum Called {
     AtLimit,
     /// A call the work does not hold.
     Unknown(CallId),
+    /// The tests the cell asked for in a record, by the entry it wrote there.
+    Tests { input: String },
 }
 
 impl Called {
@@ -206,6 +210,7 @@ impl Called {
             Called::Question(_) => "question",
             Called::AtLimit => "at_limit",
             Called::Unknown(_) => "unknown",
+            Called::Tests { .. } => "tests",
         }
     }
 }
@@ -213,7 +218,7 @@ impl Called {
 /// The keys of the words of the part `main` of `message.toml`, and of those of a call in `results.toml`, in the
 /// order the files write them.
 pub const MAIN: [&str; 5] = ["text", "conflict", "uncommitted", "merging", "failed"];
-pub const CALLS: [&str; 5] = ["tool", "tool_alone", "question", "at_limit", "unknown"];
+pub const CALLS: [&str; 6] = ["tool", "tool_alone", "question", "at_limit", "unknown", "tests"];
 
 /// In which of its forms a part is sent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -638,7 +643,12 @@ impl Build<'_> {
             .chain(reads)
             .chain(words)
             .collect();
-        written(&self.named(&parts.join("\n\n")))
+        // The places of the blocks' words the engine fills are filled in a run, and shown as written on the page.
+        let mut text = self.named(&parts.join("\n\n"));
+        for (name, value) in self.run().map(|run| &run.places).into_iter().flatten() {
+            text = text.replace(&format!("{{{name}}}"), value);
+        }
+        written(&text)
     }
 
     /// What comes before the results of the calls, in the words of `results.toml`.
@@ -660,6 +670,7 @@ impl Build<'_> {
             "question" => &words.question,
             "at_limit" => &words.at_limit,
             "unknown" => &words.unknown,
+            "tests" => &words.tests,
             _ => return Vec::new(),
         };
         let mut pieces = with_slots(head);
@@ -685,6 +696,7 @@ impl Build<'_> {
                         Called::Question(question) => vec![("question", question.clone())],
                         Called::AtLimit => Vec::new(),
                         Called::Unknown(call) => vec![("call", call.0.to_string())],
+                        Called::Tests { input } => vec![("input", input.clone())],
                     };
                     let result = r
                         .result

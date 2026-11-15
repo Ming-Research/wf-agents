@@ -35,7 +35,7 @@ fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_that_run_each_and
     answer.requires = vec![Condition::Test(TestName::from("plan_confirmed"))];
     answer.runs_on = blocks(&["comments", "plan"]);
     answer.outputs = blocks(&["reply"]);
-    answer.limit = 5;
+    answer.again = 5;
     let mut check = Cell::new("check");
     check.runs_on = blocks(&["main", "design"]);
     check.outputs = blocks(&["ci"]);
@@ -278,7 +278,7 @@ fn faults_in_several_files_are_all_reported_flow_toml_first_then_the_cells_in_th
         "kind = \"engine\"\nline = \"engineer\"",
     );
     let source = edit(source, "plan.toml", "line = \"engineer\"", "line = \"designer\"");
-    let source = edit(source, FLOW_FILE, "calls = 40", "calls = 0");
+    let source = edit(source, FLOW_FILE, "again = 2", "again = 0");
     let no_line = NoSuchLine {
         line: "designer".to_string(),
     };
@@ -288,7 +288,7 @@ fn faults_in_several_files_are_all_reported_flow_toml_first_then_the_cells_in_th
     assert_eq!(
         faults(&source),
         [
-            at(FLOW_FILE, "limits.calls", LimitOutOfRange { value: 0 }),
+            at(FLOW_FILE, "limits.again", LimitOutOfRange { value: 0 }),
             at("plan.toml", "line", no_line),
             at("check.toml", "line", engine),
         ]

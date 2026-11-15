@@ -282,6 +282,7 @@ mod tests {
             reviewed: Some(&seen),
             protecting: &protecting,
             work: &work,
+            ran: &[],
         };
         let checked = crate::acts::check(
             &repo.project,

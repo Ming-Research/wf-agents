@@ -22,7 +22,7 @@ return.
 when = { needs_testing = "yes" }
 # Run when the review asks for it, and again when the implementation answers its red tests, not on every version of
 # the code: run on each, it found nothing in half its runs.
-triggered_by = ["on_needs_testing", "on_acceptance", "on_reply_testing"]
+triggered_by = ["on_needs_testing", "on_acceptance", "on_reply_testing", "on_tested"]
 context = [
   "background",
   "needs_testing",
@@ -33,7 +33,7 @@ context = [
   "reply_testing",
   "tests",
 ]
-outputs = ["tests", "testing", "testing_ok"]
+outputs = ["tests", "testing", "testing_ok", "run_tests"]
 must_write = ["testing_ok"]
 
 # What the cell does when each trigger fires; a trigger with none is the task's alone.

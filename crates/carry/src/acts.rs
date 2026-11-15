@@ -1,5 +1,6 @@
 //! The engine's own acts, as the rounds of the cells they carry out (`CellSpec.act`): `start` makes the work's branch
-//! and worktree, `check` checks the work before its merge, `merge` merges the commit the check passed, and `deliver`
+//! and worktree, `run_tests` runs the tests the cells ask for and writes each asking cell its result (module
+//! `tested`), `check` checks the work before its merge, `merge` merges the commit the check passed, and `deliver`
 //! says that a deliverable item, made of the items it depends on, is delivered. An act hands in the cell's outputs with
 //! what it did, and only the check writes a choice ([`faults`] says what a flow needs for them, [`main_faults`] what
 //! the watch of main needs, [`word_faults`] what the merge needs of the check's words); where git or the host fails,
@@ -32,9 +33,11 @@ use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Question, Said, Spent, Work};
 
+mod conflict;
 #[cfg(test)]
 mod ends;
 mod failing;
+mod tested;
 
 use crate::branch::{self, Looking};
 use crate::git::{self, Started};
@@ -331,12 +334,14 @@ impl<H: Host> Inner<H> {
                 let mut looking = looking();
                 let reviewed = branch::reviewed(&round.flow, &round.kept, &round.cell.id);
                 let wrote = |block: BlockId, content: String| teller.outside_wrote_for_round(block, content);
+                let ran = tested::whole(&round.flow, &round.kept);
                 let mut gate = Gate {
                     branch: &mut looking,
                     wrote: &wrote,
                     reviewed: reviewed.as_deref(),
                     protecting: &self.protecting,
                     work: &round.kept,
+                    ran: &ran,
                 };
                 let asking = Asking::Round(round.run, round.number);
                 // The round reads main at the head the check takes in, which it is told of, so that main's block at
@@ -441,6 +446,13 @@ impl<H: Host> Inner<H> {
             "deliver" => {
                 let content = delivered(&round.item.depends_on, &words.deliver);
                 Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
+            }
+            flow::RUNS_TESTS => {
+                let of = (&*round.flow, &*round.kept, &round.cell.id);
+                match tested::act(&self.host, project, &branch, of, teller, stop).await? {
+                    true => Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, ""))))),
+                    false => Ok(Done::Stopped),
+                }
             }
             other => Err(format!("the engine has no act named {other}").into()),
         }
@@ -701,13 +713,16 @@ pub(crate) type Wrote<'a> = &'a (dyn Fn(BlockId, String) + Sync);
 /// What the check holds a work to: the work's head, read of its branch for the check's round, each datum of the branch
 /// told to `wrote` as it now stands, against what each cell that judges the work by its head dealt with last
 /// ([`branch::reviewed`]), none where the flow has no head; and for its change under the protected paths, the paths
-/// and the question's words, and the work as it is kept, which says what the owner answered.
+/// and the question's words, and the work as it is kept, which says what the owner answered. Beside it, what asked
+/// the host for the whole of the project's checks for the work before, whose passing on the very commit stands for the
+/// check's own ([`tested::whole`]).
 pub(crate) struct Gate<'a> {
     pub(crate) branch: &'a mut Looking,
     pub(crate) wrote: Wrote<'a>,
     pub(crate) reviewed: Option<&'a [Option<String>]>,
     pub(crate) protecting: &'a Protecting,
     pub(crate) work: &'a Work,
+    pub(crate) ran: &'a [Asking],
 }
 
 /// The work's head, where the check holds it to what the judges dealt with and one of them dealt last with another
@@ -846,7 +861,7 @@ pub(crate) async fn check(
         }
     }
     let Some(verdict) = host
-        .verdict(branch, &checked.commit, &checked.main, asking, stop)
+        .verdict(branch, &checked.commit, &checked.main, (asking, gate.ran), stop)
         .await?
     else {
         return Ok(None);
@@ -1189,7 +1204,7 @@ mod tests {
         let compiled = |main: &str| {
             let source = flow::Source {
                 flow: format!(
-                    "name = \"watched\"\norder = [\"merge\"]\n[limits]\nruns = 1\nreturns = 1\ncalls = 1\n\
+                    "name = \"watched\"\norder = [\"merge\"]\n[limits]\nagain = 1\n\
                      [blocks.main]\noutside = \"main\"\n{main}[blocks.merged]\nshown = true\n"
                 ),
                 cells: [(
@@ -1366,6 +1381,7 @@ mod tests {
             reviewed: None,
             protecting: &protecting,
             work: &work,
+            ran: &[],
         };
         check(
             &repo.project,
@@ -1405,6 +1421,7 @@ mod tests {
             reviewed: Some(reviewed),
             protecting: &protecting,
             work: &work,
+            ran: &[],
         };
         let checked = check(
             &repo.project,
@@ -1688,6 +1705,7 @@ mod tests {
             reviewed: None,
             protecting,
             work,
+            ran: &[],
         };
         let (repository, mut stop) = (Mutex::new(()), Stop::never());
         check(

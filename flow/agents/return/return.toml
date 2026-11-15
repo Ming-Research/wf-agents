@@ -32,7 +32,8 @@ item = "- {text}"
 listed = ["observations", "protected_changes"]
 every_time = '''
 A block the list marks "hand it in every time" you always hand in, as it stands, and a choice with its value: handing
-it in again with its value unchanged runs no cell again.'''
+it in again with its value unchanged runs no cell again. A return that leaves the cell waiting, for a tool, a test run
+or a question you wait for, may leave them out, since the work stops at this cell until what it waits for comes.'''
 fields = '''
 Fields that are not blocks of the work:'''
 owner_reads = "The owner reads {fields}: write it in `owner.language`, with technical terms in their English original."

@@ -11,9 +11,7 @@ name = "small"
 order = ["plan", "judge", "design", "answer", "check", "merge"]
 
 [limits]
-runs = 3
-returns = 2
-calls = 40
+again = 2
 
 [lines.engineer]
 [lines.review]
@@ -118,7 +116,7 @@ when = { test = "has_comment" }
 requires = { test = "plan_confirmed" }
 inputs = ["comments", "plan"]
 outputs = ["reply"]
-limit = 5
+again = 5
 "#;
 
 /// An engine cell that reads what the outside writes, carried out by the engine's act `check`.

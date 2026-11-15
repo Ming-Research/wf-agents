@@ -128,9 +128,7 @@ fn started() -> flow::Compiled {
         name = "started"
         order = ["start", "write", "merge"]
         [limits]
-        runs = 2
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.request]
         people = true

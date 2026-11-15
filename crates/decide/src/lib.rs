@@ -24,7 +24,7 @@ pub mod run;
 pub mod view;
 pub mod walk;
 
-pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
+pub use flow::{Asks, BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
 pub use records::{
     Abandoned, Answered, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, Pauser, PutIn, Questioned,
     RecordFault, Records, Returned, Round, RunId, Seq, Started, Who, Write, Written,
@@ -32,6 +32,6 @@ pub use records::{
 pub use room::{Holder, Room, begun, taking_slot};
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view, view_in};
 pub use walk::{
-    Abandoning, Decision, End, Judge, Maker, Stalling, Unrun, Waited, applies, decide, decide_in, hold, hold_in,
-    judges, owed, pause, paused, reached, told,
+    Abandoning, Decision, End, Entry, Judge, Maker, Stalling, Unrun, Waited, again_from, applies, asked_of, decide,
+    decide_in, hold, hold_in, judges, owed, pause, paused, reached, told,
 };

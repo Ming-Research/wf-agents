@@ -1,24 +1,6 @@
-# Runs tests and checks in the project's CI, run by the engine.
-words = '''
-`run_tests`: runs the project's tests on the last commit of the work's branch, which the engine pushes; what is not
-  committed is not run. Ask as `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says
-  and checks among {named_checks}; what is named is run alone, by the project's fast workflow. Name none to run the
-  project's full workflows. It gives each test, passed or failed, with the time it took and what a failed one said,
-  and each job, how it ended and its wall time.'''
-
-# What it says in place of `words` where the host is the local repository.
-words_local = '''
-`run_tests`: runs the project's check command on your worktree as it stands, what is not committed included. Ask as
-  `{"tests": [...], "checks": [...]}`; the whole command runs whatever is named. It gives whether the command passed
-  and what it said.'''
-
-# What a request that cannot be read as that shape is told, nothing having been run: `{error}` what the reading said.
-unread = "Nothing was run: the request is not `{\"tests\": [...], \"checks\": [...]}`, each list of names and either left out: {error}."
-
-[request]
-type = "object"
-properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } } }
-additionalProperties = false
+# What the engine's act `run_tests` writes into the block of each cell whose latest entry of `run_tests` it ran
+# (`../../triggers/of_a_cell/on_tested.toml`), the tests and checks run in the project's CI. A red test is what the run
+# found, not a failure of the act: the round fails only where the host could not be reached.
 
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is
@@ -90,4 +72,4 @@ not_apart = "The tests and checks you named are not run apart: the whole command
 [places.named_checks]
 named = "{checks}"
 none_named = "none, since the project's fast workflow runs no check by name"
-whole = "none, since the project declares no fast workflow: nothing is run alone, and a request names none"
+whole = "none, since the project declares no fast workflow: nothing is run alone, and an entry names none"

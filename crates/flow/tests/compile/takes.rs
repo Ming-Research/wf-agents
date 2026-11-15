@@ -245,8 +245,8 @@ fn a_block_that_only_runs_a_cell_or_that_it_is_only_given_is_read_by_it() {
     let source = edit(
         source,
         "answer.toml",
-        "limit = 5",
-        "limit = 5\n\n[give.plan]\nkind = \"latest\"",
+        "again = 5",
+        "again = 5\n\n[give.plan]\nkind = \"latest\"",
     );
     let compiled = compiled(&source);
     let answer = cell(&compiled, "answer");

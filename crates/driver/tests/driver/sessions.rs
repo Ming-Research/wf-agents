@@ -23,9 +23,7 @@ fn flow() -> Compiled {
         name = "sessions"
         order = ["load", "build", "review", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.engineer]
         [lines.review]
         [tests.going]
@@ -93,9 +91,7 @@ fn two_lines() -> Compiled {
         name = "sessions"
         order = ["load", "build", "look", "review", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.engineer]
         [lines.review]
         [blocks.request]

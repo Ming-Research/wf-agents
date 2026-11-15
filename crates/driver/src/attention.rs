@@ -339,9 +339,11 @@ fn for_a_person(waited: &Waited) -> bool {
             Maker::Outside { source } => source == engine::asked::ASKED,
             Maker::Cell { .. } => false,
         }),
-        Waited::Limit { .. } | Waited::Calls { .. } | Waited::Answer { .. } => true,
+        Waited::Limit { .. } | Waited::Answer { .. } => true,
         // The engine gives it as soon as a round of another work ends.
         Waited::Slot => false,
+        // The cells the record runs give it, as the walk runs them.
+        Waited::Result { .. } => false,
         // The source outside the work gives it, as main moves.
         Waited::Outside { .. } => false,
     }
@@ -356,9 +358,9 @@ fn on_items(waited: &Waited) -> bool {
         }
         Waited::Call { .. }
         | Waited::Limit { .. }
-        | Waited::Calls { .. }
         | Waited::Slot
         | Waited::Answer { .. }
+        | Waited::Result { .. }
         | Waited::Outside { .. } => false,
     }
 }

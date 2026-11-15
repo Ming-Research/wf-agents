@@ -49,8 +49,9 @@ pub type Changes = BTreeMap<(BlockId, Seq), String>;
 /// What the carrier brings to an entry that neither the flow nor the work's records hold: which work the round is of;
 /// what came of taking main in as the run started, where the cell takes main in and the branch did not hold it
 /// already; what changed in the data whose versions the carrier compares itself; the settings the flow's words may
-/// name, with their values; and each result given otherwise than the records hold it, as a result of the tool `query`
-/// is given cut.
+/// name, with their values; each result given otherwise than the records hold it, as a result of the tool `query` is
+/// given cut, and so each version of a block the result of the tests a cell asked for comes in; and what fills each
+/// place of the words of a block that the engine fills, by its name.
 #[derive(Clone, Copy, Debug)]
 pub struct Carried<'a> {
     pub about: For<'a>,
@@ -58,6 +59,8 @@ pub struct Carried<'a> {
     pub changes: &'a Changes,
     pub named: &'a flow::system::Settings,
     pub results: &'a BTreeMap<CallId, String>,
+    pub tested: &'a BTreeMap<(BlockId, Seq), String>,
+    pub places: &'a BTreeMap<String, String>,
 }
 
 /// What a round is sent as its cell is entered, and what that fills into its session.
@@ -114,6 +117,7 @@ pub fn enter(
         item_title: about.title.to_string(),
         main: carried.main.cloned(),
         named: carried.named.clone(),
+        places: carried.places.clone(),
         ..Run::default()
     };
     situation.main = values.main.as_ref().map(|m| m.key().to_string());
@@ -258,6 +262,18 @@ pub fn enter(
         }
     }
     values.results = results.iter().map(|c| result(work, *c, carried.results)).collect();
+    // The result of the tests the cell asked for, which its run was entered for, where its session lacks it: given as
+    // the results of its calls are, by the entry it asked in.
+    let tested = tested(flow, started, &held);
+    for (block, at) in &tested {
+        let given = carried.tested.get(&(block.clone(), *at)).cloned();
+        values.results.push(message::Result {
+            call: Called::Tests {
+                input: entry(flow, work, &records, started, block, *at),
+            },
+            result: Some(given.unwrap_or_else(|| content(work, block, *at).to_string())),
+        });
+    }
     situation.results = values.results.iter().map(|r| r.call.key().to_string()).collect();
     situation.sent_back = !sent_back.is_empty();
     // The parts the session keeps that it holds, by their text as the round fills them.
@@ -274,7 +290,13 @@ pub fn enter(
                 let filled = s.block.as_ref().and_then(|b| filling.get(&BlockId::from(b.as_str())));
                 fills.extend(filled.into_iter().flatten().cloned());
             }
-            name if name == Part::Results.name() => fills.push(Fill::Results(results.clone())),
+            name if name == Part::Results.name() => {
+                fills.push(Fill::Results(results.clone()));
+                fills.extend(tested.iter().map(|(block, at)| Fill::Whole {
+                    block: block.clone(),
+                    version: *at,
+                }));
+            }
             name if name == Part::SentBack.name() => {
                 fills.extend(sent_back.iter().map(|round| Fill::SentBack { round: *round }));
                 fills.extend(values.written_over.iter().map(|(block, v)| Fill::Whole {
@@ -335,6 +357,47 @@ fn last_worked_from(flow: &Compiled, records: &Records, cell: &CellSpec, block: 
         round.and_then(|round| versions.iter().map(|v| v.at).filter(|at| *at < round).max())
     };
     worked.max(wrote)
+}
+
+/// Of each block the result of what the run's cell asked for in a record comes in, that the run was entered for, the
+/// version it was told of, where the session lacks it.
+fn tested(flow: &Compiled, started: &decide::Started, held: &Held) -> Vec<(BlockId, Seq)> {
+    let Some(cell) = flow.flow.place(&started.cell).map(|i| &flow.flow.cells()[i]) else {
+        return Vec::new();
+    };
+    (started.because.iter())
+        .filter_map(|cause| match cause {
+            decide::Cause::Changed { block, .. } if cell.result(block) => {
+                let at = started.basis.get(block).copied().flatten()?;
+                let lacks = !held.versions.get(block).is_some_and(|h| h.contains(&at));
+                lacks.then(|| (block.clone(), at))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The entry the result at this version of the block answers, as the run's cell wrote it: its latest entry before the
+/// result, of the record whose result comes in the block; nothing where there is none.
+fn entry(
+    flow: &Compiled,
+    work: &Work,
+    records: &Records,
+    started: &decide::Started,
+    block: &BlockId,
+    at: Seq,
+) -> String {
+    let Some(cell) = flow.flow.place(&started.cell).map(|i| &flow.flow.cells()[i]) else {
+        return String::new();
+    };
+    let of_cell = |run: RunId| (records.started.iter()).any(|s| s.run == run && s.cell == started.cell);
+    let versions = decide::versions(records);
+    let asked = (cell.asks.iter())
+        .filter(|asks| &asks.result == block)
+        .flat_map(|asks| (versions.get(&asks.record).into_iter().flatten()).map(move |v| (&asks.record, v)))
+        .filter(|(_, v)| v.at < at && matches!(v.by, Writer::Run(r) if of_cell(r)))
+        .max_by_key(|(_, v)| v.at);
+    asked.map_or_else(String::new, |(record, v)| content(work, record, v.at).to_string())
 }
 
 /// A call whose result the round is given, as the carrier gives it, or else as the work holds it.

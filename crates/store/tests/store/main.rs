@@ -36,9 +36,7 @@ fn judged() -> Compiled {
         name = "judged"
         order = ["write", "judge", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [lines.other]
         [tests.may_merge]

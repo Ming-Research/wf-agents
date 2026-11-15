@@ -1,13 +1,14 @@
 //! The host of the project's repository: where the head of its main branch is, what gives the verdict on a commit of
-//! a work's branch, how the commit the check passed is merged, how the agents' tool `run_tests` runs the tests of
-//! their work, and what it lets go of once a work has ended. The rest of the acts (a work's branch and worktree, the
+//! a work's branch, how the commit the check passed is merged, how the act that runs the tests a cell asks for runs
+//! them, and what it lets go of once a work has ended. The rest of the acts (a work's branch and worktree, the
 //! repository's configuration, a conflict with main) is done in the project's local repository whatever the host, and the installation's settings say which
 //! host it is.
 //!
 //! - [`Local`]: the local repository is the host: its own main branch, the project's check command, and a merge in its
-//!   checkout; an agent's check runs the command on the worktree as it stands.
+//!   checkout; the tests a cell asks for run the command on the worktree as it stands.
 //! - [`GitHub`]: the repository on GitHub is the host: its main branch, the CI of the work's pull request, and the
-//!   pull request's merge; an agent's `run_tests` is the CI of the last commit of its work's branch, which the engine pushes.
+//!   pull request's merge; the tests a cell asks for are the CI of the last commit of its work's branch, which the
+//!   engine pushes.
 //! - `fake`: a host for the tests, which gives what it is told to.
 //!
 //! Each operation can be asked again after the engine started again, and finds what it did already rather than doing
@@ -23,7 +24,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use decide::run::Failure;
-use decide::{CallId, RunId};
+use decide::{CallId, RunId, Seq};
 use store::WorkNumber;
 
 use crate::git::Place;
@@ -46,23 +47,27 @@ pub struct Branch<'a> {
     pub place: &'a Place,
 }
 
-/// What asks a host to run the project's checks, as the work's records name it: a call of `run_tests`, or a round of
-/// the check before the merge. Given again after the engine started again it is the same, and a host that runs the
-/// checks elsewhere finds by it what it began for it there rather than beginning it again.
+/// What asks a host to run the project's checks, as the work's records name it: an entry in which a cell asked for
+/// tests, a round of the check before the merge, or, in works kept before tests were asked for so, a call of
+/// `run_tests`. Given again after the engine started again it is the same, and a host that runs the checks elsewhere
+/// finds by it what it began for it there rather than beginning it again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Asking {
     /// A call of `run_tests`.
     Call(CallId),
     /// A round of the run of the check, by its run and which round of it it is, the first being one.
     Round(RunId, usize),
+    /// An entry of a record in which a cell asked for tests, by its version.
+    Entry(Seq),
 }
 
 impl Asking {
-    /// Its name among what the work asks: `call/<call>`, or `run/<run>/round/<round>`.
+    /// Its name among what the work asks: `call/<call>`, `run/<run>/round/<round>`, or `entry/<version>`.
     pub fn name(&self) -> String {
         match self {
             Asking::Call(call) => format!("call/{}", call.0),
             Asking::Round(run, round) => format!("run/{}/round/{round}", run.0),
+            Asking::Entry(at) => format!("entry/{}", at.0),
         }
     }
 }
@@ -190,13 +195,14 @@ pub trait Host: Send + Sync + 'static {
     /// those are run on the commit again, a test that passes there no longer failing it and being observed, and what
     /// fails again is run on `main`, a commit whose every such test fails there too being held
     /// ([`Verdict::held`]). Checks that could not be run fail the round, with the kind of the cause where the host
-    /// tells it ([`Failed`]).
+    /// tells it ([`Failed`]). Where one of `ran`, which asked the host for the whole of its checks before, did so on
+    /// the very commit and everything passed, that is the verdict, and nothing is run again.
     fn verdict(
         &self,
         branch: &Branch<'_>,
         commit: &str,
         main: &str,
-        asking: Asking,
+        (asking, ran): (Asking, &[Asking]),
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<Verdict>, Failed>> + Send;
 
@@ -214,16 +220,20 @@ pub trait Host: Send + Sync + 'static {
     /// the host again: where a work's change begins is worked out from it.
     fn kept_main(&self) -> String;
 
-    /// What the agents' tool `run_tests` finds of the work, with the tests and checks the agent named, in words for the
-    /// agent whose call asks, whole; none where it was told to stop. An `Err` is why it could not run them, for the
-    /// agent too. What failed is said as [`Host::verdict`] says it.
+    /// What a run of the tests and checks a cell named finds of the work, in words for the cell whose entry asks,
+    /// whole; none where it was told to stop. An `Err` is why they could not be run, with the kind of its cause where
+    /// the host tells it, as for the check. What failed is said as [`Host::verdict`] says it.
     fn run_tests(
         &self,
         branch: &Branch<'_>,
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> impl Future<Output = Result<Option<String>, String>> + Send;
+    ) -> impl Future<Output = Result<Option<String>, Failed>> + Send;
+
+    /// Cancels what each of `asking` asked the host to run of the work's tests that is still under way: of an entry a
+    /// newer one of the same cell replaced, which nothing will read.
+    fn cancel_tests(&self, branch: &Branch<'_>, asking: &[Asking]) -> impl Future<Output = Result<(), Failed>> + Send;
 
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
     /// where it did not merge, closed with a word that its work ended ([`CLOSED`]). What is gone, closed or merged
@@ -236,7 +246,7 @@ pub trait Host: Send + Sync + 'static {
     fn reopen(&self, branch: &Branch<'_>) -> impl Future<Output = Result<(), String>> + Send;
 }
 
-/// The tests and the checks an agent names to `run_tests`, each as it wrote it.
+/// The tests and the checks a cell names in an entry of `run_tests`, each as it wrote it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Named {
     pub tests: Vec<String>,
@@ -275,7 +285,7 @@ impl<H: Host> Host for Arc<H> {
         branch: &Branch<'_>,
         commit: &str,
         main: &str,
-        asking: Asking,
+        asking: (Asking, &[Asking]),
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
         (**self).verdict(branch, commit, main, asking, stop).await
@@ -295,8 +305,12 @@ impl<H: Host> Host for Arc<H> {
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         (**self).run_tests(branch, named, asking, stop).await
+    }
+
+    async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[Asking]) -> Result<(), Failed> {
+        (**self).cancel_tests(branch, asking).await
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

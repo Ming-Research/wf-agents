@@ -649,9 +649,10 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 /// `answer`, written by the engine's loop as the owner answers a question of the cell, and `asked`, as the questions
 /// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; `tree` and
 /// `head`, read by the carriers of the design tree and of the work's head on a work's branch, written from outside or
-/// handed in with the round that committed them; and `words`, written by the engine's loop as the owner speaks to a
-/// cell, the record of what is said and the cell's block that it was spoken to.
-const SOURCES: [&str; 9] = [
+/// handed in with the round that committed them; `tested`, written by the act that runs the tests the cells ask for,
+/// the result of each into the asking cell's own block; and `words`, written by the engine's loop as the owner speaks
+/// to a cell, the record of what is said and the cell's block that it was spoken to.
+const SOURCES: [&str; 10] = [
     "answer",
     "asked",
     "dependencies",
@@ -659,20 +660,19 @@ const SOURCES: [&str; 9] = [
     "main",
     "session",
     "start",
+    "tested",
     "tree",
     "words",
 ];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
-/// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
-/// of the items it depends on, is delivered.
-const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
+/// in, `run_tests` runs the tests the cells ask for, `check` checks the work before its merge, `merge` merges it, and
+/// `deliver` says that a deliverable item, made of the items it depends on, is delivered.
+const ACTS: [&str; 5] = ["start", "run_tests", "check", "merge", "deliver"];
 
 /// The names of the tools an agent may ask the engine for in its return: `query`, one read-only query on the engine's
-/// records, and `run_tests`, which runs named tests and checks, or all of them, where the host checks the work. Neither
-/// is built yet: a cell may name them, and the system prompt of its line tells of those its flow names, with their
-/// words beside the flows (`agents/tools/`), while the form of the return does not hold them yet.
-const TOOLS: [&str; 2] = ["query", "run_tests"];
+/// records, with its words beside the flows (`agents/tools/`).
+const TOOLS: [&str; 1] = ["query"];
 
 /// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
 /// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
@@ -819,6 +819,11 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::AsksAndCannotBeSpokenTo { block } => {
             format!(
                 "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
+            )
+        }
+        F::AsksWithNoResult { block } => {
+            format!(
+                "the cell writes {block}, which runs the cell that runs the tests, but no block of the source tested runs it: the result would reach no cell, and it would wait for it for ever"
             )
         }
         F::TriggerNeverRuns {

@@ -177,8 +177,8 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
     let source = edit(
         source,
         Some("review"),
-        "limit = 5",
-        "limit = 5\nwhen = { test = \"may_merge\" }",
+        "again = 5",
+        "again = 5\nwhen = { test = \"may_merge\" }",
     );
     let mut source = edit(
         source,
@@ -474,7 +474,7 @@ async fn a_definition_that_does_not_compile_is_given_as_its_faults_each_with_its
         "[\"request\", \"opinions\"]",
         "[\"request\", \"opinions\", \"ghost\"]",
     );
-    let source = edit(source, None, "calls = 40", "calls = 0");
+    let source = edit(source, None, "again = 2", "again = 0");
     let router = serve(&Shared::new(Ok(source)));
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
@@ -483,7 +483,7 @@ async fn a_definition_that_does_not_compile_is_given_as_its_faults_each_with_its
             "faults": [
                 {
                     "file": "flow.toml",
-                    "field": "limits.calls",
+                    "field": "limits.again",
                     "what": { "kind": "limitOutOfRange", "value": 0 },
                 },
                 {

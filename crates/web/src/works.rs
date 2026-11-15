@@ -339,12 +339,12 @@ pub enum Waited {
         words: String,
         by: Vec<Maker>,
     },
-    /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
-    /// the owner lets it go on or cancels the work.
-    Limit { runs: u32 },
-    /// The cell's last runs, this many in a row, each asked for calls and dealt with nothing, and it would be entered
-    /// again for their results: the owner lets it go on or cancels the work.
-    Calls { runs: u32 },
+    /// This many of the cell's runs since its counts last began anew were each for what this cell after it wrote, and
+    /// so would the next be: the owner lets it go on or cancels the work.
+    Limit { by: String, runs: u32 },
+    /// The result of what the cell asked for in this record, which these cells give, those the record runs: the work
+    /// runs them and no other cell meanwhile.
+    Result { record: String, by: Vec<String> },
     /// A free slot: as many rounds of agents are under way as the engine has slots, and the engine gives it the first
     /// that comes free, in its order.
     Slot {},
@@ -1863,8 +1863,14 @@ impl Now {
                                     by: by.iter().map(Maker::of).collect(),
                                 }
                             }
-                            WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
-                            WaitedOf::Calls { runs } => Waited::Calls { runs: *runs },
+                            WaitedOf::Limit { by, runs } => Waited::Limit {
+                                by: by.to_string(),
+                                runs: *runs,
+                            },
+                            WaitedOf::Result { record, by, .. } => Waited::Result {
+                                record: record.to_string(),
+                                by: by.iter().map(|cell| cell.to_string()).collect(),
+                            },
                             WaitedOf::Slot => Waited::Slot {},
                             WaitedOf::Answer { question } => Waited::Answer {
                                 question: question.clone(),

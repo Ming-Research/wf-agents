@@ -54,9 +54,7 @@ fn asking() -> Compiled {
         name = "asking"
         order = ["research", "implement", "review", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.request]
         people = true

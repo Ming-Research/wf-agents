@@ -24,6 +24,7 @@ triggered_by = [
   "on_background",
   "on_spoken",
   "on_answer",
+  "on_tested",
   "on_tree_review",
   "on_plan_doubts",
 ]
@@ -45,6 +46,7 @@ outputs = [
   "plan_owner",
   "plan_agent",
   "q_and_a",
+  "run_tests",
   "acceptance",
   "tree_edits",
   "reply_tree_review",

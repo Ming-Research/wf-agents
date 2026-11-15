@@ -112,7 +112,7 @@ fn call(item: Item) -> ToolCall {
         flow: flow(),
         run: RunId(1),
         call: CallId(2),
-        name: "run_tests".to_string(),
+        name: "query".to_string(),
         input: String::new(),
         item,
         kept: Arc::new(Work::default()),

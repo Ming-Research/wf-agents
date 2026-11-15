@@ -4,9 +4,7 @@ name = "loading"
 order = ["plan", "build", "review", "merge"]
 
 [limits]
-runs = 3
-returns = 2
-calls = 4
+again = 2
 
 [lines.engineer]
 [lines.reviewer]

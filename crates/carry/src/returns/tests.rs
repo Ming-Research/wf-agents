@@ -23,9 +23,7 @@ data = ["request", "discussion", "q_and_a"]
 tools = ["query"]
 
 [limits]
-runs = 3
-returns = 2
-calls = 40
+again = 2
 "#;
 
 const WRITE: &str = r#"

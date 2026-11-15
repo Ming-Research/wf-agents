@@ -89,7 +89,7 @@ fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
         })
         .collect();
     format!(
-        "name = \"shape\"\norder = [{order}]\n[limits]\nruns = 2\nreturns = 2\ncalls = 3\n[lines.main]\n\
+        "name = \"shape\"\norder = [{order}]\n[limits]\nagain = 2\n[lines.main]\n\
          [tests.may_merge]\nsays = \"The owner let the work merge\"\nkind = \"all\"\nreads = [\"go\"]\nis = \"yes\"\n\
          [blocks.go]\nvalues = [\"yes\", \"no\"]\npeople = true\n{declared}"
     )

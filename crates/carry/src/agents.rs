@@ -222,7 +222,7 @@ impl Rounds for Agents {
                     let Some(reply) = inner.held.take(key) else {
                         return;
                     };
-                    match inner.to_wait(&round, &spent) {
+                    match inner.to_wait(&round, &spent, Some(&came)) {
                         Some(why) => reply.ended_and_paused(came, spent, why),
                         None => reply.ended(came, spent),
                     }
@@ -236,7 +236,7 @@ impl Rounds for Agents {
                     // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
                         let resets = resets(failure, &why, &said, &*inner.clock);
-                        match inner.to_wait(&round, &spent) {
+                        match inner.to_wait(&round, &spent, None) {
                             Some(over) => {
                                 let pause = format!("{why}; and {over}");
                                 reply.failed_and_paused(failure, resets, why, spent, pause);
@@ -387,8 +387,11 @@ impl Inner {
         if let Some(root) = files.parent() {
             tools::sweep(root, std::time::SystemTime::now()).await;
         }
-        tools::keep_wholes(work, &of.beside.tools, &files).await?;
+        let tests = &of.beside.acts.run_tests.given;
+        tools::keep_wholes(work, (&of.beside.tools, flow, tests), &files).await?;
         let results = tools::given(work, &of.beside.tools, &files);
+        let tested = tools::tested(work, flow, tests, &files);
+        let places = system::places(&of.filling);
         let told = main.as_ref().and_then(CaughtUp::told);
         let carried = context::Carried {
             about,
@@ -396,6 +399,8 @@ impl Inner {
             changes: &changes,
             named: &of.filling.named,
             results: &results,
+            tested: &tested,
+            places: &places,
         };
         let enter = |anew| context::enter(flow, &of.beside, work, round.run, round.number, &carried, anew);
         let (going_on, anew) = (enter(false)?, enter(true)?);
@@ -752,13 +757,14 @@ impl Inner {
         }
     }
 
-    /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, or
-    /// its spend or time since it last waited for the owner is past what the flow's other works explain; both where
-    /// both hold.
-    fn to_wait(&self, round: &Round, spent: &Spent) -> Option<String> {
+    /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, its
+    /// spend or time since it last waited for the owner is past what the flow's other works explain, or what came back
+    /// asks once more than the rows of asking of its kind explain; every one that holds.
+    fn to_wait(&self, round: &Round, spent: &Spent, came: Option<&Came>) -> Option<String> {
         let reasons: Vec<String> = [self.over_budget(round, spent)]
             .into_iter()
             .chain(self.past_history(round, spent))
+            .chain([came.and_then(|came| self.past_asking(round, came))])
             .flatten()
             .collect();
         // Two reasons are joined in the project's words, which the second, of the history, is said in.
@@ -826,6 +832,47 @@ impl Inner {
             .filter(|line| ms as f64 > line.value)
             .map(|line| told(&words.time, ms as f64, line, Unit::Minutes));
         vec![spent_past, time_past]
+    }
+
+    /// Why the work is to wait for the owner, where what came back asks, for calls or for tests in a record its cell
+    /// asks in, and so makes the row of its cell's runs in a row that asked before one handed in its work longer than
+    /// the line of the rows of its kind (principle `judged-by-own-history`). With too few rows to give a line, nothing
+    /// is judged, and the budget still holds.
+    fn past_asking(&self, round: &Round, came: &Came) -> Option<String> {
+        let line = round.lines.asking.as_ref()?;
+        let (flow, work) = (&*round.flow, &*round.kept);
+        let records = flow
+            .flow
+            .place(&round.cell.id)
+            .map_or(&[][..], |i| &flow.flow.cells()[i].asks[..]);
+        let asks = !came.asks.is_empty() || (came.writes.iter()).any(|w| records.iter().any(|a| a.record == w.block));
+        if !asks {
+            return None;
+        }
+        let row = driver::history::asking_now(flow, work, &round.cell.id) + 1;
+        if f64::from(row) <= line.value {
+            return None;
+        }
+        let of = crate::projects::of(&self.projects, &round.item).ok()?;
+        let (words, scope) = (&of.beside.cost.work, &of.beside.cost.guard.scope);
+        let scope = match line.scope {
+            driver::history::Scope::Cell => &scope.cell,
+            _ => &scope.flow,
+        };
+        let from = flow::agents::fill(
+            &words.asked_from,
+            &[("samples", &line.samples.to_string()), ("scope", scope)],
+        );
+        Some(flow::agents::fill(
+            &words.asking,
+            &[
+                ("work", &round.work.0.to_string()),
+                ("cell", round.cell.id.as_str()),
+                ("value", &row.to_string()),
+                ("line", &format!("{:.0}", line.value)),
+                ("from", &from),
+            ],
+        ))
     }
 
     /// Why the work is to wait for the owner, where the round took it over its budget: everything its rounds have

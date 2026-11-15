@@ -35,14 +35,14 @@ impl Hub {
     async fn tests_asked(&self, named: &Named, call: Asking) -> Result<Option<String>, String> {
         let place = self.place();
         let branch = branch(&place);
-        self.host.run_tests(&branch, named, call, &mut Stop::never()).await
+        (self.host.run_tests(&branch, named, call, &mut Stop::never()).await).map_err(String::from)
     }
 
     /// The verdict the round of the check finds on the commit.
     async fn judged(&self, commit: &str, round: Asking) -> Result<Option<Verdict>, String> {
         let place = self.place();
         let (branch, main, mut stop) = (branch(&place), self.main_on_github(), Stop::never());
-        let verdict = self.host.verdict(&branch, commit, &main, round, &mut stop);
+        let verdict = self.host.verdict(&branch, commit, &main, (round, &[]), &mut stop);
         verdict.await.map_err(String::from)
     }
 

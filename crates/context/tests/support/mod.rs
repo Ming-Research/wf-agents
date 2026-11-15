@@ -27,9 +27,7 @@ name = "sessions"
 order = ["plan", "build", "review", "close"]
 
 [limits]
-runs = 1000
-returns = 1000
-calls = 1000
+again = 1000
 
 [lines.engineer]
 [lines.reviewer]
@@ -322,6 +320,8 @@ impl Sim {
             changes,
             named: &self.named,
             results: &BTreeMap::new(),
+            tested: &BTreeMap::new(),
+            places: &BTreeMap::new(),
         };
         let (run, number) = (round.run, round.number);
         context::enter(flow, words, &self.work, run, number, &carried, anew).expect("the round is entered")

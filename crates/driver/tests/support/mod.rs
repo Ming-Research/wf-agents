@@ -90,9 +90,7 @@ pub fn judged() -> Compiled {
         name = "judged"
         order = ["write", "judge", "merge"]
         [limits]
-        runs = 3
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [lines.other]
         [blocks.request]
@@ -145,9 +143,7 @@ pub fn short() -> Compiled {
         name = "short"
         order = ["draft", "merge"]
         [limits]
-        runs = 2
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.request]
         people = true
@@ -185,9 +181,7 @@ pub fn plain() -> Compiled {
         name = "plain"
         order = ["write", "merge"]
         [limits]
-        runs = 2
-        returns = 2
-        calls = 3
+        again = 2
         [lines.main]
         [blocks.request]
         people = true

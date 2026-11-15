@@ -47,12 +47,8 @@ pub struct Flow {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Limits {
-    /// How many runs of a cell in a row may be ways round before the work waits for the owner.
-    pub runs: u32,
-    /// How often a return may be sent back within one run.
-    pub returns: u32,
-    /// How many calls one run may make.
-    pub calls: u32,
+    /// How many times in a row one sender may send a cell back before the work waits for the owner.
+    pub again: u32,
 }
 
 /// A line: the cells that share one session, and what its file writes of it.
@@ -445,6 +441,10 @@ pub enum What {
     AsksAndCannotBeSpokenTo {
         block: String,
     },
+    /// The cell writes a block that runs the cell that runs the tests, and no block of the result runs it.
+    AsksWithNoResult {
+        block: String,
+    },
     /// A trigger of the cell stands on a block whose every writer runs only where the cell cannot.
     TriggerNeverRuns {
         trigger: String,
@@ -595,6 +595,7 @@ pub enum FlowRefusal {
     ConditionOnOwnOutput,
     LastHasCondition,
     NoLimit,
+    AsksAmiss,
     NoSuchTest,
     Unwritten,
 }
@@ -603,9 +604,7 @@ impl Flow {
     /// The compiled definition as the page reads it.
     pub fn of(compiled: &Compiled) -> Self {
         let limits = Limits {
-            runs: compiled.limits.runs,
-            returns: compiled.limits.returns,
-            calls: compiled.limits.calls,
+            again: compiled.limits.again,
         };
         let mut lines: Vec<Line> = Vec::new();
         for spec in &compiled.cells {
@@ -666,11 +665,7 @@ impl Flow {
                         does: t.does.clone(),
                     })
                     .collect(),
-                limits: Limits {
-                    runs: cell.limit,
-                    returns: spec.returns,
-                    calls: spec.calls,
-                },
+                limits: Limits { again: cell.again },
             })
             .collect();
         let blocks = compiled
@@ -818,6 +813,7 @@ impl What {
             F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
             F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
+            F::AsksWithNoResult { block } => What::AsksWithNoResult { block },
             F::TriggerNeverRuns {
                 trigger,
                 block,
@@ -871,6 +867,7 @@ impl What {
                     FlowFault::ConditionOnOwnOutput(c) => (FlowRefusal::ConditionOnOwnOutput, Some(c)),
                     FlowFault::LastHasCondition(c) => (FlowRefusal::LastHasCondition, Some(c)),
                     FlowFault::NoLimit(c) => (FlowRefusal::NoLimit, Some(c)),
+                    FlowFault::AsksAmiss(c) => (FlowRefusal::AsksAmiss, Some(c)),
                     FlowFault::NoSuchTest(c, _) => (FlowRefusal::NoSuchTest, Some(c)),
                     FlowFault::Unwritten(..) => (FlowRefusal::Unwritten, None),
                 };

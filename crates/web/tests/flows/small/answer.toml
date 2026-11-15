@@ -7,4 +7,4 @@ when = { test = "has_comment" }
 requires = { test = "plan_confirmed" }
 inputs = ["comments", "plan"]
 outputs = ["reply"]
-limit = 5
+again = 5

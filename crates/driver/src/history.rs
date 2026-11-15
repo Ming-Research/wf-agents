@@ -231,6 +231,9 @@ pub struct Lines {
     pub work_spent: Option<Line>,
     /// How long the rounds of a work of the flow take in all, in milliseconds, as the flow's other works' have.
     pub work_time: Option<Line>,
+    /// How many runs of a cell in a row ask, for a tool or for tests, before a run of it hands in its work, as the
+    /// rows of asking of the cell, else of the flow, in every work of the flow have ([`asking_rows`]).
+    pub asking: Option<Line>,
 }
 
 impl Lines {
@@ -265,6 +268,7 @@ impl Lines {
             time: whole(&|s| s.ms.map(|ms| ms as f64)),
             work_spent: None,
             work_time: None,
+            asking: None,
         }
     }
 }
@@ -406,6 +410,60 @@ pub fn context_line<'a>(history: impl IntoIterator<Item = &'a Sample>, line: &st
 /// tell it.
 pub fn works_line(others: &[f64], least: usize) -> Option<Line> {
     judged(others, &[], least, Scope::Works, Scope::Works)
+}
+
+/// The line of how many runs of a cell in a row ask before one hands in its work: of the cell's own rows where at least
+/// `least` of them tell it, else of every cell's of the flow ([`asking_rows`]).
+pub fn asking_line(own: &[f64], any: &[f64], least: usize) -> Option<Line> {
+    judged(own, any, least, Scope::Cell, Scope::Flow)
+}
+
+/// Of each run of the work that finished, in the order they finished, its cell and whether it asked: for calls, or
+/// for tests in a record its cell asks in ([`decide::Cell::asks`]). A run that asked handed in no work of its cell's,
+/// whatever else it wrote.
+fn asked(flow: &Compiled, work: &Work) -> Vec<(CellId, bool)> {
+    let r = &work.records;
+    let mut finished: Vec<&decide::Finished> = r.finished.iter().collect();
+    finished.sort_by_key(|f| f.at);
+    (finished.into_iter())
+        .filter_map(|f| {
+            let cell = &r.started.iter().find(|s| s.run == f.run)?.cell;
+            let records = flow
+                .flow
+                .place(cell)
+                .map_or(&[][..], |i| &flow.flow.cells()[i].asks[..]);
+            let called = (r.called.iter())
+                .any(|c| c.run == f.run && matches!(work.calls.get(&c.call), Some(work::Call::Asked(_))));
+            let entry = (f.writes.iter()).any(|w| records.iter().any(|a| a.record == w.block));
+            Some((cell.clone(), called || entry))
+        })
+        .collect()
+}
+
+/// The rows of asking of the work, each with its cell: each count of a cell's finished runs in a row that asked before
+/// a run of it that handed in its work, which ended the row. What a measure of asking is judged by is made of them, as
+/// the rows of every work on the flow give them; the row a cell is in now is no part of it ([`asking_now`]).
+pub fn asking_rows(flow: &Compiled, work: &Work) -> Vec<(CellId, f64)> {
+    let mut rows = Vec::new();
+    let mut counts: std::collections::BTreeMap<CellId, u32> = std::collections::BTreeMap::new();
+    for (cell, asked) in asked(flow, work) {
+        let count = counts.entry(cell.clone()).or_default();
+        if asked {
+            *count += 1;
+        } else if *count > 0 {
+            rows.push((cell, f64::from(*count)));
+            *count = 0;
+        }
+    }
+    rows
+}
+
+/// How many of the cell's latest finished runs in a row asked, for calls or for tests: the row it is in now, which a run
+/// that hands in its work ends.
+pub fn asking_now(flow: &Compiled, work: &Work, cell: &CellId) -> u32 {
+    let runs = asked(flow, work);
+    let of_cell = runs.iter().rev().filter(|(c, _)| c == cell);
+    of_cell.take_while(|(_, asked)| *asked).count() as u32
 }
 
 #[cfg(test)]

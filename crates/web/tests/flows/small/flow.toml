@@ -4,9 +4,7 @@ name = "small"
 order = ["plan", "judge", "design", "answer", "check", "merge"]
 
 [limits]
-runs = 3
-returns = 2
-calls = 40
+again = 2
 
 [lines.engineer]
 [lines.review]

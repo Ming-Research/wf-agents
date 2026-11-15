@@ -160,19 +160,18 @@ fn an_engine_cell_names_an_act_the_engine_has() {
 
 #[test]
 fn every_limit_is_a_positive_count() {
-    let limits = "runs = 3\nreturns = 2\ncalls = 40";
-    let source = edit(valid(), FLOW_FILE, limits, "runs = 0\nreturns = -1\ncalls = 4294967296");
-    let source = edit(source, "answer.toml", "limit = 5", "limit = 0");
     let out = |value| LimitOutOfRange { value };
-    assert_eq!(
-        faults(&source),
-        [
-            at(FLOW_FILE, "limits.runs", out(0)),
-            at(FLOW_FILE, "limits.returns", out(-1)),
-            at(FLOW_FILE, "limits.calls", out(4_294_967_296)),
-            at("answer.toml", "limit", out(0)),
-        ]
-    );
+    for value in [0, -1, 4_294_967_296] {
+        let source = edit(valid(), FLOW_FILE, "again = 2", &format!("again = {value}"));
+        let source = edit(source, "answer.toml", "again = 5", "again = 0");
+        assert_eq!(
+            faults(&source),
+            [
+                at(FLOW_FILE, "limits.again", out(value)),
+                at("answer.toml", "again", out(0))
+            ]
+        );
+    }
 }
 
 /// The small flow laid out one thing to a file, with the plan's task written in a file of the flow named so, which

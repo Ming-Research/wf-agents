@@ -24,20 +24,20 @@ repo = "/path/to/the/repository"
 # The repository's main branch.
 main = "main"
 # A shell command whose exit with 0 means the work passes. Where the local repository is the host, it is run in a
-# work's worktree by the check before the merge and by the agents' tool `run_tests`. With [projects.example.github]
-# below, the CI is run instead, and this command is not.
+# work's worktree by the check before the merge and for the tests a cell asks for in `run_tests`. With
+# [projects.example.github] below, the CI is run instead, and this command is not.
 check = "./test.sh"
 # The acts refuse a repository whose own configuration could make git run a program (a filter, a merge driver, a
 # hooks directory, an included file and the like). A key the repository needs is allowed here, whole or as a beginning
 # followed by `*`.
 # allowed_config = ["filter.lfs.*"]
 
-# The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge and the agents'
-# tool `run_tests` push the work's branch to GitHub, open its pull request into the main branch where it has none, and
-# run the project's workflows on the pushed commit; nothing is run on this machine. A request of `run_tests` that names
-# tests or checks has only those run, by the project's fast workflow, and one that names none is run by the project's
-# full workflows, as is the check before the merge, on the commit to merge, once; both are declared in the project's
-# flow/project.toml. The merge merges the work's pull request. Without this table, the local repository is the host.
+# The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge and the run of
+# the tests a cell asks for in `run_tests` push the work's branch to GitHub, open its pull request into the main branch
+# where it has none, and run the project's workflows on the pushed commit; nothing is run on this machine. An entry of
+# `run_tests` that names tests or checks has only those run, by the project's fast workflow, and one that names none is
+# run by the project's full workflows, as is the check before the merge, on the commit to merge, once, unless such an
+# entry's full workflows passed on that very commit; both are declared in the project's flow/project.toml. The merge merges the work's pull request. Without this table, the local repository is the host.
 # The engine needs `git` and `gh`, and its own token for GitHub in its environment: a fine-grained token for the
 # project's repository, with Contents and Pull requests read and write, Checks and Commit statuses read, and Actions
 # read and write, for the workflows it runs by hand. The engine itself never pushes a change to the project's workflow
@@ -53,7 +53,7 @@ check = "./test.sh"
 # token_env = "WF_GITHUB_TOKEN"
 # # A run of a workflow that is not listed, or never leaves the queue, after this many minutes: the CI never started.
 # # The engine cancels the run it asked for, and the check fails its round in passing and is tried again after a wait,
-# # or the agents' tool says so.
+# # or the result of the tests a cell asked for says so.
 # start_minutes = 10
 # # A run of the fast workflow not complete after this many minutes is cancelled, and said as what it found; the full
 # # workflows take the time flow/project.toml gives them (`ci.full.too_long`).
