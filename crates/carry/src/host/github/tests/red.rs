@@ -155,8 +155,13 @@ async fn a_red_lint_beside_a_failed_test_fails_the_commit_when_it_is_red_again()
     assert_eq!(verdict.held, None);
     assert_eq!(verdict.observations.len(), 1, "{verdict:?}");
     let failed = verdict.failed.expect("the lint fails it");
+    // What the run again found is said last: its jobs, the lint red again and the test's job passed.
+    let again = failed
+        .split("What failed was run again on the commit")
+        .nth(1)
+        .expect("the run again is said");
     assert!(
-        failed.ends_with(
+        again.contains(
             "- lint: failed (failure) in 60 s https://github.example/checks/lint\n- test: passed in 60 s \
              https://github.example/checks/test"
         ),
