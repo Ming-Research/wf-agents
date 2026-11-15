@@ -7,10 +7,10 @@
 //! time ([`Stepper`]); before each, it gives each item's next act whose state the engine shows (module
 //! `script::items`), stopping the engine and opening it again on its store where an act says so, and moving main once
 //! every item with an act that moves it still to give stands at that act's state, so that the one write the engine
-//! makes into every going work of the project is each work's own. It ends once every item stands at its path's end
-//! with no act left to give, once each that does not has left its path for good, or once a bound of things taken or of
-//! the clock's time has passed; then each item's work is judged against its path (module `judge`), and each act whose
-//! state never came is named, as is each the engine refused.
+//! makes into every going work of the project is each work's own, and after everything sent to the loop already. It
+//! ends once every item stands at its path's end with no act left to give, once each that does not has left its path
+//! for good, or once a bound of things taken or of the clock's time has passed; then each item's work is judged
+//! against its path (module `judge`), and each act whose state never came is named, as is each the engine refused.
 
 use std::fmt;
 use std::path::Path;
@@ -63,6 +63,16 @@ impl Stepper {
     /// Takes it, as the loop takes what comes to it.
     pub fn take(&mut self, message: Message) -> Result<(), Fault> {
         self.service.take(message)
+    }
+
+    /// Takes everything sent to the loop already, in the order it was sent, waiting for nothing; gives how many.
+    pub fn take_sent(&mut self) -> Result<usize, Fault> {
+        let mut took = 0;
+        while let Some(message) = self.inbox.sent() {
+            self.service.take(message)?;
+            took += 1;
+        }
+        Ok(took)
     }
 }
 
@@ -211,9 +221,12 @@ pub async fn play(
     let mut steps = 0;
     let mut fault = None;
     loop {
-        if let Err(stopped) = play.give(&open) {
-            fault = Some(stopped);
-            break;
+        match play.give(&open) {
+            Ok(took) => steps += took,
+            Err(stopped) => {
+                fault = Some(stopped);
+                break;
+            }
         }
         if play.done() || steps >= bounds.steps {
             break;
@@ -335,9 +348,13 @@ impl Play<'_> {
     }
 
     /// Gives each item's next act whose state the work stands at, again and again until none is due; says what stopped
-    /// the loop, where something did, or the engine could not be opened again.
-    fn give(&mut self, open: &dyn Fn() -> Result<(Service, Inbox), String>) -> Result<(), String> {
+    /// the loop, where something did, or the engine could not be opened again. Gives how many things sent to the loop
+    /// it took out before main moved: main's move reaches the loop after everything said to it already, as the
+    /// outside's watch of main sends it through the channel the carriers send by, and a carrier that read main sends
+    /// what it read inside the same lock.
+    fn give(&mut self, open: &dyn Fn() -> Result<(Service, Inbox), String>) -> Result<usize, String> {
         let script = self.script;
+        let mut took = 0;
         loop {
             let mut given = false;
             for k in 0..script.items.len() {
@@ -369,6 +386,7 @@ impl Play<'_> {
                         source: driver::MAIN.to_string(),
                         content: act.content.clone().unwrap_or_default(),
                     };
+                    took += self.stepper.take_sent().map_err(|fault| fault.to_string())?;
                     self.stepper.take(message).map_err(|fault| fault.to_string())?;
                     for m in moving {
                         self.next[m] += 1;
@@ -383,7 +401,7 @@ impl Play<'_> {
                 }
             }
             if !given {
-                return Ok(());
+                return Ok(took);
             }
         }
     }

@@ -281,6 +281,11 @@ impl Inbox {
     pub async fn recv(&mut self) -> Option<Message> {
         self.0.recv().await
     }
+
+    /// The next thing to take where it has come already; none where nothing has.
+    pub fn sent(&mut self) -> Option<Message> {
+        self.0.try_recv().ok()
+    }
 }
 
 /// The way to the loop for whoever is not the loop: the pages and the commands.
