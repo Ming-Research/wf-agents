@@ -14,7 +14,7 @@ use service::script::{Ends, INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, Read, TOOL_MS
 use service::{CallReply, Message, Outside, Round, RoundReply, Rounds, Script, Scripted, ToolCall, Tools};
 use store::{First, Item, ItemNumber, WorkNumber};
 use tokio::sync::mpsc;
-use work::{Ask, Call, Handed, Question, Spent, Time, Way, Work};
+use work::{Ask, Call, Handed, Question, Spent, Time, Tool, Way, Work};
 
 /// The directory beside the test flows, which holds the trial flow (`trial`) and what is written beside the flows.
 fn beside() -> PathBuf {
@@ -399,7 +399,7 @@ fn a_round_asks_for_what_its_entry_says() {
         "#,
     )
     .unwrap();
-    let query = |input: &str| Ask::Tool {
+    let query = |input: &str| Tool {
         name: "query".to_string(),
         input: input.to_string(),
     };

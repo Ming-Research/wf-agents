@@ -13,38 +13,16 @@ fn each_thing_asked_for_is_one_call_that_waits_on_nobody() {
             .iter()
             .map(|(_, run, what)| (*run, what.clone()))
             .collect::<Vec<_>>(),
-        vec![(write, Call::Asked(tool("search"))), (write, Call::Asked(tool("read")))]
+        vec![
+            (write, Call::Asked(tool("search").into())),
+            (write, Call::Asked(tool("read").into()))
+        ]
     );
     let on: Vec<_> = (w.work.records.called.iter())
         .map(|c| (c.call, c.run, c.on.clone()))
         .collect();
     assert_eq!(on, vec![(calls[0].0, write, None), (calls[1].0, write, None)]);
-    assert_eq!(w.work.calls.get(&calls[0].0), Some(&Call::Asked(tool("search"))));
-}
-
-// No carrier asks a person by a call: the owner is asked by the record of the work's questions. A return that asks
-// one is refused, as nothing that carries a round out says it, and the work is left as it was (decision
-// no-call-is-made-on-a-person). Milliseconds alone, in memory; no other test holds the loop to making no call on a
-// person.
-#[test]
-fn a_return_that_asks_a_person_by_a_call_is_refused() {
-    let (mut w, write, _) = W::requested();
-    let before = w.work.clone();
-    let now = w.tick();
-    let came = Came::asks(vec![tool("search"), question(Who::Owner)]);
-    let taken = handle(
-        &w.flow,
-        &mut w.work,
-        now,
-        Event::Returned {
-            run: write,
-            came,
-            spent: spent(1),
-        },
-    );
-    assert!(taken.is_err(), "{taken:?}");
-    assert_eq!(w.work.records, before.records);
-    assert!(w.work.calls.is_empty(), "a call was made: {:?}", w.work.calls);
+    assert_eq!(w.work.calls.get(&calls[0].0), Some(&Call::Asked(tool("search").into())));
 }
 
 #[test]
@@ -120,7 +98,8 @@ fn a_run_kept_resting_at_its_calls_from_before_a_return_that_asks_ended_its_run_
     // The work as an engine kept it before: the return that asked was taken without ending its run, its calls made
     // after its round ended, and the run rests at them.
     w.work.records.finished.retain(|f| f.run != write);
-    w.work.back.insert((write, 1), engine::Back::Asked(asks));
+    let asked = asks.into_iter().map(Ask::from).collect();
+    w.work.back.insert((write, 1), engine::Back::Asked(asked));
     assert_eq!(w.done(calls[0]), vec![]);
     let effects = w.done(calls[1]);
     // The run finishes with no call made again, and the cell is entered for the results of the calls it made.
@@ -143,10 +122,11 @@ fn a_run_kept_resting_at_its_calls_from_before_a_return_that_asks_ended_its_run_
 #[test]
 fn a_run_kept_resting_at_the_owners_word_at_the_old_limit_of_calls_makes_what_it_asked_for_once_let_go() {
     let (mut w, write, request) = W::requested();
-    let asks = vec![tool("search"), tool("read")];
-    w.returns(write, Came::asks(asks.clone()));
-    // The work as an engine kept it before: the return that asked was taken without ending its run, and the owner's
-    // word at the limit of calls was asked for before any of its calls was made.
+    w.returns(write, Came::asks(vec![tool("search")]));
+    // The work as an engine kept it before: the return that asked, a tool and a question for the owner, was taken
+    // without ending its run, and the owner's word at the limit of calls was asked for before any of its calls was
+    // made.
+    let asks = vec![tool("search").into(), question(Who::Owner)];
     let r = &mut w.work.records;
     r.finished.retain(|f| f.run != write);
     r.called.retain(|c| c.run != write);
@@ -172,6 +152,15 @@ fn a_run_kept_resting_at_the_owners_word_at_the_old_limit_of_calls_makes_what_it
             (write, Call::Asked(asks[1].clone()))
         ]
     );
+    // The question waits on the owner, as the ask says, the tool on nobody.
+    let on: Vec<Option<Who>> = (made.iter())
+        .map(|(call, ..)| {
+            (w.work.records.called.iter())
+                .find(|c| c.call == *call)
+                .and_then(|c| c.on.clone())
+        })
+        .collect();
+    assert_eq!(on, [None, Some(Who::Owner)]);
     let finished = (w.work.records.finished.iter())
         .find(|f| f.run == write)
         .expect("the run finished");

@@ -285,6 +285,8 @@ pub struct Wait {
 pub enum Ends {
     /// Answers this version of the work's question of this name, by one of its options.
     Answer { question: String, version: u64 },
+    /// Answers in words the question this call puts to them, as one work's old records hold one.
+    Reply { call: u64 },
     /// Lets the run that reached its limit go on, as the result of this call.
     GoOn { call: u64 },
     /// Lets the cell go on past its limit.
@@ -311,6 +313,7 @@ impl Wait {
                     question,
                     version: version.0,
                 },
+                EndsOf::Reply { call } => Ends::Reply { call: call.0 },
                 EndsOf::GoOn { call } => Ends::GoOn { call: call.0 },
                 EndsOf::LetGo { cell } => Ends::LetGo { cell: cell.to_string() },
                 EndsOf::Write { block, value } => Ends::Write {
@@ -1592,7 +1595,7 @@ pub enum Act {
         #[serde(default)]
         why: Option<String>,
     },
-    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    /// Gives a call that waits for a person its result: the owner's word that a run at its limit goes on.
     Result { call: u64, result: String },
     /// Answers a version of a question, the one the page shows, taking an option, counted from one, and saying why
     /// where the owner does.
@@ -3222,18 +3225,11 @@ mod tests {
         work
     }
 
-    // A question put to the owner by a call, which only records kept before a return that asks a person was refused
-    // hold (decision no-call-is-made-on-a-person), is read in the history as it was recorded: the round's return asked
-    // it, and the call on the owner had its answer. Milliseconds alone; no other test reads one from records.
-    #[test]
-    fn a_question_put_to_the_owner_by_a_call_in_old_records_is_read_as_it_was_recorded() {
+    /// A work whose writer asked the owner a question by a call, as one work's old records hold it, whose return asked
+    /// it; with the call, which has no answer yet.
+    fn asked_the_owner() -> (Work, CallId) {
         let flow = flow();
         let mut work = Work::default();
-        let mut clock = 0;
-        let mut on = |work: &mut Work, event: engine::Event| {
-            clock += 1000;
-            engine::handle(&flow, work, Time(clock), event).expect("the event is taken")
-        };
         let request = engine::Event::Wrote {
             block: "request".into(),
             by: Outsider::Person,
@@ -3241,16 +3237,16 @@ mod tests {
             matters: true,
             value: None,
         };
-        on(&mut work, request);
+        engine::handle(&flow, &mut work, Time(1000), request).expect("the write is taken");
         let run = work.records.started[0].run;
-        let tool = AskOf::Tool {
+        let tool = work::Tool {
             name: "read".to_string(),
             input: String::new(),
         };
         let came = engine::Came::asks(vec![tool]);
         let spent = engine::Spent::default();
-        on(&mut work, engine::Event::Returned { run, came, spent });
-        // As the records of such a work hold it.
+        let returned = engine::Event::Returned { run, came, spent };
+        engine::handle(&flow, &mut work, Time(2000), returned).expect("the return is taken");
         let question = AskOf::Person {
             who: Who::Owner,
             question: "Which greeting?".to_string(),
@@ -3263,8 +3259,18 @@ mod tests {
             panic!("the round's return is not kept");
         };
         *asks = vec![question];
+        (work, call)
+    }
+
+    // A question put to the owner by a call, as one work's old records hold it (decision
+    // a-return-asks-no-person-by-a-call), is read in the history as it was recorded: the round's return asked it, and
+    // the call on the owner had its answer. Milliseconds alone; no other test reads one from records.
+    #[test]
+    fn a_question_put_to_the_owner_by_a_call_in_old_records_is_read_as_it_was_recorded() {
+        let (mut work, call) = asked_the_owner();
         let answer = "The short one.".to_string();
-        on(&mut work, engine::Event::Done { call, result: answer });
+        let done = engine::Event::Done { call, result: answer };
+        engine::handle(&flow(), &mut work, Time(3000), done).expect("the answer is taken");
 
         let runs = of_kept(&work, runs).expect("the history is read");
         let asked = Ask::Question {
@@ -3281,6 +3287,12 @@ mod tests {
         assert!(row.done.is_some(), "{row:?}");
         // The writer is entered again, given the answer.
         assert_eq!(runs[1].rounds[0].given, Given::Results { calls: vec![call.0] });
+    }
+
+    // While such a call had no answer, the work waited on the owner, and its bar says so as it did.
+    #[test]
+    fn a_question_put_to_the_owner_by_a_call_in_old_records_waits_on_the_owner_until_answered() {
+        assert_eq!(waited_on(&asked_the_owner().0, None), 'o');
     }
 
     #[test]

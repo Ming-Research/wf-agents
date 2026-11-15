@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex};
 
 use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited};
 use driver::{Asked, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, Found, MERGED, NewItem, Todo, WAITING};
-use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Work};
+use engine::{Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Tool, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -1804,8 +1804,8 @@ pub fn hands_in(blocks: &[(&str, Option<&str>)]) -> Came {
     Came::hands_in(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
 }
 
-pub fn tool(name: &str) -> Ask {
-    Ask::Tool {
+pub fn tool(name: &str) -> Tool {
+    Tool {
         name: name.to_string(),
         input: format!("what {name} is run on"),
     }

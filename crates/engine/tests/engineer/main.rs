@@ -116,7 +116,7 @@ use decide::{
     BlockId, Cause, CellId, Condition, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited, decide,
 };
 use engine::spoken::{self, To};
-use engine::{Ask, Came, Effect, Event, Handed};
+use engine::{Came, Effect, Event, Handed, Tool};
 use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
@@ -906,7 +906,7 @@ impl Random {
             0..=9 => {
                 let n = 1 + d.rng.below(3);
                 let asks = (0..n)
-                    .map(|k| Ask::Tool {
+                    .map(|k| Tool {
                         name: format!("tool {k}"),
                         input: "x".to_string(),
                     })

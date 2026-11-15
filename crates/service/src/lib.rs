@@ -785,7 +785,8 @@ impl Service {
                     let _ = to.send(Message::Due { work, call });
                 });
             }
-            // A person's call, and a run at its limit, wait for the owner's answer.
+            // A run at its limit waits for the owner's word, and a question an old run put to the owner for the
+            // owner's answer.
             Effect::Call { .. } => {}
             Effect::Withdraw { call } => match kept.work.calls.get(call) {
                 Some(Call::Asked(Ask::Tool { name, input })) => {

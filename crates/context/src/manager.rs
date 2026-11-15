@@ -415,7 +415,7 @@ fn result(work: &Work, call: CallId, given: &BTreeMap<CallId, String>) -> messag
         },
         Some(Call::AtLimit(_)) => Called::AtLimit,
         // The engine's wait before a round is tried again is no result a round is given; nor is a call on a person,
-        // which no run still to be entered holds (decision no-call-is-made-on-a-person).
+        // which no run still to be entered holds (decision a-return-asks-no-person-by-a-call).
         Some(Call::Wait { .. } | Call::Asked(Ask::Person { .. })) | None => Called::Unknown(call),
     };
     message::Result {

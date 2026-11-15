@@ -360,9 +360,6 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             if began(work, run) == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
             }
-            if (came.asks.iter()).any(|ask| matches!(ask, Ask::Person { .. })) {
-                return Err(Refused::AsksAPerson(run));
-            }
             // What the carrier read of the branch is of the blocks a source outside the work writes, none a choice.
             for read in &came.read {
                 let Some(declared) = flow.blocks.get(&read.block) else {
@@ -397,7 +394,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 let back = Back::Returned {
                     dealt_with,
                     handed: came.writes,
-                    asks: came.asks,
+                    asks: came.asks.into_iter().map(Ask::from).collect(),
                     found: came.found,
                     said: came.said,
                     engine: came.engine,
@@ -837,9 +834,13 @@ fn finish(
         }
         Some(Back::Failed { .. }) | None => (Vec::new(), Vec::new()),
     };
-    // Each thing asked for is a tool, which waits on nobody: a return that asks a person is refused as it comes.
+    // A return asks for tools alone, which wait on nobody; a run kept from before may have asked a person.
     for ask in asks {
-        call(work, run, None, Call::Asked(ask), effects);
+        let on = match &ask {
+            Ask::Person { who, .. } => Some(who.clone()),
+            Ask::Tool { .. } => None,
+        };
+        call(work, run, on, Call::Asked(ask), effects);
     }
     let at = work.tick();
     for h in handed {

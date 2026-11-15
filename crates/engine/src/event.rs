@@ -3,7 +3,7 @@
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 
-use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
+use work::{Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Tool, Why};
 
 use crate::spoken::{NoOne, Telling, To};
 
@@ -117,8 +117,8 @@ pub struct Came {
     pub dealt_with: Option<Vec<BlockId>>,
     /// The blocks it writes.
     pub writes: Vec<Handed>,
-    /// The calls it asks for.
-    pub asks: Vec<Ask>,
+    /// The tools it asks for, each made a call that waits on nobody.
+    pub asks: Vec<Tool>,
     /// What was found wrong with it as it was read against the cell it was entered for, which only its reading can
     /// see, in the order found: the run's check names these first, with everything else wrong with it.
     pub found: Vec<Unmet>,
@@ -148,7 +148,7 @@ impl Came {
     }
 
     /// A return that asks for these calls, and so deals with nothing.
-    pub fn asks(asks: Vec<Ask>) -> Came {
+    pub fn asks(asks: Vec<Tool>) -> Came {
         Came {
             dealt_with: Some(Vec::new()),
             asks,
@@ -260,8 +260,6 @@ pub enum Refused {
     NoSuchCell(CellId),
     /// No round of the run is under way.
     NoRoundUnderWay(RunId),
-    /// The return asks a person by a call, which no agent does: a person is asked by the work's questions.
-    AsksAPerson(RunId),
     /// The work has no such call.
     NoSuchCall(CallId),
     /// The call has its result already.

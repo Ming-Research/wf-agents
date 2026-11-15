@@ -18,8 +18,8 @@ fn since(h: &H, mark: Option<&Mark>) -> Attention {
     h.d().attention(mark).expect("the driver answers")
 }
 
-/// The work's run reaches its limit, what its cell may not write sent back, and waits for the owner's word; gives the
-/// time it did.
+/// The work's run reaches its limit, what its cell may not write sent back, and waits for the owner's word, the
+/// engine's call on the owner; gives the time it did.
 fn waits_for_the_owner(h: &mut H, work: WorkNumber) -> Time {
     for _ in 0..5 {
         h.hands_in(work, &[("merged", None)]);
@@ -27,10 +27,18 @@ fn waits_for_the_owner(h: &mut H, work: WorkNumber) -> Time {
             break;
         }
     }
+    let Decision::Wait { on, .. } = h.decision(work) else {
+        panic!("the run never reached its limit: {:?}", h.decision(work));
+    };
     assert!(
-        matches!(h.decision(work), Decision::Wait { .. }),
-        "{:?}",
-        h.decision(work)
+        matches!(
+            on[..],
+            [Waited::Call {
+                on: Some(Who::Owner),
+                ..
+            }]
+        ),
+        "{on:?}"
     );
     Time(h.clock)
 }
@@ -184,31 +192,12 @@ fn a_run_at_its_limit_is_a_line() {
     let (_, w) = h.add(new_item("a", &[], "plain"));
     let mark = since(&h, None).mark;
     h.let_on(w);
-    // What the cell may not write is sent back, until the run reaches its limit and waits for the owner.
-    for _ in 0..5 {
-        h.hands_in(w, &[("merged", None)]);
-        if matches!(h.decision(w), Decision::Wait { .. }) {
-            break;
-        }
-    }
-    let Decision::Wait { on, .. } = h.decision(w) else {
-        panic!("the run never reached its limit");
-    };
-    assert!(
-        matches!(
-            on[..],
-            [Waited::Call {
-                on: Some(Who::Owner),
-                ..
-            }]
-        ),
-        "{on:?}"
-    );
+    let since_limit = waits_for_the_owner(&mut h, w);
     assert_eq!(
         since(&h, Some(&mark)).lines,
         vec![Line {
             heed: Heed::ForAPerson { work: w },
-            since: Time(h.clock),
+            since: since_limit,
         }]
     );
 }

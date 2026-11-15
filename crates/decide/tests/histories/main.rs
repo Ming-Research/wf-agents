@@ -34,8 +34,8 @@
 //! - agents: each round ends with a return drawn from all the form allows, which the histories' engine judges with
 //!   `decide::run::next` and what `decide::told` gives, as the engine's loop does: it does the cell's work in most,
 //!   dealing with each of what ran the round with a chance of four in five and writing each output with three in five,
-//!   mattering or not, a choice with a value or now and then none or one it has not; it asks for calls, for the owner
-//!   or the engine, in a fifth; and now and then it mixes the two, deals with what did not run it, writes
+//!   mattering or not, a choice with a value or now and then none or one it has not; it asks for one or two tools in a
+//!   fifth; and now and then it mixes the two, deals with what did not run it, writes
 //!   what the cell may not, or deals with nothing. A return that meets everything is taken at once, its calls made
 //!   before its run finishes; one that does not is sent back, the next round told of any version it would have written
 //!   over; at the limit of returns the owner is asked. From the third round of a run the agent returns what meets
@@ -266,14 +266,14 @@ fn draw_cells(rng: &mut Rng, shape: Option<usize>) -> Vec<Cell> {
     cells
 }
 
-/// What a round's return was, as the histories' engine keeps it to build the run's log: the return as read, with who
-/// answers each call it asked for, or the kind of failure.
+/// What a round's return was, as the histories' engine keeps it to build the run's log: the return as read, with how
+/// many tools it asked for, each a call that waits on nobody, or the kind of failure.
 #[derive(Clone, Debug)]
 enum Back {
     Came {
         dealt_with: Vec<BlockId>,
         writes: Vec<Write>,
-        calls: Vec<Option<Who>>,
+        calls: usize,
     },
     Failed(Failure),
 }
@@ -665,7 +665,7 @@ impl History {
                     } => Return::Came {
                         dealt_with: dealt_with.clone(),
                         writes: writes.clone(),
-                        calls: calls.len(),
+                        calls: *calls,
                         found: Vec::new(),
                         waits: false,
                         questions: Vec::new(),
@@ -772,13 +772,18 @@ impl History {
         match step {
             Step::Finish { dealt_with, writes } => {
                 let calls = match self.backs[&run].last() {
-                    Some(Some(Back::Came { calls, .. })) => calls.clone(),
-                    _ => Vec::new(),
+                    Some(Some(Back::Came { calls, .. })) => *calls,
+                    _ => 0,
                 };
-                for on in calls {
+                for _ in 0..calls {
                     let call = CallId(self.next_id());
                     let at = self.w.tick();
-                    self.w.records.called.push(Called { call, run, on, at });
+                    self.w.records.called.push(Called {
+                        call,
+                        run,
+                        on: None,
+                        at,
+                    });
                 }
                 let at = self.w.tick();
                 self.w.records.finished.push(Finished {
@@ -973,7 +978,7 @@ impl History {
             return Back::Came {
                 dealt_with: told.ran_by.clone(),
                 writes,
-                calls: Vec::new(),
+                calls: 0,
             };
         }
         let choice = |b: &BlockId| [CHOICE, VERDICT].contains(&b.as_str());
@@ -1009,35 +1014,28 @@ impl History {
             return Back::Came {
                 dealt_with: told.ran_by.clone(),
                 writes,
-                calls: Vec::new(),
+                calls: 0,
             };
         }
-        let callers = |rng: &mut Rng| -> Vec<Option<Who>> {
-            (0..1 + rng.below(2))
-                .map(|_| match rng.below(10) {
-                    0..=2 => Some(Who::Owner),
-                    _ => None,
-                })
-                .collect()
-        };
+        let tools = |rng: &mut Rng| 1 + rng.below(2);
         match rng.below(20) {
             // Calls, and nothing else.
             0..=3 => Back::Came {
                 dealt_with: Vec::new(),
                 writes: Vec::new(),
-                calls: callers(rng),
+                calls: tools(rng),
             },
             // Deals with nothing, writes nothing, asks nothing.
             4 => Back::Came {
                 dealt_with: Vec::new(),
                 writes: Vec::new(),
-                calls: Vec::new(),
+                calls: 0,
             },
             // Calls beside the cell's work.
             5 => Back::Came {
                 dealt_with: told.ran_by.iter().take(1).cloned().collect(),
                 writes: spec.outputs.iter().take(1).map(|b| write(rng, b, true)).collect(),
-                calls: callers(rng),
+                calls: tools(rng),
             },
             // The cell's work, with what it did not run on or may not write now and then.
             _ => {
@@ -1057,7 +1055,7 @@ impl History {
                 Back::Came {
                     dealt_with,
                     writes,
-                    calls: Vec::new(),
+                    calls: 0,
                 }
             }
         }

@@ -2,8 +2,8 @@
 //! mark, the cards the owner acts on, the browser's notifications, the stretches of a work's bar the owner held it, and
 //! what `wf-agents wait` says rests for a person are all read from [`waits`].
 //!
-//! A work waits on the owner for: a question put to them that holds it, at its cell, or at a precondition that only
-//! their answers make hold, as the check before the merge does; a cell at its limit, or its run; a
+//! A work waits on the owner for: a question put to them that holds it, at its cell, as a call, or at a precondition
+//! that only their answers make hold, as the check before the merge does; a cell at its limit, or its run; a
 //! precondition the owner makes hold by writing a block, as a review's verdict for them to rule on; a pause the engine
 //! made; the pause of every work the engine set as it started again, where it holds the work; and the agents' command
 //! line where it cannot run, which only the owner mends. Who can make a precondition hold is what the flow declares of
@@ -17,11 +17,11 @@
 use decide::questions::{self, Standing};
 use decide::run::Limit;
 use decide::{
-    BlockId, CallId, CellId, Condition, Decision, End, Holder, Maker, Pauser, Records, Seq, TestKind, Waited,
+    BlockId, CallId, CellId, Condition, Decision, End, Holder, Maker, Pauser, Records, Seq, TestKind, Waited, Who,
 };
 use flow::Kind;
 use flow::agents::{OwnerWords, fill, sentence};
-use work::Call;
+use work::{Ask, Call};
 
 use crate::Kept;
 
@@ -55,6 +55,9 @@ pub struct Waiting {
 pub enum Ends {
     /// Answers the latest version of the work's question of this name, by one of its options.
     Answer { question: String, version: Seq },
+    /// Answers in words the question this call puts to them, as one work's old records hold one (decision
+    /// a-return-asks-no-person-by-a-call).
+    Reply { call: CallId },
     /// Lets the run that reached its limit go on, as the result of this call.
     GoOn { call: CallId },
     /// Lets the cell go on past its limit.
@@ -166,10 +169,8 @@ fn at_cell(
 ) {
     let cell = at.as_str();
     match waited {
-        // Of the calls, the engine's own at a run's limit alone waits on the owner (decision
-        // no-call-is-made-on-a-person).
-        Waited::Call { call, .. } => {
-            if let Some(Call::AtLimit(limit)) = kept.work.calls.get(call) {
+        Waited::Call { call, on } => match kept.work.calls.get(call) {
+            Some(Call::AtLimit(limit)) => {
                 let why = match limit {
                     // The engine is one of the cell's senders, for the returns it sent back.
                     Limit::Returns { sent_back } => {
@@ -184,7 +185,18 @@ fn at_cell(
                 };
                 push(waits, LIMIT.to_string(), why, Ends::GoOn { call: *call });
             }
-        }
+            // A question put to the owner by a call, which one work's old records hold, waited on the owner as it
+            // stood unanswered (decision a-return-asks-no-person-by-a-call).
+            Some(Call::Asked(Ask::Person { question, .. })) if *on == Some(Who::Owner) => {
+                push(
+                    waits,
+                    format!("call-{}", call.0),
+                    question.clone(),
+                    Ends::Reply { call: *call },
+                );
+            }
+            _ => {}
+        },
         Waited::Precondition { on: key, by } if by.contains(&Maker::Owner) => {
             for block in decide::keeping(&kept.flow.flow, records, at, key) {
                 let Some(outsiders) = kept.flow.flow.outsiders(&block) else {
@@ -301,7 +313,7 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use decide::{Outsider, Pause, Questioned, Returned, RunId, Who, Written};
+    use decide::{Called, Outsider, Pause, Questioned, Returned, RunId, Written};
     use flow::{Compiled, Has, Source, compile};
     use store::{First, Item, ItemNumber, WorkHead, WorkNumber};
     use work::{Back, Question, Said, Time, Work};
@@ -578,6 +590,36 @@ mod tests {
         assert_eq!(
             of(&work, &at("merge", vec![Waited::Precondition { on: key, by }])),
             Vec::<Waiting>::new()
+        );
+    }
+
+    #[test]
+    fn a_question_put_as_a_call_is_the_owners() {
+        let mut work = Work::default();
+        work.records.called.push(Called {
+            call: CallId(7),
+            run: RunId(1),
+            on: Some(Who::Owner),
+            at: Seq(7),
+        });
+        let question = "Question 7?".to_string();
+        let asked = Ask::Person {
+            who: Who::Owner,
+            question,
+        };
+        work.calls.insert(CallId(7), Call::Asked(asked));
+        let call = Waited::Call {
+            call: CallId(7),
+            on: Some(Who::Owner),
+        };
+        assert_eq!(
+            of(&work, &at("write", vec![call])),
+            [Waiting {
+                key: "call-7".to_string(),
+                why: "Question 7?".to_string(),
+                ends: Ends::Reply { call: CallId(7) },
+                under: None,
+            }]
         );
     }
 

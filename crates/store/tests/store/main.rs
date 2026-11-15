@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use decide::{
     CallId, Called, Done, Finished, Outsider, Pauser, PutIn, Returned, Round, RunId, Seq, Started, Who, Write, Written,
 };
-use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
+use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Tool, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -257,8 +257,7 @@ impl Driver {
         self.on(Event::Returned { run, came, spent })
     }
 
-    /// The round under way ends asking the owner a question by a call, as records kept before a return that asks a
-    /// person was refused hold it.
+    /// The round under way ends asking the owner a question by a call, as one work's old records hold it.
     fn asks_the_owner(&mut self) -> Vec<Effect> {
         let (run, _) = self.under_way();
         let spent = self.spent();
@@ -369,15 +368,15 @@ fn wanting() -> Came {
     hands_in(&[("verdict", Some("yes"))])
 }
 
-fn tool(name: &str) -> Ask {
-    Ask::Tool {
+fn tool(name: &str) -> Tool {
+    Tool {
         name: name.to_string(),
         input: format!("what {name} is run on"),
     }
 }
 
-/// Makes the call, which the run's last return asked for alone, a question for the owner, as records kept before a
-/// return that asks a person was refused hold it (decision no-call-is-made-on-a-person).
+/// Makes the call, which the run's last return asked for alone, a question for the owner, as one work's old records
+/// hold it (decision a-return-asks-no-person-by-a-call).
 fn put_to_the_owner(work: &mut Work, call: CallId) {
     let question = Ask::Person {
         who: Who::Owner,

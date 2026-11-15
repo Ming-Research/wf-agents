@@ -64,7 +64,7 @@ use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
 
 use decide::{BlockId, CallId, Decision, Outsider, Pauser, RunId, decide};
-use engine::{Ask, Came, Effect, Event, Handed, Spent, Work, pending};
+use engine::{Came, Effect, Event, Handed, Spent, Tool, Work, pending};
 use flow::{Compiled, Has, Source, compile};
 use support::{Driver, Part, Rng, Seen};
 
@@ -254,7 +254,7 @@ impl Part for Shape {
                 *asked += 1;
                 let n = 1 + d.rng.below(3);
                 let asks = (0..n)
-                    .map(|i| Ask::Tool {
+                    .map(|i| Tool {
                         name: format!("tool {i}"),
                         input: "x".to_string(),
                     })

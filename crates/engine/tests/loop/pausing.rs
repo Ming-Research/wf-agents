@@ -69,7 +69,7 @@ fn calls_asked_for_during_a_pause_are_made_and_the_round_given_their_results_wai
     let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a")])));
     assert_eq!(
         calls.iter().map(|(_, r, what)| (*r, what.clone())).collect::<Vec<_>>(),
-        vec![(write, Call::Asked(tool("a")))]
+        vec![(write, Call::Asked(tool("a").into()))]
     );
     assert_eq!(w.done(calls[0].0), vec![]);
     let effects = w.on(Event::Resumed);

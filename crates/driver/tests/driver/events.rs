@@ -57,7 +57,7 @@ fn what_happened_to_a_work_gives_what_is_to_be_done_for_it_next() {
             effect: Effect::Call {
                 call,
                 run: write,
-                what: Call::Asked(tool("search")),
+                what: Call::Asked(tool("search").into()),
             },
         }]
     );
