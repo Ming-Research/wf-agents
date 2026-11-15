@@ -3,9 +3,11 @@
 //! - `reference`: `wf-agents help`, the whole reference of the command line.
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `playing`: `wf-agents play`, a script played on that engine on a clock of its own, each work judged by its path.
+//! - `building`: `wf-agents play --states`, every state of the page built into stores a script is played into.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
 
+mod building;
 mod playing;
 mod reference;
 mod running;
@@ -75,16 +77,35 @@ enum Command {
     /// passes at once while nothing is under way; then says of each item whether its work took the path the script
     /// states, or the first step that left it with what the records hold there, and fails where any did not. It
     /// leaves the store, which `run` with the same script serves.
+    ///
+    /// With `--states` and `--items`, it builds instead every state of the page from the flows: their states, from
+    /// each flow's exploration and the engine's own kinds, each given to an item of the items file in turn, into the
+    /// stores a store each needs, each played as a script is; beside each it writes its list of states, each with the
+    /// item that shows it and each not brought about with why, its serving script and how it is served; and beside
+    /// them the list of every state. It fails where a state it played was not reached.
     Play {
-        /// The data directory, empty, which the store is written into.
+        /// The data directory, empty, which the store is written into; with `--states`, the stores, each in a
+        /// directory of its own.
         #[arg(long)]
         data: PathBuf,
         /// The directory of a flow's definition; given once for each flow.
         #[arg(long = "flow", required = true)]
         flows: Vec<PathBuf>,
         /// The script: what its agents, acts and tools do, its items, what people and the outside do, and each path.
-        #[arg(long)]
-        script: PathBuf,
+        #[arg(long, required_unless_present = "states", conflicts_with = "states")]
+        script: Option<PathBuf>,
+        /// Builds every state of the page in place of playing a script.
+        #[arg(long, requires = "items")]
+        states: bool,
+        /// The items the build gives its states to, in turn, as TOML: each `[[items]]` its `title`, `background`,
+        /// `flow` and the places in the file of the items it depends on (`depends_on`); the project they are added
+        /// in is named as the file is.
+        #[arg(long, requires = "states")]
+        items: Option<PathBuf>,
+        /// The time the build's clock starts at, in milliseconds since 1970; a play's bound before now where none is
+        /// given.
+        #[arg(long, requires = "states")]
+        start: Option<u64>,
     },
     /// Adds an item with its work, which is added paused: it begins nothing until it is let on with `wf-agents
     /// resume`.
@@ -517,7 +538,21 @@ fn main() -> ExitCode {
             let carriers = carried_by(&data, script, settings);
             running::run(&data, &flows, carriers, port)
         }
-        Command::Play { data, flows, script } => playing::play(&data, &flows, &script),
+        Command::Play {
+            data,
+            flows,
+            script,
+            states,
+            items,
+            start,
+        } => match (states, items, script) {
+            (true, Some(items), _) => building::build(&data, &flows, &items, start),
+            (_, _, Some(script)) => playing::play(&data, &flows, &script),
+            _ => {
+                eprintln!("a play is given --script, or --states with --items");
+                ExitCode::FAILURE
+            }
+        },
         Command::Add {
             title,
             level,

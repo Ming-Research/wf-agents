@@ -75,7 +75,7 @@ pub use levels::{Level, Levels, LevelsFault};
 pub use player::{Bounds, ItemPlayed, Open, Played, Stepper, play};
 pub use projects::Projects;
 pub use script::Script;
-pub use scripted::Scripted;
+pub use scripted::{Scripted, taken_in};
 pub use titles::{title_fits, title_words};
 pub use words::{no_one_words, record_fault_words, refused_words, store_fault_words};
 

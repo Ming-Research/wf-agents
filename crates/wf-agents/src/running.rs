@@ -607,7 +607,7 @@ fn start_faults(settings: &carry::Settings, beside: &flow::agents::Agents, flows
 /// each flow that compiled made of it; or why it cannot be: the flows are not all in one directory, what is beside them
 /// cannot be read, or a line's form cannot be made of it. Every flow is beside the one directory: what every flow shares is
 /// written once, beside them all (principle one-thing-one-place).
-fn beside(dirs: &[PathBuf], flows: &[Compiled]) -> Result<flow::agents::Agents, String> {
+pub fn beside(dirs: &[PathBuf], flows: &[Compiled]) -> Result<flow::agents::Agents, String> {
     let holder = |dir: &PathBuf| {
         let dir = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         (dir.parent().map(Path::to_path_buf)).ok_or_else(|| format!("{}: no directory holds it", dir.display()))

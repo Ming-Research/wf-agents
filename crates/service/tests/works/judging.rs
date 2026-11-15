@@ -433,6 +433,21 @@ fn an_answer_where_the_records_hold_the_owners_word_at_a_limit_leaves_the_path()
     assert_eq!(built.judged(&let_go), Judged::Took);
 }
 
+// A work never let on stands paused as it was added, which is the item's start and no step its records hold: a held
+// item's path may say so, and only while the pause it was added with stands. Milliseconds alone; no other test judges a
+// held item's path that ends at that pause.
+#[test]
+fn a_held_items_path_may_end_paused_as_it_was_added() {
+    let mut built = Built::held("merged", true);
+    let paused = r#"{ paused = "owner" }"#;
+    assert_eq!(built.judged_as(paused, true, &built.shown()), Judged::Took);
+    let short = built.judged_as(paused, false, &built.shown());
+    assert!(matches!(short, Judged::Short { step: 1, .. }), "{short:?}");
+    built.take(Event::Resumed);
+    let let_on = built.judged_as(paused, true, &built.shown());
+    assert!(!matches!(let_on, Judged::Took), "{let_on:?}");
+}
+
 #[test]
 fn a_question_that_waits_is_a_wait_for_its_answer_while_it_stands() {
     let mut built = Built::added("merged");
@@ -734,17 +749,6 @@ fn the_owners_pause_and_letting_on_are_steps_and_the_items_start_is_none() {
     assert_eq!(
         built.judged(&never_let_on),
         left(6, r#"{ runs = "review" }"#, "{ let_on = true }")
-    );
-    // An item never let on has no step for the pause it was added with.
-    let held = Built::held("merged", true);
-    let shown = held.shown();
-    assert_eq!(
-        held.judged_as(r#"{ paused = "owner" }"#, true, &shown),
-        Judged::Short {
-            step: 1,
-            said: r#"{ paused = "owner" }"#.to_string(),
-            shown: None,
-        }
     );
 }
 

@@ -361,6 +361,23 @@ fn a_work_whose_records_are_at_fault_is_written_nothing_and_given_nothing_while_
     assert_eq!(h.dependencies(wb).as_deref(), Some(driver::WAITING));
 }
 
+// The driver says which work it holds at fault, as its view shows it, and no other: what a play's view of a work rests
+// on beside the work's records, which do not change as the driver comes to hold it so. Milliseconds alone; no other
+// test holds the driver to its word on a work it holds at fault.
+#[test]
+fn the_driver_says_which_work_it_holds_at_fault() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "plain"));
+    let (_, wb) = h.add(new_item("b", &[a], "short"));
+    h.let_on(wa);
+    assert!(!h.d().at_fault(wb));
+    fault_behind_the_back(&h.db, wb, "draft");
+    h.faulty.insert(wb);
+    h.restart();
+    assert!(h.d().at_fault(wb));
+    assert!(!h.d().at_fault(wa));
+}
+
 #[test]
 fn a_work_at_fault_with_a_round_under_way_is_given_that_round_again_as_the_driver_opens() {
     // What the documentation leaves open, stated as the driver does it: a work whose records are at fault is not

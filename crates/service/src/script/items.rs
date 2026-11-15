@@ -100,7 +100,7 @@ use super::{QuestionScript, Script};
 pub const LEVEL: &str = "1";
 
 /// An item a script adds.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ItemScript {
     pub title: String,
@@ -124,7 +124,7 @@ pub struct ItemScript {
 }
 
 /// A block people write for an item as it is added.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WriteScript {
     pub block: String,
@@ -135,7 +135,7 @@ pub struct WriteScript {
 
 /// A step of a path, or a state of a work an act waits for, as the script writes it: one key says what it is, and the
 /// others say more of it (the module's own words).
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StepScript {
     pub runs: Option<String>,
@@ -162,7 +162,7 @@ pub struct StepScript {
 }
 
 /// What a work waits for, as a step names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Waiting {
     Tool,
@@ -178,7 +178,7 @@ pub enum Waiting {
 }
 
 /// Who pauses a work, or the pause of everything, as a step names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum By {
     Owner,
@@ -186,15 +186,48 @@ pub enum By {
 }
 
 /// How a work ends, as a step names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Ending {
     Merged,
     Cancelled,
 }
 
+impl StepScript {
+    /// The step as a script writes it: its words, read back.
+    pub fn of(step: &Step) -> StepScript {
+        let read: toml::Table =
+            toml::from_str(&format!("step = {step}")).expect("a step is written as a script's table");
+        (read.get("step").cloned())
+            .and_then(|step| step.try_into().ok())
+            .expect("a step's table is a step of a script")
+    }
+}
+
+impl ActScript {
+    /// The act that does this once the work stands at this state, saying nothing more yet.
+    pub fn at(at: &Step, does: Does) -> ActScript {
+        ActScript {
+            at: StepScript::of(at),
+            does,
+            block: None,
+            content: None,
+            value: None,
+            cell: None,
+            why: None,
+            line: None,
+            question: None,
+            words: None,
+            option: None,
+            title: None,
+            item: None,
+            tag: None,
+        }
+    }
+}
+
 /// What an act does, at the state of the work it waits for.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActScript {
     pub at: StepScript,
