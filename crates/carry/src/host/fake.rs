@@ -24,6 +24,8 @@ pub(crate) struct Fake {
     askings: Mutex<Vec<Asking>>,
     /// Why cancelling what runs the tests fails, where it does.
     cancelling: Mutex<Option<String>>,
+    /// The head main moved to, where a merge is refused for it.
+    moved: Mutex<Option<String>>,
 }
 
 /// What the host was asked.
@@ -61,7 +63,14 @@ impl Fake {
             titles: Mutex::new(Vec::new()),
             askings: Mutex::new(Vec::new()),
             cancelling: Mutex::new(None),
+            moved: Mutex::new(None),
         }
+    }
+
+    /// Refuses each merge, main having moved to this head since the check passed.
+    pub(crate) fn moved_main(self, to: &str) -> Fake {
+        *lock(&self.moved) = Some(to.to_string());
+        self
     }
 
     /// Fails to cancel what runs the tests, with these words.
@@ -132,6 +141,10 @@ impl Host for Fake {
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         self.given(branch);
         lock(&self.asked).push(Asked::Merge(checked.map(str::to_string)));
+        if let Some(main) = lock(&self.moved).clone() {
+            let checked = checked.unwrap_or_default().to_string();
+            return Err(NotMerged::Moved { main, checked });
+        }
         Ok(lock(&self.main).clone())
     }
 

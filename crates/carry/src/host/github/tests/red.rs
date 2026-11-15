@@ -370,6 +370,58 @@ async fn a_run_again_on_the_commit_or_on_mains_head_that_judged_nothing_fails_th
     assert_eq!(runs(&hub).len(), 3);
 }
 
+/// The JUnit of a run of `tools::tests::b` and `tools::tests::c`, each passed or failed as given.
+fn b_and_c(b: bool, c: bool) -> Vec<(String, Vec<u8>)> {
+    let case = |name: &str, passed: bool| {
+        let failure = if passed {
+            String::new()
+        } else {
+            format!("<failure message=\"assertion failed\">thread '{name}' panicked</failure>")
+        };
+        format!(r#"<testcase name="{name}" time="0.3">{failure}</testcase>"#)
+    };
+    let xml = format!(
+        r#"<testsuites><testsuite name="carry">{}{}</testsuite></testsuites>"#,
+        case("tools::tests::b", b),
+        case("tools::tests::c", c)
+    );
+    vec![("junit.xml".to_string(), xml.into_bytes())]
+}
+
+// Where the full workflows failed several tests and nothing else, and each fails again on the commit, the commit is held
+// only where every one of them fails on main's head as well; one that passes there is the change's, and the commit
+// fails, saying it. Well under a second alone each way, a repository on disk and GitHub in memory; no other test holds
+// a verdict to more than one test failed.
+#[tokio::test]
+async fn several_tests_that_fail_again_hold_the_commit_only_where_all_fail_on_mains_head() {
+    for c_on_main in [false, true] {
+        let hub = Hub::new();
+        let head = hub.committed().await;
+        let jobs = || vec![passed("lint"), check("test", red())];
+        hub.github()
+            .of_workflow("ci.yml", &head, jobs(), Some(("test-results", b_and_c(false, false))));
+        let main = hub.main_on_github();
+        hub.github()
+            .of_workflow("fast.yml", &head, jobs(), Some(("test-results", b_and_c(false, false))));
+        let on_main = vec![passed("lint"), check("test", red())];
+        hub.github()
+            .of_workflow("fast.yml", &main, on_main, Some(("test-results", b_and_c(false, c_on_main))));
+        let verdict = hub.verdict(&head).await.unwrap().expect("judged");
+        if c_on_main {
+            assert_eq!(verdict.held, None, "{verdict:?}");
+            let failed = verdict.failed.expect("failed");
+            assert!(
+                failed.ends_with("Failed again on the commit, and not on the head of main: `tools::tests::c`."),
+                "{failed}"
+            );
+        } else {
+            assert_eq!(verdict.failed, None, "{verdict:?}");
+            let held = verdict.held.expect("held");
+            assert!(held.contains("`tools::tests::b`") && held.contains("`tools::tests::c`"), "{held}");
+        }
+    }
+}
+
 // A test the run again did not run could not be run again: the commit fails as the full workflows found it and as the
 // run again found it, which says the test was not run, and never says it failed again; nothing is run on main,
 // whatever main would make of it. Counted as failed again, a test run on neither read "Failed again on the commit, and
