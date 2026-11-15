@@ -1,9 +1,10 @@
 //! The process stopped and started again: at every step of a work, the work ends as it would have without the stop
 //! (property `a-stop-changes-nothing`), with what was under way given again and answered again by the script, once the
 //! owner has lifted the pause of everything the engine makes as it starts again with the work going on. Until then,
-//! nothing begins a round but what was under way when it stopped.
+//! nothing begins a round but what was under way when it stopped and a run that answers the owner.
 
 use decide::{Decision, End};
+use engine::Event;
 use service::Act;
 use store::WorkNumber;
 use work::Work;
@@ -91,11 +92,13 @@ async fn started_again_with_a_work_going_on_it_gives_the_round_under_way_and_beg
     // The round under way at the stop is given again, and ends; the plan's question is asked and answered.
     trial.until(work, |d| matches!(d, Decision::Wait { .. })).await;
     trial.answer(work, "Yes, by name.");
-    // Nothing more begins: entering the plan again for the answer waits for the owner.
+    // The plan, entered again for the owner's answer, runs though everything is held, as a run that answers the owner
+    // does, and hands in; nothing more begins.
+    assert_eq!(trial.work(work).records.rounds.len(), rounds + 1);
+    assert!(matches!(trial.step().await, Some(Event::Returned { .. })));
     assert!(trial.step().await.is_none());
-    assert_eq!(trial.work(work).records.rounds.len(), rounds);
     assert_eq!(trial.decision(work), Decision::Paused);
     trial.everything(false);
-    assert_eq!(trial.work(work).records.rounds.len(), rounds + 1);
+    assert_eq!(trial.work(work).records.rounds.len(), rounds + 2);
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
 }

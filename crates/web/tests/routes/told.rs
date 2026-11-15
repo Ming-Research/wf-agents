@@ -211,8 +211,13 @@ async fn a_round_under_way_is_given_its_message_and_nothing_back() {
     let running = keeping(BTreeMap::from([((1, 2, 1), told)]));
     let router = &running.router;
     greeted(router).await;
+    // The first round's try said what it ran on and what was filled into its session: the question was asked two
+    // places later than with no try said.
+    let question = get_json(router, "/api/v1/works/1").await["questions"][0].clone();
+    assert_eq!(question["version"], crate::NAMED + 2);
+    let answer = json!({ "kind": "answer", "question": "named", "version": crate::NAMED + 2, "option": 1 });
     assert_eq!(
-        post(router, "/api/v1/works/1/acts", &crate::named()).await.0,
+        post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
     );
     // The plan, entered again for the answer, has its round under way for a second and a half.
