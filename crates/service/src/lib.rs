@@ -72,7 +72,7 @@ pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Under};
 pub use judge::{Judged, Shown};
 pub use levels::{Level, Levels, LevelsFault};
-pub use player::{Bounds, ItemPlayed, Played, Stepper, play};
+pub use player::{Bounds, ItemPlayed, Open, Played, Stepper, play};
 pub use projects::Projects;
 pub use script::Script;
 pub use scripted::Scripted;
