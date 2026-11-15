@@ -1017,7 +1017,11 @@ impl Explorer<'_> {
                         }
                     }
                     let new = r.new_to(cell, block, NOW);
-                    if new.is_empty() {
+                    // The cell that gives results is entered for an entry it put away as well, its cell applying again.
+                    let taken_up = new.is_empty() && r.taken_up(flow, def, NOW).contains(block);
+                    if taken_up {
+                        self.reach(TAKEN_UP.to_string());
+                    } else if new.is_empty() {
                         let own = r
                             .of(block)
                             .last()
@@ -1435,4 +1439,5 @@ pub const STALLED_SHOWN: &str = "a stalled work was shown as waiting for the own
 pub const A_QUESTION_WAITED: &str = "a question waited for the owner";
 pub const GAVE_RESULTS: &str = "the act that runs tests gave the results of what the cells asked for";
 pub const RAN_FOR_A_WAIT: &str = "a cell ran to give the result a cell before it waited for";
+pub const TAKEN_UP: &str = "the cell that gives results ran for an entry put away while its cell was skipped";
 pub const WRITTEN_OVER: &str = "a return was sent back as it would write over what its round was not told of";

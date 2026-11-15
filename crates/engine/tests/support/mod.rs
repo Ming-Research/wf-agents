@@ -165,9 +165,8 @@ pub fn waited_for_a_result(flow: &decide::Flow, records: &Records, started: &Sta
 }
 
 /// Whether the cell waits, at this place, for the result of what a run of it asked for in a record: its latest entry
-/// of the record before the place, a write of it by a finished run of the cell, has no result handed in after it, and
-/// no run of a cell that gives the result, started after it, finished passing over it. Read from the records and the
-/// flow.
+/// of the record before the place, a write of it by a finished run of the cell, has no result handed in after it. Read
+/// from the records and the flow.
 pub fn awaits(flow: &decide::Flow, records: &Records, cell: &CellId, at: Seq) -> bool {
     let Some(cell) = flow.place(cell).map(|i| &flow.cells()[i]) else {
         return false;
@@ -182,16 +181,8 @@ pub fn awaits(flow: &decide::Flow, records: &Records, cell: &CellId, at: Seq) ->
         let Some(entry) = entry else {
             return false;
         };
-        let gives = |c: &CellId| {
-            (flow.place(c)).is_some_and(|j| {
-                let giver = &flow.cells()[j];
-                giver.runs_on.contains(&asks.record) && giver.outputs.contains(&asks.result)
-            })
-        };
-        let after = (records.finished.iter()).filter(|f| f.at > entry && f.at < at);
-        let answered = after.clone().any(|f| f.writes.iter().any(|w| w.block == asks.result));
-        let passed = after.filter_map(|f| of(f.run)).any(|s| s.at > entry && gives(&s.cell));
-        !answered && !passed
+        let mut after = (records.finished.iter()).filter(|f| f.at > entry && f.at < at);
+        !after.any(|f| f.writes.iter().any(|w| w.block == asks.result))
     })
 }
 

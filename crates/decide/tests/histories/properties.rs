@@ -118,7 +118,8 @@ pub const WAITS: &str = "while a cell waits for a result, only a cell that gives
 pub const RESULTS: &str = "a result is handed in only for an entry that waits for it";
 const WAITED_FOR_A_RESULT: &str = "a cell runs that gives the result a cell before it waits for";
 const RESULT_GIVEN: &str = "the result of an entry is handed in";
-const ENTRY_PASSED_OVER: &str = "the entry of a cell skipped is passed over";
+const ENTRY_PUT_AWAY: &str = "the entry of a cell skipped is put away while a cell that gives results runs";
+const ENTRY_TAKEN_UP: &str = "a cell that gives results runs for an entry it put away, its cell applying again";
 const WAITING_HOLDS_A_STOP: &str = "the owner turns to a cell a waiting cell holds back while a round is under way";
 
 /// What the histories that draw a cell asking for tests must reach (decisions a-wait-holds-its-cell,
@@ -126,7 +127,8 @@ const WAITING_HOLDS_A_STOP: &str = "the owner turns to a cell a waiting cell hol
 pub const WAITS_REACHED: &[&str] = &[
     WAITED_FOR_A_RESULT,
     RESULT_GIVEN,
-    ENTRY_PASSED_OVER,
+    ENTRY_PUT_AWAY,
+    ENTRY_TAKEN_UP,
     WAITING_HOLDS_A_STOP,
 ];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
@@ -460,6 +462,9 @@ pub fn waits(v: &mut Verdict, flow: &Flow, reading: &Reading, decision: &Decisio
     match decision {
         Decision::Run { cell, .. } => {
             let Some(i) = flow.place(cell) else { return };
+            if !reading.taken_up(flow, &cells[i], Seq(u64::MAX)).is_empty() {
+                v.count(ENTRY_TAKEN_UP);
+            }
             let Some(j) = waiting(flow, reading, i) else { return };
             if (cells[j].asks.iter()).any(|asks| cells[i].runs_on.contains(&asks.record)) {
                 v.count(WAITED_FOR_A_RESULT);
@@ -531,7 +536,7 @@ pub fn results(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId) {
                 Some(entry) if !answered(entry) && !reading.applies(flow, j) => {
                     let gives = flow.cells().iter().find(|c| c.id == s.cell);
                     if gives.is_some_and(|g| g.runs_on.contains(&asks.record)) {
-                        v.count(ENTRY_PASSED_OVER);
+                        v.count(ENTRY_PUT_AWAY);
                     }
                 }
                 _ => {}

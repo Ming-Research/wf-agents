@@ -145,11 +145,26 @@ fn while_a_cell_waits_for_its_tests_no_later_cell_runs_but_the_one_that_runs_the
             replaced: Vec::new(),
         }]
     );
-    w.run("run tests", &[]);
-    // Nothing is new to the cell that runs the tests, and the result has not come: the work waits at the
-    // implementation for it, and the review still does not run.
+    w.start("run tests");
+    w.finish("run tests", &[]);
+    // A run that gave nothing for an entry of a cell that applies leaves it waited for: the cell that runs the tests
+    // is entered for it again, though nothing of the record is new to it, and the review still does not run.
     assert_eq!(
-        w.decide(),
+        reasons(&w.decide()),
+        ("run tests".into(), vec![("tests".into(), false)])
+    );
+    // With no cell to give the result, the work waits at the implementation for it.
+    let mut held = testing();
+    asks_for_tests(&mut held);
+    let mut gated = held.flow.cells().to_vec();
+    let place = held.flow.place(&"run tests".into()).expect("the flow has it");
+    gated[place].applies = vec![Condition::Is {
+        block: "never".into(),
+        value: "yes".into(),
+    }];
+    held.install(gated);
+    assert_eq!(
+        held.decide(),
         wait(
             "implement",
             vec![Waited::Result {
@@ -298,9 +313,10 @@ fn a_skipped_cells_entry_is_put_away_and_waits_again_as_the_cell_applies_again()
 }
 
 // A run of the cell that runs the tests that passed over a skipped cell's entry, as it gave the results of the cells
-// that applied, gave it no result: the entry is no longer waited for once the cell applies again.
+// that applied, gave it no result: once the cell applies again it waits for it again, and the cell that runs the tests
+// is entered for it, though nothing of the record is new to it.
 #[test]
-fn an_entry_a_run_of_the_tests_passed_over_is_waited_for_no_more() {
+fn an_entry_the_tests_passed_over_while_its_cell_was_skipped_is_run_once_it_applies_again() {
     let mut w = testing();
     w.install(vec![
         asking(
@@ -323,8 +339,15 @@ fn an_entry_a_run_of_the_tests_passed_over_is_waited_for_no_more() {
     assert_eq!(reasons(&w.decide()).0, "run tests");
     w.run("run tests", &[]);
     w.says("researching", true);
-    assert_eq!(asked_of(&w.flow, &w.records, &"run tests".into()), Vec::new());
-    assert_eq!(w.decide(), resting());
+    assert_eq!(asked_of(&w.flow, &w.records, &"run tests".into()).len(), 1);
+    let Decision::Run { cell, because, .. } = w.decide() else {
+        panic!("the walk runs no cell: {:?}", w.decide());
+    };
+    assert_eq!(cell.as_str(), "run tests");
+    let Some(Cause::Changed { block, was, behind }) = because.first() else {
+        panic!("{because:?}");
+    };
+    assert_eq!((block.as_str(), was.is_some(), *behind), ("tests", true, false));
 }
 
 #[test]
