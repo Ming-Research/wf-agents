@@ -978,7 +978,11 @@ async fn the_check_takes_a_full_run_that_passed_on_its_commit_and_runs_nothing_a
     let place = hub.place();
     let entry = Asking::Entry(decide::Seq(40));
     let whole = Named::default();
-    let said = (hub.host.run_tests(&branch(&place), &whole, entry, &mut Stop::never()).await).expect("run");
+    let said = (hub
+        .host
+        .run_tests(&branch(&place), &whole, entry, &mut Stop::never())
+        .await)
+        .expect("run");
     assert!(said.is_some(), "the entry ran the full workflows");
     let full_runs = |hub: &Hub| {
         (hub.github().asked().iter())
@@ -989,7 +993,13 @@ async fn the_check_takes_a_full_run_that_passed_on_its_commit_and_runs_nothing_a
     let main = hub.main_on_github();
     let verdict = hub
         .host
-        .verdict(&branch(&place), &head, &main, (hub.round(), &[entry]), &mut Stop::never())
+        .verdict(
+            &branch(&place),
+            &head,
+            &main,
+            (hub.round(), &[entry]),
+            &mut Stop::never(),
+        )
         .await
         .expect("judged")
         .expect("not stopped");
@@ -1000,10 +1010,20 @@ async fn the_check_takes_a_full_run_that_passed_on_its_commit_and_runs_nothing_a
     hub.green(&later);
     let verdict = hub
         .host
-        .verdict(&branch(&place), &later, &main, (hub.round(), &[entry]), &mut Stop::never())
+        .verdict(
+            &branch(&place),
+            &later,
+            &main,
+            (hub.round(), &[entry]),
+            &mut Stop::never(),
+        )
         .await
         .expect("judged")
         .expect("not stopped");
     assert_eq!(verdict.failed, None, "{verdict:?}");
-    assert_eq!(full_runs(&hub), 2, "the full workflows run on the commit the check judges");
+    assert_eq!(
+        full_runs(&hub),
+        2,
+        "the full workflows run on the commit the check judges"
+    );
 }

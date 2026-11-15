@@ -212,7 +212,11 @@ async fn the_loop_judges_a_round_by_the_line_of_its_history_and_nothing_where_it
         run["rounds"][0]["judged"].clone()
     };
     let first = get_json(router, "/api/v1/works/1").await;
-    assert_eq!(plan(&first), json!({ "cost": null, "time": null }), "no round had ended");
+    assert_eq!(
+        plan(&first),
+        json!({ "cost": null, "time": null }),
+        "no round had ended"
+    );
     let third = get_json(router, "/api/v1/works/3").await;
     let judged = plan(&third);
     for of in ["cost", "time"] {
@@ -226,7 +230,11 @@ async fn the_loop_judges_a_round_by_the_line_of_its_history_and_nothing_where_it
         assert!(judged["value"].as_u64().is_some_and(|v| v > 0), "{of}: {judged}");
     }
     let system = get_json(router, "/api/v1/system").await;
-    assert_eq!((&system["past"], &system["underWay"]), (&json!([]), &json!([])), "{system}");
+    assert_eq!(
+        (&system["past"], &system["underWay"]),
+        (&json!([]), &json!([])),
+        "{system}"
+    );
 }
 
 /// What every agent's round runs on, in the history below.

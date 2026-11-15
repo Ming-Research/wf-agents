@@ -404,8 +404,12 @@ async fn several_tests_that_fail_again_hold_the_commit_only_where_all_fail_on_ma
         hub.github()
             .of_workflow("fast.yml", &head, jobs(), Some(("test-results", b_and_c(false, false))));
         let on_main = vec![passed("lint"), check("test", red())];
-        hub.github()
-            .of_workflow("fast.yml", &main, on_main, Some(("test-results", b_and_c(false, c_on_main))));
+        hub.github().of_workflow(
+            "fast.yml",
+            &main,
+            on_main,
+            Some(("test-results", b_and_c(false, c_on_main))),
+        );
         let verdict = hub.verdict(&head).await.unwrap().expect("judged");
         if c_on_main {
             assert_eq!(verdict.held, None, "{verdict:?}");
@@ -417,7 +421,10 @@ async fn several_tests_that_fail_again_hold_the_commit_only_where_all_fail_on_ma
         } else {
             assert_eq!(verdict.failed, None, "{verdict:?}");
             let held = verdict.held.expect("held");
-            assert!(held.contains("`tools::tests::b`") && held.contains("`tools::tests::c`"), "{held}");
+            assert!(
+                held.contains("`tools::tests::b`") && held.contains("`tools::tests::c`"),
+                "{held}"
+            );
         }
     }
 }

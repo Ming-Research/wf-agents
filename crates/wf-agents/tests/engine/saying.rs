@@ -28,10 +28,18 @@ fn spoken_to(place: &Place) -> PathBuf {
         assert!(text.contains(from), "{}: {from}", file.display());
         std::fs::write(file, text.replacen(from, to, 1)).unwrap();
     };
-    edit(&flow.join("build.toml"), "\"answered\"]", "\"answered\", \"build_spoken_to\"]");
+    edit(
+        &flow.join("build.toml"),
+        "\"answered\"]",
+        "\"answered\", \"build_spoken_to\"]",
+    );
     let declared = flow.join("flow.toml");
     let text = std::fs::read_to_string(&declared).unwrap();
-    std::fs::write(&declared, format!("{text}\n[blocks.build_spoken_to]\noutside = \"words\"\n")).unwrap();
+    std::fs::write(
+        &declared,
+        format!("{text}\n[blocks.build_spoken_to]\noutside = \"words\"\n"),
+    )
+    .unwrap();
     flow
 }
 

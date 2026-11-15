@@ -1670,7 +1670,10 @@ mod tests {
             depends_on: Vec::new(),
             tags: Vec::new(),
         };
-        let r2 = (flow.cells.iter()).find(|c| c.id.as_str() == "R2").expect("the flow has R2").clone();
+        let r2 = (flow.cells.iter())
+            .find(|c| c.id.as_str() == "R2")
+            .expect("the flow has R2")
+            .clone();
         let round = Round {
             work: WorkNumber(3),
             cell: r2,
@@ -1697,7 +1700,9 @@ mod tests {
         agents.inner.tell(&round, telling(10, "Keep it to one table.")).await;
         let waiting: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&files.waiting).expect("it waits for the hook")).unwrap();
-        let given = waiting["hookSpecificOutput"]["additionalContext"].as_str().expect("what the hook gives");
+        let given = waiting["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .expect("what the hook gives");
         assert_eq!(given, said(&beside, &telling(10, "Keep it to one table.")));
         assert!(
             given.starts_with("## `discussion`, version 10, said while this round runs")
@@ -1725,7 +1730,11 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(heard, [telling(10, "").versions], "only what the hook gave reached the round");
+        assert_eq!(
+            heard,
+            [telling(10, "").versions],
+            "only what the hook gave reached the round"
+        );
         // Once the round has ended, nothing is put for its hook.
         agents.inner.tell(&round, telling(14, "Late words.")).await;
         assert!(!files.waiting.exists(), "nothing waits for a round that ended");

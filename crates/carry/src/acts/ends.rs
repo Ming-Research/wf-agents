@@ -500,7 +500,11 @@ async fn a_head_moved_since_the_check_fails_the_merge_in_passing_and_is_written_
     let said = fill(&super::words().merge.unreviewed, &[("head", &after)]);
     assert_eq!(failed, Failed::passing(said));
     // It gives up the turn, as the review comes first and may take long.
-    assert_eq!(acts.inner.turn().holder, None, "the merge keeps no turn over a moved head");
+    assert_eq!(
+        acts.inner.turn().holder,
+        None,
+        "the merge keeps no turn over a moved head"
+    );
     assert_eq!(written_from_outside(&mut told), [("head".to_string(), after.clone())]);
     assert!(
         !(acts.inner.host.asked().iter()).any(|a| matches!(a, Asked::Merge(_))),
@@ -586,7 +590,11 @@ async fn a_merge_that_cannot_read_the_works_branch_fails_its_round_as_the_check_
         !(acts.inner.host.asked().iter()).any(|a| matches!(a, Asked::Merge(_))),
         "the host is asked to merge nothing"
     );
-    assert_eq!(acts.inner.turn().holder, None, "the merge keeps no turn over a branch it could not read");
+    assert_eq!(
+        acts.inner.turn().holder,
+        None,
+        "the merge keeps no turn over a branch it could not read"
+    );
 }
 
 // A merge refused for a moved main keeps the work's turn, for its check on main's new head, as after a check that
@@ -606,8 +614,16 @@ async fn a_merge_takes_the_turn_before_it_merges_and_one_refused_for_a_moved_mai
     let teller = RoundReply::new(WORK, RunId(5), to).teller();
     let refused = refusing.inner.act(&round, &teller, &mut Stop::never()).await;
     assert!(refused.is_err(), "refused for main having moved");
-    let holder = refusing.inner.turn().holder.map(|(work, passed)| (work, passed.is_some()));
-    assert_eq!(holder, Some((WORK, true)), "the work keeps its turn, as after a check that passed");
+    let holder = refusing
+        .inner
+        .turn()
+        .holder
+        .map(|(work, passed)| (work, passed.is_some()));
+    assert_eq!(
+        holder,
+        Some((WORK, true)),
+        "the work keeps its turn, as after a check that passed"
+    );
     // Another work has the turn: the merge waits for it, and merges once it is let go.
     let waiting = acts(&repo, Fake::new(&main));
     let other = WorkNumber(2);
