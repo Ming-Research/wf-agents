@@ -1,10 +1,10 @@
-# Runs tests and checks in the project's CI, run by the engine (design statement 27).
+# Runs tests and checks in the project's CI, run by the engine.
 words = '''
 `run_tests`: runs the project's tests on the last commit of the work's branch, which the engine pushes; what is not
   committed is not run. Ask as `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says
   and checks among {named_checks}; what is named is run alone, by the project's fast workflow. Name none to run the
   project's full workflows. It gives each test, passed or failed, with the time it took and what a failed one said,
-  and each check named, passed or failed.'''
+  and each job, how it ended and its wall time.'''
 
 # What it says in place of `words` where the host is the local repository.
 words_local = '''
@@ -36,8 +36,9 @@ came_tests = "{passed} of the {total} tests passed"
 came_checks = "{passed} of the {total} checks passed"
 came_join = "; "
 tests_title = "The tests:"
-checks_title = "The checks:"
+jobs_title = "The jobs:"
 test = "- {name}: {became}{time}"
+# A test's time, and a job's wall time as GitHub records it from its start to its end.
 time = " in {time} s"
 passed = "passed"
 failed = "failed"
@@ -45,15 +46,18 @@ skipped = "skipped"
 not_run = "not run: {why}"
 not_built = "not built: {why}"
 output = "  What it said:\n{said}"
-job = "- {name}: {how}{link}"
+job = "- {name}: {how}{time}{link}"
 link = " {url}"
 job_passed = "passed"
 job_failed = "failed ({how})"
 job_broken = "ended without judging the code ({how})"
 job_pending = "not complete"
+job_skipped = "did not run"
+job_untimed = " (GitHub gives no time for it)"
 job_missing = "the run has no job of that name"
 no_junit = "The run uploaded no JUnit results the engine can read, so no test's result is known, and the engine reads no log to guess one: {why}."
 verdict_by = "the full workflows of the commit ({urls})"
+verdict_jobs = "The jobs of the full workflows, each with how it ended and its wall time:\n  {jobs}"
 unit_not_built = "{unit}: {why}"
 no_such_test = "no test of the run has this name: a name is a test's name as the results give it, and no more"
 no_such_test_unbuilt = "no test of the run has this name, and these units were not built, so it may be in one: {units}"
