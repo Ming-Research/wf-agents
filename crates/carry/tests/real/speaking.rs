@@ -10,8 +10,9 @@ use crate::{Fake, On, Real, ended};
 // The owner speaks to the build's line while its round works: the round's hook gives it the words, in the words of
 // `said` in the message's file; the round answers them in the record of what is said, saying it dealt with them; the
 // carrier says the round was given them, and the engine puts their versions into the round, so that the build is not
-// run again for them. A few seconds alone, a repository on disk and the fake command line; no other test hands a round
-// the owner's words through the carriers.
+// run again for them. Under a second alone (a quarter of one in CI), a repository on disk and the fake command line,
+// which runs the hook its settings give after a use of a tool, as the program does; no other test hands a round the
+// owner's words through the carriers.
 #[tokio::test]
 async fn words_said_to_a_round_under_way_reach_it_by_its_hook_and_are_taken_with_its_return() {
     let mut real = Real::open(

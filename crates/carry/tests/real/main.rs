@@ -74,9 +74,9 @@ pub struct Fake {
     /// Whether the build, in its first run, commits twice and asks for the tests on the first of the two commits, and,
     /// in the run their result runs, asks for them on its head, each time dealing with nothing.
     pub asks_named_tests: bool,
-    /// Whether the build, the first time it runs, waits, as a round at work does, until the owner's words wait for its
-    /// hook, gives them to itself as its hook does, keeps what the hook gave in `<n>.heard`, and answers them in the
-    /// record of what is said as it hands in, saying it dealt with them.
+    /// Whether the build, the first time it runs, works, running after each use of a tool the hook the command line was
+    /// given for it, until the hook gives it the owner's words, keeps what the hook gave in `<n>.heard`, and answers
+    /// them in the record of what is said as it hands in, saying it dealt with them.
     pub hears_words: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
@@ -539,17 +539,20 @@ case "$first" in
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -qE '^- `(build_)?answered`' && answered=yes
         if [ '{hears}' = yes ] && [ ! -f "$log/heard" ]; then
-            # It works until the owner's words wait for its hook, whose file the hook's command names, then gives them
-            # to itself as the hook does: moves the file aside and prints it.
-            waiting=$(sed -n "s/.*if \[ -e '\([^']*\)' \].*/\1/p" "$log/$n.args" | head -n 1)
+            # It works, running after each use of a tool the hook its settings give for it, as the program does, until
+            # the hook gives it the owner's words.
+            hook=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 \
+                | sed -e 's/.*"PostToolUse":\[{{"hooks":\[{{"command":"//' \
+                    -e 's/","type":"command"}}],"matcher":"\*"}}].*//' -e 's/\\"/"/g')
             touch "$log/listening"
             i=0
-            while [ ! -e "$waiting" ] && [ "$i" -lt 400 ]; do
+            heard=''
+            while [ -z "$heard" ] && [ "$i" -lt 400 ]; do
                 sleep 0.05
+                heard=$(printf '%s' '{{"tool_name":"Bash"}}' | sh -c "$hook")
                 i=$((i + 1))
             done
-            delivered="${{waiting%.words.json}}.delivered.1.json"
-            mv "$waiting" "$delivered" && cat "$delivered" > "$log/$n.heard"
+            printf '%s' "$heard" > "$log/$n.heard"
             touch "$log/heard"
             dealt="${{dealt:+$dealt,}}\"on_spoken\""
             reply=yes

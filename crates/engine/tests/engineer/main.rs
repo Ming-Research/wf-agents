@@ -121,7 +121,7 @@ use engine::spoken::{self, To};
 use engine::{Ask, Came, Effect, Event, Handed};
 use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
-use support::{Driver, Part, Rng, lacking_a_must_write};
+use support::{Driver, Part, Rng, lacking_a_must_write, reaching};
 
 /// How many histories are run.
 const SEEDS: u64 = 500;
@@ -1244,12 +1244,12 @@ fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
         !w.people && w.outside.is_none()
     };
     let cells = d.flow.flow.cells();
-    // The line of the cell at `j`, where the owner's words to it reach that cell, as the engine chooses.
+    // The line of the cell at `j`, where the owner's words to it reach that cell, as the records read.
     let spoken_to = |j: usize| {
         let spec = &d.flow.cells[j];
         let line = spec.line.clone()?;
-        let reached = spoken::receiver(&d.flow, &d.work, &To::Line(line.clone()));
-        (reached.as_ref() == Ok(&spec.id)).then_some(line)
+        let reached = reaching(&d.flow, &d.work.records, &To::Line(line.clone()));
+        (reached.as_ref() == Some(&spec.id)).then_some(line)
     };
     // Whether the cell at `j` runs the writer at `w` again by what it writes: it is the writer, or writes a block the
     // writer runs on.

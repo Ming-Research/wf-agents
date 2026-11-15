@@ -2500,19 +2500,22 @@ mod tests {
         assert_eq!(lines[13], "Nothing is under way.");
     }
 
-    // Under a run, `show` says a line for each round whose cost or time went past the line of its history, and for each
-    // call of a tool whose time did: what it took, or has taken so far while under way, the line and what gives it; a
-    // round or call within its line it says nothing of. Well under a millisecond alone; no other test holds the lines
-    // `show` gives of what went past its line.
+    // Under a run, `show` says a line for each round whose cost or time went past the line of its history, both in one
+    // line where both did, and for each call of a tool whose time did: what it cost, in dollars, or what it took, or has
+    // taken so far while under way, the line and what gives it; a round or call within its line it says nothing of.
+    // Well under a millisecond alone; no other test holds the lines `show` gives of what went past its line.
     #[test]
     fn a_run_shows_a_line_for_each_round_and_call_past_the_line_of_its_history() {
-        let line = |scope: &str| serde_json::json!({ "value": 25_000, "samples": 19, "scope": scope });
-        let against = |value: u64, scope: &str, past: bool| serde_json::json!({ "value": value, "line": line(scope), "past": past });
-        let round = |number: u64, ended: Option<u64>, time: serde_json::Value| {
+        let line = |value: u64, scope: &str| serde_json::json!({ "value": value, "samples": 19, "scope": scope });
+        let against = |value: u64, scope: &str, past: bool| serde_json::json!({ "value": value, "line": line(25_000, scope), "past": past });
+        // A round's cost against the line of half a dollar its cell's rounds give.
+        let cost =
+            |value: u64, past: bool| serde_json::json!({ "value": value, "line": line(500_000, "cell"), "past": past });
+        let round = |number: u64, ended: Option<u64>, cost: serde_json::Value, time: serde_json::Value| {
             serde_json::json!({
                 "number": number, "began": 0, "ended": ended, "given": { "kind": "task" }, "back": null,
                 "spent": null, "context": null, "compactions": 0, "session": null, "tries": [], "missed": null,
-                "estimated": false, "judged": { "cost": null, "time": time },
+                "estimated": false, "judged": { "cost": cost, "time": time },
             })
         };
         let call = |call: u64, done: Option<u64>, time: serde_json::Value| {
@@ -2524,9 +2527,11 @@ mod tests {
         let run: Run = serde_json::from_value(serde_json::json!({
             "run": 4, "cell": "I1", "at": 1, "time": 0, "because": [], "basis": [],
             "rounds": [
-                round(1, Some(100_000), against(100_000, "cell", true)),
-                round(2, Some(20_000), against(20_000, "cell", false)),
-                round(3, None, against(100_000, "flow", true)),
+                round(1, Some(100_000), cost(400_000, false), against(100_000, "cell", true)),
+                round(2, Some(20_000), serde_json::Value::Null, against(20_000, "cell", false)),
+                round(3, None, serde_json::Value::Null, against(100_000, "flow", true)),
+                round(4, Some(20_000), cost(1_250_000, true), against(20_000, "cell", false)),
+                round(5, Some(100_000), cost(1_250_000, true), against(100_000, "cell", true)),
             ],
             "calls": [
                 call(7, Some(100_000), against(100_000, "tool", true)),
@@ -2542,6 +2547,9 @@ mod tests {
             [
                 "    round 1 took 1m 40s, past the line of 25s that 19 rounds of its cell give",
                 "    round 3 has been under way for 1m 40s, past the line of 25s that 19 agents' rounds of its flow give",
+                "    round 4 cost $1.25, past the line of $0.50 that 19 rounds of its cell give",
+                "    round 5 cost $1.25, past the line of $0.50 that 19 rounds of its cell give; took 1m 40s, past the \
+                 line of 25s that 19 rounds of its cell give",
                 "    call 7 of the tool run_tests took 1m 40s, past the line of 25s that 19 calls of its tool give",
                 "    call 8 of the tool run_tests has waited for its result for 1m 40s, past the line of 25s that 19 \
                  calls of its tool give",
