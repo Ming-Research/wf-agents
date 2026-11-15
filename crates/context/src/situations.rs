@@ -41,7 +41,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, Cell, Condition};
-use flow::agents::{Agents, Part};
+use flow::agents::{Agents, Only, Part};
 use flow::system::Settings;
 use flow::{CellSpec, Compiled, Kind, Trigger};
 
@@ -462,10 +462,12 @@ impl<'a> Reach<'a> {
         classes
     }
 
-    /// The parts of the message the session keeps, but what came of taking main in, which is the run's.
+    /// The parts of the message the session keeps, but what came of taking main in, which is the run's, and what only
+    /// a round of a test is sent, which no real work's session holds.
     fn kept(&self) -> Vec<String> {
         (self.words.message.parts.iter())
             .filter(|p| p.kind.is_some() && p.part != Part::Context && p.part != Part::Main)
+            .filter(|p| p.only != Some(Only::Part))
             .map(|p| p.part.name().to_string())
             .collect()
     }
@@ -488,21 +490,22 @@ impl<'a> Reach<'a> {
             main: None,
             results: Vec::new(),
             sent_back: false,
+            part: false,
         }
     }
 
     /// What the session holds of the message's kept parts on the cell's first entry, and whether the last return in it
     /// handed in blocks: nothing, where the cell is the first of its line; else what the cell of the line before it
-    /// was sent alike, and whether that cell writes any block.
+    /// was sent alike, of the parts a real work's session keeps, and whether that cell writes any block.
     fn after_the_line(&self) -> (Vec<String>, bool) {
         let Some(before) = self.before.last() else {
             return (Vec::new(), false);
         };
         let as_written = Settings::default();
         let texts = |cell: &CellSpec| kept(self.flow, self.words, cell, Values::Slots(&as_written));
-        let theirs = texts(before);
+        let (theirs, real) = (texts(before), self.kept());
         let alike = (texts(self.cell).into_iter())
-            .filter(|part| theirs.contains(part))
+            .filter(|part| theirs.contains(part) && real.contains(&part.0))
             .map(|(part, _)| part)
             .collect();
         let place = self.flow.flow.place(&before.id);

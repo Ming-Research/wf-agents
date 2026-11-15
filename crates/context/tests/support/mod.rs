@@ -198,6 +198,8 @@ pub struct Sim {
     pub takes_main: bool,
     /// The settings the words may name, with their values: none.
     pub named: Settings,
+    /// The part the rounds entered from now on are given to play, as a script of parts gives it; none where unset.
+    pub part: Option<String>,
     time: u64,
 }
 
@@ -220,6 +222,7 @@ impl Sim {
             work: Work::default(),
             takes_main: false,
             named: Settings::default(),
+            part: None,
             time: 0,
         }
     }
@@ -322,6 +325,7 @@ impl Sim {
             results: &BTreeMap::new(),
             tested: &BTreeMap::new(),
             places: &BTreeMap::new(),
+            part: self.part.as_deref(),
         };
         let (run, number) = (round.run, round.number);
         context::enter(flow, words, &self.work, run, number, &carried, anew).expect("the round is entered")

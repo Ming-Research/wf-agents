@@ -56,6 +56,28 @@ fn each_situation_of_a_cell_is_written_with_its_system_prompt_its_message_and_th
     for part in ["system prompt", "message", "return form"] {
         assert!(text.contains(&format!("\n===== {part} =====\n\n")), "{part}");
     }
+    // A situation is a real work's, whose session holds no part only a round of a test is sent, and is sent none.
+    let words = flow::agents::read(&engineer().join("..")).expect("what is written beside the flows is read");
+    let tested: Vec<&flow::agents::MessagePart> = (words.message.parts.iter())
+        .filter(|p| p.only == Some(flow::agents::Only::Part))
+        .collect();
+    assert!(
+        !tested.is_empty(),
+        "the message has parts only a round of a test is sent"
+    );
+    for entry in fs::read_dir(&dir).expect("the cell's directory is read") {
+        let text = fs::read_to_string(entry.expect("an entry").path()).expect("the file is read");
+        let holds = text
+            .lines()
+            .find(|line| line.starts_with("holds = "))
+            .expect("what it holds");
+        for part in &tested {
+            assert!(!holds.contains(&format!("\"{}\"", part.part.name())), "{holds}");
+            let written = part.text.as_deref().unwrap_or_default();
+            let (opening, _) = written.split_once('{').unwrap_or((written, ""));
+            assert!(!text.contains(opening.trim_end()), "{text}");
+        }
+    }
     // Asked again, a cell's directory that holds files is not written over.
     let again = situations(out.path(), "R2");
     assert!(!again.status.success());

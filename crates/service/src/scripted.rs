@@ -23,7 +23,7 @@ use flow::agents::Agents;
 use store::WorkNumber;
 
 use crate::carriers::{CallReply, Carriers, Network, Outside, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
-use crate::script::{CHECK, Ends, MAIN, Planned, Read, Script, ToolAsk};
+use crate::script::{CHECK, Ends, MAIN, Planned, Read, Script, ToolAsk, nth};
 use work::{Call, Handed, Work};
 
 /// Agents, engine acts and tools that follow a script.
@@ -125,13 +125,6 @@ impl Scripted {
         let entry = (self.inner.script).entry(&call.flow.name, started.cell.as_str(), call.work.0, nth, number)?;
         entry.asks.as_ref()?.get(i)
     }
-}
-
-/// Which run of its cell the run is in the work, counted from one: runs are named in the order they started.
-fn nth(kept: &Work, run: RunId) -> usize {
-    let started = kept.records.started.iter();
-    let cell = (started.clone().find(|s| s.run == run)).map(|s| &s.cell);
-    started.filter(|s| Some(&s.cell) == cell && s.run <= run).count()
 }
 
 /// What the latest version of the block says, where it has one.
