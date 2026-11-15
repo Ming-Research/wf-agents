@@ -631,13 +631,9 @@ pub enum Part {
 
 impl Part {
     /// Its name, as the command is given it.
-    fn name(self) -> &'static str {
-        match self {
-            Part::History => "history",
-            Part::Questions => "questions",
-            Part::Runs => "runs",
-            Part::Sessions => "sessions",
-        }
+    fn name(self) -> String {
+        let value = clap::ValueEnum::to_possible_value(&self).expect("every part is given by its name");
+        value.get_name().to_string()
     }
 
     /// What it is of the work, in words.

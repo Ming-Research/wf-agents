@@ -95,6 +95,20 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
         shown.ends_with(": reopened, because \"Not joined after all.\""),
         "{shown}"
     );
+    // The item's history given alone, as `show` names it, holds everything that happened to it, in order.
+    let history = engine.says(&["show", "2", "history", "--from", "1"]);
+    assert!(
+        history.starts_with("Work 2, what happened to its item, 1 to "),
+        "{history}"
+    );
+    assert!(
+        history.contains(": cancelled, because \"Joined into item 1.\"\n"),
+        "{history}"
+    );
+    assert!(
+        history.ends_with(": reopened, because \"Not joined after all.\"\n"),
+        "{history}"
+    );
     assert_eq!(
         engine.refuses(&["reopen", "2", "--why", "Again."]),
         "#2 is not cancelled: only a cancelled item is reopened.\n"
