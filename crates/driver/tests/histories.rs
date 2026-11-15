@@ -23,16 +23,15 @@
 //! - a round ends: an engine's act hands in its outputs, or, one in seven, asks for nothing; an agent hands in what its
 //!   cell may write in half of them (each output with a chance of six in ten, a choice with one of its values), hands
 //!   in what does not meet the flow in three in twenty (a block it may not write, or a choice with a wrong value), asks
-//!   for one to three tools in three in twenty, asks the owner or the architect in three in twenty, and asks for
-//!   nothing in one in twenty; where its cell asked [`ASKING`] times in a row, it hands in instead of asking, as the
-//!   engine's line of asking would stop it;
-//! - a call has its result: always for a tool, and for a person or at a limit only while people act;
+//!   for one to three tools in three in ten, and asks for nothing in one in twenty; where its cell asked [`ASKING`]
+//!   times in a row, it hands in instead of asking, as the engine's line of asking would stop it;
+//! - a call has its result: always for a tool, and at a limit only while people act;
 //! - a call withdrawn is said to be; a round stopped ends.
 //!
 //! A person's act is, about: a write of a block people may write, or a look where they may write none; a pause or a
-//! letting on; a cancel; letting a cell go on, at its limit where a work waits at one; the result of a question or of
-//! a limit; adding an item, depending on some of those there; or something the driver must refuse, which must change
-//! nothing. An item is added on one of the small flows of the tests or on the deliver flow as the repository defines
+//! letting on; a cancel; letting a cell go on, at its limit where a work waits at one; the owner's word at a limit;
+//! adding an item, depending on some of those there; or something the driver must refuse, which must change nothing.
+//! An item is added on one of the small flows of the tests or on the deliver flow as the repository defines
 //! it, whose items are made of the items they depend on and wait for them at their one cell, so that items depending on
 //! a deliverable wait for it in turn. One item in five is a deliverable, drawn by a generator of its own, so that the
 //! other draws keep their order.
@@ -54,7 +53,7 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{self, AssertUnwindSafe};
 
-use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited, Who};
+use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited};
 use driver::{Asked, FirstWrite, NewItem, Todo};
 use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work};
 use store::{ItemChange, ItemNumber, WorkHead, WorkNumber};
@@ -526,7 +525,7 @@ impl History {
     fn answer(&mut self, people: bool) -> bool {
         let doable: Vec<Todo> = (sorted(&self.h.outstanding).into_iter())
             .filter(|t| match &t.effect {
-                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
+                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool(_))),
                 _ => true,
             })
             .collect();
@@ -637,17 +636,9 @@ impl History {
                     hands_in(&[(first.as_str(), Some(wrong))])
                 }
             }
-            13..=15 => {
+            13..=18 => {
                 let n = 1 + self.rng.below(3);
                 Came::asks((0..n).map(|i| tool(&format!("tool {i}"))).collect())
-            }
-            16..=18 => {
-                let who = if self.rng.chance(50) {
-                    Who::Owner
-                } else {
-                    Who::Architect
-                };
-                Came::asks(vec![question(who)])
             }
             _ => Came::asks(vec![]),
         }
@@ -725,7 +716,7 @@ impl History {
             },
             42..=54 => {
                 let asked: Vec<Todo> = (sorted(&self.h.outstanding).into_iter())
-                    .filter(|t| matches!(&t.effect, Effect::Call { what, .. } if !matches!(what, Call::Asked(Ask::Tool { .. }))))
+                    .filter(|t| matches!(&t.effect, Effect::Call { what, .. } if !matches!(what, Call::Asked(Ask::Tool(_)))))
                     .collect();
                 if asked.is_empty() {
                     Event::Look
@@ -897,7 +888,7 @@ fn one_history(seed: u64, faults: bool, warming: bool, log: &mut Vec<String>) ->
                 panic!("at rest something other than a call is pending: {todo:?}");
             };
             assert!(
-                !matches!(what, Call::Asked(Ask::Tool { .. })),
+                !matches!(what, Call::Asked(Ask::Tool(_))),
                 "at rest a tool's call is pending: {todo:?}"
             );
         }

@@ -298,7 +298,6 @@ pub enum Outsider {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Who {
     Owner,
-    Architect,
 }
 
 /// The owner let the cell go on after it reached its limit.

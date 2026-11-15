@@ -198,7 +198,7 @@ pub enum Act {
     Cancel {
         why: Option<String>,
     },
-    /// Gives a call that waits for a person its result.
+    /// Gives a call that waits for a person its result: the owner's word that a run at its limit goes on.
     Result {
         call: CallId,
         result: String,
@@ -757,7 +757,7 @@ impl Service {
             Effect::Call {
                 call,
                 run,
-                what: Call::Asked(Ask::Tool { name, input }),
+                what: Call::Asked(Ask::Tool(work::Tool { name, input })),
             } => {
                 let order = ToolCall {
                     work,
@@ -785,10 +785,11 @@ impl Service {
                     let _ = to.send(Message::Due { work, call });
                 });
             }
-            // A person's call, and a run at its limit, wait for the owner's answer.
+            // A run at its limit waits for the owner's word, and a question an old run put to the owner for the
+            // owner's answer.
             Effect::Call { .. } => {}
             Effect::Withdraw { call } => match kept.work.calls.get(call) {
-                Some(Call::Asked(Ask::Tool { name, input })) => {
+                Some(Call::Asked(Ask::Tool(work::Tool { name, input }))) => {
                     let called =
                         (records.called.iter().find(|c| c.call == *call)).ok_or_else(|| stray(Missing::Call(*call)))?;
                     let order = ToolCall {

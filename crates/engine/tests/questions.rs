@@ -33,7 +33,7 @@ use std::panic::{self, AssertUnwindSafe};
 
 use decide::questions::questions;
 use decide::{Cause, Outsider, Records, RunId, Seq};
-use engine::{Ask, Came, Event, Handed, Question, Way, Work};
+use engine::{Came, Event, Handed, Question, Tool, Way, Work};
 use flow::{Compiled, Has, Source, compile};
 use support::{Driver, Part, Rng};
 
@@ -181,7 +181,7 @@ impl Part for Asking {
     fn returns(&mut self, d: &mut Driver, _: RunId, cell: &str) -> Came {
         // Now and then an agent that may ask asks for a tool first, as one entered for an answer may.
         if !names(cell).is_empty() && d.rng.chance(15) {
-            return Came::asks(vec![Ask::Tool {
+            return Came::asks(vec![Tool {
                 name: "look".to_string(),
                 input: format!("what {cell} looks up"),
             }]);
