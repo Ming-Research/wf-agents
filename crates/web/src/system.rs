@@ -378,6 +378,8 @@ impl System {
                     };
                     let time = (judged.calls.get(&(number, CallId(call.call)))).map(Against::of);
                     match call.done {
+                        // A call being withdrawn with its run or its work is not under way.
+                        None if driver::judged::withdrawn(kept.work, CallId(call.call)) => {}
                         None => system.under_way.push(UnderWay::Call {
                             work,
                             item,

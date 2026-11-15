@@ -223,6 +223,56 @@ fn a_call_of_a_tool_is_judged_by_the_calls_of_its_tool_that_had_their_results_as
 }
 
 #[test]
+fn a_call_withdrawn_with_its_work_is_neither_judged_nor_part_of_its_tool_s_history() {
+    let mut h = harness();
+    // The call of a tool by a work let on, which has its result `ms` after it was made, or none.
+    let call = |h: &mut H, ms: Option<u64>| {
+        let (_, work) = h.add_let_on(new_item("a", &[], "plain"));
+        let todos = ends(h, work, 3_000, 10, Came::asks(vec![tool("test")]));
+        let call = (todos.iter())
+            .find_map(|todo| match &todo.effect {
+                Effect::Call { call, .. } => Some(*call),
+                _ => None,
+            })
+            .expect("the tool is called");
+        if let Some(ms) = ms {
+            h.clock += ms - 1000;
+            h.answer(work, call);
+        }
+        (work, call)
+    };
+    call(&mut h, Some(5_000));
+    call(&mut h, Some(10_000));
+    // The third work's item is cancelled while its call waits for its result: the call is withdrawn, and is not
+    // judged however long the withdrawal takes, nor once it has its result.
+    let (cancelled, withdrawn) = call(&mut h, None);
+    h.on(cancelled, Event::Cancelled { why: None });
+    assert!(
+        (h.d().pending().iter()).any(|todo| matches!(todo.effect, Effect::Withdraw { call } if call == withdrawn)),
+        "the call is withdrawn"
+    );
+    let judged = h.d().judged(None, Time(h.clock + 600_000));
+    assert!(!judged.calls.contains_key(&(cancelled, withdrawn)), "{judged:?}");
+    let result = "withdrawn".to_string();
+    h.on(
+        cancelled,
+        Event::Done {
+            call: withdrawn,
+            result,
+        },
+    );
+    // The call after it is judged by the two that had their results, the withdrawn one being none of them.
+    let last = call(&mut h, Some(60_000));
+    let judged = h.d().judged(None, Time(h.clock));
+    assert!(!judged.calls.contains_key(&(cancelled, withdrawn)), "{judged:?}");
+    let against = judged.calls[&last];
+    assert_eq!(
+        (against.line.value, against.line.samples),
+        (2.0 * 10_000.0 - 7_500.0, 2)
+    );
+}
+
+#[test]
 fn nothing_is_judged_without_a_policy() {
     let mut h = H::with(vec![plain()]);
     for ms in [10_000, 20_000, 100_000] {

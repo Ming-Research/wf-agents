@@ -17,7 +17,8 @@
 //! - A round of an act: its time, against the rounds of its cell that handed something in and nothing else, the flow's
 //!   other cells being agents' or other acts'. An act costs nothing.
 //! - A call of a tool: its time, from when it was made until it had its result, against the calls of the same tool
-//!   that had theirs.
+//!   that had theirs. A call withdrawn, its run abandoned or its work's item cancelled before it had its result, is
+//!   neither judged nor history: the withdrawal cut it short, not its tool.
 
 use std::collections::BTreeMap;
 
@@ -199,6 +200,22 @@ fn cells<'a>(of: &Of<'a>) -> BTreeMap<RunId, (&'a CellId, bool)> {
         .collect()
 }
 
+/// Whether the call was withdrawn, as the records tell: its run was abandoned, or its work's item cancelled and not
+/// reopened since, before it had its result, or by now where it has none. Whatever it then had came of the withdrawal.
+pub fn withdrawn(work: &Work, call: CallId) -> bool {
+    let r = &work.records;
+    let Some(called) = r.called.iter().find(|called| called.call == call) else {
+        return false;
+    };
+    let done = r.done.iter().find(|done| done.call == call).map(|done| done.at);
+    let before = |at: Seq| done.is_none_or(|done| at < done);
+    let abandoned = (r.abandoned.iter()).any(|a| a.run == called.run && before(a.at));
+    let cancelled = (r.cancels.iter())
+        .filter(|cancel| before(**cancel))
+        .any(|cancel| !r.reopens.iter().any(|reopen| reopen > cancel && before(*reopen)));
+    abandoned || cancelled
+}
+
 /// The tool a call runs, where it is a call of a tool.
 fn tool(work: &Work, call: CallId) -> Option<&str> {
     match work.calls.get(&call) {
@@ -247,6 +264,9 @@ fn values<'a>(of: &Of<'a>) -> Vec<Value<'a>> {
         let Some(done) = work.records.done.iter().find(|done| done.call == called.call) else {
             continue;
         };
+        if withdrawn(work, called.call) {
+            continue;
+        }
         if let (Some(took), Some(at)) = (ms(called.at, done.at), work.time_of(done.at)) {
             out.push(Value {
                 ended: at.0,
@@ -293,6 +313,9 @@ fn judging<'a>(of: &Of<'a>, now: Time) -> Vec<Judging<'a>> {
         let (Some(name), Some(made)) = (tool(work, called.call), work.time_of(called.at)) else {
             continue;
         };
+        if withdrawn(work, called.call) {
+            continue;
+        }
         let done = (work.records.done.iter())
             .find(|done| done.call == called.call)
             .and_then(|done| work.time_of(done.at));

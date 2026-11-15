@@ -362,7 +362,35 @@ export interface Round {
   missed: Missed | null;
   /// Whether what it took was worked out from its calls at the models' prices, no result saying it: an estimate.
   estimated: boolean;
+  /// What it cost and how long it took, or has taken so far while it is under way, against the lines of their history.
+  judged: Judged;
 }
+
+/// What a round cost and how long it took against the lines of their history, as they stood when it began: `cost` none
+/// while it is under way, for a round of an act and where too few rounds tell the line; `time` none where too few do.
+export interface Judged {
+  cost: Against | null;
+  time: Against | null;
+}
+
+/// A measure against the line of its history: millionths of a dollar for a cost, milliseconds for a time.
+export interface Against {
+  value: number;
+  line: Line;
+  /// Whether the measure is past its line.
+  past: boolean;
+}
+
+/// The line of a measure's history, in the measure's units: how many values gave it, and what they were of.
+export interface Line {
+  value: number;
+  samples: number;
+  scope: Scope;
+}
+
+/// What gave a line: the rounds of the cell, every agent's round of the flow, the calls of the tool, the flow's other
+/// works, the rounds of the line.
+export type Scope = 'cell' | 'flow' | 'tool' | 'works' | 'line';
 
 /// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
 /// call read less than half of what the session held from the cache. `differs` names what comes before the session's
@@ -405,6 +433,9 @@ export interface CallRow {
   done: number | null;
   /// How long its result is, in characters.
   chars: number | null;
+  /// How long a call of a tool took, or has taken so far while it has no result, against the line of the calls of its
+  /// tool as it stood when it was made.
+  time: Against | null;
 }
 
 export type RunEnd =

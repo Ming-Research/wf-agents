@@ -102,6 +102,8 @@ export function fixtureSystem(starts: number[]): System {
           },
         ]
       : [],
+    past: [],
+    underWay: [],
   };
 }
 
