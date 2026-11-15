@@ -203,9 +203,9 @@ fn a_block_of_a_shape_is_kept_as_the_json_it_holds_where_it_is_of_that_shape() {
     let flow = compiled(FLOW, &write, &[("blocks/entry.toml", entry)]);
     let mut r = work();
     r["outcome"]["outputs"]["entry"] = json!({"tests": ["a"], "checks": []});
-    let came = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
-    assert!(came.found.is_empty(), "{:?}", came.found);
-    let entry = (came.writes.iter())
+    let read = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
+    assert!(read.found.is_empty(), "{:?}", read.found);
+    let entry = (read.writes.iter())
         .find(|h| h.block.as_str() == "entry")
         .expect("it is handed in");
     let kept: Value = serde_json::from_str(&entry.content).expect("it is kept as JSON");
