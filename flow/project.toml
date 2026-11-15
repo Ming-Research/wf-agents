@@ -37,6 +37,8 @@ paths = [
   ":(glob)crates/**/tests.rs",
   ":(glob)client/**/*.test.ts",
   ":(glob)client/**/*.test.tsx",
+  ":(glob)client/**/testing.ts",
+  ":(glob)client/**/fixtures.ts",
 ]
 expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/laid_out/"]
 

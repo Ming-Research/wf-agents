@@ -145,7 +145,7 @@ fn the_testers_system_prompt_says_it_changes_only_the_projects_tests() {
                 `:(glob)crates/**/tests/**`, ";
     assert!(tester.contains(told), "{tester}");
     assert!(
-        tester.contains("`:(glob)client/**/*.test.tsx` match. The project protects `AGENTS.md`, "),
+        tester.contains("`:(glob)client/**/fixtures.ts` match. The project protects `AGENTS.md`, "),
         "{tester}"
     );
     assert!(!of("engineer").contains("Change only the project's tests"));
@@ -173,6 +173,19 @@ fn a_line_that_changes_only_the_tests_of_a_project_that_names_none_is_refused_as
         }
         assert_eq!(faults(&settings(), &beside, &flow), [fault]);
     }
+}
+
+// What the run of a line that changes only the project's tests changed is read from the version of the work's head it
+// began on: a flow with no block of the work's head keeps the engine from starting, said of the line.
+#[test]
+fn a_line_that_changes_only_the_tests_of_a_flow_with_no_head_is_refused_as_the_engine_starts() {
+    let mut flow = engineer();
+    assert!(faults(&settings(), &beside(), &flow).is_empty());
+    flow.blocks
+        .retain(|_, block| block.writers.outside.as_deref() != Some(crate::head::HEAD));
+    let fault = "flow engineer: the line tester changes only the project's tests, and the flow has no block of the \
+                 work's head (`head`), from which what its run changed is read";
+    assert_eq!(faults(&settings(), &beside(), &flow), [fault]);
 }
 
 // A session keeps the system prompt and the form it began with, each alike: made and kept where it has none, and the

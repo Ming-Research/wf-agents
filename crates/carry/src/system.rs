@@ -20,8 +20,8 @@
 //! As the engine starts, every text sent to the agents is checked, each fault said with the file or the thing of the
 //! flow that holds the text, all of them at once ([`faults`]): a place the engine does not fill, a setting named that
 //! has no value, a set of rules or a tool that nothing beside the flows defines, the paths of the tests a line that
-//! changes only them is told, where the project names none. So are the project's files on main, where works branch
-//! from ([`project_files`]).
+//! changes only them is told, where the project names none, and the work's head its run's change is read from, where
+//! the flow has none. So are the project's files on main, where works branch from ([`project_files`]).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -177,9 +177,9 @@ pub(crate) fn of_line(
 /// once, each once, with the flow and the file or the thing of the flow that holds the text: of each line's system
 /// prompt, a set of rules or a tool that nothing beside the flows defines, a place the engine does not fill (a file of
 /// the project standing as empty under its heading), and a setting named that has no value; a line that changes only
-/// the project's tests, of a project whose declaration names no paths of its tests; and a setting named with no value
-/// in a cell's task, in what a trigger says the cell does for it, in the words of a block, or in the words of what a
-/// cell returns (`[outputs]` of `agents/return/return.toml`).
+/// the project's tests, of a project whose declaration names no paths of its tests or of a flow with no block of the
+/// work's head; and a setting named with no value in a cell's task, in what a trigger says the cell does for it, in the
+/// words of a block, or in the words of what a cell returns (`[outputs]` of `agents/return/return.toml`).
 pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<String> {
     let filling = filling(settings, beside);
     let named = &filling.named;
@@ -203,10 +203,19 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
         for what in wrong.into_iter().chain(flow::system::check(&parts, named, fills)) {
             add(format!("the system prompt of the line {line}: {what}"));
         }
-        // Its agents are told the paths of the tests and held to them: with none, neither can be done.
+        // Its agents are told the paths of the tests and held to them, from the version of the work's head its run
+        // began on: with no paths neither can be done, and with no head nothing says where the run began.
         if cell.tests_only && crate::tests_only::paths(&beside.project).is_empty() {
             add(format!(
                 "the line {line} changes only the project's tests, and project.toml names none in [tests] paths"
+            ));
+        }
+        let has_head = (flow.blocks.values()).any(|b| b.writers.outside.as_deref() == Some(crate::head::HEAD));
+        if cell.tests_only && !has_head {
+            add(format!(
+                "the line {line} changes only the project's tests, and the flow has no block of the work's head (`{}`), \
+                 from which what its run changed is read",
+                crate::head::HEAD
             ));
         }
     }

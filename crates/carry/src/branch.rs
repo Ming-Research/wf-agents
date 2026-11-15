@@ -113,21 +113,19 @@ impl Looking {
         Ok(new)
     }
 
-    /// Reads the branch, and gives each new version as what the round hands in, which its run writes as it finishes; a
-    /// read that fails is said on the standard error and gives nothing.
-    pub(crate) async fn handed_in(&mut self, place: &Place) -> Vec<Handed> {
-        let new = self.read(place).await.unwrap_or_else(|why| {
-            eprintln!("the work's branch could not be read: {why}");
-            Vec::new()
-        });
-        (new.into_iter())
+    /// Reads the branch, and gives each new version as what the round hands in, which its run writes as it finishes; or
+    /// why the branch could not be read, nothing being handed in then.
+    pub(crate) async fn handed_in(&mut self, place: &Place) -> Result<Vec<Handed>, String> {
+        let new = self.read(place).await?;
+        let handed = (new.into_iter())
             .map(|(block, content)| Handed {
                 block,
                 content,
                 matters: true,
                 value: None,
             })
-            .collect()
+            .collect();
+        Ok(handed)
     }
 
     /// Reads the branch, and says each new version to the loop as written from outside while the round is under way:
