@@ -1527,10 +1527,18 @@ impl Explorer<'_> {
     }
 
     /// What is wrong with how a stall is shown, by the reading: its keys are those of where it stands that do not hold,
-    /// or, with none, it stands at its last cell; nothing before where it stands, or anywhere where it stands at its
-    /// last cell, has anything new; and each cell it names writes what a key reads, or what runs its last cell, and
-    /// does not run for the reason it gives.
-    fn shown_wrongly(&self, s: &State, at: &CellId, on: &[Condition], by: &[Stalling]) -> Vec<String> {
+    /// and its results those of what that cell asked for in its records and still awaits, or, with neither, it stands
+    /// at its last cell; nothing before where it stands, or anywhere where it stands at its last cell, has anything
+    /// new; no question of the cell it stands at waits; every cell that gives a result it waits for is skipped, and
+    /// named; and each cell it names writes what a key reads, a result, or what runs its last cell, is said to make a key
+    /// hold or give a result as it does, and does not run for the reason it gives.
+    fn shown_wrongly(
+        &self,
+        s: &State,
+        at: &CellId,
+        (on, results): (&[Condition], &[BlockId]),
+        by: &[Stalling],
+    ) -> Vec<String> {
         let m = self.model;
         let flow = &m.compiled.flow;
         let cells = m.cells();
@@ -1543,16 +1551,46 @@ impl Explorer<'_> {
         if unmet.len() != on.len() || !on.iter().all(|key| unmet.contains(&key)) {
             wrong.push(format!("the keys that do not hold are {unmet:?}"));
         }
-        if on.is_empty() && i != cells.len() - 1 {
+        if on.is_empty() && results.is_empty() && i != cells.len() - 1 {
             wrong.push("it waits on nothing short of its last cell".to_string());
         }
-        let upto = if on.is_empty() { cells.len() } else { i };
+        // Each result it waits for is that of what the cell it stands at asked for in a record, still to come; and every
+        // cell that gives it is skipped, and named: one that applies runs while the cell waits.
+        let awaited = |result: &BlockId| {
+            (cells[i].asks.iter()).any(|asks| &asks.result == result && r.awaits(&cells[i], asks, NOW))
+        };
+        if !results.iter().all(awaited) {
+            wrong.push(format!(
+                "it waits for the results in {results:?}, which {at} does not wait for"
+            ));
+        }
+        if r.question_waits(at, NOW) {
+            wrong.push(format!("a question of {at} waits for the owner's answer"));
+        }
+        let mut giving = Vec::new();
+        for asks in cells[i].asks.iter().filter(|asks| results.contains(&asks.result)) {
+            let gives = |c: &decide::Cell| c.runs_on.contains(&asks.record) && c.outputs.contains(&asks.result);
+            for (j, giver) in cells.iter().enumerate().filter(|(_, c)| gives(c)) {
+                giving.push(j);
+                if r.applies(flow, j) || !by.iter().any(|s| s.cell == giver.id) {
+                    wrong.push(format!(
+                        "{} gives {}, and applies or is not named",
+                        giver.id, asks.result
+                    ));
+                }
+            }
+        }
+        let upto = if on.is_empty() && results.is_empty() {
+            cells.len()
+        } else {
+            i
+        };
         for (j, cell) in cells.iter().enumerate().take(upto) {
             if r.applies(flow, j) && !r.entering(flow, cell, NOW).is_empty() {
                 wrong.push(format!("{} has something new", cell.id));
             }
         }
-        let read: Vec<BlockId> = if on.is_empty() {
+        let read: Vec<BlockId> = if on.is_empty() && results.is_empty() {
             cells[i].runs_on.clone()
         } else {
             (on.iter())
@@ -1560,23 +1598,46 @@ impl Explorer<'_> {
                     Condition::Test(test) => flow.tests()[test].reads.clone(),
                     Condition::Is { block, .. } => vec![block.clone()],
                 })
+                .chain(results.iter().cloned())
                 .collect()
         };
         for stalling in by {
             let j = m.place(&stalling.cell);
-            let why = if j >= i {
-                Unrun::Held
-            } else if !r.applies(flow, j) {
-                let on = (cells[j].applies.iter())
+            let skipped = || Unrun::Skipped {
+                on: (cells[j].applies.iter())
                     .filter(|key| !r.key_holds(flow, key, j))
                     .cloned()
-                    .collect();
-                Unrun::Skipped { on }
+                    .collect(),
+            };
+            // A cell that gives a result it waits for is skipped, one that applies running while the cell waits; one that
+            // makes a key hold is held at or after where it stands.
+            let why = if giving.contains(&j) {
+                skipped()
+            } else if j >= i {
+                Unrun::Held
+            } else if !r.applies(flow, j) {
+                skipped()
             } else {
                 Unrun::NothingNew
             };
             if stalling.why != why || !cells[j].outputs.iter().any(|b| read.contains(b)) {
                 wrong.push(format!("{} is said {:?}, and is {why:?}", stalling.cell, stalling.why));
+            }
+            // Which of what it waits for the cell writes: a block that keeps a key from holding, or, waiting for neither
+            // keys nor results, one that runs the last cell; and a result.
+            let makes = if on.is_empty() && results.is_empty() {
+                cells[j].outputs.iter().any(|b| read.contains(b))
+            } else {
+                (on.iter()).any(|key| (r.keeping(flow, key, i).iter()).any(|b| cells[j].outputs.contains(b)))
+            };
+            if stalling.makes != makes || stalling.gives != giving.contains(&j) {
+                wrong.push(format!(
+                    "{} is said to make it hold {} and to give a result {}, and does {makes} and {}",
+                    stalling.cell,
+                    stalling.makes,
+                    stalling.gives,
+                    giving.contains(&j)
+                ));
             }
         }
         wrong
@@ -1593,17 +1654,20 @@ impl Explorer<'_> {
         let (stop, on_purpose) = match d {
             Decision::Ended(End::Merged) => ("the work merged".to_string(), true),
             Decision::Ended(End::Cancelled) => ("the work was cancelled".to_string(), true),
-            Decision::Stalled { at, on, by } => {
+            Decision::Stalled { at, on, results, by } => {
                 for key in on {
                     self.reach(waited_at_gate(at, key), trace, &s.work);
                 }
                 self.reach(STALLED_SHOWN.to_string(), trace, &s.work);
                 self.count(CHECKED_STALL);
-                let stop = format!(
+                let mut stop = format!(
                     "the work is stalled at {at} on {:?}, its writers {by:?}",
                     on.iter().map(show_key).collect::<Vec<_>>()
                 );
-                let wrong = self.shown_wrongly(s, at, on, by);
+                if !results.is_empty() {
+                    stop.push_str(&format!(", for the results in {results:?}"));
+                }
+                let wrong = self.shown_wrongly(s, at, (on, results), by);
                 if !wrong.is_empty() {
                     self.breach(Property::Shown, stop.clone(), trace, wrong.join("; "));
                 }
@@ -1665,7 +1729,7 @@ impl Explorer<'_> {
         let r = Reading::of_flow(flow, records);
         let upto = match d {
             Decision::Wait { at, .. } => m.place(at),
-            Decision::Stalled { at, on, .. } if !on.is_empty() => m.place(at),
+            Decision::Stalled { at, on, results, .. } if !on.is_empty() || !results.is_empty() => m.place(at),
             _ => m.cells().len(),
         };
         let mut missed = Vec::new();

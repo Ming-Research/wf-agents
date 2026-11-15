@@ -15,19 +15,28 @@
 //!   first in one history of four; the merge's precondition holds in two histories of five. Each of these tests is the
 //!   owner's word, a choice people write of the same name, and the merge is run by its own. In half the histories of
 //!   the first test, drawn apart from the rest, a judge stands before the merge, run only while "flip" holds and
-//!   writing a verdict, yes or no; the merge then also waits while the verdict stands at no. In a third of the
-//!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
-//!   entered again for the results of what it asked for one to three times in a row. In about a third of the
-//!   histories, drawn apart, a cell asks for tests in a record, which runs a cell after it that hands in the result of
-//!   each entry it gives, as the engine's act does; the asking cell runs only while "flip" holds in two of five of
-//!   those, and the owner's words run a cell after it in half (properties `WAITS` and `RESULTS`). In half of those
-//!   where it runs only while "flip" holds, the owner is steered so that its entry is taken up again: once it waits for
-//!   the result of an entry, "flip" fails, and once the cell that gives results ran since, passing the entry over,
-//!   "flip" holds again, so that the cell that gives results is entered for the entry (decision
-//!   a-wait-of-a-skipped-cell-is-put-away). In about a quarter of those with no judge, drawn apart, a check stands
-//!   before the merge, run by the brief and by main, which the outside alone writes there, writing a choice only it
-//!   writes, which the merge waits on at yes; a run of it that says no says in half of them that what it wrote waits
-//!   for main to move (property `OUTSIDE`).
+//!   writing a verdict, yes or no; the merge then also waits while the verdict stands at no, and a person turns "flip"
+//!   to no now and then once the judge's latest verdict is no, so that the merge may begin over the no of a judge that
+//!   is skipped. In a third of the histories a cell drawn at random is run by the owner's words to it, a block that
+//!   interrupts. Each cell may be entered again for the results of what it asked for one to three times in a row. In
+//!   about a third of the histories, drawn apart, a cell asks for tests in a record, which runs a cell after it that
+//!   hands in the result of each entry it gives, as the engine's act does; the asking cell runs only while "flip" holds
+//!   in two of five of those, and the owner's words run a cell after it in half (properties `WAITS` and `RESULTS`). In
+//!   half of those where it runs only while "flip" holds, the owner is steered so that its entry is taken up again:
+//!   once it waits for the result of an entry, "flip" fails, and once the cell that gives results ran since, passing
+//!   the entry over, "flip" holds again, so that the cell that gives results is entered for the entry (decision
+//!   a-wait-of-a-skipped-cell-is-put-away). In three of ten of those, the cell that gives results runs only while a
+//!   choice the asking cell alone writes says yes, so that a wait may be for a result no cell will give (decision
+//!   a-work-no-cell-can-move-is-stalled); and in half of these the asking cell has the precondition "ready" too, so
+//!   that it may wait for the owner while no cell will give its result (property `RESULT_WAITS`). In half of all the
+//!   histories that ask, the owner's words run the asking cell too, and the owner speaks to it at three of ten steps of
+//!   people while the cell that gives its result has a round under way, so that the words to a waiting cell stop the
+//!   round of the cell that gives its result; and in half of those the asking cell has the precondition "ready", in
+//!   which a person says no once a run of it resting at a call has the call's result, so that the run rests on no call
+//!   of its own while the cell that gives the result applies. In about a quarter of the histories with no judge, drawn
+//!   apart, a check stands before the merge, run by the brief and by main, which the outside alone writes there,
+//!   writing a choice only it writes, which the merge waits on at yes; a run of it that says no says in half of them
+//!   that what it wrote waits for main to move (property `OUTSIDE`).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -136,10 +145,15 @@ const SPOKEN: &str = "spoken";
 /// The record a cell asks for tests in, where one does, and the cell that gives their results.
 const TESTS: &str = "tests";
 const GIVER: &str = "giver";
+/// The choice, which only the asking cell writes, of whether the cell that gives results runs, where it runs only so.
+const GIVES: &str = "gives";
 
 /// The check that stands before the merge where one does, and the choice only it writes, which the merge waits on.
 const CHECK: &str = "check";
 const CHECKED: &str = "checked";
+
+/// The most steps a history may take to come to rest once people stop, whatever its flow allows ([`History::bound`]).
+const BOUND: u64 = 200;
 
 /// From this round of a run on, its agent returns what meets everything the flow requires of it.
 const ROUNDS: usize = 3;
@@ -334,6 +348,12 @@ struct History {
     looked_at: (usize, usize),
     /// Where the history is steered so that the asking cell's entry is taken up again: how far it went.
     taking_up: Option<TakingUp>,
+    /// Where the owner's words run the asking cell: the cell, and what draws whether the owner speaks to it while the
+    /// cell that gives its result has a round under way.
+    speaking: Option<(CellId, Rng)>,
+    /// Where the asking cell has the precondition "ready" so that a person may say no in it: the cell, and what draws
+    /// whether a person does once a run of it resting at a call has the call's result.
+    unreadying: Option<(CellId, Rng)>,
 }
 
 /// How far the steering went that has the cell that gives results take an asking cell's entry up again: the asking
@@ -366,6 +386,9 @@ impl History {
         // order.
         let mut asking = Rng::new(seed ^ 0x7E57_ED00_A5C1_0000);
         let mut taking_up = None;
+        let mut speaking = None;
+        let mut unreadying = None;
+        let mut gated = false;
         let result = asking.chance(35).then(|| {
             let i = asking.below(cells.len());
             let result = format!("{}_tested", cells[i].id);
@@ -393,6 +416,42 @@ impl History {
                     asker: cells[i].id.clone(),
                     since: None,
                 });
+            }
+            // Now and then the cell that gives results runs only while the asking cell says yes in a choice no person
+            // writes: an entry it asks without saying so waits for a result no cell will give, and the work is stalled
+            // (property `STALLED_RIGHT`).
+            gated = asking.chance(30);
+            if gated {
+                cells[i].outputs.push(GIVES.into());
+                let giver = cells.last_mut().expect("the cell that gives results");
+                giver.applies = vec![Condition::Is {
+                    block: GIVES.into(),
+                    value: "yes".into(),
+                }];
+                // And in half of those the asking cell waits for the owner's "ready" too, so that it may wait for the
+                // owner while no cell will give its result, which the wait does not name (property `RESULT_WAITS`).
+                if asking.chance(50) && !cells[i].requires.contains(&"ready".into()) {
+                    cells[i].requires.push("ready".into());
+                }
+            }
+            // In half of all of them the owner's words run the asking cell too, so that a round entered for them while
+            // it waits may rest at a call, its run going on before the cell that gives results begins (property
+            // `RESULT_WAITS`).
+            if asking.chance(50) {
+                if !cells[i].runs_on.contains(&SPOKEN.into()) {
+                    cells[i].runs_on.push(SPOKEN.into());
+                }
+                speaking = Some((cells[i].id.clone(), Rng::new(seed ^ 0x5BEA_C000_0000_0A5C)));
+                // And in half of those the asking cell has the precondition "ready", in which a person says no now and
+                // then once a run of it resting at a call has the call's result, before the run goes on: at rest on no
+                // call of its own, the run is held, and the cell that gives the result runs meanwhile (property
+                // `RESULT_WAITS`).
+                if asking.chance(50) {
+                    if !cells[i].requires.contains(&"ready".into()) {
+                        cells[i].requires.push("ready".into());
+                    }
+                    unreadying = Some((cells[i].id.clone(), Rng::new(seed ^ 0x0BEA_D700_0000_0C11)));
+                }
             }
             result
         });
@@ -437,6 +496,9 @@ impl History {
             w.written_by_cells(result);
             w.written_by_cells(TESTS);
         }
+        if gated {
+            w.written_by_cells(GIVES);
+        }
         w.person_writes(BRIEF);
         if rng.chance(40) || judged.is_some() {
             w.says(GATE, true);
@@ -474,6 +536,8 @@ impl History {
             moments: Vec::new(),
             looked_at: (0, 0),
             taking_up,
+            speaking,
+            unreadying,
         }
     }
 
@@ -486,6 +550,9 @@ impl History {
     fn step(&mut self, people: bool) -> bool {
         if people {
             self.take_up();
+            self.speak_to_the_waiting();
+            self.unready_the_resting();
+            self.skip_the_judge();
         }
         if people && self.rng.chance(16) {
             self.person_acts(None, &[]);
@@ -632,17 +699,21 @@ impl History {
     /// of each run that started or finished since the last step.
     fn check(&mut self, decision: &Decision) {
         let r = &self.w.records;
-        let under_way = (r.started.iter())
+        let under_way: Vec<RunId> = (r.started.iter())
             .filter(|s| {
                 let began = r.rounds.iter().filter(|x| x.run == s.run).count();
                 let ended = r.returned.iter().filter(|x| x.run == s.run).count();
                 began > ended
             })
-            .count();
-        assert!(under_way <= 1, "{under_way} runs have a round under way");
-        if under_way == 1 {
+            .map(|s| s.run)
+            .collect();
+        assert!(under_way.len() <= 1, "{} runs have a round under way", under_way.len());
+        // A cancelled work has ended once each of its runs is abandoned, the round of one being stopped as well.
+        let stopping = (under_way.iter()).all(|run| r.abandoned.iter().any(|a| a.run == *run));
+        if !under_way.is_empty() {
             assert!(
-                matches!(decision, Decision::Busy { .. } | Decision::Abandon { .. }),
+                matches!(decision, Decision::Busy { .. } | Decision::Abandon { .. })
+                    || (stopping && matches!(decision, Decision::Ended(End::Cancelled))),
                 "a round is under way and the walk decides {decision:?}"
             );
         }
@@ -807,7 +878,7 @@ impl History {
             .expect("the run started")
             .clone();
         let cell = flow.cells()[flow.place(&started.cell).expect("a cell of the flow")].clone();
-        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, GATE, "ready", "flip", CHECKED]
+        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, GATE, "ready", "flip", GIVES, CHECKED]
             .into_iter()
             .map(|b| (b.into(), vec!["yes".to_string(), "no".to_string()]))
             .collect();
@@ -1158,6 +1229,92 @@ impl History {
         }
     }
 
+    /// Where the owner's words run the asking cell, the owner speaks to it now and then while the cell that gives its
+    /// result has a round under way: the round is stopped, and the asking cell is entered for the words (counted as
+    /// "the owner's words to a cell that waits for a result stop the round of the cell giving it", which the histories
+    /// that ask must reach).
+    fn speak_to_the_waiting(&mut self) {
+        let r = &self.w.records;
+        let giving = (r.started.iter()).any(|s| {
+            let began = r.rounds.iter().filter(|x| x.run == s.run).count();
+            let ended = r.returned.iter().filter(|x| x.run == s.run).count();
+            s.cell.as_str() == GIVER && began > ended && !r.abandoned.iter().any(|a| a.run == s.run)
+        });
+        let Some((asker, rng)) = self.speaking.as_mut() else {
+            return;
+        };
+        if !giving || !rng.chance(30) {
+            return;
+        }
+        let asker = asker.clone();
+        self.note(format!(
+            "the owner speaks to {asker} while the cell that gives its result runs: the outside writes {SPOKEN}"
+        ));
+        self.person_writes_now();
+        self.w.outside_writes(SPOKEN);
+    }
+
+    /// Where the asking cell has the precondition "ready" for it, a person says no in it now and then once a run of the
+    /// cell that rested at a call has the call's result, before the run goes on, while the result the cell waits for is
+    /// still to come: the run rests on no call of its own, held by the precondition, and the walk decides there
+    /// (counted as "a run of a cell that waits for a result rests on no call of its own while a cell giving the result
+    /// applies", which the histories whose rounds fail often must reach).
+    fn unready_the_resting(&mut self) {
+        let Some((asker, _)) = self.unreadying.as_ref() else {
+            return;
+        };
+        let asker = asker.clone();
+        let r = &self.w.records;
+        let open = (r.started.iter()).find(|s| {
+            s.cell == asker && !r.finished.iter().any(|f| f.run == s.run) && !r.abandoned.iter().any(|a| a.run == s.run)
+        });
+        let resting = open.is_some_and(|s| {
+            let began = r.rounds.iter().filter(|x| x.run == s.run).count();
+            let ended = r.returned.iter().filter(|x| x.run == s.run).count();
+            let calls: Vec<_> = r.called.iter().filter(|c| c.run == s.run).collect();
+            began == ended && !calls.is_empty() && calls.iter().all(|c| r.done.iter().any(|d| d.call == c.call))
+        });
+        let reading = Reading::of_flow(&self.w.flow, r);
+        let waits =
+            (self.w.flow.place(&asker)).is_some_and(|i| reading.pending(&self.w.flow.cells()[i], Seq(u64::MAX)));
+        if !resting || !waits || self.value("ready").as_deref() == Some("no") {
+            return;
+        }
+        let Some((_, rng)) = self.unreadying.as_mut() else {
+            return;
+        };
+        if !rng.chance(50) {
+            return;
+        }
+        self.note(format!(
+            "a person says no in ready, the run of {asker} resting with the result of its call"
+        ));
+        self.person_writes_now();
+        self.w.says("ready", false);
+    }
+
+    /// Where a judge stands before the merge, a person now and then turns "flip" to no once the judge's latest verdict
+    /// is no, so that the judge is skipped and the merge may begin over its no (counted as "a round of the merge begins
+    /// over the no of a judge that is skipped", which the histories must reach).
+    fn skip_the_judge(&mut self) {
+        let reading = Reading::of_flow(&self.w.flow, &self.w.records);
+        let judge_said_no = reading.current(&VERDICT.into()).is_some_and(|x| {
+            matches!(&x.by, Writer::Cell(c, _) if c.as_str() == "judge") && x.value.as_deref() == Some("no")
+        });
+        if !judge_said_no || self.value("flip").as_deref() == Some("no") {
+            return;
+        }
+        let Some(judged) = self.judged.as_mut() else {
+            return;
+        };
+        if !judged.chance(30) {
+            return;
+        }
+        self.note("a person says no in flip, the judge's latest verdict being no".into());
+        self.person_writes_now();
+        self.w.says("flip", false);
+    }
+
     fn toggle_pause(&mut self) {
         if self.paused {
             self.note("a person lets the work on".into());
@@ -1403,7 +1560,9 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
             h.toggle_pause();
         }
         if !h.cancelled {
-            let bound = h.bound();
+            // No history needs more than about fifty steps once people stop; one past two hundred never comes to rest,
+            // and fails with its seed before the time of the test runs out.
+            let bound = h.bound().min(BOUND);
             let mut steps = 0;
             while h.step(false) {
                 steps += 1;
@@ -1548,7 +1707,15 @@ fn random_works_keep_the_engines_properties_and_come_to_rest() {
 
 #[test]
 fn rounds_failing_often_while_people_pause_and_write_keep_the_engines_properties() {
-    histories(FAILING, 600, &[pausing::UNPAUSED_ANSWERS]);
+    histories(
+        FAILING,
+        600,
+        &[
+            pausing::UNPAUSED_ANSWERS,
+            properties::RESULT_RUN_FIRST,
+            properties::RESULT_AT_REST,
+        ],
+    );
 }
 
 #[test]

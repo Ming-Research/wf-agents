@@ -268,8 +268,11 @@ fn a_work_that_stalls_is_a_line_until_what_runs_a_cell_moves_it_on() {
     let at_the_merge = Decision::Stalled {
         at: "merge".into(),
         on: Vec::new(),
+        results: Vec::new(),
         by: vec![decide::Stalling {
             cell: "write".into(),
+            makes: true,
+            gives: false,
             why: decide::Unrun::NothingNew,
         }],
     };

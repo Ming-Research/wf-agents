@@ -83,13 +83,17 @@ pub struct Waits {
     pub stalled: StalledWords,
 }
 
-/// Why a stalled work rests, made of these in one sentence: what it waits for and which cells could make it hold, then
-/// why each of them does not run.
+/// Why a stalled work rests, made of these in one sentence: what it waits for and which cells could make it hold or
+/// give it, then why each of them does not run.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StalledWords {
-    /// The cell it stands at waits for `{keys}`, which `{writers}` can make hold.
+    /// The cell it stands at waits for `{what}`: its keys, its results, or the two joined by `then`.
     pub waits: String,
+    /// Its keys `{keys}`, which `{writers}` can make hold.
+    pub keys: String,
+    /// The result of what it asked for in a record, in `{results}`, which `{writers}` can give.
+    pub results: String,
     /// It stands at its last cell, which nothing new runs, and `{writers}` can write what runs it.
     pub last: String,
     /// The cells that write what it waits for, `{cells}`.

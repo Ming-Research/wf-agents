@@ -57,6 +57,268 @@ fn testing() -> World {
     w
 }
 
+/// The implementation asks for tests, saying no in `gives`, a choice of the cells' alone where `cells_alone`, and that a
+/// source outside the work writes as well otherwise; the cell that runs the tests runs only while it is yes.
+fn gated(cells_alone: bool) -> World {
+    let mut run_tests = when("gives", "yes", run_tests());
+    run_tests.outputs = vec!["implement_tested".into()];
+    let cells = vec![
+        asking(
+            "tests",
+            "implement_tested",
+            cell(
+                "implement",
+                &["background", "implement_tested"],
+                &["code", "tests", "gives"],
+            ),
+        ),
+        run_tests,
+    ];
+    let mut w = World::with_gate(cells);
+    w.written_by_cells("implement_tested");
+    w.written_by_cells("tests");
+    if cells_alone {
+        w.written_by_cells("gives");
+    } else {
+        w.written_outside("gives", "main");
+    }
+    w.person_writes("background");
+    w.start("implement");
+    let ran = w.ran_by("implement");
+    let ran: Vec<&str> = ran.iter().map(String::as_str).collect();
+    let writes = [("code", Matters), ("tests", Matters), ("gives", Value("no"))];
+    w.finish_dealing("implement", &ran, &writes);
+    w
+}
+
+// A wait for the result of what a cell asked for in a record, which only the cell that gives it brings, is stalled
+// where that cell does not run: here its condition, on a choice the asking cell wrote, does not hold, and the asking
+// cell's wait holds every cell after it (decision a-work-no-cell-can-move-is-stalled). Whoever else writes the choice,
+// a source outside the work here, the work is stalled all the same: it waits on no one until someone writes what runs
+// a cell, and the stall says what that is, the giver skipped for the choice.
+// Well under a millisecond alone; no other test holds a wait for a result no cell will give.
+#[test]
+fn a_wait_for_a_result_no_cell_will_give_is_stalled_whoever_writes_what_skips_its_giver() {
+    // It says the block the result comes in, and that the cell that gives it is skipped, its condition not holding.
+    let skipped = Unrun::Skipped {
+        on: vec![Condition::Is {
+            block: "gives".into(),
+            value: "yes".into(),
+        }],
+    };
+    let by = [("run tests", skipped)];
+    for cells_alone in [true, false] {
+        assert_eq!(
+            gated(cells_alone).decide(),
+            stalled_for("implement", &[], &["implement_tested"], &by),
+            "the choice written by the cells alone {cells_alone}"
+        );
+    }
+}
+
+/// The plan, which the background runs, writes whether the implementation is ready, a choice only cells write; the
+/// implementation, which the plan and the owner's words run, requires it and asks for tests; the cell that runs the
+/// tests gives the implementation's result, while `gives` says yes where `gated`. The plan said yes, and the
+/// implementation asked for tests.
+fn ready_and_asked(gated: bool) -> World {
+    let mut implement = asking(
+        "tests",
+        "implement_tested",
+        cell(
+            "implement",
+            &["plan", "implement_spoken", "implement_tested"],
+            &["code", "tests"],
+        ),
+    );
+    implement.requires = vec![Condition::Is {
+        block: "ready".into(),
+        value: "yes".into(),
+    }];
+    let mut tests = run_tests();
+    tests.outputs = vec!["implement_tested".into()];
+    if gated {
+        tests = when("gives", "yes", tests);
+    }
+    let cells = vec![cell("plan", &["background"], &["plan", "ready"]), implement, tests];
+    let mut w = World::with_gate(cells);
+    for block in ["implement_tested", "tests", "ready", "gives"] {
+        w.written_by_cells(block);
+    }
+    w.turning("implement_spoken");
+    w.person_writes("background");
+    w.run("plan", &[("plan", Matters), ("ready", Value("yes"))]);
+    asks_for_tests(&mut w);
+    w
+}
+
+/// [`ready_and_asked`], and the plan, run again, said no: only the plan makes the implementation's precondition hold,
+/// and nothing new runs it.
+fn unready(gated: bool) -> World {
+    let mut w = ready_and_asked(gated);
+    w.person_writes("background");
+    w.run("plan", &[("ready", Value("no"))]);
+    w
+}
+
+// The owner turning to a cell that waits for its tests and that its preconditions hold: the cell that gives the result
+// runs while it waits, as it does wherever the walk comes to the wait but while a run of the cell rests on a call of
+// its own (decision a-wait-holds-its-cell), and the work is not stalled with the cell that would give the result held.
+// Well under a millisecond alone; no other test turns to a waiting cell its preconditions hold.
+#[test]
+fn the_owner_turning_to_a_waiting_cell_its_preconditions_hold_runs_the_cell_that_gives_its_result() {
+    let mut w = unready(false);
+    w.outside_writes("implement_spoken");
+    assert_eq!(
+        reasons(&w.decide()),
+        ("run tests".into(), vec![("tests".into(), false)])
+    );
+}
+
+// The owner speaks to a cell that waits for its tests, and the round entered for the words rests at a call, as for a
+// tool: the run goes on to hand its return in before the cell that runs the tests begins, the call coming back long
+// before a run of the tests would end (decision a-wait-holds-its-cell: a run of it that is at rest still goes on to
+// hand its return in). Once it has, the tests run. Well under a millisecond alone; no other test has the run of a
+// waiting cell rest at a call.
+#[test]
+fn a_run_of_a_waiting_cell_at_rest_at_a_call_goes_on_before_the_cell_that_gives_its_result_begins() {
+    let mut w = testing();
+    asks_for_tests(&mut w);
+    w.outside_writes("implement_spoken");
+    assert_eq!(reasons(&w.decide()).0, "implement");
+    w.start("implement");
+    let call = w.calls("implement", None);
+    let Decision::Wait { at, on } = w.decide() else {
+        panic!("the walk does not wait: {:?}", w.decide());
+    };
+    assert_eq!(at.as_str(), "implement");
+    assert!(on.contains(&Waited::Call { call, on: None }), "{on:?}");
+    w.done(call);
+    w.go_on("implement");
+    w.finish_dealing("implement", &["implement_spoken"], &[]);
+    assert_eq!(
+        reasons(&w.decide()),
+        ("run tests".into(), vec![("tests".into(), false)])
+    );
+}
+
+// The round of a waiting cell entered for the owner's words rested at a call, which has its result; before the run goes
+// on, the plan before it says it is not ready, a precondition only the plan makes hold. The run, at rest on no call of
+// its own, will not go on soon: the cell that gives the result runs meanwhile, and the work is not left waiting for
+// good on a giver that never begins. Well under a millisecond alone; no other test holds a waiting cell's run at rest
+// by a precondition.
+#[test]
+fn a_run_of_a_waiting_cell_at_rest_on_no_call_of_its_own_lets_the_cell_that_gives_its_result_run() {
+    let mut w = ready_and_asked(false);
+    w.outside_writes("implement_spoken");
+    assert_eq!(reasons(&w.decide()).0, "implement");
+    w.start("implement");
+    let call = w.calls("implement", None);
+    w.done(call);
+    w.person_writes("background");
+    assert_eq!(reasons(&w.decide()).0, "plan");
+    w.run("plan", &[("ready", Value("no"))]);
+    assert_eq!(
+        reasons(&w.decide()),
+        ("run tests".into(), vec![("tests".into(), false)])
+    );
+}
+
+// The same run, at rest on no call of its own, held by the plan's no; the tests run meanwhile, and the owner speaks to
+// the review, which stands after the implementation and before the tests. The implementation's unfinished run holds
+// the work, so the review does not run before it, and the round of the tests is not stopped for the words: stopped, it
+// would begin again and be stopped again, for good. Well under a millisecond alone; no other test speaks to a cell
+// held behind a waiting cell's run at rest while the tests run.
+#[test]
+fn words_to_a_cell_behind_a_waiting_cells_unfinished_run_stop_no_round_of_the_cell_that_gives_its_result() {
+    let mut w = ready_and_asked(false);
+    let mut cells = w.flow.cells().to_vec();
+    let place = w.flow.place(&"run tests".into()).expect("the flow has it");
+    cells.insert(place, cell("review", &["code", "review_spoken"], &["opinions"]));
+    w.install(cells);
+    w.turning("review_spoken");
+    w.outside_writes("implement_spoken");
+    w.start("implement");
+    let call = w.calls("implement", None);
+    w.done(call);
+    w.person_writes("background");
+    w.run("plan", &[("ready", Value("no"))]);
+    let tests = w.start("run tests");
+    w.outside_writes("review_spoken");
+    assert_eq!(w.decide(), busy("run tests", tests));
+}
+
+// A cell the record runs that gives no result is no giver: it does not run while the asking cell waits, as no later
+// cell does but those that give the result, and where none of those applies the stall names none but them. Well under
+// a millisecond alone; no other test has a record run a cell that gives nothing.
+#[test]
+fn a_cell_the_record_runs_that_gives_no_result_neither_runs_during_the_wait_nor_is_named_its_giver() {
+    let reader = cell("reader", &["tests"], &["notes"]);
+    let mut tests = run_tests();
+    tests.outputs = vec!["implement_tested".into()];
+    let implement = asking(
+        "tests",
+        "implement_tested",
+        cell("implement", &["background", "implement_tested"], &["code", "tests"]),
+    );
+    let mut w = World::with_gate(vec![implement, reader, tests]);
+    for block in ["implement_tested", "tests", "notes", "gives"] {
+        w.written_by_cells(block);
+    }
+    w.person_writes("background");
+    asks_for_tests(&mut w);
+    assert_eq!(
+        reasons(&w.decide()),
+        ("run tests".into(), vec![("tests".into(), false)])
+    );
+    let mut cells = w.flow.cells().to_vec();
+    let place = w.flow.place(&"run tests".into()).expect("the flow has it");
+    cells[place] = when("gives", "yes", cells[place].clone());
+    w.install(cells);
+    let skipped = Unrun::Skipped {
+        on: vec![Condition::Is {
+            block: "gives".into(),
+            value: "yes".into(),
+        }],
+    };
+    assert_eq!(
+        w.decide(),
+        stalled_for("implement", &[], &["implement_tested"], &[("run tests", skipped)])
+    );
+}
+
+// A question of a cell that waits for its answer is waited for however the walk comes to the cell: the owner turning
+// to it, at a precondition only cells make hold, leaves the work waiting for the answer, not stalled; and a result no
+// cell that gives it applies to is no part of a wait, nothing being able to bring it, while the question is. Well under
+// a millisecond alone; no other test turns to a cell that waits for an answer at a precondition.
+#[test]
+fn a_question_that_waits_is_waited_for_however_the_walk_comes_to_its_cell_and_a_result_none_can_give_is_not() {
+    let answer = Waited::Answer {
+        question: "which".to_string(),
+    };
+    let unmet = Waited::Precondition {
+        on: Condition::Is {
+            block: "ready".into(),
+            value: "yes".into(),
+        },
+        by: vec![by_cell("plan")],
+    };
+    for turned in [false, true] {
+        let mut w = unready(true);
+        w.questions("implement", "which", true);
+        if turned {
+            w.outside_writes("implement_spoken");
+        }
+        let Decision::Wait { at, on } = w.decide() else {
+            panic!("the owner turning to it {turned}: {:?}", w.decide());
+        };
+        assert_eq!(at.as_str(), "implement");
+        assert!(
+            on.len() == 2 && on.contains(&answer) && on.contains(&unmet),
+            "the owner turning to it {turned}: {on:?}"
+        );
+    }
+}
+
 /// The implementation writes code and asks for tests, as one return dealing with all that ran it.
 fn asks_for_tests(w: &mut World) -> Seq {
     w.start("implement");
@@ -153,7 +415,8 @@ fn while_a_cell_waits_for_its_tests_no_later_cell_runs_but_the_one_that_runs_the
         reasons(&w.decide()),
         ("run tests".into(), vec![("tests".into(), false)])
     );
-    // With no cell to give the result, the work waits at the implementation for it.
+    // With no cell to give the result, and nothing that can make one give it, the work is stalled at the
+    // implementation (decision a-work-no-cell-can-move-is-stalled).
     let mut held = testing();
     asks_for_tests(&mut held);
     let mut gated = held.flow.cells().to_vec();
@@ -163,16 +426,15 @@ fn while_a_cell_waits_for_its_tests_no_later_cell_runs_but_the_one_that_runs_the
         value: "yes".into(),
     }];
     held.install(gated);
+    let never = Unrun::Skipped {
+        on: vec![Condition::Is {
+            block: "never".into(),
+            value: "yes".into(),
+        }],
+    };
     assert_eq!(
         held.decide(),
-        wait(
-            "implement",
-            vec![Waited::Result {
-                record: "tests".into(),
-                result: "implement_tested".into(),
-                by: vec!["run tests".into()],
-            }]
-        )
+        stalled_for("implement", &[], &["implement_tested"], &[("run tests", never)])
     );
 }
 

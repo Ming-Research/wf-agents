@@ -811,8 +811,11 @@ fn a_stall_is_read_from_the_view_and_borne_out_by_the_records() {
         decision: Decision::Stalled {
             at: CellId::from("merge"),
             on: Vec::new(),
+            results: Vec::new(),
             by: vec![Stalling {
                 cell: CellId::from("review"),
+                makes: true,
+                gives: false,
                 why: Unrun::NothingNew,
             }],
         },

@@ -255,10 +255,10 @@ impl Flow {
         (self.cells.iter()).any(|c| c.asks.iter().any(|a| &a.result == block))
     }
 
-    /// The cells a record of asking runs, in the order of the walk: those that give what the cells that write it ask
-    /// for in it.
-    pub fn answering<'f>(&'f self, record: &'f BlockId) -> impl Iterator<Item = &'f Cell> {
-        self.cells.iter().filter(move |c| c.runs_on.contains(record))
+    /// The cells that give what a cell asks for in a record, in the order of the walk: those the record runs that write
+    /// the block its result comes in. Another cell the record runs gives nothing.
+    pub fn givers<'f>(&'f self, asks: &'f Asks) -> impl Iterator<Item = &'f Cell> {
+        (self.cells.iter()).filter(move |c| c.runs_on.contains(&asks.record) && c.outputs.contains(&asks.result))
     }
 
     /// The named tests, by name: each that a cell uses, and any other the flow was given.
