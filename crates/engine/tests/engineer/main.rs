@@ -135,7 +135,7 @@ use engine::spoken::{self, To};
 use engine::{Ask, Came, Effect, Event, Handed};
 use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
-use support::{Driver, Part, Rng, lacking_a_must_write};
+use support::{Driver, Part, Rng, lacking_a_must_write, reaching};
 
 /// How many histories are run.
 const SEEDS: u64 = 500;
@@ -524,6 +524,9 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             MAIN_MOVED_AFTER_THE_TAKE_IN,
             MAIN_MOVED_BEFORE_THE_CHECK_READ,
             CHECK_RAN_AGAIN_FOR_MAIN,
+            WORDS_TAKEN,
+            WORDS_REFUSED,
+            WORDS_TOLD,
         ]
         .map(String::from),
     );
@@ -610,6 +613,9 @@ const MAIN_MOVED_AFTER_THE_TAKE_IN: &str =
 const MAIN_MOVED_BEFORE_THE_CHECK_READ: &str =
     "a run of the check finished on main moved before it read it, taking the newer head in before the watch wrote it";
 const CHECK_RAN_AGAIN_FOR_MAIN: &str = "the check ran again for main moved after its take-in";
+const WORDS_TAKEN: &str = "the owner's words were taken, each entry said to the cell the records say they reach";
+const WORDS_REFUSED: &str = "the owner's words were refused, no cell taking them, and wrote nothing";
+const WORDS_TOLD: &str = "the owner's words were told to a round under way of the cell they reached";
 
 /// The source of the block the driver writes as the owner starts a work, which runs the first cell.
 const START: &str = "start";
@@ -1367,12 +1373,12 @@ fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
         !w.people && w.outside.is_none()
     };
     let cells = d.flow.flow.cells();
-    // The line of the cell at `j`, where the owner's words to it reach that cell, as the engine chooses.
+    // The line of the cell at `j`, where the owner's words to it reach that cell, as the records read.
     let spoken_to = |j: usize| {
         let spec = &d.flow.cells[j];
         let line = spec.line.clone()?;
-        let reached = spoken::receiver(&d.flow, &d.work, &To::Line(line.clone()));
-        (reached.as_ref() == Ok(&spec.id)).then_some(line)
+        let reached = reaching(&d.flow, &d.work.records, &To::Line(line.clone()));
+        (reached.as_ref() == Some(&spec.id)).then_some(line)
     };
     // Whether the cell at `j` runs the writer at `w` again by what it writes: it is the writer, or writes a block the
     // writer runs on.
@@ -1790,6 +1796,15 @@ impl History {
         }
         if self.d.seen.stops > 0 {
             reached.push(ENGINE_STOPPED.to_string());
+        }
+        if self.d.seen.words_taken > 0 {
+            reached.push(WORDS_TAKEN.to_string());
+        }
+        if self.d.seen.words_refused > 0 {
+            reached.push(WORDS_REFUSED.to_string());
+        }
+        if self.d.seen.told > 0 {
+            reached.push(WORDS_TOLD.to_string());
         }
         if self.branch.get().gated > 0 {
             reached.push(CHECK_GATED.to_string());

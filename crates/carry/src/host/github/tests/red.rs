@@ -71,6 +71,17 @@ impl Hub {
         (head, self.main_on_github())
     }
 
+    /// The verdict of this round of the check on the commit, which holds main's head on GitHub: given again after the
+    /// engine started again, a round is the same one.
+    async fn verdict_of(&self, commit: &str, round: Asking) -> Option<Verdict> {
+        let (place, main) = (self.place(), self.main_on_github());
+        (self.host)
+            .verdict(&branch(&place), commit, &main, (round, &[]), &mut Stop::never())
+            .await
+            .map_err(String::from)
+            .expect("the check judges")
+    }
+
     /// The fast workflow on the commit passes the lint, and passes or fails `tools::tests::b`.
     fn fast_on(&self, commit: &str, passes: bool, lint: Outcome) {
         let test = if passes { passed("test") } else { check("test", red()) };
@@ -104,6 +115,30 @@ async fn a_failed_test_that_passes_when_the_commit_is_run_again_passes_it_and_is
         .map(|(w, c, t, k)| (w.to_string(), c.to_string(), t.to_string(), k.to_string()))
         .collect();
     assert_eq!(runs(&hub), ran);
+}
+
+// The check given again, as after the engine started again, its runs having ended: it finds the full run, the run
+// again on the commit and the run on main's head by the values it asked for them by, asks for none of them twice, and
+// comes to the same verdict. Well under a second alone, a repository on disk and GitHub in memory; no other test gives
+// a check that ran its failed tests again a second time.
+#[tokio::test]
+async fn a_check_given_again_finds_its_runs_again_and_asks_for_none_twice() {
+    let hub = Hub::new();
+    let (head, main) = hub.red_by_b().await;
+    hub.fast_on(&head, false, Outcome::Passed);
+    hub.fast_on(&main, false, Outcome::Passed);
+    let round = hub.round();
+    let first = hub.verdict_of(&head, round).await.expect("judged");
+    assert!(first.held.is_some(), "{first:?}");
+    let asked = runs(&hub);
+    assert_eq!(
+        asked.len(),
+        3,
+        "the full workflows, the run again and the run on main: {asked:?}"
+    );
+    let again = hub.verdict_of(&head, round).await.expect("judged");
+    assert_eq!(runs(&hub), asked, "nothing is asked for twice");
+    assert_eq!((&again.held, &again.failed), (&first.held, &first.failed));
 }
 
 // The test fails again on the commit, and on main's head too: the commit is held, not failed, saying which test fails
