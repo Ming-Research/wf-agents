@@ -20,7 +20,7 @@
 //!    finishes and the cells' definitions after every step (property a-run-is-one-mechanism).
 //! 6. The work's head that merges is a version the review dealt with: as the merge's run finishes on a branch the work
 //!    committed to, the branch is at the head the check last passed, and each judge that the head runs and that
-//!    applies, a cell that writes a choice the check's preconditions read, was told of a version that says that head
+//!    applies, a cell that writes a block the check's preconditions read, was told of a version that says that head
 //!    by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
 //!
 //! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
