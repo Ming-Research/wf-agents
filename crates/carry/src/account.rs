@@ -1,7 +1,7 @@
 //! The account the agents' program makes its calls under: a directory of its settings and sign-in, named to it by a
-//! variable of its environment. The installation names one as `agents.config_dir`; the owner signs a directory in
-//! once, by hand, by running the program with the variable naming the directory and typing the command that signs in,
-//! and the program keeps there the account it is signed in as.
+//! variable of its environment. The installation lists those it may run under as `agents.accounts`; the owner signs
+//! each directory in once, by hand, by running the program with the variable naming the directory and typing the
+//! command that signs in, and the program keeps there the account it is signed in as.
 
 use std::path::Path;
 

@@ -1,8 +1,10 @@
 //! A wait every work shares, one for each service the works reach: the agents' service, and the host the engine's acts
 //! reach for the project's repository. A round failed for a cause that is outside every work and the same for all of
-//! them holds every round that service serves while it stands: the agents' rounds, at the account's usage limit, for a
-//! command line that cannot run, without the network to the service or while the service does not serve; the acts'
-//! rounds, without the network to their host. A cause of one service holds nothing of the other, and nothing that comes
+//! them holds every round that service serves while it stands: the agents' rounds, at the usage limit of the account
+//! in use, for a command line that cannot run, without the network to the service or while the service does not serve;
+//! the acts' rounds, without the network to their host. A usage limit is the account's own: a round that met it holds
+//! the rounds only while the account it ran under is the one in use, and only a round under that account coming back
+//! ends it ([`limit_of`]); every other cause holds the rounds whichever account they run under. A cause of one service holds nothing of the other, and nothing that comes
 //! of the other's rounds ends it. Each is one fact, worked out from the records of every work, never written on each
 //! (principle `state-from-records`), and the reason the page gives for every work it holds.
 //!
@@ -199,64 +201,32 @@ struct Taken {
     began: Time,
     /// The place of the entry of its beginning, in its work.
     began_at: decide::Seq,
+    /// The account its latest try ran under, as its records say; none for a try that ran under the program's own
+    /// directory, or was kept before tries were recorded.
+    account: Option<String>,
     /// When it ended, and what came back; none while it is under way. What came back is none for a round whose run
     /// was abandoned, when it was dropped.
     ended: Option<(Time, decide::Seq, Option<Back>)>,
 }
 
 /// The wait of the service every work shares, from the records of these works on the flows they run on, and the
-/// rounds the service answered while under way, each of a work and run by its number, if one stands. What the outside
-/// says of it, its checks and looks, is the driver's to add.
+/// rounds the service answered while under way, each of a work and run by its number, if one stands, with the agents
+/// under this account: a usage limit met under another holds nothing. What the outside says of it, its checks and
+/// looks, is the driver's to add.
 pub fn outage<'a>(
     service: Service,
     works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>,
     answered: &BTreeSet<(WorkNumber, RunId, usize)>,
+    account: Option<&str>,
 ) -> Option<Outage> {
     let mut rounds = Vec::new();
     for (number, flow, work) in works {
         rounds.extend(rounds_of(service, number, flow, work));
     }
-    // Each round that failed for a cause every work shares, with when and where in its work it ended.
-    let failed: Vec<Met> = (rounds.iter())
-        .filter_map(|r| match &r.ended {
-            Some((time, at, Some(Back::Failed { why, failure, resets }))) if failure.shared() => Some(Met {
-                round: r,
-                time: *time,
-                at: *at,
-                why,
-                failure: *failure,
-                resets: *resets,
-            }),
-            _ => None,
-        })
-        .collect();
-    // Of the rounds that came back, or that the service answered, the latest beginning, of every work and of each.
-    let mut back_began: Option<Time> = None;
-    let mut back_began_at: BTreeMap<WorkNumber, decide::Seq> = BTreeMap::new();
-    for r in &rounds {
-        let back = matches!(
-            &r.ended,
-            Some((_, _, Some(Back::Asked(_) | Back::HandedIn(_) | Back::Returned { .. })))
-        );
-        if back || answered.contains(&(r.work, r.run, r.number)) {
-            back_began = back_began.max(Some(r.began));
-            let at = back_began_at.entry(r.work).or_insert(r.began_at);
-            *at = (*at).max(r.began_at);
-        }
-    }
-    // A failure is over where a round that began after it came back: one that began later, or later in the same work,
-    // a round of another work that began at the same time having perhaps begun before it ended.
-    let over = |work: WorkNumber, time: Time, at: decide::Seq| {
-        back_began.is_some_and(|began| began > time) || back_began_at.get(&work).is_some_and(|began| *began > at)
-    };
-    let standing = || failed.iter().filter(|m| !over(m.round.work, m.time, m.at));
-    // The latest of those not over, which says the cause; of two that ended at one time, the later in its work, and of
-    // two works, the one numbered higher, as the driver takes works in their order. Where the latest is over, every
-    // earlier one is.
-    let key = |m: &&Met| (m.time, m.round.work, m.at);
-    let latest = standing().max_by_key(key)?;
-    let first = standing().min_by_key(key)?;
-    Some(Outage {
+    standing(&rounds, answered, |failure, under| {
+        failure.shared() && (failure != Failure::UsageLimit || under == account)
+    })
+    .map(|(first, latest)| Outage {
         service,
         failure: latest.failure,
         why: latest.why.clone(),
@@ -271,7 +241,108 @@ pub fn outage<'a>(
     })
 }
 
+/// A usage limit an account is at, as the records of every work say: when the latest round under it that met the limit
+/// ended, and when the limit resets where that round said; none where no round under it met one, or a round under it
+/// that began after came back, or the service answered it while under way. Whether the reset has passed is for whoever
+/// reads it at a time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limit {
+    pub met: Time,
+    pub resets: Option<Time>,
+}
+
+/// The usage limit the account is at, as the records of these works say ([`Limit`]).
+pub fn limit_of<'a>(
+    works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>,
+    answered: &BTreeSet<(WorkNumber, RunId, usize)>,
+    account: Option<&str>,
+) -> Option<Limit> {
+    let mut rounds = Vec::new();
+    for (number, flow, work) in works {
+        rounds.extend(rounds_of(Service::Agents, number, flow, work));
+    }
+    let of_it: Vec<Taken> = rounds.into_iter().filter(|r| r.account.as_deref() == account).collect();
+    standing(&of_it, answered, |failure, _| failure == Failure::UsageLimit).map(|(_, latest)| Limit {
+        met: latest.time,
+        resets: latest.resets,
+    })
+}
+
+/// Of these rounds, the first and the latest of those that failed for a cause `counts` takes, under the account its
+/// round ran under, and that no round that began after it came back to end: none where there is none. A usage limit
+/// is ended only by a round under the account that met it; any other cause, by a round under any.
+fn standing<'r>(
+    rounds: &'r [Taken],
+    answered: &BTreeSet<(WorkNumber, RunId, usize)>,
+    counts: impl Fn(Failure, Option<&str>) -> bool,
+) -> Option<(Met<'r>, Met<'r>)> {
+    // Each round that failed for a cause every work shares, with when and where in its work it ended.
+    let failed: Vec<Met> = (rounds.iter())
+        .filter_map(|r| match &r.ended {
+            Some((
+                time,
+                at,
+                Some(Back::Failed {
+                    why, failure, resets, ..
+                }),
+            )) if counts(*failure, r.account.as_deref()) => Some(Met {
+                round: r,
+                time: *time,
+                at: *at,
+                why,
+                failure: *failure,
+                resets: *resets,
+            }),
+            _ => None,
+        })
+        .collect();
+    // Of the rounds that came back, or that the service answered, the latest beginning, of every work and of each, under
+    // any account and under each.
+    let mut any: Option<Time> = None;
+    let mut any_at: BTreeMap<WorkNumber, decide::Seq> = BTreeMap::new();
+    let mut own: BTreeMap<Option<&str>, Time> = BTreeMap::new();
+    let mut own_at: BTreeMap<(WorkNumber, Option<&str>), decide::Seq> = BTreeMap::new();
+    for r in rounds {
+        let back = matches!(
+            &r.ended,
+            Some((_, _, Some(Back::Asked(_) | Back::HandedIn(_) | Back::Returned { .. })))
+        );
+        if back || answered.contains(&(r.work, r.run, r.number)) {
+            let under = r.account.as_deref();
+            any = any.max(Some(r.began));
+            let began = own.entry(under).or_insert(r.began);
+            *began = (*began).max(r.began);
+            for at in [
+                any_at.entry(r.work).or_insert(r.began_at),
+                own_at.entry((r.work, under)).or_insert(r.began_at),
+            ] {
+                *at = (*at).max(r.began_at);
+            }
+        }
+    }
+    // A failure is over where a round that began after it came back: one that began later, or later in the same work,
+    // a round of another work that began at the same time having perhaps begun before it ended. A usage limit is over
+    // only where that round ran under the account that met it.
+    let over = |m: &Met| {
+        let under = m.round.account.as_deref();
+        let (began, at) = match m.failure {
+            Failure::UsageLimit => (own.get(&under).copied(), own_at.get(&(m.round.work, under)).copied()),
+            _ => (any, any_at.get(&m.round.work).copied()),
+        };
+        began.is_some_and(|began| began > m.time) || at.is_some_and(|began| began > m.at)
+    };
+    let standing = || failed.iter().filter(|m| !over(m));
+    // The latest of those not over, which says the cause; of two that ended at one time, the later in its work, and of
+    // two works, the one numbered higher, as the driver takes works in their order. Where the latest is over, every
+    // earlier one is.
+    let key = |m: &&Met| (m.time, m.round.work, m.at);
+    let latest = standing().max_by_key(key)?;
+    let first = standing().min_by_key(key)?;
+    Some((first.clone(), latest.clone()))
+}
+
 /// A round that failed for a cause every work shares, as the outage reads it.
+#[derive(Clone)]
 struct Met<'a> {
     round: &'a Taken,
     /// When it ended, and the place of the entry of its end in its work.
@@ -298,12 +369,14 @@ fn rounds_of(service: Service, number: WorkNumber, flow: &Compiled, work: &Work)
                 let back = work.back.get(&(started.run, i + 1)).cloned();
                 (work.time_of(e.at).unwrap_or_default(), e.at, back)
             });
+            let tried = (work.ran.iter().rev()).find(|t| t.run == started.run && t.round == i + 1);
             out.push(Taken {
                 work: number,
                 run: started.run,
                 number: i + 1,
                 began: work.time_of(round.at).unwrap_or_default(),
                 began_at: round.at,
+                account: tried.and_then(|t| t.on.account.clone()),
                 ended: end,
             });
         }

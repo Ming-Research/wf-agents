@@ -1,8 +1,8 @@
 //! The check of the outside the agents' rounds need, which the engine takes by itself while they wait for it, with no
-//! round and in no work's session: the sign-in of their command line, as `auth status` says it in the agents' directory
-//! of settings; the network to their service, by a look at its host; and, once both are well, one short request on
-//! the cheapest level's model, in a session that is not kept, with the agents' command, directory of settings and
-//! environment. What is down is said by the first of them that is, the short request's failure told apart as a round's
+//! round and in no work's session, under the account the engine names: the sign-in of their command line, as `auth
+//! status` says it in that account's directory of settings; the network to their service, by a look at its host; and,
+//! once both are well, one short request on the cheapest level's model, in a session that is not kept, with the
+//! agents' command and environment and that directory. What is down is said by the first of them that is, the short request's failure told apart as a round's
 //! is ([`failure`]).
 
 use std::future::Future;
@@ -33,7 +33,8 @@ const REQUEST: &str = "Reply with the single word ok.";
 pub struct Check {
     /// The agents' command line, as `agents.command` names it.
     command: String,
-    /// The environment it is given, as a round's is ([`cli::environment`]), its directory of settings among it.
+    /// The environment it is given, as a round's is ([`cli::environment`]), but for the directory of settings of the
+    /// account it checks under, which each check names.
     env: Vec<(String, String)>,
     /// Which of its settings files it reads, as a round's does.
     setting_sources: String,
@@ -64,7 +65,7 @@ impl Check {
             .ok_or_else(|| format!("agents.levels: there is no level {:?}", cheapest.name))?;
         Ok(Check {
             command: settings.agents.command.clone(),
-            env: cli::environment(&settings.agents, std::env::vars()),
+            env: cli::environment(&settings.agents, None, std::env::vars()),
             setting_sources: settings.agents.setting_sources.clone(),
             model,
             dir: std::env::temp_dir(),
@@ -75,20 +76,23 @@ impl Check {
         })
     }
 
-    /// The agents' command line with these arguments, its environment and its directory.
-    fn command(&self, args: &[&str]) -> Command {
+    /// The agents' command line with these arguments, its environment under the account, and its directory.
+    fn command(&self, args: &[&str], account: Option<&str>) -> Command {
         let mut command = Command::new(&self.command);
         command
             .args(args)
             .env_clear()
             .envs(self.env.iter().cloned())
             .current_dir(&self.dir);
+        if let Some(dir) = account {
+            command.env(crate::account::VARIABLE, dir);
+        }
         command
     }
 
-    /// What is down, of the sign-in, the network and the service, in that order; well where none is.
-    async fn found(&self) -> Found {
-        if let Some(down) = self.signed_out().await {
+    /// What is down under the account, of the sign-in, the network and the service, in that order; well where none is.
+    async fn found(&self, account: Option<&str>) -> Found {
+        if let Some(down) = self.signed_out(account).await {
             return down;
         }
         let network = self.network.clone();
@@ -100,18 +104,18 @@ impl Check {
                 resets: None,
             };
         }
-        self.request().await
+        self.request(account).await
     }
 
     /// What is down where the command line is not signed in, as it says in its directory of settings, or cannot be
     /// started; none where it says it is signed in, or says what cannot be read, which the short request then tells.
-    async fn signed_out(&self) -> Option<Found> {
+    async fn signed_out(&self, account: Option<&str>) -> Option<Found> {
         let cannot = |why: String| Found::Down {
             failure: decide::run::Failure::CannotRun,
             why,
             resets: None,
         };
-        let output = match process::output(self.command(&["auth", "status"]), SIGN_IN_WAIT).await {
+        let output = match process::output(self.command(&["auth", "status"], account), SIGN_IN_WAIT).await {
             Ok(output) => output,
             Err(why) => return Some(cannot(why)),
         };
@@ -124,7 +128,7 @@ impl Check {
 
     /// What the short request found: well where the service answered it with a message that is no error, else what
     /// is down as its failure tells it.
-    async fn request(&self) -> Found {
+    async fn request(&self, account: Option<&str>) -> Found {
         let args = [
             "-p",
             "--model",
@@ -139,7 +143,7 @@ impl Check {
             &self.setting_sources,
             REQUEST,
         ];
-        let output = match process::output(self.command(&args), REQUEST_WAIT).await {
+        let output = match process::output(self.command(&args, account), REQUEST_WAIT).await {
             Ok(output) => output,
             Err(why) => {
                 // One that did not end in time had no answer from the service; one that cannot be started is the command
@@ -187,8 +191,9 @@ impl Check {
 }
 
 impl Outside for Check {
-    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-        Box::pin(self.found())
+    fn check(&self, account: Option<&str>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+        let account = account.map(str::to_string);
+        Box::pin(async move { self.found(account.as_deref()).await })
     }
 }
 
@@ -275,12 +280,32 @@ mod tests {
 {"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1793394000,"rateLimitType":"seven_day"}}
 {"type":"result","subtype":"success","is_error":true,"result":"You've hit your weekly limit","total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0}}"#;
 
+    // A few milliseconds: a shell script run twice.
+    #[tokio::test]
+    async fn a_check_signs_in_and_asks_under_the_account_it_is_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let said = format!(
+            "echo \"under $CLAUDE_CONFIG_DIR\" >> '{}'\n{}",
+            dir.path().join("under").display(),
+            answering(true, ANSWERED)
+        );
+        let check = check(dir.path(), &said, true);
+        assert_eq!(check.check(Some("/data/claude-second")).await, Found::Well);
+        let under = std::fs::read_to_string(dir.path().join("under")).unwrap();
+        assert_eq!(under, "under /data/claude-second\nunder /data/claude-second\n");
+        std::fs::remove_file(dir.path().join("under")).unwrap();
+        // Named none, it runs under the program's own directory.
+        assert_eq!(check.check(None).await, Found::Well);
+        let under = std::fs::read_to_string(dir.path().join("under")).unwrap();
+        assert_eq!(under, "under \nunder \n");
+    }
+
     // Each takes a few milliseconds: a shell script run twice or three times.
     #[tokio::test]
     async fn a_check_finds_the_outside_well_where_the_sign_in_the_network_and_a_short_request_are() {
         let dir = tempfile::tempdir().unwrap();
         let check = check(dir.path(), &answering(true, ANSWERED), true);
-        assert_eq!(check.check().await, Found::Well);
+        assert_eq!(check.check(None).await, Found::Well);
         let calls = calls(dir.path());
         assert_eq!(calls.len(), 2, "{calls:?}");
         assert_eq!(calls[0], "auth status");
@@ -303,7 +328,7 @@ mod tests {
     async fn a_check_says_what_is_down_by_the_first_of_the_sign_in_the_network_and_the_service_that_is() {
         let dir = tempfile::tempdir().unwrap();
         // Not signed in: neither the network nor the service is tried.
-        let signed_out = check(dir.path(), &answering(false, ANSWERED), true).check().await;
+        let signed_out = check(dir.path(), &answering(false, ANSWERED), true).check(None).await;
         let Found::Down { failure, why, .. } = &signed_out else {
             panic!("{signed_out:?}");
         };
@@ -316,7 +341,7 @@ mod tests {
         assert_eq!(calls(dir.path()), ["auth status"]);
         // Signed in, and the network down: no request is made.
         let dir = tempfile::tempdir().unwrap();
-        let offline = check(dir.path(), &answering(true, ANSWERED), false).check().await;
+        let offline = check(dir.path(), &answering(true, ANSWERED), false).check(None).await;
         assert!(
             matches!(
                 &offline,
@@ -331,7 +356,7 @@ mod tests {
         assert_eq!(calls(dir.path()), ["auth status"]);
         // The service overloaded, and the account at its usage limit, as the short request's failure tells them.
         let dir = tempfile::tempdir().unwrap();
-        let overloaded = check(dir.path(), &answering(true, OVERLOADED), true).check().await;
+        let overloaded = check(dir.path(), &answering(true, OVERLOADED), true).check(None).await;
         assert!(
             matches!(
                 overloaded,
@@ -343,7 +368,7 @@ mod tests {
             "{overloaded:?}"
         );
         let dir = tempfile::tempdir().unwrap();
-        let limited = check(dir.path(), &answering(true, LIMITED), true).check().await;
+        let limited = check(dir.path(), &answering(true, LIMITED), true).check(None).await;
         assert_eq!(
             limited,
             Found::Down {
@@ -359,7 +384,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut check = check(dir.path(), "", true);
         check.command = dir.path().join("missing").display().to_string();
-        let found = check.check().await;
+        let found = check.check(None).await;
         assert!(
             matches!(
                 found,
@@ -372,7 +397,9 @@ mod tests {
         );
         // One whose sign-in says what cannot be read, and whose request prints nothing, never began.
         let dir = tempfile::tempdir().unwrap();
-        let found = self::check(dir.path(), "echo 'what?' >&2; exit 1", true).check().await;
+        let found = self::check(dir.path(), "echo 'what?' >&2; exit 1", true)
+            .check(None)
+            .await;
         let Found::Down { failure, why, .. } = &found else {
             panic!("{found:?}");
         };

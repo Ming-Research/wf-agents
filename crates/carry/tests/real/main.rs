@@ -221,6 +221,8 @@ pub struct Call {
     pub stdin: String,
     /// The directory it ran in.
     pub dir: PathBuf,
+    /// The account it ran under, as `CLAUDE_CONFIG_DIR` named it to the program; empty where nothing did.
+    pub account: String,
     /// Whether a call before it was still running as it began.
     pub overlapped: bool,
 }
@@ -426,6 +428,7 @@ for arg in "$@"; do
 done
 cat > "$log/$n.stdin"
 pwd > "$log/$n.pwd"
+printf '%s' "$CLAUDE_CONFIG_DIR" > "$log/$n.account"
 if [ '{compacts}' = yes ]; then
     hook=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 | sed 's/.*"SessionStart".*"command":"\([^"]*\)".*/\1/')
     sh -c "$hook" > "$log/$n.again"
@@ -718,7 +721,7 @@ impl Real {
                 args: Vec::new(),
                 env: Vec::new(),
                 setting_sources: "user".to_string(),
-                config_dir: None,
+                accounts: Vec::new(),
                 // The lock command of a project on Cargo.
                 permissions: PermissionsAdded {
                     locks: vec!["cargo update".to_string()],
@@ -1032,6 +1035,7 @@ impl Real {
                     args: args.lines().map(str::to_string).collect(),
                     stdin: text.unwrap_or_default().to_string(),
                     dir: PathBuf::from(read(n, "pwd").unwrap_or_default().trim_end()),
+                    account: read(n, "account").unwrap_or_default(),
                     overlapped: self.calls.join(format!("{n}.overlap")).exists(),
                 })
             })

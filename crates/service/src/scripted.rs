@@ -180,7 +180,7 @@ impl Network for Scripted {
 /// The outside of the agents' rounds a script runs on is always well: what the script makes a round fail of passes
 /// once the engine checks it.
 impl Outside for Scripted {
-    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+    fn check(&self, _: Option<&str>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
         Box::pin(async { Found::Well })
     }
 }

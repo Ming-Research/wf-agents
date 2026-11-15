@@ -103,6 +103,15 @@ pub struct Service {
 /// A read of the works as the driver holds them, at the time the loop's clock gives.
 pub type Reader = Box<dyn FnOnce(&Driver, Time) + Send>;
 
+/// What the owner does of the accounts the agents run under.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AccountsAct {
+    /// Takes the account of this directory, one the installation lists, as the one the agents run under.
+    Take(String),
+    /// Sets the switch that lets the engine move on to another account at the week's limit of the one in use.
+    MoveOn(bool),
+}
+
 /// What the loop takes, one at a time, in the order it came.
 pub enum Message {
     /// Something happened to a work: what came of a round or a call, said by what carried it out.
@@ -148,6 +157,11 @@ pub enum Message {
         wake: Wake,
         found: Option<Found>,
         host_reached: Option<bool>,
+    },
+    /// The owner takes an account, or sets the switch that lets the engine move on.
+    Accounts {
+        act: AccountsAct,
+        reply: oneshot::Sender<Result<(), Refusal>>,
     },
     /// The service of the agents answered the round under way of this run, with a message that is no error.
     Answered { work: WorkNumber, run: RunId },
@@ -391,8 +405,31 @@ impl Service {
                     self.wake = None;
                 }
                 let now = self.now()?;
+                // The check is of the account the wake named, which may be another than the one in use by now.
+                let found = found.map(|found| (wake.account.clone(), found));
                 let todos = (self.driver.tick(now, found, host_reached)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
+            }
+            Message::Accounts { act, reply } => {
+                let now = self.now()?;
+                let done = match &act {
+                    AccountsAct::Take(account) => self.driver.take_account(now, account),
+                    AccountsAct::MoveOn(on) => self.driver.move_on(now, *on),
+                };
+                match done {
+                    Ok(todos) => {
+                        let _ = reply.send(Ok(()));
+                        self.hand(now, todos)?;
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
             }
             Message::Answered { work, run } => {
                 let now = self.now()?;
@@ -500,7 +537,7 @@ impl Service {
     /// of the outside or a look at the network, it is taken off the loop as the time comes.
     fn set_wake(&mut self) {
         let wake = self.driver.wake();
-        if self.wake.as_ref().map(|(w, _)| *w) == wake {
+        if self.wake.as_ref().map(|(w, _)| w) == wake.as_ref() {
             return;
         }
         let now = self.clock.now().ok();
@@ -518,10 +555,11 @@ impl Service {
             self.carriers.outside.clone(),
             self.carriers.host.clone(),
         );
+        let set = wake.clone();
         let timer = tokio::spawn(async move {
             tokio::time::sleep(after).await;
             let found = match wake.check {
-                true => Some(outside.check().await),
+                true => Some(outside.check(wake.account.as_deref()).await),
                 false => None,
             };
             // A host no network reaches is reached.
@@ -536,7 +574,7 @@ impl Service {
                 host_reached,
             });
         });
-        self.wake = Some((wake, timer.abort_handle()));
+        self.wake = Some((set, timer.abort_handle()));
     }
 
     /// How long from now until this time; nothing where it has come, or the clock cannot be read, when the time is
@@ -666,6 +704,7 @@ impl Service {
                 item: kept.item.clone(),
                 kept: Arc::new(kept.work.clone()),
                 lines,
+                account: self.driver.account(),
             };
             Ok((round, spec.kind))
         };
@@ -885,6 +924,16 @@ impl Handle {
         let (reply, answer) = oneshot::channel();
         (self.to)
             .send(Message::Everything { paused, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// The owner takes this account, one the installation lists, as the one the agents run under, or sets the switch
+    /// that lets the engine move on to another at the week's limit of the one in use.
+    pub async fn accounts(&self, act: AccountsAct) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::Accounts { act, reply })
             .map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }

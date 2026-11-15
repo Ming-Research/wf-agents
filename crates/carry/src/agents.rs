@@ -336,7 +336,9 @@ impl Inner {
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         // The project of the work's item, whose repository and declaration the round is run with.
         let of = crate::projects::of(&self.projects, &round.item)?;
-        let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
+        // The account the round runs under is the one in use as it was handed out, which the work as kept then counts
+        // its session by: read anew here, it could go on under another directory in a session begun under this one.
+        let on = (self.settings).ran_on(round.item.level.as_deref(), &round.cell, round.account.as_deref())?;
         let dir = git::worktree(&place)?;
         let main = if round.cell.takes_main {
             self.caught_up(round, &place, of).await?
@@ -702,7 +704,7 @@ impl Inner {
         command
             .args(args)
             .env_clear()
-            .envs(cli::environment(agents, std::env::vars()))
+            .envs(cli::environment(agents, on.account.as_deref(), std::env::vars()))
             .current_dir(dir);
         command
     }

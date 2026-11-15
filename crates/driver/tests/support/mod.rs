@@ -446,6 +446,22 @@ impl Storage for Failing {
     fn everything_pauses(&self) -> Result<Vec<store::PauseOfEverything>, store::Fault> {
         self.store.everything_pauses()
     }
+
+    fn accounts_taken(&self) -> Result<Vec<store::AccountTaken>, store::Fault> {
+        self.store.accounts_taken()
+    }
+
+    fn take_account(&mut self, taken: &store::AccountTaken) -> Result<(), store::Fault> {
+        self.store.take_account(taken)
+    }
+
+    fn moving_on(&self) -> Result<Option<store::MovingOn>, store::Fault> {
+        self.store.moving_on()
+    }
+
+    fn set_moving_on(&mut self, on: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.set_moving_on(on, at)
+    }
 }
 
 /// What opening the driver gives.
@@ -1421,9 +1437,22 @@ impl H {
         self.ticked(at, None, Some(reached))
     }
 
-    /// The driver is told the time, with what each check and look found.
+    /// The driver is told the time, and what a check of the outside of the agents' rounds under this account found.
+    pub fn checked_under(&mut self, at: Time, account: Option<&str>, found: Found) -> Vec<Todo> {
+        self.clock = self.clock.max(at.0);
+        let found = Some((account.map(str::to_string), found));
+        let todos = (self.dm().tick(at, found, None)).expect("the driver takes the time");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
+    /// The driver is told the time, with what each check, under the account in use, and each look found.
     fn ticked(&mut self, at: Time, found: Option<Found>, host_reached: Option<bool>) -> Vec<Todo> {
         self.clock = self.clock.max(at.0);
+        let found = found.map(|found| (self.d().account(), found));
         let todos = (self.dm().tick(at, found, host_reached)).expect("the driver takes the time");
         self.given(&todos);
         if self.checking {

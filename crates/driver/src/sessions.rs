@@ -4,7 +4,9 @@
 //!
 //! With the installation's [`Policy`], a line begins a new session at its next round when the account or the model its
 //! session's rounds ran on, as the work's records say, is not the one its rounds run on now, or when its last round
-//! ended with a context past the limit. The limit is the line the line's own rounds give, in every work of the flow, of
+//! ended with a context past the limit. A new session for another account is recorded only once a round of the line
+//! is the work's next, so that an account taken and taken back before the line runs again leaves its session as it
+//! was. The limit is the line the line's own rounds give, in every work of the flow, of
 //! the context they ended with ([`crate::history::context_line`]), so that a session is replaced where its size is more
 //! than its line's history explains (principle `judged-by-own-history`); but never more than the policy's
 //! [`Policy::limit`], which is the limit while that history is too short to give a line. The program compacts a
@@ -49,9 +51,15 @@ pub struct Policy {
     /// The most a session's context may hold, in tokens: the limit where the line's history gives none, and the most it
     /// may be where it does.
     pub limit: u64,
-    /// What a round of the cell, for the item, runs on now: its model and account among it; none where it cannot run.
+    /// What a round of the cell, for the item, runs on now, but for the account: its level, model and effort; none where
+    /// it cannot run.
     #[allow(clippy::type_complexity)]
     pub on: Box<dyn Fn(&Item, &CellSpec) -> Option<RanOn> + Send>,
+    /// The accounts the agents may run under, each the directory of their program's settings and sign-in, in the
+    /// owner's order, as the installation lists them; none where it lists none, and they run under the program's own.
+    pub accounts: Vec<String>,
+    /// The account the agents run under now, as the driver keeps it in use (module [`crate::accounts`]).
+    pub account: Option<String>,
     /// How the sessions of lines that wait are kept warm; none where the agents' program keeps no prompt cache.
     pub warm: Option<Warm>,
 }
@@ -203,26 +211,31 @@ pub fn due(
     let began = began_on(work, line, on_line, session);
     // What a round of the line runs on now, as the policy says for a cell of the line; none where it cannot run, which
     // its round says when it fails. Any cell of the line will do: the levels above the item's that a round runs at are
-    // the line's, and the account the installation's, so a line's model and account do not depend on which cell runs.
+    // the line's, and the account the one in use, so a line's model and account do not depend on which cell runs.
     let cell = flow.cells.iter().find(|cell| cell.line.as_deref() == Some(line));
-    let now = cell.and_then(|cell| (policy.on)(item, cell));
+    let now = cell.and_then(|cell| (policy.on)(item, cell)).map(|mut on| {
+        on.account = policy.account.clone();
+        on
+    });
     let anew = |why| {
         Some(Event::Anew {
             line: line.to_string(),
             why,
         })
     };
-    if let (Some(began), Some(now)) = (began, &now)
-        && began.account != now.account
-    {
-        return anew(Why::Account {
-            was: began.account.clone(),
-        });
+    // Another account begins the new session once a round of the line is the work's next, so that one taken back
+    // before then leaves the session as it was; where the line begins one for its context anyway, the account says why.
+    let other = (began.zip(now.as_ref())).filter(|(began, now)| began.account != now.account);
+    let account = other.map(|(began, _)| Why::Account {
+        was: began.account.clone(),
+    });
+    if account.is_some() && runs_next(flow, work, line) {
+        return anew(account?);
     }
     // The line is worked out in tokens, which a count of them can only round down from.
     let limit = (limit.map(|l| l.value.max(0.0).floor() as u64)).map_or(policy.limit, |l| l.min(policy.limit));
     if let Some(context) = past_limit(flow, work, line, limit) {
-        return anew(Why::Limit { context, limit });
+        return anew(account.unwrap_or(Why::Limit { context, limit }));
     }
     if let (Some(began), Some(now)) = (began, &now)
         && began.model != now.model
@@ -232,6 +245,14 @@ pub fn due(
         });
     }
     None
+}
+
+/// Whether a round of the line is the work's next: a cell of it runs, or a run of it at rest goes on.
+fn runs_next(flow: &Compiled, work: &Work, line: &str) -> bool {
+    match decide(&flow.flow, &work.records) {
+        Decision::Run { cell, .. } | Decision::GoOn { cell, .. } => line_of_cell(flow, cell.as_str()) == Some(line),
+        _ => false,
+    }
 }
 
 /// The line's last round that ended, by its run and number: the latest end of a round of the line.

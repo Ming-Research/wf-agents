@@ -119,8 +119,18 @@ fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy, 
     if pings.len() >= most as usize {
         return None;
     }
-    // The line is not to begin a new session at its next round, which holds nothing of this one.
+    // The line is not to begin a new session at its next round, which holds nothing of this one; nor is the session
+    // one begun under another account than the one in use, which the line's next round begins anew.
     if sessions::due(flow, work, item, line, policy, limits.get(line)).is_some() {
+        return None;
+    }
+    let on_line = |run: RunId| {
+        let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
+        flow.cells
+            .iter()
+            .any(|spec| Some(&spec.id) == cell && spec.line.as_deref() == Some(line))
+    };
+    if work::sessions::began_on(work, line, on_line, session).is_some_and(|on| on.account != policy.account) {
         return None;
     }
     let read = pings.iter().filter(|p| p.failed.is_none()).map(|p| p.at).max();

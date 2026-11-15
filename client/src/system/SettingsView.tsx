@@ -1,7 +1,8 @@
 // The Settings view: the installation's settings as their file writes them, key by key. First what the page changes
 // (the language the owner reads, each level's model, the highest level an item may be at, the context past which a
-// line begins a new session, how many rounds run at once, and the account the agents run under), each as a box; then
-// what only the file changes, table by table, each key with its value as written. Beside a value the engine runs at
+// line begins a new session, and how many rounds run at once), each as a box; then the accounts the agents run under,
+// one of which the owner takes, or the engine moving on, at once, apart from what Save writes; then what only the file
+// changes, table by table, each key with its value as written. Beside a value the engine runs at
 // another, which it does until it starts again, since it reads the file as it starts, is the value it runs with.
 // Save, the one action the view is for, writes what changed into the file, its comments and layout kept, and commits
 // it where the file's directory keeps it in git; what the engine would refuse is refused before anything is written,
@@ -14,7 +15,9 @@ import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, us
 import { accentNow, type Meaning, pickAccent, PRESETS, type Refusal, tones, useAccent, VIOLET } from '../accent';
 import { Button, PanelPart, Switch } from '../parts';
 import { useReading } from '../works/source';
+import { clock, fullTime } from '../works/words';
 import {
+  type AccountsChange,
   type Change,
   type Saved,
   type SettingsPage,
@@ -269,8 +272,9 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
                 Refused: {said.why}
               </p>
             ))}
-          <h4 className="view-sub label">The account the agents run under (agents.config_dir)</h4>
-          <Accounts onSaid={onSaid} reread={reread} />
+        </PanelPart>
+        <PanelPart label="Accounts the agents run under (agents.accounts)">
+          <Accounts reread={reread} />
         </PanelPart>
         <PanelPart label={`Changed in ${page.file.split('/').pop() ?? page.file} only`}>
           {fileOnly.map((t) => (
@@ -358,48 +362,45 @@ function keptName(): string {
   }
 }
 
-/// The accounts the agents' program may run under: each directory by its name, the account it is signed in as, and
-/// the one the file names; another signed in is used once the owner says yes beside it; a new one is signed in by
-/// hand with the command the view gives, the accounts read again every few seconds until it shows.
-function Accounts({ onSaid, reread }: { onSaid: (said: Said) => void; reread: () => void }) {
+/// The accounts the agents' program may run under, in the owner's order: each directory by its name, the account it is
+/// signed in as, when its usage limit resets where it is at one, and which is in use; another signed in is taken in one
+/// click, and the words under them say what that costs; the switch that lets the engine move on at the week's limit of
+/// the one in use; the accounts taken, the latest first; and a new account's directory, signed in by hand with the
+/// command the view gives and then added to the file, the accounts read again every few seconds meanwhile.
+function Accounts({ reread }: { reread: () => void }) {
   const source = useSystemSource();
   const load = useCallback(() => source.loadAccounts(), [source]);
   const { value: page, failed, read } = useReading(load);
-  const [asking, setAsking] = useState<string | null>(null);
-  // Whether the choice of an account is on its way: it is not sent again meanwhile.
-  const [choosing, setChoosing] = useState(false);
+  // What the owner did last, refused or added, said under the part until the next.
+  const [said, setSaid] = useState<Said>(null);
+  // Whether what the owner did is on its way: nothing is sent again meanwhile.
+  const [sending, setSending] = useState(false);
   const [name, setName] = useState(keptName);
   const typed = name.trim();
-  const ok = NAME.test(typed) && !(page?.accounts ?? []).some((a) => a.name === `${page?.stem}-${typed}` && a.signedInAs !== null);
+  const named = NAME.test(typed);
   useEffect(() => {
-    if (!ok) return;
+    if (!named) return;
     const every = window.setInterval(read, 3000);
     return () => window.clearInterval(every);
-  }, [ok, read]);
+  }, [named, read]);
   if (page === null) {
     return failed ? <p className="failed">The accounts could not be read: {failed}</p> : <p className="muted">Reading the accounts</p>;
   }
-  if (page.dir === null) {
-    return (
-      <p className="muted">
-        <span className="mono">agents.config_dir</span> names no directory: the agents' program runs with its own, and has no
-        accounts beside it.
-      </p>
-    );
-  }
-  const use = (account: string) => {
-    if (choosing) return;
-    setChoosing(true);
-    onSaid(null);
+  const send = (change: AccountsChange, then?: () => void) => {
+    if (sending) return;
+    setSending(true);
+    setSaid(null);
     source
-      .chooseAccount({ base: page.base, name: account })
+      .changeAccounts(change)
       .then(
-        (saved) => onSaid({ ok: true, saved }),
-        (e: unknown) => onSaid({ ok: false, why: message(e) }),
+        (saved) => {
+          if (saved !== null) setSaid({ ok: true, saved });
+          then?.();
+        },
+        (e: unknown) => setSaid({ ok: false, why: message(e) }),
       )
       .finally(() => {
-        setChoosing(false);
-        setAsking(null);
+        setSending(false);
         read();
         reread();
       });
@@ -413,59 +414,142 @@ function Accounts({ onSaid, reread }: { onSaid: (said: Said) => void; reread: ()
       // Kept for this page only.
     }
   };
-  const command = `${page.variable}=${page.dir}/${page.stem}-${typed} ${page.command}`;
+  const command = (path: string) => `${page.variable}=${path} ${page.command}`;
+  const newPath = page.dir === null ? null : `${page.dir}/${page.stem}-${typed}`;
+  const running = page.accounts.filter((a) => a.running);
+  const pressing = sending ? 'What you did is on its way' : undefined;
   return (
     <>
-      <ViewTable heads={['Directory', 'Signed in as', '']} label="The accounts">
-        {page.accounts.map((a) => (
-          <tr key={a.name}>
-            <td className="mono" title={a.path}>
-              {a.name}
-            </td>
-            <td>{a.signedInAs ?? <span className="muted">not signed in</span>}</td>
-            <td>
-              {a.named ? (
-                <span className="tag account-named">named</span>
-              ) : a.signedInAs === null ? null : asking === a.name ? (
-                <span className="ask-line">
-                  The agents run under {a.signedInAs} once the engine starts again, each line in a new session.{' '}
+      {page.accounts.length === 0 ? (
+        <p className="muted">
+          <span className="mono">agents.accounts</span> lists no account: the agents' program runs with its own directory.
+        </p>
+      ) : (
+        <ViewTable heads={['Directory', 'Signed in as', 'Usage', '']} label="The accounts">
+          {page.accounts.map((a) => (
+            <tr key={a.path}>
+              <td className="mono" title={a.path}>
+                {a.name}
+              </td>
+              <td>{a.signedInAs ?? <span className="muted">not signed in</span>}</td>
+              <td className={a.limited ? 'warn-text' : 'muted'} title={a.resets === null ? undefined : fullTime(a.resets)}>
+                {a.limited ? (a.resets === null ? 'at its limit' : `at its limit until ${clock(a.resets)}`) : ''}
+              </td>
+              <td>
+                {a.inUse ? (
+                  <span className="tag account-named">in use</span>
+                ) : !a.running ? (
+                  <span className="muted small">taken as the engine starts again</span>
+                ) : a.signedInAs === null ? (
+                  <span className="muted small" title={`Run ${command(a.path)}, type ${page.signIn} there, and sign in`}>
+                    sign it in first
+                  </span>
+                ) : (
                   <Button
-                    disabled={choosing}
-                    title={choosing ? 'The choice is on its way' : `Write ${a.path} as agents.config_dir`}
-                    onClick={() => use(a.name)}
+                    disabled={sending}
+                    title={pressing ?? `Run the agents under ${a.name}: each line's next round begins a new session under it`}
+                    onClick={() => send({ take: { path: a.path } })}
                   >
-                    Use it
-                  </Button>{' '}
-                  <Button onClick={() => setAsking(null)}>Cancel</Button>
-                </span>
-              ) : (
-                <Button title={`Write ${a.path} as agents.config_dir`} onClick={() => setAsking(a.name)}>
-                  Use
-                </Button>
-              )}
-            </td>
-          </tr>
-        ))}
-      </ViewTable>
-      <div className="account-add">
-        <label className="small muted" htmlFor="account-name">
-          A new account's directory: {page.stem}-
-        </label>
-        <input
-          id="account-name"
-          className="field mono"
-          value={name}
-          placeholder="name"
-          onChange={(e) => typeName(e.target.value)}
+                    Use
+                  </Button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </ViewTable>
+      )}
+      <p className="small muted">
+        Another account is taken at once: each line's next round begins a new session under it, which reads its
+        context again.
+      </p>
+      <div className="account-line">
+        <span className="small">Move on at the week's limit</span>
+        <Switch<'off' | 'on'>
+          label="Move on at the week's limit"
+          value={page.movingOn ? 'on' : 'off'}
+          onChange={(v) => send({ movingOn: { on: v === 'on' } })}
+          choices={[
+            {
+              value: 'off',
+              name: 'Off',
+              title: "At the week's limit of the account in use, the works wait for its reset or for you to take another",
+            },
+            {
+              value: 'on',
+              name: 'On',
+              title:
+                running.length < 2
+                  ? 'With one account listed there is none to move on to'
+                  : "At the week's limit of the account in use, the engine takes the next one in this order that has usage left",
+            },
+          ]}
         />
-        {typed !== '' && !ok && <span className="failed small">A name is small letters, digits and dashes, and not one signed in</span>}
       </div>
-      {ok && (
+      {page.taken.length > 0 && (
+        <>
+          <h4 className="view-sub label">Taken</h4>
+          <ul className="account-taken small">
+            {page.taken.map((t) => (
+              <li key={`${t.at}-${t.path}`}>
+                <span className="mono" title={fullTime(t.at)}>
+                  {clock(t.at)}
+                </span>{' '}
+                <span className="mono">{t.name}</span>
+                {t.by === 'owner' ? (
+                  <span className="muted"> by you</span>
+                ) : (
+                  <span className="muted">
+                    {' '}
+                    by the engine: <span className="mono">{t.left ?? 'the one before'}</span> at its limit
+                    {t.resets === null ? '' : ` until ${clock(t.resets)}`}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {newPath !== null && (
+        <div className="account-add">
+          <label className="small muted" htmlFor="account-name">
+            A new account's directory: {page.stem}-
+          </label>
+          <input
+            id="account-name"
+            className="field mono"
+            value={name}
+            placeholder="name"
+            onChange={(e) => typeName(e.target.value)}
+          />
+          {typed !== '' && !named && <span className="failed small">A name is small letters, digits and dashes</span>}
+          {named && (
+            <Button
+              disabled={sending}
+              title={pressing ?? `Add ${newPath} to agents.accounts once it is signed in: the engine takes it as it starts again`}
+              onClick={() => send({ add: { base: page.base, name: typed } }, () => typeName(''))}
+            >
+              Add
+            </Button>
+          )}
+        </div>
+      )}
+      {named && newPath !== null && (
         <p className="small">
-          Run <code className="mono command">{command}</code>, type <code className="mono">{page.signIn}</code> there, and
-          sign in: the account shows here once it is.
+          Run <code className="mono command">{command(newPath)}</code>, type <code className="mono">{page.signIn}</code>{' '}
+          there, and sign in; then add it.
         </p>
       )}
+      {said !== null &&
+        (said.ok ? (
+          <p className="said" role="status">
+            Saved: <span className="mono">{said.saved.said}</span>
+            {said.saved.committed ? ', and committed' : ''}. The engine takes it as it starts again.
+          </p>
+        ) : (
+          <p className="failed" role="alert">
+            Refused: {said.why}
+          </p>
+        ))}
     </>
   );
 }

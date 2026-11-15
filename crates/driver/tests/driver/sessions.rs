@@ -3,8 +3,6 @@
 //! runs again before the line's next round; where each line has a block of its own, a new session of one line writes
 //! its block alone and runs again no cell of another line.
 
-use std::sync::{Arc, Mutex};
-
 use decide::BlockId;
 use driver::Policy;
 use driver::{FirstWrite, NewItem, SESSION};
@@ -176,32 +174,18 @@ fn policy(model: &str) -> Policy {
         samples: 1,
         limit: 500,
         on: Box::new(move |_, _| Some(on(&model))),
+        accounts: Vec::new(),
+        account: None,
         warm: None,
     }
 }
 
-/// The account rounds run under, as the installation's settings say it each time the policy is asked: none for the
-/// program's own default directory.
-type Account = Arc<Mutex<Option<String>>>;
-
-fn account(dir: Option<&str>) -> Account {
-    Arc::new(Mutex::new(dir.map(str::to_string)))
-}
-
-/// The policy where every round runs on this model, under the account as it is when asked, a history of one value
-/// giving a line.
-fn policy_under(model: &str, account: Account) -> Policy {
-    let model = model.to_string();
+/// The policy where every round runs on this model, a history of one value giving a line, with these accounts listed
+/// in this order: the first is in use until another is taken.
+fn policy_under(model: &str, accounts: &[&str]) -> Policy {
     Policy {
-        samples: 1,
-        limit: 500,
-        warm: None,
-        on: Box::new(move |_, _| {
-            Some(RanOn {
-                account: account.lock().unwrap().clone(),
-                ..on(&model)
-            })
-        }),
+        accounts: accounts.iter().map(|a| a.to_string()).collect(),
+        ..policy(model)
     }
 }
 
@@ -221,6 +205,14 @@ struct S {
 impl S {
     fn new() -> S {
         S::with(policy("opus"), None)
+    }
+
+    /// The owner takes this account, one the policy lists, as the one the agents run under.
+    fn take(&mut self, account: &str) -> Vec<Todo> {
+        self.clock += 1000;
+        self.driver
+            .take_account(Time(self.clock), account)
+            .expect("the account is taken")
     }
 
     /// A driver with the policy, whose rounds' tries begin under the account.
@@ -776,7 +768,7 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the
     s.hands_in(100, true);
     let (build, _) = s.round();
     s.asks(100);
-    let todos = reopened(&mut s, policy_under("opus", account(Some("second"))));
+    let todos = reopened(&mut s, policy_under("opus", &["second"]));
     s.account = Some("second".to_string());
     assert_eq!(
         s.sessions(),
@@ -802,15 +794,22 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the
 }
 
 #[test]
-fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_at_the_next_event() {
-    let under = account(Some("first"));
-    let mut s = S::with(policy_under("opus", under.clone()), Some("first"));
+fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_only_once_its_next_round_is_the_works_next() {
+    let mut s = S::with(policy_under("opus", &["first", "second"]), Some("first"));
     s.hands_in(100, true);
     s.asks(100);
     assert!(s.sessions().is_empty());
-    // The account is changed while the build waits on its tool's result; the result is the next thing to happen.
-    *under.lock().unwrap() = Some("second".to_string());
+    // The owner takes another account while the build waits on its tool's result: no round of the line is the work's
+    // next, so its session is left as it is, and taking the first back leaves it as it was.
+    s.take("second");
+    assert!(
+        s.sessions().is_empty(),
+        "nothing is begun anew before the line runs again"
+    );
+    s.take("first");
+    s.take("second");
     s.account = Some("second".to_string());
+    // The result is the next thing to happen, and the build goes on: its line begins anew under the account in use.
     let call = s.kept().records.called.last().expect("the build's call").call;
     s.on(Event::Done {
         call,
@@ -825,15 +824,14 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_at_the
 
 #[test]
 fn another_account_begins_the_new_session_before_a_context_past_the_limit_does() {
-    let under = account(None);
-    let mut s = S::with(policy_under("opus", under.clone()), None);
+    let mut s = S::with(policy_under("opus", &["first", "second"]), Some("first"));
     s.hands_in(100, true);
     let (run, cell) = s.round();
     assert_eq!(cell, "build");
-    // The build's try began under the account before; it is changed as the try runs, and the round ends past the
+    // The build's try began under the account before; another is taken as the try runs, and the round ends past the
     // limit, its run ending: both would begin a new session, and the account says why.
     s.began();
-    *under.lock().unwrap() = Some("second".to_string());
+    s.take("second");
     let handed = Handed {
         block: "code".into(),
         content: "the code".to_string(),
@@ -850,7 +848,15 @@ fn another_account_begins_the_new_session_before_a_context_past_the_limit_does()
         came: Came::hands_in(vec![handed]),
         spent,
     });
-    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Account { was: None })]);
+    assert_eq!(
+        s.sessions(),
+        [(
+            "engineer".to_string(),
+            Why::Account {
+                was: Some("first".to_string())
+            }
+        )]
+    );
 }
 
 /// The version of the tree a carrier says the work's branch has now.
@@ -1037,6 +1043,8 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
         samples: 1,
         limit: 500,
         warm: None,
+        accounts: Vec::new(),
+        account: None,
         on: Box::new(|item, _| {
             let model = if item.level.as_deref() == Some("2") {
                 "sonnet"

@@ -106,7 +106,7 @@ impl Downs {
 }
 
 impl Outside for Downs {
-    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+    fn check(&self, _: Option<&str>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
         Box::pin(async move {
             self.taken.lock().unwrap().push(tokio::time::Instant::now());
             let mut left = self.left.lock().unwrap();

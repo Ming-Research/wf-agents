@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ownName, pickAccent, PRESETS, startAccent, type Theme, TONES, tones, VIOLET } from '../accent';
-import type { AccountChoice, SettingsChange, SettingsPage, SystemSource } from './api';
+import type { AccountsChange, Saved, SettingsChange, SettingsPage, SystemSource } from './api';
 import { SystemSourceContext } from './api';
 import { fixtureAccounts, fixtureSettings, fixtureSystem } from './fixtures';
 import { SettingsView } from './SettingsView';
@@ -25,7 +25,9 @@ afterEach(() => {
 
 interface SettingsSource {
   sent: SettingsChange[];
-  chosen: AccountChoice[];
+  changed: AccountsChange[];
+  /// Why the next change of the accounts is refused; none where it is taken.
+  refuseAccounts: string | null;
   page: SettingsPage;
   refuse: string | null;
   reads: number;
@@ -35,10 +37,11 @@ interface SettingsSource {
 /// The settings' fixtures, with what is sent kept, a save answered as the test says, and the file read anew after it.
 function settingsSource(page: SettingsPage = fixtureSettings()): SettingsSource {
   const sent: SettingsChange[] = [];
-  const chosen: AccountChoice[] = [];
+  const changed: AccountsChange[] = [];
   const s: SettingsSource = {
     sent,
-    chosen,
+    changed,
+    refuseAccounts: null,
     page,
     refuse: null,
     reads: 0,
@@ -54,9 +57,10 @@ function settingsSource(page: SettingsPage = fixtureSettings()): SettingsSource 
         return { said: 'agents.slots = 4 instead of 3', committed: true };
       },
       loadAccounts: async () => fixtureAccounts(),
-      chooseAccount: async (choice: AccountChoice) => {
-        chosen.push(choice);
-        return { said: 'agents.config_dir = "/data/agents/claude-second" instead of "/data/agents/claude"', committed: true };
+      changeAccounts: async (change: AccountsChange): Promise<Saved | null> => {
+        changed.push(change);
+        if (s.refuseAccounts !== null) throw new Error(s.refuseAccounts);
+        return 'add' in change ? { said: 'agents.accounts = […]', committed: true } : null;
       },
     },
   };
@@ -217,28 +221,57 @@ describe('the Settings view', () => {
     expect(page.querySelector('.view-fault')?.textContent).toBe('The file does not read as settings: items.unknown: no such key');
   });
 
-  it('switches the account the agents run under once the owner says yes beside it, keeping what was typed', async () => {
+  it('shows the accounts in order, takes one in a click apart from what Save writes, sets the switch, and adds a new one', async () => {
     const s = settingsSource();
     const page = draw(s.source);
     await settle();
     type(box(page, 'agents.slots'), '4');
+    const heads = [...page.querySelectorAll('.panel-part-label')].map((h) => h.textContent);
+    expect(heads.slice(0, 3)).toEqual([
+      'Changed here',
+      'Accounts the agents run under (agents.accounts)',
+      'Changed in install.toml only',
+    ]);
     const rows = [...page.querySelectorAll('table[aria-label="The accounts"] tbody tr')];
-    expect(rows.map((r) => r.firstElementChild?.textContent)).toEqual(['claude', 'claude-second', 'claude-third']);
-    expect(rows[0].textContent).toContain('named');
-    expect(rows[2].querySelector('button')).toBeNull();
-    act(() => (rows[1].querySelector('button') as HTMLButtonElement).click());
-    expect(rows[1].textContent).toContain('The agents run under second@example.com once the engine starts again');
-    const useIt = [...rows[1].querySelectorAll('button')].find((b) => b.textContent === 'Use it') as HTMLButtonElement;
-    expect(useIt.className).not.toContain('button-primary');
-    act(() => useIt.click());
-    expect(useIt.disabled).toBe(true);
-    act(() => useIt.click());
+    const cells = rows.map((r) => [...r.children].map((c) => c.textContent));
+    expect(cells.map((c) => c[0])).toEqual(['claude', 'claude-second', 'claude-third', 'claude-fourth']);
+    expect(cells[0][2]).toMatch(/^at its limit until \d\d-\d\d \d\d:\d\d$/);
+    expect(cells[1][3]).toBe('in use');
+    expect(cells[2][3]).toBe('sign it in first');
+    expect(cells[3][3]).toBe('taken as the engine starts again');
+    expect(page.textContent).toContain("each line's next round begins a new session under it, which reads its context again");
+    // One click takes an account, and nothing typed for Save is lost or sent.
+    const use = rows[0].querySelector('button') as HTMLButtonElement;
+    expect(use.textContent).toBe('Use');
+    act(() => use.click());
+    expect(use.disabled).toBe(true);
     await settle();
-    expect(s.chosen).toEqual([{ base: 'fixture', name: 'claude-second' }]);
+    expect(s.changed).toEqual([{ take: { path: '/data/agents/claude' } }]);
+    expect(s.sent).toEqual([]);
     expect(box(page, 'agents.slots').value).toBe('4');
-    const name = page.querySelector('#account-name') as HTMLInputElement;
-    type(name, 'fourth');
-    expect(page.querySelector('code.command')?.textContent).toBe('CLAUDE_CONFIG_DIR=/data/agents/claude-fourth claude');
+    // The switch is off until set, and set in a click.
+    const moving = [...page.querySelectorAll('[aria-label="Move on at the week\'s limit"] button')] as HTMLButtonElement[];
+    expect(moving.map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
+      ['Off', 'true'],
+      ['On', 'false'],
+    ]);
+    act(() => moving[1].click());
+    await settle();
+    expect(s.changed.at(-1)).toEqual({ movingOn: { on: true } });
+    // The accounts taken, the latest first: the engine's says which it left and until when.
+    const taken = [...page.querySelectorAll('.account-taken li')].map((li) => li.textContent);
+    expect(taken).toHaveLength(2);
+    expect(taken[0]).toMatch(/ claude-second by the engine: claude at its limit until \d\d-\d\d \d\d:\d\d$/);
+    expect(taken[1]).toMatch(/ claude by you$/);
+    // A new account: the command that signs it in, then Add, refused where it is not signed in yet.
+    type(page.querySelector('#account-name') as HTMLInputElement, 'fifth');
+    expect(page.querySelector('code.command')?.textContent).toBe('CLAUDE_CONFIG_DIR=/data/agents/claude-fifth claude');
+    s.refuseAccounts = 'claude-fifth is not signed in: run `CLAUDE_CONFIG_DIR=/data/agents/claude-fifth claude` and type /login there first';
+    const add = [...page.querySelectorAll('.account-add button')].find((b) => b.textContent === 'Add') as HTMLButtonElement;
+    act(() => add.click());
+    await settle();
+    expect(s.changed.at(-1)).toEqual({ add: { base: 'fixture', name: 'fifth' } });
+    expect(page.querySelector('.account-add ~ p.failed')?.textContent).toBe(`Refused: ${s.refuseAccounts}`);
   });
 });
 

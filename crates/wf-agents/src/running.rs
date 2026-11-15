@@ -204,7 +204,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         // The observations are read, and marked read, through connections of their own to the store's file.
         let router = router.merge(web::observations::router(service.handle(), data.join(store::FILE)));
         let router = match install {
-            Some(install) => router.merge(web::settings::router(install)),
+            Some(install) => router.merge(web::settings::router(install, service.handle())),
             None => router,
         };
         println!("The owner's pages are at {}", works_page(address));

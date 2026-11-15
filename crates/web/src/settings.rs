@@ -4,12 +4,16 @@
 //! - `GET /api/v1/settings`: the file ([`SettingsPage`]).
 //! - `POST /api/v1/settings`: the owner's change of a few keys ([`SettingsChange`]), answered with what was changed in
 //!   words ([`Saved`]).
-//! - `GET /api/v1/settings/accounts`: the accounts the agents' program may run under ([`AccountsPage`]).
-//! - `POST /api/v1/settings/accounts`: the owner's choice of another of them ([`AccountChoice`]), answered as a change.
+//! - `GET /api/v1/settings/accounts`: the accounts the agents' program may run under, as the file lists them and the
+//!   engine stands ([`AccountsPage`]).
+//! - `POST /api/v1/settings/accounts`: the owner takes one of them as the one the agents run under, or sets the switch
+//!   that lets the engine move on at the week's limit of the one in use, each taken by the engine at once and kept in
+//!   its store, not in the file; or adds a new account's directory to those the file lists, answered as a change
+//!   ([`AccountsChange`]).
 //!
 //! The owner changes on the page what is tuned while works go on: the language the agents write in for the owner, the
 //! model of each level, the highest level an item may be at, the context past which a line begins a new session, how
-//! many rounds run at once, and the account the agents' program runs under. The rest only the file changes. A value
+//! many rounds run at once, and the accounts the agents' program may run under. The rest only the file changes. A value
 //! is checked here only for its kind; what the engine refuses of it, the engine's own reading of the file refuses. A
 //! change is written into the file with its comments and its layout kept, only where the file it makes reads as
 //! settings, holds each value as asked, and has not changed since the page read it; where the directory the file is in
@@ -152,8 +156,9 @@ pub struct Saved {
     pub committed: bool,
 }
 
-/// The accounts the agents' program may run under: the directories beside the one the file names, named as it is
-/// or as it is with a dash and a name after it.
+/// The accounts the agents' program may run under, in the owner's order: those the engine runs with, and after them those
+/// the file lists that the engine takes as it starts again; with which is in use, the switch that lets the engine move
+/// on at the week's limit of the one in use, and every account taken, the latest first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountsPage {
@@ -162,34 +167,85 @@ pub struct AccountsPage {
     /// The variable that names a directory to it, and what is typed in it to sign the directory in.
     pub variable: String,
     pub sign_in: String,
-    /// The directory the accounts' directories are in; none where the file names no directory of the program's, when
-    /// it runs with its own default.
+    /// The directory a new account's directory is made in, beside the first the file lists; none where it lists none,
+    /// when the program runs with its own default.
     pub dir: Option<String>,
-    /// The name every account's directory begins with.
+    /// The name every new account's directory begins with: the program's own name.
     pub stem: String,
     pub accounts: Vec<Account>,
-    /// The file's text as it was read, by a digest of it, for a choice made against it.
+    /// Whether the engine moves on to another account at the week's limit of the one in use.
+    pub moving_on: bool,
+    pub taken: Vec<Taken>,
+    /// The file's text as it was read, by a digest of it, for an account added against it.
     pub base: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
-    /// The directory's name.
+    /// The directory's name, and the directory as the settings write it.
     pub name: String,
     pub path: String,
     /// The account it is signed in as; none where it is not signed in.
     pub signed_in_as: Option<String>,
-    /// Whether the file names it.
-    pub named: bool,
+    /// Whether the agents run under it now.
+    pub in_use: bool,
+    /// Whether the engine runs with it listed: one the file lists and the engine does not is taken as it starts again.
+    pub running: bool,
+    /// Whether it is at a usage limit, and when that resets, in milliseconds since the start of 1970, where it was said.
+    pub limited: bool,
+    pub resets: Option<u64>,
 }
 
-/// The owner's choice of the account the agents' program runs under, by its directory's name.
+/// An account taken as the one the agents run under: by its directory's name and the directory, by the owner or the
+/// engine, when; and, taken by the engine, the account it left at that one's limit, and when that limit resets.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountChoice {
-    pub base: String,
+pub struct Taken {
     pub name: String,
+    pub path: String,
+    pub by: TakenBy,
+    pub at: u64,
+    pub left: Option<String>,
+    pub resets: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TakenBy {
+    Owner,
+    Engine,
+}
+
+/// What the owner does of the accounts: takes one the engine runs with as the one the agents run under, sets the switch
+/// that lets the engine move on, or adds to the file, after the accounts it lists, a new account's directory beside
+/// them, once it is signed in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AccountsChange {
+    Take { path: String },
+    MovingOn { on: bool },
+    Add { base: String, name: String },
+}
+
+/// What the engine says of the accounts, as its driver stands: each it runs with, in the owner's order, every account
+/// taken, and the switch.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Engine {
+    pub accounts: Vec<driver::AccountNow>,
+    pub taken: Vec<store::AccountTaken>,
+    pub moving_on: bool,
+}
+
+impl Engine {
+    /// The accounts as the driver stands as of `now`.
+    pub fn of(driver: &driver::Driver, now: work::Time) -> Engine {
+        Engine {
+            accounts: driver.accounts(now),
+            taken: driver.accounts_taken().to_vec(),
+            moving_on: driver.moving_on(),
+        }
+    }
 }
 
 /// The keys the page may change, by their tables and themselves joined by dots, a level's model by any level.
@@ -203,19 +259,30 @@ fn change_of(path: &[String]) -> Option<Change> {
     }
 }
 
-/// The key the account the agents' program runs under is written at.
-const CONFIG_DIR: [&str; 2] = ["agents", "config_dir"];
+/// The key the accounts the agents' program may run under are listed at.
+const ACCOUNTS: [&str; 2] = ["agents", "accounts"];
 
 /// One writer of the file at a time: two changes at once would each be made on the text the other replaces.
 static WRITING: Mutex<()> = Mutex::new(());
 
-/// The routes of the settings.
-pub fn router(install: Install) -> Router {
+/// The routes of the settings, beside the engine they are the settings of.
+pub fn router(install: Install, engine: service::Handle) -> Router {
     let install = Arc::new(install);
     Router::new()
         .route("/api/v1/settings", get(page).post(save))
-        .route("/api/v1/settings/accounts", get(accounts).post(choose))
-        .with_state(install)
+        .with_state(install.clone())
+        .merge(
+            Router::new()
+                .route("/api/v1/settings/accounts", get(accounts).post(change_accounts))
+                .with_state(Accounts { install, engine }),
+        )
+}
+
+/// What the routes of the accounts reach: the settings' file and the engine.
+#[derive(Clone)]
+struct Accounts {
+    install: Arc<Install>,
+    engine: service::Handle,
 }
 
 async fn page(State(install): State<Arc<Install>>) -> Response {
@@ -230,16 +297,43 @@ async fn save(State(install): State<Arc<Install>>, body: Bytes) -> Response {
     off_the_loop(move || changed(&install, &change)).await
 }
 
-async fn accounts(State(install): State<Arc<Install>>) -> Response {
-    off_the_loop(move || accounts_of(&install)).await
+async fn accounts(State(at): State<Accounts>) -> Response {
+    let engine = match at.engine.read_at(Engine::of).await {
+        Ok(engine) => engine,
+        Err(refusal) => return crate::interface::refused(&refusal),
+    };
+    off_the_loop(move || accounts_of(&at.install, &engine)).await
 }
 
-async fn choose(State(install): State<Arc<Install>>, body: Bytes) -> Response {
-    let choice: AccountChoice = match serde_json::from_slice(&body) {
-        Ok(choice) => choice,
-        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The choice cannot be read: {e}.")),
+async fn change_accounts(State(at): State<Accounts>, body: Bytes) -> Response {
+    let change: AccountsChange = match serde_json::from_slice(&body) {
+        Ok(change) => change,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The change cannot be read: {e}.")),
     };
-    off_the_loop(move || chosen(&install, &choice)).await
+    let act = match change {
+        AccountsChange::MovingOn { on } => service::AccountsAct::MoveOn(on),
+        AccountsChange::Take { path } => {
+            // Taken only once signed in: a round under a directory that is not would fail, and every work wait for it.
+            let install = at.install.clone();
+            let refused = tokio::task::spawn_blocking(move || not_signed_in(&install, &path).map(|why| (why, path)));
+            match refused.await {
+                Ok(Ok((None, path))) => service::AccountsAct::Take(path),
+                Ok(Ok((Some(why), _))) => return fail(StatusCode::UNPROCESSABLE_ENTITY, why),
+                Ok(Err(Refused(status, why))) => return fail(status, why),
+                Err(e) => {
+                    return fail(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("The account cannot be read: {e}."),
+                    );
+                }
+            }
+        }
+        AccountsChange::Add { base, name } => return off_the_loop(move || added(&at.install, &base, &name)).await,
+    };
+    match at.engine.accounts(act).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(refusal) => crate::interface::refused(&refusal),
+    }
 }
 
 /// What a request was refused for: its status and why.
@@ -743,8 +837,8 @@ fn replace(file: &Path, text: &str) -> Result<(), String> {
     std::fs::rename(&beside, file).map_err(|e| format!("{}: {e}", file.display()))
 }
 
-/// The accounts the agents' program may run under.
-fn accounts_of(install: &Install) -> Result<AccountsPage, Refused> {
+/// The accounts the agents' program may run under, as the file lists them and the engine stands.
+fn accounts_of(install: &Install, engine: &Engine) -> Result<AccountsPage, Refused> {
     let text = text_of(&install.file)?;
     let doc: DocumentMut = text.parse().map_err(|e| {
         Refused(
@@ -752,106 +846,163 @@ fn accounts_of(install: &Install) -> Result<AccountsPage, Refused> {
             format!("{} is not TOML: {e}", install.file.display()),
         )
     })?;
-    let command = (doc.get("agents").and_then(|agents| agents.get("command")))
-        .and_then(Item::as_str)
-        .or_else(|| install.running["agents"]["command"].as_str())
-        .unwrap_or_default()
-        .to_string();
-    let named = (doc.get("agents").and_then(|agents| agents.get("config_dir")))
-        .and_then(Item::as_str)
-        .map(PathBuf::from);
+    let command = command_of(install, &doc);
     let stem = Path::new(&command)
         .file_name()
         .map_or_else(|| command.clone(), |name| name.to_string_lossy().into_owned());
-    let page = |dir: Option<&Path>, accounts: Vec<Account>| AccountsPage {
-        command: command.clone(),
-        variable: install.program.variable.to_string(),
-        sign_in: install.program.sign_in.to_string(),
-        dir: dir.map(|dir| dir.display().to_string()),
-        stem: stem.clone(),
-        accounts,
-        base: digest(&text),
+    let listed = listed(&doc);
+    let account = |path: &str, now: Option<&driver::AccountNow>| Account {
+        name: name_of(path),
+        path: path.to_string(),
+        signed_in_as: (install.program.signed_in_as)(Path::new(path)),
+        in_use: now.is_some_and(|now| now.in_use),
+        running: now.is_some(),
+        limited: now.is_some_and(|now| now.limited),
+        resets: now.and_then(|now| now.resets).map(|at| at.0),
     };
-    let Some(named) = named else {
-        return Ok(page(None, Vec::new()));
-    };
-    let Some(dir) = named.parent() else {
-        return Ok(page(None, Vec::new()));
-    };
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let ours = name == stem
-                || name
-                    .strip_prefix(&stem)
-                    .is_some_and(|rest| rest.len() > 1 && rest.starts_with('-'));
-            if ours && entry.path().is_dir() {
-                dirs.push(entry.path());
-            }
+    let mut accounts: Vec<Account> = (engine.accounts.iter())
+        .map(|now| account(&now.account, Some(now)))
+        .collect();
+    for path in &listed {
+        if !accounts.iter().any(|a| a.path == *path) {
+            accounts.push(account(path, None));
         }
     }
-    if !dirs.iter().any(|d| same(d, &named)) {
-        dirs.push(named.clone());
-    }
-    dirs.sort();
-    let accounts = (dirs.iter())
-        .map(|d| Account {
-            name: (d.file_name()).map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
-            path: d.display().to_string(),
-            signed_in_as: (install.program.signed_in_as)(d),
-            named: same(d, &named),
+    let taken = (engine.taken.iter().rev())
+        .map(|t| Taken {
+            name: name_of(&t.account),
+            path: t.account.clone(),
+            by: match t.by {
+                store::Taker::Owner => TakenBy::Owner,
+                store::Taker::Engine => TakenBy::Engine,
+            },
+            at: t.at.0,
+            left: t.left.as_deref().map(name_of),
+            resets: t.resets.map(|at| at.0),
         })
         .collect();
-    Ok(page(Some(dir), accounts))
+    let dir = (listed.first().or_else(|| engine.accounts.first().map(|a| &a.account)))
+        .and_then(|first| Path::new(first).parent())
+        .map(|dir| dir.display().to_string());
+    Ok(AccountsPage {
+        command,
+        variable: install.program.variable.to_string(),
+        sign_in: install.program.sign_in.to_string(),
+        dir,
+        stem,
+        accounts,
+        moving_on: engine.moving_on,
+        taken,
+        base: digest(&text),
+    })
 }
 
-/// Whether two paths are of one directory.
-fn same(a: &Path, b: &Path) -> bool {
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
-    }
+/// The program's command as the file names it, or as the engine runs with it.
+fn command_of(install: &Install, doc: &DocumentMut) -> String {
+    (doc.get("agents").and_then(|agents| agents.get("command")))
+        .and_then(Item::as_str)
+        .or_else(|| install.running["agents"]["command"].as_str())
+        .unwrap_or_default()
+        .to_string()
 }
 
-/// Writes the account's directory as the one the agents' program runs under, where it is signed in.
-fn chosen(install: &Install, choice: &AccountChoice) -> Result<Saved, Refused> {
-    let refused = |why: String| Refused(StatusCode::UNPROCESSABLE_ENTITY, why);
-    let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
-    let all = accounts_of(install)?;
-    let Some(dir) = &all.dir else {
-        return Err(refused(
-            "agents.config_dir names no directory: the program runs with its own, and has no accounts beside it"
-                .to_string(),
-        ));
-    };
-    let Some(to) = all.accounts.iter().find(|a| a.name == choice.name) else {
-        return Err(refused(format!("there is no account {} in {dir}", choice.name)));
-    };
-    if to.named {
-        return Ok(Saved {
-            said: format!("the agents run under {} already", to.name),
-            committed: false,
-        });
-    }
-    if to.signed_in_as.is_none() {
-        return Err(refused(format!(
-            "{} is not signed in: run `{}={} {}` and type {} there first",
-            to.name, all.variable, to.path, all.command, all.sign_in
-        )));
+/// The accounts the file lists, each its directory as written.
+fn listed(doc: &DocumentMut) -> Vec<String> {
+    (doc.get("agents").and_then(|agents| agents.get("accounts")))
+        .and_then(Item::as_array)
+        .map(|array| array.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// An account's name: its directory's.
+fn name_of(path: &str) -> String {
+    (Path::new(path).file_name()).map_or_else(|| path.to_string(), |name| name.to_string_lossy().into_owned())
+}
+
+/// Why the account of this directory cannot be taken yet, where it is not signed in: with the command that signs it in.
+fn not_signed_in(install: &Install, path: &str) -> Result<Option<String>, Refused> {
+    if (install.program.signed_in_as)(Path::new(path)).is_some() {
+        return Ok(None);
     }
     let text = text_of(&install.file)?;
+    let doc: DocumentMut = (text.parse()).map_err(|e| Refused(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?;
+    Ok(Some(format!(
+        "{} is not signed in: run `{}={} {}` and type {} there first",
+        name_of(path),
+        install.program.variable,
+        path,
+        command_of(install, &doc),
+        install.program.sign_in
+    )))
+}
+
+/// A name the owner gives a new account's directory, after the program's own name and a dash.
+fn a_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// Adds to the file, after the accounts it lists, the directory of a new account beside them, named after the program
+/// and a dash, once it is signed in; the engine takes it as it starts again.
+fn added(install: &Install, base: &str, name: &str) -> Result<Saved, Refused> {
+    let refused = |why: String| Refused(StatusCode::UNPROCESSABLE_ENTITY, why);
+    let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+    let text = text_of(&install.file)?;
+    if digest(&text) != base {
+        return Err(Refused(
+            StatusCode::CONFLICT,
+            format!(
+                "{} changed since the page read it: read it again, and add the account then",
+                install.file.display()
+            ),
+        ));
+    }
     let mut doc: DocumentMut = text
         .parse()
         .map_err(|e| refused(format!("the file is not TOML: {e}")))?;
-    let path: Vec<String> = CONFIG_DIR.iter().map(|part| part.to_string()).collect();
+    let listed = listed(&doc);
+    let Some(dir) = listed
+        .first()
+        .and_then(|first| Path::new(first).parent())
+        .map(Path::to_path_buf)
+    else {
+        return Err(refused(
+            "agents.accounts lists no account: the program runs with its own directory, and a new account's is made \
+             beside the first listed"
+                .to_string(),
+        ));
+    };
+    if !a_name(name) {
+        return Err(refused(format!(
+            "{name:?} is no name of an account: small letters, digits and dashes"
+        )));
+    }
+    let command = command_of(install, &doc);
+    let stem = Path::new(&command)
+        .file_name()
+        .map_or_else(|| command.clone(), |name| name.to_string_lossy().into_owned());
+    let path = dir.join(format!("{stem}-{name}")).display().to_string();
+    if listed.contains(&path) {
+        return Err(refused(format!("agents.accounts lists {path} already")));
+    }
+    if let Some(why) = not_signed_in(install, &path)? {
+        return Err(refused(why));
+    }
+    let mut accounts = toml_edit::Array::new();
+    for account in listed.iter().chain([&path]) {
+        accounts.push(account.as_str());
+    }
+    let key: Vec<String> = ACCOUNTS.iter().map(|part| part.to_string()).collect();
     write(
         install,
         &text,
         &mut doc,
-        &choice.base,
-        &[(path, Value::from(to.path.as_str()))],
-        "The owner switched the account the agents run under on the page",
+        base,
+        &[(key, Value::Array(accounts))],
+        "The owner added an account the agents may run under on the page",
     )
 }
 

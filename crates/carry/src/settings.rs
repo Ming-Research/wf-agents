@@ -171,7 +171,7 @@ impl Backup {
 
 /// How a line's session is kept between its rounds. A session whose context, as a round of its line ends, is past the
 /// lower of the line its line's history gives (`history`) and `context_limit` is replaced at the line's next round, and
-/// so is one on another model or account.
+/// so is one on another model or under another account than the one in use.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
@@ -368,9 +368,12 @@ pub struct Agents {
     /// settings file the worktree holds, which an agent may write, is not read.
     #[serde(default = "user")]
     pub setting_sources: String,
-    /// The program's own directory of settings and sign-in, as `CLAUDE_CONFIG_DIR`; with none, the program's own
-    /// default.
-    pub config_dir: Option<PathBuf>,
+    /// The accounts the program may make its calls under, each a directory of its settings and sign-in, given as
+    /// `CLAUDE_CONFIG_DIR`, in the owner's order: the agents run under the first until another is taken, by the owner
+    /// on the page or by the engine moving on at the week's limit of the one in use. Each is signed in once by the
+    /// owner, by hand. With none, the program's own directory.
+    #[serde(default)]
+    pub accounts: Vec<PathBuf>,
     /// The subagents an agent may start within its round; given where a text names `agents.subagents.most`.
     #[serde(default)]
     pub subagents: Subagents,
@@ -588,6 +591,11 @@ const HEAVY_MOVED: &str = "agents.permissions.heavy: the heavy commands are a pr
 const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the owner's, not the agents': take it \
      out of [agents] and write it as language in a table [owner], as install.sample.toml shows.";
 
+/// What the settings are told where they name `agents.config_dir`, where an installation once ran its agents under
+/// one directory.
+const CONFIG_DIR_MOVED: &str = "agents.config_dir: the agents may run under several accounts now, each a directory, \
+     listed in [agents] as accounts in the order the engine takes them: write it as accounts = [{dir}].";
+
 /// The settings file's name in the data directory.
 pub const FILE: &str = "install.toml";
 
@@ -651,6 +659,10 @@ impl Settings {
         if agents.is_some_and(|agents| agents.contains_key("owner_language")) {
             return Err(OWNER_LANGUAGE.to_string());
         }
+        if let Some(dir) = agents.and_then(|agents| agents.get("config_dir")) {
+            let written = dir.as_str().map_or_else(|| dir.to_string(), |dir| format!("{dir:?}"));
+            return Err(CONFIG_DIR_MOVED.replace("{dir}", &written));
+        }
         let permissions = agents.and_then(|a| a.get("permissions")).and_then(|p| p.as_table());
         if permissions.is_some_and(|permissions| permissions.contains_key("heavy")) {
             return Err(HEAVY_MOVED.to_string());
@@ -686,6 +698,15 @@ impl Settings {
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
         wrong.extend(settings.agents.wrong());
+        let accounts = &settings.agents.accounts;
+        for (at, account) in accounts.iter().enumerate() {
+            if accounts[..at].contains(account) {
+                wrong.push(format!(
+                    "agents.accounts: {} is listed twice: each account is listed once",
+                    account.display()
+                ));
+            }
+        }
         if settings.agents.slots == 0 {
             wrong.push("agents.slots: at least one round must be able to run".to_string());
         }
@@ -762,10 +783,10 @@ impl Settings {
     /// and settings are not the installation's own.
     pub fn warnings(&self) -> Vec<String> {
         let mut warned = Vec::new();
-        if self.agents.config_dir.is_none() {
+        if self.agents.accounts.is_empty() {
             warned.push(format!(
                 "The agents use the default sign-in and settings directory of {}, which an agent can write to; \
-                 agents.config_dir gives them one of their own.",
+                 agents.accounts gives them directories of their own.",
                 self.agents.command
             ));
         }
@@ -803,9 +824,9 @@ impl Settings {
     }
 
     /// What a round of this cell, for an item at this level, runs on: the level of its item, or above it as far as the
-    /// cell's line says, with that level's model and the cell's effort; or why it cannot run, in words. An item added
-    /// before items had levels is at the default.
-    pub fn ran_on(&self, item_level: Option<&str>, cell: &CellSpec) -> Result<RanOn, String> {
+    /// cell's line says, with that level's model and the cell's effort, under this account; or why it cannot run, in
+    /// words. An item added before items had levels is at the default.
+    pub fn ran_on(&self, item_level: Option<&str>, cell: &CellSpec, account: Option<&str>) -> Result<RanOn, String> {
         let level = self.levels()?.of_round(item_level, cell.levels_above)?;
         let model = (self.agents.levels.get(&level))
             .map(|level| level.model.clone())
@@ -814,8 +835,16 @@ impl Settings {
             level,
             model,
             effort: cell.effort.map(|effort| effort.name().to_string()),
-            account: (self.agents.config_dir.as_ref()).map(|dir| dir.to_string_lossy().into_owned()),
+            account: account.map(str::to_string),
         })
+    }
+
+    /// The accounts the agents may run under, each by its directory as the settings write it, in the owner's order:
+    /// the name records and the store know it by.
+    pub fn accounts(&self) -> Vec<String> {
+        (self.agents.accounts.iter())
+            .map(|dir| dir.to_string_lossy().into_owned())
+            .collect()
     }
 
     /// When a line begins a new session, where the model or the account its session's rounds ran on is not the one its
@@ -834,7 +863,9 @@ impl Settings {
         Policy {
             samples: self.history.samples,
             limit: sessions.context_limit,
-            on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell).ok()),
+            on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell, None).ok()),
+            accounts: self.accounts(),
+            account: None,
             warm,
         }
     }
@@ -886,7 +917,7 @@ mod tests {
         assert_eq!(settings.projects["example"].main, "main");
         assert_eq!(settings.agents.command, "claude");
         assert_eq!(settings.agents.slots, 2);
-        assert_eq!(settings.agents.config_dir, None);
+        assert!(settings.agents.accounts.is_empty());
         assert_eq!(settings.budget_micros(), Some(5_000_000));
         assert!(
             !settings.agents.args.iter().any(|a| a == "--setting-sources"),
@@ -986,7 +1017,7 @@ mod tests {
     #[test]
     fn the_owner_is_told_when_no_lock_command_is_named() {
         let mut settings = Settings::read(SAMPLE).unwrap();
-        settings.agents.config_dir = Some("agents".into());
+        settings.agents.accounts = vec!["agents".into()];
         assert!(settings.warnings().is_empty());
         settings.agents.permissions.locks.clear();
         let warned = settings.warnings();
@@ -999,9 +1030,43 @@ mod tests {
         let mut settings = Settings::read(SAMPLE).unwrap();
         let warned = settings.warnings();
         assert_eq!(warned.len(), 1);
-        assert!(warned[0].contains("agents.config_dir"), "{}", warned[0]);
-        settings.agents.config_dir = Some("agents".into());
+        assert!(warned[0].contains("agents.accounts"), "{}", warned[0]);
+        settings.agents.accounts = vec!["agents".into()];
         assert!(settings.warnings().is_empty());
+    }
+
+    /// The sample with these accounts listed in its table of the agents.
+    fn with_accounts(accounts: &str) -> String {
+        SAMPLE.replacen("[agents]\n", &format!("[agents]\naccounts = {accounts}\n"), 1)
+    }
+
+    #[test]
+    fn the_accounts_are_listed_in_the_owners_order_each_once_as_their_directories_are_written() {
+        let settings = Settings::read(&with_accounts(
+            r#"["/data/claude-b", "/data/../data/claude-a", "~/claude"]"#,
+        ))
+        .unwrap();
+        // The name a round's records and the store know an account by is its directory exactly as written, as the one
+        // directory of the settings before was: an installation that lists its one directory goes on in its sessions.
+        assert_eq!(
+            settings.accounts(),
+            ["/data/claude-b", "/data/../data/claude-a", "~/claude"]
+        );
+        let old = PathBuf::from("/data/../data/claude-a");
+        assert_eq!(settings.accounts()[1], old.to_string_lossy());
+        let twice = Settings::read(&with_accounts(r#"["/data/claude", "/data/claude"]"#)).expect_err("listed twice");
+        assert!(
+            twice.contains("agents.accounts: /data/claude is listed twice"),
+            "{twice}"
+        );
+    }
+
+    #[test]
+    fn the_one_directory_of_the_settings_before_is_told_where_it_went() {
+        let old = SAMPLE.replacen("[agents]\n", "[agents]\nconfig_dir = \"/data/claude\"\n", 1);
+        let refused = Settings::read(&old).expect_err("the old key is refused");
+        assert!(refused.starts_with("agents.config_dir:"), "{refused}");
+        assert!(refused.contains(r#"accounts = ["/data/claude"]"#), "{refused}");
     }
 
     #[test]
@@ -1052,7 +1117,7 @@ mod tests {
     #[test]
     fn a_round_runs_on_the_model_of_its_item_s_level_raised_as_its_line_says_and_at_its_cell_s_effort() {
         let settings = Settings::read(SAMPLE).unwrap();
-        let ran = |item: Option<&str>, cell: &CellSpec| settings.ran_on(item, cell).unwrap();
+        let ran = |item: Option<&str>, cell: &CellSpec| settings.ran_on(item, cell, None).unwrap();
         let at = ran(Some("1"), &cell(0, None));
         assert_eq!(
             (at.level.as_str(), at.model.as_str(), at.effort),
@@ -1066,7 +1131,7 @@ mod tests {
         assert_eq!(ran(Some("3"), &cell(1, None)).model, "claude-opus-5-5");
         assert_eq!(ran(None, &cell(0, None)).level, "2");
         let gone = settings
-            .ran_on(Some("7"), &cell(0, None))
+            .ran_on(Some("7"), &cell(0, None), None)
             .expect_err("there is no level 7");
         assert!(gone.contains("7 is no level"), "{gone}");
     }

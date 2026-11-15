@@ -163,6 +163,8 @@ fn warm() -> driver::Policy {
                 account: None,
             })
         }),
+        accounts: Vec::new(),
+        account: None,
         warm: Some(driver::Warm {
             life_ms: 3_600_000,
             after_ms: 3_300_000,

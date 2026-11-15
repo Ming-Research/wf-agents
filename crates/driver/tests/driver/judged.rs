@@ -14,6 +14,8 @@ fn policy() -> driver::Policy {
         samples: 2,
         limit: 1_000_000,
         on: Box::new(|_, _| Some(on())),
+        accounts: Vec::new(),
+        account: None,
         warm: None,
     }
 }

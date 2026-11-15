@@ -103,6 +103,7 @@ fn round(item: Item) -> Round {
         item,
         kept: Arc::new(Work::default()),
         lines: Default::default(),
+        account: None,
     }
 }
 

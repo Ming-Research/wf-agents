@@ -192,3 +192,43 @@ async fn a_round_of_an_item_above_the_highest_level_now_fails_and_pauses_the_wor
     );
     assert!(real.calls().is_empty(), "no program was run");
 }
+
+// A work's rounds run under the account in use, as `CLAUDE_CONFIG_DIR` names it to the program, and each try keeps it;
+// once the owner takes another, the next work's run under that one.
+#[tokio::test]
+async fn each_round_runs_under_the_account_in_use_and_keeps_it_and_after_a_take_under_the_one_taken() {
+    let mut real = Real::trial(Fake::default());
+    let [first, second] = ["claude", "claude-second"].map(|name| real.data.join(name).display().to_string());
+    real.settings.agents.accounts = vec![first.clone().into(), second.clone().into()];
+    real.restart();
+    let under = |account: &str| RanOn {
+        account: Some(account.to_string()),
+        ..on("1", "claude-haiku-5-5")
+    };
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    assert_eq!(calls.len(), 3);
+    assert!(
+        calls.iter().all(|call| call.account == first),
+        "{:?}",
+        calls.iter().map(|c| &c.account).collect::<Vec<_>>()
+    );
+    assert_eq!(kept(&real, work, "plan", 1, 1), under(&first));
+    let (reply, mut answer) = tokio::sync::oneshot::channel();
+    (real.service)
+        .take(service::Message::Accounts {
+            act: service::AccountsAct::Take(second.clone()),
+            reply,
+        })
+        .expect("the loop takes it");
+    answer.try_recv().expect("answered").expect("the account is taken");
+    let next = real.add().await;
+    real.act(next, Act::Resume);
+    real.until(|real| ended(&real.decision(next))).await;
+    let calls = real.calls();
+    assert_eq!(calls.len(), 6);
+    assert!(calls[3..].iter().all(|call| call.account == second));
+    assert_eq!(kept(&real, next, "plan", 1, 1), under(&second));
+}

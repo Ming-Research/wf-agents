@@ -253,6 +253,8 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
         samples: 2,
         limit: 1_000_000,
         on: Box::new(|_, _| Some(opus())),
+        accounts: Vec::new(),
+        account: None,
         warm: None,
     };
     let (mut driver, _) =
