@@ -2073,6 +2073,7 @@ mod tests {
             blocks: Vec::new(),
             steps,
             questions,
+            speaking: Vec::new(),
         }
     }
 

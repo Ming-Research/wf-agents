@@ -446,8 +446,12 @@ fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_re
     let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
     drop(driver);
     let entry = "The owner, to `R1`:\n\nKeep it to one table.".to_string();
-    assert_eq!(carried(&db), [entry.clone()], "the words are the owner's entry to R1");
+    assert_eq!(
+        carried(&db),
+        vec![entry.clone()],
+        "the words are the owner's entry to R1"
+    );
     let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens again");
     drop(driver);
-    assert_eq!(carried(&db), [entry], "they are carried once");
+    assert_eq!(carried(&db), vec![entry], "they are carried once");
 }
