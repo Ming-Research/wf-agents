@@ -126,10 +126,9 @@ default_level = "2"
 # The highest level an item may be at: an item above it is refused as it is added, and no line of the flow runs above
 # it. Left out, the top level.
 highest_level = "3"
-# The widest an item's title may be, spaces not counted and a character of East Asian wide or full width counting 2: 40
-# allows about 40 letters, or 20 Chinese characters. A title is held to it when it is made or changed. There is no
-# default.
-title_max = 40
+# The most words an item's title may have, a Chinese character counting as a word: 20 allows 20 English words or 20
+# Chinese characters. A title is held to it when it is made or changed. There is no default.
+title_max = 20
 
 [sessions]
 # A line of a work keeps one session of the program from round to round. It begins a new one where the model or the

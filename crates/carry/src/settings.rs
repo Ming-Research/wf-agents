@@ -561,9 +561,9 @@ pub struct Items {
     /// The highest level an item may be at, by its name among the levels: an item above it is refused as it is added,
     /// and no line runs above it; with none, the top level.
     pub highest_level: Option<String>,
-    /// The widest an item's title may be, as `service::title_width` counts it: spaces are not counted, a character of
-    /// East Asian wide or full width counts 2 and any other 1. A title is held to it when it is made or changed; a
-    /// title already there is not counted again. There is no default: the installation names the width.
+    /// The most words an item's title may have, as `service::title_words` counts them: a Chinese character counts as a
+    /// word. A title is held to it when it is made or changed; a title already there is not counted again. There is no
+    /// default: the installation names the number.
     pub title_max: u32,
 }
 
@@ -1082,16 +1082,16 @@ mod tests {
     }
 
     #[test]
-    fn the_width_of_a_title_is_the_settings_and_has_no_default() {
+    fn the_words_of_a_title_are_the_settings_and_have_no_default() {
         let levels = Settings::read(SAMPLE).unwrap().levels().unwrap();
-        assert_eq!(levels.title_fits(&"a".repeat(40)), Ok(()));
+        assert_eq!(levels.title_fits("word ".repeat(20).trim()), Ok(()));
         assert_eq!(levels.title_fits(&"\u{4e2d}".repeat(20)), Ok(()));
-        let why = levels.title_fits(&"a".repeat(41)).unwrap_err();
+        let why = levels.title_fits(&"\u{4e2d}".repeat(21)).unwrap_err();
         assert!(
-            why.starts_with("the title is 41 wide and a title is 40 wide at most"),
+            why.starts_with("the title has 21 words and a title has 20 at most"),
             "{why}"
         );
-        let without = SAMPLE.replace("title_max = 40\n", "");
+        let without = SAMPLE.replace("title_max = 20\n", "");
         let refused = Settings::read(&without).expect_err("refused");
         assert!(refused.contains("title_max"), "{refused}");
     }
