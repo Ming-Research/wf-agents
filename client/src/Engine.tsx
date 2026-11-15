@@ -12,6 +12,7 @@ import { Button, Switch } from './parts';
 import type { Items } from './works-api';
 import { useStreamLost } from './changes';
 import { useChanges, useItems, useReading, useSource } from './works/source';
+import { PAUSE_ALL } from './works/words';
 
 /// The items read for the bar, and read again whenever something happened.
 export type BarItems = { items: Items | null; failed: string | null };
@@ -79,11 +80,7 @@ export function Engine({ items, failed }: { items: Items | null; failed: string 
       {(mocks || real !== null) && (
         <>
           <Button
-            title={
-              paused
-                ? 'Every work goes on again but those paused by themselves.'
-                : 'No work begins a round, except to answer a note, until every work is started again; a round under way finishes.'
-            }
+            title={paused ? 'Every work goes on again but those paused by themselves.' : PAUSE_ALL}
             onClick={toggle}
           >
             {paused ? 'Start all' : 'Pause all'}

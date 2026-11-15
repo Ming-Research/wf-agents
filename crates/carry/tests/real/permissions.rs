@@ -74,6 +74,18 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
         let rule = format!("Edit(/{results}/**)");
         assert!(after(call, "--disallowedTools").contains(&rule.as_str()), "{rule}");
     }
+    // Every line's command line is given the variables the project's declaration names for its toolchain.
+    let declared = crate::beside().project.environment;
+    assert!(
+        !declared.is_empty(),
+        "the repository's declaration names its toolchain's variables"
+    );
+    for call in [plan, review] {
+        for (name, value) in &declared {
+            let variable = format!("{name}={value}");
+            assert!(call.env.contains(&variable), "{variable}: {:?}", call.env);
+        }
+    }
     // Every line's system prompt holds the project's files `project.toml` names, each headed by its path, the engine's
     // words, and how a cell returns, with each field's words and the owner's language beside its name.
     for call in [plan, review] {
