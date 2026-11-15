@@ -7,8 +7,12 @@ GitHub is asked through its own command line, by its REST API and by GraphQL onl
 Why: The command line handles authentication and paging and adds no network stack to the build (principle tech-mainstream). An agent can write the clone's configuration, so an address or proxy taken from there could send the token elsewhere.
 
 ### decision found-again-on-the-host
-Nothing of a check on the host is kept by the engine: the pull request is found again by its branch, the CI by its commit. A pull request a person closed, merged or pointed elsewhere fails the round, and no second one is opened.
+Nothing of a check on the host is kept by the engine: the pull request is found again by its branch, a run of a workflow by its request (decision a-run-is-found-again-by-its-request). A pull request a person closed, merged or pointed elsewhere fails the round, and no second one is opened.
 Why: A restart between opening a pull request and recording it would open a second one (principle effects-known-as-done), and opening another past a person's close would act against them.
+
+### decision a-run-is-found-again-by-its-request
+A run of a workflow is found by a value its name holds, worked out from the work, the call of `run_tests` or the round of the check that asks, the workflow and the commit, in the installation's namespace; given again after the engine started again, the request waits for its run or reads it where it has ended, and asks for another only where it finds none of its own but cancelled ones.
+Why: Asked for on main, the runs of every request are listed together, and two requests of one work at once, each taking the newest, would read each other's. A value made at random at each request was lost with the engine: a restart two minutes into a run of the full workflows asked for them again while the first run went on to pass. With the commit in it, a check given again on a main that moved since takes no run of the commit before; asking again past a cancelled run, which judged nothing, rests on judgment.
 
 ### decision the-check-before-the-merge-is-the-full-workflows-once
 The check before the merge runs the project's full workflows on the exact commit to merge, by hand and once, and judges it by the JUnit they upload and by their jobs' conclusions: it fails on a test that failed, on a job that did not pass, and on a run that uploaded no JUnit the engine can read, and never by the pull request's checks or a log. Each failure is said as it is, and no failed job is ever run again by the engine.

@@ -39,7 +39,7 @@ use failing::Failed;
 
 use crate::git::{self, Started};
 use crate::held::{Failing, Held, Stop};
-use crate::host::{Branch, Host, NotMerged};
+use crate::host::{Asking, Branch, Host, NotMerged};
 use crate::settings::Project;
 use crate::{protected, tree};
 
@@ -316,12 +316,13 @@ impl<H: Host> Inner<H> {
                     protecting: &self.protecting,
                     work: &round.kept,
                 };
+                let asking = Asking::Round(round.run, round.number);
                 let checked = check(
                     project,
                     &self.host,
                     &branch,
                     &self.repository,
-                    stop,
+                    (asking, stop),
                     &words.check,
                     &gate,
                 );
@@ -578,14 +579,15 @@ pub(crate) struct Gate<'a> {
 /// land, which fails the check where it changes nothing against main, there being nothing to merge; then that commit's
 /// own change under the paths the project protects is empty or one the owner let merge, which fails the check
 /// otherwise, with what the engine asks of it, and fails it too where it cannot be looked at ([`crate::protected`]);
-/// then the host's verdict on the commit, waited for without the repository. Says why where it could not check, and
-/// gives none where it was stopped; what failed is what was found, not a reason to fail.
+/// then the host's verdict on the commit, waited for without the repository, as the round of the check that asks finds
+/// it. Says why where it could not check, and gives none where it was stopped; what failed is what was found, not a
+/// reason to fail.
 pub(crate) async fn check(
     project: &Project,
     host: &impl Host,
     branch: &Branch<'_>,
     repository: &Mutex<()>,
-    stop: &mut Stop,
+    (asking, stop): (Asking, &mut Stop),
     words: &CheckWords,
     gate: &Gate<'_>,
 ) -> Result<Option<Checked>, String> {
@@ -679,7 +681,7 @@ pub(crate) async fn check(
             return Ok(Some(checked));
         }
     }
-    let Some(verdict) = host.verdict(branch, &checked.commit, stop).await? else {
+    let Some(verdict) = host.verdict(branch, &checked.commit, asking, stop).await? else {
         return Ok(None);
     };
     checked.failed = verdict.failed;
@@ -1188,6 +1190,9 @@ mod tests {
 
     const WORK: WorkNumber = WorkNumber(1);
 
+    /// The round of the check that asks for its verdict.
+    const ROUND: Asking = Asking::Round(RunId(1), 1);
+
     /// The work's branch in the repository, as a host is given it.
     fn branch(place: &git::Place) -> Branch<'_> {
         Branch {
@@ -1224,7 +1229,7 @@ mod tests {
             host,
             &branch(&place),
             &Mutex::new(()),
-            stop,
+            (ROUND, stop),
             &words().check,
             &gate,
         )
@@ -1241,7 +1246,15 @@ mod tests {
             protecting: &protecting,
             work: &work,
         };
-        let checked = check(&repo.project, host, &branch, &lock, &mut stop, &words.check, &gate);
+        let checked = check(
+            &repo.project,
+            host,
+            &branch,
+            &lock,
+            (ROUND, &mut stop),
+            &words.check,
+            &gate,
+        );
         checked.await.expect("the work is checked").expect("nothing stopped it")
     }
 
@@ -1396,7 +1409,7 @@ mod tests {
             host,
             &branch(&place),
             &repository,
-            &mut stop,
+            (ROUND, &mut stop),
             &words().check,
             &gate,
         )

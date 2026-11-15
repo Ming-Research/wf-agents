@@ -23,7 +23,7 @@ use store::WorkNumber;
 
 use crate::git;
 use crate::held::{Held, Stop};
-use crate::host::{Branch, Host, Named};
+use crate::host::{Asking, Branch, Host, Named};
 use crate::settings::Project;
 
 pub use query::{QUERY, Querying};
@@ -124,16 +124,12 @@ impl<H: Host> ToolsTrait for Tools<H> {
                     unread: inner.unread.as_deref(),
                     tools: &tools,
                 };
-                answer(
-                    &inner.host,
-                    &inner.project,
-                    &branch,
-                    &told,
-                    &call.name,
-                    &call.input,
-                    &mut stop,
-                )
-                .await
+                let asked = Call {
+                    id: call.call,
+                    name: &call.name,
+                    input: &call.input,
+                };
+                answer(&inner.host, &inner.project, &branch, &told, &asked, &mut stop).await
             };
             let result = match answered {
                 Answer::Result(result) => result,
@@ -204,25 +200,32 @@ struct Told<'a> {
     tools: &'a [&'a str],
 }
 
-/// Runs the tool named, other than `query`, on the work's branch, with this input, and gives its result.
+/// A call of a tool, other than `query`, as it is run: which call of the work it is, the tool, and what it is run on.
+struct Call<'a> {
+    id: CallId,
+    name: &'a str,
+    input: &'a str,
+}
+
+/// Runs the tool the call names on the work's branch, with the call's input, and gives its result.
 async fn answer(
     host: &impl Host,
     project: &Project,
     branch: &Branch<'_>,
     told: &Told<'_>,
-    name: &str,
-    input: &str,
+    call: &Call<'_>,
     stop: &mut Stop,
 ) -> Answer {
+    let name = call.name;
     if name != RUN_TESTS {
         let tools = told.tools.join(", ");
         return Answer::Result(format!("No such tool: {name}. The tools are: {tools}."));
     }
-    let checked = match asked(input) {
+    let checked = match asked(call.input) {
         Err(why) => Ok(Some(
             told.unread.map_or(why.clone(), |words| fill(words, &[("error", &why)])),
         )),
-        Ok(named) => run_tests(host, project, branch, &named, stop).await,
+        Ok(named) => run_tests(host, project, branch, &named, Asking::Call(call.id), stop).await,
     };
     match checked {
         Ok(Some(said)) | Err(said) => Answer::Result(said),
@@ -237,6 +240,7 @@ async fn run_tests(
     project: &Project,
     branch: &Branch<'_>,
     named: &Named,
+    asking: Asking,
     stop: &mut Stop,
 ) -> Result<Option<String>, String> {
     let could_not = |why: String| format!("The check could not be run: {why}");
@@ -244,7 +248,7 @@ async fn run_tests(
     if let Some(said) = found.map_err(could_not)? {
         return Ok(Some(said));
     }
-    host.run_tests(branch, named, stop).await.map_err(could_not)
+    host.run_tests(branch, named, asking, stop).await.map_err(could_not)
 }
 
 /// A request of `run_tests`: the tests and the checks it names, each list left out where it names none.
@@ -319,7 +323,12 @@ mod tests {
             about: "",
             place: &place,
         };
-        match answer(host, &repo.project, &branch, &TOLD, name, input, &mut Stop::never()).await {
+        let call = Call {
+            id: CallId(1),
+            name,
+            input,
+        };
+        match answer(host, &repo.project, &branch, &TOLD, &call, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
@@ -436,16 +445,22 @@ mod tests {
             about: "",
             place: &place,
         };
-        let asked = answer(&host, &repo.project, &branch, &TOLD, RUN_TESTS, "", &mut stop);
+        let call = Call {
+            id: CallId(1),
+            name: RUN_TESTS,
+            input: "",
+        };
+        let asked = answer(&host, &repo.project, &branch, &TOLD, &call, &mut stop);
         let (answer, ()) = tokio::join!(asked, withdrawing);
         assert!(matches!(answer, Answer::Withdrawn));
         assert!(began.elapsed() < Duration::from_secs(20), "the command was stopped");
     }
 
     // The pull request the tool brings up to date is named as the work's merge is: by the work's number before the work
-    // wrote a name for it, and never by the title of its item, which is in the owner's language.
+    // wrote a name for it, and never by the title of its item, which is in the owner's language. The host is asked by
+    // the call, which it finds what it ran for again by after the engine started again.
     #[tokio::test]
-    async fn the_host_is_given_the_name_of_the_works_merge_and_never_its_items_title() {
+    async fn the_host_is_asked_by_the_call_and_given_the_name_of_the_works_merge_never_its_items_title() {
         let repo = Repo::new("true");
         git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
         let host = Fake::new("unused").runs("The tests passed.");
@@ -478,6 +493,7 @@ mod tests {
         tools.call(call, CallReply::new(WORK, CallId(2), to));
         said.recv().await.expect("the call is answered");
         assert_eq!(tools.inner.host.titles(), ["Work 1"]);
+        assert_eq!(tools.inner.host.askings(), [Asking::Call(CallId(2))]);
     }
 
     #[test]
