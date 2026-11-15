@@ -2,7 +2,7 @@
 //! with the triggers it was told ran it, by their names, as an agent writes them, and its return is read as the agents'
 //! rounds read one (`CellSpec::dealt_with`); an act of the engine's names none.
 
-use decide::{Decision, Outsider, RunId};
+use decide::{BlockId, Decision, Outsider, RunId};
 use engine::{Came, Effect, Event, Handed, Question, Spent, Time, Work, handle};
 use flow::{Compiled, Kind};
 
@@ -213,56 +213,84 @@ fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is
 }
 
 // Of the record of what is said, words that hold nothing add no entry, though the cell's entry of them would hold the
-// reply's words around them (decision a-write-of-nothing-only-empties); and each write kept is told to hold nothing or
-// something as the content kept of it does, by the test a migration reads it by.
+// reply's words around them (decision a-write-of-nothing-only-empties); and each version kept says whether it holds
+// nothing by the content kept of it, as a test of content and the store's migrations read it: an answer kept holds
+// something, and one kept by a record whose file gives no words for a reply holds nothing and says so.
 #[test]
 fn words_that_hold_nothing_add_no_entry_to_the_record_of_what_is_said_and_each_write_holds_what_its_content_does() {
+    let discussion = BlockId::from("discussion");
+    // R1's return, the discussion holding these words; what its run wrote, each with the content kept of it.
+    let answered = |w: &mut W, words: &str| {
+        w.hands_in("S1", &[("place", None)], Vec::new());
+        w.hands_in("R0", &[], Vec::new());
+        let (run, _) = w.round();
+        let names = w.told(run, "R1");
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let plan = [
+            ("deep_needed", Some("no")),
+            ("plan_owner", None),
+            ("plan_agent", None),
+            ("acceptance", None),
+            ("discussion", None),
+        ];
+        let mut came = w.read("R1", &names, &plan);
+        for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "discussion") {
+            h.content = words.to_string();
+        }
+        w.on(Event::Returned {
+            run,
+            came,
+            spent: Spent::default(),
+        });
+        let finished = (w.work.records.finished.iter())
+            .find(|f| f.run == run)
+            .expect("the run finished");
+        (finished.writes.iter())
+            .map(|x| {
+                let kept = w.work.contents.get(&(x.block.clone(), finished.at)).cloned();
+                (x.clone(), kept.expect("the content of a write is kept"))
+            })
+            .collect::<Vec<_>>()
+    };
+    let holds_what_it_keeps = |writes: &[(decide::Write, String)]| {
+        for (write, kept) in writes {
+            assert_eq!(
+                write.empty,
+                decide::holds_nothing(write.value.as_deref(), kept),
+                "{}: {kept:?}",
+                write.block
+            );
+        }
+    };
+    let of_discussion = |writes: &[(decide::Write, String)]| {
+        (writes.iter())
+            .find(|(x, _)| x.block == discussion)
+            .map(|(x, kept)| (x.empty, kept.clone()))
+    };
+
     let mut w = W::started();
-    w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
-    let (run, _) = w.round();
-    let names = w.told(run, "R1");
-    let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    let plan = [
-        ("deep_needed", Some("no")),
-        ("plan_owner", None),
-        ("plan_agent", None),
-        ("acceptance", None),
-        ("discussion", None),
-    ];
-    let mut came = w.read("R1", &names, &plan);
-    for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "discussion") {
-        h.content = " \n".to_string();
-    }
-    w.on(Event::Returned {
-        run,
-        came,
-        spent: Spent::default(),
-    });
-    let finished = (w.work.records.finished.iter())
-        .find(|f| f.run == run)
-        .expect("the run finished");
-    let at = finished.at;
-    assert!(
-        !finished.writes.iter().any(|x| x.block.as_str() == "discussion"),
-        "{:?}",
-        finished.writes
-    );
-    assert_eq!(w.work.contents.get(&("discussion".into(), at)), None);
+    let writes = answered(&mut w, " \n");
+    assert_eq!(of_discussion(&writes), None, "{writes:?}");
     for block in ["deep_needed", "plan_owner", "plan_agent", "acceptance"] {
         assert!(
-            finished.writes.iter().any(|x| x.block.as_str() == block),
-            "{block} is written: {:?}",
-            finished.writes
+            writes.iter().any(|(x, _)| x.block.as_str() == block),
+            "{block}: {writes:?}"
         );
     }
-    for write in &finished.writes {
-        let kept = (w.work.contents.get(&(write.block.clone(), at))).expect("the content of a write is kept");
-        assert_eq!(
-            write.empty,
-            decide::holds_nothing(write.value.as_deref(), kept),
-            "{}",
-            write.block
-        );
-    }
+    holds_what_it_keeps(&writes);
+
+    let mut w = W::started();
+    let writes = answered(&mut w, "The plan stands.");
+    let (empty, kept) = of_discussion(&writes).expect("the answer is kept");
+    assert!(kept.contains("The plan stands.") && !empty, "{kept:?}");
+    holds_what_it_keeps(&writes);
+
+    // A flow whose record of what is said gives no words for a reply keeps the answer as nothing, and says so.
+    let mut w = W::started();
+    let record = w.flow.blocks.get_mut(&discussion).expect("the record of what is said");
+    record.writes.0.retain(|(name, _)| name != "reply");
+    let writes = answered(&mut w, "The plan stands.");
+    let (empty, kept) = of_discussion(&writes).expect("the answer is kept");
+    assert!(kept.trim().is_empty() && empty, "{kept:?}");
+    holds_what_it_keeps(&writes);
 }

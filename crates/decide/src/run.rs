@@ -267,6 +267,9 @@ pub struct Requires<'a> {
     pub told: &'a Told,
     /// Of each block that runs the cell and that an act of the engine's after it writes, what runs that act again.
     pub answered_by: &'a BTreeMap<BlockId, Answer>,
+    /// The cell is an agent's, whose return may write a block holding nothing for one that does not apply; an act's
+    /// writes are each a version as written (decision a-write-of-nothing-only-empties).
+    pub agent: bool,
 }
 
 /// What a run does next.
@@ -505,14 +508,9 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             };
             let unmet = unmet(&came, requires);
             if unmet.is_empty() {
-                // A write that takes nothing away is no write (decision a-write-of-nothing-only-empties).
-                let written: Vec<Write> = (writes.iter())
-                    .filter(|w| !takes_nothing_away(w, requires))
-                    .cloned()
-                    .collect();
                 return Step::Finish {
                     dealt_with: consumed(dealt_with, requires),
-                    writes: taken_writes(&written, read),
+                    writes: taken_writes(writes, read, requires.told, requires.agent),
                 };
             }
             unmet
@@ -527,11 +525,17 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
     held(Step::SendBack { unmet }, hold)
 }
 
-/// What a run writes as its return is taken: the blocks it writes, then each block of the work's branch the carrier read
-/// new as the round ended that it does not write itself, as what the round committed.
-pub fn taken_writes(writes: &[Write], read: &[BlockId]) -> Vec<Write> {
+/// What a run writes as its return is taken: the blocks it writes, but each of an agent's that holds nothing where that
+/// takes nothing away by how the blocks stand that its round was told of (decision a-write-of-nothing-only-empties), then
+/// each block of the work's branch the carrier read new as the round ended that it does not write itself, as what the
+/// round committed.
+pub fn taken_writes(writes: &[Write], read: &[BlockId], told: &Told, agent: bool) -> Vec<Write> {
+    let written: Vec<Write> = (writes.iter())
+        .filter(|w| !takes_nothing_away(w, told, agent))
+        .cloned()
+        .collect();
     let committed = (read.iter())
-        .filter(|block| !writes.iter().any(|w| &w.block == *block))
+        .filter(|block| !written.iter().any(|w| &w.block == *block))
         .map(|block| Write {
             block: block.clone(),
             meaning_unchanged: false,
@@ -539,7 +543,7 @@ pub fn taken_writes(writes: &[Write], read: &[BlockId]) -> Vec<Write> {
             // What the carrier read of the branch, a commit, holds something.
             empty: false,
         });
-    writes.iter().cloned().chain(committed).collect()
+    written.into_iter().chain(committed).collect()
 }
 
 /// The step, which begins a round, or its being held where the pause holds that round back.
@@ -625,19 +629,20 @@ fn leaves_waiting(came: &Came<'_>, requires: Requires) -> bool {
         || came.waits
         || requires.told.waits
         || (came.writes.iter())
-            .filter(|w| !takes_nothing_away(w, requires))
+            .filter(|w| !takes_nothing_away(w, requires.told, requires.agent))
             .any(|w| requires.asking.iter().any(|a| a.record == w.block))
 }
 
-/// Whether the write holds nothing where that takes nothing away, and so is no write: it makes no version, adds no
-/// entry and asks for nothing, though a block its cell must write is handed in so, as it stands (decision
-/// a-write-of-nothing-only-empties). So is a write that holds nothing of a block that is no choice and holds nothing as
-/// the return is taken, or of a record, to which an entry is added and which loses nothing by it. One of a block that
-/// holds something empties it.
-fn takes_nothing_away(write: &Write, requires: Requires) -> bool {
-    write.empty
-        && !requires.choices.contains_key(&write.block)
-        && (requires.told.outputs.get(&write.block)).is_some_and(|s| s.added || s.empty)
+/// Whether the write of an agent's return holds nothing where that takes nothing away, and so is no write: it makes no
+/// version, adds no entry, asks for nothing and writes over nothing, though a block its cell must write is handed in so,
+/// as it stands (decision a-write-of-nothing-only-empties). So is a write that holds nothing of a block that holds nothing
+/// as the return is taken, or of a record, to which an entry is added and which loses nothing by it; one of a block that
+/// holds something empties it, and a choice written so is sent back for its value. An act's writes are each a version as
+/// written: an act writes no block for one that does not apply, and a result of one kept out would leave its asking cell
+/// waiting for ever.
+fn takes_nothing_away(write: &Write, told: &Told, agent: bool) -> bool {
+    let _ = agent;
+    write.empty && (told.outputs.get(&write.block)).is_some_and(|s| s.added || s.latest.is_none())
 }
 
 /// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
@@ -692,9 +697,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             _ => {}
         }
         // A write that takes nothing away writes over nothing and adds no entry.
-        if takes_nothing_away(write, requires) {
-            continue;
-        }
+        let nothing = takes_nothing_away(write, told, requires.agent);
         let standing = told.outputs.get(&write.block);
         if let Some(Standing {
             told,
@@ -703,6 +706,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             ..
         }) = standing
             && *told != Some(*latest)
+            && !nothing
         {
             unmet.push(Unmet::WrittenOver {
                 block: block(),
@@ -784,7 +788,6 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
                 continue;
             };
             let written = (writes.iter())
-                .filter(|w| !takes_nothing_away(w, requires))
                 .map(|w| &w.block)
                 .chain(read)
                 .any(|b| answer.runs.contains(b));

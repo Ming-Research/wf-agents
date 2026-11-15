@@ -926,6 +926,7 @@ pub(crate) fn requires<'a>(
         again: cell.again,
         told,
         answered_by,
+        agent: spec.kind == Kind::Agent,
     })
 }
 
@@ -957,16 +958,16 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
 /// the cell's counts last began anew. A return of the form before a return said what it dealt with reads as one that
 /// dealt with nothing where it asked, and with everything that ran its round where it handed in.
 pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run::Log {
-    // Whether a write holds nothing is told of what the cell handed in: of a record of what is said, the cell's entry of
-    // it ([`spoken::entry`]) holds its words, so that words that hold nothing add no entry, and every entry kept holds
-    // something as they do (decision a-write-of-nothing-only-empties).
+    // Whether a write holds nothing is told, for its return to be judged, of what the cell handed in: words to the record
+    // of what is said that hold nothing add no entry, though the entry ([`spoken::entry`]) would wrap them in its
+    // `reply` (decision a-write-of-nothing-only-empties). A version kept says so of its content (`finish`).
     let writes = |handed: &[work::Handed]| {
         (handed.iter())
             .map(|h| Write {
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
-                empty: decide::holds_nothing(h.value.as_deref(), &h.content),
+                empty: decide::holds_nothing(h.value.as_deref(), &spoken::entry(flow, &h.block, &h.content)),
             })
             .collect::<Vec<Write>>()
     };
@@ -976,14 +977,15 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
     // by, the last, only of an agent's, as an act never waits, and only of a cell with a condition.
     let last = began(work, run);
     let place = (work.records.started.iter().find(|s| s.run == run)).and_then(|s| flow.flow.place(&s.cell));
-    let judged = place.is_some_and(|i| flow.cells[i].kind == Kind::Agent && !flow.flow.cells()[i].applies.is_empty());
+    let agent = place.is_some_and(|i| flow.cells[i].kind == Kind::Agent);
+    let judged = agent && place.is_some_and(|i| !flow.flow.cells()[i].applies.is_empty());
     let skips = |i: usize, (writes, waits): (&[Write], bool), read: &[BlockId]| {
         if i + 1 != last || !judged {
             return Vec::new();
         }
         let taken = || {
             let mut taken = work.clone();
-            let writes = run::taken_writes(writes, read);
+            let writes = run::taken_writes(writes, read, told, agent);
             finish(flow, &mut taken, run, Vec::new(), writes, &mut Vec::new());
             taken.records
         };

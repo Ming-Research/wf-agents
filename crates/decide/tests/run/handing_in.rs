@@ -206,6 +206,65 @@ fn a_block_written_holding_nothing_where_its_latest_version_holds_nothing_writes
     assert_eq!(step(vec![handed_in(vec![prose("plan")])], &s), send_back(unmet));
 }
 
+// What an act after the cell said to it is answered by what runs the act again, and a write of nothing that takes
+// nothing away runs nothing: such a return is sent back as leaving the act's block unanswered (decision
+// an-act-is-answered-by-what-runs-it). Taken, it would write nothing, and the act would never run again: an
+// implementation entered for a failed check that hands in only `evidence` empty, where it had none, and commits
+// nothing.
+#[test]
+fn a_return_that_answers_an_acts_block_with_only_a_write_of_nothing_is_sent_back_as_leaving_it_unanswered() {
+    let mut s = with_found(spec());
+    s.answered_by = BTreeMap::from([(
+        "request".into(),
+        Answer {
+            runs: vec!["found".into()],
+            question: false,
+            new: false,
+        },
+    )]);
+    let unmet = vec![Unmet::Unanswered {
+        block: "request".into(),
+    }];
+    assert_eq!(step(vec![handed_in(vec![nothing("found")])], &s), send_back(unmet));
+    // What holds something answers it.
+    assert_eq!(
+        step(vec![handed_in(vec![prose("found")])], &s),
+        finish(vec![prose("found")])
+    );
+}
+
+// An entry of nothing is no entry, so naming it as changing nothing in meaning is no fault of an entry: the return is
+// taken, and writes nothing.
+#[test]
+fn an_entry_of_nothing_named_as_changing_nothing_in_meaning_is_no_entry_and_is_taken() {
+    let mut s = asking_for_tests(&[]);
+    let record = Standing {
+        told: None,
+        latest: None,
+        value: None,
+        added: true,
+        empty: true,
+    };
+    s.told.outputs.insert("tests".into(), record);
+    let entry = Write {
+        meaning_unchanged: true,
+        ..nothing("tests")
+    };
+    assert_eq!(step(vec![handed_in(vec![entry])], &s), finish(vec![]));
+}
+
+// An act's writes are the engine's, each a version as written: an act writes no block for one that does not apply, and
+// a result of nothing kept out would leave the cell that waits for it waiting for ever.
+#[test]
+fn an_acts_write_of_nothing_is_a_version_as_written() {
+    let s = Spec {
+        agent: false,
+        ..with_found(spec())
+    };
+    let writes = vec![nothing("found")];
+    assert_eq!(step(vec![handed_in(writes.clone())], &s), finish(writes));
+}
+
 // A block that holds something is emptied by a write that holds nothing, which is a write as any other: what a test of
 // content reads of it changes.
 #[test]
