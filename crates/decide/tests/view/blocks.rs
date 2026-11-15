@@ -23,6 +23,21 @@ fn each_version_shows_who_wrote_it_a_person_the_outside_or_a_run() {
     );
 }
 
+// A version shows whether it holds nothing as its write recorded it, which a test of content reads, so that whoever
+// shows the work reads that as the walk does and decides it by no rule of its own.
+#[test]
+fn a_version_that_holds_nothing_shows_so_as_its_write_recorded_it() {
+    let mut w = World::with_gate(vec![cell("check", &["main", "notes"], &["notes"])]);
+    w.outside_writes("main");
+    let at = w.run("check", &[("notes", Nothing)]);
+    let run = finished_by(&w, at);
+    let nothing = VersionView {
+        empty: true,
+        ..version(at, Writer::Run(run), at, None)
+    };
+    assert_eq!(seen(&w).blocks[&BlockId::from("notes")], vec![nothing]);
+}
+
 #[test]
 fn a_choice_shows_its_value() {
     let mut w = World::with_gate(vec![cell("ask", &["brief"], &["more"])]);
