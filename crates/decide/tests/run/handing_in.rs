@@ -113,6 +113,7 @@ fn an_entry_written_as_changing_nothing_in_meaning_is_sent_back() {
         latest: None,
         value: None,
         added: true,
+        empty: true,
     };
     s.told.outputs.insert("tests".into(), record);
     let entry = Write {
@@ -125,6 +126,151 @@ fn an_entry_written_as_changing_nothing_in_meaning_is_sent_back() {
         step(vec![works(&[], vec![prose("tests")])], &s),
         Step::Finish { .. }
     ));
+}
+
+/// The cell of `spec`, which may write `found` besides, a block of prose that has no version yet.
+fn with_found(mut s: Spec) -> Spec {
+    s.outputs.push("found".into());
+    let none = Standing {
+        told: None,
+        latest: None,
+        value: None,
+        added: false,
+        empty: true,
+    };
+    s.told.outputs.insert("found".into(), none);
+    s
+}
+
+// A block written holding nothing where it holds nothing takes nothing away, and is no write: the run finishes without
+// it, so that it is a version new to no cell and to no session (decision a-write-of-nothing-only-empties). Work 3's
+// initial research wrote `found` so where its task said to write none.
+#[test]
+fn a_block_written_holding_nothing_where_it_has_no_version_is_no_write() {
+    let s = with_found(spec());
+    let writes = vec![prose("plan"), nothing("found")];
+    assert_eq!(step(vec![handed_in(writes)], &s), finish(vec![prose("plan")]));
+}
+
+// One the cell must hand in is handed in so, as it stands.
+#[test]
+fn a_block_the_cell_must_hand_in_written_holding_nothing_where_it_has_no_version_is_handed_in_as_it_stands() {
+    let mut s = with_found(spec());
+    s.must_write = vec!["found".into()];
+    assert_eq!(step(vec![handed_in(vec![nothing("found")])], &s), finish(vec![]));
+}
+
+// An entry is added to a record and replaces nothing, so one that holds nothing takes nothing away and is no entry: it
+// asks for nothing, and so leaves its cell waiting for nothing and is held to what its cell must hand in.
+#[test]
+fn an_entry_of_a_record_written_holding_nothing_is_no_entry_and_leaves_its_cell_waiting_for_nothing() {
+    let mut s = asking_for_tests(&["verdict"]);
+    let record = Standing {
+        told: None,
+        latest: None,
+        value: None,
+        added: true,
+        empty: true,
+    };
+    s.told.outputs.insert("tests".into(), record);
+    let unmet = vec![Unmet::NotHandedIn {
+        block: "verdict".into(),
+    }];
+    assert_eq!(step(vec![handed_in(vec![nothing("tests")])], &s), send_back(unmet));
+    let writes = vec![nothing("tests"), valued("verdict", "yes")];
+    assert_eq!(
+        step(vec![handed_in(writes)], &s),
+        finish(vec![valued("verdict", "yes")])
+    );
+}
+
+// A block whose latest version holds nothing holds nothing, as one with none does: a write of nothing there takes nothing
+// away and writes over nothing, though another wrote that version since the round was told of the one before it.
+#[test]
+fn a_block_written_holding_nothing_where_its_latest_version_holds_nothing_writes_over_nothing() {
+    let mut s = spec();
+    let emptied = Standing {
+        told: Some(Seq(4)),
+        latest: Some(Seq(7)),
+        value: None,
+        added: false,
+        empty: true,
+    };
+    s.told.outputs.insert("plan".into(), emptied);
+    assert_eq!(step(vec![handed_in(vec![nothing("plan")])], &s), finish(vec![]));
+    // One that holds something would write over it, and is sent back.
+    let unmet = vec![Unmet::WrittenOver {
+        block: "plan".into(),
+        version: Seq(7),
+    }];
+    assert_eq!(step(vec![handed_in(vec![prose("plan")])], &s), send_back(unmet));
+}
+
+// What an act after the cell said to it is answered by what runs the act again, and a write of nothing that takes
+// nothing away runs nothing: such a return is sent back as leaving the act's block unanswered (decision
+// an-act-is-answered-by-what-runs-it). Taken, it would write nothing, and the act would never run again: an
+// implementation entered for a failed check that hands in only `evidence` empty, where it had none, and commits
+// nothing.
+#[test]
+fn a_return_that_answers_an_acts_block_with_only_a_write_of_nothing_is_sent_back_as_leaving_it_unanswered() {
+    let mut s = with_found(spec());
+    s.answered_by = BTreeMap::from([(
+        "request".into(),
+        Answer {
+            runs: vec!["found".into()],
+            question: false,
+            new: false,
+        },
+    )]);
+    let unmet = vec![Unmet::Unanswered {
+        block: "request".into(),
+    }];
+    assert_eq!(step(vec![handed_in(vec![nothing("found")])], &s), send_back(unmet));
+    // What holds something answers it.
+    assert_eq!(
+        step(vec![handed_in(vec![prose("found")])], &s),
+        finish(vec![prose("found")])
+    );
+}
+
+// An entry of nothing is no entry, so naming it as changing nothing in meaning is no fault of an entry: the return is
+// taken, and writes nothing.
+#[test]
+fn an_entry_of_nothing_named_as_changing_nothing_in_meaning_is_no_entry_and_is_taken() {
+    let mut s = asking_for_tests(&[]);
+    let record = Standing {
+        told: None,
+        latest: None,
+        value: None,
+        added: true,
+        empty: true,
+    };
+    s.told.outputs.insert("tests".into(), record);
+    let entry = Write {
+        meaning_unchanged: true,
+        ..nothing("tests")
+    };
+    assert_eq!(step(vec![handed_in(vec![entry])], &s), finish(vec![]));
+}
+
+// An act's writes are the engine's, each a version as written: an act writes no block for one that does not apply, and
+// a result of nothing kept out would leave the cell that waits for it waiting for ever.
+#[test]
+fn an_acts_write_of_nothing_is_a_version_as_written() {
+    let s = Spec {
+        agent: false,
+        ..with_found(spec())
+    };
+    let writes = vec![nothing("found")];
+    assert_eq!(step(vec![handed_in(writes.clone())], &s), finish(writes));
+}
+
+// A block that holds something is emptied by a write that holds nothing, which is a write as any other: what a test of
+// content reads of it changes.
+#[test]
+fn a_block_written_holding_nothing_where_it_holds_something_is_emptied() {
+    let writes = vec![nothing("plan")];
+    assert_eq!(step(vec![handed_in(writes.clone())], &spec()), finish(writes));
 }
 
 // A block that would leave the cell waiting, the record it asks for tests in or the record of its questions, written in

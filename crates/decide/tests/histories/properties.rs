@@ -7,7 +7,9 @@
 //!
 //! - `a-run-is-one-mechanism`: a run writes no block before its return is taken, and its return is taken only when it
 //!   meets what the flow requires of it; one that does not is sent back, as is one that would write over a version of a
-//!   block it writes that its round was never told of: nothing is written over unseen.
+//!   block it writes that its round was never told of: nothing is written over unseen. A block an agent's return writes
+//!   holding nothing is written only where it empties one that holds something (decision
+//!   a-write-of-nothing-only-empties).
 //! - `consumed-only-by-what-a-return-dealt-with`: a datum becomes old to a cell only by a return of that cell that was
 //!   taken and named it, up to the version its round was told of; a round that failed, a return sent back and a run
 //!   stopped or abandoned consume nothing.
@@ -51,6 +53,7 @@ pub const REST: &str = "a run at rest goes on only while its cell applies";
 pub const HELD: &str = "a work is held only by a precondition that does not hold";
 pub const MAKERS: &str = "a precondition's wait names only those who write a block keeping it from holding";
 pub const STALLED_RIGHT: &str = "a stalled work names what it waits for, who writes it and why none of them runs";
+pub const NOTHING_ONLY_EMPTIES: &str = "a write of nothing in an agent's return only empties a block";
 
 /// What the histories reached, each of which some history must reach: a property about a situation no history
 /// reaches checks nothing.
@@ -65,6 +68,8 @@ pub const REACHED: &[&str] = &[
     PARTLY_DEALT_WITH,
     NOTHING_CONSUMED,
     UNCHANGED_RUNS_NONE,
+    NOTHING_KEPT_OUT,
+    NOTHING_EMPTIES,
     CAUSES_CHECKED,
     RESULTS_ENTERED,
     TURNED_TO_WHILE_WAITING,
@@ -98,6 +103,8 @@ const CONSUMED_CHECKED: &str = "what a cell consumed of a block that runs it";
 const PARTLY_DEALT_WITH: &str = "a return deals with part of what ran its round";
 pub const NOTHING_CONSUMED: &str = "a run is stopped or abandoned and its cell consumed nothing by it";
 const UNCHANGED_RUNS_NONE: &str = "a version handed in as changing nothing in meaning runs no cell";
+const NOTHING_KEPT_OUT: &str = "an agent's write of nothing where it takes nothing away is no write";
+const NOTHING_EMPTIES: &str = "an agent's write of nothing empties a block that holds something";
 const CAUSES_CHECKED: &str = "the reasons of a run as it starts";
 const RESULTS_ENTERED: &str = "a cell is entered for the results of its calls";
 const TURNED_TO_WHILE_WAITING: &str = "a cell waiting for the results of its calls is entered for the owner's words";
@@ -500,6 +507,50 @@ pub fn finished(v: &mut Verdict, reading: &Reading, run: RunId) {
     }
     if f.writes.iter().any(|w| w.meaning_unchanged) {
         v.count(UNCHANGED_RUNS_NONE);
+    }
+}
+
+/// A run that has just finished (property a-run-is-one-mechanism; decision a-write-of-nothing-only-empties): of each
+/// block its return that was taken wrote holding nothing, a run of an agent's cell wrote no version where the block held
+/// nothing just before the finish, or had no version, or is a record, to which an entry is added; and one holding
+/// nothing where it held something. A run of an act's wrote each as it came.
+pub fn nothing_only_empties(
+    v: &mut Verdict,
+    flow: &Flow,
+    reading: &Reading,
+    run: RunId,
+    returned: &[decide::Write],
+    agent: bool,
+) {
+    let f = reading.finished[&run];
+    for w in returned.iter().filter(|w| w.empty) {
+        let before = reading.current_before(&w.block, f.at);
+        let nothing_there = flow.adds_entries(&w.block) || before.is_none_or(|b| b.empty);
+        let written = f.writes.iter().find(|x| x.block == w.block);
+        let right = match (agent && nothing_there, written) {
+            (true, None) => {
+                v.count(NOTHING_KEPT_OUT);
+                true
+            }
+            (false, Some(x)) => {
+                if agent {
+                    v.count(NOTHING_EMPTIES);
+                }
+                x.empty
+            }
+            _ => false,
+        };
+        if !right {
+            v.fail(
+                NOTHING_ONLY_EMPTIES,
+                format!(
+                    "run {run:?} of {} handed {} in holding nothing, where it held {:?}, and wrote {written:?}",
+                    reading.started[&run].cell,
+                    w.block,
+                    before.map(|b| (b.at, b.empty))
+                ),
+            );
+        }
     }
 }
 
