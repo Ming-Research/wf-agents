@@ -524,7 +524,7 @@ fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record
         "which, {}: Which way for which? [1. the short way] [2. the long way] Recommends 1. Goes on.",
         version.0
     );
-    assert_eq!(entries(&w), [question.clone()]);
+    assert_eq!(entries(&w), vec![question.clone()]);
     // The option the work goes by: the entry is written, and the cell is not run.
     w.answers("which", version, 1);
     assert_eq!(

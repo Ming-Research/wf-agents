@@ -318,7 +318,6 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<Str
     let tools = crate::form::tools(flow);
     if !tools.is_empty() {
         put(ret.clone(), "\n\n", told.tools.trim_end());
-        put(ret.clone(), "\n\n", told.requests.trim_end());
         let mut first = true;
         for name in tools {
             match agents.tools.get(name) {

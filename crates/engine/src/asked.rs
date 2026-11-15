@@ -68,11 +68,13 @@ pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId
             withdrawn: matches!(question, Question::Withdrawn { .. }),
             at,
         };
-        for block in records(flow, &answering(flow, &version)) {
+        // Kept first, so that each entry has a place after it.
+        let to = answering(flow, &version);
+        work.records.questions.push(version);
+        for block in records(flow, &to) {
             let content = entry(&flow.blocks[&block].writes, question, at, was);
             write(work, &block, content);
         }
-        work.records.questions.push(version);
     }
 }
 

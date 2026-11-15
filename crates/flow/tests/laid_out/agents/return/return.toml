@@ -14,8 +14,7 @@ fields = "Fields that are not blocks of the work:"
 owner_reads = "The owner reads {fields}."
 reads = ["summary"]
 and = " and "
-tools = "A tool is asked for under its name."
-requests = "## What you may ask the engine for"
+tools = "## What you may ask the engine for"
 
 [outputs]
 heading = "## What this cell returns"

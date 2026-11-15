@@ -85,11 +85,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     );
     assert_eq!(read.returns.how_you_return.listed, ["summary"]);
     assert_eq!(read.returns.how_you_return.reads, ["summary"]);
-    assert_eq!(read.returns.how_you_return.tools, "A tool is asked for under its name.");
-    assert_eq!(
-        read.returns.how_you_return.requests,
-        "## What you may ask the engine for"
-    );
+    assert_eq!(read.returns.how_you_return.tools, "## What you may ask the engine for");
     assert_eq!(read.returns.outputs.none, "This cell writes no block.");
     assert_eq!(read.sent_back.heading, "## Sent back");
     assert_eq!(read.sent_back.item, "- {text}");

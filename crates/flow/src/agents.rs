@@ -527,10 +527,8 @@ pub struct Told {
     /// The fields the owner reads, in the order `owner_reads` names them.
     pub reads: Vec<String>,
     pub and: String,
-    /// The kind of return that asks for tools, where the flow names any.
+    /// What heads the tools and says how the kind of return that asks for them holds them, where the flow names any.
     pub tools: String,
-    /// What heads the tools, and how each is asked for, where the flow names any.
-    pub requests: String,
 }
 
 /// What a cell is told it writes, with its task: its blocks, each on a line after the heading.
