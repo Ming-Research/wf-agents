@@ -22,8 +22,11 @@ serde.workspace = true
 serde_json = "1.0.154"
 service = { path = "../service" }
 store = { path = "../store" }
-tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread"] }
+# A play runs the engine on a runtime of its own whose time is paused (`test-util`), so that its rounds take no time and
+# every act is given at the step its state comes; nothing else calls it.
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "test-util", "time"] }
 web = { path = "../web" }
+work = { path = "../work" }
 
 [dev-dependencies]
 tempfile.workspace = true

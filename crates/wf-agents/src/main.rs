@@ -2,9 +2,11 @@
 //!
 //! - `reference`: `wf-agents help`, the whole reference of the command line.
 //! - `running`: `wf-agents run`, the engine as a process.
+//! - `playing`: `wf-agents play`, a script played on that engine on a clock of its own, each work judged by its path.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
 
+mod playing;
 mod reference;
 mod running;
 mod situations;
@@ -64,6 +66,22 @@ enum Command {
         /// The port of the pages; 0 for any free one.
         #[arg(long, default_value_t = PORT)]
         port: u16,
+    },
+    /// Plays a script whose agents are all stood in for: makes the engine `run` makes with the script, on an empty
+    /// data directory, adds the script's items and gives each act as its state comes, on a clock of its own whose time
+    /// passes at once while nothing is under way; then says of each item whether its work took the path the script
+    /// states, or the first step that left it with what the records hold there, and fails where any did not. It
+    /// leaves the store, which `run` with the same script serves.
+    Play {
+        /// The data directory, empty, which the store is written into.
+        #[arg(long)]
+        data: PathBuf,
+        /// The directory of a flow's definition; given once for each flow.
+        #[arg(long = "flow", required = true)]
+        flows: Vec<PathBuf>,
+        /// The script: what its agents, acts and tools do, its items, what people and the outside do, and each path.
+        #[arg(long)]
+        script: PathBuf,
     },
     /// Adds an item with its work, which is added paused: it begins nothing until it is let on with `wf-agents
     /// resume`.
@@ -499,6 +517,7 @@ fn main() -> ExitCode {
             };
             running::run(&data, &flows, carriers, port)
         }
+        Command::Play { data, flows, script } => playing::play(&data, &flows, &script),
         Command::Add {
             title,
             level,
