@@ -240,3 +240,74 @@ fn a_command_whose_engine_stops_answering_once_asked_says_it_may_have_been_taken
     assert!(said.starts_with(&lost), "{said}");
     assert!(said.contains("What was asked may have been taken"), "{said}");
 }
+
+/// A project's repository on its main branch, holding what its declaration names, as the installation's settings point
+/// at it.
+fn project_repository(repo: &std::path::Path) {
+    std::fs::create_dir_all(repo.join("flow")).unwrap();
+    std::fs::create_dir_all(repo.join("design")).unwrap();
+    let declaration = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/project.toml");
+    std::fs::copy(declaration, repo.join("flow/project.toml")).expect("the declaration is copied");
+    for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+        std::fs::write(repo.join(path), "A text.\n").unwrap();
+    }
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args([
+                "-c",
+                "user.name=Tester",
+                "-c",
+                "user.email=tester@example.com",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "The project"]);
+}
+
+// An installation is new once: its data directory is empty, and the engine makes the store as it starts, before
+// anything else opens it. The copies of the database, which the settings give the installation, open the store as the
+// engine starts, so they meet the store made and migrated, and a store not yet made is no reason for the engine not to
+// start. Run with the installation's own settings, as a script's run keeps no copies.
+#[test]
+fn an_installation_with_its_settings_starts_on_an_empty_data_directory() {
+    let place = Place::new(SCRIPT);
+    let repo = place.dir.path().join("project");
+    project_repository(&repo);
+    let sample = include_str!("../../../carry/install.sample.toml");
+    let settings = place.dir.path().join("install.toml");
+    std::fs::write(
+        &settings,
+        sample.replace("/path/to/the/repository", &repo.display().to_string()),
+    )
+    .unwrap();
+    assert!(!place.data().join("store.sqlite").exists());
+    let flows = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_wf-agents"));
+    command
+        .arg("run")
+        .arg("--data")
+        .arg(place.data())
+        .arg("--flow")
+        .arg(flows.join("engineer"))
+        .arg("--flow")
+        .arg(flows.join("deliver"))
+        .arg("--settings")
+        .arg(&settings)
+        .args(["--port", "0"]);
+    let engine = Engine::start_with(command);
+    engine.says(&["list"]);
+    assert!(place.data().join("store.sqlite").exists());
+}
