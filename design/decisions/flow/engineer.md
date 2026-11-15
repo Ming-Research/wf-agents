@@ -40,7 +40,8 @@ touches the tree; given as a datum, it is read where the line goes on, by the ce
 
 ### decision the-review-takes-the-head-and-the-head-runs-the-check
 The review takes `head`, the work's head, among the blocks of the change it is run by, and reads the diff from main to
-it; `head`, not `code` or `tests`, runs the check, beside main and `asked`. No block names a commit.
+it; `head`, not `code` or `tests`, runs the check, beside main and `asked`. No block an agent writes names the commit
+the check and the merge are held to.
 Why: Whatever a round commits moves the head, under whatever block it hands in or none, as the fix of W9 did, handed in
 under a block the review was not run by, so the review runs on every change it has not seen and the check on every
 head; run by `code` and `tests`, the check ran on what a block said and not on what lands. The check holds the head to
