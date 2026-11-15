@@ -642,8 +642,7 @@ fn leaves_waiting(came: &Came<'_>, requires: Requires) -> bool {
 /// written: an act writes no block for one that does not apply, and a result of one kept out would leave its asking cell
 /// waiting for ever.
 fn takes_nothing_away(write: &Write, told: &Told, agent: bool) -> bool {
-    let _ = agent;
-    write.empty && (told.outputs.get(&write.block)).is_some_and(|s| s.added || s.latest.is_none())
+    agent && write.empty && (told.outputs.get(&write.block)).is_some_and(|s| s.added || s.empty)
 }
 
 /// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
@@ -715,7 +714,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             });
         }
         // Each entry of a record is new: one written as changing nothing would be no entry to every rule that reads it.
-        if write.meaning_unchanged && standing.is_some_and(|s| s.added) {
+        if write.meaning_unchanged && standing.is_some_and(|s| s.added) && !nothing {
             unmet.push(Unmet::EntryUnchanged { block: block() });
         }
         let choice = requires.choices.contains_key(&write.block);
@@ -789,6 +788,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
                 continue;
             };
             let written = (writes.iter())
+                .filter(|w| !takes_nothing_away(w, told, requires.agent))
                 .map(|w| &w.block)
                 .chain(read)
                 .any(|b| answer.runs.contains(b));

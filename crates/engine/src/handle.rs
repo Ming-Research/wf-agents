@@ -854,6 +854,17 @@ fn finish(
     for r in read.into_iter().filter(|r| writes.iter().any(|w| w.block == r.block)) {
         work.contents.entry((r.block, at)).or_insert(r.content);
     }
+    // Each version says whether it holds nothing by the content kept of it, as a test of content and the store's
+    // migrations read it (decision a-test-of-content-reads-the-record): of the record of what is said, by the entry,
+    // which holds the words handed in only as its `reply` gives them.
+    let writes: Vec<Write> = (writes.into_iter())
+        .map(|mut w| {
+            if let Some(kept) = work.contents.get(&(w.block.clone(), at)) {
+                w.empty = decide::holds_nothing(w.value.as_deref(), kept);
+            }
+            w
+        })
+        .collect();
     let cell = (work.records.started.iter())
         .find(|s| s.run == run)
         .map(|s| s.cell.clone());
@@ -967,7 +978,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
-                empty: decide::holds_nothing(h.value.as_deref(), &spoken::entry(flow, &h.block, &h.content)),
+                empty: decide::holds_nothing(h.value.as_deref(), &h.content),
             })
             .collect::<Vec<Write>>()
     };

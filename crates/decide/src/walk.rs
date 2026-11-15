@@ -299,7 +299,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
                 latest: latest.map(|v| v.at),
                 value: latest.and_then(|v| v.value).map(str::to_string),
                 added: flow.adds_entries(block),
-                empty: latest.is_none(),
+                empty: latest.is_none_or(|v| v.empty),
             };
             (block.clone(), standing)
         })
