@@ -66,7 +66,7 @@ pub(crate) fn compiled(flow: &str, write: &str, more: &[(&str, &str)]) -> Compil
         ("../data/request.toml", "from = \"owner\"\n"),
         (
             "../data/discussion.toml",
-            "from = \"owner\"\nshown = true\nfield = \"reply\"\n",
+            "from = \"owner\"\nshown = true\nfield = \"reply\"\n\n[writes]\nowner = \"To {cell}: {words}\"\nreply = \"{cell}: {reply}\"\n",
         ),
         (
             "../triggers/of_a_datum/changed.toml",

@@ -894,8 +894,10 @@ fn content_bound(d: &Driver) -> u64 {
 /// The owner's few words to a cell, where the key reads a block only cells write: to the line of a cell that writes it
 /// that the owner's words run and that applies, so that the cell runs again and writes the block anew; where that cell
 /// is none, to the line of the nearest cell before it that is one and writes a block the writer runs on, whose run,
-/// answering the owner, writes it anew, so that the writer runs again; none where no such cell is. A cell spoken to that
-/// writes nothing the writer runs on would run again and leave the work where it was.
+/// answering the owner, writes it anew, so that the writer runs again. A cell spoken to that writes nothing the writer
+/// runs on would run again and leave the work where it was. Where the engine says no such line has reached such a
+/// cell, as where nothing of the work but its start has run, the owner writes what the item asks for, the first block
+/// only people write that runs a cell, which begins the lines again; none where no such block is either.
 fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
     let only_cells = |b: &BlockId| {
         let w = &d.flow.blocks[b].writers;
@@ -917,6 +919,16 @@ fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
         .filter_map(|c| d.flow.flow.place(c))
         .find_map(|w| (0..=w).rev().filter(|&j| leads_to(j, w)).find_map(spoken_to))
         .map(|line| says(&line))
+        .or_else(|| {
+            let only_people = |b: &&BlockId| {
+                let block = &d.flow.blocks[*b];
+                let w = &block.writers;
+                w.people && w.cells.is_empty() && w.outside.is_none() && block.values.is_none()
+            };
+            (cells.iter().flat_map(|c| &c.runs_on))
+                .find(only_people)
+                .map(|b| wrote(b, Outsider::Person, true, None))
+        })
 }
 
 /// The owner's few words to the line.

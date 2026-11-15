@@ -6,7 +6,8 @@
 //!
 //! What is checked after every step, beside what the driver checks; of a run started or an answer, once, at the step
 //! that adds it, since what it is checked against, the records before its place, no later step changes:
-//! - a cell is never entered while a question of its own that it waits for stands with no answer to its latest version;
+//! - a cell is never entered while a question of its own that it waits for stands with no answer to its latest version,
+//!   but for the owner turning to it, by an answer to another question of its written since its last run began;
 //! - the merge never begins while `asked` is `waiting`, nor while any question stands unanswered;
 //! - `asked` says `waiting` exactly while a question stands unanswered, and is otherwise `answered` or never written;
 //! - an answer runs the cell it is said to again, by its block of an answer, exactly where it answers the question's
@@ -302,9 +303,22 @@ fn check(work: &Work, checked: &mut Checked) {
     for started in &r.started[checked.started..] {
         let before = r.before(started.at);
         let standing = questions(&before);
+        // Meanwhile only the owner turning to it, by an answer written since its last run began, enters it.
+        let last = (before.started.iter())
+            .filter(|s| s.cell == started.cell)
+            .map(|s| s.at)
+            .max();
+        let turned = !started.because.is_empty()
+            && started.because.iter().all(|c| match c {
+                Cause::Changed { block, .. } => {
+                    block.as_str().ends_with("_answered")
+                        && (before.written.iter()).any(|w| &w.block == block && Some(w.at) > last)
+                }
+                _ => false,
+            });
         for (name, q) in &standing {
             assert!(
-                !(q.latest.cell == started.cell && q.holds()),
+                !(q.latest.cell == started.cell && q.holds()) || turned,
                 "{} is entered at {:?} while its question {name} waits for its answer",
                 started.cell,
                 started.at
