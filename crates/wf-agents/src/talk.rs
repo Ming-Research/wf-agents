@@ -15,10 +15,11 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
+use web::system::{Past, System, UnderWay};
 use web::works::{
-    Act, Added, Back, Call, CellKey, CellState, ChangeAsked, Engine, EngineAct, Failure, ItemChanged, ItemChanges,
-    ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person, QuestionPage,
-    Refusal, Run, SessionWhy, Spent, Stalling, Step, Unrun, Until, VersionPage, Waited, WorkPage, Writer,
+    Act, Added, Against, Back, Call, CellKey, CellState, ChangeAsked, Engine, EngineAct, Failure, ItemChanged,
+    ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person,
+    QuestionPage, Refusal, Run, SessionWhy, Spent, Stalling, Step, Unrun, Until, VersionPage, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -31,6 +32,11 @@ pub enum Asked {
         work: u64,
         part: Option<Part>,
         from: Option<usize>,
+    },
+    /// How the system ran over this many days until now, at most this many of each kind of thing listed.
+    System {
+        days: u64,
+        limit: usize,
     },
     Act(u64, Act),
     /// The owner's pause of everything set, or lifted.
@@ -82,6 +88,9 @@ const HOLD: u64 = 3600;
 
 /// The longest title a line of `wait` carries; the rest is cut.
 const TITLE: usize = 60;
+
+/// A day, in milliseconds.
+const DAY: u64 = 24 * 60 * 60 * 1000;
 
 /// Asks the engine on the loopback address at this port, and prints what came of it.
 pub fn ask(port: u16, asked: Asked) -> ExitCode {
@@ -174,6 +183,12 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                     None => show(&page),
                     Some(part) => show_part(&page, part, from.unwrap_or(1)),
                 })
+            }
+            Asked::System { days, limit } => {
+                let from = clock().saturating_sub(days.saturating_mul(DAY));
+                let path = format!("/api/v1/system?weeks={from}");
+                let system: System = send(address, Method::GET, &path, None::<&()>).await?;
+                Ok(system_said(&system, days, limit))
             }
             Asked::Act(work, act) => {
                 let resumed = act == Act::Resume {};
@@ -838,7 +853,7 @@ fn entries(page: &WorkPage, part: Part) -> Vec<Vec<String>> {
 
 /// A run, in lines: its rounds and calls, the context its last round ended with, its session's compactions and how it
 /// ended; then each of its rounds that missed its session's prompt cache, with what differed before the messages, or
-/// that nothing did, which is a fault of wf-agents.
+/// that nothing did, which is a fault of wf-agents; then what of it went past the lines of its history.
 fn run_said(run: &Run) -> Vec<String> {
     let rounds = if run.rounds.len() == 1 {
         "1 round".to_string()
@@ -886,6 +901,7 @@ fn run_said(run: &Run) -> Vec<String> {
             round.number, missed.read, missed.held
         ));
     }
+    lines.extend(past_of(run));
     lines
 }
 
@@ -1622,6 +1638,211 @@ fn writer(writer: &Writer) -> String {
     }
 }
 
+/// What of the run went past the lines of its history, a line each: a round whose cost or time did, one under way
+/// that has taken longer so far than its line, and a call of a tool that did, or has waited longer for its result.
+fn past_of(run: &Run) -> Vec<String> {
+    let mut lines = Vec::new();
+    for round in &run.rounds {
+        let mut said = Vec::new();
+        if let Some(cost) = round.judged.cost.filter(|cost| cost.past) {
+            said.push(cost_past(&cost));
+        }
+        if let Some(time) = round.judged.time.filter(|time| time.past) {
+            let took = match round.ended {
+                Some(_) => "took",
+                None => "has been under way for",
+            };
+            said.push(time_past(took, &time));
+        }
+        if !said.is_empty() {
+            lines.push(format!("    round {} {}", round.number, said.join("; ")));
+        }
+    }
+    for call in &run.calls {
+        let (Call::Tool { name, .. }, Some(time)) = (&call.what, call.time.filter(|time| time.past)) else {
+            continue;
+        };
+        let took = match call.done {
+            Some(_) => "took",
+            None => "has waited for its result for",
+        };
+        lines.push(format!(
+            "    call {} of the tool {name} {}",
+            call.call,
+            time_past(took, &time)
+        ));
+    }
+    lines
+}
+
+/// A cost past its line, as a clause.
+fn cost_past(cost: &Against) -> String {
+    format!(
+        "cost {}, past the line of {} that {}",
+        dollars(cost.value),
+        dollars(cost.line.value),
+        given_by(&cost.line)
+    )
+}
+
+/// A time past its line, as a clause, after what it did: took, or has been under way for.
+fn time_past(took: &str, time: &Against) -> String {
+    format!(
+        "{took} {}, past the line of {} that {}",
+        duration(time.value),
+        duration(time.line.value),
+        given_by(&time.line)
+    )
+}
+
+/// What gave a line, as the end of a sentence.
+fn given_by(line: &web::works::Line) -> String {
+    let of = match line.scope {
+        web::works::Scope::Cell => "rounds of its cell",
+        web::works::Scope::Flow => "agents' rounds of its flow",
+        web::works::Scope::Tool => "calls of its tool",
+        web::works::Scope::Works => "other works of its flow",
+        web::works::Scope::Line => "rounds of its line",
+    };
+    format!("{} {of} give", line.samples)
+}
+
+/// Millionths of a dollar, in dollars and cents.
+fn dollars(micros: u64) -> String {
+    format!("${:.2}", micros as f64 / 1_000_000.0)
+}
+
+/// How the system ran over the last `days`: what its rounds took, what ended past the lines of its history, the latest
+/// first, and what is under way against its own, the oldest first, at most `limit` of each, with how many more there
+/// are and how to see them.
+fn system_said(system: &System, days: u64, limit: usize) -> String {
+    let mut lines = vec![format!(
+        "Over the last {days} {}: {}.",
+        if days == 1 { "day" } else { "days" },
+        spent(&system.spent)
+    )];
+    let more = |left: usize| {
+        format!(
+            "  And {left} more: wf-agents system --days {days} --limit {}",
+            limit + left
+        )
+    };
+    if system.past.is_empty() {
+        lines.push("Nothing ended past the lines of its history.".to_string());
+    } else {
+        lines.push("Past the lines of their history, the latest first:".to_string());
+    }
+    for past in system.past.iter().take(limit) {
+        lines.push(match past {
+            Past::Round {
+                work,
+                item,
+                cell,
+                run,
+                round,
+                ended,
+                judged,
+            } => {
+                let mut said = Vec::new();
+                if let Some(cost) = judged.cost.filter(|cost| cost.past) {
+                    said.push(cost_past(&cost));
+                }
+                if let Some(time) = judged.time.filter(|time| time.past) {
+                    said.push(time_past("took", &time));
+                }
+                format!(
+                    "  W{work} of #{item}, round {round} of run {run} of {cell}, ended {}: {}",
+                    utc(*ended),
+                    said.join("; ")
+                )
+            }
+            Past::Call {
+                work,
+                item,
+                cell,
+                run,
+                call,
+                tool,
+                done,
+                time,
+            } => format!(
+                "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, done {}: {}",
+                utc(*done),
+                time_past("took", time)
+            ),
+        });
+    }
+    if system.past.len() > limit {
+        lines.push(more(system.past.len() - limit));
+    }
+    if system.under_way.is_empty() {
+        lines.push("Nothing is under way.".to_string());
+    } else {
+        lines.push("Under way, the oldest first:".to_string());
+    }
+    let so_far = |time: &Option<Against>, what: &str| match time {
+        Some(time) => format!(
+            "{} so far, {} the line of {} that {}",
+            duration(time.value),
+            if time.past { "past" } else { "within" },
+            duration(time.line.value),
+            given_by(&time.line)
+        ),
+        None => format!("no line yet, too few {what} having ended"),
+    };
+    for under_way in system.under_way.iter().take(limit) {
+        lines.push(match under_way {
+            UnderWay::Round {
+                work,
+                item,
+                cell,
+                run,
+                round,
+                began,
+                time,
+                bounds,
+            } => {
+                let bounds = bounds.map_or_else(String::new, |bounds| {
+                    let tokens = |line: Option<web::works::Line>| {
+                        line.map_or_else(|| "none yet".to_string(), |line| format!("{} tokens", line.value))
+                    };
+                    let cost = bounds
+                        .cost
+                        .map_or_else(|| "none yet".to_string(), |line| dollars(line.value));
+                    format!(
+                        "; its context's lines {} in all and {} a call, its cost's {cost}",
+                        tokens(bounds.added),
+                        tokens(bounds.rate)
+                    )
+                });
+                format!(
+                    "  W{work} of #{item}, round {round} of run {run} of {cell}, since {}: {}{bounds}",
+                    utc(*began),
+                    so_far(time, "rounds of its cell")
+                )
+            }
+            UnderWay::Call {
+                work,
+                item,
+                cell,
+                run,
+                call,
+                tool,
+                made,
+                time,
+            } => format!(
+                "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, since {}: {}",
+                utc(*made),
+                so_far(time, "calls of its tool")
+            ),
+        });
+    }
+    if system.under_way.len() > limit {
+        lines.push(more(system.under_way.len() - limit));
+    }
+    lines.join("\n")
+}
+
 /// What rounds took, as a clause.
 fn spent(spent: &Spent) -> String {
     let rounds = if spent.rounds == 1 {
@@ -2007,6 +2228,60 @@ mod tests {
                 "{refused}"
             );
         }
+    }
+
+    #[test]
+    fn the_system_lists_at_most_its_limit_of_what_went_past_its_lines_and_says_how_to_see_the_rest() {
+        let line = web::works::Line {
+            value: 25_000,
+            samples: 19,
+            scope: web::works::Scope::Cell,
+        };
+        let time = Against {
+            value: 100_000,
+            line,
+            past: true,
+        };
+        let past = |n: u64| Past::Round {
+            work: n,
+            item: n,
+            cell: "I1".to_string(),
+            run: 1,
+            round: 1,
+            ended: 0,
+            judged: web::works::Judged {
+                cost: None,
+                time: Some(time),
+            },
+        };
+        let system = System {
+            now: 0,
+            from: Some(0),
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: (1..=12).map(past).collect(),
+            under_way: Vec::new(),
+        };
+        let said = system_said(&system, 7, 10);
+        let lines: Vec<&str> = said.lines().collect();
+        assert_eq!(lines.len(), 14, "{said}");
+        assert_eq!(lines[1], "Past the lines of their history, the latest first:");
+        assert_eq!(
+            lines[2],
+            "  W1 of #1, round 1 of run 1 of I1, ended 1970-01-01 00:00 UTC: took 1m 40s, past the line of 25s that 19 \
+             rounds of its cell give"
+        );
+        assert_eq!(lines[12], "  And 2 more: wf-agents system --days 7 --limit 12");
+        assert_eq!(lines[13], "Nothing is under way.");
     }
 
     #[test]

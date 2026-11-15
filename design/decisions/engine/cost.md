@@ -1,11 +1,15 @@
 # What rounds cost
 
-How the engine judges what the agents' rounds and the works take, and tells a round that missed its session's prompt
-cache.
+How the engine judges what the agents' rounds, the acts' rounds, the calls of tools and the works take, and tells a
+round that missed its session's prompt cache.
 
 ### decision a-line-comes-from-the-history-of-its-kind
-Every line a measured quantity is judged by is `2 × largest − median` of the history of its kind, in every work of the flow: a round's against its cell's rounds where at least `history.samples` of them tell it, else the flow's; with fewer, nothing is judged. What is judged is no part of its own history, and neither is a round that went past the lines of a signal that stops a round, stopped or let run, nor the rounds of a session replaced for its size.
-Why: A fixed number cannot tell a fault from a case that is legitimately large, and was set by hand (principle `judged-by-own-history`). A value in its own history stands within the line it makes, and an anomaly let into the history raises the line for good. With 19 values, a new value of the same kind is past all of them one time in twenty.
+Every line a measured quantity is judged by is `2 × largest − median` of the history of its kind, in every work of the flow: an agent's round against its cell's rounds where at least `history.samples` of them tell it, else the flow's agents' rounds; a round of an act against its cell's rounds alone, and a call of a tool against the calls of its tool; with fewer, nothing is judged. What is judged is no part of its own history, and neither is a round that went past the lines of a signal that stops a round, stopped or let run, a round of an act that handed nothing in, a call of a tool withdrawn before it had its result, nor the rounds of a session replaced for its size.
+Why: A fixed number cannot tell a fault from a case that is legitimately large, and was set by hand (principle `judged-by-own-history`). A value in its own history stands within the line it makes, and an anomaly let into the history raises the line for good; an act that failed, or a call withdrawn with its run or its work, was cut short by that, not by its work. With 19 values, a new value of the same kind is past all of them one time in twenty. An act or a tool has no wider kind in a flow than its own: the check before the merge waits for the project's CI, which neither the flow's other acts nor its agents' rounds do, so a line of theirs would say nothing of it (a judgment, not measured).
+
+### decision judged-by-the-history-as-it-began
+What a round cost and how long it took, and how long a call of a tool took, are read against the lines their history gave as each began: of the flow's other works, what had ended by then, and of its own work, what ended before it in the work's order; what is under way is read by how long it has taken so far. It is worked out from the records whenever it is read, and is not stored.
+Why: Those are the lines the run guard judged the round by as it ran. Judged by the history as it stands when read, a round would be measured against rounds that came after it, and what it was found to be would change as the history grew.
 
 ### decision the-guard-stops-on-growth-alone
 The run guard stops a round only on growth of its context or a jump of its first prompt, each past two lines at once; what a round costs and how long it takes are read against their lines from the records and stop nothing. A round the owner let on after the guard stopped its run is judged and not stopped, rounds that failed otherwise between passed over.

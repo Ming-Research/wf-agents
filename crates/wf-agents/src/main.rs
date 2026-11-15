@@ -357,6 +357,20 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Shows how the system ran over the last days: what its rounds took; the rounds whose cost or time, and the calls
+    /// of tools whose time, went past the lines of their history, the latest first; and the rounds and calls under way,
+    /// the oldest first, each against its own lines. At most so many of each are listed, and how many more there are
+    /// is said.
+    System {
+        /// How many days the span goes back from now.
+        #[arg(long, default_value_t = 7)]
+        days: u64,
+        /// The most listed of each.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        #[command(flatten)]
+        at: At,
+    },
 }
 
 /// Why a change is made, kept with it.
@@ -586,6 +600,7 @@ fn main() -> ExitCode {
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
         Command::NewSession { work, line, at } => talk::ask(at.port, Asked::Act(work, Act::NewSession { line })),
+        Command::System { days, limit, at } => talk::ask(at.port, Asked::System { days, limit }),
     }
 }
 
