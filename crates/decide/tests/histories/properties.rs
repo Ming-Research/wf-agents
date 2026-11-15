@@ -130,6 +130,8 @@ const RESULT_LEFT_OUT: &str = "a work waits at a cell for other than a result no
 pub const RESULT_RUN_FIRST: &str =
     "a cell whose run rests on a call of its own goes on while its result's giver applies";
 const GIVER_STOPPED: &str = "the owner's words to a cell that waits for a result stop the round of the cell giving it";
+const RESULT_AT_REST: &str =
+    "a run of a cell that waits for a result rests on no call of its own while a cell giving the result applies";
 /// Not required: the owner turning to a waiting cell while no slot is free is rare.
 const RESULT_FOR_A_SLOT: &str = "a cell entered but for a slot waits for it while a cell that gives its result applies";
 pub const RESULT_WAITS: &str =
@@ -151,6 +153,7 @@ pub const WAITS_REACHED: &[&str] = &[
     STALLED_FOR_A_RESULT,
     RESULT_LEFT_OUT,
     GIVER_STOPPED,
+    RESULT_AT_REST,
 ];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
@@ -562,6 +565,17 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
         v.fail(PURE, format!("the same records in another order give {other:?}"));
     }
 
+    // A run of a cell that waits for a result at rest on no call of its own, while a cell that gives the result
+    // applies: the walk does not let the run go first, which the property of results holds where the work waits at the
+    // cell.
+    let now = Seq(u64::MAX);
+    for (i, cell) in flow.cells().iter().enumerate() {
+        let giving = (cell.asks.iter())
+            .any(|asks| reading.awaits(cell, asks, now) && givers(flow, asks).any(|(j, _)| reading.applies(flow, j)));
+        if giving && reading.applies(flow, i) && rests_on_no_call(reading, &cell.id) {
+            v.count(RESULT_AT_REST);
+        }
+    }
     let merge = flow.cells().len() - 1;
     match d {
         Decision::Wait { at, on } => {
@@ -704,6 +718,22 @@ fn begins_after_runs(v: &mut Verdict, flow: &Flow, reading: &Reading, j: usize) 
             );
         }
     }
+}
+
+/// Whether a run of the cell is at rest with no call of its own that has no result, by the histories' own reading:
+/// begun, neither finished nor abandoned, and no round of it under way.
+fn rests_on_no_call(reading: &Reading, cell: &decide::CellId) -> bool {
+    let now = Seq(u64::MAX);
+    let records = reading.records;
+    (records.started.iter()).any(|s| {
+        let began = records.rounds.iter().filter(|x| x.run == s.run).count();
+        let ended = records.returned.iter().filter(|x| x.run == s.run).count();
+        &s.cell == cell
+            && began == ended
+            && !reading.finished.contains_key(&s.run)
+            && !records.abandoned.iter().any(|a| a.run == s.run)
+            && !(records.called.iter()).any(|c| c.run == s.run && !reading.done(c.call, now))
+    })
 }
 
 /// Whether a run of the cell rests on a call of its own that has no result, by the histories' own reading: begun,

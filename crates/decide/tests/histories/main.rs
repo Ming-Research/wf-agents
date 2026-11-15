@@ -29,10 +29,12 @@
 //!   these the asking cell has the precondition "ready" too, so that it may wait for the owner while no cell will give
 //!   its result (property `RESULT_WAITS`). In half of all the histories that ask, the owner's words run the asking cell
 //!   too, and the owner speaks to it at three of ten steps of people while the cell that gives its result has a round
-//!   under way, so that the words to a waiting cell stop the round of the cell that gives its result. In about a
-//!   quarter of the histories with no judge, drawn apart, a check stands before the merge, run by the brief and by
-//!   main, which the outside alone writes there, writing a choice only it writes, which the merge waits on at yes; a
-//!   run of it that says no says in half of them that what it wrote waits for main to move (property `OUTSIDE`).
+//!   under way, so that the words to a waiting cell stop the round of the cell that gives its result; and in half of
+//!   those the asking cell has the precondition "ready", in which a person says no once a run of it resting at a call
+//!   has the call's result, so that the run rests on no call of its own while the cell that gives the result applies.
+//!   In about a quarter of the histories with no judge, drawn apart, a check stands before the merge, run by the brief
+//!   and by main, which the outside alone writes there, writing a choice only it writes, which the merge waits on at
+//!   yes; a run of it that says no says in half of them that what it wrote waits for main to move (property `OUTSIDE`).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -338,6 +340,9 @@ struct History {
     /// Where the owner's words run the asking cell: the cell, and what draws whether the owner speaks to it while the
     /// cell that gives its result has a round under way.
     speaking: Option<(CellId, Rng)>,
+    /// Where the asking cell has the precondition "ready" so that a person may say no in it: the cell, and what draws
+    /// whether a person does once a run of it resting at a call has the call's result.
+    unreadying: Option<(CellId, Rng)>,
 }
 
 /// How far the steering went that has the cell that gives results take an asking cell's entry up again: the asking
@@ -371,6 +376,7 @@ impl History {
         let mut asking = Rng::new(seed ^ 0x7E57_ED00_A5C1_0000);
         let mut taking_up = None;
         let mut speaking = None;
+        let mut unreadying = None;
         let mut gated = false;
         let result = asking.chance(35).then(|| {
             let i = asking.below(cells.len());
@@ -425,6 +431,16 @@ impl History {
                     cells[i].runs_on.push(SPOKEN.into());
                 }
                 speaking = Some((cells[i].id.clone(), Rng::new(seed ^ 0x5BEA_C000_0000_0A5C)));
+                // And in half of those the asking cell has the precondition "ready", in which a person says no now and
+                // then once a run of it resting at a call has the call's result, before the run goes on: at rest on no
+                // call of its own, the run is held, and the cell that gives the result runs meanwhile (property
+                // `RESULT_WAITS`).
+                if asking.chance(50) {
+                    if !cells[i].requires.contains(&"ready".into()) {
+                        cells[i].requires.push("ready".into());
+                    }
+                    unreadying = Some((cells[i].id.clone(), Rng::new(seed ^ 0x0BEA_D700_0000_0C11)));
+                }
             }
             result
         });
@@ -510,6 +526,7 @@ impl History {
             looked_at: (0, 0),
             taking_up,
             speaking,
+            unreadying,
         }
     }
 
@@ -523,6 +540,7 @@ impl History {
         if people {
             self.take_up();
             self.speak_to_the_waiting();
+            self.unready_the_resting();
         }
         if people && self.rng.chance(16) {
             self.person_acts(None, &[]);
@@ -1197,6 +1215,47 @@ impl History {
         ));
         self.person_writes_now();
         self.w.outside_writes(SPOKEN);
+    }
+
+    /// Where the asking cell has the precondition "ready" for it, a person says no in it now and then once a run of the
+    /// cell that rested at a call has the call's result, before the run goes on, while the result the cell waits for is
+    /// still to come: the run rests on no call of its own, held by the precondition (counted as "a run of a cell that
+    /// waits for a result rests on no call of its own while a cell giving the result applies", which the histories that
+    /// ask must reach).
+    fn unready_the_resting(&mut self) {
+        let Some((asker, _)) = self.unreadying.as_ref() else {
+            return;
+        };
+        let asker = asker.clone();
+        let r = &self.w.records;
+        let resting = (r.started.iter()).any(|s| {
+            let began = r.rounds.iter().filter(|x| x.run == s.run).count();
+            let ended = r.returned.iter().filter(|x| x.run == s.run).count();
+            let calls: Vec<_> = r.called.iter().filter(|c| c.run == s.run).collect();
+            s.cell == asker
+                && began == ended
+                && !r.finished.iter().any(|f| f.run == s.run)
+                && !r.abandoned.iter().any(|a| a.run == s.run)
+                && !calls.is_empty()
+                && calls.iter().all(|c| r.done.iter().any(|d| d.call == c.call))
+        });
+        let reading = Reading::of_flow(&self.w.flow, r);
+        let waits =
+            (self.w.flow.place(&asker)).is_some_and(|i| reading.pending(&self.w.flow.cells()[i], Seq(u64::MAX)));
+        if !resting || !waits || self.value("ready").as_deref() == Some("no") {
+            return;
+        }
+        let Some((_, rng)) = self.unreadying.as_mut() else {
+            return;
+        };
+        if !rng.chance(50) {
+            return;
+        }
+        self.note(format!(
+            "a person says no in ready, the run of {asker} resting with the result of its call"
+        ));
+        self.person_writes_now();
+        self.w.says("ready", false);
     }
 
     fn toggle_pause(&mut self) {
