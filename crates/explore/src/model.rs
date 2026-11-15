@@ -172,8 +172,8 @@ pub struct Model {
     /// Of each cell by its place, whether it may ask the owner: the record of the questions, a block the source
     /// `answer` writes, is among its outputs.
     pub asks_owner: Vec<bool>,
-    /// The blocks the owner writes of the work, as the work starts and again later: those people write that are no
-    /// notes to a cell.
+    /// The blocks the owner writes of the work, as the work starts and again later: those people write in words, no
+    /// notes to a cell and no choice, as the owner's ruling on a verdict is.
     pub people: Vec<BlockId>,
     /// Each pair of cells whose conditions want another value of a block, by their places, with the block.
     pub contradicting: Vec<(usize, usize, BlockId)>,
@@ -304,7 +304,7 @@ impl Model {
             |b: &BlockId| (compiled.blocks.get(b)).is_some_and(|b| b.writers.outside.as_deref() == Some(ANSWER));
         let asks_owner = (cells.iter()).map(|c| c.outputs.iter().any(record)).collect();
         let people = (compiled.blocks.iter())
-            .filter(|(_, b)| b.writers.people && !b.writers.note)
+            .filter(|(_, b)| b.writers.people && !b.writers.note && b.values.is_none())
             .map(|(block, _)| block.clone())
             .collect();
         let sources = [START, DEPENDENCIES, MAIN, TREE, HEAD]
@@ -631,7 +631,7 @@ impl Model {
         let recorded =
             |b: &BlockId| (self.compiled.blocks.get(b)).is_some_and(|d| d.writers.outside.as_deref() == Some(ANSWER));
         let writes = (cell.outputs.iter())
-            .filter(|block| !recorded(block))
+            .filter(|block| !recorded(*block))
             .filter_map(|block| {
                 let value = values.get(block).cloned();
                 let empty = *variant == Variant::Empty && self.contents.contains(block);
