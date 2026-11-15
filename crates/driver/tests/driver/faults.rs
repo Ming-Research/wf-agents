@@ -99,13 +99,19 @@ fn a_start_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() 
 // answers as well as of the owner's entries; the blocks of the owner's words the cells' triggers stand on need neither.
 #[test]
 fn a_record_of_what_is_said_that_gives_no_words_for_an_answer_is_a_fault_on_the_file_that_holds_them() {
-    let dir = copied();
-    without(dir.path(), "data/discussion.toml", "reply = ");
-    let faults = driver::faults(&engineer(dir.path()));
-    assert_eq!(faults.len(), 1, "{faults:?}");
-    assert!(faults[0].contains("data/discussion.toml"), "{}", faults[0]);
-    assert!(faults[0].contains("the block discussion "), "{}", faults[0]);
-    assert!(faults[0].ends_with("its writes must give reply"), "{}", faults[0]);
+    for text in ["reply", "owner"] {
+        let dir = copied();
+        without(dir.path(), "data/discussion.toml", &format!("{text} = "));
+        let faults = driver::faults(&engineer(dir.path()));
+        assert_eq!(faults.len(), 1, "{faults:?}");
+        assert!(faults[0].contains("data/discussion.toml"), "{}", faults[0]);
+        assert!(faults[0].contains("the block discussion "), "{}", faults[0]);
+        assert!(
+            faults[0].ends_with(&format!("its writes must give {text}")),
+            "{}",
+            faults[0]
+        );
+    }
 }
 
 #[test]

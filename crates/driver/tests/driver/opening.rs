@@ -408,15 +408,14 @@ fn engineer() -> flow::Compiled {
     flow::compile(&source, &has).expect("the engineer's flow compiles")
 }
 
-#[test]
-fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_record_once_as_the_driver_opens() {
-    let db = Db::new();
-    let (mut driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
+/// A work of the engineer's flow added to the store, with the owner's words kept as the console wrote them before the
+/// record of what is said held them: into R1's block of them, as a person's, and the same words into R2's. Gives the
+/// work, as it is kept.
+fn kept_with_old_words(db: &Db) -> (WorkNumber, engine::Work) {
+    let (mut driver, _) = open_with(db, vec![engineer()]).expect("the driver opens");
     let (_, work, _) =
         (driver.add(Time(START), new_item("Greet the user", &[], "engineer"))).expect("the item is added");
     drop(driver);
-    // As the console wrote the owner's words before the record held them: into R1's block of them, as a person's, and
-    // the same words into R2's.
     let mut store = db.open();
     let mut kept = store.load(work).expect("the work loads");
     for block in ["r1_spoken_to", "r2_spoken_to"] {
@@ -435,17 +434,27 @@ fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_re
         });
     }
     store.save(work, &kept).expect("the work is saved");
-    drop(store);
-    let carried = |db: &Db| {
-        let w = db.open().load(work).expect("the work loads");
-        (w.records.written.iter())
-            .filter(|x| x.block.as_str() == "discussion" && x.by == Outsider::Outside)
-            .map(|x| {
-                let to = x.said_to.as_ref().map(|c| c.as_str().to_string());
-                (to, w.contents[&(x.block.clone(), x.at)].clone())
-            })
-            .collect::<Vec<_>>()
-    };
+    (work, kept)
+}
+
+/// Of the work in the file, each entry of the record of what is said that the engine wrote, with the cell it is said
+/// to.
+fn carried(db: &Db, work: WorkNumber) -> Vec<(Option<String>, String)> {
+    let w = db.open().load(work).expect("the work loads");
+    (w.records.written.iter())
+        .filter(|x| x.block.as_str() == "discussion" && x.by == Outsider::Outside)
+        .map(|x| {
+            let to = x.said_to.as_ref().map(|c| c.as_str().to_string());
+            (to, w.contents[&(x.block.clone(), x.at)].clone())
+        })
+        .collect()
+}
+
+#[test]
+fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_record_once_as_the_driver_opens() {
+    let db = Db::new();
+    let (work, kept) = kept_with_old_words(&db);
+    let carried = |db: &Db| carried(db, work);
     assert_eq!(carried(&db), Vec::<(Option<String>, String)>::new());
     let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
     drop(driver);
@@ -459,4 +468,28 @@ fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_re
     let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens again");
     drop(driver);
     assert_eq!(carried(&db), each, "they are carried once");
+    // Carrying runs no cell: it writes the record alone, which runs none.
+    let now = db.open().load(work).expect("the work loads");
+    let new: Vec<&str> = (now.records.written.iter())
+        .filter(|w| !kept.records.written.contains(w))
+        .map(|w| w.block.as_str())
+        .collect();
+    assert_eq!(new, ["discussion", "discussion"]);
+    let runs_on = |c: &flow::CellSpec| c.runs_on.iter().any(|r| r.block.as_str() == "discussion");
+    assert!(!engineer().cells.iter().any(runs_on), "the record runs no cell");
+}
+
+// A work whose records are at fault is written nothing as the driver opens, the owner's words it kept in a cell's
+// block of them left where they are. Well under a second alone, a store on disk; no other test holds the carrying of
+// the words to a work at fault.
+#[test]
+fn the_owners_words_a_work_at_fault_kept_are_not_carried_as_the_driver_opens() {
+    let db = Db::new();
+    let (work, _) = kept_with_old_words(&db);
+    fault_behind_the_back(&db, work, "S1");
+    let stored = db.open().load(work).expect("the work loads");
+    let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
+    drop(driver);
+    assert_eq!(carried(&db, work), Vec::<(Option<String>, String)>::new());
+    assert_eq!(db.open().load(work).expect("the work loads"), stored, "written nothing");
 }
