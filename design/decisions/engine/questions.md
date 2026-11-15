@@ -66,7 +66,7 @@ Why: The engine's question is of the work, not of what a round did: asked beside
 check, its answer reached no cell that could act on it, and an answer to take a change back ran nothing. The last cell
 that takes an answer is the one nearest the merge that changes the work, and the one to talk the question over with.
 A cell that asks and takes no answer, or no words, would leave the owner's answer or remarks reaching no one, which
-would show only once a work waited on it: words about a question of R2's, which no words ran, were sent to R1 (work
+would show only once a work waited on it: words about a question of a cell no words ran were sent to the cell before it (work
 4).
 
 ### decision an-answer-is-an-entry-of-what-its-cell-reads
