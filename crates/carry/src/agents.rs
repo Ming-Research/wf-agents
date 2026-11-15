@@ -617,7 +617,7 @@ impl Inner {
             Ok(looked) => looked,
             Err(why) => {
                 eprintln!(
-                    "work {}: the change under the protected paths could not be looked at: {why}",
+                    "W{}: the change under the protected paths could not be looked at: {why}",
                     round.work.0
                 );
                 protected::Looked::default()
@@ -670,10 +670,7 @@ impl Inner {
         let caught = catch_up::take_in(&of.project, place, &of.main, round.run).await;
         // The round is told only that main was not taken in; why is for whoever runs the engine.
         if let catch_up::Outcome::Failed { why } = &caught.outcome {
-            eprintln!(
-                "main could not be taken into the branch of work {}: {why}",
-                round.work.0
-            );
+            eprintln!("main could not be taken into the branch of W{}: {why}", round.work.0);
         }
         let kept = serde_json::to_vec_pretty(&caught).map_err(|e| format!("{}: {e}", named()))?;
         // Written whole or not at all, so that a stop in the middle leaves no file the run's rounds cannot read.

@@ -17,4 +17,4 @@ merge = "{name}"
 
 # The name of a work's merge, which its pull request and the commit its merge makes take, where the work has written
 # nothing in the block its flow's merge is named by. Filled in a run: `{work}` the work's number.
-unnamed = "Work {work}"
+unnamed = "Work W{work}"

@@ -159,7 +159,7 @@ async fn a_mark_that_cannot_be_read_or_is_not_of_these_records_is_refused() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{words}");
     let (status, words) = refused(router, "/api/v1/attention?since=7").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{words}");
-    assert!(words.contains("work 7"), "{words}");
+    assert!(words.contains("W7"), "{words}");
     let (status, words) = refused(router, &format!("/api/v1/attention?wait={}", u64::MAX)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{words}");
     let (status, words) = refused(router, "/api/v1/attention?after=1").await;

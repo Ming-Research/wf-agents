@@ -123,7 +123,7 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
     let needs: [(&str, &[&str]); 4] = [
-        (DEPENDENCIES, &[MERGED, WAITING, "cancelled", "between"]),
+        (DEPENDENCIES, &[MERGED, WAITING, "item", "cancelled", "between"]),
         (SESSION, &session),
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
@@ -785,7 +785,7 @@ impl Driver {
         // The round's own work is paused by its failure; every other that runs a round on the model is paused with it.
         if let Some((on, why)) = no_model {
             let why = format!(
-                "the service has no model {}, which the level {} runs on, as a round of work {} found: {why}",
+                "the service has no model {}, which the level {} runs on, as a round of work W{} found: {why}",
                 on.model, on.level, work.0
             );
             let numbers: Vec<WorkNumber> = (self.works.iter())
@@ -1470,11 +1470,12 @@ impl Driver {
             let work = self.of_item.get(on).and_then(|work| self.works.get(work));
             work.map_or(Standing::Going, |held| held.standing)
         };
+        let item = |on: &ItemNumber| fill(says("item"), &[("number", &on.0.to_string())]);
         let waited: Vec<String> = (depends_on.iter())
             .filter_map(|on| match standing(on) {
                 Standing::Ended(End::Merged) => None,
-                Standing::Ended(End::Cancelled) => Some(fill(says("cancelled"), &[("item", &on.0.to_string())])),
-                Standing::Going | Standing::AtFault => Some(on.0.to_string()),
+                Standing::Ended(End::Cancelled) => Some(fill(says("cancelled"), &[("item", &item(on))])),
+                Standing::Going | Standing::AtFault => Some(item(on)),
             })
             .collect();
         let (value, content) = if waited.is_empty() {

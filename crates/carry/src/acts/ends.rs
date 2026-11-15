@@ -230,8 +230,8 @@ fn the_merge_is_named_by_the_first_line_of_the_latest_name_the_work_wrote_and_el
     let commits = super::writes().commits;
     let flow = acts_flow();
     let named = |flow: &Compiled, work: &Work| name(flow, work, WORK, &commits);
-    assert_eq!(named(&flow, &Work::default()), "Work 1");
-    assert_eq!(named(&flow, &written(&[("code", "Greets the user.")])), "Work 1");
+    assert_eq!(named(&flow, &Work::default()), "Work W1");
+    assert_eq!(named(&flow, &written(&[("code", "Greets the user.")])), "Work W1");
     let work = written(&[
         ("title", "Greet the user"),
         ("title", "\n  Greet the user by name  \nIt greets them."),
@@ -242,7 +242,7 @@ fn the_merge_is_named_by_the_first_line_of_the_latest_name_the_work_wrote_and_el
     for cell in &mut unnamed.cells {
         cell.named_by = None;
     }
-    assert_eq!(named(&unnamed, &work), "Work 1");
+    assert_eq!(named(&unnamed, &work), "Work W1");
 }
 
 // The host is given the name of the work's merge, the line the work wrote for it or, where it wrote none, the work's
@@ -278,7 +278,7 @@ async fn the_host_is_asked_by_the_checks_round_and_given_the_name_of_the_works_m
         ..release(End::Cancelled)
     };
     acts.inner.release(&ended).await.expect("it lets go");
-    assert_eq!(acts.inner.host.titles(), ["Greet the user by name", "Work 1"]);
+    assert_eq!(acts.inner.host.titles(), ["Greet the user by name", "Work W1"]);
     assert_eq!(acts.inner.host.askings(), [Asking::Round(RunId(4), 2)]);
 }
 

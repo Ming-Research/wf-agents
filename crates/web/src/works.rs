@@ -2371,7 +2371,7 @@ impl Changed {
 fn viewed(driver: &Driver, number: WorkNumber) -> Result<View, Broken> {
     driver
         .view(number)
-        .ok_or_else(|| Broken(format!("the driver shows work {} and has no view of it", number.0)))
+        .ok_or_else(|| Broken(format!("the driver shows W{} and has no view of it", number.0)))
 }
 
 /// When the entry at this place was added. Every entry the engine's loop adds has its time.

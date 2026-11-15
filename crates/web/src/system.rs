@@ -566,7 +566,7 @@ enum Ending {
 fn ended(driver: &Driver, kept: Kept<'_>, runs: &[Run]) -> Result<Option<Ending>, Broken> {
     let Some(view) = driver.view(kept.head.number) else {
         return Err(Broken(format!(
-            "the driver shows work {} and has no view of it",
+            "the driver shows W{} and has no view of it",
             kept.head.number.0
         )));
     };

@@ -1090,7 +1090,7 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
     let records = &s.driver.work(same).expect("the work").work.records;
     let why = records.pauses.last().and_then(|p| p.why.clone()).unwrap_or_default();
     assert!(
-        why.contains("opus") && why.contains(&format!("work {}", s.work.0)),
+        why.contains("opus") && why.contains(&format!("work W{}", s.work.0)),
         "{why}"
     );
 }

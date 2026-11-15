@@ -47,7 +47,7 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
     );
     let shown = engine.says(&["show", "2"]);
     assert!(
-        shown.contains("\nItem 2 was added as \"Say goodbye\" at level 1; changed since:\n"),
+        shown.contains("\n#2 was added as \"Say goodbye\" at level 1; changed since:\n"),
         "{shown}"
     );
     assert!(
@@ -74,7 +74,7 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
     );
     assert_eq!(
         engine.says(&["cancel", "2", "--why", "Joined into item 1."]),
-        "Work 2 is cancelled.\n"
+        "W2 is cancelled.\n"
     );
     // A cancel is said among what happened to the item, with why.
     let shown = engine.until(&["show", "2"], |line| line.contains(": cancelled, because "));

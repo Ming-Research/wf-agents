@@ -108,7 +108,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
             Asked::Add(item) => {
                 let added: Added = send(address, Method::POST, "/api/v1/items", Some(&item)).await?;
                 Ok(format!(
-                    "Added item {} with its work {}, paused: let it on with `wf-agents resume {}`.",
+                    "Added item #{} with its work W{}, paused: let it on with `wf-agents resume {}`.",
                     added.item, added.work, added.work
                 ))
             }
@@ -204,7 +204,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 Ok(match page.summary.now {
                     Now::Everything {} => format!(
-                        "Work {work} is let on, and held back by the pause of everything until `wf-agents resume --all`."
+                        "W{work} is let on, and held back by the pause of everything until `wf-agents resume --all`."
                     ),
                     _ => done,
                 })
@@ -219,9 +219,9 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 }
                 let after: WorkPage = send(address, Method::GET, &page, None::<&()>).await?;
                 match after.summary.now {
-                    Now::Cancelled => Ok(format!("Work {work} is cancelled.")),
-                    Now::Merged => Err(format!("Work {work} is not cancelled: it has merged.")),
-                    now => Err(format!("Work {work} is not cancelled: it {}.", self::now(&now))),
+                    Now::Cancelled => Ok(format!("W{work} is cancelled.")),
+                    Now::Merged => Err(format!("W{work} is not cancelled: it has merged.")),
+                    now => Err(format!("W{work} is not cancelled: it {}.", self::now(&now))),
                 }
             }
             Asked::Wait { since, longest } => {
@@ -494,19 +494,19 @@ fn question(q: &QuestionPage) -> Vec<String> {
 /// to.
 fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
     match act {
-        Act::Write { block, .. } => format!("Wrote {block} for work {work}."),
-        Act::LetGo { cell } => format!("Cell {cell} of work {work} goes on."),
-        Act::Pause {} => format!("Work {work} is paused."),
-        Act::Resume {} => format!("Work {work} goes on."),
-        Act::Cancel { .. } => format!("Work {work} is cancelled."),
-        Act::Result { call, .. } => format!("Call {call} of work {work} has its result."),
+        Act::Write { block, .. } => format!("Wrote {block} for W{work}."),
+        Act::LetGo { cell } => format!("Cell {cell} of W{work} goes on."),
+        Act::Pause {} => format!("W{work} is paused."),
+        Act::Resume {} => format!("W{work} goes on."),
+        Act::Cancel { .. } => format!("W{work} is cancelled."),
+        Act::Result { call, .. } => format!("Call {call} of W{work} has its result."),
         Act::Answer {
             question,
             version,
             option,
             ..
-        } => format!("Version {version} of the question {question} of work {work} is answered with option {option}."),
-        Act::NewSession { line } => format!("The line {line} of work {work} begins a new session at its next round."),
+        } => format!("Version {version} of the question {question} of W{work} is answered with option {option}."),
+        Act::NewSession { line } => format!("The line {line} of W{work} begins a new session at its next round."),
         Act::Say { to, .. } => {
             let cell = said.map_or("the cell the engine chose", |s| s.reached.as_str());
             match to {
@@ -681,7 +681,7 @@ fn show(page: &WorkPage) -> String {
     let happened = entries(page, Part::History);
     let mut lines = vec![
         format!(
-            "Work {} of item {} \"{}\" at {}, {}, on the flow {}.",
+            "W{} of #{} \"{}\" at {}, {}, on the flow {}.",
             summary.number,
             summary.item,
             page.title,
@@ -700,7 +700,7 @@ fn show(page: &WorkPage) -> String {
             }
         ),
         format!("Spent: {}.", spent(&summary.spent)),
-        format!("Item {} {}", summary.item, added(&page.history, happened.is_empty())),
+        format!("#{} {}", summary.item, added(&page.history, happened.is_empty())),
     ];
     latest(&mut lines, &happened, work, Part::History);
     lines.push("Cells:".to_string());
@@ -1409,16 +1409,13 @@ fn heed(line: &Line, now: u64) -> String {
                 Now::Waits { at, .. } => format!(" at {at}"),
                 _ => String::new(),
             };
-            let numbers: Vec<String> = items.iter().map(|idle| idle.item.to_string()).collect();
+            let numbers: Vec<String> = items.iter().map(|idle| format!("#{}", idle.item)).collect();
             let why: Vec<String> = (items.iter())
-                .map(|idle| format!("{} {}", idle.item, stuck(idle.why)))
+                .map(|idle| format!("#{} {}", idle.item, stuck(idle.why)))
                 .collect();
             let (items, none) = match numbers.as_slice() {
-                [one] => (format!("item {one}"), "which is not going on"),
-                [rest @ .., last] => (
-                    format!("items {} and {last}", rest.join(", ")),
-                    "none of which is going on",
-                ),
+                [one] => (one.clone(), "which is not going on"),
+                [rest @ .., last] => (format!("{} and {last}", rest.join(", ")), "none of which is going on"),
                 [] => (String::new(), ""),
             };
             let waited = duration(now.saturating_sub(*since));
@@ -1437,7 +1434,7 @@ fn heed(line: &Line, now: u64) -> String {
     } else {
         of.title.clone()
     };
-    format!("Item {} \"{title}\", work {}: {said}.", of.item, of.work)
+    format!("#{} \"{title}\", W{}: {said}.", of.item, of.work)
 }
 
 /// Why an item waited for is not going on, after its number.
@@ -1608,7 +1605,7 @@ fn outage(outage: &Outage) -> String {
         _ => String::new(),
     };
     format!(
-        "{what}, since {}; {until}{checked} (round {} of run {} of work {}: {})",
+        "{what}, since {}; {until}{checked} (round {} of run {} of W{}: {})",
         utc(outage.since),
         outage.round,
         outage.run,
@@ -1994,7 +1991,7 @@ mod tests {
             "No agent's round of any work begins: the agents' command line cannot run; sign it in again or install \
              it, since 1970-01-01 01:00 UTC; the engine checks the outside itself at 1970-01-01 03:00 UTC, touching \
              no work's session, and every work goes on once it is well; the check at 1970-01-01 02:00 UTC, the 2nd \
-             in the wait, found: the agents' command line is not signed in (round 1 of run 2 of work 1: API Error: \
+             in the wait, found: the agents' command line is not signed in (round 1 of run 2 of W1: API Error: \
              529 Overloaded)."
         );
         let outage = waiting.outage.as_mut().unwrap();

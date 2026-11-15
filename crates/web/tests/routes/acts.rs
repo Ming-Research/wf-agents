@@ -57,7 +57,7 @@ async fn an_act_that_cannot_be_taken_is_refused_with_why() {
     let answer = |call: u64| json!({ "kind": "result", "call": call, "result": "Yes." });
     assert_eq!(
         post(router, "/api/v1/works/9/acts", &json!({ "kind": "pause" })).await,
-        (StatusCode::NOT_FOUND, error("There is no work 9."))
+        (StatusCode::NOT_FOUND, error("There is no work W9."))
     );
     assert_eq!(
         post(router, ACTS, &answer(9)).await,
