@@ -33,7 +33,6 @@ export function itemOf(item: Item): ItemMock {
   return { unseen: false, unread: 0, tier: null, verdicts: [] };
 }
 
-
 /// The work's tier: made up with the mocks, none without.
 export const workTierOf = (): string | null => (mocksShown() ? workTierMock() : null);
 

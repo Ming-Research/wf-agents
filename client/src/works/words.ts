@@ -263,7 +263,7 @@ export function waitedWords(waited: Waited): string {
       const what = waited.what;
       if (what.kind === 'atLimit') return `the owner to let the run go on: it reached its limit, ${limitWords(what.limit)}`;
       if (what.kind === 'wait') return callWords(what);
-      return `the result of the tool ${what.name}${waited.who ? ` from ${personWords(waited.who)}` : ''}`;
+      return `the result of the tool ${what.name}`;
     }
     case 'precondition':
       return `${waited.words}, which ${waited.by.map(makerWords).join(' or ')} can make hold`;
@@ -352,10 +352,9 @@ export const waitCounted = (n: number): string => `${n === 1 ? 'thing waits' : '
 export const waitCount = (n: number): string => `${n} ${waitCounted(n)}`;
 
 /// Who gives what a work waits for that is not the owner's: the engine for a call it makes, a slot and the wait every
-/// work shares, the source outside the work, or else the cells, for a
-/// precondition only they make hold, the cells that give the result of what a cell asked for in a record, the source a
-/// work waits on, and the work that holds the project's turn. None for what waits on the owner, which the engine's list
-/// says.
+/// work shares, the source outside the work, or else the cells, for a precondition only they make hold, the cells that
+/// give the result of what a cell asked for in a record, the source a work waits on, and the work that holds the
+/// project's turn. None for what waits on the owner, which the engine's list says.
 function whoGives(w: Waited): string | null {
   switch (w.kind) {
     case 'call':

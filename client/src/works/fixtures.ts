@@ -628,7 +628,8 @@ function long(start: number): Built {
   });
   h.round(deep, { minutes: 2, hands: [{ block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands']) }] });
   h.finish(deep);
-  // The implementation asks the owner a question and rests at it...
+  // The implementation asks the owner a question by a call and rests at it, as one work's old records hold such a
+  // call...
   const first = h.start('implement');
   h.round(first, {
     minutes: 6,

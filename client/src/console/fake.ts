@@ -89,7 +89,15 @@ export function fakeTree(count: number): FakeItem[] {
 /// The made-up tree as the console shows items, for trying the drawing at scale from the browser's console.
 export function fakeShown(count: number): Shown[] {
   const cells = ['research', 'deep_research', 'implement', 'test', 'review', 'merge'];
-  // A made-up item running, waiting for the owner, or idle, by its made-up state; its work started an hour ago.
+  // A made-up item running, waiting for the owner, or idle, by its made-up state; its work started an hour ago. One
+  // waiting for the owner waits at the implementation, which the review sent back as often as it may: the
+  // implementation runs again once let go, and the test and the review have run.
+  const at = (working: boolean, k: number): Pick<CellNow, 'state' | 'finished'> => {
+    if (k < 2) return { state: 'done', finished: 1 };
+    if (working) return k === 2 ? { state: 'running', finished: 0 } : { state: 'notYet', finished: 0 };
+    if (k === 2) return { state: 'again', finished: 3 };
+    return k < 5 ? { state: 'done', finished: 3 } : { state: 'notYet', finished: 0 };
+  };
   const work = (i: FakeItem): Shown['work'] =>
     i.state === 'done' || i.state === 'new'
       ? null
@@ -106,8 +114,7 @@ export function fakeShown(count: number): Shown[] {
           cells: cells.map(
             (cell, k): CellNow => ({
               cell,
-              state: k < 2 ? 'done' : k === 2 ? (i.state === 'working' ? 'running' : 'resting') : 'notYet',
-              finished: k < 2 ? 1 : 0,
+              ...at(i.state === 'working', k),
               record: null,
               open: null,
             }),

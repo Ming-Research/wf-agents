@@ -259,8 +259,6 @@ export interface Wait {
 export type Ends =
   /// Answers this version of the work's question by one of its options, on its card at the plan's end.
   | { kind: 'answer'; question: string; version: number }
-  /// Answers in words the question this call puts, on its card at the plan's end.
-  | { kind: 'reply'; call: number }
   /// Lets the run at its limit go on, as the result of this call.
   | { kind: 'goOn'; call: number }
   /// Lets the cell go on past its limit.
