@@ -2067,11 +2067,10 @@ mod tests {
         let first = said.lines().next().unwrap_or_default();
         assert_eq!(
             first,
-            "No agent's round of any work begins: the agents' command line cannot run; sign it in again or install \
-             it, since 1970-01-01 01:00 UTC; the engine checks the outside itself at 1970-01-01 03:00 UTC, touching \
-             no work's session, and every work goes on once it is well; the check at 1970-01-01 02:00 UTC, the 2nd \
-             in the wait, found: the agents' command line is not signed in (round 1 of run 2 of work 1: API Error: \
-             529 Overloaded)."
+            "No agent's round of any work begins: the agents' command line cannot run, since 1970-01-01 01:00 UTC; the \
+             engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and every work goes \
+             on once it is well; the check at 1970-01-01 02:00 UTC, the 2nd in the wait, found: the agents' command \
+             line is not signed in (round 1 of run 2 of work 1: API Error: 529 Overloaded)."
         );
         let outage = waiting.outage.as_mut().unwrap();
         outage.until = Until::Well { at: 2 * hour };

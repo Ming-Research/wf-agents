@@ -63,8 +63,8 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     let list = engine.says(&["list"]);
     assert!(
         list.contains(
-            "\n#2 \"Deliver it\" at level 1, project script, W2 on deliver, after #1: waits at V1 for the outside \
-             (dependencies): dependencies = merged\n"
+            "\n#2 \"Deliver it\" at level 1, project script, W2 on deliver, after #1: waits at V1 for the items it \
+             depends on to merge: item 1\n"
         ),
         "{list}"
     );
