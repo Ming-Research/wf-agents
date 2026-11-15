@@ -13,7 +13,8 @@ backup = { path = "../backup" }
 context = { path = "../context" }
 decide = { path = "../decide" }
 driver = { path = "../driver" }
-# Where the owner's words would go is the engine's choice, which the work's page shows.
+# Where the owner's words would go is the engine's choice, which the work's page shows; and the engine's source of how
+# the questions put to the owner stand says when the merge waits for them.
 engine = { path = "../engine" }
 flow = { path = "../flow" }
 # The stream of changes the pages listen to is made from the loop's changes as they come.

@@ -1,6 +1,29 @@
 import { describe, expect, it } from 'vitest';
 
-import { inSight, revealed } from './Viewer';
+import { inSight, revealed, topView } from './Viewer';
+
+describe('where the flowchart opens', () => {
+  const seen = { x0: 0, y0: 0, x1: 1200, y1: 700 };
+
+  it('opens a long chart at its own size, its top in sight and across in the middle, the rest to scroll to', () => {
+    // As the engineer's flow is: far longer than the window, and narrower than it.
+    const v = topView(seen, { width: 900, height: 4200 }, 1);
+    expect(v.s).toBe(1);
+    expect(v.y).toBe(24);
+    expect(v.x).toBe((1200 - 900) / 2);
+  });
+
+  it("fits a chart wider than the window to its width, not the whole chart to the window", () => {
+    const v = topView(seen, { width: 2400, height: 4200 }, 1);
+    expect(v.s).toBeCloseTo((1200 - 32) / 2400);
+    expect(v.x).toBeCloseTo(16);
+    expect(v.y).toBe(24);
+  });
+
+  it('opens at its own size where nothing can be seen yet', () => {
+    expect(topView({ x0: 0, y0: 0, x1: 0, y1: 0 }, { width: 900, height: 4200 }, 1).s).toBe(1);
+  });
+});
 
 describe('bringing a part of the flowchart out from under the window', () => {
   // A viewer 1000 by 600, of which a window over its right takes 400.

@@ -114,6 +114,13 @@ describe('what a card shows of an item', () => {
   it('counts the things a work waits for that the owner gives, as the engine says: their questions, the preconditions they can make hold, a run let on', () => {
     expect(asksOf(waits)).toBe(3);
     expect(asksOf({ kind: 'paused', by: 'owner', why: null })).toBe(0);
+    // The engine's word of whether every question has the owner's answer changes only as the owner answers.
+    const merge: Now = {
+      kind: 'waits',
+      at: 'merge',
+      on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'outside', source: 'asked' }] }],
+    };
+    expect(asksOf(merge)).toBe(1);
   });
 
   it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {

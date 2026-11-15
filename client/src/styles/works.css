@@ -42,8 +42,8 @@
   color: var(--red-text);
 }
 
-/* A cell's state as a square, in the colour of its state: done green, running blue, at rest a blue ring, runs again
-   an orange ring, not run yet a hairline ring, skipped a dash. Its size, ring, corners and colours are set on it from
+/* A cell's state as a square, in the colour of its state: done filled, running filled in a deep step, at rest a ring of
+   it, runs again a ring of done's colour, not run yet a hairline ring, skipped a dash. Its size, ring, corners and colours are set on it from
    works/state-marks.ts, which the console's cards draw from too. */
 .state-mark {
   display: inline-block;
@@ -285,10 +285,8 @@
   color: var(--red-text);
 }
 
-.state-text-again {
-  color: var(--orange-text);
-}
-
+/* Runs again in done's colour, as its mark is a ring of done's: orange is kept for what waits for the owner. */
+.state-text-again,
 .state-text-done {
   color: var(--green-text);
 }

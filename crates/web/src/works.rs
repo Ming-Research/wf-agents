@@ -20,12 +20,14 @@
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
 //! not: making its view gives [`Broken`], saying what is missing.
 
+use std::collections::BTreeMap;
+
 use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
     BlockId, CallId, Cause as CauseOf, CellId, Condition as Applies, Decision, End, Holder, Maker as MakerOf,
-    Pauser as PauserOf, RunId, Seq, Unrun as UnrunOf, View, Waited as WaitedOf, Who, Writer as WriterOf,
+    Pauser as PauserOf, Records, RunId, Seq, Unrun as UnrunOf, View, Waited as WaitedOf, Who, Writer as WriterOf,
 };
-use driver::{Driver, Kept, Until as UntilOf};
+use driver::{Along, Driver, Kept, Under, Until as UntilOf};
 use flow::Kind;
 use serde::{Deserialize, Serialize};
 use service::{Levels, Projects};
@@ -244,15 +246,24 @@ pub struct Summary {
     /// When its first round began; none before it has one.
     #[serde(default)]
     pub from: Option<u64>,
-    /// Where its time went, from its first round's begin to its last round's end (the one under way counted to now),
-    /// cut into [`BAR_CELLS`] equal cells, one character each in order: `m` where an agent's rounds ran most of the
-    /// cell, `t` where an engine cell's rounds or the tools' calls did, `.` where less than half of it was run by
-    /// either; empty for a work with no round or a span with no length.
+    /// Where its time went, from its first round's begin to the end of the last round or tool's call (one under way
+    /// counted to now), cut into [`BAR_CELLS`] equal cells, one character each in order: `m` where an agent's rounds
+    /// ran most of the cell, `t` where an engine cell's rounds or the tools' calls did; where less than half of it was
+    /// run by either, what the work waited for at the cell's middle, as the deciding code finds it on the records as
+    /// they stood then: `o` the owner (a question, a limit, a precondition only the owner meets, or a stalled work),
+    /// `p` a pause, `w` the items its item depends on, and `.` anything else; empty for a work with no round or a span
+    /// with no length.
     #[serde(default)]
     pub bar: String,
     /// How many of its rounds were given back what the round before handed in, sent back as it did not do.
     #[serde(default)]
     pub sent_back: usize,
+    /// The questions put to the owner that hold the work now, by their names, in the order of their names: each it
+    /// waits for at its cell, and, while it waits for a precondition that only the engine's word of how the questions
+    /// stand makes hold, as the check before the merge does, each that stands without the owner's answer to its latest
+    /// version.
+    #[serde(default)]
+    pub holding: Vec<String>,
 }
 
 /// How many equal cells a work's time bar is cut into.
@@ -268,12 +279,15 @@ pub enum Now {
     Merged,
     /// It has ended: its item was cancelled.
     Cancelled,
-    /// A round of this run of this cell is under way, since this time.
+    /// A round of this run of this cell is under way, since this time; where it is an engine cell's act that runs as
+    /// a CI run, the run's link, as the act says as it goes.
     Round {
         cell: String,
         run: u64,
         round: usize,
         since: u64,
+        #[serde(default)]
+        at: Option<String>,
     },
     /// It is paused, and what it would do next is begin a round: by the owner, or by the engine itself for this
     /// reason, as when a round failed.
@@ -330,8 +344,17 @@ pub enum Unrun {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Waited {
-    /// The result of a call a run rests at: from this person, or from the engine where there is none.
-    Call { call: u64, who: Option<Person>, what: Call },
+    /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this
+    /// time, and, for a tool that runs as a CI run, the run's link, as the tool says as it goes.
+    Call {
+        call: u64,
+        who: Option<Person>,
+        what: Call,
+        #[serde(default)]
+        made: u64,
+        #[serde(default)]
+        at: Option<String>,
+    },
     /// A key of the cell's `requires` does not hold: the named test, or the block's key as the cell's file writes it
     /// (`dependencies = merged`); the words shown for it, the test's or the same key; and each who can make it hold, by
     /// writing a block that keeps it from holding.
@@ -356,6 +379,9 @@ pub enum Waited {
     /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
     /// wrote, `why` in the run's own words, waits for that source before the cell runs again.
     Outside { source: String, cell: String, why: String },
+    /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
+    /// time, waits for it, as the act says. The works of a project check and merge one at a time.
+    Turn { holder: u64, since: u64 },
 }
 
 /// A person who can give what a work waits for.
@@ -429,9 +455,13 @@ pub struct CellNow {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CellState {
-    /// A round of its run is under way.
+    /// A round of its run, an agent's, is under way.
     Running,
-    /// Its run is at rest: for a call's result, or only for its next round.
+    /// The engine carries out something for its run that takes its time: the act of an engine cell, its round under
+    /// way, or a tool's call its agent asked for, which the work waits for at the cell.
+    Calling,
+    /// Its run is at rest: for a call's result, or only for its next round; or, for an engine cell whose act waits for
+    /// the project's turn to check and merge, for that turn.
     Resting,
     /// Its run's last round failed: the run is at rest, and its next round, once the work is let on, is that round
     /// again.
@@ -1610,8 +1640,8 @@ pub struct Refusal {
 pub struct Broken(pub String);
 
 impl Items {
-    /// Every item the driver holds, each with its work, as they stand now.
-    pub fn of(driver: &Driver) -> Result<Items, Broken> {
+    /// Every item the driver holds, each with its work, as they stand at this time.
+    pub fn of(driver: &Driver, now: Time) -> Result<Items, Broken> {
         let mut items = Vec::new();
         let outages = Outages::of(driver);
         let outage = outages.agents.clone();
@@ -1626,7 +1656,14 @@ impl Items {
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
                 tags: kept.item.tags.clone(),
                 history: ItemHistory::of(kept.item),
-                work: Summary::of(kept, &view, driver.held(kept.head.number), &outages)?,
+                work: Summary::of(
+                    kept,
+                    &view,
+                    driver.held(kept.head.number),
+                    &outages,
+                    &driver.along_of(kept.head.number),
+                    now,
+                )?,
             });
         }
         items.sort_by_key(|item| item.number);
@@ -1672,15 +1709,50 @@ impl ItemChanged {
 
 impl Summary {
     /// The work in brief, from what the driver holds of it, the deciding code's view of it, what holds back the round
-    /// it would begin next, and the wait every work shares, where one stands.
-    pub fn of(kept: Kept<'_>, view: &View, held: Option<Holder>, outages: &Outages) -> Result<Summary, Broken> {
+    /// it would begin next, the wait every work shares, where one stands, and where each round or call under way
+    /// stands, as what carries it out says, at the time `when` by the loop's clock.
+    pub fn of(
+        kept: Kept<'_>,
+        view: &View,
+        held: Option<Holder>,
+        outages: &Outages,
+        along: &[(Under, &Along)],
+        when: Time,
+    ) -> Result<Summary, Broken> {
         let work = kept.work;
         let runs = runs(kept)?;
+        let engine = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Engine);
+        // The act of an engine cell that waits for the project's turn runs nothing yet.
+        let turn = |run: RunId| {
+            (along.iter()).any(|(under, said)| {
+                matches!(under, Under::Round { run: of, .. } if *of == run) && matches!(said, Along::Turn { .. })
+            })
+        };
+        let now = Now::of(kept, &view.decision, held, outages, along)?;
+        // The cell the work waits at for a tool's call the engine runs.
+        let calling = match &now {
+            Now::Waits { at, on } => (on.iter())
+                .any(|waited| {
+                    matches!(
+                        waited,
+                        Waited::Call {
+                            who: None,
+                            what: Call::Tool { .. },
+                            ..
+                        }
+                    )
+                })
+                .then_some(at.as_str()),
+            _ => None,
+        };
         let cells = (view.cells.iter())
             .map(|cell| CellNow {
                 cell: cell.cell.to_string(),
                 state: match (&cell.open, cell.applies, cell.record) {
+                    (Some(open), ..) if open.under_way && engine(&cell.cell) && turn(open.run) => CellState::Resting,
+                    (Some(open), ..) if open.under_way && engine(&cell.cell) => CellState::Calling,
                     (Some(open), ..) if open.under_way => CellState::Running,
+                    _ if calling == Some(cell.cell.as_str()) => CellState::Calling,
                     (Some(open), ..) if failed(work, open.run) => CellState::Failed,
                     (Some(_), ..) => CellState::Resting,
                     (None, false, _) => CellState::Skipped,
@@ -1701,14 +1773,15 @@ impl Summary {
             flow: kept.head.flow.clone(),
             added: kept.head.added.0,
             paused: decide::paused(&work.records),
-            now: Now::of(kept, &view.decision, held, outages)?,
+            holding: holding(work, &now),
+            now,
             cells,
             spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
                 .with(pinged(work, &|_| true).as_no_round()),
             pinged: pinged(work, &|_| true),
             last: work.moments.last().map(|moment| moment.at.0),
             from: (runs.iter().flat_map(|run| &run.rounds)).map(|round| round.began).min(),
-            bar: bar(kept, &runs),
+            bar: bar(kept, &runs, when),
             sent_back: (runs.iter().flat_map(|run| &run.rounds))
                 .filter(|round| matches!(round.given, Given::SentBack { .. }))
                 .count(),
@@ -1716,22 +1789,56 @@ impl Summary {
     }
 }
 
-/// The work's time bar ([`Summary::bar`]): its span from its first round's begin to its last round's end cut into
-/// [`BAR_CELLS`] equal cells, each the character of what ran most of it. A round of an agent's cell is a model's; a
-/// round of an engine cell, and a tool's call from when it was made to when it was done, are the tools'. A call to a
-/// person waits rather than runs.
-fn bar(kept: Kept<'_>, runs: &[Run]) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+/// The questions put to the owner that hold the work now ([`Summary::holding`]).
+fn holding(work: &Work, now: &Now) -> Vec<String> {
+    let Now::Waits { on, .. } = now else {
+        return Vec::new();
+    };
+    let merge = on.iter().any(|waited| match waited {
+        Waited::Precondition { by, .. } => {
+            (by.iter()).any(|maker| matches!(maker, Maker::Outside { source } if source == engine::asked::ASKED))
+        }
+        _ => false,
+    });
+    (decide::questions::questions(&work.records).into_iter())
+        .filter(|(name, q)| {
+            (merge && q.unanswered())
+                || on
+                    .iter()
+                    .any(|waited| matches!(waited, Waited::Answer { question } if question == name))
+        })
+        .map(|(name, _)| name.to_string())
+        .collect()
+}
+
+/// The work's time bar ([`Summary::bar`]): its span from its first round's begin to the end of its last round or
+/// tool's call cut into [`BAR_CELLS`] equal cells, each the character of what ran most of it. A round of an agent's
+/// cell is a model's; a round of an engine cell, and a tool's call from when it was made to when it was done, are the
+/// tools'. A call to a person waits rather than runs. A cell less than half of which ran is the character of what the
+/// work waited for at its middle ([`waited`]). What is under way is counted to `now`, by the loop's clock.
+fn bar(kept: Kept<'_>, runs: &[Run], now: Time) -> String {
+    let now = now.0;
     let agent = |cell: &str| {
         (kept.flow.cells.iter())
             .find(|spec| spec.id.as_str() == cell)
             .is_some_and(|spec| spec.act.is_none())
     };
+    // What ran: each round, and each tool's call, from its begin to its end, one under way to now; and whether a
+    // model ran it.
+    let mut stretches: Vec<(u64, u64, bool)> = Vec::new();
+    for run in runs {
+        let model = agent(&run.cell);
+        for round in &run.rounds {
+            stretches.push((round.began, round.ended.unwrap_or(now).max(round.began), model));
+        }
+        for call in &run.calls {
+            if matches!(call.what, Call::Tool { .. }) {
+                stretches.push((call.made, call.done.unwrap_or(now).max(call.made), false));
+            }
+        }
+    }
     let rounds = || runs.iter().flat_map(|run| &run.rounds);
-    let end = |round: &Round| round.ended.unwrap_or(now).max(round.began);
-    let (Some(from), Some(until)) = (rounds().map(|r| r.began).min(), rounds().map(end).max()) else {
+    let (Some(from), Some(until)) = (rounds().map(|r| r.began).min(), stretches.iter().map(|s| s.1).max()) else {
         return String::new();
     };
     let span = until.saturating_sub(from);
@@ -1740,18 +1847,6 @@ fn bar(kept: Kept<'_>, runs: &[Run]) -> String {
     }
     // Times are counted from `from` and multiplied by `BAR_CELLS`, so that cell i is the stretch from `span * i` up to
     // `span * (i + 1)` and every cell is `span` long, with no edge of a cell divided out for each stretch.
-    let mut stretches: Vec<(u64, u64, bool)> = Vec::new();
-    for run in runs {
-        let model = agent(&run.cell);
-        for round in &run.rounds {
-            stretches.push((round.began, end(round), model));
-        }
-        for call in &run.calls {
-            if matches!(call.what, Call::Tool { .. }) {
-                stretches.push((call.made, call.done.unwrap_or(now).max(call.made), false));
-            }
-        }
-    }
     let mut in_cell = vec![(0_u64, 0_u64); BAR_CELLS as usize];
     for (start, stop, model) in stretches {
         let (start, stop) = (start.clamp(from, until), stop.clamp(from, until));
@@ -1772,11 +1867,21 @@ fn bar(kept: Kept<'_>, runs: &[Run]) -> String {
             }
         }
     }
-    (in_cell.iter())
-        .map(|&(model, tool)| {
-            // A cell that models and tools together ran less than half of, or none, is no one's.
+    // What the work waited for in a cell, by the place of the first entry after the cell's middle: the records as they
+    // stood then are those before it. The idle cells of one wait share a place, and each place is decided once.
+    let mut decided: BTreeMap<Option<Seq>, char> = BTreeMap::new();
+    let mut waited_in = |i: u64| {
+        let middle = from + (span * (2 * i + 1)) / (2 * BAR_CELLS);
+        let place = (kept.work.moments.iter()).find(|m| m.at.0 > middle).map(|m| m.from);
+        *decided.entry(place).or_insert_with(|| match place {
+            Some(place) => waited(kept, &kept.work.records.before(place)),
+            None => waited(kept, &kept.work.records),
+        })
+    };
+    (in_cell.iter().zip(0..))
+        .map(|(&(model, tool), i)| {
             if (model + tool) * 2 < span {
-                '.'
+                waited_in(i)
             } else if model >= tool {
                 'm'
             } else {
@@ -1786,14 +1891,51 @@ fn bar(kept: Kept<'_>, runs: &[Run]) -> String {
         .collect()
 }
 
+/// What a work on these records waited for, as the character of its bar ([`Summary::bar`]): `o` the owner, `p` a
+/// pause, `w` the items its item depends on, `.` anything else; by what the deciding code decides on them with nothing
+/// outside them holding the work back. What waits for the owner is said before a pause, as the head of a paused work
+/// says what really holds it; a pause the engine made waits for the owner, and a stalled work does not, as the page's
+/// one definition of what waits on the owner says.
+fn waited(kept: Kept<'_>, records: &Records) -> char {
+    let owners = |waited: &WaitedOf| match waited {
+        WaitedOf::Call { call, on } => {
+            matches!(on, Some(Who::Owner)) || matches!(kept.work.calls.get(call), Some(CallOf::AtLimit(_)))
+        }
+        WaitedOf::Precondition { by, .. } => by.iter().any(|maker| match maker {
+            MakerOf::Owner => true,
+            MakerOf::Outside { source } => source == engine::asked::ASKED,
+            MakerOf::Cell { .. } => false,
+        }),
+        WaitedOf::Limit { .. } | WaitedOf::Calls { .. } | WaitedOf::Answer { .. } => true,
+        WaitedOf::Slot | WaitedOf::Outside { .. } => false,
+    };
+    let items = |waited: &WaitedOf| {
+        matches!(waited, WaitedOf::Precondition { by, .. }
+            if by.iter().any(|maker| matches!(maker, MakerOf::Outside { source } if source == driver::DEPENDENCIES)))
+    };
+    let pause = decide::pause(records);
+    let paused = pause.is_some();
+    let by_engine = pause.is_some_and(|pause| pause.by == decide::Pauser::Engine);
+    match decide::decide(&kept.flow.flow, records) {
+        Decision::Wait { on, .. } if on.iter().any(owners) => 'o',
+        Decision::Paused | Decision::Stalled { .. } | Decision::Run { .. } | Decision::GoOn { .. } if by_engine => 'o',
+        Decision::Paused => 'p',
+        Decision::Stalled { .. } | Decision::Run { .. } | Decision::GoOn { .. } if paused => 'p',
+        Decision::Wait { on, .. } if on.iter().any(items) => 'w',
+        _ => '.',
+    }
+}
+
 impl Now {
     /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
-    /// everything, then the wait every work shares, then a slot.
+    /// everything, then the wait every work shares, then a slot. A round under way whose act waits for the project's
+    /// turn, as the act says, waits for it.
     pub(crate) fn of(
         kept: Kept<'_>,
         decision: &Decision,
         held: Option<Holder>,
         outages: &Outages,
+        along: &[(Under, &Along)],
     ) -> Result<Now, Broken> {
         let work = kept.work;
         let everything = Now::Everything { by: outages.everything };
@@ -1825,11 +1967,25 @@ impl Now {
                 let last = began
                     .last()
                     .ok_or_else(|| Broken(format!("run {} is busy with no round", run.0)))?;
-                Now::Round {
-                    cell: cell.to_string(),
-                    run: run.0,
-                    round: began.len(),
-                    since: time(work, *last)?,
+                let (round, since) = (began.len(), time(work, *last)?);
+                let said = (along.iter())
+                    .find(|(under, _)| *under == Under::Round { run: *run, round })
+                    .map(|(_, said)| *said);
+                match said {
+                    Some(Along::Turn { holder }) => Now::Waits {
+                        at: cell.to_string(),
+                        on: vec![Waited::Turn {
+                            holder: holder.0,
+                            since,
+                        }],
+                    },
+                    _ => Now::Round {
+                        cell: cell.to_string(),
+                        run: run.0,
+                        round,
+                        since,
+                        at: runs_at(said),
+                    },
                 }
             }
             Decision::Paused if held == Some(Holder::Everything) => everything,
@@ -1855,6 +2011,12 @@ impl Now {
                                 call: call.0,
                                 who: on.as_ref().map(Person::of),
                                 what: call_of(work, *call)?,
+                                made: made(work, *call)?,
+                                at: runs_at(
+                                    (along.iter())
+                                        .find(|(under, _)| *under == Under::Call(*call))
+                                        .map(|(_, said)| *said),
+                                ),
                             },
                             WaitedOf::Precondition { on, by } => {
                                 let CellKey { test, words } = key_of(&kept, on)?;
@@ -2121,7 +2283,14 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view, driver.held(number), &Outages::of(driver))?,
+            summary: Summary::of(
+                kept,
+                &view,
+                driver.held(number),
+                &Outages::of(driver),
+                &driver.along_of(number),
+                now,
+            )?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             project: kept.item.project.clone(),
@@ -2373,6 +2542,23 @@ fn viewed(driver: &Driver, number: WorkNumber) -> Result<View, Broken> {
     driver
         .view(number)
         .ok_or_else(|| Broken(format!("the driver shows work {} and has no view of it", number.0)))
+}
+
+/// The link of the CI run a round or a call runs as, where what carries it out says it does.
+fn runs_at(said: Option<&Along>) -> Option<String> {
+    match said {
+        Some(Along::Runs { at }) => Some(at.clone()),
+        _ => None,
+    }
+}
+
+/// When the call was made.
+fn made(work: &Work, call: CallId) -> Result<u64, Broken> {
+    let at = (work.records.called.iter())
+        .find(|c| c.call == call)
+        .map(|c| c.at)
+        .ok_or_else(|| Broken(format!("call {} was not made", call.0)))?;
+    time(work, at)
 }
 
 /// When the entry at this place was added. Every entry the engine's loop adds has its time.
@@ -2789,5 +2975,83 @@ impl Failure {
             FailureOf::NoModel => Failure::NoModel,
             FailureOf::Other => Failure::Other,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use decide::{Answered, Questioned};
+
+    use super::*;
+
+    /// A work whose records ask these questions, by their names and whether their cells wait for them, and answer
+    /// the latest version of those named.
+    fn asking(asked: &[(&str, bool)], answered: &[&str]) -> Work {
+        let mut work = Work::default();
+        for (at, (name, waits)) in asked.iter().enumerate() {
+            work.records.questions.push(Questioned {
+                name: name.to_string(),
+                cell: CellId::from("R2"),
+                run: RunId(1),
+                engine: false,
+                waits: *waits,
+                withdrawn: false,
+                at: Seq(at as u64 + 1),
+            });
+        }
+        for name in answered {
+            let version = (work.records.questions.iter()).find(|q| q.name == *name).map(|q| q.at);
+            work.records.answers.push(Answered {
+                question: name.to_string(),
+                version: version.unwrap_or(Seq(0)),
+                option: 1,
+                why: None,
+                at: Seq(100),
+            });
+        }
+        work
+    }
+
+    fn waits(on: Vec<Waited>) -> Now {
+        Now::Waits {
+            at: "M1".to_string(),
+            on,
+        }
+    }
+
+    #[test]
+    fn a_question_holds_a_work_that_waits_for_it_at_its_cell_and_every_one_unanswered_once_the_merge_waits() {
+        let work = asking(&[("a", true), ("b", false), ("c", false)], &["c"]);
+        let answer = Waited::Answer {
+            question: "a".to_string(),
+        };
+        assert_eq!(holding(&work, &waits(vec![answer])), ["a"]);
+        // Gone past, a question raises nothing until the merge waits for the owner's answers.
+        let ci = Waited::Precondition {
+            test: "ci = green".to_string(),
+            words: "ci = green".to_string(),
+            by: vec![Maker::Outside {
+                source: "ci".to_string(),
+            }],
+        };
+        assert!(holding(&work, &waits(vec![ci])).is_empty());
+        let asked = Waited::Precondition {
+            test: "asked = answered".to_string(),
+            words: "asked = answered".to_string(),
+            by: vec![Maker::Outside {
+                source: engine::asked::ASKED.to_string(),
+            }],
+        };
+        assert_eq!(holding(&work, &waits(vec![asked])), ["a", "b"]);
+        assert!(
+            holding(
+                &work,
+                &Now::Paused {
+                    by: Pauser::Owner,
+                    why: None
+                }
+            )
+            .is_empty()
+        );
     }
 }

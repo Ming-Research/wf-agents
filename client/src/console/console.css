@@ -89,6 +89,13 @@
   width: 140px;
 }
 
+/* The keys of what the work does now, on a row of their own under its state line, in from the line's dot as its word
+   is. */
+.cw-keys {
+  flex-basis: 100%;
+  padding-left: calc(var(--space-8) + var(--space-8));
+}
+
 /* What the owner does to the work: the works page's buttons (`.acts`), under the lines. */
 .cw-acts {
   margin-top: var(--space-12);

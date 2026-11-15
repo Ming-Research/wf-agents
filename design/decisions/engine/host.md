@@ -73,3 +73,7 @@ Why: An item's title is in the owner's language and the repository in English: n
 ### decision letting-go-at-the-end
 Once a work has ended and nothing of it is under way, the engine takes away its worktrees, uncommitted changes included on purpose, and closes its pull request into main where it did not merge; the work's own branch stays, and nothing that is a symbolic link is followed. What cannot be let go is the engine's pause of the ended work, saying why, tried again once the owner lets it on.
 Why: A round or a tool may work in the worktree until it ends, the branch keeps the commits the work paid for (principle keep-what-was-paid-for), and a link could lead to another work's worktree. A failure retried unseen would hold a locked worktree for ever with nobody told (principle nothing-passes-for-normal).
+
+### decision where-a-call-stands-is-kept-in-memory
+What carries out a round or a call says where it stands as it goes: the act of a check that waits for the turn names the work that has it, and a tool or an act that runs as a CI run gives the run's link. The engine keeps the latest of each in memory only, while the round or the call is under way, and tells the page that the work changed; no record holds it.
+Why: The turn is itself kept in memory only (decision one-work-checks-and-merges-at-a-time), and a CI run's link is the host's to give again; recorded, each would be a fact of the past the walk never reads. Unsaid, a check that waited twelve minutes for another work's turn showed only as a round under way.

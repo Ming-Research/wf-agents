@@ -14,7 +14,7 @@ import type { Flow } from '../api';
 import type { Act, Block, EngineAct, Failure, Item, Now, Outage, Question, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { asksOf } from './items';
-import { ItemPanel, nowWords } from './ItemWindow';
+import { ItemPanel, stateOf } from './ItemWindow';
 import type { LoadVersion } from './real';
 import { moodOf } from './snap';
 
@@ -246,14 +246,28 @@ describe('what waits for the owner', () => {
     expect(waits.map((w) => w.key)).toEqual([key]);
     expect(waitsOnOwner(now)).toBe(true);
     expect(asksOf(now)).toBe(waits.length);
-    expect(moodOf({ now })).toBe('owner');
+    expect(moodOf({ now, cells: [] })).toBe('owner');
     const container = draw(now, key, none);
     expect(container.querySelectorAll(`[data-wait="${key}"]`)).toHaveLength(1);
-    // The status line says that the work waits for you, as the card does, and what it waits for: a pause or a hold
-    // in the card's own words, a wait at a cell in the line's.
-    const line = workLine(container);
-    expect(line.word).toBe('Waiting for you');
-    if (now.kind !== 'waits') expect(line.rest).toContain(waits[0].words);
+    // The state line says that the work waits for you, as the card does.
+    expect(workLine(container).word).toBe('Waiting for you');
+  });
+
+  it("says on the state line by its keys what a pause of the engine's and its hold wait for", () => {
+    const keys = (now: Now) => {
+      const container = draw(now, undefined, none);
+      const said = [...container.querySelectorAll('.cw-item > .status-line .keys > span')].map((k) => k.textContent);
+      unmount();
+      return said;
+    };
+    expect(keys({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toEqual([
+      'paused by the engine',
+      'why A round failed.',
+    ]);
+    expect(keys({ kind: 'everything', by: 'engine' })).toEqual([
+      'paused every work',
+      'by the engine, as it started again',
+    ]);
   });
 
   it("is counted, marked and carded alike where it is a review's verdict that holds the work, for the owner to rule on", async () => {
@@ -261,7 +275,7 @@ describe('what waits for the owner', () => {
     expect(waits.map((w) => w.key)).toEqual(['precondition']);
     expect(waitsOnOwner(VERDICT)).toBe(true);
     expect(asksOf(VERDICT)).toBe(1);
-    expect(moodOf({ now: VERDICT })).toBe('owner');
+    expect(moodOf({ now: VERDICT, cells: [] })).toBe('owner');
     const scrolled = vi.fn();
     Element.prototype.scrollIntoView = scrolled;
     const container = draw(VERDICT, 'precondition', none, undefined, { flow: RULED, blocks: [SAID_NO] });
@@ -277,7 +291,7 @@ describe('what waits for the owner', () => {
     expect(waitsOf(now)).toEqual([]);
     expect(waitsOnOwner(now)).toBe(false);
     expect(asksOf(now)).toBe(0);
-    expect(moodOf({ now })).not.toBe('owner');
+    expect(moodOf({ now, cells: [] })).not.toBe('owner');
     const container = draw(now, undefined, none);
     expect(container.querySelectorAll('[data-wait]')).toHaveLength(0);
     expect(workLine(container).word).not.toBe('Waiting for you');
@@ -306,11 +320,12 @@ describe('what waits for the owner', () => {
   it('shows a stalled work as a fault is: its tone, its standing and its place on each view', () => {
     const fault: Now = { kind: 'fault', words: 'Two entries at 3' };
     const summary = (now: Now) => ({ ...base.work, now });
-    expect(moodOf({ now: STALLED })).toBe(moodOf({ now: fault }));
+    expect(moodOf({ now: STALLED, cells: [] })).toBe(moodOf({ now: fault, cells: [] }));
     expect(nowTone(STALLED)).toBe(nowTone(fault));
     expect(rank(summary(STALLED))).toBe(rank(summary(fault)));
     expect(standingOf(summary(STALLED))).toBe('halted');
-    expect(nowWords(summary(STALLED), null).word).toBe(nowWords(summary(fault), null).word);
+    expect(stateOf(summary(STALLED), null).word).toBe(stateOf(summary(fault), null).word);
+    expect(stateOf(summary(STALLED), null).tone).toBe(stateOf(summary(fault), null).tone);
   });
 
   it("is let on from its card: the limit let go, the engine's pause resumed, the held works started", () => {

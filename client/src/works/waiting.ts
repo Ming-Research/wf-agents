@@ -115,9 +115,11 @@ export function waitsOf(now: Now): Wait[] {
               },
             ];
           }
-          // A free slot, and a source outside the work such as main moving, are not the owner's to give.
+          // A free slot, a source outside the work such as main moving, and the project's turn to check and merge
+          // are not the owner's to give.
           case 'slot':
           case 'outside':
+          case 'turn':
             return [];
         }
       });
