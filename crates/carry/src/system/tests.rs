@@ -94,7 +94,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "# `AGENTS.md`\n\n# Working here\n\nThe guide.",
         "# `design/constitution.md`\n\n# The constitution",
         "# `design/README.md`\n\n# The design tree",
-        "How every agent works, whatever its cell",
+        "- Check each fact when you write it",
         "How an engineer works",
         "# How you work here",
         "## How you return",
