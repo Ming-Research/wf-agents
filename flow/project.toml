@@ -70,3 +70,10 @@ paths = ["AGENTS.md", "design/constitution.md", "design/principles/", "flow/", "
 # installation's (`agents.permissions.locks`).
 [heavy]
 commands = ["cargo", "rustc", "rustup", "npm", "npx", "node --test", "tsc", "vitest", "hyperfine"]
+
+# The variables every agent's command line of the project's works is given beside the engine's own, by name: what the
+# project's toolchain reads, so that a command an agent may run reaches no further than its worktree. Rustup installs no
+# Rust toolchain that a command asks for and the machine lacks: the command fails instead of downloading one, which
+# would write beyond the worktree.
+[environment]
+RUSTUP_AUTO_INSTALL = "0"

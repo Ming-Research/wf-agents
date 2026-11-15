@@ -19,6 +19,7 @@
 //! in one there is none of says `No conversation found with session ID: <id>`; both print nothing on the standard
 //! output.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
@@ -255,32 +256,62 @@ pub fn knows_model(model: &str) -> bool {
 /// name it.
 pub const KEPT: [&str; 7] = ["PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SHELL"];
 
-/// The variables the carrier sets for every round's command line: a round waits for whatever it starts, since a
-/// subagent left in the background has the command line ask for the return before it is back; the service checks each
-/// tool's input as JSON before it streams it, since inputs it did not check came cut off; the
-/// command line asks the model again three times, not five, for a return that does not fit its form, each try writing
-/// the whole return again; and rustup installs no Rust toolchain that a command an agent may run asks for and the
-/// machine lacks: the command fails instead of downloading it, which would write beyond the worktree.
-pub const ENVIRONMENT: [(&str, &str); 4] = [
+/// The variables the carrier sets for every round's command line, each the agents' program's: a round waits for
+/// whatever it starts, since a subagent left in the background has the command line ask for the return before it is
+/// back; the service checks each tool's input as JSON before it streams it, since inputs it did not check came cut off;
+/// and the command line asks the model again three times, not five, for a return that does not fit its form, each try
+/// writing the whole return again. What a project's toolchain reads its declaration names (`[environment]`).
+pub const ENVIRONMENT: [(&str, &str); 3] = [
     ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
     ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
     ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
-    ("RUSTUP_AUTO_INSTALL", "0"),
 ];
 
 /// The environment a round's command line is given, in place of the engine's own: of the engine's variables, those
-/// [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`], and the directory of
-/// settings, the installation's where the settings name one.
-pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+/// [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`]; the variables the
+/// project's declaration names, `declared`; and the directory of settings, the installation's where the settings name
+/// one.
+pub fn environment(
+    agents: &Agents,
+    engine: impl IntoIterator<Item = (String, String)>,
+    declared: &BTreeMap<String, String>,
+) -> Vec<(String, String)> {
     let kept =
         |name: &str| KEPT.contains(&name) || name.starts_with("LC_") || agents.env.iter().any(|named| named == name);
     let mut env: Vec<(String, String)> = engine.into_iter().filter(|(name, _)| kept(name)).collect();
     env.sort();
     env.extend(ENVIRONMENT.map(|(name, value)| (name.to_string(), value.to_string())));
+    env.extend(declared.iter().map(|(name, value)| (name.clone(), value.clone())));
     if let Some(dir) = &agents.config_dir {
         env.push((crate::account::VARIABLE.to_string(), dir.to_string_lossy().into_owned()));
     }
     env
+}
+
+/// What is wrong with the variables a project's declaration names for every round's command line: a name of the
+/// engine's own, which it keeps of its environment, sets itself or names the program's directory of settings by; and
+/// one that is no name a shell takes. Each said with where it is written.
+pub fn environment_faults(declared: &BTreeMap<String, String>) -> Vec<String> {
+    let at = format!("{} [environment]", flow::agents::DECLARATION);
+    let engines = |name: &str| {
+        KEPT.contains(&name)
+            || name.starts_with("LC_")
+            || ENVIRONMENT.iter().any(|(own, _)| *own == name)
+            || name == crate::account::VARIABLE
+    };
+    let mut faults = Vec::new();
+    for name in declared.keys() {
+        let shell = name.starts_with(|c: char| c == '_' || c.is_ascii_alphabetic())
+            && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric());
+        if !shell {
+            faults.push(format!("{at}: {name:?} is no name of a variable"));
+        } else if engines(name) {
+            faults.push(format!(
+                "{at}: {name} is the engine's own, which it gives every round itself"
+            ));
+        }
+    }
+    faults
 }
 
 /// The session a round runs in, as the records say: which of its line's sessions, whether the round begins it, and
@@ -1429,6 +1460,9 @@ mod tests {
         assert_eq!(Begin::New.other(), Begin::Resume);
     }
 
+    // A round's command line is given of the engine's environment what is kept and what the settings name, then the
+    // carrier's own variables, which are the agents' program's: none of a project's toolchain, which its declaration
+    // names. Well under a millisecond alone; no other test holds what a round's command line is given.
     #[test]
     fn the_environment_is_built_from_what_is_kept_and_named_and_the_carriers_own() {
         let engine = [
@@ -1439,8 +1473,9 @@ mod tests {
             ("ANTHROPIC_API_KEY", "k"),
         ]
         .map(|(n, v)| (n.to_string(), v.to_string()));
+        let none = BTreeMap::new();
         assert_eq!(
-            environment(&agents(), engine.clone()),
+            environment(&agents(), engine.clone(), &none),
             [
                 ("HOME", "/home/someone"),
                 ("LC_ALL", "C"),
@@ -1448,18 +1483,53 @@ mod tests {
                 ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
                 ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
                 ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
-                ("RUSTUP_AUTO_INSTALL", "0"),
             ]
             .map(|(n, v)| (n.to_string(), v.to_string()))
         );
         let mut configured = agents();
         configured.env = vec!["ANTHROPIC_API_KEY".to_string()];
         configured.config_dir = Some(PathBuf::from("config"));
-        let named: Vec<String> = (environment(&configured, engine).into_iter())
+        let named: Vec<String> = (environment(&configured, engine.clone(), &none).into_iter())
             .map(|(name, _)| name)
             .collect();
         assert!(named.contains(&"ANTHROPIC_API_KEY".to_string()));
         assert!(named.contains(&"CLAUDE_CONFIG_DIR".to_string()));
         assert!(!named.contains(&"SECRET_TOKEN".to_string()));
+        // What the project's declaration names for its toolchain comes after the carrier's own.
+        let declared = BTreeMap::from([("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())]);
+        let given = environment(&agents(), engine, &declared);
+        assert_eq!(
+            given.last(),
+            Some(&("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string()))
+        );
+    }
+
+    // A declaration may name no variable the engine gives every round itself, and none that is no name of a variable.
+    // Well under a millisecond alone; no other test holds what a declaration may name for the command line.
+    #[test]
+    fn a_declaration_names_no_variable_of_the_engines_own() {
+        let declared = |name: &str| BTreeMap::from([(name.to_string(), "1".to_string())]);
+        assert_eq!(
+            environment_faults(&declared("RUSTUP_AUTO_INSTALL")),
+            Vec::<String>::new()
+        );
+        for own in ["PATH", "LC_ALL", "MAX_STRUCTURED_OUTPUT_RETRIES", "CLAUDE_CONFIG_DIR"] {
+            assert_eq!(
+                environment_faults(&declared(own)),
+                [format!(
+                    "flow/project.toml [environment]: {own} is the engine's own, which it gives every round itself"
+                )],
+                "{own}"
+            );
+        }
+        for wrong in ["", "1A", "A B", "A=B"] {
+            assert_eq!(
+                environment_faults(&declared(wrong)),
+                [format!(
+                    "flow/project.toml [environment]: {wrong:?} is no name of a variable"
+                )],
+                "{wrong:?}"
+            );
+        }
     }
 }

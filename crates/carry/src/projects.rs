@@ -34,7 +34,8 @@ pub struct Declared {
 /// Each project the settings name whose declaration can be read, by its name, with its declaration; and every fault
 /// found, each said with the projects' keys: a declaration that cannot be read from its project's main, a heavy command
 /// of it that names nothing or holds a `*` or a parenthesis, or that a lock command of the settings would allow whole
-/// ([`crate::permissions::heavy_faults`]), and two projects that name one repository, whose main, branches and merges
+/// ([`crate::permissions::heavy_faults`]), a variable it names for the agents' command line that is the engine's own
+/// ([`crate::cli::environment_faults`]), and two projects that name one repository, whose main, branches and merges
 /// they would share.
 pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap<String, Declared>, Vec<String>) {
     let mut faults = Vec::new();
@@ -61,6 +62,8 @@ pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap
             }
         };
         let wrong = crate::permissions::heavy_faults(&beside.project, &settings.agents.permissions);
+        faults.extend(wrong.into_iter().map(|fault| format!("projects.{name}: {fault}")));
+        let wrong = crate::cli::environment_faults(&beside.project.environment);
         faults.extend(wrong.into_iter().map(|fault| format!("projects.{name}: {fault}")));
         declared.insert(
             name.clone(),
