@@ -54,12 +54,14 @@
 //!
 //! What each round was told and the program's stream are kept for reading, in `rounds/<work>/<run>-<round>` in the
 //! data directory: `.message.md` and `.stream.jsonl` for its first try, `.message.2.md` and `.stream.2.jsonl` for the
-//! next, and so on, the stream written as it comes; `.compacted` holds a byte for each compaction of the session
-//! during the round, and `.again.md`, while the program runs, what the hook gives again; `.words.json` what the owner
-//! said that waits for the hook, and `.delivered.1.json` and on what the hook gave. While the program runs, its
-//! process group is written in `.pgid` there; a group left named there by a process of the engine that ended is
-//! stopped before the round is run again, or before the round's stop ends it, so that a session has one program at a
-//! time and a stopped round's program does not run on.
+//! next, and so on, the stream written as it comes, and a message told again, as to a try after one cut off, kept as a
+//! second name of the file an earlier try of the round keeps it in, so that it is stored once; `.compacted` holds a
+//! byte for each compaction of the session during the round, and `.again.md`, while the program runs and never past
+//! the round's tries, what the hook gives again; `.words.json` what the owner said that waits for the hook, and
+//! `.delivered.1.json` and on what the hook gave. While the program runs, its process group is written in `.pgid`
+//! there; a group left named there by a process of the engine that ended is stopped before the round is run again, or
+//! before the round's stop ends it, so that a session has one program at a time and a stopped round's program does not
+//! run on.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -367,6 +369,8 @@ impl Inner {
         };
         let again = format!("{}\n\n{}", of.beside.message.compacted, anew.text);
         write(&compacted.again, again.as_bytes()).await?;
+        // It is the hook's while the program runs, and is not kept past the round's tries, however they end.
+        let again = Removed(compacted.again.clone());
         // What the owner says to the round while it runs waits beside it, for the hook after the next use of a tool.
         let words = Words {
             waiting: base.with_extension("words.json"),
@@ -389,7 +393,7 @@ impl Inner {
             teller.ran_on(n, on.clone());
             teller.filled(n, entered.fills.clone());
             let told = &entered.text;
-            write(&told_at, told.as_bytes()).await?;
+            keep_told(&base, n, &told_at, told).await?;
             // The system prompt is the one the session began with: made from the worktree as it begins, and kept.
             let made = || {
                 let read = |path: &str| system::read_within(&dir, path);
@@ -494,7 +498,7 @@ impl Inner {
             }
             break (status, stream, stderr, compactions);
         };
-        let _ = tokio::fs::remove_file(&compacted.again).await;
+        drop(again);
         // What the round committed may have changed the design tree.
         if let Some(looking) = &mut looking {
             looking.tell(&place, teller, false).await;
@@ -996,6 +1000,45 @@ async fn attempt(base: &Path) -> (usize, PathBuf, PathBuf) {
     (n, kept::at(base, n).0, kept::stream_at(base, n))
 }
 
+/// Keeps what the try of this number of the round is told, at `at`: where an earlier try of the round was told the
+/// same, as a second name of the file that try keeps it in, so that a message given again is stored once and found
+/// as every try's is; otherwise, and where the file system cannot give a file a second name, in a file of its own.
+async fn keep_told(base: &Path, n: usize, at: &Path, told: &str) -> Result<(), String> {
+    for k in (1..n).rev() {
+        let earlier = kept::at(base, k).0;
+        let same = match tokio::fs::metadata(&earlier).await {
+            Ok(meta) if meta.len() == told.len() as u64 => {
+                (tokio::fs::read(&earlier).await).is_ok_and(|kept| kept == told.as_bytes())
+            }
+            _ => false,
+        };
+        if !same {
+            continue;
+        }
+        match tokio::fs::hard_link(&earlier, at).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                eprintln!(
+                    "{} is kept whole, as it could not be a second name of {}: {e}",
+                    at.display(),
+                    earlier.display()
+                );
+                break;
+            }
+        }
+    }
+    write(at, told.as_bytes()).await
+}
+
+/// A file that is removed as this is dropped, however the scope that holds it is left.
+struct Removed(PathBuf);
+
+impl Drop for Removed {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// The stream of a try as it comes: read, and each line kept that is kept with the round ([`cli::Stream::line`]),
 /// written to its file as it comes; the first fault of the writing is kept, and said once the try has ended.
 struct Keeping {
@@ -1109,6 +1152,40 @@ mod tests {
             at: Seq(at),
             by,
             why: None,
+        }
+    }
+
+    // A message a later try of the round is told again is stored once, under a second name of the file an earlier try
+    // keeps it in, while each try is counted and read back with its message as before; one told otherwise is kept in
+    // a file of its own.
+    #[tokio::test]
+    async fn a_message_told_again_to_a_later_try_is_stored_once_and_each_try_reads_back_with_its_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let (work, run, number) = (WorkNumber(3), RunId(7), 2);
+        let base = kept::base(dir.path(), work, run, number);
+        std::fs::create_dir_all(base.parent().unwrap()).unwrap();
+        let told = [
+            "Do the task.\n",
+            "Do the task.\n",
+            "Only what changed.\n",
+            "Do the task.\n",
+        ];
+        for said in told {
+            let (n, at, _) = attempt(&base).await;
+            keep_told(&base, n, &at, said).await.unwrap();
+        }
+        assert_eq!(attempt(&base).await.0, 5, "each try is counted");
+        let read = kept::told(dir.path(), work, run, number).unwrap();
+        let messages: Vec<&str> = read.tries.iter().map(|t| t.message.as_str()).collect();
+        assert_eq!(messages, told);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let file = |n: usize| std::fs::metadata(kept::at(&base, n).0).unwrap();
+            assert_eq!(file(2).ino(), file(1).ino());
+            assert_eq!(file(4).ino(), file(1).ino());
+            assert_ne!(file(3).ino(), file(1).ino());
+            assert_eq!(file(1).nlink(), 3, "the message told three times is stored once");
         }
     }
 
