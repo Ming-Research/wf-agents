@@ -283,8 +283,8 @@ impl<'a> Reading<'a> {
 
     /// Whether the cell waits at this place for the owner's answer to a question of its own: the latest version before
     /// the place of a question it asked waits for the answer, is no withdrawal, and has no answer before the place
-    /// (decision a-wait-holds-its-cell). Whether the cell applies is the caller's to judge: a cell skipped holds nothing
-    /// by its wait (decision a-wait-of-a-skipped-cell-is-put-away).
+    /// (decision a-wait-holds-its-cell). Whether the cell applies is the caller's to judge: a cell skipped holds
+    /// nothing by its wait (decision a-wait-of-a-skipped-cell-is-put-away).
     pub fn question_waits(&self, cell: &CellId, place: Seq) -> bool {
         (questions(self.records, place).values()).any(|q| &q.cell == cell && q.waits && !q.withdrawn && !q.answered)
     }
@@ -457,8 +457,8 @@ pub struct Asked {
     pub answered: bool,
 }
 
-/// The questions put to the owner before this place, each by its name as its latest version then stands; an answer to an
-/// earlier version answers nothing (decision an-answer-to-an-earlier-version-is-kept).
+/// The questions put to the owner before this place, each by its name as its latest version then stands; an answer to
+/// an earlier version answers nothing (decision an-answer-to-an-earlier-version-is-kept).
 pub fn questions(records: &Records, place: Seq) -> BTreeMap<String, Asked> {
     let mut latest: BTreeMap<String, Asked> = BTreeMap::new();
     for q in records.questions.iter().filter(|q| q.at < place) {

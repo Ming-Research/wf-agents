@@ -25,7 +25,7 @@ use decide::{
     Who, decide, told,
 };
 use engine::spoken::To;
-use engine::{Came, Effect, Event as Given, Handed, Refused, Spent, Time, Work};
+use engine::{Ask, Came, Effect, Event as Given, Handed, Refused, Spent, Time, Work};
 use reading::{Reading, Reason, Writer, questions};
 
 use model::{
@@ -220,6 +220,8 @@ struct Taint {
 struct State {
     /// The work, its records kept by the engine's loop.
     work: Work,
+    /// The calls of tools the loop asked to be made, and not yet given their results.
+    calls: BTreeSet<decide::CallId>,
     /// The clock the loop is given: a second more for each thing it takes.
     clock: u64,
     /// The return each cell gives at every round from now on, where one was chosen for all.
@@ -405,6 +407,7 @@ impl Explorer<'_> {
         let m = self.model;
         let mut s = State {
             work: Work::default(),
+            calls: BTreeSet::new(),
             clock: CLOCK,
             always: BTreeMap::new(),
             spent: 0,
@@ -471,11 +474,25 @@ impl Explorer<'_> {
             Err(why) => {
                 s.trace = trace;
                 s.clock -= 1000;
+                s.since -= 1;
+                self.out.stats.given -= 1;
                 return Err(why);
             }
         };
         self.after(s, &before);
         for effect in effects {
+            if let Effect::Stop { .. } = effect {
+                let trace = s.trace.clone();
+                self.reach(A_ROUND_STOPPED.to_string(), &trace, &s.work);
+            }
+            if let Effect::Call {
+                call,
+                what: engine::Call::Asked(Ask::Tool { .. }),
+                ..
+            } = &effect
+            {
+                s.calls.insert(*call);
+            }
             let follow = match effect {
                 Effect::Withdraw { call } => Some(Given::Done {
                     call,
@@ -670,8 +687,9 @@ impl Explorer<'_> {
                             self.out.stats.told += 1;
                             let told = told(self.flow(), &s.work.records, *run).unwrap_or_default();
                             for (v, may_always) in m.deviations(i, &told) {
-                                // A return sent back takes nothing in and is the same wherever it comes: a path
-                                // that spent nothing tries it.
+                                // A return sent back takes nothing in and is the same wherever it comes, and a
+                                // call of a tool and its result make the same way back to the cell wherever they
+                                // come: a path that spent nothing tries each.
                                 if (v == Variant::SentBack || v == Variant::Calls) && s.spent > 0 {
                                     continue;
                                 }
@@ -728,10 +746,17 @@ impl Explorer<'_> {
             }
             Decision::Wait { .. } | Decision::Stalled { .. } => {
                 // The engine runs the tool a cell asked for and gives its result, which costs the path nothing.
+                for call in &s.calls {
+                    out.extend(self.result(s, *call));
+                }
                 if let Decision::Wait { on, .. } = d {
                     for w in on {
-                        if let Waited::Call { call, on: None } = w {
-                            out.extend(self.result(s, *call));
+                        if let Waited::Call { call, on: None } = w
+                            && !s.calls.contains(call)
+                        {
+                            let name =
+                                "the work waits for a call of a tool the loop never asked to be made".to_string();
+                            self.breach(Property::Engine, name, &s.trace, format!("{call:?}"));
                         }
                     }
                 }
@@ -780,6 +805,7 @@ impl Explorer<'_> {
     /// The engine gives the call of a tool its result.
     fn result(&mut self, s: &State, call: decide::CallId) -> Option<State> {
         let mut c = s.clone();
+        c.calls.remove(&call);
         c.trace = c
             .trace
             .then(c.spent, format!("the engine gives the result of the call {}", call.0));
@@ -828,6 +854,7 @@ impl Explorer<'_> {
             let (trace, work) = (c.trace.clone(), c.work.clone());
             self.reach(GAVE_RESULTS.to_string(), &trace, &work);
         }
+        let writes: Vec<BlockId> = came.writes.iter().map(|h| h.block.clone()).collect();
         let returned = Given::Returned {
             run,
             came,
@@ -837,30 +864,45 @@ impl Explorer<'_> {
         if !self.give(&mut c, returned) {
             return None;
         }
-        self.judge_return(&c, &before, cell, run, &v);
+        self.judge_return(&c, &before, cell, run, &v, &writes);
         Some(c)
     }
 
     /// Whether the loop took the return as its variant says it should be taken: one that does not meet the flow sent
-    /// back, or at the run's limit the owner asked; one that asks for a call, the call made; any other, its run finished, or sent back only for writing over a
-    /// version its round was not told of, or at the run's limit, the owner asked.
-    fn judge_return(&mut self, s: &State, before: &Records, cell: &CellId, run: RunId, v: &Variant) {
+    /// back, or at the run's limit the owner asked; one that asks for a call, the call made; any other, its run
+    /// finished, or sent back, or at its limit the owner asked, only where a block it writes has a version newer than
+    /// its round was told of, which it would write over unseen (decision meaning-told-by-the-writer), as the records
+    /// read apart from the deciding code say.
+    fn judge_return(
+        &mut self,
+        s: &State,
+        before: &Records,
+        cell: &CellId,
+        run: RunId,
+        v: &Variant,
+        writes: &[BlockId],
+    ) {
         let r = &s.work.records;
         let finished = r.finished.iter().any(|f| f.run == run);
         let again = r.rounds[before.rounds.len()..].iter().any(|e| e.run == run);
-        let written_over = r.put_in[before.put_in.len()..].iter().any(|p| p.run == run);
         let new_calls = &r.called[before.called.len()..];
         let at_limit = new_calls.iter().any(|c| c.run == run && c.on == Some(Who::Owner));
         let asked = new_calls.iter().any(|c| c.run == run && c.on.is_none());
+        let reading = Reading::of_flow(self.flow(), before);
+        let written_over = writes.iter().any(|block| {
+            let told = reading.told(run, block);
+            (reading.of(block).iter())
+                .any(|v| Some(v.at) > told && v.changed_meaning() && !matches!(&v.by, Writer::Cell(c, _) if c == cell))
+        });
         let right = match v {
             Variant::SentBack => (again || at_limit) && !finished,
             Variant::Calls => asked,
-            _ => finished || (again && written_over) || at_limit,
+            _ => finished || ((again || at_limit) && written_over),
         };
         if !right {
             let name = format!("the engine's check of a return of {cell} judged {v} otherwise");
             let what =
-                format!("finished {finished}, sent back {again}, written over {written_over}, at its limit {at_limit}");
+                format!("finished {finished}, sent back {again}, at its limit {at_limit}, writing over {written_over}");
             self.breach(Property::Engine, name, &s.trace, what);
         }
     }
@@ -1500,8 +1542,13 @@ impl Explorer<'_> {
             _ => return,
         };
         self.reach(format!("stop: {stop}"), trace, &s.work);
+        // A wait for a tool's result alone is the engine's to end, no person's.
+        let for_a_tool =
+            matches!(d, Decision::Wait { on, .. } if on.iter().all(|w| matches!(w, Waited::Call { on: None, .. })));
         if on_purpose {
-            if !matches!(d, Decision::Ended(_)) {
+            if for_a_tool {
+                self.reach(WAITED_FOR_A_TOOL.to_string(), trace, &s.work);
+            } else if !matches!(d, Decision::Ended(_)) {
                 self.reach(WAITED_FOR_THE_OWNER.to_string(), trace, &s.work);
             }
         } else {
@@ -1633,3 +1680,5 @@ pub const WRITTEN_OVER: &str = "a return was sent back as it would write over wh
 pub const WAITED_FOR_MAIN: &str = "a check that failed on main too waited for main to move";
 pub const NO_ONE_SPOKEN_TO: &str = "the engine took the owner's words to no cell";
 pub const A_TOOL_ANSWERED: &str = "the engine gave a cell the result of the tool it asked for";
+pub const A_ROUND_STOPPED: &str = "the engine stopped a round under way for the owner turning to a cell before it";
+pub const WAITED_FOR_A_TOOL: &str = "the work waited for the result of a tool alone";

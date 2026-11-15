@@ -47,8 +47,10 @@ What a round returned is taken as the round ends, before the walk is asked what 
 flow requires, its run finishes then, and no cell before it comes between, though something new to that cell came while
 the round was under way. So the merge's return, taken, ends the work, and a change of the background written while the
 merge's round was under way is read by no cell.
-Why: The return was made on what its round was told and is paid for; asked first, the walk would put a run of the
-earlier cell between the round's end and its taking, which would write under the return what it never saw, and the
-return would be sent back and made again (principle keep-what-was-paid-for). A round under way is stopped only for what
-a source that turns the work writes, the owner's words or an answer, so a write that does not stop it does not undo its
-end either; that this holds for every such write rests on judgment.
+Why: The return was made on what its round was told and is paid for (principle keep-what-was-paid-for). Asked first,
+the walk would put a run of the earlier cell between the round's end and its taking: where that cell writes a block
+the return writes too, the return would be sent back as writing over a version its round was not told of (decision
+meaning-told-by-the-writer) and made again; where it does not, as R0, which writes nothing, the return would be taken
+after it, its cell perhaps run again for what came meanwhile. A round under way is stopped only for what a source that
+turns the work writes, the owner's words or an answer, so a write that does not stop it does not put a cell before
+its end either; that this holds for every such write rests on judgment.

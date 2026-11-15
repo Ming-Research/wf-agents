@@ -28,9 +28,9 @@
 //! A path of more than 200 things given the loop with nothing written from outside, or that comes back to a state it
 //! was in, breaks property 4.
 //!
-//! What it costs: a few thousand states in a few seconds; the test prints the numbers. The search runs once, in one
-//! test that checks every property on what it found and names each that fails, with every breach of it; the flow
-//! renamed is explored again at a smaller bound, with the flow as it is at that bound beside it.
+//! What it costs: a few thousand states, in about ten seconds in all; the test prints the numbers. The search runs
+//! once, in one test that checks every property on what it found and names each that fails, with every breach of it;
+//! the flow renamed is explored again at a smaller bound, with the flow as it is at that bound beside it.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -38,10 +38,10 @@ use std::path::Path;
 use decide::{BlockId, CellId};
 use explore::model::{Model, ran, ran_on, reply_loop};
 use explore::{
-    A_QUESTION_WAITED, A_TOOL_ANSWERED, Bounds, CHECKED_CONDITION, CHECKED_GATES, CHECKED_GROUP_DEFINED,
-    CHECKED_GROUP_RUN, CHECKED_RERUN, CHECKED_REST, CHECKED_RUN, CHECKED_STALL, CHECKED_STOP, CHECKED_THE_CHECK,
-    CHECKED_WRITE_AT_STOP, Explored, GAVE_RESULTS, MAIN_WHILE_THE_CHECK_WAITS, Property, RAN_FOR_A_WAIT,
-    WAITED_FOR_MAIN, WAITED_FOR_THE_OWNER, explore, replay,
+    A_QUESTION_WAITED, A_ROUND_STOPPED, A_TOOL_ANSWERED, Bounds, CHECKED_CONDITION, CHECKED_GATES,
+    CHECKED_GROUP_DEFINED, CHECKED_GROUP_RUN, CHECKED_RERUN, CHECKED_REST, CHECKED_RUN, CHECKED_STALL, CHECKED_STOP,
+    CHECKED_THE_CHECK, CHECKED_WRITE_AT_STOP, Explored, GAVE_RESULTS, MAIN_WHILE_THE_CHECK_WAITS, Property,
+    RAN_FOR_A_WAIT, WAITED_FOR_MAIN, WAITED_FOR_THE_OWNER, explore, replay,
 };
 use flow::{Compiled, Has, Source, compile, read};
 
@@ -62,8 +62,8 @@ const RENAMED_BOUNDS: Bounds = Bounds {
     states: 200_000,
 };
 
-/// The breaches the flow's own definition makes, each by its property and its name, with why it is the flow's and not
-/// the engine's. Each is reported; none is mended here, since the flow changes only with the owner.
+/// The breaches the exploration finds and the design chose, each by its property and its name, with the decision that
+/// makes it and why. Each is reported; none is mended here, since each is a choice of the design.
 const KNOWN: &[(Property, &str, &str)] = &[
     (
         Property::Incremental,
@@ -78,11 +78,11 @@ const KNOWN: &[(Property, &str, &str)] = &[
 ];
 
 /// Why a change of the background while the merge's round is under way reaches no cell.
-const MERGE_UNSTOPPED: &str = "The engine's behaviour, by decision a-return-that-fits-is-taken-before-the-walk: the \
-     owner changes the background while the merge's round is under way, which does not stop it (only what a source that \
-     turns the work writes does), and the merge's return, fitting the flow, is taken as the round ends, before the walk \
-     is asked what follows: the work has ended once the merge has its record, and R0 and R1 never read the change. \
-     Whether such a change should hold the merge is the owner's to decide.";
+const MERGE_UNSTOPPED: &str = "Decision a-return-that-fits-is-taken-before-the-walk: the owner changes the \
+     background while the merge's round is under way, which does not stop it (only what a source that turns the work \
+     writes does), and the merge's return, fitting the flow, is taken as the round ends, before the walk is asked what \
+     follows: the work has ended once the merge has its record, and R0 and R1 never read the change. Whether such a \
+     change should hold the merge is the owner's to decide.";
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
@@ -228,6 +228,9 @@ fn rare() -> Vec<String> {
         // The check finds a red that main fails too, and waits for main to move.
         WAITED_FOR_MAIN.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
+        // The owner answers a question that stands while a round of a cell after its cell is under way: the round is
+        // stopped, and the asking cell runs first.
+        A_ROUND_STOPPED.to_string(),
         "stop: the work merged".to_string(),
     ]
 }
