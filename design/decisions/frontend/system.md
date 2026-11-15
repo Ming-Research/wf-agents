@@ -14,8 +14,9 @@ Why: With a border it reads as the frame of an agent's words, which the page dra
 
 ### decision the-page-changes-what-is-tuned-while-the-engine-runs
 The settings' view changes the language the owner reads, each level's model, the highest level an item may be at, the
-context past which a line begins a new session, the slots and the account the agents run under; every other key only
-the file changes.
+context past which a line begins a new session, the slots, and the accounts the agents may run under, to which it adds
+one once it is signed in; every other key only the file changes. Which account is in use, and the switch that lets
+the engine move on, it changes at once, through the engine, apart from what Save writes into the file.
 Why: These are what the owner tunes as works go on, to their cost, their pace and the account's limit; the rest are
 set once as the installation is made, and a wrong one stops the engine as it starts. A box for every key was turned
 down: it would make the whole file a form to save.
