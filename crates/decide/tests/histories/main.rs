@@ -1178,9 +1178,9 @@ impl History {
     }
 
     /// Where the owner's words run the asking cell, the owner speaks to it now and then while the cell that gives its
-    /// result has a round under way: the round is stopped, and the asking cell is entered for the words (counted as "the
-    /// owner's words to a cell that waits for a result stop the round of the cell giving it", which the histories that
-    /// ask must reach).
+    /// result has a round under way: the round is stopped, and the asking cell is entered for the words (counted as
+    /// "the owner's words to a cell that waits for a result stop the round of the cell giving it", which the histories
+    /// that ask must reach).
     fn speak_to_the_waiting(&mut self) {
         let r = &self.w.records;
         let giving = (r.started.iter()).any(|s| {

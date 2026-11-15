@@ -883,7 +883,8 @@ impl<'a> Walk<'a> {
     /// after it that gives the result of what it asked for in a record, and that applies, runs, as the walk would enter
     /// it or go on with it, the first of them in the order of the walk (decision a-wait-holds-its-cell); else it waits
     /// there, or is stalled ([`Walk::waiting`]). While a run of the cell rests on a call of its own that has no result,
-    /// no cell that gives a result begins: that run goes on to hand its return in first (decision a-wait-holds-its-cell).
+    /// no cell that gives a result begins: that run goes on to hand its return in first (decision
+    /// a-wait-holds-its-cell).
     fn wait_at(&self, i: usize, on: Vec<Waited>, room: Room) -> Decision {
         let cell = &self.flow.cells()[i].id;
         let on_a_call =
