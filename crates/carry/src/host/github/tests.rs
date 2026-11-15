@@ -3,13 +3,16 @@
 //! - `ends`: the pull request's text and draft, the checks that hold no work, main red, and the end of a work.
 //! - `again`: a check or a call of `run_tests` given again after the engine started again, which finds the runs it
 //!   asked for.
+//! - `red`: a check whose full workflows failed tests alone, which are run again on the commit and on main's head.
 
 mod again;
 mod ends;
+mod red;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use decide::run::Failure;
 use decide::{CallId, RunId};
 use store::WorkNumber;
 use tokio::sync::Mutex;
@@ -84,6 +87,7 @@ fn config(bare: &std::path::Path) -> Config {
         ci: Some(ci()),
         runners: vec!["github".to_string()],
         tool: Some(tool()),
+        check: Some(crate::acts::words().check),
         fast_poll: Duration::from_millis(10),
         token: None,
         withheld: Vec::new(),
@@ -140,16 +144,27 @@ impl Hub {
     }
 
     async fn verdict(&self, commit: &str) -> Result<Option<Verdict>, String> {
+        self.failing(commit).await.map_err(String::from)
+    }
+
+    /// The verdict on the commit, which holds main's head on GitHub, or why there is none, of the kind the host told.
+    async fn failing(&self, commit: &str) -> Result<Option<Verdict>, Failed> {
         let place = self.place();
+        let main = self.main_on_github();
         self.host
-            .verdict(&branch(&place), commit, self.round(), &mut Stop::never())
+            .verdict(&branch(&place), commit, &main, self.round(), &mut Stop::never())
             .await
+    }
+
+    /// The head of main on GitHub.
+    fn main_on_github(&self) -> String {
+        run(&self.github().bare, &["rev-parse", "main"])
     }
 
     /// Merges the commit the check passed; a refusal but for a moved main in the host's words.
     async fn merge(&self, checked: &str) -> Result<String, String> {
         self.merging(checked).await.map_err(|not| match not {
-            NotMerged::Failed(why) => why,
+            NotMerged::Failed(failed) => failed.why,
             moved => panic!("refused otherwise: {moved:?}"),
         })
     }
@@ -205,11 +220,15 @@ fn branch(place: &Place) -> Branch<'_> {
     }
 }
 
+/// A check, at its own link; one that ran to a conclusion took a minute, as GitHub's job would say, and any other has
+/// no time.
 fn check(name: &str, outcome: Outcome) -> Check {
+    let took = matches!(outcome, Outcome::Passed | Outcome::Failed(_)).then_some(60);
     Check {
         name: name.to_string(),
         outcome,
         url: Some(format!("https://github.example/checks/{name}")),
+        took,
     }
 }
 
@@ -296,7 +315,13 @@ async fn the_check_pushes_the_head_opens_a_pull_request_into_main_and_passes_onc
         Verdict {
             failed: None,
             by: Some("the full workflows of the commit (https://github.example/actions/runs/1000)".to_string()),
-            notes: Vec::new(),
+            notes: vec![
+                "The jobs of the full workflows, each with how it ended and its wall time:\n  \
+                 - lint: passed in 60 s https://github.example/checks/lint\n  \
+                 - test: passed in 60 s https://github.example/checks/test"
+                    .to_string()
+            ],
+            ..Verdict::default()
         }
     );
     assert_eq!(hub.pushed(), head);
@@ -447,7 +472,22 @@ async fn a_red_test_and_a_red_job_hold_the_work_and_are_said_with_what_the_test_
     let head = hub.committed().await;
     let jobs = vec![passed("lint"), check("test", Outcome::Failed("failure".into()))];
     hub.github().fast(&head, jobs, Some(("test-results", fast::junit())));
-    let failed = hub.verdict(&head).await.unwrap().unwrap().failed.expect("it failed");
+    let verdict = hub.verdict(&head).await.unwrap().unwrap();
+    let failed = verdict.failed.expect("it failed");
+    // What the full workflows found comes first, before what the test run again found.
+    let (failed, again) = failed
+        .split_once("\n\nWhat failed was run again")
+        .expect("it is run again");
+    assert!(again.contains("tools::tests::b"), "{again}");
+    // The job that did not pass is said where it failed, and the job that passed in the note: no job is told twice.
+    assert_eq!(
+        verdict.notes,
+        [
+            "The jobs of the full workflows, each with how it ended and its wall time:\n  \
+             - lint: passed in 60 s https://github.example/checks/lint"
+        ]
+    );
+    assert!(!failed.contains("- lint:"), "{failed}");
     assert!(
         failed.starts_with(&format!(
             "The full workflows ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 2 tests \
@@ -461,8 +501,38 @@ async fn a_red_test_and_a_red_job_hold_the_work_and_are_said_with_what_the_test_
     );
     assert!(!failed.contains("tools::tests::a"), "what passed is left out: {failed}");
     assert!(
-        failed.ends_with("The checks:\n- test: failed (failure) https://github.example/checks/test"),
+        failed.ends_with("The jobs:\n- test: failed (failure) in 60 s https://github.example/checks/test"),
         "{failed}"
+    );
+}
+
+#[tokio::test]
+async fn a_skipped_job_fails_nothing_and_every_job_of_a_passing_check_is_given_with_its_time() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let jobs = vec![
+        Check {
+            took: Some(192),
+            ..passed("page")
+        },
+        check("docs", Outcome::Skipped),
+        Check {
+            took: None,
+            ..passed("lint")
+        },
+    ];
+    hub.github()
+        .fast(&head, jobs, Some(("test-results", fast::junit_green())));
+    let verdict = hub.verdict(&head).await.unwrap().unwrap();
+    assert_eq!(verdict.failed, None);
+    assert_eq!(
+        verdict.notes,
+        [
+            "The jobs of the full workflows, each with how it ended and its wall time:\n  \
+             - page: passed in 192 s https://github.example/checks/page\n  \
+             - docs: did not run https://github.example/checks/docs\n  \
+             - lint: passed (GitHub gives no time for it) https://github.example/checks/lint"
+        ]
     );
 }
 
@@ -483,30 +553,77 @@ async fn a_run_that_uploads_no_junit_holds_the_work_and_a_job_that_ended_without
         .fast(&head, jobs, Some(("test-results", fast::junit_green())));
     let failed = hub.verdict(&head).await.unwrap().unwrap().failed.expect("it failed");
     assert!(
-        failed.contains("- test: ended without judging the code (cancelled)"),
-        "{failed}"
+        failed.contains("- test: ended without judging the code (cancelled) https://github.example/checks/test"),
+        "a job that did not finish says so in place of a time: {failed}"
     );
 }
 
+/// The runs GitHub was asked to cancel, in order.
+fn cancelled(hub: &Hub) -> Vec<u64> {
+    (hub.github().asked().into_iter())
+        .filter_map(|asked| match asked {
+            Asked::Cancel(run) => Some(run),
+            _ => None,
+        })
+        .collect()
+}
+
+// A full run no runner took is the engine's own to cancel, and fails the round in passing: what stops it is no work's,
+// and asked for again after a wait it may start. A project that declares no full workflows has no check, which only
+// its owner mends.
 #[tokio::test]
-async fn a_full_run_no_runner_took_fails_the_round_and_a_project_with_no_full_workflows_has_no_check() {
+async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_project_with_no_full_workflows_has_no_check()
+{
     let hub = Hub::new();
     let head = hub.committed().await;
     hub.github().no_runner();
-    let failed = hub.verdict(&head).await.expect_err("the round fails");
+    let failed = hub.failing(&head).await.expect_err("the round fails");
     assert!(
-        failed.starts_with(&format!(
+        failed.why.starts_with(&format!(
             "the run of ci.yml asked for on {head} never started: no runner took it after"
         )),
         "{failed}"
     );
+    assert!(failed.why.ends_with("and the engine cancelled it"), "{failed}");
+    assert_eq!(failed.kind, Some(Failure::Passing));
+    assert_eq!(cancelled(&hub), [1000], "the run asked for is cancelled");
     let hub = Hub::new().with(|config| config.ci.as_mut().expect("a declaration").full = None);
     let head = hub.committed().await;
-    let failed = hub.verdict(&head).await.expect_err("the round fails");
+    let failed = hub.failing(&head).await.expect_err("the round fails");
     assert_eq!(
-        failed,
+        failed.why,
         "Nothing was run: the project declares no full workflows; name the tests to run."
     );
+    assert_eq!(failed.kind, Some(Failure::Other));
+}
+
+// A full run not complete in the time the project gives it is cancelled and is what it found: the check fails, its
+// jobs not complete said so, and no round of the check is failed for it.
+#[tokio::test]
+async fn a_full_run_past_its_time_is_cancelled_and_fails_the_check_with_its_jobs_not_complete() {
+    let hub = Hub::new().with(|config| {
+        config
+            .ci
+            .as_mut()
+            .expect("a declaration")
+            .full
+            .as_mut()
+            .expect("full")
+            .too_long = "1s".to_string()
+    });
+    let head = hub.committed().await;
+    hub.github().runs_go_on();
+    let jobs = vec![passed("lint"), check("test", Outcome::Pending)];
+    hub.github()
+        .fast(&head, jobs, Some(("test-results", fast::junit_green())));
+    let verdict = hub.failing(&head).await.expect("judged").expect("nothing stopped it");
+    let failed = verdict.failed.expect("it fails");
+    assert!(
+        failed.contains("the run did not complete within 1 second, the time it may take, and the engine cancelled it"),
+        "{failed}"
+    );
+    assert!(failed.contains("- test: not complete"), "{failed}");
+    assert_eq!(cancelled(&hub), [1000]);
 }
 
 #[tokio::test]
@@ -561,8 +678,11 @@ async fn a_stopped_wait_gives_nothing() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         held.stop(1, ());
     };
-    let branch = branch(&place);
-    let (verdict, ()) = tokio::join!(hub.host.verdict(&branch, &head, hub.round(), &mut stop), stopping);
+    let (branch, main) = (branch(&place), hub.main_on_github());
+    let (verdict, ()) = tokio::join!(
+        hub.host.verdict(&branch, &head, &main, hub.round(), &mut stop),
+        stopping
+    );
     assert_eq!(verdict, Ok(None));
 }
 
@@ -653,6 +773,25 @@ async fn the_merge_refuses_a_main_that_moved_on_github_since_the_check() {
     );
 }
 
+// What GitHub's answer to a merge tells is its kind: a fault of GitHub's own passes, a refusal waits for the owner.
+#[tokio::test]
+async fn a_merge_github_fails_in_passing_or_refuses_is_of_the_kind_its_answer_tells() {
+    for (said, kind) in [
+        ("HTTP 502: Bad Gateway", Failure::Passing),
+        ("HTTP 405: At least 1 approving review is required", Failure::Other),
+    ] {
+        let hub = Hub::new();
+        let checked = hub.committed().await;
+        hub.green(&checked);
+        hub.verdict(&checked).await.unwrap().unwrap();
+        hub.github().refuse_merges(said);
+        match hub.merging(&checked).await {
+            Err(NotMerged::Failed(failed)) => assert_eq!(failed.kind, Some(kind), "{said}"),
+            other => panic!("{said}: {other:?}"),
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_merge_github_refuses_fails_the_round_in_githubs_words() {
     let hub = Hub::new();
@@ -711,7 +850,7 @@ async fn a_merge_with_no_pull_request_or_no_check_fails_the_round() {
     let place = hub.place();
     let failed = hub.host.merge(&branch(&place), None).await.expect_err("no check");
     assert!(
-        matches!(&failed, NotMerged::Failed(why) if why.contains("the flow has no check")),
+        matches!(&failed, NotMerged::Failed(why) if why.why.contains("the flow has no check")),
         "{failed:?}"
     );
 }
@@ -776,6 +915,7 @@ fn the_token_goes_to_git_in_its_environment_for_github_over_https_alone() {
 #[test]
 fn a_length_of_time_is_said_in_minutes_or_seconds() {
     assert_eq!(span(Duration::from_secs(600)), "10 minutes");
+    assert_eq!(span(Duration::from_secs(1)), "1 second");
     assert_eq!(span(Duration::from_millis(300)), "0 seconds");
 }
 
@@ -784,7 +924,15 @@ fn github_as_the_settings_say_needs_the_engines_token() {
     let repo = Repo::new("true");
     let text = "repository = \"owner/name\"\n";
     let github: settings::GitHub = toml::from_str(text).unwrap();
-    let none = GitHub::from_settings(&github, &repo.project, &repo.data, INSTALLATION, |_| None, None, None);
+    let none = GitHub::from_settings(
+        &github,
+        &repo.project,
+        &repo.data,
+        INSTALLATION,
+        |_| None,
+        None,
+        (None, None),
+    );
     let refused = none.err().expect("refused");
     assert!(refused.contains("no WF_GITHUB_TOKEN"), "{refused}");
     let given = |name: &str| (name == "WF_GITHUB_TOKEN").then(|| "the-token".to_string());
@@ -795,7 +943,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         INSTALLATION,
         given,
         Some(ci()),
-        None,
+        (None, None),
     );
     let host = host.expect("made");
     let config = &host.config;

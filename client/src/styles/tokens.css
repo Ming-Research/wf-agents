@@ -1,6 +1,6 @@
 /* The page's tokens: every colour, size and font the page uses, named once here with what it is for. The rest of the
-   page's styles use these names and write no raw value of their own. The values follow the console's graph of items
-   (look.md names which of its values each comes from), so that the views sit together as one page. */
+   page's styles use these names and write no raw value of their own. The values follow the console's graph of items, so
+   that the views sit together as one page. */
 
 :root {
   /* Type: one family for words, one for names and values; four sizes, two weights. */

@@ -23,7 +23,6 @@ use service::Handle;
 use store::WorkNumber;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::time::Instant;
-use work::Time;
 
 use crate::interface::{fail, refused};
 use crate::works::{Broken, Now, Outage, Outages, Pauser};
@@ -108,9 +107,9 @@ pub struct Asked {
 }
 
 impl Attention {
-    /// The answer as the pages read it at this time, each line with its work as it does now.
-    pub fn of(driver: &Driver, attention: &of::Attention, at: Time) -> Result<Attention, Broken> {
-        let outages = Outages::of(driver, at);
+    /// The answer as the pages read it, each line with its work as it does now.
+    pub fn of(driver: &Driver, attention: &of::Attention) -> Result<Attention, Broken> {
+        let outages = Outages::of(driver);
         // The work a line is of, with its item, and what it does now.
         let of_work = |work: WorkNumber, person: bool| -> Result<(Of, Now), Broken> {
             let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work W{}", work.0)))?;
@@ -138,7 +137,7 @@ impl Attention {
                     },
                     Heed::Agents { outage } => Line::Agents {
                         since,
-                        outage: Outage::of(outage, driver.gate(at).holds_agents()),
+                        outage: Outage::of(outage, driver.gate().holds_agents()),
                     },
                     Heed::Fault { work } => {
                         let (of, now) = of_work(*work, false)?;
@@ -217,9 +216,9 @@ pub(crate) async fn attention(State(handle): State<Handle>, asked: Result<Query<
     let mut changes = handle.changes();
     loop {
         let since = mark.clone();
-        let read = handle.read_at(move |driver, at| {
+        let read = handle.read(move |driver| {
             (driver.attention(since.as_ref()))
-                .map(|attention| Attention::of(driver, &attention, at).map(|answer| (answer, attention.mark)))
+                .map(|attention| Attention::of(driver, &attention).map(|answer| (answer, attention.mark)))
         });
         let (answer, read_to) = match read.await {
             Ok(Ok(Ok(answer))) => answer,

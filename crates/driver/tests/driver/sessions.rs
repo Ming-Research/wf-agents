@@ -525,15 +525,16 @@ fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own(
         sources: names(&[
             "answer",
             "asked",
+            "words",
             driver::DEPENDENCIES,
             "main",
             SESSION,
             "start",
+            "head",
             "tree",
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        fields: names(&["questions", "reply"]),
         details: names(&["files"]),
         ..Default::default()
     };

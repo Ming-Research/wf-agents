@@ -56,7 +56,7 @@ export function tested(...tests: Test[]): Condition[] {
 }
 
 /// A named test of these blocks, in a file of its own.
-export function test(name: string, words: string, kind: TestKind, reads: string[], is = 'yes'): Test {
+export function test(name: string, words: string, kind: TestKind, reads: string[], is: string | null = 'yes'): Test {
   return { name, words, file: `tests/${name}.toml`, kind, reads, is };
 }
 

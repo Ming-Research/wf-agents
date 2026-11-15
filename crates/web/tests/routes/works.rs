@@ -98,6 +98,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "by": { "kind": "outside" },
                         "meaning": 2,
                         "value": "merged",
+                        "saidTo": null,
                         "chars": 42,
                     }],
                 },
@@ -109,6 +110,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "by": { "kind": "person" },
                         "meaning": 3,
                         "value": null,
+                        "saidTo": null,
                         "chars": 23,
                     }],
                 },
@@ -159,8 +161,11 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "tries": [],
                         "missed": null,
                         "estimated": false,
+                        // The engine's loop runs with no policy, which a line is worked out by: nothing is judged.
+                        "judged": { "cost": null, "time": null },
                     }],
-                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null }],
+                    // A question is no call of a tool, whose time alone is judged.
+                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null, "time": null }],
                     // A return that asks ends its run, having dealt with nothing.
                     "end": { "kind": "finished", "at": 9, "time": asked, "writes": [] },
                     "spent": spent(1),
@@ -168,6 +173,19 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             ],
             // The plan's question is a call of the earlier form: no question of the work's own is asked.
             "questions": [],
+            // The owner's words run no cell of the trial flow.
+            "speaking": [
+                {
+                    "to": { "kind": "line", "line": "engineer" },
+                    "cell": null,
+                    "refused": "the owner's words run no cell of the line engineer",
+                },
+                {
+                    "to": { "kind": "line", "line": "reviewer" },
+                    "cell": null,
+                    "refused": "the owner's words run no cell of the line reviewer",
+                },
+            ],
         })
     );
 }

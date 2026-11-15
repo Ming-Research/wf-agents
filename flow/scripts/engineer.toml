@@ -42,10 +42,8 @@ cell = "D1"
 hands_in = [
     { block = "plan_owner", content = "Keep what each call took beside its result, as a round's is kept, and show both on the work's page." },
     { block = "plan_agent", content = "Give a call's result what it took; keep it in the store beside the result; sum rounds and calls into the run." },
-    { block = "questions", content = "None." },
     { block = "acceptance", content = "A call's cost shows on the work's page, is counted in the total, and outlives a restart." },
     { block = "tree_edits", content = "A decision that what a call took is kept with its result, in a table only added to." },
-    { block = "edits_tree", value = "yes" },
 ]
 
 [[flows.engineer.rounds]]
@@ -56,15 +54,15 @@ hands_in = [
     { block = "reply_plan_review", content = "Agreed: a withdrawn call takes nothing, and the plan now says so." },
 ]
 
-# Is there a better way: finds none, on the plan and on its revision.
+# Is there a better way: finds none, on the plan and on its revision, and changes nothing.
 [[flows.engineer.rounds]]
 cell = "D2"
-hands_in = [{ block = "better_found", value = "no" }]
+hands_in = []
 
 [[flows.engineer.rounds]]
 cell = "D2"
 run = 2
-hands_in = [{ block = "better_found", value = "no" }]
+hands_in = []
 
 # The plan's review: one objection to the plan, then content.
 [[flows.engineer.rounds]]
@@ -85,7 +83,8 @@ cell = "D4"
 hands_in = [{ block = "tree_ok", value = "yes" }]
 
 # Implementation: asks for the check, which ends its run, and, entered again for its result, hands in the code with a
-# decision of its own; then a fix for the review, one for the testing and one for the check before the merge.
+# decision of its own; then a fix for the review, one for the testing and one for the check before the merge, which it
+# commits: the new head runs the check again.
 [[flows.engineer.rounds]]
 cell = "I1"
 asks = [{ tool = "check", input = "the work's branch" }]
@@ -120,8 +119,8 @@ cell = "I1"
 run = 5
 hands_in = [
     { block = "code", content = "As before, with the latest main taken in and the work's migration renamed to follow main's." },
-    { block = "reply_check", content = "Fixed: the work's migration now follows the one main added." },
 ]
+commits = [{ block = "head", content = "4b8e2d1" }]
 
 # The review: objects once, then asks for adversarial testing, and keeps asking for it while the summing that made it
 # ask is in the change.

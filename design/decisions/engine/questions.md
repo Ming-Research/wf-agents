@@ -39,35 +39,37 @@ text of the diff, the change asks nothing again as main moves on; asking at ever
 turned down, as the owner would answer the same change again and again.
 
 ### decision a-protected-change-is-asked-with-the-work-s-reason-for-each-file
-The engine asks the owner of a change of the protected paths only once the work says why each file of it is needed: a
-return that does the cell's work, of a line that may change the work, is sent back for each file the branch changes
-as the round left it of which neither its `protected_changes` nor the question that stands of the file as it is says
-why, unless the owner let the file merge as it is, and nothing is asked meanwhile. A reason stands for the file as it
-then is: the question carries it above the file's change, a later version asks with it while the file is as it was, a
-file changed again needs its own, and another reason asks anew, a yes given before included. The check before the
-merge, with no return to say why, asks with what the question that stands says, and says of a file no round explained
-that it has none.
+The engine asks the owner of a change of the protected paths only once the work says why each file of it is needed: a return that does the cell's work, of a line that may change the work, is sent back for each file the branch changes as the round left it of which neither its `protected_changes` nor the question that stands says why, unless the owner let the file merge as it is. A reason stands for the file as it then is, another reason asks anew only while the question waits for its answer and never after the owner's yes to the same change, and the check before the merge, with no return to say why, asks with what the question that stands says.
 Why: The owner judges a change of what governs the agents by why the agent made it, and a question with the diff alone
 left that to guess (work 9). What the branch holds as the round ends is judged, not what that round's commits did, so
 that a change left unexplained by a round stopped, failed or sent back is the next round's to explain; a yes the owner
 gave without a reason, as to the check's question, settles it. Asking at once and adding the reason later was turned
 down: the owner would be asked of the same change twice. The reason is kept in the question, which is where the owner
-reads it and where a later round's look finds it. That a new reason takes back a yes is a judgment, with no case behind
-it: the owner answered what was said.
+reads it and where a later round's look finds it. A new reason that took back a yes asked the owner again of a change
+already let merge, only main having been merged into the branch since: the yes had been given to a question with no
+reason, and the round that then gave one asked it anew (work 9).
 
 ### decision an-answer-to-the-engines-question-runs-the-last-cell-that-takes-one
 The owner's answer to a question the engine asked is said to the last cell of the walk that has a trigger of an
-answer, whichever cell's round it was asked with; the answer to an agent's question, to the asking cell. A cell that
-writes the work's questions and that no answer runs is refused as its flow is compiled.
+answer, whichever cell's round it was asked with; the answer to an agent's question, to the asking cell; and the
+owner's words about a question, to the cell its answer goes to. A cell that writes the work's questions and that no
+answer runs, or no word of the owner's, is refused as its flow is compiled.
 Why: The engine's question is of the work, not of what a round did: asked beside a round of the tester's or of the
 check, its answer reached no cell that could act on it, and an answer to take a change back ran nothing. The last cell
-that takes an answer is the one nearest the merge that changes the work. A cell that asks and takes no answer would
-leave the owner's answer reaching no one, which would show only once a work waited on it.
+that takes an answer is the one nearest the merge that changes the work, and the one to talk the question over with.
+A cell that asks and takes no answer, or no words, would leave the owner's answer or remarks reaching no one, which
+would show only once a work waited on it: words about a question of a cell no words ran were sent to the cell before it (work
+4).
 
-### decision an-answer-is-an-entry-of-what-its-cell-reads
-The owner's answer to a question's latest version is written, in the words of the datum's own file, as the owner's
-entry of each datum the asking cell's trigger of an answer has its agent read, `answers` in the engineer's flow, as well
-as kept in the record of answers the walk reads; an answer to an earlier version is no such entry.
-Why: A cell is given what it reads as any datum, by the kind its file names, and so a session reopened holds every
-answer; a second way of giving the answer, as the result of a call once was, was turned down (design document
-`data-and-context`).
+### decision the-questions-and-the-answers-are-one-record
+Each version of a question, asked, asked anew or withdrawn, and the owner's answer to a question's latest version, is an
+entry the engine writes, in the words of the record's own file, of the record the trigger of an answer of the cell the
+answer goes to has its agent read (`q_and_a` in the engineer's flow), beside the records of questions and answers the
+walk reads; every entry says all it needs to be read alone, and an answer to an earlier version is no entry. The record
+runs no cell: the answer runs the asking cell by the block of its trigger.
+Why: Kept in the engine's own records alone, the questions were never a version of the datum a cell was given, which so
+read nothing (works 3 to 9); given apart from them, an answer could reach a cell without its question. Each cell that
+takes the record is given it whole, as any datum by the kind its file names, and so a session reopened holds every
+question with its answers; a second way of giving the answer, as the result of a call once was, was turned down
+(design document `data-and-context`). Run by the record, the cells that wrote the plan ran again for their own
+questions.

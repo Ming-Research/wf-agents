@@ -263,7 +263,9 @@ pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project) -> Result
 }
 
 /// The head of the branch checked out in the worktree and its first parent, where the head is the engine's merge of
-/// main's head at `main` made with these words, by the address `commits` gives; none where it is not.
+/// main's head at `main` made with these words, by the address `commits` gives; none where it is not. It says only
+/// that a run, or the check, made the merge before the engine stopped, which what the round is told of it rests on:
+/// whether a merge brings only main's code is known by its content alone (`crate::head`).
 pub(crate) async fn merged_as(
     dir: &Path,
     main: &str,
@@ -282,31 +284,6 @@ pub(crate) async fn merged_as(
         }
         _ => None,
     })
-}
-
-/// The first parent of the commit, the branch's side, where the commit is a merge of main the engine made into a
-/// work's branch, known as [`merged_as`] knows one: by its address, its words, and the head of main it merged, its
-/// second parent; the check's words, or a run's as it started, of any run.
-pub(crate) async fn engine_merge(project: &Project, commit: &str) -> Result<Option<String>, String> {
-    let line = git(&project.repo, &["log", "-1", "--format=%ae%x00%P%x00%s", commit]).await?;
-    let fields: Vec<&str> = line.split('\0').collect();
-    let [email, parents, subject] = fields.as_slice() else {
-        return Ok(None);
-    };
-    let parents: Vec<&str> = parents.split(' ').collect();
-    let [first, merged] = parents.as_slice() else {
-        return Ok(None);
-    };
-    if *email != project.commits.email {
-        return Ok(None);
-    }
-    let by_check = *subject == taking_in(project, merged);
-    let run = fill(&project.commits.run, &[("main", &project.main), ("head", merged)]);
-    let by_run = run.split_once("{run}").is_some_and(|(before, after)| {
-        let number = subject.strip_prefix(before).and_then(|rest| rest.strip_suffix(after));
-        number.is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
-    });
-    Ok((by_check || by_run).then(|| first.to_string()))
 }
 
 /// Merges main's head at `main` into the branch checked out in the worktree, which merges it without a conflict, as a
@@ -390,7 +367,7 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
     let repo = &project.repo;
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
     if on != project.main {
-        return Err(NotMerged::Failed(format!(
+        return Err(NotMerged::refused(format!(
             "the repository's checkout {} is on {on}, not on the main branch {}",
             repo.display(),
             project.main
@@ -398,7 +375,7 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
     }
     let changes = git(repo, &["status", "--porcelain", "--untracked-files=no"]).await?;
     if !changes.is_empty() {
-        return Err(NotMerged::Failed(format!(
+        return Err(NotMerged::refused(format!(
             "the repository's checkout {} has changes that are not committed:\n{changes}",
             repo.display()
         )));
@@ -410,7 +387,7 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
             .map(|s| s.ok)
     };
     if merging().await? {
-        return Err(NotMerged::Failed(format!(
+        return Err(NotMerged::refused(format!(
             "a merge is under way in the repository's checkout {}",
             repo.display()
         )));
@@ -419,7 +396,7 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
     if let Some(checked) = checked
         && head != checked
     {
-        return Err(NotMerged::Failed(format!(
+        return Err(NotMerged::refused(format!(
             "the branch {} is at {head}, not at {checked}, the commit the check passed: the work is checked again \
              before it merges",
             place.reference()

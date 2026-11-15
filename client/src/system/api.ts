@@ -16,7 +16,7 @@ import { createContext, useContext } from 'react';
 
 import { read } from '../api';
 import { usesFixtures } from '../mock-data';
-import type { Failure, Refusal, Spent } from '../works-api';
+import type { Against, Failure, Judged, Line, Refusal, Spent } from '../works-api';
 
 export interface Week {
   /// When it begins, as the page gave it.
@@ -118,6 +118,60 @@ export interface System {
   added: Added[];
   sentBack: RoundAt[];
   failed: FailedRound[];
+  /// What ended in the span past the line of its history, the latest first.
+  past: Past[];
+  /// The rounds and the calls of tools under way now, the oldest first.
+  underWay: UnderWay[];
+}
+
+/// What ended past the line of its history: a round whose cost or time went past its line, and a call of a tool whose
+/// time did.
+export type Past =
+  | { kind: 'round'; work: number; item: number; cell: string; run: number; round: number; ended: number; judged: Judged }
+  | {
+      kind: 'call';
+      work: number;
+      item: number;
+      cell: string;
+      run: number;
+      call: number;
+      tool: string;
+      done: number;
+      time: Against;
+    };
+
+/// What is under way, with how long it has taken so far against its line, where enough of its kind tell one, and an
+/// agent's round with the other lines it is judged by as it runs.
+export type UnderWay =
+  | {
+      kind: 'round';
+      work: number;
+      item: number;
+      cell: string;
+      run: number;
+      round: number;
+      began: number;
+      time: Against | null;
+      bounds: Bounds | null;
+    }
+  | {
+      kind: 'call';
+      work: number;
+      item: number;
+      cell: string;
+      run: number;
+      call: number;
+      tool: string;
+      made: number;
+      time: Against | null;
+    };
+
+/// The lines an agent's round under way is judged by beside its time: what its context grows by over the round and
+/// for each call after the first, and what it costs among the rounds on its model.
+export interface Bounds {
+  added: Line | null;
+  rate: Line | null;
+  cost: Line | null;
 }
 
 /// What kind of value the page may change a key to: a name on one line, a whole number, or one of the levels.

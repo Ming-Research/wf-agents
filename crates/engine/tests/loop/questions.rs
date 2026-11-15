@@ -451,22 +451,26 @@ fn what_stands_for_the_questions_and_the_answers_is_the_engine_s_alone_to_write(
 }
 
 /// A flow laid out one thing to a file: a cell `ask` that what people ask for and the owner's answers to it run, its
-/// agent reading the record `answers` for an answer, which the engine writes in the words of its file; and the merge.
+/// agent reading for an answer the record `q_and_a` of the questions and the answers, each entry of which the engine
+/// writes in the words of its file; and the merge.
 fn laid_out() -> Compiled {
-    let flow = "name = \"laid\"\norder = [\"ask\", \"merge\"]\ndata = [\"request\", \"answers\"]\n\
+    let flow = "name = \"laid\"\norder = [\"ask\", \"merge\"]\ndata = [\"request\", \"q_and_a\"]\n\
                 [limits]\nruns = 3\nreturns = 2\ncalls = 3\n";
     let ask = "title = \"Ask\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Plan, and ask.\"\n\
-               triggered_by = [\"on_request\", \"on_answer\"]\ncontext = [\"request\", \"answers\"]\n\
-               outputs = [\"plan\"]\n[kinds]\nrequest = \"latest\"\nanswers = \"all\"\n";
+               triggered_by = [\"on_request\", \"on_answer\"]\ncontext = [\"request\", \"q_and_a\"]\n\
+               outputs = [\"plan\"]\n[kinds]\nrequest = \"latest\"\nq_and_a = \"all\"\n";
     let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ntriggered_by = [\"on_plan\"]\n";
     let files = [
         ("lines/main.toml", ""),
         ("blocks/plan.toml", "shown = true\n"),
         ("../data/request.toml", "from = \"owner\"\n"),
         (
-            "../data/answers.toml",
-            "from = \"owner\"\nshown = true\n[writes]\ntext = \"{question}, {version}: {option}, {does}.{why}\"\n\
-             why = \" Why: {why}\"\n",
+            "../data/q_and_a.toml",
+            "from = \"answer\"\nshown = true\n[writes]\ntext = \"{question}, {version}: {option}, {does}.{why}\"\n\
+             why = \" Why: {why}\"\nasked = \"{question}, {version}: {ask}{options}{recommends}{waits}\"\n\
+             asked_anew = \"{question}, {version} for {was}: {ask}{options}{recommends}{waits}\"\n\
+             option = \" [{option}. {does}]\"\nrecommends = \" Recommends {option}.\"\nwaits = \" Waits.\"\n\
+             goes_on = \" Goes on.\"\nwithdrawn = \"{question}, {version}: {was} withdrawn.{why}\"\n",
         ),
         (
             "../triggers/of_a_datum/changed.toml",
@@ -474,7 +478,7 @@ fn laid_out() -> Compiled {
         ),
         (
             "../triggers/of_a_cell/on_answer.toml",
-            "block = \"{cell}_answered\"\nfrom = \"answer\"\nread = [\"answers\"]\n",
+            "block = \"{cell}_answered\"\nfrom = \"answer\"\nread = [\"q_and_a\"]\n",
         ),
     ];
     let source = Source {
@@ -492,8 +496,11 @@ fn laid_out() -> Compiled {
     compile(&source, &has(&["answer"])).unwrap_or_else(|faults| panic!("the flow does not compile: {faults:#?}"))
 }
 
+// Each version of a question and each answer to a question's latest version is an entry of the record of the questions
+// and the answers the asking cell reads for its trigger of an answer, a version the engine writes; an answer to an
+// earlier version is none, and the answer runs the asking cell alone, by its trigger's block.
 #[test]
-fn an_answer_to_the_latest_version_is_the_owners_entry_in_what_the_asking_cell_reads_for_it() {
+fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record_the_asking_cell_reads() {
     let mut w = W {
         flow: laid_out(),
         work: Work::default(),
@@ -508,27 +515,36 @@ fn an_answer_to_the_latest_version_is_the_owners_entry_in_what_the_asking_cell_r
     let version = w.version("which");
     let entries = |w: &W| -> Vec<String> {
         (w.work.records.written.iter())
-            .filter(|e| e.block.as_str() == "answers" && e.by == Outsider::Person)
-            .map(|e| w.work.contents[&(BlockId::from("answers"), e.at)].clone())
+            .filter(|e| e.block.as_str() == "q_and_a" && e.by == Outsider::Outside)
+            .map(|e| w.work.contents[&(BlockId::from("q_and_a"), e.at)].clone())
             .collect()
     };
+    // The question is the record's first entry, with its options, the one it recommends and whether it waits.
+    let question = format!(
+        "which, {}: Which way for which? [1. the short way] [2. the long way] Recommends 1. Goes on.",
+        version.0
+    );
+    assert_eq!(entries(&w), vec![question.clone()]);
     // The option the work goes by: the entry is written, and the cell is not run.
     w.answers("which", version, 1);
     assert_eq!(
         entries(&w),
-        [format!("which, {}: 1, the short way. Why: Option 1.", version.0)]
+        [
+            question,
+            format!("which, {}: 1, the short way. Why: Option 1.", version.0)
+        ]
     );
     assert_eq!(w.written("ask_answered"), 0);
     // Another option: the entry, and the cell's block of an answer, which stops the merge's round under way.
     let effects = w.answers("which", version, 2);
-    assert_eq!(entries(&w).len(), 2);
+    assert_eq!(entries(&w).len(), 3);
     assert_eq!(w.written("ask_answered"), 1);
     let [Effect::Stop { run: merging }] = effects.as_slice() else {
         panic!("the merge's round is not stopped: {effects:?}");
     };
     w.returns(*merging, Came::hands_in(Vec::new()));
-    // Asked anew, an answer to the earlier version is kept in the owner's record, and is no entry of what the cell
-    // reads.
+    // Asked anew, the new version is an entry that says which it replaces; an answer to the earlier version is kept
+    // in the owner's record, and is no entry of what the cell reads.
     let again = (w.work.records.started.iter())
         .rfind(|s| s.cell.as_str() == "ask")
         .expect("the cell runs again")
@@ -536,8 +552,12 @@ fn an_answer_to_the_latest_version_is_the_owners_entry_in_what_the_asking_cell_r
     let mut asked_anew = Came::works(vec!["ask_answered".into()], Vec::new());
     asked_anew.said.questions = vec![asked("which", false)];
     w.returns(again, asked_anew);
-    assert!(w.version("which") > version);
+    let anew = w.version("which");
+    assert!(anew > version);
+    assert_eq!(entries(&w).len(), 4);
+    let replaces = format!("which, {} for {}: Which way for which?", anew.0, version.0);
+    assert!(entries(&w)[3].starts_with(&replaces), "{:?}", entries(&w));
     w.answers("which", version, 2);
-    assert_eq!(entries(&w).len(), 2);
+    assert_eq!(entries(&w).len(), 4);
     assert_eq!(w.work.records.answers.len(), 3);
 }

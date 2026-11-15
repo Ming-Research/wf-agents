@@ -125,6 +125,34 @@ fn a_new_work_loads_with_nothing_kept_of_it() {
 }
 
 #[test]
+fn a_write_said_to_a_cell_loads_back_said_to_it() {
+    // As the owner's entry of the record of what is said is kept: with the cell the words were given to, beside a write
+    // said to none.
+    let mut store = Store::in_memory().expect("the store opens");
+    let number = first_work(&mut store);
+    let mut work = Work::default();
+    for said_to in [Some("judge"), None] {
+        let at = work.tick();
+        (work.contents).insert(("discussion".into(), at), "The owner:\n\nShorter.".to_string());
+        work.records.written.push(Written {
+            block: "discussion".into(),
+            by: Outsider::Outside,
+            matters: true,
+            value: None,
+            said_to: said_to.map(Into::into),
+            empty: false,
+            at,
+        });
+    }
+    store.save(number, &work).expect("the work is saved");
+    let loaded = store.load(number).expect("the work loads");
+    let said: Vec<Option<&str>> = (loaded.records.written.iter())
+        .map(|w| w.said_to.as_ref().map(|c| c.as_str()))
+        .collect();
+    assert_eq!(said, [Some("judge"), None]);
+}
+
+#[test]
 fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_what_filled_their_sessions() {
     let new = of_the_new_form();
     // They are records a work can have.

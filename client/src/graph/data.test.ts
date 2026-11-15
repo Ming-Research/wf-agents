@@ -52,7 +52,7 @@ describe('the trunks of the arrows a write runs', () => {
       'D2 plan > D4; I1',
       'D2 acceptance > T2',
       'I1 acceptance, reply_testing > T2',
-      'I1 code, reply_check > M1',
+      'I1 code > M1',
     ]);
   });
 });

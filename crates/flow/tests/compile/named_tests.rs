@@ -1,7 +1,9 @@
 //! The named tests: each a cell uses is declared, each declared is used and reads choices that offer the value it
-//! looks for, and a cell uses none that reads what the cell writes or what nothing before it writes.
+//! looks for, or, of a test of content, any declared block and no value, and a cell uses none that reads what the cell
+//! writes or what nothing before it writes.
 
-use flow::{FLOW_FILE, FaultKind::*};
+use decide::{BlockId, TestName};
+use flow::{FLOW_FILE, FaultKind::*, TestKind};
 
 use crate::support::{at, compiled, edit, faults, unreadable, valid};
 
@@ -69,6 +71,45 @@ fn a_test_no_cell_uses_makes_nothing_it_reads_read() {
             at(FLOW_FILE, "tests.extra", unused),
         ]
     );
+}
+
+/// The test the answer to comments runs by, made one of content reading the choice and the comments people write.
+const HAS_COMMENT: &str = "kind = \"any\"\nreads = [\"commented\"]\nis = \"yes\"";
+const OF_CONTENT: &str = "kind = \"any_content\"\nreads = [\"commented\", \"comments\"]";
+
+#[test]
+fn a_test_of_content_reads_any_declared_block_and_looks_for_no_value() {
+    let source = edit(valid(), FLOW_FILE, HAS_COMMENT, OF_CONTENT);
+    let flow = compiled(&source);
+    let test = &flow.flow.tests()[&TestName::from("has_comment")];
+    assert_eq!(test.kind, TestKind::AnyContent);
+    assert_eq!(test.reads, [BlockId::from("commented"), BlockId::from("comments")]);
+    assert_eq!(test.is, None);
+    // One that names a value is refused there, and so is one that reads a block the flow does not declare.
+    let named = edit(
+        source.clone(),
+        FLOW_FILE,
+        OF_CONTENT,
+        &format!("{OF_CONTENT}\nis = \"yes\""),
+    );
+    let what = ContentTestNamesValue {
+        test: "has_comment".to_string(),
+    };
+    assert_eq!(faults(&named), [at(FLOW_FILE, "tests.has_comment.is", what)]);
+    let ghost = edit(source, FLOW_FILE, "\"comments\"]", "\"comments\", \"ghost\"]");
+    let what = NoSuchBlock {
+        block: "ghost".to_string(),
+    };
+    assert_eq!(faults(&ghost), [at(FLOW_FILE, "tests.has_comment.reads[2]", what)]);
+}
+
+#[test]
+fn a_test_of_a_value_names_the_value_it_looks_for() {
+    let source = edit(valid(), FLOW_FILE, "reads = [\"ci\"]\nis = \"red\"", "reads = [\"ci\"]");
+    let what = TestNamesNoValue {
+        test: "may_merge".to_string(),
+    };
+    assert_eq!(faults(&source), [at(FLOW_FILE, "tests.may_merge.is", what)]);
 }
 
 #[test]
