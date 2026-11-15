@@ -1,32 +1,35 @@
 //! A text of the flow's files as it is sent: what is written as written, and each place filled in a run apart, so that
 //! one text serves the engine, which fills every place, and the page, which shows the places open. The pieces are the
-//! system prompt's ([`flow::system`]), so that the page shows every text sent alike.
+//! system prompt's ([`flow::system`]), so that the page shows every text sent alike, and a text that is not the flow's
+//! words is set apart as the system prompt sets a file of the project apart ([`fenced`]).
 
-pub use flow::system::{Piece, as_written, fill, join, with_slots, written};
+pub use flow::system::{Piece, as_written, fenced, fill, filled, join, with_slots, written};
 
-/// Pieces with the places these give filled, as [`fill`] fills them.
-pub fn filled(pieces: Vec<Piece>, known: &[(&str, &str)]) -> Vec<Piece> {
-    let pieces = (pieces.into_iter())
-        .map(|piece| match &piece {
-            Piece::Slot { name } => match known.iter().find(|(k, _)| k == name) {
-                Some((_, value)) => Piece::Text {
-                    text: value.to_string(),
-                },
-                None => piece,
-            },
-            Piece::Text { .. } => piece,
-        })
-        .collect();
-    join(pieces)
-}
-
-/// Pieces with each place of this name replaced by these pieces, which are not looked into again.
+/// Pieces with each place of this name replaced by these pieces, which are not looked into again; what follows the
+/// place follows them as a place filled with them would be followed ([`flow::agents::after`]).
 pub fn put(pieces: Vec<Piece>, name: &str, with: &[Piece]) -> Vec<Piece> {
-    let mut out = Vec::new();
-    for piece in pieces {
-        match &piece {
-            Piece::Slot { name: n } if n == name => out.extend(with.iter().cloned()),
-            _ => out.push(piece),
+    let put_here = |piece: &Piece| matches!(piece, Piece::Slot { name: n } if n == name);
+    // What a place put here ends with, where the pieces put end in a text.
+    let ends = match with.last() {
+        Some(Piece::Text { text }) => Some(text.as_str()),
+        _ => None,
+    };
+    let mut out: Vec<Piece> = Vec::new();
+    for (at, piece) in pieces.iter().enumerate() {
+        let before = at.checked_sub(1).is_some_and(|b| put_here(&pieces[b]));
+        match (piece, ends) {
+            _ if put_here(piece) => out.extend(with.iter().cloned()),
+            (Piece::Text { text }, Some(value)) if before => {
+                // What follows the words: the next place, as written, or what this puts there.
+                let then = pieces.get(at + 1).map(|next| match next {
+                    Piece::Slot { .. } if put_here(next) => as_written(with),
+                    next => as_written(std::slice::from_ref(next)),
+                });
+                out.push(Piece::Text {
+                    text: flow::agents::after(value, text, then.as_deref()).to_string(),
+                });
+            }
+            (piece, _) => out.push(piece.clone()),
         }
     }
     join(out)
@@ -42,6 +45,25 @@ mod tests {
 
     fn slot(name: &str) -> Piece {
         Piece::Slot { name: name.into() }
+    }
+
+    // Pieces put in a place are followed as a place filled with them is: a stop after them is left out where they end a
+    // sentence and nothing or a space follows it, and stays where a place left open does.
+    #[test]
+    fn what_follows_pieces_put_in_a_place_follows_them_as_a_filled_place() {
+        assert_eq!(
+            as_written(&put(with_slots("{d}. Next"), "d", &[text("Done.")])),
+            "Done. Next"
+        );
+        assert_eq!(as_written(&put(with_slots("{d}."), "d", &[text("Done?")])), "Done?");
+        assert_eq!(
+            as_written(&put(with_slots("{d}.{e}"), "d", &[text("Done.")])),
+            "Done..{e}"
+        );
+        assert_eq!(
+            as_written(&put(with_slots("{d}. Next"), "d", &[text("Done")])),
+            "Done. Next"
+        );
     }
 
     #[test]

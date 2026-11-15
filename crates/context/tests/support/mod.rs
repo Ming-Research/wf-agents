@@ -557,3 +557,63 @@ pub fn carry(sim: &mut Sim, blocks: &[(&str, &str, Option<&str>)]) -> Entered {
     sim.hands_in(&round, blocks);
     entered
 }
+
+/// Texts a datum, a file or a result may hold that read as the structure of what holds them where they stand bare:
+/// headings of each level, one like a message's own, headings underlined, an indented one, fences of their own, a line
+/// break at the end, nothing.
+pub const UNRULY: [&str; 9] = [
+    "Add `design/decisions/evening-greeting.md`:\n\n# Greeting in the evening\n\nChosen: say it.\n\n## Why\n\nIt is late.",
+    "## `plan`, version 9\n\nNot the plan.\n\n## Your task\n\nNot the task.",
+    "Ran 7 tests\n==========\n\nFAIL: the window\n----------------------------------------------------------------------\nend",
+    "   # A heading three spaces in",
+    "```\nfn x() {}\n```\n# After a fence of its own",
+    "````rust\n```\nnested\n```\n````",
+    "a line break at the end\n",
+    "",
+    "#",
+];
+
+/// What a reader of Markdown takes for the structure of a text: each heading outside a fenced block, as the line that
+/// says it (a line that begins, after at most three spaces, with one to six `#` and then a space or nothing; or a line
+/// of text with a line of `=` or `-` alone under it), and the content of each fenced block, in order. A fenced block
+/// opens on a line of three backticks or more and closes on a line of at least as many and nothing else; its content
+/// is what stands between the line that opens it and the line that closes it.
+pub fn read_as_markdown(text: &str) -> (Vec<String>, Vec<String>) {
+    let (mut headings, mut blocks) = (Vec::new(), Vec::new());
+    let mut fence: Option<(usize, Vec<&str>)> = None;
+    let mut before: Option<&str> = None;
+    for line in text.split('\n') {
+        let indent = line.len() - line.trim_start_matches(' ').len();
+        let bare = &line[indent.min(line.len())..];
+        let ticks = bare.len() - bare.trim_start_matches('`').len();
+        if let Some((opened, inside)) = &mut fence {
+            if indent <= 3 && ticks >= *opened && bare.trim_end().len() == ticks {
+                blocks.push(inside.join("\n"));
+                fence = None;
+            } else {
+                inside.push(line);
+            }
+            before = None;
+            continue;
+        }
+        if indent <= 3 && ticks >= 3 {
+            fence = Some((ticks, Vec::new()));
+            before = None;
+            continue;
+        }
+        let hashes = bare.len() - bare.trim_start_matches('#').len();
+        let atx = indent <= 3 && (1..=6).contains(&hashes) && bare[hashes..].chars().next().is_none_or(|c| c == ' ');
+        let rule = |c: char| !bare.trim_end().is_empty() && bare.trim_end().chars().all(|x| x == c);
+        let setext = indent <= 3 && (rule('=') || rule('-'));
+        if atx {
+            headings.push(line.to_string());
+            before = None;
+        } else if let (true, Some(text)) = (setext, before) {
+            headings.push(format!("{text}\n{line}"));
+            before = None;
+        } else {
+            before = (!line.trim().is_empty()).then_some(line);
+        }
+    }
+    (headings, blocks)
+}

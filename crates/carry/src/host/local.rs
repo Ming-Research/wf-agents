@@ -75,7 +75,8 @@ impl Local {
         } else {
             fill(&words.failed, &[("status", &status.to_string())])
         };
-        let said = String::from_utf8_lossy(&stdout);
+        // What the check said is set apart from the words around it, as a test's output on GitHub is.
+        let said = flow::system::fenced(String::from_utf8_lossy(&stdout).trim_end());
         Ok(Some(fill(
             &words.ran,
             &[("command", check), ("outcome", &outcome), ("said", &said)],
