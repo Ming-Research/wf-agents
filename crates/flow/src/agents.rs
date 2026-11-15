@@ -1,10 +1,10 @@
-//! What the engine says to every agent, whatever the flow, as it is written beside the flows: the project's files and
-//! settings (`project.toml`), and in `agents/` what a session begins with, the rules for the agents, the engine's own
-//! words, the return and its fields, the tools, the message a cell is sent as it is entered (design document
-//! `data-and-context`, 51), and what the engine writes as it works: into the blocks its acts write, and in the commits
-//! it makes. Every word an agent is sent that is not a flow's is in these files; the code holds none of them, only how
-//! they are put together. A field a file does not know is refused, and what cannot be read is said with the path of
-//! its file.
+//! What the engine says to every agent, whatever the flow, as it is written beside the flows: the project's files,
+//! settings and heavy commands (`project.toml`), and in `agents/` what a session begins with, what every agent is
+//! refused whatever its project, the rules for the agents, the engine's own words, the return and its fields, the
+//! tools, the message a cell is sent as it is entered (design document `data-and-context`, 51), and what the engine
+//! writes as it works: into the blocks its acts write, and in the commits it makes. Every word an agent is sent that is
+//! not a flow's is in these files; the code holds none of them, only how they are put together. A field a file does
+//! not know is refused, and what cannot be read is said with the path of its file.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -22,8 +22,8 @@ pub const AGENTS_DIR: &str = "agents";
 pub const PROJECT_FILE: &str = "project.toml";
 
 /// A project's declaration, the same file as [`PROJECT_FILE`], by its path from the root of the project's repository:
-/// each project an installation names declares its files, its settings, its tests and its workflows there, and the
-/// works of its items are run with it in place of the one beside the flows.
+/// each project an installation names declares its files, its settings, its tests, its workflows and its heavy commands
+/// there, and the works of its items are run with it in place of the one beside the flows.
 pub const DECLARATION: &str = "flow/project.toml";
 
 /// The file, from the directory that holds the flows, that names the sets of rules for the agents, each by its name
@@ -40,6 +40,9 @@ pub const COMMITS_FILE: &str = "commits.toml";
 /// The file, in `agents/`, of what the texts beside the flows take from the installation: the settings of it they may
 /// name, and what a tool's result says where the work's item belongs to no project the installation names.
 pub const INSTALLATION_FILE: &str = "installation.toml";
+
+/// The file, in `agents/`, of what every agent is refused whatever its project.
+pub const REFUSED_FILE: &str = "refused.toml";
 
 /// The file, in `agents/`, of what the place `{your_line}` in the engine's words says: what the line may do in the
 /// worktree.
@@ -83,6 +86,8 @@ pub struct Agents {
     pub your_line: YourLine,
     /// What the texts take from the installation: `agents/installation.toml`.
     pub installation: Installation,
+    /// What every agent is refused whatever its project: [`REFUSED_FILE`].
+    pub refused: Commands,
     /// The sets of rules for the agents, by name, as `agents/rules/rules.toml` names them, each with its text.
     pub rules: BTreeMap<String, RuleSet>,
     pub returns: Return,
@@ -190,7 +195,7 @@ impl Agents {
 }
 
 /// `project.toml`: what is the project's: its design tree, its files the engine gives every agent, its settings the words
-/// sent to the agents may name, its tests and its workflows.
+/// sent to the agents may name, its tests, its workflows, and its heavy commands, which no agent runs.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
@@ -208,6 +213,9 @@ pub struct Project {
     /// The paths the project protects; none where it protects none.
     #[serde(default)]
     pub protected: Protected,
+    /// The project's heavy commands, which no agent runs. A declaration names them, none where its project has none,
+    /// so that one that leaves them out is refused rather than taken to refuse nothing.
+    pub heavy: Commands,
 }
 
 /// The paths of the project's checkout that govern its agents, which the owner changes (principles
@@ -218,6 +226,14 @@ pub struct Project {
 pub struct Protected {
     /// Each path from the root of the checkout: a file, or a directory, ending in `/`, and everything in it.
     pub paths: Vec<String>,
+}
+
+/// Commands, each a command with the start of its arguments: what every agent is refused whatever its project
+/// ([`REFUSED_FILE`]), and a project's heavy commands (`[heavy]` of its declaration).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Commands {
+    pub commands: Vec<String>,
 }
 
 /// `[tests]` of `project.toml`.
@@ -1197,6 +1213,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         words,
         your_line: file(&at.join(YOUR_LINE_FILE))?,
         installation: file(&at.join(INSTALLATION_FILE))?,
+        refused: file(&at.join(REFUSED_FILE))?,
         rules,
         returns,
         sent_back: file(&at.join("return").join("sent_back.toml"))?,

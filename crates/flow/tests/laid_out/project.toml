@@ -14,3 +14,6 @@ research = "research/"
 
 [protected]
 paths = ["AGENTS.md", "flow/"]
+
+[heavy]
+commands = ["cargo", "npm"]

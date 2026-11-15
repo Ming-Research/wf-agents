@@ -1,8 +1,9 @@
 //! The projects of the installation, as the carriers carry their works out. An item belongs to one project, whose
 //! repository its works run in: each project has its own settings, its own host, and its own declaration,
 //! `flow/project.toml` on its main as its host last gave it ([`flow::agents::DECLARATION`]), which takes the place of
-//! the one beside the flows in what its works' agents are given: its design tree, its files, its settings, its tests and
-//! its workflows. What is beside the flows is otherwise the same for every project, and read once.
+//! the one beside the flows in what its works' agents are given: its design tree, its files, its settings, its tests,
+//! its workflows, and its heavy commands, which its agents are refused. What is beside the flows is otherwise the same
+//! for every project, and read once, what every agent is refused whatever its project (`agents/refused.toml`) among it.
 //!
 //! The acts and the tools of each project are its own, on its host; what the loop gives them reaches the project of the
 //! work's item ([`ByProject`]). A work whose item has no project these settings name has its round fail, saying so, and
@@ -33,8 +34,10 @@ pub struct Declared {
 }
 
 /// Each project the settings name whose declaration can be read, by its name, with its declaration; and every fault
-/// found, each said with the projects' keys: a declaration that cannot be read from its project's main, and two
-/// projects that name one repository, whose main, branches and merges they would share.
+/// found, each said with the projects' keys: a declaration that cannot be read from its project's main, a heavy command
+/// of it that names nothing or holds a `*` or a parenthesis, or that a lock command of the settings would allow whole
+/// ([`crate::permissions::heavy_faults`]), and two projects that name one repository, whose main, branches and merges
+/// they would share.
 pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap<String, Declared>, Vec<String>) {
     let mut faults = Vec::new();
     let mut by_repository: BTreeMap<PathBuf, Vec<&str>> = BTreeMap::new();
@@ -59,6 +62,8 @@ pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap
                 continue;
             }
         };
+        let wrong = crate::permissions::heavy_faults(&beside.project, &settings.agents.permissions);
+        faults.extend(wrong.into_iter().map(|fault| format!("projects.{name}: {fault}")));
         if project.github.is_none() {
             local_words(&mut beside);
         }

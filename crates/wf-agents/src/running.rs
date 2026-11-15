@@ -453,17 +453,20 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
 }
 
 /// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
-/// their words beside the flows; what the texts sent to the agents name and hold ([`carry::system::faults`]); and of each
-/// project, its declaration on its main and its files every system prompt holds there, where works branch from
-/// ([`carry::system::project_files`]), and two projects in one repository, each said with the projects' keys. The texts
-/// are the flows', the same for every project but for what a project's declaration gives them: a fault every project's
-/// texts have is said once, and one only some have is said with their keys.
+/// their words beside the flows; what every agent is refused whatever its project, beside the flows, and the lock
+/// commands of the settings against it ([`carry::permissions::faults`]), the same for every project and said once; what
+/// the texts sent to the agents name and hold ([`carry::system::faults`]); and of each project, its declaration on its
+/// main, its heavy commands and the lock commands against them, and its files every system prompt holds there, where
+/// works branch from ([`carry::system::project_files`]), and two projects in one repository, each said with the
+/// projects' keys. The texts are the flows', the same for every project but for what a project's declaration gives
+/// them: a fault every project's texts have is said once, and one only some have is said with their keys.
 fn start_faults(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Compiled]) -> Vec<String> {
     let mut faults: Vec<String> = (flows.iter())
         .flat_map(|flow| carry::faults(flow, &beside.acts.check.values))
         .collect();
     let words = carry::word_faults(&beside.acts.check).into_iter();
     faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
+    faults.extend(carry::permissions::faults(beside, &settings.agents.permissions));
     let (declared, wrong) = carry::projects::declared(settings, beside);
     faults.extend(wrong);
     let mut of_texts: Vec<(String, Vec<&str>)> = Vec::new();
@@ -604,16 +607,16 @@ mod tests {
         settings
     }
 
-    // Every project's faults are said at once: a declaration main does not hold does not keep the others from being
-    // looked at, and two projects that name one repository are refused.
+    // Every project's faults are said at once, each with its project's key: a declaration main does not hold, or one
+    // that names no heavy commands, does not keep the others from being looked at; two projects that name one
+    // repository are refused, and so is a lock command of the settings that a project's heavy command falls under
+    // whole. A lock command that falls under what every agent is refused is no project's fault, and is said once.
     #[test]
-    fn every_projects_fault_is_said_at_once_and_two_projects_in_one_repository_are_refused() {
+    fn every_projects_fault_is_said_at_once_with_its_key_and_one_of_no_project_once() {
         let dir = tempfile::tempdir().expect("a directory");
         let mut settings = settings(dir.path());
+        settings.agents.permissions.locks = vec!["git push".to_string(), "cargo".to_string()];
         let example = settings.projects["example"].clone();
-        let other = dir.path().join("other");
-        std::fs::create_dir_all(&other).unwrap();
-        git(&other, &["init", "-q", "-b", "main"]);
         let who = [
             "-c",
             "user.name=Tester",
@@ -622,28 +625,58 @@ mod tests {
             "-c",
             "commit.gpgsign=false",
         ];
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        git(&other, &["init", "-q", "-b", "main"]);
         git(
             &other,
             &[&who[..], &["commit", "-q", "--allow-empty", "-m", "Empty"][..]].concat(),
         );
-        let mut undeclared = example.clone();
-        undeclared.repo = other;
-        settings.projects.insert("other".to_string(), undeclared);
+        // The repository's own declaration, less its heavy commands.
+        let lacking = dir.path().join("lacking");
+        std::fs::create_dir_all(lacking.join("flow")).unwrap();
+        git(&lacking, &["init", "-q", "-b", "main"]);
+        let declared = std::fs::read_to_string(flows().join("project.toml")).unwrap();
+        let (unheavy, _) = declared
+            .split_once("\n[heavy]\n")
+            .expect("the declaration names its heavy commands");
+        std::fs::write(lacking.join(flow::agents::DECLARATION), unheavy).unwrap();
+        git(&lacking, &["add", "."]);
+        git(&lacking, &[&who[..], &["commit", "-q", "-m", "Declared"][..]].concat());
+        for (name, repo) in [("other", other), ("lacking", lacking)] {
+            let mut project = example.clone();
+            project.repo = repo;
+            settings.projects.insert(name.to_string(), project);
+        }
         settings.projects.insert("same".to_string(), example);
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
         let faults = start_faults(&settings, &beside, &[engineer()]);
-        assert_eq!(faults.len(), 2, "{faults:?}");
+        let cargo = "agents.permissions.locks: \"cargo\" would allow all of the heavy command \"cargo\" \
+                     (flow/project.toml [heavy])";
+        assert_eq!(faults.len(), 6, "{faults:?}");
+        assert_eq!(
+            faults[0],
+            "agents.permissions.locks: \"git push\" falls under \"git push\", which every agent is refused \
+             (flow/agents/refused.toml)"
+        );
         assert!(
-            faults[0].starts_with("projects.example, projects.same: name one repository, "),
+            faults[1].starts_with("projects.example, projects.same: name one repository, "),
+            "{faults:?}"
+        );
+        assert_eq!(faults[2], format!("projects.example: {cargo}"));
+        assert!(
+            faults[3].starts_with("projects.lacking: refs/heads/main:flow/project.toml: ")
+                && faults[3].contains("missing field `heavy`"),
             "{faults:?}"
         );
         assert!(
-            faults[1].starts_with(
+            faults[4].starts_with(
                 "projects.other: refs/heads/main:flow/project.toml, the project's declaration on main where works \
                  branch from, cannot be read: "
             ),
             "{faults:?}"
         );
+        assert_eq!(faults[5], format!("projects.same: {cargo}"));
     }
 
     // The flows given are beside one directory, whose files every flow shares; flows from two are refused.
@@ -723,8 +756,8 @@ mod tests {
         let sample = include_str!("../../carry/install.sample.toml")
             .replace("work_budget_usd = 5.0", "work_budget_usd = 5")
             .replace(
-                "permissions = { heavy = [\"uv\"], locks = [\"uv lock\"], locks_except = [\"uv lock *--script*\"] }",
-                "permissions = { heavy = [\"uv\"] }",
+                "permissions = { locks = [\"uv lock\"], locks_except = [\"uv lock *--script*\"] }",
+                "permissions = { locks = [\"uv lock\"] }",
             );
         let settings = carry::Settings::read(&sample).expect("it reads");
         let dir = tempfile::tempdir().expect("a directory");
