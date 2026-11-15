@@ -15,7 +15,8 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
 
 2. A new version comes from outside or from a cell. From outside: a person writes, the branch the works merge into
    moves, a file of the project that the cells work under changes (`AGENTS.md`, the design tree), a session is
-   reopened. From a cell: what it hands in when a round of it ends.
+   reopened. From a cell: what it hands in when a round of it ends. The code a round commits is handed in by that
+   round, read from the branch as it ends.
 
 3. A file's version is its content. It has a new version whenever its content changed, whoever changed it and
    wherever: on the branch the works merge into, or in the work itself.
@@ -165,8 +166,8 @@ run next all the same, and the note would be filled, since the new session lacks
     question has both the datum an answer writes (26) and its own `{cell}_spoken_to`. A flow without them is refused as
     it loads.
 
-34. The cell answers at once and goes on with its work. It hands in its answer as it hands in anything, in `reply`,
-    and the answer is added to the record; with it the round says that it has dealt with the owner's words. What else
+34. The cell answers at once and goes on with its work. It hands in its answer as it hands in any block, as the
+    record's, and the answer is added to the record; with it the round says that it has dealt with the owner's words. What else
     ran the cell is still new, so the cell is entered again and goes on with the rest (9). No tool is needed for
     answering.
 

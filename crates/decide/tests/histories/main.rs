@@ -330,7 +330,7 @@ impl History {
             let unrefused = Test {
                 kind: TestKind::NoneStanding,
                 reads: vec![VERDICT.into()],
-                is: "no".to_string(),
+                is: Some("no".to_string()),
             };
             World::with_tests(cells, [(TestName::from(UNREFUSED), unrefused)].into())
         } else {
@@ -599,6 +599,7 @@ impl History {
                         found: Vec::new(),
                         waits: false,
                         questions: Vec::new(),
+                        read: Vec::new(),
                     },
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,
@@ -658,6 +659,8 @@ impl History {
             choices: &choices,
             returns: RETURNS,
             told: &told,
+            // No act of the engine's is in these flows.
+            answered_by: &BTreeMap::new(),
         };
         let hold = decide::hold_in(&flow, &self.w.records, run, self.room);
         let step = run::next(&self.log_of(run), requires, hold);
@@ -852,6 +855,7 @@ impl History {
             Write {
                 block: block.clone(),
                 meaning_unchanged: !(meets && choice(block)) && rng.chance(50),
+                empty: false,
                 value,
             }
         };

@@ -13,6 +13,7 @@ fn a_persons_write_is_kept_with_its_content_and_the_first_cell_is_given_its_task
         matters: true,
         value: None,
         said_to: None,
+        empty: false,
         at,
     };
     assert_eq!(w.work.records.written, vec![written]);
@@ -43,6 +44,7 @@ fn a_write_from_outside_is_kept_as_the_outside_wrote_it() {
         matters: false,
         value: None,
         said_to: None,
+        empty: false,
         at,
     };
     assert_eq!(w.work.records.written, vec![written]);
@@ -63,6 +65,7 @@ fn a_return_that_meets_everything_finishes_the_run_keeps_each_block_under_the_fi
         writes: vec![decide::Write {
             block: "text".into(),
             meaning_unchanged: false,
+            empty: false,
             value: None,
         }],
         // A return that only hands in says nothing of what it dealt with: it dealt with everything that ran its round,

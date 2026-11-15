@@ -22,8 +22,8 @@ use decide::{
 };
 
 use crate::model::{
-    ANSWERS, BACKGROUND, DEPENDENCIES, DISCUSSION, Event, MAIN, Model, START, TREE, Variant, ran, ran_back_on, ran_on,
-    reply_loop, show_key, skipped, waited_at_gate,
+    BACKGROUND, DEPENDENCIES, DISCUSSION, Event, HEAD, MAIN, Model, Q_AND_A, START, TREE, Variant, ran, ran_back_on,
+    ran_on, reply_loop, show_key, skipped, waited_at_gate,
 };
 use crate::reading::{Reading, Reason, Writer};
 use crate::support::World;
@@ -473,6 +473,7 @@ impl Explorer<'_> {
             choices: &m.choices,
             returns: spec.returns,
             told: &told,
+            answered_by: &m.answered_by[i],
         };
         let step = run::next(log, requires, Hold::Nothing);
         let sent_back = variant.as_ref() == Some(&Variant::SentBack);
@@ -615,7 +616,7 @@ impl Explorer<'_> {
                     if s.spent == 0 {
                         events.push(Event::Background);
                         for (source, block) in &m.sources {
-                            if *source == MAIN && cells[i].runs_on.contains(block) {
+                            if (*source == MAIN || *source == HEAD) && cells[i].runs_on.contains(block) {
                                 events.push(Event::Source(source));
                             }
                         }
@@ -702,9 +703,11 @@ impl Explorer<'_> {
         }
         events.push(Event::Source(MAIN));
         events.extend(m.sessions.keys().map(|line| Event::Session(line.clone())));
-        // The tree runs no cell: once is enough to show it.
+        // The tree runs no cell: once is enough to show it. A commit no round made moves the work's head, as a
+        // person's, once.
         if s.spent == 0 {
             events.push(Event::Source(TREE));
+            events.push(Event::Source(HEAD));
         }
         for c in r.called.iter().filter(|c| c.on == Some(Who::Owner)) {
             if !r.done.iter().any(|d| d.call == c.call) {
@@ -763,7 +766,7 @@ impl Explorer<'_> {
                 match c.questions.get(call).cloned() {
                     Some(asker) => {
                         entered = Some(m.place(&asker));
-                        person(w, &ANSWERS.into(), &mut written);
+                        person(w, &Q_AND_A.into(), &mut written);
                         if let Some(block) = m.answered[m.place(&asker)].clone() {
                             person(w, &block, &mut written);
                         }
@@ -778,7 +781,7 @@ impl Explorer<'_> {
                 }
             }
             Event::OtherOption(cell) => {
-                person(w, &ANSWERS.into(), &mut written);
+                person(w, &Q_AND_A.into(), &mut written);
                 let block = m.answered[m.place(cell)].clone().expect("the cell is answered");
                 person(w, &block, &mut written);
             }

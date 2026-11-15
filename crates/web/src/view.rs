@@ -87,12 +87,13 @@ pub struct Test {
     pub kind: TestKind,
     /// The blocks it reads, as the definition lists them.
     pub reads: Vec<String>,
-    /// The value it looks for in each block it reads.
-    pub is: String,
+    /// The value it looks for in each block it reads; none of a test of content.
+    pub is: Option<String>,
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
-/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now.
+/// `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now; or,
+/// `anyContent`, when at least one holds anything.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TestKind {
@@ -100,6 +101,7 @@ pub enum TestKind {
     Any,
     None,
     NoneStanding,
+    AnyContent,
 }
 
 /// A cell.
@@ -276,9 +278,6 @@ pub struct Block {
     pub default: Option<String>,
     /// What the block is, in a sentence; none where the definition does not say.
     pub what: Option<String>,
-    /// The field of a return a cell writes it through, where it is not written as a block; none where it is.
-    #[serde(default)]
-    pub field: Option<String>,
     /// It stands only for a trigger: no cell is given it, writes it or describes the work by it.
     #[serde(default)]
     pub trigger: bool,
@@ -404,10 +403,6 @@ pub enum What {
     NotAnOutput {
         block: String,
     },
-    /// The cell says what the work is by the block, and the block does not run it.
-    DescribedNotRunOn {
-        block: String,
-    },
     /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
     TakenNotRead {
         block: String,
@@ -441,10 +436,6 @@ pub enum What {
     /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
     MissingPlaceholder {
         placeholder: String,
-    },
-    /// The block is written through a field of a return the engine does not have.
-    UnknownReturnField {
-        field: String,
     },
     /// The cell writes the work's questions, and no answer of the owner's runs it.
     AsksWithNoAnswer {
@@ -557,6 +548,12 @@ pub enum What {
         test: String,
     },
     ReadsEmpty {
+        test: String,
+    },
+    TestNamesNoValue {
+        test: String,
+    },
+    ContentTestNamesValue {
         test: String,
     },
     UnusedTest {
@@ -684,7 +681,6 @@ impl Flow {
                 values: block.values.clone(),
                 default: block.default.clone(),
                 what: block.what.clone(),
-                field: block.field.clone(),
                 trigger: block.trigger,
                 writes: (block.writes.0.iter())
                     .map(|(name, text)| (name.clone(), flow::system::with_slots(text)))
@@ -747,6 +743,7 @@ impl Test {
                 KindOfTest::Any => TestKind::Any,
                 KindOfTest::None => TestKind::None,
                 KindOfTest::NoneStanding => TestKind::NoneStanding,
+                KindOfTest::AnyContent => TestKind::AnyContent,
             },
             reads: names(&test.reads),
             is: test.is.clone(),
@@ -810,7 +807,6 @@ impl What {
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
-            F::DescribedNotRunOn { block } => What::DescribedNotRunOn { block },
             F::TakenNotRead { block } => What::TakenNotRead { block },
             F::TwoForms => What::TwoForms,
             F::NoSuchData { name } => What::NoSuchData { name },
@@ -820,7 +816,6 @@ impl What {
             F::TriggerOnly { block } => What::TriggerOnly { block },
             F::NotLaidOut => What::NotLaidOut,
             F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
-            F::UnknownReturnField { field } => What::UnknownReturnField { field },
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
             F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
             F::TriggerNeverRuns {
@@ -862,6 +857,8 @@ impl What {
             F::LastHasCondition => What::LastHasCondition,
             F::UndeclaredTest { test } => What::UndeclaredTest { test },
             F::ReadsEmpty { test } => What::ReadsEmpty { test },
+            F::TestNamesNoValue { test } => What::TestNamesNoValue { test },
+            F::ContentTestNamesValue { test } => What::ContentTestNamesValue { test },
             F::UnusedTest { test } => What::UnusedTest { test },
             F::TestOnOwnOutput { test, block } => What::TestOnOwnOutput { test, block },
             F::TestNotWrittenBefore { test, block } => What::TestNotWrittenBefore { test, block },

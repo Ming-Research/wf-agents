@@ -66,11 +66,15 @@ fn the_engine_s_own_data_a_flow_names_are_its_blocks_as_defined_beside_the_flows
     );
     let compiled = compiled(&source);
     let discussion = &compiled.blocks[&BlockId::from("discussion")];
-    assert_eq!(discussion.field.as_deref(), Some("reply"));
     assert_eq!(
         discussion.what.as_deref(),
         Some("What the owner says to the work and what its cells answer.")
     );
+    assert_eq!(
+        discussion.words.as_deref(),
+        Some("`discussion`: your answer to what the owner said to the cell.")
+    );
+    assert_eq!(discussion.shape, None);
     assert!(discussion.writers.people && discussion.readers.shown && !discussion.trigger);
     // A datum beside the flows that a flow does not name is none of its blocks.
     assert!(
@@ -159,22 +163,25 @@ fn who_writes_a_block_from_outside_the_cells_is_said_by_from_the_owner_or_a_sour
     );
 }
 
+// The record of the questions and the answers is a datum the engine's source of answers writes, with the shape its
+// file gives what a cell writes of it.
 #[test]
-fn a_datum_is_written_only_through_a_field_of_a_return_the_engine_has() {
+fn the_record_of_questions_and_answers_is_the_answers_source_s_and_its_shape_is_as_its_file_gives_it() {
     let source = edit(
         laid_out(),
         FLOW_FILE,
         "data = [\"request\"]",
-        "data = [\"request\", \"discussion\"]",
+        "data = [\"request\", \"q_and_a\"]",
     );
-    let source = edit(
-        source,
-        "../data/discussion.toml",
-        "field = \"reply\"",
-        "field = \"words\"",
-    );
-    let what = UnknownReturnField { field: "words".into() };
-    assert_eq!(faults(&source), [at("../data/discussion.toml", "field", what)]);
+    let mut has = crate::support::has();
+    has.sources.insert(flow::ANSWER.to_string());
+    let compiled = flow::compile(&source, &has).unwrap_or_else(|faults| panic!("{faults:#?}"));
+    let record = &compiled.blocks[&BlockId::from("q_and_a")];
+    assert_eq!(record.writers.outside.as_deref(), Some(flow::ANSWER));
+    let Some(flow::Shape(shape)) = &record.shape else {
+        panic!("the questions have a shape of their own");
+    };
+    assert_eq!(shape["type"].as_str(), Some("array"));
 }
 
 #[test]
@@ -298,6 +305,12 @@ fn each_fault_is_in_the_file_of_the_thing_it_is_about_flow_toml_first_then_the_c
 #[test]
 fn a_file_laid_out_one_thing_to_a_file_that_cannot_be_read_is_reported_by_its_path() {
     unreadable(&set(laid_out(), "cells/judge.toml", "title = "), "cells/judge.toml");
+    let message = unreadable(
+        &edit(laid_out(), "blocks/check/ci.toml", "values", "look = \"prose\"\nvalues"),
+        "blocks/check/ci.toml",
+    );
+    assert!(message.contains("look"), "{message}");
+    // A block's own shape is a table of the form's, never a word.
     let message = unreadable(
         &edit(
             laid_out(),

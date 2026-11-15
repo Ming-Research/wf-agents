@@ -302,7 +302,6 @@ export function FlowPage({ definition, given, active = true }: {
         matrix={drawn}
         flow={flow}
         sent={given?.state === 'compiled' ? given.cells[cell.id] : undefined}
-        tools={given?.state === 'compiled' ? given.tools : undefined}
         act={given?.state === 'compiled' ? given.acts[cell.id] : undefined}
         unknown={given?.state === 'compiled' ? given.unknown : undefined}
         onChoose={choose}

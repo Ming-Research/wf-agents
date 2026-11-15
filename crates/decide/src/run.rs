@@ -161,6 +161,9 @@ pub enum Return {
         waits: bool,
         /// The questions it asks, asks anew or withdraws, in the order it wrote them.
         questions: Vec<Asking>,
+        /// The blocks of the work's branch the carrier read new as the round ended, as what the round committed: the
+        /// run writes each as it finishes, beside the blocks it writes itself.
+        read: Vec<BlockId>,
     },
     /// The round failed: nothing came back, for this kind of cause, said so.
     Failed {
@@ -221,6 +224,9 @@ pub struct Standing {
     pub latest: Option<Seq>,
     /// The latest version's value, where the block is a choice.
     pub value: Option<String>,
+    /// A version written of it is an entry added to a record ([`crate::Flow::adds_entries`]): it replaces no version
+    /// before it, and so writes over none the round was not told of.
+    pub added: bool,
 }
 
 /// What the flow requires of what a cell's run returns.
@@ -241,6 +247,8 @@ pub struct Requires<'a> {
     pub returns: u32,
     /// What the round was told, and how the blocks it may write stand.
     pub told: &'a Told,
+    /// Of each block that runs the cell and that an act of the engine's after it writes, what runs that act again.
+    pub answered_by: &'a BTreeMap<BlockId, Answer>,
 }
 
 /// What a run does next.
@@ -312,7 +320,8 @@ pub enum Unmet {
     /// for the owner's answer: the cell would be entered again at once for the same.
     DealtWithNothing,
     /// The block got this version from another writer after the round was told of the one it writes over: the return
-    /// would write over what the round never saw. The next round is told of the version.
+    /// would write over what the round never saw. The next round is told of the version. An entry added to a record
+    /// writes over nothing.
     WrittenOver { block: BlockId, version: Seq },
     /// The block is a choice, written as changing nothing in meaning with another value than the one it has: a choice
     /// changes its meaning when its value does (decision `meaning-told-by-the-writer`).
@@ -335,15 +344,30 @@ pub enum Unmet {
     QuestionTwice { name: String },
     /// The question of this name recommends none of its options, or has none.
     NotAnOption { name: String },
-    /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it.
+    /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it. Returns
+    /// read before a cell could ask only where it writes the work's questions were sent back so; a question of a cell
+    /// that does not write them is now a block that is not among its outputs.
     NotAnswerable { name: String },
-    /// The return names as dealt with the owner's words, by this trigger, and gives no answer in `reply`, which the
-    /// record of what is said is written through (design document `data-and-context`, 38).
+    /// The return names as dealt with the owner's words, by this trigger, and writes no answer in the record of what is
+    /// said that the trigger has its agent read (design document `data-and-context`, 38).
     NotAnswered { name: String },
     /// The work's branch, as the round left it, changes the file of this path, which the project protects, and neither
     /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking
     /// at the branch as the round ended.
     Unexplained { path: String },
+    /// The return deals with what an act of the engine's after its cell wrote, the block, and leaves new nothing that
+    /// runs that act, neither by what it hands in, the work's head it committed among it, nor by a question that
+    /// stands for the owner ([`Answer`]): the act reads no words, and would never run again.
+    Unanswered { block: BlockId },
+}
+
+/// What runs an act of the engine's again, of a block it wrote that runs a cell before it: the blocks that run the
+/// act, and whether the block of the questions' standing is among them, so that a question that stands runs it once
+/// it is answered. A return that deals with the block is held to leaving one of them new.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Answer {
+    pub runs: Vec<BlockId>,
+    pub question: bool,
 }
 
 /// What a pause of the run's work holds back of its rounds.
@@ -430,12 +454,32 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             found,
             waits,
             questions,
+            read,
         } => {
-            let unmet = unmet(dealt_with, writes, *calls, found, *waits, questions, requires);
+            let came = Came {
+                dealt_with,
+                writes,
+                calls: *calls,
+                found,
+                waits: *waits,
+                questions,
+                read,
+            };
+            let unmet = unmet(&came, requires);
             if unmet.is_empty() {
+                // What the round committed is the run's too, as the carrier read it of the branch.
+                let committed = (read.iter())
+                    .filter(|block| !writes.iter().any(|w| &w.block == *block))
+                    .map(|block| Write {
+                        block: block.clone(),
+                        meaning_unchanged: false,
+                        value: None,
+                        // What the carrier read of the branch, a commit, holds something.
+                        empty: false,
+                    });
                 return Step::Finish {
                     dealt_with: consumed(dealt_with, requires),
-                    writes: writes.clone(),
+                    writes: writes.iter().cloned().chain(committed).collect(),
                 };
             }
             unmet
@@ -529,16 +573,18 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
 /// whether it deals with nothing while something ran its round, asks for no call and has no question that waits for
 /// the owner's answer; then each block the cell must hand in and did not, in the order the cell lists them, where the
 /// return asks for no call, has no question that waits and its cell waits for no result, but one found written in a
-/// shape it does not take; then each question it writes that it may not, in the order it wrote them.
-fn unmet(
-    dealt_with: &[BlockId],
-    writes: &[Write],
-    calls: usize,
-    found: &[Unmet],
-    waits: bool,
-    questions: &[Asking],
-    requires: Requires,
-) -> Vec<Unmet> {
+/// shape it does not take; then each question it writes that it may not, in the order it wrote them; then each block an
+/// act wrote that it deals with and leaves unanswered, in the order it dealt with them.
+fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
+    let Came {
+        dealt_with,
+        writes,
+        calls,
+        found,
+        waits,
+        questions,
+        read,
+    } = *came;
     let told = requires.told;
     let mut unmet = found.to_vec();
     for (i, named) in dealt_with.iter().enumerate() {
@@ -574,6 +620,7 @@ fn unmet(
         if let Some(Standing {
             told,
             latest: Some(latest),
+            added: false,
             ..
         }) = standing
             && *told != Some(*latest)
@@ -625,5 +672,37 @@ fn unmet(
             unmet.push(Unmet::NoSuchQuestion { name: name() });
         }
     }
+    // What an act of the engine's after the cell said to it is answered by what runs the act: what the return hands
+    // in, the work's head it committed among it, or a question that stands once the return is taken. The act reads no
+    // words, and a work answered with none would never run it again (decision an-act-is-answered-by-what-runs-it).
+    if calls == 0 && !told.waits {
+        let withdrawn = |name: &str| questions.iter().any(|q| q.withdrawn && q.name == name);
+        let stands = waits
+            || questions.iter().any(|q| !q.withdrawn)
+            || (told.questions.iter()).any(|(name, q)| q.stands && !withdrawn(name));
+        for block in consumed(dealt_with, requires) {
+            let Some(answer) = requires.answered_by.get(&block) else {
+                continue;
+            };
+            let written = (writes.iter().map(|w| &w.block))
+                .chain(read)
+                .any(|b| answer.runs.contains(b));
+            if !written && !(answer.question && stands) {
+                unmet.push(Unmet::Unanswered { block });
+            }
+        }
+    }
     unmet
+}
+
+/// What came back of a round as a return, as [`unmet`] reads it.
+#[derive(Clone, Copy)]
+struct Came<'r> {
+    dealt_with: &'r [BlockId],
+    writes: &'r [Write],
+    calls: usize,
+    found: &'r [Unmet],
+    waits: bool,
+    questions: &'r [Asking],
+    read: &'r [BlockId],
 }

@@ -432,17 +432,24 @@ describe('what an agent is sent', () => {
     after: [],
     ...fields,
   });
-  /// The form of a return: a kind of it that asks for the engine's tool `query`, beside a field of its own.
+  /// The form of a return in its three parts: its kinds, one of which holds a field of the engine's and the blocks of
+  /// the line; the flow's tools, which the other kind holds; and the blocks of the line.
   const FORM = JSON.stringify({
     type: 'object',
     properties: {
-      ask: {
+      tools: { type: 'object', properties: {} },
+      outcome: {
         type: 'object',
-        properties: { query: { type: 'string' }, note: { type: 'string' } },
-        required: ['query'],
+        properties: { dealt_with: { type: 'array', items: { type: 'string' } }, outputs: { type: 'object' } },
+        required: ['dealt_with'],
       },
     },
   });
+  const TOOLS = JSON.stringify({
+    type: 'object',
+    properties: { query: { type: 'array', items: { type: 'object', properties: { sql: { type: 'string' } } } } },
+  });
+  const OUTPUTS = JSON.stringify({ type: 'object', properties: { plan: { type: 'string' } } });
   const given = (): Given => ({
     state: 'compiled',
     cells: {
@@ -455,6 +462,14 @@ describe('what an agent is sent', () => {
           pieces: [text('You run in a program.')],
         }),
         part({ what: 'form', carried: 'call', name: 'form', source: 'agents/return.toml', pieces: [text(FORM)] }),
+        part({ what: 'form', carried: 'call', name: 'tools', source: 'flow.toml, agents/tools/', pieces: [text(TOOLS)] }),
+        part({
+          what: 'form',
+          carried: 'call',
+          name: 'outputs',
+          source: 'cells/plan.toml, blocks/plan.toml',
+          pieces: [text(OUTPUTS)],
+        }),
         part({
           what: 'system',
           carried: 'system',
@@ -482,7 +497,6 @@ describe('what an agent is sent', () => {
         }),
       ],
     },
-    tools: ['query'],
     acts: {
       check: {
         source: 'acts/check.toml',
@@ -504,18 +518,18 @@ describe('what an agent is sent', () => {
     const page = draw({ state: 'compiled', flow: small() }, given());
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
-    expect(texts(panel, '.panel-part-label')).toEqual(['triggered_by 2', 'program 2', 'System prompt 1', 'Message 2']);
+    expect(texts(panel, '.panel-part-label')).toEqual(['triggered_by 2', 'program 4', 'System prompt 1', 'Message 2']);
     // What runs it, by the triggers its file writes.
     expect(items(partOf(panel, 'triggered_by'))).toEqual(['on_request block request', 'on_opinions block opinions']);
     expect(items(partOf(panel, 'System prompt'))).toEqual([
       'line engineer cells plan, design, answer',
-      '3 general rules/general.md 9 characters Show the text',
+      '5 general rules/general.md 9 characters Show the text',
     ]);
     // The content of a block is shown as sent, with each place filled in a run by its name, and what is sent where the
     // session holds it already; the task is folded.
     expect(items(partOf(panel, 'Message'))).toEqual([
-      '4 request kind latest blocks/request.toml The request: {request} held The request is as before. held_new The request is here already.',
-      '5 task cells/plan.toml 15 characters Show the text',
+      '6 request kind latest blocks/request.toml The request: {request} held The request is as before. held_new The request is here already.',
+      '7 task cells/plan.toml 15 characters Show the text',
     ]);
   });
 
@@ -540,7 +554,7 @@ describe('what an agent is sent', () => {
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(items(partOf(panel, 'Message'))[2]).toBe(
-      '6 triggers agents/message/message.toml Why: on_request on_request on_opinions on_opinions after Name them.',
+      '8 triggers agents/message/message.toml Why: on_request on_request on_opinions on_opinions after Name them.',
     );
   });
 
@@ -551,22 +565,36 @@ describe('what an agent is sent', () => {
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(items(partOf(panel, 'Message'))[1]).toBe(
-      '5 task file tasks/plan.md cells/plan.toml 15 characters Show the text',
+      '7 task file tasks/plan.md cells/plan.toml 15 characters Show the text',
     );
   });
 
-  it('draws the form of a return as a tree, the engine’s tools apart from the fields', () => {
+  it('draws each of the form’s three parts as a tree of its own, each by its key and its files, nothing twice', () => {
     const page = draw({ state: 'compiled', flow: small() }, given());
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
-    const form = [...partOf(panel, 'program').querySelectorAll('.uses li')].find(
-      (li) => li.children[1]?.textContent === 'form',
-    ) as HTMLElement;
-    expect(form.querySelector('.form-tree')).toBeNull();
-    click([...form.querySelectorAll('button')].find((b) => b.textContent === 'Show the text'));
-    expect(texts(form, '.form-tree .tree-kind')).toEqual(['ask']);
-    expect(texts(form, '.form-tree .tree-tool')).toEqual(['query']);
-    expect(texts(form, '.form-tree .tree-required')).toEqual(['*']);
+    const row = (key: string) =>
+      [...partOf(panel, 'program').querySelectorAll('.uses li')].find(
+        (li) => li.children[1]?.textContent === key,
+      ) as HTMLElement;
+    expect(items(partOf(panel, 'program')).slice(1)).toEqual([
+      `2 form agents/return.toml ${FORM.length} characters Show the text`,
+      `3 tools flow.toml, agents/tools/ ${TOOLS.length} characters Show the text`,
+      `4 outputs cells/plan.toml, blocks/plan.toml ${OUTPUTS.length} characters Show the text`,
+    ]);
+    for (const key of ['form', 'tools', 'outputs']) {
+      expect(row(key).querySelector('.form-tree')).toBeNull();
+      click([...row(key).querySelectorAll('button')].find((b) => b.textContent === 'Show the text'));
+    }
+    // The kinds and the engine's fields, the kind that asks for tools holding none of them.
+    expect(texts(row('form'), '.form-tree .tree-kind')).toEqual(['tools', 'outcome']);
+    expect(texts(row('form'), '.form-tree .tree-tool')).toEqual([]);
+    expect(texts(row('form'), '.form-tree .tree-required')).toEqual(['*']);
+    // The flow's tools, and the line's blocks, each at the top of a tree of its own.
+    expect(texts(row('tools'), '.form-tree .tree-tool')).toEqual(['query']);
+    expect(texts(row('tools'), '.form-tree .tree-kind')).toEqual([]);
+    expect(texts(row('outputs'), '.form-tree .tree-own')).toEqual(['plan']);
+    expect(texts(row('outputs'), '.form-tree .tree-kind')).toEqual([]);
   });
 
   it('shows what an engine’s cell’s act writes, each text by its key as its file writes it', () => {

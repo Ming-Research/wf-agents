@@ -1078,10 +1078,12 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
-    /// It deals with the owner's words, by this trigger, and gives no answer in `reply`.
+    /// It deals with the owner's words, by this trigger, and writes no answer in the record of what is said.
     NotAnswered { name: String },
     /// The work's branch changes this file the project protects, and nothing says why.
     Unexplained { path: String },
+    /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question.
+    Unanswered { block: String },
 }
 
 /// What came back at the end of a round.
@@ -2507,6 +2509,9 @@ impl Unmet {
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
             UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
+            UnmetOf::Unanswered { block } => Unmet::Unanswered {
+                block: block.to_string(),
+            },
         }
     }
 }

@@ -1,13 +1,14 @@
 //! The agents' rounds, run with the `claude` command line: each round one run of the program, in the work's worktree,
-//! in the session of the cell's line, told its message on its standard input, with the form of return of its flow,
-//! made of the flow and the files beside the flows and so the same for every round of every cell of the flow
+//! in the session of the cell's line, told its message on its standard input, with the form of return of its line,
+//! made of the flow and the files beside the flows and so the same for every round of every cell of the line
 //! ([`flow::form`]), and the same system prompt for every round of a line ([`system`](crate::system)), made from the
 //! files beside the flows, which says what the line may run as its permissions give it to the program
-//! (`permissions`). The system prompt is made as a session begins and kept with it, so that every round of the session
-//! is given the one it began with, whatever the work's branch has changed since; a round whose system prompt cannot be
-//! made, as for a file of the project's that is not in the worktree, fails, saying why. What came back is read against
-//! the cell the round was entered for ([`returns`](crate::returns)). How many run at once is the engine's to bound: it
-//! gives at most as many rounds at once as the settings give slots, and holds the others back in its own order.
+//! (`permissions`). The system prompt and the form are made as a session begins and kept with it, alike, so that every
+//! round of the session is given those it began with, whatever the work's branch or the flow installed has changed
+//! since; a round whose system prompt or form cannot be made, as for a file of the project's that is not in the
+//! worktree, fails, saying why. What came back is read against the cell the round was entered for
+//! ([`returns`](crate::returns)). How many run at once is the engine's to bound: it gives at most as many rounds at
+//! once as the settings give slots, and holds the others back in its own order.
 //!
 //! A round is run with the project of its work's item ([`crate::projects`]): its declaration in place of the one beside
 //! the flows, the settings its texts name filled from it, and main's head as its host last gave it. A round of a work
@@ -45,8 +46,11 @@
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
 //! is told it; a round of the run given again, or another of its rounds given its task, is told what was kept, and
-//! nothing is taken in again for the run. The branch's design tree is looked at after that, and after the round's
-//! program ended ([`tree`]), where it may have changed.
+//! nothing is taken in again for the run. The branch's data, its design tree and the work's head, are read after that,
+//! in the round that took main in, and after the round's program ended, where they may have changed
+//! ([`branch`](crate::branch)): what is read as main is taken in is the outside's, put into the round; what is read as
+//! the round ends is what it committed, handed in with its return, where its line may change the work, and the
+//! outside's where it only reads.
 //!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, and at the
 //! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
@@ -85,7 +89,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::{Project, Settings};
-use crate::{acts, failure, git, kept, protected, returns, session, system, tools, tree};
+use crate::{acts, branch, failure, git, kept, protected, returns, session, system, tools};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -280,7 +284,7 @@ impl Rounds for Agents {
 
     fn system(&self, work: WorkNumber, line: &str, number: u32) -> Result<Option<String>, String> {
         let session = session::session(self.inner.installation, work, line, number);
-        let at = system::kept_at(&self.inner.data, session);
+        let at = system::kept_at(&self.inner.data, session, system::Begun::System);
         match std::fs::read_to_string(&at) {
             Ok(system) => Ok(Some(system)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -325,8 +329,6 @@ impl Inner {
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         // The project of the work's item, whose repository and declaration the round is run with.
         let of = crate::projects::of(&self.projects, &round.item)?;
-        // The form of the flow, the same bytes for every round of every cell of it.
-        let form = flow::form::form(flow, &of.beside)?;
         let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
         let dir = git::worktree(&place)?;
         let main = if round.cell.takes_main {
@@ -334,10 +336,14 @@ impl Inner {
         } else {
             None
         };
-        // The branch may have a new design tree where it took main in.
-        let tree_dir = &of.project.tree;
-        let mut looking = tree::Looking::of(flow, work, tree_dir);
-        if let (Some(looking), Some(_)) = (&mut looking, &main) {
+        // The branch may have new data where the round took main in, which only the run's first round does: a later
+        // round of the run would find what an earlier one committed, which is that run's.
+        let read_with = branch::Reading {
+            tree: of.project.tree.clone(),
+            main: of.main.clone(),
+        };
+        let mut looking = branch::Looking::of(flow, work, read_with.clone());
+        if main.is_some() && round.number == 1 {
             looking.tell(&place, teller, true).await;
         }
         if let Some(parent) = base.parent() {
@@ -371,8 +377,9 @@ impl Inner {
             item: round.item.number.0,
             title: &round.item.title,
         };
-        // What changed in the design tree, which git compares: the files, from each earlier version to the latest.
-        let changes = tree::changes(flow, work, round.run, round.number, &dir, tree_dir).await?;
+        // What changed in the branch's data, which git compares, from each earlier version to the latest: the files of
+        // the design tree, and the command that shows what the work itself changed.
+        let changes = branch::changes(flow, work, round.run, round.number, &dir, &read_with).await?;
         // The task as the message sends it, each setting it names with its value beside it; and a result of the tool
         // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole and
         // a file in the temporary directory, which the program is let read, holding it whole for the agent.
@@ -428,8 +435,12 @@ impl Inner {
                 let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths);
                 system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read)
             };
-            let kept_at = system::kept_at(&self.data, session);
-            let system = system::of_session(&kept_at, made)?;
+            let kept_at = |what| system::kept_at(&self.data, session, what);
+            let system = system::of_session(&kept_at(system::Begun::System), made)?;
+            // The form of the line is the session's as well, made and kept as it begins, as the system prompt is.
+            let form = system::of_session(&kept_at(system::Begun::Form), || {
+                flow::form::form(flow, &of.beside, line)
+            })?;
             let before = self.before_messages(&on, &system, &form, &permissions);
             let command = self.command(
                 &dir,
@@ -527,10 +538,15 @@ impl Inner {
             break (status, stream, stderr, compactions);
         };
         drop(again);
-        // What the round committed may have changed the design tree.
-        if let Some(looking) = &mut looking {
+        // What the round committed is handed in with its return, where its line may change the work; a change found at
+        // the end of a round that only reads is none of its own, and the outside's. A round that fails hands in nothing:
+        // what it committed is read at the end of the round that takes it up.
+        let committed = if round.cell.reads_only {
             looking.tell(&place, teller, false).await;
-        }
+            Vec::new()
+        } else {
+            looking.handed_in(&place).await
+        };
         let had_result = stream.has_result();
         let read = stream.read(begin, before).map(|mut read| {
             read.spent.compactions = compactions;
@@ -565,6 +581,7 @@ impl Inner {
         match returns::came(&read.structured, flow, &round.cell, &of.beside) {
             Ok(reading) => {
                 let mut came = reading.came;
+                came.read = committed;
                 let looked = self.protected(round, &place, of, reading.protected.as_ref()).await;
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
@@ -911,9 +928,16 @@ impl Inner {
             .ok_or_else(no_round)?;
         let place = git::place(&self.data, &git::tag(&self.installation), ping.work);
         let dir = git::worktree(&place).map_err(failed)?;
-        let system = std::fs::read_to_string(system::kept_at(&self.data, session))
-            .map_err(|e| failed(fill(&said.no_system, &[("why", &e.to_string())])))?;
-        let form = flow::form::form(flow, &of.beside).map_err(failed)?;
+        // What the session began with, as its rounds are given it.
+        let began = |what| {
+            let at = system::kept_at(&self.data, session, what);
+            std::fs::read_to_string(&at).map_err(|e| {
+                let why = format!("{}: {e}", at.file_name().unwrap_or_default().to_string_lossy());
+                failed(fill(&said.no_system, &[("why", &why)]))
+            })
+        };
+        let system = began(system::Begun::System)?;
+        let form = began(system::Begun::Form)?;
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
         let permissions = Permissions::of(cell.reads_only, args, added);
         let base =

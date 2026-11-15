@@ -112,6 +112,7 @@ mod tests {
                 matters: true,
                 value: None,
                 said_to: None,
+                empty: false,
                 at: Seq(at),
             });
         }

@@ -14,13 +14,16 @@ describe('the words of the page', () => {
     expect(conditionWords([])).toBe('');
   });
 
-  it('say a test by its keys as its file writes them, for one block and for several', () => {
+  it('say a test by its keys as its file writes them, for one block and for several, and one of content with no is', () => {
     const reads = (kind: TestKind, blocks: string[]) => readsWords(test('t', '', kind, blocks));
     expect(reads('all', ['go'])).toBe('kind all, reads [go], is yes');
-    expect(reads('none', ['needs_design', 'edits_tree'])).toBe('kind none, reads [needs_design, edits_tree], is yes');
+    expect(reads('none', ['needs_design', 'needs_testing'])).toBe(
+      'kind none, reads [needs_design, needs_testing], is yes',
+    );
     expect(reads('noneStanding', ['verdict', 'deep_verdict'])).toBe(
       'kind none_standing, reads [verdict, deep_verdict], is yes',
     );
+    expect(readsWords(test('t', '', 'anyContent', ['tree_edits'], null))).toBe('kind any_content, reads [tree_edits]');
   });
 
   it('say the source outside that writes a block by its key', () => {
@@ -73,12 +76,15 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'flow.toml', field: 'tests.t.reads', what: { kind: 'readsEmpty', test: 't' } })).toBe(
       'The test t reads no block.',
     );
+    expect(faultWords({ file: 'tests/t.toml', field: 'is', what: { kind: 'testNamesNoValue', test: 't' } })).toBe(
+      'The test t names no value to look for: it has no is.',
+    );
+    expect(
+      faultWords({ file: 'tests/t.toml', field: 'is', what: { kind: 'contentTestNamesValue', test: 't' } }),
+    ).toBe('The test t looks for content, and names a value to look for, which it does not read.');
     expect(
       faultWords({ file: 'judge.toml', field: 'must_write[1]', what: { kind: 'notAnOutput', block: 'plan' } }),
     ).toBe('The cell must write plan every time, but plan is not among the blocks it may write.');
-    expect(
-      faultWords({ file: 'check.toml', field: 'describes[0]', what: { kind: 'describedNotRunOn', block: 'ci' } }),
-    ).toBe('The cell says what the work is by ci, but ci does not run it.');
     expect(faultWords({ file: 'plan.toml', field: 'give.request', what: { kind: 'notGiven', block: 'request' } })).toBe(
       'The cell says how it is given request, but it is not given request.',
     );

@@ -326,6 +326,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
                 told: walk.told(r, block),
                 latest: latest.map(|v| v.at),
                 value: latest.and_then(|v| v.value).map(str::to_string),
+                added: flow.adds_entries(block),
             };
             (block.clone(), standing)
         })
@@ -375,6 +376,41 @@ pub fn reached(flow: &Flow, records: &Records, cells: &[CellId]) -> Option<CellI
 pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
     let walk = Walk::new(flow, records);
     flow.place(cell).is_some_and(|i| walk.applies(i))
+}
+
+/// A cell that judges what a cell's preconditions wait on, by a block that runs it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Judge {
+    pub cell: CellId,
+    /// The version of the block it consumed: the latest a run of it that dealt with the block was told of; `None`
+    /// where none did.
+    pub consumed: Option<Seq>,
+}
+
+/// Of each cell that writes a block the preconditions of the cell `of` read, that the block `by` runs and that applies
+/// now, in the order of the walk, the version of `by` it consumed: what the check before the merge holds the work's
+/// head to, the judges being found by the flow's graph alone. None where the flow has no cell `of`.
+pub fn judges(flow: &Flow, records: &Records, of: &CellId, by: &BlockId) -> Vec<Judge> {
+    let walk = Walk::new(flow, records);
+    let Some(i) = flow.place(of) else {
+        return Vec::new();
+    };
+    let mut read: Vec<&BlockId> = Vec::new();
+    for key in &flow.cells()[i].requires {
+        match key {
+            Condition::Is { block, .. } => read.push(block),
+            Condition::Test(name) => read.extend(flow.tests().get(name).into_iter().flat_map(|t| &t.reads)),
+        }
+    }
+    (flow.cells().iter().enumerate())
+        .filter(|(j, cell)| {
+            cell.runs_on.contains(by) && read.iter().any(|b| cell.outputs.contains(b)) && walk.applies(*j)
+        })
+        .map(|(_, cell)| Judge {
+            cell: cell.id.clone(),
+            consumed: walk.consumed(&cell.id, by),
+        })
+        .collect()
 }
 
 /// Of each cell that applies now and is owed the results of calls, those calls, in the order they were made: those its
@@ -636,6 +672,8 @@ pub(crate) struct Version<'a> {
     pub(crate) meaning: Seq,
     /// The block's value, where it has one.
     pub(crate) value: Option<&'a str>,
+    /// Whether it holds nothing.
+    pub(crate) empty: bool,
 }
 
 /// A write of a block, by a run as it finished or by a person or the outside.
@@ -646,6 +684,7 @@ struct Written<'a> {
     outsider: Option<Outsider>,
     matters: bool,
     value: Option<&'a str>,
+    empty: bool,
 }
 
 /// One walk of a work: the flow, the records, and what is worked out of them once.
@@ -711,16 +750,25 @@ impl<'a> Walk<'a> {
     /// now: a write of any of them can change whether it holds. The flow has every test its cells name.
     fn holding(&self, name: &TestName, i: usize) -> Vec<&'a BlockId> {
         let test = &self.flow.tests()[name];
-        // A block never written has its default, which no cell wrote and so stands.
-        let has = |block: &BlockId| match self.current(block) {
-            Some(v) => v.value == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v, i)),
-            None => self.flow.default_of(block) == Some(test.is.as_str()),
+        let has = |block: &BlockId| {
+            let v = self.current(block);
+            match (test.kind, test.is.as_deref()) {
+                // A block never written holds nothing.
+                (TestKind::AnyContent, _) => v.is_some_and(|v| !v.empty),
+                // A test of a value that names none, which the compiler refuses, finds it in no block.
+                (_, None) => false,
+                // A block never written has its default, which no cell wrote and so stands.
+                (kind, Some(is)) => match v {
+                    Some(v) => v.value == Some(is) && (kind != TestKind::NoneStanding || self.stands(v, i)),
+                    None => self.flow.default_of(block) == Some(is),
+                },
+            }
         };
         let reads = test.reads.iter();
         match test.kind {
             TestKind::All => reads.filter(|b| !has(b)).collect(),
-            TestKind::Any if test.reads.iter().any(has) => Vec::new(),
-            TestKind::Any => reads.collect(),
+            TestKind::Any | TestKind::AnyContent if test.reads.iter().any(has) => Vec::new(),
+            TestKind::Any | TestKind::AnyContent => reads.collect(),
             TestKind::None | TestKind::NoneStanding => reads.filter(|b| has(b)).collect(),
         }
     }
@@ -1226,6 +1274,7 @@ pub(crate) fn read_versions<'a>(
         outsider: Some(w.by),
         matters: w.matters || w.by == Outsider::Person,
         value: w.value.as_deref(),
+        empty: w.empty,
     });
     let by_runs = records.finished.iter().flat_map(|f| {
         f.writes.iter().map(|w| Written {
@@ -1235,6 +1284,7 @@ pub(crate) fn read_versions<'a>(
             outsider: None,
             matters: !w.meaning_unchanged,
             value: w.value.as_deref(),
+            empty: w.empty,
         })
     });
     let mut writes: Vec<Written<'a>> = by_people.chain(by_runs).collect();
@@ -1265,6 +1315,7 @@ pub(crate) fn read_versions<'a>(
             outsider: w.outsider,
             meaning,
             value: w.value,
+            empty: w.empty,
         });
     }
     versions

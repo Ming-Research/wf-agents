@@ -29,8 +29,9 @@ export interface Line {
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
-/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now.
-export type TestKind = 'all' | 'any' | 'none' | 'noneStanding';
+/// `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now; or,
+/// `anyContent`, when at least one holds anything.
+export type TestKind = 'all' | 'any' | 'none' | 'noneStanding' | 'anyContent';
 
 /// A named test: the words shown for it, and what it holds on.
 export interface Test {
@@ -42,8 +43,8 @@ export interface Test {
   kind: TestKind;
   /// The blocks it reads, as the definition lists them.
   reads: string[];
-  /// The value it looks for in each block it reads.
-  is: string;
+  /// The value it looks for in each block it reads; none of a test of content.
+  is: string | null;
 }
 
 export type Kind = 'agent' | 'engine';
@@ -132,8 +133,6 @@ export interface Block {
   default: string | null;
   /// What the block is, in a sentence; none where the definition does not say.
   what: string | null;
-  /// The field of a return a cell writes it through, where it is not written as a block.
-  field?: string | null;
   /// It has no content and stands only for a trigger.
   trigger?: boolean;
   /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.
@@ -223,8 +222,6 @@ export type What =
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }
-  /// The cell says what the work is by the block, and the block does not run it.
-  | { kind: 'describedNotRunOn'; block: string }
   /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
   | { kind: 'takenNotRead'; block: string }
   /// The cell names what it takes in two forms of three.
@@ -243,8 +240,6 @@ export type What =
   | { kind: 'notLaidOut' }
   /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
   | { kind: 'missingPlaceholder'; placeholder: string }
-  /// The block is written through a field of a return the engine does not have.
-  | { kind: 'unknownReturnField'; field: string }
   /// The cell writes the work's questions, and no answer of the owner's runs it.
   | { kind: 'asksWithNoAnswer'; block: string }
   /// The cell writes the work's questions, and the owner's words do not run it.
@@ -276,6 +271,8 @@ export type What =
   | { kind: 'lastHasCondition' }
   | { kind: 'undeclaredTest'; test: string }
   | { kind: 'readsEmpty'; test: string }
+  | { kind: 'testNamesNoValue'; test: string }
+  | { kind: 'contentTestNamesValue'; test: string }
   | { kind: 'unusedTest'; test: string }
   | { kind: 'testOnOwnOutput'; test: string; block: string }
   | { kind: 'testNotWrittenBefore'; test: string; block: string }
@@ -298,7 +295,7 @@ export type Definition =
   { state: 'compiled'; flow: Flow } | { state: 'faults'; faults: Fault[] } | { state: 'unreadable'; reason: string };
 
 /// What a part of what an agent is sent is, for the page to know what it may do with it: the program's own part; a
-/// part of the system prompt; the form of the return; a part of a message that is no content of a block, nor the task,
+/// part of the system prompt; a part of the form of the return; a part of a message that is no content of a block, nor the task,
 /// nor the blocks the cell writes; the content of a block the cell is given; the blocks the cell writes; and its task.
 export type SentWhat = 'program' | 'system' | 'form' | 'message' | 'input' | 'outputs' | 'task';
 
@@ -315,11 +312,13 @@ export type SentCarried = 'program' | 'system' | 'call' | 'message';
 export interface SentPart {
   what: SentWhat;
   carried: SentCarried;
-  /// Its key in the files.
+  /// Its key in the files: of a part of the form, `form` for the engine's fields, `outputs` for the line's blocks and
+  /// `tools` for the flow's tools.
   name: string;
   /// Of a part written anew each time, when it is sent at all: its `only`.
   only: string | null;
-  /// The file its words come from.
+  /// The file its words come from; of a part of the form, each file and directory its definition comes from, between
+  /// commas.
   source: string;
   /// The block, of the content of a block the cell is given.
   block: string | null;
@@ -352,8 +351,6 @@ export type Given =
   | {
       state: 'compiled';
       cells: Record<string, SentPart[]>;
-      /// The flow's tools, so that the page tells a tool in the form from a field.
-      tools: string[];
       /// Each of the engine's tools as its file in `agents/tools/` writes it, by the tool's name.
       toolFiles: Record<string, ActWords>;
       /// What each engine's cell's act writes, by the cell's id.

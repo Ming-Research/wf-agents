@@ -10,7 +10,7 @@ fn waiting_for(test: &str, block: &str, c: Cell) -> (Cell, (TestName, Test)) {
     let named = Test {
         kind: TestKind::All,
         reads: vec![block.into()],
-        is: "yes".to_string(),
+        is: Some("yes".to_string()),
     };
     (requiring(test, c), (test.into(), named))
 }

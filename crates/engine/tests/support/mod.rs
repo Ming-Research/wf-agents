@@ -214,6 +214,13 @@ pub trait Part {
     /// returning, `people` saying whether people still act.
     fn fails(&mut self, d: &mut Driver, stopped: bool, people: bool) -> bool;
 
+    /// How the round under way of this run of this cell fails as it ends, where its carrier finds it cannot go on, as
+    /// the check before the merge fails in passing on a head the review has not seen: the kind of the failure and why.
+    /// None where it returns; a part says none unless it says otherwise.
+    fn failure(&mut self, _: &mut Driver, _: RunId, _: &str) -> Option<(Failure, String)> {
+        None
+    }
+
     /// What the round under way of this run of this cell returns as it ends.
     fn returns(&mut self, d: &mut Driver, run: RunId, cell: &str) -> Came;
 
@@ -559,6 +566,18 @@ impl Driver {
                         run,
                         why,
                         failure: Failure::Other,
+                        resets: None,
+                        spent,
+                    });
+                    assert!(taken, "the failure of a round under way was refused");
+                    return;
+                }
+                if let Some((failure, why)) = part.failure(self, run, cell.as_str()) {
+                    let spent = self.spent(run);
+                    let taken = self.take(Event::Failed {
+                        run,
+                        why,
+                        failure,
                         resets: None,
                         spent,
                     });

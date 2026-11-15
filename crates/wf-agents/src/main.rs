@@ -647,13 +647,15 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
 /// `answer`, written by the engine's loop as the owner answers a question of the cell, and `asked`, as the questions
-/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; `tree`, written
-/// by the carriers as they look at the design tree on a work's branch; and `words`, written by the engine's loop as
-/// the owner speaks to a cell, the record of what is said and the cell's block that it was spoken to.
-const SOURCES: [&str; 8] = [
+/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; `tree` and
+/// `head`, read by the carriers of the design tree and of the work's head on a work's branch, written from outside or
+/// handed in with the round that committed them; and `words`, written by the engine's loop as the owner speaks to a
+/// cell, the record of what is said and the cell's block that it was spoken to.
+const SOURCES: [&str; 9] = [
     "answer",
     "asked",
     "dependencies",
+    "head",
     "main",
     "session",
     "start",
@@ -671,19 +673,6 @@ const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 /// is built yet: a cell may name them, and the system prompt of its line tells of those its flow names, with their
 /// words beside the flows (`agents/tools/`), while the form of the return does not hold them yet.
 const TOOLS: [&str; 2] = ["query", "run_tests"];
-
-/// The names of the fields of a return that are the engine's, as the design of data and context settles them: what a
-/// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions, why the
-/// work changes each file the project protects, and its answer to the owner. A datum may be written through
-/// `questions` or `reply`.
-const FIELDS: [&str; 6] = [
-    "dealt_with",
-    "meaning_unchanged",
-    "observations",
-    "questions",
-    "protected_changes",
-    "reply",
-];
 
 /// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
 /// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
@@ -703,7 +692,6 @@ fn has(dir: &Path) -> Has {
         acts: names(&ACTS),
         tools: names(&TOOLS),
         system: system.into_iter().flatten().collect(),
-        fields: names(&FIELDS),
         details: names(&DETAILS),
     }
 }
@@ -796,9 +784,6 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
-        F::DescribedNotRunOn { block } => {
-            format!("the cell says what the work is by {block}, but {block} does not run it")
-        }
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
@@ -826,7 +811,6 @@ fn words(what: &FaultKind, field: &str) -> String {
             "the cell names triggered_by and context, which only a flow laid out one thing to a file has".to_string()
         }
         F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
-        F::UnknownReturnField { field } => format!("the engine's return has no field named \"{field}\""),
         F::AsksWithNoAnswer { block } => {
             format!(
                 "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"
@@ -894,6 +878,10 @@ fn words(what: &FaultKind, field: &str) -> String {
         }
         F::UndeclaredTest { test } => format!("the test {test} is not declared in flow.toml"),
         F::ReadsEmpty { test } => format!("the test {test} reads no block"),
+        F::TestNamesNoValue { test } => format!("the test {test} names no value to look for: it has no is"),
+        F::ContentTestNamesValue { test } => {
+            format!("the test {test} looks for content, and names a value to look for, which it does not read")
+        }
         F::UnusedTest { test } => format!("no cell uses the test {test}"),
         F::TestOnOwnOutput { test, block } => format!(
             "the test {test} reads {block}, which the cell itself writes: the cell would decide by what it writes itself \

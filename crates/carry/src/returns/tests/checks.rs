@@ -6,7 +6,7 @@
 //! and handed to the engine's loop, which checks it against the records, so that what the reading finds and what the
 //! run's check finds are seen together, as an agent is told them.
 
-use decide::{Outsider, Pauser, RunId, Write};
+use decide::{Outsider, Pauser, RunId, Write, Written};
 use engine::{Effect, Event, handle};
 use work::{Given, Spent, Time, Work};
 
@@ -90,7 +90,7 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
             });
             asks += 1;
         }
-        r.insert("calls".into(), Value::Object(calls));
+        r.insert("tools".into(), Value::Object(calls));
     }
     let mut dealt_with: Vec<BlockId> = Vec::new();
     let mut writes = Vec::new();
@@ -233,13 +233,6 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
                 _ => {}
             }
         }
-        if !clean && rng.chance(8) {
-            // What the cell writes through its field `reply` is not written in `outputs`.
-            outputs.insert("discussion".into(), json!("Hello."));
-            faults.push(Unmet::NotAnOutput {
-                block: "discussion".into(),
-            });
-        }
         if !clean && rng.chance(5) {
             outputs.insert("nowhere".into(), json!("x"));
             faults.push(Unmet::NotAnOutput {
@@ -254,25 +247,32 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
             unchanged.push("plan");
             faults.push(Unmet::UnchangedNotWritten { block: "plan".into() });
         }
-        outcome.insert("outputs".into(), Value::Object(outputs));
-        if !unchanged.is_empty() {
-            outcome.insert("meaning_unchanged".into(), json!(unchanged));
-        }
-        if !questions.is_empty() {
-            outcome.insert("questions".into(), Value::Array(questions));
-        }
-        if rng.chance(20) {
-            outcome.insert("observations".into(), json!(["The greeting has no test."]));
-        }
-        // A cell's answer to the owner is its entry of the record of what is said, as its run finishes.
-        if rng.chance(20) {
-            outcome.insert("reply".into(), json!("By first name."));
+        // A cell's answer to the owner is a block it writes, the record of what is said, which its run makes its entry
+        // of the record as it finishes. A return that deals with the owner's words answers them there.
+        let speaks = names.contains(&"on_spoken");
+        if (speaks && (clean || rng.chance(80))) || rng.chance(20) {
+            outputs.insert("discussion".into(), json!("By first name."));
             writes.push((
                 "discussion".into(),
                 "An agent:\n\nBy first name.".to_string(),
                 None,
                 false,
             ));
+        } else if speaks {
+            faults.push(Unmet::NotAnswered {
+                name: "on_spoken".to_string(),
+            });
+        }
+        // The work's questions are a block it writes, which the engine keeps as questions of their own.
+        if !questions.is_empty() {
+            outputs.insert("q_and_a".into(), Value::Array(questions));
+        }
+        outcome.insert("outputs".into(), Value::Object(outputs));
+        if !unchanged.is_empty() {
+            outcome.insert("meaning_unchanged".into(), json!(unchanged));
+        }
+        if rng.chance(20) {
+            outcome.insert("observations".into(), json!(["The greeting has no test."]));
         }
         r.insert("outcome".into(), Value::Object(outcome));
     }
@@ -310,21 +310,30 @@ fn entered(flow: &Compiled, spoken: bool) -> (Work, RunId) {
         matters: true,
         value: None,
     };
-    let mut events = vec![
+    let mut effects = Vec::new();
+    for event in [
         Event::Paused {
             by: Pauser::Owner,
             why: None,
         },
         written("request"),
-    ];
-    if spoken {
-        events.push(written("write_spoken_to"));
-    }
-    events.push(Event::Resumed);
-    let mut effects = Vec::new();
-    for event in events {
+    ] {
         effects.extend(handle(flow, &mut work, Time(0), event).expect("the loop takes it"));
     }
+    if spoken {
+        // The owner's words, as the engine writes them as the owner speaks to the cell: the block of its trigger.
+        let at = work.tick();
+        work.records.written.push(Written {
+            block: "write_spoken_to".into(),
+            by: Outsider::Outside,
+            matters: true,
+            value: None,
+            said_to: None,
+            empty: false,
+            at,
+        });
+    }
+    effects.extend(handle(flow, &mut work, Time(0), Event::Resumed).expect("the loop takes it"));
     let run = (effects.iter())
         .find_map(|e| match e {
             Effect::Round { run, number: 1, .. } => Some(*run),
@@ -381,6 +390,7 @@ fn a_return_the_form_and_its_cell_allow_is_never_sent_back_and_its_run_finishes_
             .map(|(block, _, value, unchanged)| Write {
                 block: block.clone(),
                 meaning_unchanged: *unchanged,
+                empty: false,
                 value: value.clone(),
             })
             .collect();

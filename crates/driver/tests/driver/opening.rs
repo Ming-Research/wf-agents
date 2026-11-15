@@ -400,13 +400,13 @@ fn engineer() -> flow::Compiled {
             "main",
             "session",
             "start",
+            "head",
             "tree",
             "words",
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
         system: flow::system::reserved(&beside).into_iter().collect(),
-        fields: names(&["dealt_with", "meaning_unchanged", "observations", "questions", "reply"]),
         details: names(&["files"]),
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")
@@ -434,6 +434,7 @@ fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_re
             matters: true,
             value: None,
             said_to: None,
+            empty: false,
             at,
         });
     }

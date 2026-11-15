@@ -16,7 +16,7 @@ const byWords = (name: string, more: Partial<FlowBlock>): FlowBlock => ({
   ...more,
 });
 
-/// The made-up flow with the record of what is said, which the implementation is given and writes through `reply`, and
+/// The made-up flow with the record of what is said, which the implementation is given and writes in its return, and
 /// the block of the owner's words to the implementation, which runs it.
 const SPOKEN: Flow = {
   ...FLOW,
@@ -30,10 +30,12 @@ const SPOKEN: Flow = {
         }
       : c,
   ),
+  // The trigger's block of the owner's words, which the same source writes, comes first: the record is the one no
+  // trigger stands on.
   blocks: [
     ...FLOW.blocks,
+    byWords('implement_spoken_to', { trigger: true }),
     byWords('discussion', {
-      field: 'reply',
       writes: [
         [
           'owner',
@@ -51,7 +53,6 @@ const SPOKEN: Flow = {
         ],
       ],
     }),
-    byWords('implement_spoken_to', { trigger: true }),
   ],
 };
 

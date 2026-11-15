@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cellNowWords } from '../works/marks';
 import type { Act, Item, Speaking, WorkPage } from '../works-api';
-import type { Flow } from '../api';
+import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
 
@@ -23,13 +23,34 @@ afterEach(() => {
 
 const ITEMS = fixtureItems();
 
+/// A block the engine's source of answers writes.
+const ofAnswers = (name: string): Block => ({
+  name,
+  values: null,
+  default: null,
+  what: null,
+  writtenBy: { cells: [], people: false, note: false, outside: 'answer' },
+  readBy: { cells: [], conditions: [], tests: [], shown: false },
+});
+
 /// The engineer's flow where the research's cell and the deep research's may write the work's questions, as the
-/// definition says by `questions` among their outputs, and the review's cells may not.
+/// definition says by the record of the questions and the answers among their outputs, which each one's trigger of an
+/// answer reads, and the review's cells may not.
 const ASKING: Flow = {
   ...FLOW,
   cells: FLOW.cells.map((c) =>
-    c.id === 'research' || c.id === 'deep_research' ? { ...c, outputs: [...c.outputs, 'questions'] } : c,
+    c.id === 'research' || c.id === 'deep_research'
+      ? {
+          ...c,
+          outputs: [...c.outputs, 'q_and_a'],
+          triggers: [
+            ...c.triggers,
+            { name: 'on_answer', what: null, block: `${c.id}_answered`, group: [], read: ['q_and_a'], do: null },
+          ],
+        }
+      : c,
   ),
+  blocks: [...FLOW.blocks, ofAnswers('q_and_a'), ofAnswers('research_answered'), ofAnswers('deep_research_answered')],
 };
 const itemOf = (n: number) => ITEMS.items.find((i) => i.number === n) as Item;
 const pageOf = (i: Item, speaking: Speaking[] = SPEAKING): PageState => ({

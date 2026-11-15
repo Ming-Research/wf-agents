@@ -120,7 +120,6 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "values": ["yes", "no"],
                         "default": null,
                         "what": null,
-                        "field": null,
                         "trigger": false,
                         "writes": [],
                         "writtenBy": { "cells": ["review"], "people": false, "note": false, "outside": null },
@@ -131,7 +130,6 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "values": ["yes", "no"],
                         "default": null,
                         "what": null,
-                        "field": null,
                         "trigger": false,
                         "writes": [],
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
@@ -142,7 +140,6 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "values": null,
                         "default": null,
                         "what": null,
-                        "field": null,
                         "trigger": false,
                         "writes": [],
                         "writtenBy": { "cells": ["review"], "people": true, "note": false, "outside": null },
@@ -153,7 +150,6 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "values": null,
                         "default": null,
                         "what": null,
-                        "field": null,
                         "trigger": false,
                         "writes": [],
                         "writtenBy": { "cells": ["plan"], "people": false, "note": false, "outside": null },
@@ -164,7 +160,6 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "values": null,
                         "default": null,
                         "what": null,
-                        "field": null,
                         "trigger": false,
                         "writes": [],
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
@@ -444,6 +439,29 @@ async fn a_test_of_what_stands_is_given_with_its_kind() {
             "kind": "noneStanding",
             "reads": ["go", "content"],
             "is": "no",
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_test_of_content_is_given_with_its_kind_and_no_value() {
+    let source = edit(
+        tiny(),
+        None,
+        "kind = \"all\"\nreads = [\"go\"]\nis = \"yes\"",
+        "kind = \"any_content\"\nreads = [\"go\", \"plan\"]",
+    );
+    let router = serve(&Shared::new(Ok(source)));
+    let answer = get_json(&router, "/api/v1/flow").await;
+    assert_eq!(
+        answer["flow"]["tests"][0],
+        json!({
+            "name": "may_merge",
+            "words": "The owner let the work merge",
+            "file": "flow.toml",
+            "kind": "anyContent",
+            "reads": ["go", "plan"],
+            "is": null,
         })
     );
 }
