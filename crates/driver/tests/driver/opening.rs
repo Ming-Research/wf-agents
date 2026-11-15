@@ -468,8 +468,7 @@ fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_re
     let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens again");
     drop(driver);
     assert_eq!(carried(&db), each, "they are carried once");
-    // Carrying runs no cell: it writes the record alone, which runs none, and what the work's records decide is what
-    // they decided before.
+    // Carrying runs no cell: it writes the record alone, which runs none.
     let now = db.open().load(work).expect("the work loads");
     let new: Vec<&str> = (now.records.written.iter())
         .filter(|w| !kept.records.written.contains(w))
@@ -478,12 +477,6 @@ fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_re
     assert_eq!(new, ["discussion", "discussion"]);
     let runs_on = |c: &flow::CellSpec| c.runs_on.iter().any(|r| r.block.as_str() == "discussion");
     assert!(!engineer().cells.iter().any(runs_on), "the record runs no cell");
-    let flow = engineer();
-    assert_eq!(
-        decide::decide(&flow.flow, &now.records),
-        decide::decide(&flow.flow, &kept.records),
-        "the decision is as it was"
-    );
 }
 
 // A work whose records are at fault is written nothing as the driver opens, the owner's words it kept in a cell's

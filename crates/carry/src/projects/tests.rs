@@ -145,8 +145,6 @@ fn said_down(mut from: mpsc::UnboundedReceiver<Message>) -> Vec<Event> {
     events
 }
 
-// What the loop gives the works of a project's items reaches that project's carriers, and nothing of a work whose item
-// has another project or none reaches them.
 // A work paused or let on is told to the carriers of every project, which hold no item to tell the work's project by.
 // Well under a millisecond alone; no other test holds a pause to the carriers.
 #[test]
@@ -164,6 +162,8 @@ fn a_pause_of_a_work_is_told_to_the_carriers_of_every_project() {
     }
 }
 
+// What the loop gives the works of a project's items reaches that project's carriers, and nothing of a work whose item
+// has another project or none reaches them.
 #[test]
 fn what_the_loop_gives_reaches_the_carriers_of_the_works_project() {
     let reached = Arc::new(Reached::default());

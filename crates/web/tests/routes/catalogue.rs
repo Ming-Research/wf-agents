@@ -30,11 +30,15 @@ fn kinds(file: &str, name: &str) -> Vec<String> {
     variants
 }
 
-/// The kinds of these that the page's file of words has no case of.
-fn unworded(kinds: &[String], page: &str) -> Vec<String> {
+/// The kinds of these that the function of this name in the page's file of words, from its head to its end, has no case
+/// of: the file's other functions name cases of their own, which say nothing of these.
+fn unworded(kinds: &[String], page: &str, function: &str) -> Vec<String> {
     let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(page)).expect("the page's words");
+    let head = format!("export function {function}(");
+    let from = text.find(&head).expect("the function");
+    let body = &text[from..from + text[from..].find("\n}\n").expect("its end")];
     (kinds.iter())
-        .filter(|kind| !text.contains(&format!("case '{kind}':")))
+        .filter(|kind| !body.contains(&format!("case '{kind}':")))
         .cloned()
         .collect()
 }
@@ -44,10 +48,13 @@ fn unworded(kinds: &[String], page: &str) -> Vec<String> {
 #[test]
 fn every_kind_of_fault_and_of_send_back_the_routes_give_has_the_pages_words() {
     let what = kinds("src/view.rs", "What");
-    assert_eq!(unworded(&what, "../../client/src/words.ts"), Vec::<String>::new());
+    assert_eq!(
+        unworded(&what, "../../client/src/words.ts", "faultWords"),
+        Vec::<String>::new()
+    );
     let unmet = kinds("src/works.rs", "Unmet");
     assert_eq!(
-        unworded(&unmet, "../../client/src/works/words.ts"),
+        unworded(&unmet, "../../client/src/works/words.ts", "unmetWords"),
         Vec::<String>::new()
     );
 }

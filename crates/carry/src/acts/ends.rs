@@ -764,8 +764,11 @@ async fn a_merge_takes_the_turn_before_it_merges() {
     waiting.inner.turn().holder = Some((other, None));
     let (to, _told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    // Once the merge waits for the turn, nothing is merged; then the other work lets the turn go.
     let letting_go = async {
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        while !waiting.inner.turn().waiting.contains(&WORK) {
+            tokio::task::yield_now().await;
+        }
         let asked = waiting.inner.host.asked();
         assert!(!asked.iter().any(|a| matches!(a, Asked::Merge(_))), "{asked:?}");
         waiting.inner.end_turn(other);
