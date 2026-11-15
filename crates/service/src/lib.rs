@@ -23,9 +23,10 @@
 //!
 //! The loop is also what tells the time to what waits for it. A wait of a run before a round that failed in passing is
 //! tried again is a call the engine makes: the loop gives it its result once its time has come, and answers it as
-//! withdrawn itself where its run is abandoned first. A wait every work shares the driver says the end of
-//! ([`Driver::wake`]): the loop tells the driver the time then, looking at the network first where the driver asks it
-//! to ([`Network`]). Neither is held but as a timer, which is set again from the records when the process starts again.
+//! withdrawn itself where its run is abandoned first. A wait every work shares the driver says when to look at
+//! ([`Driver::wake`]): the loop tells the driver the time then, checking the outside of the agents' rounds first where
+//! the driver asks it to ([`Outside`]), and looking at the network to the acts' host ([`Network`]). Neither is held but
+//! as a timer, which is set again from the records when the process starts again.
 //!
 //! The owner's pause of everything comes to the loop as an act of its own, which the driver keeps; how many rounds of
 //! agents go on at once is what the carriers say ([`Carriers::slots`]), and the driver gives no more. Whether a pause
@@ -52,7 +53,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
-use driver::{Asked, Driver, Failed, NewItem, Todo, Wake};
+use driver::{Asked, Driver, Failed, Found, NewItem, Todo, Wake};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{ItemNumber, Storage, WorkNumber};
@@ -60,8 +61,8 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Doing, Network, Ping, PingReply, Release, ReleaseReply, Returned, Round, RoundReply,
-    Rounds, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, Doing, Network, Outside, Ping, PingReply, Release, ReleaseReply, Returned, Round,
+    RoundReply, Rounds, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
@@ -139,11 +140,12 @@ pub enum Message {
     Read(Reader),
     /// The time of the engine's wait, this call of this work, has come.
     Due { work: WorkNumber, call: CallId },
-    /// The time the driver asked to be told has come; where it asked for a look at the network to the agents' service
-    /// or to the acts' host, the look found it reached or not.
+    /// The time the driver asked to be told has come; where it asked for a check of the outside of the agents' rounds,
+    /// the check found this, and where it asked for a look at the network to the acts' host, the look found it reached
+    /// or not.
     Tick {
         wake: Wake,
-        reached: Option<bool>,
+        found: Option<Found>,
         host_reached: Option<bool>,
     },
     /// The service of the agents answered the round under way of this run, with a message that is no error.
@@ -375,14 +377,14 @@ impl Service {
             }
             Message::Tick {
                 wake,
-                reached,
+                found,
                 host_reached,
             } => {
                 if self.wake.as_ref().is_some_and(|(set, _)| *set == wake) {
                     self.wake = None;
                 }
                 let now = self.now()?;
-                let todos = (self.driver.tick(now, reached, host_reached)).map_err(Fault::Driver)?;
+                let todos = (self.driver.tick(now, found, host_reached)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
             Message::Answered { work, run } => {
@@ -475,9 +477,9 @@ impl Service {
     }
 
     /// Sets the timer that tells the loop the time the driver asks to be told next, where that changed. The one set
-    /// before is stopped only where its time has not come: one whose time has come may be looking at the network, or
-    /// about to tell the loop, and tells it, which costs one look at the works more. Where the driver asks for a look
-    /// at the network, the look is taken off the loop as the time comes.
+    /// before is stopped only where its time has not come: one whose time has come may be checking the outside, or
+    /// about to tell the loop, and tells it, which costs one look at the works more. Where the driver asks for a check
+    /// of the outside or a look at the network, it is taken off the loop as the time comes.
     fn set_wake(&mut self) {
         let wake = self.driver.wake();
         if self.wake.as_ref().map(|(w, _)| *w) == wake {
@@ -493,15 +495,15 @@ impl Service {
             return;
         };
         let after = self.until(wake.at);
-        let (to, network, host) = (
+        let (to, outside, host) = (
             self.to.clone(),
-            self.carriers.network.clone(),
+            self.carriers.outside.clone(),
             self.carriers.host.clone(),
         );
         let timer = tokio::spawn(async move {
             tokio::time::sleep(after).await;
-            let reached = match wake.look {
-                true => tokio::task::spawn_blocking(move || network.reached()).await.ok(),
+            let found = match wake.check {
+                true => Some(outside.check().await),
                 false => None,
             };
             // A host no network reaches is reached.
@@ -512,7 +514,7 @@ impl Service {
             };
             let _ = to.send(Message::Tick {
                 wake,
-                reached,
+                found,
                 host_reached,
             });
         });

@@ -174,7 +174,7 @@ fn spent(s: &Spent) -> bool {
 
 /// Whether the round of this number of the run put its message into its session: it reached the model, or its last
 /// try's program said, as its stream began, that it had taken the message in, which it writes into the session before
-/// it calls the service (decision `no-round-tries-the-network`). What a round failed of says nothing of this: a crash
+/// it calls the service (decision `the-engine-checks-the-outside-itself`). What a round failed of says nothing of this: a crash
 /// may come before the program read its input or after. A round that says neither is taken to have put nothing
 /// there: a message given again where the session holds it costs tokens, while one referred to where the session
 /// lacks it leaves the agent without it.

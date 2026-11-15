@@ -39,15 +39,7 @@ text of the diff, the change asks nothing again as main moves on; asking at ever
 turned down, as the owner would answer the same change again and again.
 
 ### decision a-protected-change-is-asked-with-the-work-s-reason-for-each-file
-The engine asks the owner of a change of the protected paths only once the work says why each file of it is needed: a
-return that does the cell's work, of a line that may change the work, is sent back for each file the branch changes
-as the round left it of which neither its `protected_changes` nor the question that stands of the file as it is says
-why, unless the owner let the file merge as it is, and nothing is asked meanwhile. A reason stands for the file as it
-then is: the question carries it above the file's change, a later version asks with it while the file is as it was, a
-file changed again needs its own, and another reason asks anew while the question waits for its answer. The owner's
-yes to the change holds while the change is the same, whatever reason a round gives after it. The check before the
-merge, with no return to say why, asks with what the question that stands says, and says of a file no round explained
-that it has none.
+The engine asks the owner of a change of the protected paths only once the work says why each file of it is needed: a return that does the cell's work, of a line that may change the work, is sent back for each file the branch changes as the round left it of which neither its `protected_changes` nor the question that stands says why, unless the owner let the file merge as it is. A reason stands for the file as it then is, another reason asks anew only while the question waits for its answer and never after the owner's yes to the same change, and the check before the merge, with no return to say why, asks with what the question that stands says.
 Why: The owner judges a change of what governs the agents by why the agent made it, and a question with the diff alone
 left that to guess (work 9). What the branch holds as the round ends is judged, not what that round's commits did, so
 that a change left unexplained by a round stopped, failed or sent back is the next round's to explain; a yes the owner
