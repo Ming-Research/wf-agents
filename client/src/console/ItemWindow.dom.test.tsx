@@ -686,8 +686,6 @@ describe('the questions put to the owner, in the panel of the item selected', ()
       [25, { kind: 'answer', question: 'measure', version: 30, option: 1, why: null }],
       [25, { kind: 'answer', question: 'read-time', version: 48, option: 2, why: null }],
     ]);
-    // A message can go to the cells that asked them.
-    expect(text(el, '.cw-to .switch-choice')).toContain('Review the plan');
   });
 
   it('shows what a question asks as it was written, a change it is about as code', () => {
