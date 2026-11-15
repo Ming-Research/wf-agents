@@ -975,9 +975,14 @@ fn delivered(made_of: &[ItemNumber], words: &Deliver) -> String {
     }
 }
 
-/// The cell's outputs, each with its values where it is a choice.
+/// The round's cell's outputs, each with its values where it is a choice.
 fn outputs(flow: &Compiled, round: &Round) -> Vec<(BlockId, Option<Vec<String>>)> {
-    let place = flow.flow.place(&round.cell.id);
+    outputs_of(flow, &round.cell.id)
+}
+
+/// The cell's outputs, each with its values where it is a choice.
+fn outputs_of(flow: &Compiled, cell: &CellId) -> Vec<(BlockId, Option<Vec<String>>)> {
+    let place = flow.flow.place(cell);
     let outputs = place.map_or(&[][..], |place| &flow.flow.cells()[place].outputs);
     (outputs.iter())
         .map(|block| {
@@ -1071,11 +1076,7 @@ pub fn check_return(
     held: Option<&str>,
     words: &CheckWords,
 ) -> Result<Vec<Handed>, String> {
-    let place = flow.flow.place(cell);
-    let outputs: Vec<(BlockId, Option<Vec<String>>)> = (place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs))
-        .iter()
-        .map(|block| (block.clone(), flow.blocks.get(block).and_then(|b| b.values.clone())))
-        .collect();
+    let outputs = outputs_of(flow, cell);
     let checked = Checked {
         commit: "4b8e2d1".to_string(),
         main: "9c0ffee".to_string(),

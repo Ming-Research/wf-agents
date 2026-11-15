@@ -5,18 +5,20 @@
 //! named by what the page shows of the work there, as the judge reads the engine's view (`service::judge::states`):
 //! under way at a cell, waiting at a cell for each thing it waits for, stalled, ended; a work merged is told apart as
 //! well by its ways back, the cells it went without and how often main moved, so that each way through the flow is a
-//! state of its own. Main, which the exploration writes as a work starts, moves as the work's first state comes, by the
-//! act that moves main, given once every item of a play stands at its own. Of each name the nearest path is taken, and
-//! played again on a work added as a play adds an item: paused as it is added, its block of dependencies written, what
-//! people write for it written, then let on. What the path gave the engine's loop becomes the item's script: each
-//! round's return as the exploration's model made it, never left to the script's default round; each write by a person,
-//! each of the owner's words and answers and each cell let go, an act at the state the engine showed the work in as it
-//! came; main moving, the act that moves main; a session begun anew, the act that begins one; and what the engine gives
-//! the loop itself, a call withdrawn, a round stopped, what an ended work held let go, nothing. The steps the records
-//! of that play hold are the item's path, the state it was kept for its end; a round or a call left under way there
-//! takes longer than a play's bound of clock time, so that the play ends while it is under way. A path that writes what
-//! a script writes only as the round that reads it does (the tree, the head), or that a play cannot add an item for, is
-//! no case: it is listed with why.
+//! state of its own. Of each name the nearest path a play can be given is taken ([`case_of`] says which can), played
+//! again on a work added as a play adds an item: paused as it is added, its block of dependencies written, what people
+//! write for it written, then let on, its start written as the driver writes it. What the path gave the engine's loop
+//! becomes the item's script: each round's return as the exploration's model made it, never left to the script's
+//! default round, the check's in the words the real check gives it; each write by a person, each of the owner's words
+//! and answers and each cell let go, an act at the state the engine showed the work in as it came; main moving, the
+//! act that moves main, and main, which the exploration writes as a work starts, moves as the work's first state comes;
+//! a session begun anew, the act that begins one; the tree or the head written by a commit no round made, what the
+//! next round that reads the branch reads, the check's for its round and the merge's from outside, as the real
+//! carriers read them; and what the engine gives the loop itself, a call withdrawn, a round stopped, what an ended work
+//! held let go, nothing. The replay does what a script's carriers do: the check takes main in for its round as it
+//! begins, as the stand-in check does (`service::taken_in`). The steps the records of that replay hold are the item's
+//! path, the state it was kept for its end; a round or a call left under way there takes longer than a play's bound
+//! of clock time, so that the play ends while it is under way.
 //!
 //! Nothing here names a cell, a block or a trigger of a flow: each is read of the flow, or of the source the engine
 //! writes it by.
@@ -32,8 +34,10 @@ use flow::agents::Agents;
 use flow::{Compiled, Kind};
 use service::Shown;
 use service::judge::{self, Added};
-use service::script::items::{Step, Wait};
-use toml::{Table, Value};
+use service::script::items::{ActScript, Does, Step, Wait};
+use service::script::{
+    AskedScript, CHECK, HandIn, MERGE, QuestionScript, ReadScript, RoundScript, ToolAsk, WayScript, WithdrawnScript,
+};
 use work::{Ask, Call, Question};
 
 /// How long a round or a call meant to stay under way takes, in milliseconds: longer than a play's bound of clock time
@@ -51,7 +55,7 @@ pub const MAIN_AT_START: &str = "The head of main as the works start.";
 /// document `testing`, 18).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Store {
-    /// Every state of a work but those below; main never moves in it.
+    /// Every state of a work but those below; main moves in it only as the works start.
     Main,
     /// Every slot taken, and a work waiting for one.
     Slots,
@@ -84,7 +88,7 @@ impl Store {
 
 /// The kind of failure as a script and a round's entry name it.
 pub fn failure_name(failure: Failure) -> String {
-    (Value::try_from(failure).ok())
+    (toml::Value::try_from(failure).ok())
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_default()
 }
@@ -100,10 +104,10 @@ pub struct Case {
     pub state: String,
     /// The kind of state it is (`kind_of`).
     pub kind: String,
-    /// The rounds its script says, each a table of the script's rounds but for its work, which its store fills in.
-    pub rounds: Vec<Table>,
-    /// Its acts, each a table of a script item's acts.
-    pub acts: Vec<Table>,
+    /// The rounds its script says, of every work, which its store gives to its work alone; the round left under way
+    /// at its end, where one is, the last.
+    pub rounds: Vec<RoundScript>,
+    pub acts: Vec<ActScript>,
     pub path: Vec<Step>,
     /// The state its work stands at as its path ends, as the engine shows it, as an act would wait for it.
     pub end: Step,
@@ -111,17 +115,21 @@ pub struct Case {
     pub held: bool,
     /// Whether it depends on an item left unmerged, which its store adds, never let on.
     pub unmerged: bool,
-    /// How often main moves on its path.
+    /// How often main moves on its path, but as the work starts.
     pub mains: usize,
     /// Whether an agent's round of it is left under way, holding a slot.
     pub holds_slot: bool,
     /// The round left under way at its end, by its cell, run and round, where one is: what a rule changes it from.
     pub under_way: Option<(CellId, usize, usize)>,
+    /// Whether its round left under way waits for the project's turn to check and merge, which another work of its
+    /// store holds.
+    pub turn: bool,
 }
 
 /// The name of the state the engine shows a work at, as the page shows it: each state the judge reads of the engine's
 /// view, without the run and the round of a round under way and the name of a question waited for, joined; a work
-/// merged told apart by its ways back and the cells it went without. None where the engine shows it at none.
+/// merged told apart by its ways back, the cells it went without and how often main moved. None where the engine
+/// shows it at none.
 pub fn state_of(flow: &Compiled, work: &Work, decision: &Decision) -> Option<String> {
     let shown = shown_as(decision.clone());
     let states: Vec<String> = (judge::states(work, &shown).into_iter())
@@ -149,7 +157,7 @@ fn shown_as(decision: Decision) -> Shown {
 
 /// The state with what the page shows of every work alike left out: the run and round of a round under way, and which
 /// question is waited for.
-fn general(step: Step) -> Step {
+pub fn general(step: Step) -> Step {
     match step {
         Step::UnderWay { cell, .. } => Step::UnderWay {
             cell,
@@ -199,10 +207,7 @@ fn ways(flow: &Compiled, records: &Records) -> String {
     // Main moving is a way through the flow too: the check runs again on it. Its first version is the work's start.
     let main = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(driver::MAIN));
     let moves = main.map_or(0, |(main, _)| {
-        let written = records
-            .written
-            .iter()
-            .filter(|w| w.block == *main && w.by == Outsider::Outside);
+        let written = (records.written.iter()).filter(|w| w.block == *main && w.by == Outsider::Outside);
         written.count().saturating_sub(1)
     });
     match moves {
@@ -265,7 +270,7 @@ fn source<'f>(flow: &'f Compiled, block: &BlockId) -> Option<&'f str> {
     flow.blocks.get(block).and_then(|b| b.writers.outside.as_deref())
 }
 
-/// The case of the state of this name, which the nearest path the exploration kept to it reaches; or why it is none.
+/// The case of the state of this name, which this path of the exploration reaches; or why a play cannot be given it.
 pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents) -> Result<Case, String> {
     let flow = &model.compiled;
     let first = starting(model);
@@ -283,15 +288,13 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
     };
     let unmerged = dependencies.is_some() && !given[first..].iter().any(merges);
     let mut replay = Replay::added(model, unmerged)?;
-    let mut rounds: Vec<Table> = Vec::new();
-    let mut acts: Vec<Table> = Vec::new();
+    let mut rounds: Vec<RoundScript> = Vec::new();
+    let mut acts: Vec<ActScript> = Vec::new();
     // Main, which the exploration writes as the work starts, moves as the work's first state comes: the act that
     // moves main, given once every item of a play stands at its own.
     if let Some(block) = model.sources.get(driver::MAIN) {
-        let mut main = Table::new();
-        main.insert("at".to_string(), step_value(&replay.at()?));
-        main.insert("do".to_string(), text("main"));
-        main.insert("content".to_string(), text(MAIN_AT_START));
+        let mut main = ActScript::at(&replay.at()?, Does::Main);
+        main.content = Some(MAIN_AT_START.to_string());
         acts.push(main);
         replay.give(Given::Wrote {
             block: block.clone(),
@@ -317,12 +320,6 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
             continue;
         }
         let at = replay.at()?;
-        let act = |does: &str| {
-            let mut act = Table::new();
-            act.insert("at".to_string(), step_value(&at));
-            act.insert("do".to_string(), text(does));
-            act
-        };
         let mut asking: Option<usize> = None;
         match g {
             Given::Look => {}
@@ -334,22 +331,8 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
             } => match source(flow, block) {
                 Some(s) if s == driver::DEPENDENCIES => continue,
                 Some(s) if s == driver::MAIN => {
-                    // A script's check, as the real one, writes over a main that moved while its round was told what
-                    // it takes in the one it was told, which the exploration's model does not.
-                    let checking = match &at {
-                        Step::UnderWay { cell, .. } => (flow.cells.iter())
-                            .any(|c| c.id == *cell && c.act.as_deref() == Some(service::script::CHECK)),
-                        _ => false,
-                    };
-                    if checking {
-                        return Err(
-                            "its path moves main while the check's round is under way, where a script's \
-                                    check, as the real one, writes over it the main it was told: not built"
-                                .to_string(),
-                        );
-                    }
-                    let mut main = act("main");
-                    main.insert("content".to_string(), text(content));
+                    let mut main = ActScript::at(&at, Does::Main);
+                    main.content = Some(content.clone());
                     acts.push(main);
                     mains += 1;
                 }
@@ -357,14 +340,18 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
                     let line = (model.sessions.iter())
                         .find(|(_, b)| *b == block)
                         .map(|(line, _)| line.clone());
-                    let mut anew = act("new_session");
-                    anew.insert("line".to_string(), text(&line.unwrap_or_default()));
+                    let mut anew = ActScript::at(&at, Does::NewSession);
+                    anew.line = line;
                     acts.push(anew);
+                }
+                Some(s) if s == explore::model::TREE || s == explore::model::HEAD => {
+                    // A commit no round made is read by the next round that reads the branch.
+                    replay.pending.push((block.clone(), content.clone()));
+                    continue;
                 }
                 Some(s) => {
                     return Err(format!(
-                        "its path has {block} written by the source {s}, which a script writes only as the round \
-                         that reads it does: not built"
+                        "its path has {block} written by the source {s}, which no act writes"
                     ));
                 }
                 None => {
@@ -380,48 +367,43 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
                 value,
                 ..
             } => {
-                let mut write = act("write");
-                write.insert("block".to_string(), text(block.as_str()));
-                write.insert("content".to_string(), text(content));
-                if let Some(value) = value {
-                    write.insert("value".to_string(), text(value));
-                }
+                let mut write = ActScript::at(&at, Does::Write);
+                write.block = Some(block.to_string());
+                write.content = Some(content.clone());
+                write.value = value.clone();
                 acts.push(write);
             }
             Given::Said { to, words } => {
-                let mut say = act("say");
+                let mut say = ActScript::at(&at, Does::Say);
                 match to {
-                    To::Line(line) => say.insert("line".to_string(), text(line)),
-                    To::Question(question) => say.insert("question".to_string(), text(question)),
-                };
-                say.insert("words".to_string(), text(words));
+                    To::Line(line) => say.line = Some(line.clone()),
+                    To::Question(question) => say.question = Some(question.clone()),
+                }
+                say.words = Some(words.clone());
                 acts.push(say);
             }
             Given::Answer {
                 question, option, why, ..
             } => {
-                let mut answer = act("answer");
-                answer.insert("question".to_string(), text(question));
-                answer.insert("option".to_string(), Value::Integer(*option as i64));
-                if let Some(why) = why {
-                    answer.insert("why".to_string(), text(why));
-                }
+                let mut answer = ActScript::at(&at, Does::Answer);
+                answer.question = Some(question.clone());
+                answer.option = Some(*option);
+                answer.why = why.clone();
                 acts.push(answer);
             }
             Given::LetGo { cell } => {
-                let mut go = act("let_go");
-                go.insert("cell".to_string(), text(cell.as_str()));
+                let mut go = ActScript::at(&at, Does::LetGo);
+                go.cell = Some(cell.to_string());
                 acts.push(go);
             }
             Given::Done { call, result } => {
                 if let Some((k, j)) = asked.get(call).copied() {
-                    let asks = rounds[k].get_mut("asks").and_then(Value::as_array_mut);
-                    if let Some(ask) = asks.and_then(|asks| asks.get_mut(j)).and_then(Value::as_table_mut) {
-                        ask.insert("answer".to_string(), text(result));
+                    if let Some(ask) = rounds[k].asks.as_mut().and_then(|asks| asks.get_mut(j)) {
+                        ask.answer = Some(result.clone());
                     }
                 } else if let Some(cell) = limits.get(call) {
-                    let mut go = act("let_go");
-                    go.insert("cell".to_string(), text(cell.as_str()));
+                    let mut go = ActScript::at(&at, Does::LetGo);
+                    go.cell = Some(cell.to_string());
                     acts.push(go);
                 } else {
                     return Err("its path gives a call a result that no round of it asked for".to_string());
@@ -429,7 +411,11 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
             }
             Given::Returned { run, came, .. } => {
                 let (cell, nth, number) = replay.round_of(*run)?;
-                rounds.push(round_of(flow, &cell, nth, number, came, words)?);
+                let mut round = round_of(flow, &cell, nth, number, came, words)?;
+                if let Some(reads) = replay.reads.remove(&(cell.clone(), nth, number)) {
+                    round.reads = Some(reads);
+                }
+                rounds.push(round);
                 if !came.asks.is_empty() {
                     asking = Some(rounds.len() - 1);
                 }
@@ -458,6 +444,11 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
         }
         follow(&effects, &mut own);
     }
+    if let Some((block, _)) = replay.pending.first() {
+        return Err(format!(
+            "its path writes {block} by a commit no round made, and no round that reads the branch comes after it"
+        ));
+    }
     let decision = decide::decide(&flow.flow, &replay.work.records);
     let reached = state_of(flow, &replay.work, &decision);
     if reached.as_deref() != Some(state) {
@@ -479,11 +470,9 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
     match &decision {
         Decision::Busy { cell, run } => {
             let (cell, nth, number) = replay.round_now(cell, *run);
-            let mut long = Table::new();
-            long.insert("cell".to_string(), text(cell.as_str()));
-            long.insert("run".to_string(), Value::Integer(nth as i64));
-            long.insert("round".to_string(), Value::Integer(number as i64));
-            long.insert("took".to_string(), took(LONG));
+            let mut long = RoundScript::of(cell.as_str(), nth, number);
+            long.took.ms = Some(LONG);
+            long.reads = replay.reads.remove(&(cell.clone(), nth, number));
             rounds.push(long);
             holds_slot = (flow.cells.iter()).any(|c| c.id == cell && c.kind == Kind::Agent);
             steps.push(Step::UnderWay {
@@ -499,9 +488,8 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
     // A call of a tool left waiting at the end takes longer than the play's bound.
     for (call, (k, j)) in &asked {
         if !replay.work.records.done.iter().any(|d| d.call == *call) {
-            let asks = rounds[*k].get_mut("asks").and_then(Value::as_array_mut);
-            if let Some(ask) = asks.and_then(|asks| asks.get_mut(*j)).and_then(Value::as_table_mut) {
-                ask.insert("ms".to_string(), Value::Integer(LONG as i64));
+            if let Some(ask) = rounds[*k].asks.as_mut().and_then(|asks| asks.get_mut(*j)) {
+                ask.ms = Some(LONG);
             }
             holds_slot = true;
         }
@@ -520,6 +508,7 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
         mains,
         holds_slot,
         under_way,
+        turn: false,
     })
 }
 
@@ -549,7 +538,8 @@ fn follow(effects: &[Effect], own: &mut VecDeque<Given>) {
 
 /// The round entry of a script for this round of the cell's nth run, as its return came: what it hands in, or the
 /// tools it asks for; what it dealt with; what what it wrote waits for; its questions; what it read of the branch. The
-/// check's return is handed in in the words the real check gives it, passed, failed, or failing on main too.
+/// check's return is handed in in the words the real check gives it, passed, failed, or failing on main too, as its
+/// choice's value and what what it wrote waits for say.
 fn round_of(
     flow: &Compiled,
     cell: &CellId,
@@ -557,11 +547,8 @@ fn round_of(
     number: usize,
     came: &Came,
     words: &Agents,
-) -> Result<Table, String> {
-    let mut round = Table::new();
-    round.insert("cell".to_string(), text(cell.as_str()));
-    round.insert("run".to_string(), Value::Integer(nth as i64));
-    round.insert("round".to_string(), Value::Integer(number as i64));
+) -> Result<RoundScript, String> {
+    let mut round = RoundScript::of(cell.as_str(), nth, number);
     let spec = flow.cells.iter().find(|c| c.id == *cell);
     if !came.engine.is_empty() {
         return Err("its path has a round end with the engine's own question, which a script says by a rule".into());
@@ -570,14 +557,15 @@ fn round_of(
         if !came.writes.is_empty() {
             return Err("its path has a round that both hands in and asks".to_string());
         }
-        let mut asks = Vec::new();
-        for tool in &came.asks {
-            let mut t = Table::new();
-            t.insert("tool".to_string(), text(&tool.name));
-            t.insert("input".to_string(), text(&tool.input));
-            asks.push(Value::Table(t));
-        }
-        round.insert("asks".to_string(), Value::Array(asks));
+        let asks = (came.asks.iter())
+            .map(|tool| ToolAsk {
+                tool: tool.name.clone(),
+                input: tool.input.clone(),
+                answer: None,
+                ms: None,
+            })
+            .collect();
+        round.asks = Some(asks);
         return Ok(round);
     }
     // The act that runs the tests hands in the result of each entry it gives as a script's act does by itself.
@@ -585,13 +573,15 @@ fn round_of(
         .flat_map(|c| c.asks.iter().map(|a| &a.result))
         .collect();
     let runs_tests = spec.is_some_and(|c| c.act.as_deref() == Some(flow::RUNS_TESTS));
-    let checks = spec.is_some_and(|c| c.act.as_deref() == Some(service::script::CHECK));
+    let checks = spec.is_some_and(|c| c.act.as_deref() == Some(CHECK));
     let worded;
     let writes = match checks {
         true => {
-            let choices = |h: &&work::Handed| flow.blocks.get(&h.block).is_some_and(|b| b.values.is_some());
-            let failed = came.writes.iter().any(|h| !choices(&h)) && came.waits_for.is_none();
+            let values = &words.acts.check.values;
+            let choice = |h: &&work::Handed| flow.blocks.get(&h.block).is_some_and(|b| b.values.is_some());
+            let said = came.writes.iter().find(choice).and_then(|h| h.value.as_deref());
             let held = came.waits_for.is_some();
+            let failed = !held && said != Some(values.passed.as_str());
             worded = carry::check_return(
                 flow,
                 cell,
@@ -603,55 +593,40 @@ fn round_of(
         }
         false => &came.writes,
     };
-    let handed: Vec<Value> = (writes.iter())
+    let handed = (writes.iter())
         .filter(|h| !(runs_tests && results.contains(&h.block)))
-        .map(|h| {
-            let mut t = Table::new();
-            t.insert("block".to_string(), text(h.block.as_str()));
-            t.insert("content".to_string(), text(&h.content));
-            if let Some(value) = &h.value {
-                t.insert("value".to_string(), text(value));
-            }
-            t.insert("matters".to_string(), Value::Boolean(h.matters));
-            Value::Table(t)
+        .map(|h| HandIn {
+            block: h.block.to_string(),
+            content: Some(h.content.clone()),
+            value: h.value.clone(),
+            matters: h.matters,
         })
         .collect();
-    round.insert("hands_in".to_string(), Value::Array(handed));
-    if let Some(dealt_with) = &came.dealt_with {
-        let blocks = dealt_with.iter().map(|b| text(b.as_str())).collect();
-        round.insert("dealt_with".to_string(), Value::Array(blocks));
-    }
-    if let Some(block) = &came.waits_for {
-        round.insert("waits_for".to_string(), text(block.as_str()));
-    }
+    round.hands_in = Some(handed);
+    round.dealt_with = (came.dealt_with.as_ref()).map(|blocks| blocks.iter().map(ToString::to_string).collect());
+    round.waits_for = came.waits_for.as_ref().map(ToString::to_string);
     if !came.said.questions.is_empty() {
-        let mut questions = Vec::new();
-        for question in &came.said.questions {
-            questions.push(Value::Table(question_of(question)?));
-        }
-        round.insert("questions".to_string(), Value::Array(questions));
+        let questions: Result<Vec<QuestionScript>, String> = came.said.questions.iter().map(question_of).collect();
+        round.questions = Some(questions?);
     }
     if !came.said.observations.is_empty() {
-        let observations = came.said.observations.iter().map(|o| text(o)).collect();
-        round.insert("observations".to_string(), Value::Array(observations));
+        round.observations = Some(came.said.observations.clone());
     }
     if !came.read.is_empty() {
         let reads = (came.read.iter())
-            .map(|r| {
-                let mut t = Table::new();
-                t.insert("block".to_string(), text(r.block.as_str()));
-                t.insert("content".to_string(), text(&r.content));
-                Value::Table(t)
+            .map(|r| ReadScript {
+                block: r.block.to_string(),
+                content: r.content.clone(),
+                for_round: None,
             })
             .collect();
-        round.insert("reads".to_string(), Value::Array(reads));
+        round.reads = Some(reads);
     }
     Ok(round)
 }
 
 /// A question a return asks, as a script's round writes it.
-fn question_of(question: &Question) -> Result<Table, String> {
-    let mut t = Table::new();
+fn question_of(question: &Question) -> Result<QuestionScript, String> {
     match question {
         Question::Asked {
             name,
@@ -665,46 +640,24 @@ fn question_of(question: &Question) -> Result<Table, String> {
             if about.is_some() || !reasons.is_empty() {
                 return Err("its path has a question of a change, which only the engine asks".to_string());
             }
-            t.insert("name".to_string(), text(name));
-            t.insert("waits".to_string(), Value::Boolean(*waits));
-            if let Some(recommends) = recommends {
-                t.insert("recommends".to_string(), Value::Integer(*recommends as i64));
-            }
-            t.insert("ask".to_string(), text(ask));
-            let options = (options.iter())
-                .map(|o| {
-                    let mut way = Table::new();
-                    way.insert("does".to_string(), text(&o.does));
-                    way.insert("follows".to_string(), text(&o.follows));
-                    Value::Table(way)
-                })
-                .collect();
-            t.insert("options".to_string(), Value::Array(options));
+            Ok(QuestionScript::Asked(AskedScript {
+                name: name.clone(),
+                waits: *waits,
+                recommends: *recommends,
+                ask: ask.clone(),
+                options: (options.iter())
+                    .map(|o| WayScript {
+                        does: o.does.clone(),
+                        follows: o.follows.clone(),
+                    })
+                    .collect(),
+            }))
         }
-        Question::Withdrawn { name, why } => {
-            t.insert("name".to_string(), text(name));
-            t.insert("withdrawn".to_string(), text(why));
-        }
+        Question::Withdrawn { name, why } => Ok(QuestionScript::Withdrawn(WithdrawnScript {
+            name: name.clone(),
+            withdrawn: why.clone(),
+        })),
     }
-    Ok(t)
-}
-
-/// A text, as a script's value.
-pub fn text(s: &str) -> Value {
-    Value::String(s.to_string())
-}
-
-/// What a round takes, as a script's round says it: this many milliseconds.
-pub fn took(ms: u64) -> Value {
-    let mut took = Table::new();
-    took.insert("ms".to_string(), Value::Integer(ms as i64));
-    Value::Table(took)
-}
-
-/// A step, or a state an act waits for, as a script's table: the step as a path writes it, read back.
-pub fn step_value(step: &Step) -> Value {
-    let read: Table = toml::from_str(&format!("step = {step}")).expect("a step is written as a table of a script");
-    read.get("step").cloned().expect("the step read back")
 }
 
 /// The play of a path again, on a work added as a play adds an item.
@@ -712,6 +665,12 @@ struct Replay<'m> {
     flow: &'m Compiled,
     work: Work,
     clock: u64,
+    /// The tree and the head a commit no round made wrote, each with what it says, for the next round that reads the
+    /// branch.
+    pending: Vec<(BlockId, String)>,
+    /// What each round of an act read of the branch as it began, by its cell, its run's place among the cell's and its
+    /// own among the run's, for its entry.
+    reads: BTreeMap<(CellId, usize, usize), Vec<ReadScript>>,
 }
 
 impl<'m> Replay<'m> {
@@ -723,6 +682,8 @@ impl<'m> Replay<'m> {
             flow: &model.compiled,
             work: Work::default(),
             clock: ADDED,
+            pending: Vec::new(),
+            reads: BTreeMap::new(),
         };
         let mut first = vec![Given::Paused {
             by: Pauser::Owner,
@@ -773,7 +734,7 @@ impl<'m> Replay<'m> {
         let then = |_: &Compiled, _: &Work| start.clone().into_iter().collect::<Vec<Given>>();
         replay.clock += 1000;
         let (flow, now) = (replay.flow, Time(replay.clock));
-        engine::handle_then(
+        let effects = engine::handle_then(
             flow,
             &mut replay.work,
             now,
@@ -783,39 +744,81 @@ impl<'m> Replay<'m> {
             &then,
         )
         .map_err(|why| format!("the work could not be let on as a play lets it on: {why:?}"))?;
+        replay.reading(&effects)?;
         Ok(replay)
     }
 
-    /// Gives the loop this, as the exploration did, with a second more on the clock; and, as a round of the act that
-    /// checks the work begins, what a script's check writes for it as it begins: main as the work's block of it holds
-    /// it, or, where it holds none, a version made up for the round (crate `service`, the stand-in check).
+    /// Gives the loop this, as the exploration did, with a second more on the clock; and what a script's acts read of
+    /// the branch as their rounds begin ([`Replay::reading`]).
     fn give(&mut self, given: Given) -> Result<Vec<Effect>, String> {
         let mut effects = self.take(given)?;
-        let checks: Vec<RunId> = (effects.iter())
-            .filter_map(|effect| match effect {
-                Effect::Round { run, cell, .. } => (self.flow.cells.iter())
-                    .any(|c| c.id == *cell && c.act.as_deref() == Some(service::script::CHECK))
-                    .then_some(*run),
-                _ => None,
-            })
-            .collect();
-        let main = (self.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(driver::MAIN));
-        if let Some((block, _)) = main {
-            for run in checks {
-                let versions = decide::versions(&self.work.records);
-                let latest = versions.get(block).and_then(|v| v.last()).map(|v| v.at);
-                let says = latest
-                    .and_then(|at| self.work.contents.get(&(block.clone(), at)))
-                    .cloned();
-                let content = says.unwrap_or_else(|| "The main as the check took it in.".to_string());
-                effects.extend(self.take(Given::WroteForRound {
-                    run,
-                    block: block.clone(),
-                    content,
-                })?);
+        let read = self.reading(&effects)?;
+        effects.extend(read);
+        Ok(effects)
+    }
+
+    /// What a script's acts read of the branch as these rounds begin, each written as a script's act writes it: the
+    /// check, main as it takes it in (`service::taken_in`), and the tree and the head a commit no round made wrote
+    /// since, for its round; the merge, those from outside. What each read is kept for its round's entry, where a
+    /// commit no round made is among it.
+    fn reading(&mut self, effects: &[Effect]) -> Result<Vec<Effect>, String> {
+        let mut more = Vec::new();
+        for effect in effects {
+            let Effect::Round { run, cell, number, .. } = effect else {
+                continue;
+            };
+            let Some(spec) = self.flow.cells.iter().find(|c| c.id == *cell) else {
+                continue;
+            };
+            let (_, nth, _) = self.round_now(cell, *run);
+            let reads: Vec<(BlockId, String, bool)> = match spec.act.as_deref() {
+                Some(CHECK) => {
+                    let taken = service::taken_in(self.flow, &self.work, spec, nth, *number);
+                    let mut reads: Vec<(BlockId, String, bool)> =
+                        taken.into_iter().map(|r| (r.block, r.content, r.for_round)).collect();
+                    reads.extend(self.pending.drain(..).map(|(block, content)| (block, content, true)));
+                    reads
+                }
+                Some(MERGE) => (self.pending.drain(..))
+                    .map(|(block, content)| (block, content, false))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            // The entry says what the round read only where a commit no round made is among it: else the script's
+            // check takes main in by itself, as it is replayed here.
+            let committed = match spec.act.as_deref() {
+                Some(CHECK) => reads.len() > 1,
+                _ => !reads.is_empty(),
+            };
+            if committed {
+                let said = (reads.iter())
+                    .map(|(block, content, for_round)| ReadScript {
+                        block: block.to_string(),
+                        content: content.clone(),
+                        for_round: Some(*for_round),
+                    })
+                    .collect();
+                self.reads.insert((cell.clone(), nth, *number), said);
+            }
+            for (block, content, for_round) in reads {
+                let given = match for_round {
+                    true => Given::WroteForRound {
+                        run: *run,
+                        block,
+                        content,
+                    },
+                    false => Given::Wrote {
+                        block,
+                        by: Outsider::Outside,
+                        content,
+                        matters: true,
+                        value: None,
+                    },
+                };
+                more.extend(self.take(given)?);
             }
         }
-        Ok(effects)
+        Ok(more)
     }
 
     /// Takes this, with a second more on the clock.

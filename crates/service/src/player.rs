@@ -317,9 +317,9 @@ struct Play<'a> {
     shown: RefCell<Vec<Option<(Showing, Shown)>>>,
 }
 
-/// What the engine's view of a work rests on: the next place in its records, the slots, the pause of everything, the
-/// gate of its rounds and whether one of them waits for the turn.
-type Showing = (Seq, driver::Slots, Option<Pauser>, Gate, bool);
+/// What the engine's view of a work rests on: the next place in its records, whether the driver holds it at fault, the
+/// slots, the pause of everything, the gate of its rounds and whether one of them waits for the turn.
+type Showing = (Seq, bool, driver::Slots, Option<Pauser>, Gate, bool);
 
 impl Play<'_> {
     /// Gives the loop a message from someone who is not the loop, and gives its answer, which comes at once.
@@ -387,6 +387,7 @@ impl Play<'_> {
         let turn = (driver.along_of(work).iter()).any(|(_, along)| matches!(along, Along::Turn { .. }));
         let showing = (
             kept.work.tick(),
+            driver.at_fault(work),
             driver.slots(),
             driver.everything_paused().map(|paused| paused.by),
             driver.gate_of(work),

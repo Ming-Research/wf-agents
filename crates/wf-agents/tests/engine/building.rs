@@ -22,34 +22,47 @@ fn stalled() -> PathBuf {
 /// The time the build's clock starts at: 2026-11-10, at midnight.
 const START: u64 = 1_794_268_800_000;
 
-/// Every kind of state a build of these flows makes, by the words its list counts them by.
-const KINDS: &[&str] = &[
-    "under way",
-    "waits for an answer",
-    "waits for a tool",
-    "waits for a precondition",
-    "waits for an item it depends on",
-    "waits for the owner at a limit",
-    "waits for the outside",
-    "waits for the engine's own question",
-    "waits for a slot",
-    "merged",
-    "cancelled",
-    "paused by the owner",
-    "stalled",
-    "never let on",
-    "everything paused",
-    "fails passing",
-    "fails unread",
-    "fails flagged",
-    "fails guarded",
-    "fails usage_limit",
-    "fails cannot_run",
-    "fails offline",
-    "fails unavailable",
-    "fails prompt_too_long",
-    "fails no_model",
-    "fails other",
+/// Every kind of state a build of these flows makes, by the words its list counts them by, with how many states of it
+/// it makes: a state a change of a flow or of the build makes or no longer makes changes its count here in the same
+/// change.
+const KINDS: &[(&str, usize)] = &[
+    ("under way", 0),
+    ("waits for an answer", 0),
+    ("waits for a tool", 0),
+    ("waits for a precondition", 0),
+    ("waits for an item it depends on", 0),
+    ("waits for the owner at a limit", 0),
+    ("waits for the outside", 0),
+    ("waits for the engine's own question", 0),
+    ("waits for a slot", 0),
+    ("waits for the turn", 0),
+    ("waits for what every work shares", 0),
+    ("merged", 0),
+    ("cancelled", 0),
+    ("paused by the owner", 0),
+    ("stalled", 0),
+    ("never let on", 0),
+    ("everything paused", 0),
+    ("fails passing", 0),
+    ("fails unread", 0),
+    ("fails flagged", 0),
+    ("fails guarded", 0),
+    ("fails usage_limit", 0),
+    ("fails cannot_run", 0),
+    ("fails offline", 0),
+    ("fails unavailable", 0),
+    ("fails prompt_too_long", 0),
+    ("fails no_model", 0),
+    ("fails other", 0),
+];
+
+/// Why a state is not brought about, each a reason the build gives: every state its list says it did not make gives
+/// one of these.
+const NOT_MADE: &[&str] = &[
+    "an act waits for no such state",
+    "the engine's wait before a round is tried again",
+    "no case of the exploration waits for an answer",
+    "no case of the exploration has a round of the flow's first agent's cell",
 ];
 
 /// An items file of the installation's data, made up: enough items of each flow, every fifth depending on the one
@@ -131,33 +144,54 @@ fn build(flows: &[PathBuf]) -> Built {
     }
 }
 
-/// Serves a fresh copy of the main store as its notes say: as it starts it holds every work, the hold after a restart
-/// (a round having been left under way), and let on, a work whose round was left under way still has it under way.
-fn served(built: &Built, flows: &[PathBuf]) {
-    let main = built.dir.path().join("built/main");
-    let copy = built.dir.path().join("served");
-    std::fs::create_dir(&copy).expect("the copy's directory");
-    for entry in std::fs::read_dir(main.join("data")).expect("the store's data directory") {
-        let entry = entry.expect("an entry of it");
-        std::fs::copy(entry.path(), copy.join(entry.file_name())).expect("a file of the store is copied");
+/// How a store is served, as the build writes it beside the store.
+#[derive(serde::Deserialize)]
+struct Serving {
+    data: PathBuf,
+    flows: Vec<PathBuf>,
+    script: PathBuf,
+    held: bool,
+    let_on: bool,
+}
+
+/// Serves a fresh copy of each store as its notes say: as it starts it holds every work where a round was left under
+/// way, the hold after a restart, and nothing otherwise; let on where its notes say so; and of the main store, a work
+/// whose round was left under way still has it under way.
+fn served(built: &Built) {
+    let stores = std::fs::read_dir(built.dir.path().join("built")).expect("the stores");
+    let mut served = 0;
+    for store in stores.flatten().filter(|s| s.path().is_dir()) {
+        let notes = std::fs::read_to_string(store.path().join("serving.toml")).expect("how the store is served");
+        let how: Serving = toml::from_str(&notes).expect("how the store is served reads");
+        let copy = built
+            .dir
+            .path()
+            .join(format!("served-{}", store.file_name().to_string_lossy()));
+        std::fs::create_dir(&copy).expect("the copy's directory");
+        for entry in std::fs::read_dir(&how.data).expect("the store's data directory") {
+            let entry = entry.expect("an entry of it");
+            std::fs::copy(entry.path(), copy.join(entry.file_name())).expect("a file of the store is copied");
+        }
+        let mut command = Command::new(env!("CARGO_BIN_EXE_wf-agents"));
+        command.arg("run").arg("--data").arg(&copy);
+        for flow in &how.flows {
+            command.arg("--flow").arg(flow);
+        }
+        command.arg("--script").arg(&how.script).args(["--port", "0"]);
+        let engine = Engine::start_with(command);
+        let listed = engine.says(&["list", "--all"]);
+        let name = store.file_name().to_string_lossy().into_owned();
+        let held = listed.starts_with("The engine started with works going on and holds every work");
+        assert_eq!(held, how.held, "{name}: {listed}");
+        if how.let_on {
+            engine.says(&["resume", "--all"]);
+        }
+        if name == "main" {
+            engine.until(&["list"], |line| line.contains("is under way"));
+        }
+        served += 1;
     }
-    let mut command = Command::new(env!("CARGO_BIN_EXE_wf-agents"));
-    command.arg("run").arg("--data").arg(&copy);
-    for flow in flows {
-        command.arg("--flow").arg(flow);
-    }
-    command
-        .arg("--script")
-        .arg(main.join("serve/test.toml"))
-        .args(["--port", "0"]);
-    let engine = Engine::start_with(command);
-    let held = engine.says(&["list"]);
-    assert!(
-        held.starts_with("The engine started with works going on and holds every work"),
-        "{held}"
-    );
-    engine.says(&["resume", "--all"]);
-    engine.until(&["list"], |line| line.contains("is under way"));
+    assert!(served > 5, "{served} stores served");
 }
 
 /// How many states of this kind the list counts as made.
@@ -169,9 +203,12 @@ fn made(list: &str, kind: &str) -> usize {
         .unwrap_or(0)
 }
 
-// Every state the build lists as made was reached by the item it names, and each kind of state was made by one at
-// least: the build fails where a state it played was not reached. The repository's flows are explored, and each store
-// played, in this one test alone; it prints its time.
+// Every state the build lists as made was reached by the item it names, each kind of state was made as often as the
+// flows give it, and each state not brought about is so for a reason the build gives; each store, served as its notes
+// say, starts as they say. The build is the product's command, and builds here what the test installation builds,
+// exploring the engineer's flow at the bound its own tests explore it at: built at a smaller one, the page's states
+// would be other ones (Article 3). A minute and a half or so alone, the main store's play the most of it; the only
+// test that builds the repository's flows.
 #[test]
 fn every_state_the_build_lists_is_reached_and_every_kind_has_one() {
     let started = Instant::now();
@@ -179,8 +216,21 @@ fn every_state_the_build_lists_is_reached_and_every_kind_has_one() {
     let built = build(&flows);
     let list = &built.list;
     assert!(built.ok, "{}\n{list}", built.said);
-    let none: Vec<&&str> = KINDS.iter().filter(|kind| made(list, kind) == 0).collect();
-    assert!(none.is_empty(), "no state of these kinds was made: {none:?}\n{list}");
+    let counted: Vec<(&str, usize)> = KINDS.iter().map(|(kind, _)| (*kind, made(list, kind))).collect();
+    assert_eq!(
+        counted, KINDS,
+        "the kinds of state made, against what these flows give\n{list}"
+    );
+    let unmade: Vec<&str> = (list.lines())
+        .skip_while(|line| *line != "## Not brought about")
+        .skip(1)
+        .take_while(|line| !line.starts_with("# "))
+        .filter(|line| line.starts_with("- ") && !NOT_MADE.iter().any(|why| line.contains(why)))
+        .collect();
+    assert!(
+        unmade.is_empty(),
+        "not brought about for no reason the build gives: {unmade:#?}"
+    );
     println!("built in {:?}", started.elapsed());
-    served(&built, &flows[..2]);
+    served(&built);
 }

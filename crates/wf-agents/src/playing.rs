@@ -42,23 +42,38 @@ pub fn play(data: &Path, dirs: &[PathBuf], script: &Path) -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
+    let start = match SystemClock.now() {
+        Ok(now) => Time(now.0.saturating_sub(BOUND.ms)),
+        Err(why) => {
+            eprintln!("the clock cannot be read: {why}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(played) = played(data, dirs, script, start) else {
+        return ExitCode::FAILURE;
+    };
+    print!("{}", said(&played, script, data));
+    match played.took() {
+        true => ExitCode::SUCCESS,
+        false => ExitCode::FAILURE,
+    }
+}
+
+/// The play of the script in this file on the flows in these directories over the data directory, which holds
+/// nothing yet, its clock starting at `start` where the script names none: the script and the flows read and checked
+/// as `run` reads them, the data directory held as `run` holds it while the play goes on, and the engine made as `run`
+/// makes it; or none, having said why not. What `play` plays, and the build of the page's states each of its stores.
+pub fn played(data: &Path, dirs: &[PathBuf], script: &Path, start: Time) -> Option<Played> {
     let with = With::Script(script.to_path_buf());
     let Some((flows, Read::Script(read, beside))) = running::read(data, dirs, &with) else {
-        return ExitCode::FAILURE;
+        return None;
     };
     // Held until the play ends, as a run holds it.
     let _held = match running::hold(data) {
         Ok(held) => held,
         Err(why) => {
             eprintln!("{why}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let start = match SystemClock.now() {
-        Ok(now) => Time(now.0.saturating_sub(BOUND.ms)),
-        Err(why) => {
-            eprintln!("the clock cannot be read: {why}");
-            return ExitCode::FAILURE;
+            return None;
         }
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -69,7 +84,7 @@ pub fn play(data: &Path, dirs: &[PathBuf], script: &Path) -> ExitCode {
         Ok(runtime) => runtime,
         Err(e) => {
             eprintln!("the engine cannot start: {e}");
-            return ExitCode::FAILURE;
+            return None;
         }
     };
     let project = running::script_project(script);
@@ -77,20 +92,13 @@ pub fn play(data: &Path, dirs: &[PathBuf], script: &Path) -> ExitCode {
         let carriers = running::script_carriers((*read).clone(), (*beside).clone());
         running::engine(data, flows.clone(), carriers, clock)
     };
-    let played = runtime.block_on(service::play(&read, &flows, &beside, &open, &project, start, BOUND));
-    match played {
+    match runtime.block_on(service::play(&read, &flows, &beside, &open, &project, start, BOUND)) {
+        Ok(played) => Some(played),
         Err(faults) => {
             for fault in faults {
                 eprintln!("{}: {fault}", script.display());
             }
-            ExitCode::FAILURE
-        }
-        Ok(played) => {
-            print!("{}", said(&played, script, data));
-            match played.took() {
-                true => ExitCode::SUCCESS,
-                false => ExitCode::FAILURE,
-            }
+            None
         }
     }
 }

@@ -1,20 +1,21 @@
 //! `wf-agents play --states`: the build of every state of the page (design document `testing`, 16 to 21). It takes the
 //! states of each flow given from the flow's exploration and the engine's own kinds (module [`cases`], module
 //! [`rules`]), gives each to an item of the installation's data in turn (principle harness-only), and plays each store
-//! of them as `wf-agents play` plays a script, on the engine `wf-agents run` makes, on a clock of its own that starts
-//! at the time given, or at a play's bound before now. Beside each store it writes the script it played, its list of
-//! states, each with the item that shows it and each it could not bring about with why (principle
-//! nothing-passes-for-normal), its serving script, under which every round and every call takes six hours, and how it
-//! is served; and beside the stores, the list of every state, counted by kind. It fails where a state it played was
-//! not reached.
+//! of them as `wf-agents play` plays a script (crate module `playing`), on the engine `wf-agents run` makes, on a clock
+//! of its own that starts at the time given, or at a play's bound before now. Beside each store it writes the script
+//! it played, its list of states, each with the item that shows it and each it could not bring about with why
+//! (principle nothing-passes-for-normal), its serving script, under which every round and every call takes six hours,
+//! and how it is served, in words and as `serving.toml`; and beside the stores, the list of every state, counted by
+//! kind, with how many ways to a merge and points of a cancel the exploration reached. It fails where a state it played
+//! was not reached.
 //!
-//! The stores are the plan's table: the main store, which holds every state but those below, main never moving in it;
-//! every slot taken; each kind of failure of a round that holds every work; the pause of everything; the works whose
-//! paths move main once, and each whose path moves it more often, alone; and a stall, with the other states of the flow
-//! that reaches one, on which the rules make nothing. Each is served by `wf-agents run --script` with its serving
-//! script on a fresh copy of its data directory: the main store, and every one with a round left under way, starts with
-//! every work held by the engine, the hold after a restart, and is then let on, but the pause of everything, which
-//! lifting would undo.
+//! The stores are the plan's table: the main store, which holds every state but those below, main moving in it only as
+//! the works start; every slot taken; each kind of failure of a round that holds every work; the pause of everything;
+//! the works whose paths move main once, and each whose path moves it more often, alone; and a stall, with the other
+//! states of the flow that reaches one, on which the rules make nothing but cancels. Each is served by `wf-agents run
+//! --script` with its serving script on a fresh copy of its data directory: a store with a round left under way starts
+//! with every work held by the engine, the hold after a restart, and is then let on, but the pause of everything, which
+//! lifting would undo; a store with none starts as it was left.
 //!
 //! The items file is TOML: each `[[items]]` a `title`, its `background`, the `flow` its work runs on, and the items it
 //! depends on (`depends_on`), by their places in the file counted from one. A state is given to the next item not yet
@@ -25,26 +26,28 @@
 mod cases;
 mod rules;
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use decide::BlockId;
 use decide::run::Failure;
 use explore::model::Model;
 use flow::Compiled;
 use flow::agents::Agents;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use service::script::items::{ItemScript, StepScript, WriteScript};
+use service::script::{Down, FlowScript, OutsideScript, Took, ToolScript};
 use service::{Clock, Script, SystemClock};
-use toml::{Table, Value};
 use work::Time;
 
-use crate::playing::BOUND;
+use crate::playing::{self, BOUND};
 use crate::running;
-use cases::{Case, Store, step_value, text, took};
+use cases::{Case, Store};
 
-/// The bound of each flow's exploration: as the flow's own tests explore it.
+/// The bound of each flow's exploration: as the flow's own tests explore it. A smaller one would build other states
+/// than the page can show: the deep research's runs past its first, and every other return of a way that spent one.
 const EXPLORED: explore::Bounds = explore::Bounds {
     spend: 2,
     outside_after: 1,
@@ -61,6 +64,9 @@ const SERVED_MS: u64 = 6 * 3_600_000;
 
 /// What the check of the agents' outside says it finds, in a store of a failure that holds every work.
 const DOWN: &str = "The outside the agents' rounds need is down, as the build of the page's states left it.";
+
+/// The file beside a store that says how it is served, for whatever serves it.
+pub const SERVING: &str = "serving.toml";
 
 /// The items file.
 #[derive(Deserialize)]
@@ -81,6 +87,18 @@ struct FileItem {
     depends_on: Vec<usize>,
 }
 
+/// How a store is served: with its serving script on a fresh copy of its data directory, on the flows in these
+/// directories; whether it starts with every work held by the engine, a round having been left under way; and whether
+/// it is then let on.
+#[derive(Serialize)]
+pub struct Serving {
+    pub data: PathBuf,
+    pub flows: Vec<PathBuf>,
+    pub script: PathBuf,
+    pub held: bool,
+    pub let_on: bool,
+}
+
 /// A flow given, with where it is and what is written beside it.
 struct Given {
     dir: PathBuf,
@@ -95,6 +113,14 @@ struct Listed {
     state: String,
     flow: String,
     made: Result<(usize, String), String>,
+}
+
+/// What a flow's exploration reached, for the owner's count of 18 (design document `testing`): the states it kept that
+/// stand merged, each a way to a merge, and those that have not ended, each a point a cancel can come at.
+#[derive(Default)]
+struct Counted {
+    merged: u64,
+    points: u64,
 }
 
 /// Builds every state of the page from the flows in these directories, with the items of this file, into this data
@@ -148,40 +174,37 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
     let mut all: Vec<Case> = Vec::new();
     let mut not: Vec<Listed> = Vec::new();
     let mut people: BTreeMap<String, Vec<BlockId>> = BTreeMap::new();
+    let mut counted = Counted::default();
     let mut moves = 0;
     for g in &given {
         let model = Model::new(g.compiled.clone());
         people.insert(g.compiled.name.clone(), model.people.clone());
-        let group = |work: &work::Work, decision: &decide::Decision| cases::state_of(&model.compiled, work, decision);
         let began = std::time::Instant::now();
-        let explored = explore::explore_grouped(&model, EXPLORED, &group);
+        let (of_flow, explored, unmade) = explored(&model, &words[&g.root], EXPLORED);
         println!(
             "{}: {} states explored, {} of them shown apart, in {:.1?}",
             g.compiled.name,
             explored.stats.states,
-            explored.groups.len(),
+            explored.grouped.len(),
             began.elapsed()
         );
-        let mut of_flow = Vec::new();
-        let words_of = &words[&g.root];
-        for (state, path) in &explored.groups {
-            match cases::case_of(&model, state, path, words_of) {
-                Ok(case) => of_flow.push(case),
-                Err(why) => not.push(Listed {
-                    kind: "the exploration's".to_string(),
-                    state: state.clone(),
-                    flow: g.compiled.name.clone(),
-                    made: Err(why),
-                }),
+        for (state, count) in &explored.grouped {
+            match state.starts_with(&service::script::items::Step::Ends(decide::End::Merged).to_string()) {
+                true => counted.merged += count,
+                false if !state.starts_with("{ ends") => counted.points += count,
+                false => {}
             }
         }
-        // Whether the exploration reached a stall, made or not.
-        let stalls = (explored.groups.values()).any(|p| {
-            matches!(
-                decide::decide(&g.compiled.flow, &p.work.records),
-                decide::Decision::Stalled { .. }
-            )
-        });
+        not.extend(unmade.into_iter().map(|(state, why)| Listed {
+            kind: "the exploration's".to_string(),
+            state,
+            flow: g.compiled.name.clone(),
+            made: Err(why),
+        }));
+        let mut of_flow = of_flow;
+        let stalls = of_flow
+            .iter()
+            .any(|c| matches!(c.end, service::script::items::Step::Stalled(_)));
         for case in &mut of_flow {
             case.store = match (stalls, case.mains) {
                 (true, _) => Store::Stalled,
@@ -193,11 +216,10 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
                 }
             };
         }
-        // A flow that reaches a stall is built in the store of the stall alone: the rules' states are made on the
-        // others.
+        // A flow that reaches a stall is built in the store of the stall alone: the rules' states but its cancels are
+        // made on the others.
         if !stalls {
-            let words = &words[&g.root];
-            let (ruled, unmade) = rules::ruled(&g.compiled, words, &of_flow);
+            let (ruled, unmade) = rules::ruled(&g.compiled, &words[&g.root], &of_flow);
             of_flow.extend(ruled);
             not.extend(unmade.into_iter().map(|(state, why)| Listed {
                 kind: "the rules'".to_string(),
@@ -206,6 +228,14 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
                 made: Err(why),
             }));
         }
+        let (cancelled, unmade) = rules::cancels(&of_flow);
+        of_flow.extend(cancelled);
+        not.extend(unmade.into_iter().map(|(state, why)| Listed {
+            kind: "cancelled".to_string(),
+            state,
+            flow: g.compiled.name.clone(),
+            made: Err(why),
+        }));
         all.extend(of_flow);
     }
     // The stores, in the order of the plan's table.
@@ -217,10 +247,9 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
         }
     }
     let mut pool = Pool {
+        used: vec![false; file.items.len()],
         items: file.items,
-        used: Vec::new(),
     };
-    pool.used = vec![false; pool.items.len()];
     let mut listed: Vec<(String, Vec<Listed>, String)> = Vec::new();
     let mut reached_all = true;
     for (store, cases) in &stores {
@@ -247,9 +276,38 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
         );
         listed.push((store.dir(), made.list, made.serving));
     }
-    write_list(data, items, start, &listed, &not)?;
+    write_list(data, items, start, &listed, &not, &counted)?;
     println!("Every state's list: {}", data.join("states.md").display());
     Ok(reached_all)
+}
+
+/// The cases of a flow's exploration at this bound: of each state the page shows apart, the nearest path a play can
+/// be given made a case; with the exploration, and each state no path to which a play can be given, with why the
+/// nearest could not.
+fn explored(
+    model: &Model,
+    words: &Agents,
+    bounds: explore::Bounds,
+) -> (Vec<Case>, explore::Explored, Vec<(String, String)>) {
+    let made: RefCell<BTreeMap<String, Case>> = RefCell::new(BTreeMap::new());
+    let why: RefCell<BTreeMap<String, String>> = RefCell::new(BTreeMap::new());
+    let group = |work: &work::Work, decision: &decide::Decision| cases::state_of(&model.compiled, work, decision);
+    let take = |state: &str, path: &explore::Path| match cases::case_of(model, state, path, words) {
+        Ok(case) => {
+            made.borrow_mut().insert(state.to_string(), case);
+            true
+        }
+        Err(not) => {
+            why.borrow_mut().entry(state.to_string()).or_insert(not);
+            false
+        }
+    };
+    let explored = explore::explore_grouped(model, bounds, &group, &take);
+    let made = made.into_inner();
+    let unmade = (why.into_inner().into_iter())
+        .filter(|(state, _)| !made.contains_key(state))
+        .collect();
+    (made.into_values().collect(), explored, unmade)
 }
 
 /// The flows in these directories, compiled.
@@ -359,11 +417,12 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
     }
     let words = &m.words[*root];
     let flows: Vec<Compiled> = of_store.iter().map(|g| g.compiled.clone()).collect();
+    let dirs: Vec<PathBuf> = of_store.iter().map(|g| g.dir.clone()).collect();
     let mut list: Vec<Listed> = Vec::new();
     // Each item of the script, with the state its work is to show.
-    let mut items: Vec<Value> = Vec::new();
+    let mut items: Vec<ItemScript> = Vec::new();
     let mut shown: Vec<(usize, String, String, String)> = Vec::new();
-    let mut rounds: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    let mut rounds: BTreeMap<String, Vec<service::script::RoundScript>> = BTreeMap::new();
     let mut holding = 0;
     for case in m.cases {
         let Some(k) = pool.take(&case.flow, case.unmerged) else {
@@ -394,10 +453,15 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         items.push(item(m, &pool.items[k], case, depends_on));
         let place = items.len();
         shown.push((place, case.kind.clone(), case.state.clone(), case.flow.clone()));
-        for round in &case.rounds {
+        let last = case.rounds.len().saturating_sub(1);
+        for (n, round) in case.rounds.iter().enumerate() {
             let mut round = round.clone();
-            round.insert("work".to_string(), Value::Integer(place as i64));
-            rounds.entry(case.flow.clone()).or_default().push(Value::Table(round));
+            round.work = Some(place as u64);
+            // The turn its check waits for is another work's: the first's, or the second's where it is the first.
+            if case.turn && n == last {
+                round.turn = Some(if place == 1 { 2 } else { 1 });
+            }
+            rounds.entry(case.flow.clone()).or_default().push(round);
         }
         holding += usize::from(case.holds_slot);
     }
@@ -406,21 +470,27 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         Store::Slots => holding.max(1),
         _ => items.len() + holding + 2,
     };
-    let mut script = Table::new();
-    script.insert("start".to_string(), Value::Integer(m.start as i64));
-    script.insert("slots".to_string(), Value::Integer(slots as i64));
-    script.insert("took".to_string(), took(ROUND_MS));
-    if let Some(outside) = outside(m.store) {
-        script.insert("outside".to_string(), outside);
-    }
-    let mut flows_t = Table::new();
-    for (flow, rounds) in rounds {
-        let mut t = Table::new();
-        t.insert("rounds".to_string(), Value::Array(rounds));
-        flows_t.insert(flow, Value::Table(t));
-    }
-    script.insert("flows".to_string(), Value::Table(flows_t));
-    script.insert("items".to_string(), Value::Array(items));
+    let outside = outside(m.store);
+    let script = Script {
+        start: Some(m.start),
+        slots: Some(slots),
+        took: Took {
+            ms: Some(ROUND_MS),
+            ..Took::default()
+        },
+        tools: BTreeMap::new(),
+        outside: outside.clone(),
+        flows: (rounds.into_iter())
+            .map(|(flow, rounds)| {
+                let script = FlowScript {
+                    values: BTreeMap::new(),
+                    rounds,
+                };
+                (flow, script)
+            })
+            .collect(),
+        items,
+    };
     let written = toml::to_string(&script).map_err(|e| format!("{}: its script: {e}", m.store.dir()))?;
     let build = dir.join("build");
     let store_data = dir.join("data");
@@ -430,21 +500,19 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
     }
     let script_file = build.join(format!("{}.toml", m.project));
     std::fs::write(&script_file, &written).map_err(|e| format!("{}: {e}", script_file.display()))?;
-    let read = Script::read(&written).map_err(|e| format!("{}: {e}", script_file.display()))?;
-    let faults = read.check(&flows, words);
-    if !faults.is_empty() {
-        return Err(faults
-            .iter()
-            .map(|f| format!("{}: {f}", script_file.display()))
-            .collect::<Vec<_>>()
-            .join("\n"));
-    }
-    let played = play(&read, &flows, words, &store_data, m.project, m.start)?;
+    let played = playing::played(&store_data, &dirs, &script_file, Time(m.start)).ok_or_else(|| {
+        format!(
+            "{}: its script could not be played, as said above",
+            script_file.display()
+        )
+    })?;
     let mut reached_all = played.fault.is_none();
     for (k, (place, kind, state, flow)) in shown.into_iter().enumerate() {
         let made = match played.items.get(k) {
             Some(item) if item.took() => {
-                let title = (read.items.get(place - 1)).map(|i| i.title.clone()).unwrap_or_default();
+                let title = (script.items.get(place - 1))
+                    .map(|i| i.title.clone())
+                    .unwrap_or_default();
                 Ok((place, title))
             }
             Some(item) => {
@@ -473,26 +541,34 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         });
     }
     // The serving script, under which every round and call takes six hours, and how the store is served.
-    let mut serving = Table::new();
-    serving.insert("start".to_string(), Value::Integer(m.start as i64));
-    serving.insert("slots".to_string(), Value::Integer(slots as i64));
-    serving.insert("took".to_string(), took(SERVED_MS));
-    let mut tools = Table::new();
-    for flow in &flows {
-        for tool in flow.tools.iter().chain(flow.cells.iter().flat_map(|c| &c.tools)) {
-            let mut t = Table::new();
-            t.insert("ms".to_string(), Value::Integer(SERVED_MS as i64));
-            tools.insert(tool.clone(), Value::Table(t));
-        }
-    }
-    serving.insert("tools".to_string(), Value::Table(tools));
-    if let Some(outside) = outside(m.store) {
-        serving.insert("outside".to_string(), outside);
-    }
+    let tools = (flows.iter())
+        .flat_map(|flow| flow.tools.iter().chain(flow.cells.iter().flat_map(|c| &c.tools)))
+        .map(|tool| {
+            let script = ToolScript {
+                answer: None,
+                ms: Some(SERVED_MS),
+                at: None,
+            };
+            (tool.clone(), script)
+        })
+        .collect();
+    let serving = Script {
+        start: Some(m.start),
+        slots: Some(slots),
+        took: Took {
+            ms: Some(SERVED_MS),
+            ..Took::default()
+        },
+        tools,
+        outside,
+        flows: BTreeMap::new(),
+        items: Vec::new(),
+    };
     let serving_text = toml::to_string(&serving).map_err(|e| format!("{}: its serving script: {e}", m.store.dir()))?;
     let serving_file = serve.join(format!("{}.toml", m.project));
-    let serving_read = Script::read(&serving_text).map_err(|e| format!("{}: {e}", serving_file.display()))?;
-    let faults = serving_read.check(&flows, words);
+    let faults = Script::read(&serving_text)
+        .map(|read| read.check(&flows, words))
+        .map_err(|e| format!("{}: {e}", serving_file.display()))?;
     if !faults.is_empty() {
         return Err(faults
             .iter()
@@ -501,21 +577,38 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
             .join("\n"));
     }
     std::fs::write(&serving_file, &serving_text).map_err(|e| format!("{}: {e}", serving_file.display()))?;
-    let flow_args: Vec<String> = of_store.iter().map(|g| format!("--flow {}", g.dir.display())).collect();
+    // A store with a round left under way starts with every work held by the engine (decision
+    // a-start-pauses-everything-only-over-works-going-on); one with none starts as it was left.
+    let held = m.cases.iter().any(|c| c.under_way.is_some() || c.holds_slot);
+    let let_on = held && *m.store != Store::Everything;
+    let how = Serving {
+        data: store_data.clone(),
+        flows: dirs.clone(),
+        script: serving_file.clone(),
+        held,
+        let_on,
+    };
+    let how_text = toml::to_string(&how).map_err(|e| format!("{}: how it is served: {e}", m.store.dir()))?;
+    std::fs::write(dir.join(SERVING), how_text).map_err(|e| format!("{}: {e}", dir.join(SERVING).display()))?;
+    let flow_args: Vec<String> = dirs.iter().map(|d| format!("--flow {}", d.display())).collect();
     let run = format!(
         "`wf-agents run --data <a fresh copy of {}> {} --script {} --port <port>`",
         store_data.display(),
         flow_args.join(" "),
         serving_file.display()
     );
-    let serving = match m.store {
-        Store::Everything => format!(
+    let serving = match (held, let_on) {
+        (true, true) => format!(
+            "Served by {run}. A round having been left under way, it starts with every work held by the engine, the \
+             hold after a restart; `wf-agents resume --all --port <port>` lets it on, and every other state shows."
+        ),
+        (true, false) => format!(
             "Served by {run}, and not let on: lifting the hold the engine starts with would lift the pause of \
              everything, which is the state it shows."
         ),
-        _ => format!(
-            "Served by {run}. A round having been left under way, it starts with every work held by the engine, the \
-             hold after a restart; `wf-agents resume --all --port <port>` lets it on, and every other state shows."
+        (false, _) => format!(
+            "Served by {run}. Nothing of it is under way, so it starts as it was left, holding nothing, and shows its \
+             states as it starts."
         ),
     };
     write_store(&dir, m.store, &list, &serving, &played.untaken)?;
@@ -529,86 +622,41 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
 
 /// What the check of the agents' outside finds in a store of a failure that holds every work: the failure, standing,
 /// and for a usage limit a reset a year after the start.
-fn outside(store: &Store) -> Option<Value> {
-    let Store::Failed(failure) = store else {
-        return None;
+fn outside(store: &Store) -> OutsideScript {
+    let finds = match store {
+        Store::Failed(failure) if failure.shared() => Some(Down {
+            failure: *failure,
+            why: DOWN.to_string(),
+            resets: (*failure == Failure::UsageLimit).then_some(rules::YEAR),
+        }),
+        _ => None,
     };
-    if !failure.shared() {
-        return None;
-    }
-    let mut finds = Table::new();
-    finds.insert("failure".to_string(), text(&cases::failure_name(*failure)));
-    finds.insert("why".to_string(), text(DOWN));
-    if *failure == Failure::UsageLimit {
-        finds.insert("resets".to_string(), Value::Integer(rules::YEAR as i64));
-    }
-    let mut outside = Table::new();
-    outside.insert("finds".to_string(), Value::Table(finds));
-    Some(Value::Table(outside))
+    OutsideScript { finds }
 }
 
 /// The item of a script that shows the case's state: the file's item's title, what people write of it its background,
 /// and the case's acts and path.
-fn item(m: &Making<'_>, file: &FileItem, case: &Case, depends_on: Vec<usize>) -> Value {
-    let mut t = Table::new();
-    t.insert("title".to_string(), text(&file.title));
-    t.insert("flow".to_string(), text(&case.flow));
-    if !depends_on.is_empty() {
-        let on = depends_on.into_iter().map(|p| Value::Integer(p as i64)).collect();
-        t.insert("depends_on".to_string(), Value::Array(on));
-    }
+fn item(m: &Making<'_>, file: &FileItem, case: &Case, depends_on: Vec<usize>) -> ItemScript {
     let background = match file.background.trim().is_empty() {
         true => file.title.clone(),
         false => file.background.clone(),
     };
-    let writes: Vec<Value> = (m.people.get(&case.flow).into_iter().flatten())
-        .map(|block| {
-            let mut w = Table::new();
-            w.insert("block".to_string(), text(block.as_str()));
-            w.insert("content".to_string(), text(&background));
-            Value::Table(w)
+    let writes = (m.people.get(&case.flow).into_iter().flatten())
+        .map(|block| WriteScript {
+            block: block.to_string(),
+            content: background.clone(),
+            value: None,
         })
         .collect();
-    if !writes.is_empty() {
-        t.insert("writes".to_string(), Value::Array(writes));
+    ItemScript {
+        title: file.title.clone(),
+        flow: case.flow.clone(),
+        depends_on,
+        writes,
+        held: case.held,
+        acts: case.acts.clone(),
+        path: case.path.iter().map(StepScript::of).collect(),
     }
-    if case.held {
-        t.insert("held".to_string(), Value::Boolean(true));
-    }
-    if !case.acts.is_empty() {
-        t.insert(
-            "acts".to_string(),
-            Value::Array(case.acts.iter().cloned().map(Value::Table).collect()),
-        );
-    }
-    t.insert(
-        "path".to_string(),
-        Value::Array(case.path.iter().map(step_value).collect()),
-    );
-    Value::Table(t)
-}
-
-/// Plays the store's script over its data directory, as `wf-agents play` plays one.
-fn play(
-    script: &Script,
-    flows: &[Compiled],
-    words: &Agents,
-    data: &Path,
-    project: &str,
-    start: u64,
-) -> Result<service::Played, String> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .start_paused(true)
-        .build()
-        .map_err(|e| format!("the engine cannot start: {e}"))?;
-    let open = |clock: Arc<dyn Clock>| {
-        let carriers = running::script_carriers(script.clone(), words.clone());
-        running::engine(data, flows.to_vec(), carriers, clock)
-    };
-    runtime
-        .block_on(service::play(script, flows, words, &open, project, Time(start), BOUND))
-        .map_err(|faults| faults.join("\n"))
 }
 
 /// Writes the store's list of states, each with the item that shows it, and each not brought about with why; how it is
@@ -643,13 +691,15 @@ fn write_store(dir: &Path, store: &Store, list: &[Listed], serving: &str, untake
 }
 
 /// Writes the list of every state beside the stores: each kind with how many states of it were made and how many not,
-/// each store with its count, and each state not brought about with why.
+/// how many ways to a merge and points of a cancel the exploration reached, each store with its count, every state
+/// made with its store and item, and each state not brought about with why.
 fn write_list(
     data: &Path,
     items: &Path,
     start: u64,
     stores: &[(String, Vec<Listed>, String)],
     not: &[Listed],
+    counted: &Counted,
 ) -> Result<(), String> {
     let mut kinds: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
     for l in stores.iter().flat_map(|(_, list, _)| list).chain(not) {
@@ -666,12 +716,28 @@ fn write_list(
     for (kind, (made, unmade)) in &kinds {
         s.push_str(&format!("- {kind}: {made} made, {unmade} not\n"));
     }
+    s.push_str(&format!(
+        "\n## What the explorations reached\n\n- states merged, each a way to a merge: {}\n- states not ended, each a \
+         point a cancel can come at: {}\n",
+        counted.merged, counted.points
+    ));
     s.push_str("\n## The stores\n\n");
     for (dir, list, serving) in stores {
         let made = list.iter().filter(|l| l.made.is_ok()).count();
         s.push_str(&format!(
             "- {dir}: {made} states, listed in {dir}/states.md. {serving}\n"
         ));
+    }
+    s.push_str("\n## Every state made, by its store\n\n");
+    for (dir, list, _) in stores {
+        for l in list {
+            if let Ok((place, title)) = &l.made {
+                s.push_str(&format!(
+                    "- {} ({}, {}): {dir}, item {place}, \"{title}\"\n",
+                    l.state, l.flow, l.kind
+                ));
+            }
+        }
     }
     let unmade: Vec<&Listed> = (stores.iter().flat_map(|(_, list, _)| list).chain(not))
         .filter(|l| l.made.is_err())
@@ -703,18 +769,16 @@ mod tests {
     /// Each state the build would make on the flow, in words: its kind and state, its path, and its acts and rounds.
     fn states(compiled: &Compiled, words: &Agents) -> Vec<String> {
         let model = Model::new(compiled.clone());
-        let group = |work: &work::Work, decision: &decide::Decision| cases::state_of(&model.compiled, work, decision);
-        let explored = explore::explore_grouped(&model, SMALL, &group);
-        let mut of_flow = Vec::new();
-        let mut said = Vec::new();
-        for (state, path) in &explored.groups {
-            match cases::case_of(&model, state, path, words) {
-                Ok(case) => of_flow.push(case),
-                Err(why) => said.push(format!("not {state}: {why}")),
-            }
-        }
+        let (mut of_flow, _, unmade) = explored(&model, words, SMALL);
+        let mut said: Vec<String> = unmade
+            .into_iter()
+            .map(|(state, why)| format!("not {state}: {why}"))
+            .collect();
         let (ruled, not) = rules::ruled(compiled, words, &of_flow);
         of_flow.extend(ruled);
+        said.extend(not.into_iter().map(|(state, why)| format!("not {state}: {why}")));
+        let (cancelled, not) = rules::cancels(&of_flow);
+        of_flow.extend(cancelled);
         said.extend(not.into_iter().map(|(state, why)| format!("not {state}: {why}")));
         for case in of_flow {
             let path: Vec<String> = case.path.iter().map(ToString::to_string).collect();
@@ -767,8 +831,8 @@ mod tests {
     }
 
     // The build names no cell, block or trigger: the engineer's flow with every one of them renamed alike gives the
-    // same states, their paths, acts and rounds the same, their names following. A second or so alone, at the bound the
-    // exploration's own renaming property explores at.
+    // same states, their paths, acts and rounds the same, their names following. Ten seconds or so alone, at the bound
+    // the exploration's own renaming property explores at.
     #[test]
     fn the_flow_renamed_gives_the_same_states_its_names_following() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");

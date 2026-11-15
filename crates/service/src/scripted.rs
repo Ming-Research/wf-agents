@@ -18,8 +18,8 @@ use std::time::Duration;
 
 use decide::{BlockId, CallId, RunId};
 use driver::{Along, Found};
-use flow::Kind;
 use flow::agents::Agents;
+use flow::{CellSpec, Compiled, Kind};
 use store::WorkNumber;
 
 use crate::carriers::{CallReply, Carriers, Network, Outside, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
@@ -100,7 +100,10 @@ impl Scripted {
                 .extend(engine::asked::unmet(&came.said.questions, &self.inner.words));
             came.read.retain(|read| new(&read.block, &read.content));
         }
-        let reads = (planned.reads.take()).unwrap_or_else(|| taken_in(round, nth).into_iter().collect());
+        let reads = (planned.reads.take()).unwrap_or_else(|| {
+            let taken = taken_in(&round.flow, &round.kept, &round.cell, nth, round.number);
+            taken.into_iter().collect()
+        });
         // A version for the round is put in where the block says it already, and none written; one from outside is
         // not written again.
         planned.reads = Some(
@@ -133,22 +136,20 @@ fn says_now<'a>(kept: &'a Work, block: &BlockId) -> Option<&'a str> {
     kept.contents.get(&(block.clone(), latest)).map(String::as_str)
 }
 
-/// What the act that checks the work reads by itself for its round, the nth run of its cell: main as the work's block
-/// of main holds it now, which the round is told it takes in, as the real check tells its round the latest main it
-/// takes in (decision the-check-tells-its-round-the-main-it-takes-in), so that a main written since its run began runs
-/// it no more; the version is put into the round, and none is written. Or, where that block holds no version, one
-/// made up for the round. Nothing of another act's round, or of an agent's.
-fn taken_in(round: &Round, nth: usize) -> Option<Read> {
-    if round.cell.act.as_deref() != Some(CHECK) {
+/// What the act that checks the work reads by itself for this round of the nth run of its cell, the work as it
+/// stands: main as the work's block of main holds it now, which the round is told it takes in, as the real check tells
+/// its round the latest main it takes in (decision the-check-tells-its-round-the-main-it-takes-in), so that a main
+/// written since its run began runs it no more; the version is put into the round, and none is written. Or, where that
+/// block holds no version, one made up for the round. Nothing of another act's round, or of an agent's. A build of the
+/// page's states that plays an explored path again (crate `wf-agents`) reads the check's round by it too.
+pub fn taken_in(flow: &Compiled, kept: &Work, cell: &CellSpec, nth: usize, number: usize) -> Option<Read> {
+    if cell.act.as_deref() != Some(CHECK) {
         return None;
     }
-    let (block, _) = (round.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(MAIN))?;
-    let content = match says_now(&round.kept, block) {
+    let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(MAIN))?;
+    let content = match says_now(kept, block) {
         Some(latest) => latest.to_string(),
-        None => format!(
-            "The main as {} took it in in its run {nth}, round {}.",
-            round.cell.id, round.number
-        ),
+        None => format!("The main as {} took it in in its run {nth}, round {number}.", cell.id),
     };
     Some(Read {
         block: block.clone(),

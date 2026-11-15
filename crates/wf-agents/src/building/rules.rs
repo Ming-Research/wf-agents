@@ -1,21 +1,22 @@
 //! The cases a build's rules give, from the engine's own kinds, for what the exploration of a flow does not model
 //! (design document `testing`, 18): a round failing by each kind of failure, on the first agent's cell of the flow,
-//! with what its handling makes of it; the work paused by the owner while a round is under way and while it waits;
-//! the engine's own question of a change of a protected path, at each agent's cell of a line that may change the work;
-//! never let on; every slot taken, a work waiting for one; the pause of everything; and the work cancelled from each
-//! kind of state the others stand at. Each is made from a case the exploration gave, the nearest it kept of a round
-//! under way at the cell, its state's end taken off and the rule's put on. Each rule names no cell, block or trigger:
-//! it reads them of the flow and of the cases.
+//! with what its handling makes of it, a cause that holds every work holding another work of its store too; the work
+//! paused by the owner while a round is under way and while it waits; the engine's own question of a change of a
+//! protected path, at each agent's cell of a line that may change the work; the check waiting for the project's turn,
+//! which another work holds; never let on; every slot taken, a work waiting for one; the pause of everything, with a
+//! work it holds; and the work cancelled from each kind of state the others stand at. Each is made from a case the
+//! exploration gave, the nearest it kept of a round under way at the cell, its state's end taken off and the rule's put
+//! on. Each rule names no cell, block or trigger: it reads them of the flow and of the cases.
 
 use decide::run::Failure;
-use decide::{End, Pauser};
-use flow::Kind;
+use decide::{CellId, End, Pauser};
 use flow::agents::Agents;
-use service::script::items::{Step, Wait};
-use toml::{Table, Value};
+use flow::{Compiled, Kind};
+use service::script::items::{ActScript, Does, Step, Wait};
+use service::script::{CHECK, EngineAsked, EngineQuestion, RoundScript, WayScript};
 use work::Question;
 
-use super::cases::{Case, LONG, Store, failure_name, kind_of, step_value, text, took};
+use super::cases::{Case, LONG, Store, failure_name, general, kind_of};
 
 /// Every kind of failure of a round, in the order the engine tells them apart.
 const FAILURES: [Failure; 11] = [
@@ -36,6 +37,11 @@ const FAILURES: [Failure; 11] = [
 /// account gives, so that the wait stands while the store is served.
 pub const YEAR: u64 = 365 * 86_400_000;
 
+/// How long the first round of a work that another's failure, or the pause of everything, holds takes, in
+/// milliseconds: long enough that the other's round has failed, or everything was paused, before its next round would
+/// begin.
+const LATER: u64 = 5_000;
+
 /// A file of a change under the protected paths, as the engine's own question names it: made up, as the content of
 /// every block is.
 const PROTECTED: (char, &str, &str) = ('M', "protected/file.md", "+ A line the work adds to a protected file.");
@@ -48,27 +54,44 @@ pub const NEVER_LET_ON: &str = "never let on";
 
 /// The cases the rules give on this flow, from the cases its exploration gave; and each the rules could not make,
 /// with why.
-pub fn ruled(flow: &flow::Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case>, Vec<(String, String)>) {
+pub fn ruled(flow: &Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case>, Vec<(String, String)>) {
     let mut ruled = Vec::new();
     let mut not = Vec::new();
-    let under_way_at = |cell: &decide::CellId| {
+    let under_way_at = |cell: &CellId| {
         (cases.iter()).find(|c| c.store == Store::Main && c.under_way.as_ref().is_some_and(|(at, ..)| at == cell))
     };
     let first = flow.cells.iter().find(|c| c.kind == Kind::Agent).map(|c| c.id.clone());
-    let base = first.as_ref().and_then(under_way_at);
-    match base {
+    match first.as_ref().map(|cell| (cell, under_way_at(cell))) {
         None => not.push((
             format!("the rules' states on the flow {}", flow.name),
-            "no case of the exploration has a round of the flow's first agent's cell under way".to_string(),
+            "the flow has no agent's cell, whose round the rules' states start from".to_string(),
         )),
-        Some(base) => {
+        Some((cell, None)) => not.push((
+            format!("the rules' states on the flow {}", flow.name),
+            format!("no case of the exploration has a round of the flow's first agent's cell, {cell}, under way"),
+        )),
+        Some((cell, Some(base))) => {
+            let retry = Step::Waits {
+                cell: cell.clone(),
+                on: Wait::Retry,
+            };
+            not.push((
+                format!("{retry} resting there"),
+                "the engine's wait before a round is tried again lasts as its backoff says, and passes as the store is \
+                 played and as it is served"
+                    .to_string(),
+            ));
             for failure in FAILURES {
                 ruled.push(failed(base, failure));
+                if failure.shared() {
+                    ruled.push(held_by(base, Store::Failed(failure), Wait::Shared));
+                }
             }
             ruled.push(paused_under_way(base));
             ruled.push(slot_taken(base));
             ruled.push(slot_waited(base));
             ruled.push(everything(base));
+            ruled.push(held_by(base, Store::Everything, Wait::Shared));
         }
     }
     match (cases.iter()).find(|c| {
@@ -106,23 +129,49 @@ pub fn ruled(flow: &flow::Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case
             )),
         }
     }
+    let checks = (flow.cells.iter()).filter(|c| c.act.as_deref() == Some(CHECK));
+    for check in checks {
+        match under_way_at(&check.id) {
+            Some(base) => ruled.push(turn(base)),
+            None => not.push((
+                format!("{} waiting for the turn", check.id),
+                "no case of the exploration has the check's round under way".to_string(),
+            )),
+        }
+    }
     ruled.push(never_let_on(&flow.name));
-    // Cancelled from each kind of state a case of the main store stands at, but an end.
+    (ruled, not)
+}
+
+/// The cases cancelled from each kind of state the cases stand at, each in its case's store, but an end; and each
+/// kind no cancel can be given at, with why.
+pub fn cancels(cases: &[Case]) -> (Vec<Case>, Vec<(String, String)>) {
+    let mut cancelled = Vec::new();
+    let mut not = Vec::new();
     let mut kinds: Vec<String> = Vec::new();
-    for case in cases.iter().chain(ruled.clone().iter()) {
-        let ends = matches!(case.end, Step::Ends(_)) || case.held || case.kind == NEVER_LET_ON;
+    for case in cases {
         // A round failed is cancelled from what its handling made of it.
         let kind = match case.kind.starts_with("fails ") {
             true => kind_of(&case.end, None),
             false => case.kind.clone(),
         };
-        if case.store != Store::Main || ends || kinds.contains(&kind) {
+        if matches!(case.end, Step::Ends(_)) || kinds.contains(&kind) {
             continue;
         }
-        kinds.push(kind);
-        ruled.push(cancelled(case));
+        kinds.push(kind.clone());
+        match &case.end {
+            // An act waits for neither what every work shares nor the turn (module `service::script::items`).
+            Step::Waits {
+                on: Wait::Shared | Wait::Turn,
+                ..
+            } => not.push((
+                format!("{{ ends = \"cancelled\" }} from {}", case.state),
+                "an act waits for no such state: what every work shares and the turn are the engine's own".to_string(),
+            )),
+            _ => cancelled.push(cancel(case)),
+        }
     }
-    (ruled, not)
+    (cancelled, not)
 }
 
 /// The case with its end taken off: the round left under way, and the path's last step.
@@ -138,13 +187,10 @@ fn without_end(case: &Case) -> Case {
 }
 
 /// A round of the cell left under way: this round of its nth run, taking longer than a play's bound.
-fn long(cell: &decide::CellId, run: usize, round: usize) -> Table {
-    let mut t = Table::new();
-    t.insert("cell".to_string(), text(cell.as_str()));
-    t.insert("run".to_string(), Value::Integer(run as i64));
-    t.insert("round".to_string(), Value::Integer(round as i64));
-    t.insert("took".to_string(), took(LONG));
-    t
+fn long(cell: &CellId, run: usize, round: usize) -> RoundScript {
+    let mut r = RoundScript::of(cell.as_str(), run, round);
+    r.took.ms = Some(LONG);
+    r
 }
 
 /// The state, as the list names it: its end, after what brought it about.
@@ -159,17 +205,11 @@ fn failed(base: &Case, failure: Failure) -> Case {
     let (cell, run, round) = base.under_way.clone().expect("a round under way");
     let mut c = without_end(base);
     let name = failure_name(failure);
-    let mut fails = Table::new();
-    fails.insert("cell".to_string(), text(cell.as_str()));
-    fails.insert("run".to_string(), Value::Integer(run as i64));
-    fails.insert("round".to_string(), Value::Integer(round as i64));
-    fails.insert(
-        "fails".to_string(),
-        text(&format!("The round failed: {}.", name.replace('_', " "))),
-    );
-    fails.insert("failure".to_string(), text(&name));
+    let mut fails = RoundScript::of(cell.as_str(), run, round);
+    fails.fails = Some(format!("The round failed: {}.", name.replace('_', " ")));
+    fails.failure = Some(failure);
     if failure == Failure::UsageLimit {
-        fails.insert("resets".to_string(), Value::Integer(YEAR as i64));
+        fails.resets = Some(YEAR);
     }
     c.rounds.push(fails);
     let failing = Step::Fails {
@@ -216,19 +256,44 @@ fn failed(base: &Case, failure: Failure) -> Case {
     c
 }
 
+/// A work of this store whose first round takes long enough that what holds every work there, another's round
+/// failing for a cause that holds every work or the pause of everything, holds its next: its first agent's round does
+/// not begin.
+fn held_by(base: &Case, store: Store, wait: Wait) -> Case {
+    let (cell, ..) = base.under_way.clone().expect("a round under way");
+    let mut c = without_end(base);
+    // Its run of the cell does not start either: no round of it could begin.
+    if c.path.last() == Some(&Step::Runs(cell.clone())) {
+        c.path.pop();
+    }
+    if let Some(first) = c.rounds.first_mut() {
+        first.took.ms = Some(LATER);
+    }
+    let end = match store {
+        Store::Everything => Step::Everything(Pauser::Owner),
+        _ => Step::Waits { cell, on: wait },
+    };
+    c.path.push(end.clone());
+    c.state = named(&end, "of a work another holds there");
+    c.kind = kind_of(&end, None);
+    c.store = store;
+    c.end = end;
+    c
+}
+
 /// The base paused by the owner while its round is under way, which goes on.
 fn paused_under_way(base: &Case) -> Case {
     let (cell, run, round) = base.under_way.clone().expect("a round under way");
     let mut c = base.clone();
     let at = Step::UnderWay {
-        cell: cell.clone(),
+        cell,
         run: Some(run),
         round: Some(round),
     };
-    c.acts.push(act(&at, "pause"));
+    c.acts.push(ActScript::at(&at, Does::Pause));
     c.path.pop();
     c.path.push(Step::Paused(Pauser::Owner));
-    c.state = named(&Step::Paused(Pauser::Owner), &format!("while {}", general(&at)));
+    c.state = named(&Step::Paused(Pauser::Owner), &format!("while {}", general(at)));
     c.kind = kind_of(&Step::Paused(Pauser::Owner), None);
     c.end = Step::Paused(Pauser::Owner);
     c
@@ -237,7 +302,7 @@ fn paused_under_way(base: &Case) -> Case {
 /// A work paused by the owner while it waits.
 fn paused_at_rest(waiting: &Case) -> Case {
     let mut c = waiting.clone();
-    c.acts.push(act(&waiting.end, "pause"));
+    c.acts.push(ActScript::at(&waiting.end, Does::Pause));
     c.path.push(Step::Paused(Pauser::Owner));
     c.state = named(&Step::Paused(Pauser::Owner), &format!("while {}", waiting.state));
     c.kind = kind_of(&Step::Paused(Pauser::Owner), None);
@@ -260,10 +325,7 @@ fn slot_waited(base: &Case) -> Case {
     if c.path.last() == Some(&Step::Runs(cell.clone())) {
         c.path.pop();
     }
-    let end = Step::Waits {
-        cell: cell.clone(),
-        on: Wait::Slot,
-    };
+    let end = Step::Waits { cell, on: Wait::Slot };
     c.path.push(end.clone());
     c.store = Store::Slots;
     c.state = end.to_string();
@@ -281,12 +343,28 @@ fn everything(base: &Case) -> Case {
         run: Some(run),
         round: Some(round),
     };
-    c.acts.push(act(&at, "pause_everything"));
+    c.acts.push(ActScript::at(&at, Does::PauseEverything));
     c.path.pop();
     let end = Step::Everything(Pauser::Owner);
     c.path.push(end.clone());
     c.store = Store::Everything;
-    c.state = named(&end, &format!("while {}", general(&at)));
+    c.state = named(&end, &format!("while {}", general(at)));
+    c.kind = kind_of(&end, None);
+    c.end = end;
+    c
+}
+
+/// The base's check waiting for the project's turn to check and merge, which another work of its store holds, for
+/// the first half of its round's time, longer than a play's bound.
+fn turn(base: &Case) -> Case {
+    let (cell, ..) = base.under_way.clone().expect("a round under way");
+    let mut c = base.clone();
+    c.turn = true;
+    c.holds_slot = false;
+    c.path.pop();
+    let end = Step::Waits { cell, on: Wait::Turn };
+    c.path.push(end.clone());
+    c.state = end.to_string();
     c.kind = kind_of(&end, None);
     c.end = end;
     c
@@ -294,8 +372,9 @@ fn everything(base: &Case) -> Case {
 
 /// The base's round under way ending with the engine's own question of a change of a protected path, worded as the
 /// engine words it, which the work waits for, the round handing in what that round of the cell hands in on another way
-/// the exploration kept, where one does, and else nothing; none where the words beside the flows make no question.
-fn engine_question(flow: &flow::Compiled, base: &Case, cases: &[Case], words: &Agents) -> Option<Case> {
+/// the exploration kept that leaves the work as it was, where one does, and else nothing; none where the words beside
+/// the flows make no question.
+fn engine_question(flow: &Compiled, base: &Case, cases: &[Case], words: &Agents) -> Option<Case> {
     let (cell, run, round) = base.under_way.clone()?;
     let (status, path, diff) = PROTECTED;
     let asked = carry::question_of_change(&words.asks.protected, &[(status, path.to_string(), diff.to_string())])?;
@@ -311,58 +390,39 @@ fn engine_question(flow: &flow::Compiled, base: &Case, cases: &[Case], words: &A
     else {
         return None;
     };
-    let mut question = Table::new();
-    question.insert("waits".to_string(), Value::Boolean(waits));
-    question.insert("ask".to_string(), text(&ask));
-    let options = (options.iter())
-        .map(|o| {
-            let mut way = Table::new();
-            way.insert("does".to_string(), text(&o.does));
-            way.insert("follows".to_string(), text(&o.follows));
-            Value::Table(way)
-        })
-        .collect();
-    question.insert("options".to_string(), Value::Array(options));
-    if let Some(about) = about {
-        question.insert("about".to_string(), text(&about));
-    }
-    let reasons: Table = reasons.into_iter().map(|(k, v)| (k, text(&v))).collect();
-    question.insert("reasons".to_string(), Value::Table(reasons));
-    let mut c = without_end(base);
-    let mut r = Table::new();
-    r.insert("cell".to_string(), text(cell.as_str()));
-    r.insert("run".to_string(), Value::Integer(run as i64));
-    r.insert("round".to_string(), Value::Integer(round as i64));
-    let same = |t: &Table| {
-        t.get("cell").and_then(Value::as_str) == Some(cell.as_str())
-            && t.get("run").and_then(Value::as_integer) == Some(run as i64)
-            && t.get("round").and_then(Value::as_integer) == Some(round as i64)
-            && t.contains_key("hands_in")
-            && !t.contains_key("questions")
+    let question = EngineQuestion::Asked(EngineAsked {
+        waits,
+        ask,
+        options: (options.iter())
+            .map(|o| WayScript {
+                does: o.does.clone(),
+                follows: o.follows.clone(),
+            })
+            .collect(),
+        about,
+        reasons,
+    });
+    let same = |r: &&RoundScript| {
+        r.cell == cell.as_str() && r.run == run && r.round == round && r.hands_in.is_some() && r.questions.is_none()
     };
     // Of those, one whose every choice keeps the value its block starts with, which leaves the work as it was.
-    let kept = |t: &&Table| {
-        let handed = t.get("hands_in").and_then(Value::as_array).into_iter().flatten();
-        handed.filter_map(Value::as_table).all(|h| {
-            let block = h.get("block").and_then(Value::as_str).unwrap_or_default();
+    let kept = |r: &&RoundScript| {
+        (r.hands_in.iter().flatten()).all(|h| {
             let default = flow
                 .blocks
-                .get(&decide::BlockId::from(block))
+                .get(&decide::BlockId::from(h.block.as_str()))
                 .and_then(|b| b.default.as_deref());
-            default.is_none_or(|default| h.get("value").and_then(Value::as_str) == Some(default))
+            default.is_none_or(|default| h.value.as_deref() == Some(default))
         })
     };
-    let rounds: Vec<&Table> = (cases.iter()).flat_map(|c| &c.rounds).filter(|t| same(t)).collect();
-    let done = rounds.iter().find(|t| kept(t)).or(rounds.first()).copied();
-    for key in ["hands_in", "dealt_with", "reads"] {
-        if let Some(value) = done.and_then(|t| t.get(key)) {
-            r.insert(key.to_string(), value.clone());
-        }
-    }
-    if !r.contains_key("hands_in") {
-        r.insert("hands_in".to_string(), Value::Array(Vec::new()));
-    }
-    r.insert("engine".to_string(), Value::Array(vec![Value::Table(question)]));
+    let rounds: Vec<&RoundScript> = (cases.iter()).flat_map(|c| &c.rounds).filter(same).collect();
+    let done = rounds.iter().find(|r| kept(r)).or(rounds.first()).copied();
+    let mut c = without_end(base);
+    let mut r = RoundScript::of(cell.as_str(), run, round);
+    r.hands_in = Some(done.and_then(|d| d.hands_in.clone()).unwrap_or_default());
+    r.dealt_with = done.and_then(|d| d.dealt_with.clone());
+    r.reads = done.and_then(|d| d.reads.clone());
+    r.engine = Some(vec![question]);
     c.rounds.push(r);
     let end = Step::Waits {
         cell,
@@ -391,47 +451,36 @@ pub fn never_let_on(flow: &str) -> Case {
         mains: 0,
         holds_slot: false,
         under_way: None,
+        turn: false,
     }
 }
 
-/// The case cancelled from the state it stands at as its path ends.
-fn cancelled(case: &Case) -> Case {
+/// The case cancelled from the state it stands at as its path ends: where it pauses everything, right after; where it
+/// is never let on, from the pause it was added with, which is no step of its records.
+fn cancel(case: &Case) -> Case {
     let mut c = case.clone();
-    c.acts.push({
-        let mut cancel = act(&case.end, "cancel");
-        cancel.insert("why".to_string(), text("Cancelled from the state it stood at."));
-        cancel
-    });
-    // An end only the engine's view shows is no step of the records, and the cancel comes after the last that is.
-    if c.path.last().is_some_and(Step::ends_only) {
+    let at = match &case.end {
+        Step::Everything(_) => (case.acts.iter().rev())
+            .find(|a| a.does == Does::PauseEverything)
+            .and_then(|a| a.at.step().ok())
+            .unwrap_or_else(|| case.end.clone()),
+        end => end.clone(),
+    };
+    let mut cancel = ActScript::at(&at, Does::Cancel);
+    cancel.why = Some("Cancelled from the state it stood at.".to_string());
+    c.acts.push(cancel);
+    // An end only the engine's view shows is no step of the records, nor the pause a held item was added with; the
+    // cancel comes after the last that is.
+    if c.held || c.path.last().is_some_and(Step::ends_only) {
         c.path.pop();
     }
     let end = Step::Ends(End::Cancelled);
     c.path.push(end.clone());
     c.under_way = None;
     c.holds_slot = false;
+    c.turn = false;
     c.state = named(&end, &format!("from {}", case.state));
     c.kind = kind_of(&end, None);
     c.end = end;
     c
-}
-
-/// An act of a script's item, done once its work stands at this state.
-fn act(at: &Step, does: &str) -> Table {
-    let mut act = Table::new();
-    act.insert("at".to_string(), step_value(at));
-    act.insert("do".to_string(), text(does));
-    act
-}
-
-/// A round under way, without which run and round.
-fn general(step: &Step) -> Step {
-    match step {
-        Step::UnderWay { cell, .. } => Step::UnderWay {
-            cell: cell.clone(),
-            run: None,
-            round: None,
-        },
-        step => step.clone(),
-    }
 }

@@ -100,11 +100,11 @@ enum Command {
         /// The items the build gives its states to, in turn, as TOML: each `[[items]]` its `title`, `background`,
         /// `flow` and the places in the file of the items it depends on (`depends_on`); the project they are added
         /// in is named as the file is.
-        #[arg(long)]
+        #[arg(long, requires = "states")]
         items: Option<PathBuf>,
         /// The time the build's clock starts at, in milliseconds since 1970; a play's bound before now where none is
         /// given.
-        #[arg(long)]
+        #[arg(long, requires = "states")]
         start: Option<u64>,
     },
     /// Adds an item with its work, which is added paused: it begins nothing until it is let on with `wf-agents

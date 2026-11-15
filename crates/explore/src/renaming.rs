@@ -9,8 +9,8 @@ use flow::Source;
 
 /// The source with every cell, block, group, line, named test and trigger of the flow given another name, and the names
 /// given, each by the one it replaces: the trigger of a block's or a group's new version (`on_` and its name) follows
-/// its name, and each block a trigger makes for a cell or a line (`{cell}_tested`, `{line}_session`) its cell's or
-/// its line's.
+/// its name, each block a trigger makes for a cell or a line (`{cell}_tested`, `{line}_session`) its cell's or its
+/// line's, and a block a trigger makes under a name of its own (`main`) is renamed as a block is.
 pub fn renamed(source: &Source) -> (BTreeMap<String, String>, Source) {
     let mut names = BTreeMap::new();
     // One prefix for every name, after `on_` for a trigger's, keeps every set of names in the order it had, so that the
@@ -64,6 +64,10 @@ pub fn renamed(source: &Source) -> (BTreeMap<String, String>, Source) {
             let Some(template) = template else {
                 continue;
             };
+            // A block a trigger makes under a name of its own, as the trigger of main makes main.
+            if !template.contains('{') {
+                names.insert(template.to_string(), new(template));
+            }
             for (place, of) in [("{cell}", &cells), ("{line}", &lines)] {
                 if template.contains(place) {
                     for name in of {

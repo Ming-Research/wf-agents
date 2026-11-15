@@ -184,7 +184,7 @@ pub mod items;
 
 use flow::agents::Agents;
 use flow::{CellSpec, Compiled, Kind};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use work::{Back, Handed, Question, Spent, Time, Tool, Way, Work};
 
 use decide::run::Failure;
@@ -212,13 +212,16 @@ pub(crate) const MAIN: &str = driver::MAIN;
 /// The act of the engine's own that checks the work before its merge: the one that takes main in for its round, and
 /// that the engine asks the owner beside, of a change of a path the project protects.
 pub const CHECK: &str = "check";
+/// The act of the engine's own that merges the work: the one that reads the work's head of the branch as its round
+/// begins, writing a head moved since the check from outside.
+pub const MERGE: &str = "merge";
 
 /// How many rounds of agents go on at once where the script says nothing: as many as the installation's sample
 /// settings give.
 pub const SLOTS: usize = 2;
 
 /// A script, as its file is written.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Script {
     /// The one time it names as a date, in milliseconds since the start of 1970, from which every other time it names
@@ -245,7 +248,7 @@ pub struct Script {
 }
 
 /// What a round takes; what is left out is taken from the script's own, or else from the defaults above.
-#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Took {
     /// How long it is under way, in milliseconds.
@@ -283,7 +286,7 @@ impl Took {
 }
 
 /// What a tool answers.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ToolScript {
     /// Its result; with none, one that says what it ran on.
@@ -295,7 +298,7 @@ pub struct ToolScript {
 }
 
 /// What the engine's check of the agents' outside finds while their rounds wait for it.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutsideScript {
     /// What is down, as the check says it; everything well where it says nothing.
@@ -303,7 +306,7 @@ pub struct OutsideScript {
 }
 
 /// What the check of the agents' outside finds down.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Down {
     /// As a failed round's kind of cause, one that holds every work.
@@ -315,7 +318,7 @@ pub struct Down {
 }
 
 /// What the cells of one flow return.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FlowScript {
     /// The value handed in for a choice where a round names none, by the block.
@@ -326,7 +329,7 @@ pub struct FlowScript {
 }
 
 /// What one round returns.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoundScript {
     pub cell: String,
@@ -388,7 +391,7 @@ fn yes() -> bool {
 }
 
 /// A block a round hands in.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HandIn {
     pub block: String,
@@ -400,7 +403,7 @@ pub struct HandIn {
 }
 
 /// A block a source outside the work writes, as a round's carrier read it of the work's branch or of main.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReadScript {
     pub block: String,
@@ -412,7 +415,7 @@ pub struct ReadScript {
 }
 
 /// A tool a round asks to run.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ToolAsk {
     pub tool: String,
@@ -426,7 +429,7 @@ pub struct ToolAsk {
 }
 
 /// A question a round asks the owner, or withdraws, in the shape of an entry of the record of the work's questions.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum QuestionScript {
     Asked(AskedScript),
@@ -434,7 +437,7 @@ pub enum QuestionScript {
 }
 
 /// A question asked, or asked anew under its name.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AskedScript {
     pub name: String,
@@ -447,7 +450,7 @@ pub struct AskedScript {
 }
 
 /// A question withdrawn, for this reason.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WithdrawnScript {
     pub name: String,
@@ -455,14 +458,14 @@ pub struct WithdrawnScript {
 }
 
 /// The engine's question withdrawn, for this reason.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EngineWithdrawn {
     pub withdrawn: String,
 }
 
 /// An option of a question: what the work does by it, and what follows from it.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WayScript {
     pub does: String,
@@ -471,7 +474,7 @@ pub struct WayScript {
 
 /// The question the engine itself asks the owner as a round ends, as the engine keeps its own: it is named as the
 /// words beside the flows name it, which a script does not say.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum EngineQuestion {
     Asked(EngineAsked),
@@ -481,7 +484,7 @@ pub enum EngineQuestion {
 /// The engine's question asked, or asked anew: it recommends none of its options. What it is of, told apart from what
 /// any other version is of (`about`), and why the work's agents said each part of it is needed, by the part's name
 /// (`reasons`), as the engine keeps them.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EngineAsked {
     pub waits: bool,
@@ -1092,6 +1095,32 @@ impl Script {
 }
 
 impl RoundScript {
+    /// An entry of the round of this number of the cell's nth run, of every work, that says nothing yet: what a build
+    /// of the page's states fills in (crate `wf-agents`).
+    pub fn of(cell: &str, run: usize, round: usize) -> RoundScript {
+        RoundScript {
+            cell: cell.to_string(),
+            work: None,
+            run,
+            round,
+            took: Took::default(),
+            hands_in: None,
+            asks: None,
+            observations: None,
+            questions: None,
+            engine: None,
+            reads: None,
+            fails: None,
+            failure: None,
+            resets: None,
+            dealt_with: None,
+            waits_for: None,
+            turn: None,
+            at: None,
+            part: None,
+        }
+    }
+
     /// Whether the entry says anything of what the round returns or takes.
     fn returns(&self) -> bool {
         let RoundScript {

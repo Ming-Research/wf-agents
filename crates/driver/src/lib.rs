@@ -1753,6 +1753,12 @@ impl Driver {
 
     /// The work as it is now, in the room the engine leaves it: what it does next, each cell's state, every version of
     /// every block.
+    /// Whether the driver holds the work at fault: its records are not those of a work, or the deciding code went round
+    /// on them without end, as its view then shows it.
+    pub fn at_fault(&self, number: WorkNumber) -> bool {
+        (self.works.get(&number)).is_some_and(|held| held.standing == Standing::AtFault)
+    }
+
     pub fn view(&self, number: WorkNumber) -> Option<View> {
         let kept = self.work(number)?;
         let mut view = decide::view_in(&kept.flow.flow, &kept.work.records, self.room(Some(number), true));

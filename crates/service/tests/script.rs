@@ -1387,3 +1387,68 @@ async fn what_the_engine_asks_as_a_round_ends_is_named_as_the_words_beside_the_f
         }]
     );
 }
+
+// A round says what it dealt with of what ran its run, blocks or groups, and the block a source outside the work
+// writes whose next version what it wrote waits for, as an explored return says them; its return then says the same.
+#[test]
+fn a_round_says_what_it_dealt_with_and_what_what_it_wrote_waits_for() {
+    let flow = engineer();
+    let script = Script::read(
+        r#"
+        [[flows.engineer.rounds]]
+        cell = "M1"
+        hands_in = [{ block = "checked", value = "no" }]
+        dealt_with = ["code"]
+        waits_for = "main"
+        "#,
+    )
+    .unwrap();
+    let came = Came {
+        dealt_with: Some(vec![BlockId::from("code")]),
+        waits_for: Some(BlockId::from("main")),
+        ..Came::hands_in(vec![Handed {
+            block: BlockId::from("checked"),
+            content: "The checked as M1 wrote it in its run 1, round 1.".to_string(),
+            matters: true,
+            value: Some("no".to_string()),
+        }])
+    };
+    let ends = script.round(&flow, cell(&flow, "M1"), 1, 1, 1, &BTreeMap::new()).ends;
+    assert_eq!(ends, Ends::Came(came));
+}
+
+// What a round dealt with names blocks or groups of the flow, and what it waits for a block a source outside the work
+// writes; a round that fails says neither.
+#[test]
+fn what_a_round_dealt_with_and_waits_for_is_checked_against_the_flow() {
+    let script = Script::read(
+        r#"
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        hands_in = []
+        dealt_with = ["nothing_here"]
+        waits_for = "nowhere"
+
+        [[flows.engineer.rounds]]
+        cell = "T1"
+        hands_in = []
+        waits_for = "code"
+
+        [[flows.engineer.rounds]]
+        cell = "R1"
+        fails = "No."
+        dealt_with = ["background"]
+        "#,
+    )
+    .unwrap();
+    let words = flow::agents::read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow")).unwrap();
+    assert_eq!(
+        script.check(&[engineer()], &words),
+        [
+            "flows.engineer.rounds[0].dealt_with[0]: the flow engineer has no block or group nothing_here",
+            "flows.engineer.rounds[0].waits_for: the flow engineer has no block nowhere",
+            "flows.engineer.rounds[1].waits_for: no source outside the work writes code",
+            "flows.engineer.rounds[2]: only a round that does the cell's work says what it dealt with or waits for",
+        ]
+    );
+}

@@ -85,7 +85,7 @@ pub struct Explored {
     /// Of each item reached, the nearest path to it.
     pub paths: BTreeMap<String, Path>,
     /// Of each name the caller's grouping gave a state kept ([`explore_grouped`]), how many states it was given, and
-    /// the nearest path to one of them.
+    /// the nearest path to one of them that the caller takes.
     pub grouped: BTreeMap<String, u64>,
     pub groups: BTreeMap<String, Path>,
     /// Of each part of a property, how many cases it was checked on, by the part's name (the `CHECKED_` names): a part
@@ -259,13 +259,17 @@ pub const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its 
 /// stand and of what the deciding code makes of them; none where the caller keeps nothing of it.
 pub type Group<'a> = dyn Fn(&Work, &Decision) -> Option<String> + 'a;
 
+/// Whether the caller takes this path to a state of this name, which is the nearest yet to one: a path it cannot use
+/// leaves the name to the next nearest.
+pub type Take<'a> = dyn Fn(&str, &Path) -> bool + 'a;
+
 pub fn explore(model: &Model, bounds: Bounds) -> Explored {
-    explore_grouped(model, bounds, &|_, _| None)
+    explore_grouped(model, bounds, &|_, _| None, &|_, _| true)
 }
 
 /// Explores as [`explore`] does, and keeps besides, of each name `group` gives a state kept, how many states it gave
-/// it and the nearest path to one of them.
-pub fn explore_grouped(model: &Model, bounds: Bounds, group: &Group<'_>) -> Explored {
+/// it and the nearest path to one of them that `take` takes.
+pub fn explore_grouped(model: &Model, bounds: Bounds, group: &Group<'_>, take: &Take<'_>) -> Explored {
     let began = Instant::now();
     let mut e = Explorer {
         model,
@@ -313,7 +317,7 @@ pub fn explore_grouped(model: &Model, bounds: Bounds, group: &Group<'_>) -> Expl
             .entry((state.spent, state.outside.is_some()))
             .or_default() += 1;
         if let Some(name) = group(&state.work, &decision) {
-            e.group(name, &state.trace, &state.work);
+            e.group(name, &state.trace, &state.work, take);
         }
         for child in e.children(&state, &decision) {
             queue.push_back(child);
@@ -384,17 +388,21 @@ impl Explorer<'_> {
         }
     }
 
-    /// A state kept that the caller's grouping named so: counted, and its path kept where it is the nearest yet.
-    fn group(&mut self, name: String, trace: &Trace, work: &Work) {
+    /// A state kept that the caller's grouping named so: counted, and its path kept where it is the nearest yet and
+    /// the caller takes it.
+    fn group(&mut self, name: String, trace: &Trace, work: &Work, take: &Take<'_>) {
         *self.out.grouped.entry(name.clone()).or_default() += 1;
         let rank = trace.rank();
-        if (self.out.groups.get(&name)).is_none_or(|p| rank < p.rank) {
-            let path = Path {
-                steps: trace.steps(),
-                given: trace.given(),
-                work: work.clone(),
-                rank,
-            };
+        if (self.out.groups.get(&name)).is_some_and(|p| p.rank <= rank) {
+            return;
+        }
+        let path = Path {
+            steps: trace.steps(),
+            given: trace.given(),
+            work: work.clone(),
+            rank,
+        };
+        if take(&name, &path) {
             self.out.groups.insert(name, path);
         }
     }

@@ -163,12 +163,11 @@ and the scripts that stand in for agents are built; what is not is said at the e
     them.
 
 21. Not built: times spread as a real installation's are, which needs the build's clock placed so that the page reads
-    them as of now; a state whose way there writes the work's tree or head by a commit no round made, which a script
-    writes only as the round that reads the branch does; a state whose way there moves main while the check's round is
-    under way, on which the exploration's model runs the check again, where a script's check, as the real one, writes
-    over it the main it was told; and what a script cannot bring about: sessions kept warm and what a round wrote to the
-    cache, which a few works whose agents play parts (12) can show; the settings and the levels, which a script runs
-    without; and the copies of the store, which a script keeps none of.
+    them as of now; a work resting at the engine's wait before a round is tried again, which lasts as its backoff says
+    and passes as the store is played and served; a cancel from the wait every work shares and from the turn, which no
+    act waits for, both being the engine's own; and what a script cannot bring about: sessions kept warm and what a
+    round wrote to the cache, which a few works whose agents play parts (12) can show; the settings and the levels,
+    which a script runs without; and the copies of the store, which a script keeps none of.
 
 ## A trial on the real installation
 
