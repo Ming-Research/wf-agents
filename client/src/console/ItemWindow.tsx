@@ -1259,9 +1259,8 @@ function RulingBox({ ruling, page, act }: {
   return (
     <>
       <div className="cw-part">
-        <div className="cw-choice" data-wait="precondition">
+        <div className="cw-choice cw-choice-holds" data-wait="precondition">
           <p className="cw-choice-q">{who}</p>
-          <p className="cw-choice-stops">The work waits for this ruling</p>
           {ruling.text.trim() !== '' && <Markdown text={ruling.text} />}
         </div>
       </div>

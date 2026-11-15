@@ -89,11 +89,11 @@ const OWNERS: [string, Now, string][] = [
     'q9',
   ],
   [
-    'a cell at its limit, as a call',
+    'a run at its limit of returns',
     { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 4, who: 'owner', what: limit }] },
     'limit',
   ],
-  ['a cell at its limit, as runs', { kind: 'waits', at: 'plan', on: [{ kind: 'limit', runs: 3 }] }, 'limit'],
+  ['a cell at its limit of runs', { kind: 'waits', at: 'plan', on: [{ kind: 'limit', runs: 3 }] }, 'limit'],
   ['a pause the engine made', { kind: 'paused', by: 'engine', why: 'A round failed.' }, 'pause'],
   ['a work held after the engine started again', { kind: 'everything', by: 'engine' }, 'held'],
   [
@@ -282,7 +282,9 @@ describe('what waits for the owner', () => {
     // The ruling is read with the body, once the page has drawn.
     await act(async () => undefined);
     const card = container.querySelector('[data-wait="precondition"]');
-    expect(card?.textContent).toContain('The work waits for this ruling');
+    // It holds the work, as a question that blocks does: on the red tint, edged in red, with no line to say so.
+    expect(card?.className).toBe('cw-choice cw-choice-holds');
+    expect(card?.querySelector('.cw-choice-stops')).toBeNull();
     expect(scrolled.mock.contexts[0]).toBe(card);
     expect(workLine(container).word).toBe('Waiting for you');
   });
