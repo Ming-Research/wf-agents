@@ -96,8 +96,7 @@ describe('what a card shows of an item', () => {
     kind: 'waits',
     at: 'implement',
     on: [
-      { kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } },
-      { kind: 'call', call: 2, who: 'architect', what: { kind: 'question', who: 'architect', question: 'Where?' } },
+      { kind: 'answer', question: 'which' },
       { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } },
       { kind: 'precondition', test: 'confirmed', words: 'The owner confirmed it', by: [{ kind: 'owner' }] },
       {
@@ -113,7 +112,7 @@ describe('what a card shows of an item', () => {
 
   it('counts the things a work waits on the owner for as the engine\'s list says, and nothing of what it waits for that the list leaves out', () => {
     const listed = [
-      { key: 'call-1', why: 'Which?', ends: { kind: 'reply' as const, call: 1 } },
+      { key: 'answer-which', why: 'Which?', ends: { kind: 'answer' as const, question: 'which', version: 4 } },
       { key: 'write-confirmed', why: 'implement requires test = confirmed, which confirmed keeps from holding.', ends: { kind: 'write' as const, block: 'confirmed', value: 'yes' } },
       { key: 'limit', why: '`review` has sent the cell back as often as a sender may since its counts last started anew, its limit of 3.', ends: { kind: 'letGo' as const, cell: 'implement' } },
     ];
@@ -126,7 +125,7 @@ describe('what a card shows of an item', () => {
 
   it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
     const notBegun = item(1, 'open', [2, 3]);
-    const listed: Wait[] = ['call-1', 'write-confirmed', 'limit'].map((key) => ({ key, why: `${key}.`, ends: { kind: 'resume' } }));
+    const listed: Wait[] = ['answer-which', 'write-confirmed', 'limit'].map((key) => ({ key, why: `${key}.`, ends: { kind: 'resume' } }));
     const begun: Item = { ...item(2, 'open'), work: { ...work(2, waits, ['done', 'resting', 'notYet']), waits: listed } };
     const shown = shownTree({ items: [notBegun, begun, item(3, 'done')] });
     expect(shown[0].work).toBeNull();

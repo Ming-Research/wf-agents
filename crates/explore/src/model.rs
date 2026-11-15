@@ -10,7 +10,7 @@ use std::fmt;
 use decide::run::{Answer, Told};
 use decide::{BlockId, CallId, Cell, CellId, Condition, RunId, TestKind};
 use engine::asked::ASKED;
-use engine::{Ask, Came, Handed, Question, Way};
+use engine::{Came, Handed, Question, Tool, Way};
 use flow::{ANSWER, Compiled, Kind, WORDS};
 
 /// The sources outside the work the driver names: the start, the items the work depends on, main, and the sessions of
@@ -576,7 +576,7 @@ impl Model {
         if *variant == Variant::Calls {
             let name = self.compiled.cells[i].tools[0].clone();
             let input = format!("What {} asks {name}.", cell.id);
-            return Came::asks(vec![Ask::Tool { name, input }]);
+            return Came::asks(vec![Tool { name, input }]);
         }
         if *variant == Variant::SentBack {
             let stray = self.stray[i].as_ref().expect("a block the cell does not write");

@@ -12,7 +12,7 @@ describe('the fixtures', () => {
     expect(fixtureItems().items.map((i) => i.work.item)).toEqual(fixtureItems().items.map((i) => i.number));
     const nows = works.map((w) => w.now);
     expect(nows.some((n) => n.kind === 'round')).toBe(true);
-    expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'call' && w.what.kind === 'question'))).toBe(true);
+    expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'answer'))).toBe(true);
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'call' && w.what.kind === 'atLimit'))).toBe(true);
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'limit'))).toBe(true);
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'precondition'))).toBe(true);

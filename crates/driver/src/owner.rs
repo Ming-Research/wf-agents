@@ -55,7 +55,8 @@ pub struct Waiting {
 pub enum Ends {
     /// Answers the latest version of the work's question of this name, by one of its options.
     Answer { question: String, version: Seq },
-    /// Answers in words the question this call puts to them.
+    /// Answers in words the question this call puts to them, as one work's old records hold one (decision
+    /// a-return-asks-no-person-by-a-call).
     Reply { call: CallId },
     /// Lets the run that reached its limit go on, as the result of this call.
     GoOn { call: CallId },
@@ -184,10 +185,9 @@ fn at_cell(
                 };
                 push(waits, LIMIT.to_string(), why, Ends::GoOn { call: *call });
             }
-            Some(Call::Asked(Ask::Person {
-                who: Who::Owner,
-                question,
-            })) if *on == Some(Who::Owner) => {
+            // A question put to the owner by a call, which one work's old records hold, waited on the owner as it
+            // stood unanswered (decision a-return-asks-no-person-by-a-call).
+            Some(Call::Asked(Ask::Person { question, .. })) if *on == Some(Who::Owner) => {
                 push(
                     waits,
                     format!("call-{}", call.0),
@@ -594,31 +594,30 @@ mod tests {
     }
 
     #[test]
-    fn a_question_put_as_a_call_is_the_owners_and_one_put_to_the_architect_is_not() {
+    fn a_question_put_as_a_call_is_the_owners() {
         let mut work = Work::default();
-        for (call, who) in [(7, Who::Owner), (8, Who::Architect)] {
-            work.records.called.push(Called {
-                call: CallId(call),
-                run: RunId(1),
-                on: Some(who.clone()),
-                at: Seq(call),
-            });
-            let question = format!("Question {call}?");
-            work.calls
-                .insert(CallId(call), Call::Asked(Ask::Person { who, question }));
-        }
-        let call = |n: u64, who: Who| Waited::Call {
-            call: CallId(n),
-            on: Some(who),
+        work.records.called.push(Called {
+            call: CallId(7),
+            run: RunId(1),
+            on: Some(Who::Owner),
+            at: Seq(7),
+        });
+        let question = "Question 7?".to_string();
+        let asked = Ask::Person {
+            who: Who::Owner,
+            question,
         };
-        let waits = of(&work, &at("write", vec![call(7, Who::Owner), call(8, Who::Architect)]));
-        let ends = Ends::Reply { call: CallId(7) };
+        work.calls.insert(CallId(7), Call::Asked(asked));
+        let call = Waited::Call {
+            call: CallId(7),
+            on: Some(Who::Owner),
+        };
         assert_eq!(
-            waits,
+            of(&work, &at("write", vec![call])),
             [Waiting {
                 key: "call-7".to_string(),
                 why: "Question 7?".to_string(),
-                ends,
+                ends: Ends::Reply { call: CallId(7) },
                 under: None,
             }]
         );

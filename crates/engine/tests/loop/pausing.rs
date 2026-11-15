@@ -69,7 +69,7 @@ fn calls_asked_for_during_a_pause_are_made_and_the_round_given_their_results_wai
     let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a")])));
     assert_eq!(
         calls.iter().map(|(_, r, what)| (*r, what.clone())).collect::<Vec<_>>(),
-        vec![(write, Call::Asked(tool("a")))]
+        vec![(write, Call::Asked(tool("a").into()))]
     );
     assert_eq!(w.done(calls[0].0), vec![]);
     let effects = w.on(Event::Resumed);
@@ -111,9 +111,9 @@ fn the_owner_is_asked_at_a_limit_during_a_pause() {
 }
 
 #[test]
-fn a_cell_that_waits_for_the_owners_answer_during_a_pause_is_entered_for_it_and_what_came_since_once_let_on() {
+fn a_cell_whose_calls_result_comes_during_a_pause_is_entered_for_it_and_what_came_since_once_let_on() {
     let (mut w, write, first) = W::requested();
-    let call = calls_of(&w.returns(write, Came::asks(vec![question(Who::Owner)])))[0].0;
+    let call = calls_of(&w.returns(write, Came::asks(vec![tool("a")])))[0].0;
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,

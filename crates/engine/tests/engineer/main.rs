@@ -41,14 +41,13 @@
 //! once; then, with a chance of four in five, with the outside making the first cell's precondition hold (the items
 //! the work depends on merged); otherwise with a look. Then, for 0 to 199 steps, the driver's random
 //! steps, people acting at a step with a chance of one in four and the engine stopping at any step:
-//! - an agent's round ends with one to three calls in a tenth of the rounds (a tool in seven of ten, a question for the
-//!   owner or the architect otherwise), asking for nothing in one in twenty-five, handing in a block its cell may not
-//!   write beside the rest in one in twenty-five, and otherwise handing in what its cell may write: each choice in nine
-//!   of ten, its first value (yes) in a little over half of those; each other block in four of five, mattering in seven
-//!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. A return that
-//!   hands in names as dealt with each trigger its round was told ran it, by its name, as an agent writes it. In one
-//!   history of five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach
-//!   their limit of returns;
+//! - an agent's round ends asking for one to three tools in a tenth of the rounds, asking for nothing in one in
+//!   twenty-five, handing in a block its cell may not write beside the rest in one in twenty-five, and otherwise
+//!   handing in what its cell may write: each choice in nine of ten, its first value (yes) in a little over half of
+//!   those; each other block in four of five, mattering in seven of ten; but a block a cell before it reads, an
+//!   opinion for that cell, in about a third, mattering. A return that hands in names as dealt with each trigger its
+//!   round was told ran it, by its name, as an agent writes it. In one history of five the agents are sloppy: half
+//!   their returns ask for nothing and are sent back, so that runs reach their limit of returns;
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
 //!   kind `all` looks for in three of five (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
@@ -114,11 +113,10 @@ use std::sync::{Mutex, PoisonError};
 
 use decide::run::Failure;
 use decide::{
-    BlockId, Cause, CellId, Condition, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited, Who,
-    decide,
+    BlockId, Cause, CellId, Condition, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited, decide,
 };
 use engine::spoken::{self, To};
-use engine::{Ask, Came, Effect, Event, Handed};
+use engine::{Came, Effect, Event, Handed, Tool};
 use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write, reaching};
@@ -914,19 +912,9 @@ impl Random {
             0..=9 => {
                 let n = 1 + d.rng.below(3);
                 let asks = (0..n)
-                    .map(|k| {
-                        if d.rng.chance(70) {
-                            Ask::Tool {
-                                name: format!("tool {k}"),
-                                input: "x".to_string(),
-                            }
-                        } else {
-                            let who = if d.rng.chance(50) { Who::Owner } else { Who::Architect };
-                            Ask::Person {
-                                who,
-                                question: "which?".to_string(),
-                            }
-                        }
+                    .map(|k| Tool {
+                        name: format!("tool {k}"),
+                        input: "x".to_string(),
                     })
                     .collect();
                 Came::asks(asks)

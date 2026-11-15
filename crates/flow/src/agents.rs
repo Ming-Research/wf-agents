@@ -1122,8 +1122,7 @@ pub struct GivenKind {
 }
 
 /// `agents/message/results.toml`: what a round is told of the results of what it asked for. In a text, `{name}` is a
-/// tool's name, `{input}` what it was run on, or the entry in which a cell asked for tests, `{question}` a question as
-/// it was put, `{call}` a call's number.
+/// tool's name, `{input}` what it was run on, or the entry in which a cell asked for tests, `{call}` a call's number.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Results {
@@ -1132,7 +1131,6 @@ pub struct Results {
     pub tool: String,
     /// A tool run on nothing.
     pub tool_alone: String,
-    pub question: String,
     /// The owner's word at a limit.
     pub at_limit: String,
     /// A call the work does not hold.
