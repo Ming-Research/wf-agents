@@ -108,6 +108,9 @@ async fn a_round_is_told_once_a_session_that_it_is_a_test_agent_and_each_round_i
         assert!(!call.stdin.contains(&heading()), "{}", call.stdin);
     }
 
+    for call in &calls {
+        assert!(!system(call).iter().any(|line| line.contains(&told())));
+    }
     for (with, without) in [(1, 4), (2, 5), (3, 6)] {
         assert_eq!(
             system(&calls[with - 1]),
@@ -121,10 +124,41 @@ async fn a_round_is_told_once_a_session_that_it_is_a_test_agent_and_each_round_i
         );
     }
 
-    let run = real.run_of(first, "plan");
-    let kept = std::fs::read_to_string(real.data.join(format!("rounds/1/{}-1.message.md", run.0)))
-        .expect("what the plan was told is kept");
-    assert!(kept.contains(&told()) && kept.contains(&plays), "{kept}");
+    let kept = |cell: &str| {
+        let run = real.run_of(first, cell);
+        std::fs::read_to_string(real.data.join(format!("rounds/1/{}-1.message.md", run.0)))
+            .expect("what the round was told is kept")
+    };
+    let planned = kept("plan");
+    assert!(planned.contains(&told()) && planned.contains(&plays), "{planned}");
+    let built = kept("build");
+    assert!(!built.contains(&told()), "{built}");
+    assert!(built.contains(&playing("Build the greeting the plan says.")), "{built}");
+}
+
+// A round given a part that fails, its prompt too long, is given again by its run's next round, in a session of its
+// own: that round is told the words to a test agent and the failed round's part. A few seconds alone.
+#[tokio::test]
+async fn a_round_after_one_given_a_part_failed_is_told_that_part() {
+    let fake = Fake {
+        fail_first: true,
+        ..Fake::default()
+    };
+    let mut real = Real::playing(fake, PARTS);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    let again = &calls[1];
+    assert!(again.of("Plan"), "{}", again.stdin);
+    assert!(again.stdin.contains(&told()), "{}", again.stdin);
+    assert!(
+        again.stdin.contains(&playing("Plan the greeting in one line.")),
+        "{}",
+        again.stdin
+    );
 }
 
 // A round given a part whose program the engine left running when it stopped is run again, and its second try is told
