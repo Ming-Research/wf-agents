@@ -452,6 +452,8 @@ fn carried(driver: &driver::Driver, todo: &Todo) -> Option<Unit> {
         Effect::Release { .. } => Some(Unit::Release(work)),
         // A ping is carried out beside the rounds, and is no unit of one.
         Effect::Ping { .. } => None,
+        // Told to a round under way, the words are its round's: no unit of their own.
+        Effect::Tell { .. } => None,
     }
 }
 

@@ -6,6 +6,7 @@ use std::fmt;
 use decide::{End, Outsider, RecordFault};
 use driver::{Failed, NotMade, Unchangeable};
 use engine::Refused;
+use engine::spoken::NoOne;
 use store::ItemNumber;
 
 use crate::{Fault, Missing, Refusal};
@@ -212,6 +213,21 @@ pub fn refused_words(refused: &Refused) -> String {
             format!("what is decided on the work's records leads to deciding again without end, last {decision:?}")
         }
         Refused::NotCancelled => "the work's item is not cancelled: there is no cancel to reopen".to_string(),
+        Refused::NoOneSpokenTo(why) => no_one_words(why),
+    }
+}
+
+/// Why no cell can take the owner's words, in words: the words go to no other cell.
+pub fn no_one_words(why: &NoOne) -> String {
+    match why {
+        NoOne::Ended => "the work has ended: no cell of it takes words now".to_string(),
+        NoOne::NoSuchLine(line) => format!("the flow has no cell on the line {line}"),
+        NoOne::NoSuchQuestion(question) => format!("the work has no question {question} that stands"),
+        NoOne::NotReached(line) => {
+            format!("no cell of the line {line} has run yet, and the work stands at none of them")
+        }
+        NoOne::NotSpokenTo(cell) => format!("the words would reach {cell}, which the owner's words do not run"),
+        NoOne::Skipped(cell) => format!("the words would reach {cell}, which does not apply now"),
     }
 }
 

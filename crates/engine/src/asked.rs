@@ -110,9 +110,10 @@ pub(crate) fn answer(
     Ok(())
 }
 
-/// The cell an answer to this version is said to: the asking cell, for a question a run asked; for one the engine
-/// asked, the last cell of the walk that has a trigger of an answer, and the asking cell where none has.
-fn answering(flow: &Compiled, asked: &Questioned) -> CellId {
+/// The cell an answer to this version is said to, and the owner's words about it: the asking cell, for a question a
+/// run asked; for one the engine asked, the last cell of the walk that has a trigger of an answer, and the asking cell
+/// where none has.
+pub(crate) fn answering(flow: &Compiled, asked: &Questioned) -> CellId {
     if !asked.engine {
         return asked.cell.clone();
     }

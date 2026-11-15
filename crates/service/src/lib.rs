@@ -59,7 +59,7 @@ use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
     Back, CallReply, Carriers, Doing, Network, Ping, PingReply, Release, ReleaseReply, Returned, Round, RoundReply,
-    Rounds, Teller, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Rounds, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
@@ -67,7 +67,7 @@ pub use projects::Projects;
 pub use script::Script;
 pub use scripted::Scripted;
 pub use titles::{title_fits, title_width};
-pub use words::{record_fault_words, refused_words, store_fault_words};
+pub use words::{no_one_words, record_fault_words, refused_words, store_fault_words};
 
 /// The result of a wait the engine made before a round that failed in passing is tried again, once its time has come.
 pub const WAITED: &str = "The wait is over: the round is tried again.";
@@ -171,6 +171,11 @@ pub enum Act {
     Result {
         call: CallId,
         result: String,
+    },
+    /// Says these words to a line of the work's flow, or about a question of the work: to the cell the engine chooses.
+    Say {
+        to: engine::spoken::To,
+        words: String,
     },
     /// Answers this version of a question, taking this option, counted from one, for this reason where one is given.
     Answer {
@@ -538,6 +543,7 @@ impl Service {
                 return Ok(todos);
             }
             Act::NewSession { line } => Event::Anew { line, why: Why::Owner },
+            Act::Say { to, words } => Event::Said { to, words },
             Act::Answer {
                 question,
                 version,
@@ -655,6 +661,14 @@ impl Service {
                 let (round, kind) = round(*run, &started.cell, number, given.clone())?;
                 let reply = RoundReply::new(work, *run, self.to.clone());
                 self.rounds(kind).stop(round, reply);
+            }
+            Effect::Tell { run, telling } => {
+                let started =
+                    (records.started.iter().find(|s| s.run == *run)).ok_or_else(|| stray(Missing::Run(*run)))?;
+                let number = records.rounds.iter().filter(|r| r.run == *run).count();
+                let given = (kept.work.given.get(&(*run, number))).ok_or_else(|| stray(Missing::Given(*run)))?;
+                let (round, kind) = round(*run, &started.cell, number, given.clone())?;
+                self.rounds(kind).tell(round, (**telling).clone());
             }
             Effect::Call {
                 call,

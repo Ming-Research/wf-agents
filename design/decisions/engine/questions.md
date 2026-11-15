@@ -57,12 +57,15 @@ it: the owner answered what was said.
 
 ### decision an-answer-to-the-engines-question-runs-the-last-cell-that-takes-one
 The owner's answer to a question the engine asked is said to the last cell of the walk that has a trigger of an
-answer, whichever cell's round it was asked with; the answer to an agent's question, to the asking cell. A cell that
-writes the work's questions and that no answer runs is refused as its flow is compiled.
+answer, whichever cell's round it was asked with; the answer to an agent's question, to the asking cell; and the
+owner's words about a question, to the cell its answer goes to. A cell that writes the work's questions and that no
+answer runs, or no word of the owner's, is refused as its flow is compiled.
 Why: The engine's question is of the work, not of what a round did: asked beside a round of the tester's or of the
 check, its answer reached no cell that could act on it, and an answer to take a change back ran nothing. The last cell
-that takes an answer is the one nearest the merge that changes the work. A cell that asks and takes no answer would
-leave the owner's answer reaching no one, which would show only once a work waited on it.
+that takes an answer is the one nearest the merge that changes the work, and the one to talk the question over with.
+A cell that asks and takes no answer, or no words, would leave the owner's answer or remarks reaching no one, which
+would show only once a work waited on it: words about a question of R2's, which no words ran, were sent to R1 (work
+4).
 
 ### decision an-answer-is-an-entry-of-what-its-cell-reads
 The owner's answer to a question's latest version is written, in the words of the datum's own file, as the owner's

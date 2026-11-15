@@ -14,7 +14,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Has, Source};
-use web::works::{Act, ChangeAsked, EngineAct};
+use web::works::{Act, ChangeAsked, EngineAct, SpokenTo};
 
 use crate::talk::Asked;
 
@@ -299,6 +299,21 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Says something to a work: about a question of it, or to a line of its flow. The engine chooses the cell it
+    /// reaches, the one that asked the question or the one the line has reached, and refuses it, saying why, where no
+    /// cell can take it.
+    Say {
+        work: u64,
+        words: String,
+        /// The line of the work's flow it is said to.
+        #[arg(long, conflicts_with = "question", required_unless_present = "question")]
+        line: Option<String>,
+        /// The question of the work it is about, by its name.
+        #[arg(long)]
+        question: Option<String>,
+        #[command(flatten)]
+        at: At,
+    },
     /// Answers a version of a question of a work, taking an option, counted from one.
     Answer {
         work: u64,
@@ -549,6 +564,20 @@ fn main() -> ExitCode {
             };
             talk::ask(at.port, Asked::Act(work, act))
         }
+        Command::Say {
+            work,
+            words,
+            line,
+            question,
+            at,
+        } => {
+            let to = match (line, question) {
+                (_, Some(name)) => SpokenTo::Question { name },
+                (Some(line), None) => SpokenTo::Line { line },
+                (None, None) => unreachable!("the command line asks for a line or a question"),
+            };
+            talk::ask(at.port, Asked::Act(work, Act::Say { to, words }))
+        }
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
         Command::NewSession { work, line, at } => talk::ask(at.port, Asked::Act(work, Act::NewSession { line })),
@@ -569,9 +598,19 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
 /// `answer`, written by the engine's loop as the owner answers a question of the cell, and `asked`, as the questions
-/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; and `tree`,
-/// written by the carriers as they look at the design tree on a work's branch.
-const SOURCES: [&str; 7] = ["answer", "asked", "dependencies", "main", "session", "start", "tree"];
+/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; `tree`, written
+/// by the carriers as they look at the design tree on a work's branch; and `words`, written by the engine's loop as
+/// the owner speaks to a cell, the record of what is said and the cell's block that it was spoken to.
+const SOURCES: [&str; 8] = [
+    "answer",
+    "asked",
+    "dependencies",
+    "main",
+    "session",
+    "start",
+    "tree",
+    "words",
+];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
 /// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
@@ -742,6 +781,11 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::AsksWithNoAnswer { block } => {
             format!(
                 "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"
+            )
+        }
+        F::AsksAndCannotBeSpokenTo { block } => {
+            format!(
+                "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
             )
         }
         F::UnknownDetail { detail } => format!("the engine fills no place named \"{detail}\""),

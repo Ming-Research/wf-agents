@@ -8,17 +8,17 @@
 //! from the first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting;
 //! at the first that has a run at rest the run goes on, unless it waits for something; a cell whose last runs asked for
 //! calls waits there until every result is in, and is then entered again, given them; at the first with a question it
-//! waits for standing unanswered, the work waits for the owner's answer, the cell being entered for nothing else
-//! meanwhile and no later cell run (design document `data-and-context`, 36); at the first whose preconditions do not
-//! hold, or that something new runs and that has reached a limit, the work waits; the first that something new runs is
-//! otherwise entered; the rest are passed. A work that waits only for what cells write, and in which nothing new runs a
-//! cell, nothing is under way and no one is waited for, is stalled: every cell before where it stands was passed and
-//! every one after it is held, so no cell will write what it waits for, and it goes on only once a person or a source
-//! outside the work writes what runs a cell ([`Decision::Stalled`]). One round of a work is under way at a time: a
-//! round of a cell after one the owner turned to, by words or by an answer, is stopped, nothing else beginning until it
-//! has ended, and its cell runs again later. A work has ended when its last cell has a record or its item is cancelled
-//! and not reopened since; a reopened work is walked from its records as any other, what its cancel abandoned leaving
-//! no record.
+//! waits for standing unanswered, the work waits for the owner's answer, the cell being entered meanwhile only for the
+//! owner turning to it and no later cell run (design document `data-and-context`, 36); at the first whose
+//! preconditions do not hold, or that something new runs and that has reached a limit, the work waits; the first that
+//! something new runs is otherwise entered; the rest are passed. A work that waits only for what cells write, and in
+//! which nothing new runs a cell, nothing is under way and no one is waited for, is stalled: every cell before where
+//! it stands was passed and every one after it is held, so no cell will write what it waits for, and it goes on only
+//! once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One round of a work is
+//! under way at a time: a round of a cell after one the owner turned to, by words or by an answer, is stopped, nothing
+//! else beginning until it has ended, and its cell runs again later. A work has ended when its last cell has a record
+//! or its item is cancelled and not reopened since; a reopened work is walked from its records as any other, what its
+//! cancel abandoned leaving no record.
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
 //! reasons is a note a person wrote, or the owner turning to the cell, since the cell last ran (since the run of its
@@ -239,13 +239,9 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
                 run: run.started.run,
             };
         }
-        // A question the cell waits for holds the work at the cell until it is answered: the cell is entered for
-        // nothing meanwhile, and no later cell runs.
+        // A question the cell waits for holds the work at the cell until it is answered, and the results of its calls
+        // until they are in: the cell is entered meanwhile only for the owner turning to it, and no later cell runs.
         let (because, mut on) = walk.entering(i);
-        let held = walk.held(i);
-        if !held.is_empty() {
-            return wait(held.into_iter().chain(on).chain(walk.unmet(i)).collect());
-        }
         // A precondition that does not hold holds the work at its cell whether or not something new runs the cell: a
         // gate guards what comes after it as much as its own cell.
         on.extend(walk.unmet(i));
@@ -312,9 +308,12 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
             _ => None,
         })
         .unwrap_or(&[]);
-    let waits_for_calls = flow
-        .place(&r.started.cell)
-        .is_some_and(|i| walk.owed(i).0.iter().any(|c| !given.contains(c)));
+    // And one entered while a question of its cell, asked before the run began, waits for its answer (36).
+    let waits = flow.place(&r.started.cell).is_some_and(|i| {
+        walk.owed(i).0.iter().any(|c| !given.contains(c))
+            || (walk.questions.values())
+                .any(|q| q.latest.cell == r.started.cell && q.holds() && q.latest.at < r.started.at)
+    });
     let outputs = (cell.into_iter().flat_map(|c| &c.outputs))
         .map(|block| {
             let latest = walk.current(block);
@@ -338,9 +337,39 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
     Some(Told {
         ran_by,
         outputs,
-        waits_for_calls,
+        waits,
         questions,
     })
+}
+
+/// The cell of these, the cells of one line, that the line has reached: the one with a run neither finished nor
+/// abandoned, the one whose run started last where more than one has; with none, the one the work waits or stalls at;
+/// else the one whose run started last; none where no run of any of them started and the work stands at none of them
+/// (design document `data-and-context`, 32). Whether that cell can be spoken to now is not this function's to say.
+pub fn reached(flow: &Flow, records: &Records, cells: &[CellId]) -> Option<CellId> {
+    let walk = Walk::new(flow, records);
+    let of_line = |r: &&RunView| cells.contains(&r.started.cell);
+    let open = (walk.runs.values()).filter(of_line).filter(|r| r.open());
+    if let Some(run) = open.max_by_key(|r| r.started.at) {
+        return Some(run.started.cell.clone());
+    }
+    let at = match decide(flow, records) {
+        Decision::Wait { at, .. } | Decision::Stalled { at, .. } => Some(at),
+        _ => None,
+    };
+    if let Some(at) = at.filter(|at| cells.contains(at)) {
+        return Some(at);
+    }
+    (walk.runs.values().filter(of_line))
+        .max_by_key(|r| r.started.at)
+        .map(|r| r.started.cell.clone())
+}
+
+/// Whether the cell's condition is met now, so that what runs it would run it; false of a cell the flow does not
+/// have.
+pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
+    let walk = Walk::new(flow, records);
+    flow.place(cell).is_some_and(|i| walk.applies(i))
 }
 
 /// Of each cell that applies now and is owed the results of calls, those calls, in the order they were made: those its
@@ -927,15 +956,16 @@ impl<'a> Walk<'a> {
     }
 
     /// Why the cell at this place is entered, and what it waits for instead: what is new to it, and the results of the
-    /// calls its runs asked for once all are in. While one of them has no result, the cell waits for it, and only the
-    /// owner turning to it enters it meanwhile, its calls still waited for (design document `data-and-context`, 42),
-    /// by a version no run of the cell has seen: none that finished was told it, and none still open holds it. A run so
-    /// entered that asks for calls in turn leaves what the owner wrote for the run their results begin; one abandoned
-    /// saw nothing, and the cell is entered for it again.
+    /// calls its runs asked for once all are in. While one of them has no result, or a question the cell waits for
+    /// stands unanswered, the cell waits for it, and only the owner turning to it enters it meanwhile, what it waits for
+    /// still waited for (design document `data-and-context`, 36, 42), by a version no run of the cell has seen: none
+    /// that finished was told it, and none still open holds it. A run so entered that asks for calls in turn leaves what
+    /// the owner wrote for the run their results begin; one abandoned saw nothing, and the cell is entered for it again.
     fn entering(&self, i: usize) -> (Vec<Cause>, Vec<Waited>) {
         let mut because = self.needs(i);
         let (calls, open) = self.owed(i);
-        if !open.is_empty() {
+        let held = self.held(i);
+        if !open.is_empty() || !held.is_empty() {
             let cell = &self.flow.cells()[i].id;
             let seen = |block: &BlockId| {
                 (self.runs.values())
@@ -947,7 +977,11 @@ impl<'a> Walk<'a> {
                 matches!(cause, Cause::Changed { block, .. }
                     if self.flow.interrupts(block) && self.current(block).is_some_and(|v| Some(v.at) > seen(block)))
             });
-            let on = if because.is_empty() { open } else { Vec::new() };
+            let on = if because.is_empty() {
+                held.into_iter().chain(open).collect()
+            } else {
+                Vec::new()
+            };
             return (because, on);
         }
         if !calls.is_empty() {
@@ -1020,7 +1054,6 @@ impl<'a> Walk<'a> {
                 _ => None,
             })?;
             let held = !self.unmet(j).is_empty()
-                || !self.held(j).is_empty()
                 || self.at_limit(cell, &because).is_some()
                 || (paused && !self.for_a_note(j, &because, None));
             (!held).then(|| (cell.id.clone(), block))

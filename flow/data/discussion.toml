@@ -1,6 +1,13 @@
 # What the owner says to the work and what its cells answer: one record, which the cells that can be spoken to are
-# given. A cell writes it through the return's field `reply`.
-what = "What the owner says to the work and what its cells answer, each entry with who spoke, in order."
-from = "owner"
+# given, all of it. The engine writes the owner's entry as the owner speaks to a cell, in the same act as that cell's
+# block of `on_spoken` (`../triggers/of_a_cell/`), and a cell's entry from its return's field `reply`.
+what = "What the owner says to the work and what its cells answer, each entry with who spoke and to which cell, in order."
+from = "words"
 shown = true
 field = "reply"
+
+# The content of each entry: `owner`, the owner's, with `{cell}` the cell it is said to and `{words}` what the owner
+# said; `reply`, a cell's answer, with `{cell}` the cell and `{reply}` what its return gives in `reply`.
+[writes]
+owner = "The owner, to `{cell}`:\n\n{words}"
+reply = "`{cell}`, to the owner:\n\n{reply}"

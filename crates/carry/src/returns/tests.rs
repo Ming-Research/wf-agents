@@ -96,7 +96,7 @@ pub(crate) fn compiled(flow: &str, write: &str, more: &[(&str, &str)]) -> Compil
     };
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = flow::Has {
-        sources: names(&["answer"]),
+        sources: names(&["answer", "words"]),
         acts: names(&["merge"]),
         tools: names(&["query"]),
         fields: names(&["reply"]),
@@ -184,6 +184,30 @@ fn a_block_named_as_written_with_its_meaning_unchanged_runs_no_cell() {
     let mut expected = worked();
     expected.writes[0].matters = false;
     assert_eq!(read(&r), Ok(expected));
+}
+
+#[test]
+fn a_return_that_deals_with_the_owners_words_and_gives_no_answer_to_them_is_found_wanting() {
+    // The owner's words written by the engine as the owner speaks to the cell, as the repository's trigger has it.
+    let spoken = "block = \"{cell}_spoken_to\"\nfrom = \"words\"\nread = [\"discussion\"]\n";
+    let flow = compiled(FLOW, WRITE, &[("../triggers/of_a_cell/on_spoken.toml", spoken)]);
+    let found = |r: &Value| came(r, &flow, cell(&flow), &words()).expect("it is read").came.found;
+    let mut r = work();
+    r["outcome"]["dealt_with"] = json!(["on_request", "on_spoken"]);
+    let unanswered = vec![Unmet::NotAnswered {
+        name: "on_spoken".to_string(),
+    }];
+    assert_eq!(found(&r), unanswered);
+    // Words that are only space answer nothing; words do.
+    r["outcome"]["reply"] = json!("  ");
+    assert_eq!(found(&r), unanswered);
+    r["outcome"]["reply"] = json!("Done as you said.");
+    assert_eq!(found(&r), []);
+    // A return that answers what nobody said to it is not found wanting, nor one that deals with something else.
+    let mut r = work();
+    r["outcome"]["reply"] = json!("Nobody asked.");
+    assert_eq!(found(&r), []);
+    assert_eq!(found(&work()), []);
 }
 
 #[test]

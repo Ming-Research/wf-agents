@@ -466,6 +466,67 @@ pub struct WorkPage {
     /// Each question put to the owner, as it stands, in the order of their names.
     #[serde(default)]
     pub questions: Vec<QuestionPage>,
+    /// Where the owner's words would go now, as the engine chooses it: to each line of the flow, in the order of the
+    /// names of the lines, then about each question that stands, in the order of their names.
+    #[serde(default)]
+    pub speaking: Vec<Speaking>,
+}
+
+/// What the owner's words said to a line, or about a question, would reach now, as the engine chooses it: the cell,
+/// or why no cell can take them, when they are not sent (crate `engine`, module `spoken`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Speaking {
+    pub to: SpokenTo,
+    /// The cell the words would reach; none where no cell can take them.
+    pub cell: Option<String>,
+    /// Why no cell can take them, in words; none where one can.
+    pub refused: Option<String>,
+}
+
+/// What the owner's words are said to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum SpokenTo {
+    /// A line of the work's flow.
+    Line { line: String },
+    /// A question of the work, by its name: the words are about it.
+    Question { name: String },
+}
+
+impl SpokenTo {
+    fn taken(self) -> engine::spoken::To {
+        match self {
+            SpokenTo::Line { line } => engine::spoken::To::Line(line),
+            SpokenTo::Question { name } => engine::spoken::To::Question(name),
+        }
+    }
+}
+
+impl Speaking {
+    /// Where the owner's words would go now, to each line of the work's flow and about each question that stands.
+    fn all(kept: &Kept) -> Vec<Speaking> {
+        let lines = (kept.flow.lines.keys()).map(|line| SpokenTo::Line { line: line.clone() });
+        let standing = decide::questions::questions(&kept.work.records);
+        let questions = (standing.into_iter())
+            .filter(|(_, q)| q.stands())
+            .map(|(name, _)| SpokenTo::Question { name: name.to_string() });
+        (lines.chain(questions))
+            .map(|to| {
+                let chosen = engine::spoken::receiver(kept.flow, kept.work, &to.clone().taken());
+                Speaking {
+                    to,
+                    cell: chosen.as_ref().ok().map(|cell| cell.to_string()),
+                    refused: chosen.err().map(|why| service::no_one_words(&why)),
+                }
+            })
+            .collect()
+    }
 }
 
 /// A question put to the owner, as it stands: its latest version, with the keys a return writes it with, and the
@@ -891,6 +952,8 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
+    /// It deals with the owner's words, by this trigger, and gives no answer in `reply`.
+    NotAnswered { name: String },
     /// The work's branch changes this file the project protects, and nothing says why.
     Unexplained { path: String },
 }
@@ -1303,6 +1366,9 @@ pub enum Act {
     },
     /// Has the line begin a new session at its next round.
     NewSession { line: String },
+    /// Says words to a line of the work's flow, or about a question of the work: to the cell the engine chooses, which
+    /// the work's page shows (`speaking`).
+    Say { to: SpokenTo, words: String },
 }
 
 /// An item the owner adds, with its work, which is added paused: it begins no round until the owner lets it on.
@@ -1924,6 +1990,7 @@ impl WorkPage {
             blocks,
             steps,
             questions: QuestionPage::all(work),
+            speaking: Speaking::all(&kept),
         }))
     }
 }
@@ -2091,6 +2158,7 @@ impl Act {
                 why,
             },
             Act::NewSession { line } => service::Act::NewSession { line },
+            Act::Say { to, words } => service::Act::Say { to: to.taken(), words },
         }
     }
 }
@@ -2276,6 +2344,7 @@ impl Unmet {
             UnmetOf::QuestionTwice { name } => Unmet::QuestionTwice { name: name.clone() },
             UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
+            UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
         }
     }

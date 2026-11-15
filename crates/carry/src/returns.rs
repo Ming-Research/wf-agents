@@ -225,6 +225,7 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
                 });
             }
         }
+        answered(&outcome, flow, cell, &mut found);
         came.said = said(outcome);
         questions(&came.said.questions, flow, cell, words, &mut found);
     }
@@ -236,6 +237,24 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
     }
     came.found = found;
     Ok(Reading { came, protected })
+}
+
+/// Of each trigger of the owner's words the return names as dealt with, in the order it names them, once each, where
+/// the return gives no words in `reply`: the owner's words are answered there (design document `data-and-context`,
+/// 38).
+fn answered(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) {
+    if outcome.reply.as_deref().is_some_and(|r| !r.trim().is_empty()) {
+        return;
+    }
+    for (i, name) in outcome.dealt_with.iter().enumerate() {
+        if outcome.dealt_with[..i].contains(name) {
+            continue;
+        }
+        let words = (cell.triggers.iter()).any(|t| &t.name == name && t.of_source(flow, flow::WORDS).is_some());
+        if words {
+            found.push(Unmet::NotAnswered { name: name.clone() });
+        }
+    }
 }
 
 /// What is wrong with the questions the return asks that its reading sees, in the order it wrote them: one that

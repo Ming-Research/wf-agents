@@ -112,8 +112,9 @@ pub const MERGED: &str = "merged";
 pub const START: &str = "start";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
-/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`] gives in its
-/// `writes` each text the engine fills, so that none is written empty. A flow with any of these is not run.
+/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`], and the record
+/// of what is said, of [`flow::WORDS`] and written through a field, gives in its `writes` each text the engine fills,
+/// so that none is written empty. A flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
@@ -123,12 +124,16 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
     ];
+    // The record of what is said, which the owner's words write and the cells write through a field of their returns:
+    // the owner's entries and the cells' answers.
+    let record: (&str, &[&str]) = (flow::WORDS, &[engine::spoken::OWNER, engine::spoken::REPLY]);
     let mut faults = Vec::new();
     for (name, block) in &flow.blocks {
-        let Some((source, keys)) = needs
+        let found = needs
             .iter()
-            .find(|(source, _)| block.writers.outside.as_deref() == Some(*source))
-        else {
+            .find(|(source, _)| block.writers.outside.as_deref() == Some(*source));
+        let words = block.writers.outside.as_deref() == Some(flow::WORDS) && block.field.is_some();
+        let Some((source, keys)) = found.or(words.then_some(&record)) else {
             continue;
         };
         let missing: Vec<&str> = keys

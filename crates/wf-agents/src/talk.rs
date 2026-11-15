@@ -18,7 +18,7 @@ use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, R
 use web::works::{
     Act, Added, Back, Call, CellKey, CellState, ChangeAsked, Engine, EngineAct, Failure, ItemChanged, ItemChanges,
     ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person, QuestionPage,
-    Refusal, Run, SessionWhy, Spent, Stalling, Step, Unrun, Until, VersionPage, Waited, WorkPage, Writer,
+    Refusal, Run, SessionWhy, Spent, SpokenTo, Stalling, Step, Unrun, Until, VersionPage, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -481,6 +481,14 @@ fn done(work: u64, act: &Act) -> String {
             ..
         } => format!("Version {version} of the question {question} of work {work} is answered with option {option}."),
         Act::NewSession { line } => format!("The line {line} of work {work} begins a new session at its next round."),
+        Act::Say {
+            to: SpokenTo::Line { line },
+            ..
+        } => format!("Said to the line {line} of work {work}."),
+        Act::Say {
+            to: SpokenTo::Question { name },
+            ..
+        } => format!("Said about the question {name} of work {work}."),
     }
 }
 

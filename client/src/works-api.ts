@@ -316,6 +316,7 @@ export type Unmet =
   | { kind: 'questionTwice'; name: string }
   | { kind: 'notAnOption'; name: string }
   | { kind: 'notAnswerable'; name: string }
+  | { kind: 'notAnswered'; name: string }
   | { kind: 'unexplained'; path: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
@@ -489,6 +490,20 @@ export interface WorkPage {
   blocks: Block[];
   /// In the order it happened.
   steps: Step[];
+  /// Where the owner's words would go now, as the engine chooses it: to each line of the flow, then about each question
+  /// that stands; absent from an engine that does not give it.
+  speaking?: Speaking[];
+}
+
+/// What the owner's words are said to: a line of the work's flow, or a question of the work they are about.
+export type SpokenTo = { kind: 'line'; line: string } | { kind: 'question'; name: string };
+
+/// What the owner's words said to a line, or about a question, would reach now, as the engine chooses it: the cell, or
+/// why no cell can take them, when they are not sent.
+export interface Speaking {
+  to: SpokenTo;
+  cell: string | null;
+  refused: string | null;
 }
 
 export interface VersionPage {
@@ -627,7 +642,10 @@ export type Act =
   /// Answers a version of a question, taking an option counted from one, saying why where the owner does.
   | { kind: 'answer'; question: string; version: number; option: number; why?: string | null }
   /// Has the line begin a new session at its next round.
-  | { kind: 'newSession'; line: string };
+  | { kind: 'newSession'; line: string }
+  /// Says words to a line of the work's flow, or about a question of it: to the cell the engine chooses, which the
+  /// work's page shows (`speaking`).
+  | { kind: 'say'; to: SpokenTo; words: string };
 
 export interface NewItem {
   title: string;
