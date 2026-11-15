@@ -7,19 +7,20 @@
 //! round that failed, with its kind; a return sent back, where the run's next round begins, given why; a call a run
 //! rests at, for a tool, the engine's wait before a round is tried again, or the owner's word on the engine's own call
 //! at a run's limit; a question that waits for the owner's answer, of a cell that applies once it is asked, since a
-//! wait of a skipped cell holds nothing (decision a-wait-of-a-skipped-cell-is-put-away); the work paused and let on, by
-//! whom; a cell let go at its limit; a cancel, a reopen, and the merge's finished run. A wait on a precondition, for
-//! the outside or at a cell's limit of a sender has no entry: it is read where the work came to rest after a thing that
-//! happened to it, with nothing of it under way and no call, or question of a cell that applies, waited for, at the
-//! cell the reading finds it stands at. There a key of the cell's preconditions that does not hold is a wait for the
-//! outside where only cells write the blocks keeping it and the latest run of each said that what it wrote waits for a
-//! source outside the work (decision what-a-run-wrote-may-wait-for-the-outside), a precondition where a person or a
-//! source outside the work writes one of them, and else a stall, which the engine's view shows; with every key holding,
-//! the cell waits at its limit where it would run once more for what a sender wrote that sent it back as often as the
-//! flow's `again` lets one since its counts last began anew (decision the-same-sender-again). A wait that lasts over
-//! several things that happened is one step. The work's adding (the pause it was added with, the write of its block of
-//! dependencies and of what people wrote for it) and the letting on a play gives it then are the item's start: no step
-//! of its path, and no rest.
+//! wait of a skipped cell holds nothing (decision a-wait-of-a-skipped-cell-is-put-away), and such a wait taken up again
+//! once its cell applies again is not read, and is no step; the work paused and let on, by whom; a cell let go at its
+//! limit; a cancel, a reopen, and the merge's finished run. A wait on a precondition, for the outside or at a cell's
+//! limit of a sender has no entry: it is read where the work came to rest after a thing that happened to it, with
+//! nothing of it under way and no call, or question of a cell that applies, waited for, at the cell the reading finds
+//! it stands at. There a key of the cell's preconditions that does not hold is a wait for the outside where only cells
+//! write the blocks keeping it and the latest run of each said that what it wrote waits for a source outside the work
+//! (decision what-a-run-wrote-may-wait-for-the-outside), a precondition where a person or a source outside the work
+//! writes one of them, and else a stall, which the engine's view shows; with every key holding, the cell waits at its
+//! limit where it would run once more for what a sender wrote that sent it back as often as the flow's `again` lets one
+//! since its counts last began anew (decision the-same-sender-again). A wait that lasts over several things that
+//! happened is one step. The work's adding (the pause it was added with, the write of its block of dependencies and of
+//! what people wrote for it) and the letting on a play gives it then are the item's start: no step of its path, and no
+//! rest.
 //!
 //! What no record holds is read from the engine's view of the work now, and so only as a path's end: a stall, which
 //! the reading bears out where it finds the work stalled at the same cell; a wait for a slot, for the turn to check and
