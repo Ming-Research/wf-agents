@@ -255,11 +255,10 @@ impl Gate {
     /// Whether it holds the rounds of the cell: an agent's while it holds the agents' or the cell's line, an act's
     /// while it holds the acts'.
     pub fn holds(&self, cell: &CellSpec) -> bool {
-        !self.lines.is_empty()
-            || match cell.kind {
-                Kind::Agent => self.agents,
-                Kind::Engine => self.acts,
-            }
+        match cell.kind {
+            Kind::Agent => self.agents || cell.line.as_ref().is_some_and(|line| self.lines.contains(line)),
+            Kind::Engine => self.acts,
+        }
     }
 
     /// The gate that holds what either holds.

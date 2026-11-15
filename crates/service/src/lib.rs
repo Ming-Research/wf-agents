@@ -670,17 +670,13 @@ impl Service {
             // The letting go of what a work holds waits for its pings to end: their program runs in its worktree.
             match &todo.effect {
                 Effect::Ping { .. } => self.pinging.entry(todo.work).or_default().0 += 1,
-                Effect::Stop { run } => {
-                    if let Some((_, held)) = self.pinging.get_mut(&todo.work) {
-                        held.retain(|t| !matches!(t.effect, Effect::Round { run: r, .. } if r == *run));
-                    }
-                }
-                _ => {
+                Effect::Release { .. } => {
                     if let Some((_, held)) = self.pinging.get_mut(&todo.work) {
                         held.push(todo);
                         continue;
                     }
                 }
+                _ => {}
             }
             if let Some(event) = self.give(&todo)? {
                 let more = (self.driver.happened(now, todo.work, event)).map_err(|failed| answer(todo.work, failed))?;

@@ -972,8 +972,7 @@ impl Inner {
     /// The lock of the work's line, made where it has none.
     fn lock(&self, work: WorkNumber, line: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.on_line.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _ = line;
-        locks.entry((work, String::new())).or_default().clone()
+        locks.entry((work, line.to_string())).or_default().clone()
     }
 
     /// What comes before a session's messages in the prompt of a call on this, with this system prompt, form of return

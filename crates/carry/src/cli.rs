@@ -191,7 +191,7 @@ impl Tools<'_> {
         };
         Some(format!(
             "input=$(cat); name=${{input#*'\"tool_name\"'}}; name=${{name#*'\"'}}; name=${{name%%'\"'*}}; \
-             [ \"$name\" = {STRUCTURED_OUTPUT} ] || {{ printf '%s\\n' {} >&2; exit 0; }}",
+             [ \"$name\" = {STRUCTURED_OUTPUT} ] || {{ printf '%s\\n' {} >&2; exit 2; }}",
             quoted(refused)
         ))
     }

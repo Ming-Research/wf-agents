@@ -54,11 +54,7 @@ pub struct Kept {
 /// it go by `now`, which a ping would write again whole, for nothing.
 pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, limits: &Limits, now: Time) -> Vec<Kept> {
     let decision = decide(&flow.flow, &work.records);
-    if matches!(
-        decision,
-        Decision::Ended(_) | Decision::Busy { .. } | Decision::Fault(_)
-    ) || work.records.rounds.len() > work.records.returned.len()
-    {
+    if matches!(decision, Decision::Ended(_) | Decision::Fault(_)) {
         return Vec::new();
     }
     let back = coming_back(flow, work, &decision);
