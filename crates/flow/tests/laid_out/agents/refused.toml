@@ -1,0 +1,5 @@
+# What every agent is refused, whatever its project, each a command with the start of its arguments: pushing, which
+# writes beyond its worktree and which only the engine does, after its checks (principle refuse-as-little-as-must-be).
+# A project's heavy commands are its declaration's (`[heavy]` of `project.toml`). No lock command the installation names
+# may fall under one of these.
+commands = ["git push"]
