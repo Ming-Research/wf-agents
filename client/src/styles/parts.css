@@ -1,5 +1,5 @@
 /* The page's base and its parts (parts.tsx): the bar, the view's line, a button, a segmented switch, a tag, a label, a
-   list row and the docked panel. Every value is a token (tokens.css); look.md says when to use each part. */
+   list row and the docked panel. Every value is a token (tokens.css). */
 
 *,
 *::before,
