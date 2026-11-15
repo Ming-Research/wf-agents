@@ -794,7 +794,7 @@ impl<'m> Replay<'m> {
                 continue;
             }
             let taken = service::taken_in(self.flow, &self.work, spec, nth, *number);
-            let committed: Vec<(BlockId, String)> = self.pending.drain(..).collect();
+            let committed = std::mem::take(&mut self.pending);
             let mut reads: Vec<(BlockId, String, bool)> =
                 taken.into_iter().map(|r| (r.block, r.content, r.for_round)).collect();
             // The entry says what the round read only where it reads what a commit no round made wrote: else the
