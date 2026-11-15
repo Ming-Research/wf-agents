@@ -12,7 +12,7 @@ use decide::{BlockId, Seq};
 use engine::{Came, Event, Fill, Tool, Why};
 use flow::InputKind;
 use flow::agents::{MessagePart, Only, Part};
-use support::{Sim, carry, changed};
+use support::{Given, Sim, carry, changed};
 
 /// What ran a round, as it is told last: each of these triggers.
 fn ran_by(triggers: &[&str]) -> String {
@@ -743,16 +743,33 @@ fn a_round_after_one_that_took_its_message_in_and_had_nothing_it_returned_taken_
     assert!(!told(&entered), "after a return: {}", entered.text);
 }
 
-// The words that nothing the last round returned was taken stand in place of what the return before it handed in,
-// which that round was told; a compaction during the round leaves them said, a return that could not be read is sent
-// back and says why itself, and a session lost since holds nothing of the round. Well under a millisecond alone; no
-// other test holds these.
-#[test]
-fn what_is_said_of_a_round_with_nothing_taken_follows_what_the_session_holds_of_it() {
+/// Whether the round is told that nothing the last round in its session returned was taken.
+fn told_cut_off(entered: &Entered) -> bool {
+    entered.sent.iter().any(|s| s.part == "cut_off")
+}
+
+/// The plan's first round, filled from the top and tried; and, after it fails in passing, its program having taken its
+/// message in, the wait before it is tried again over.
+fn plan_failed(sim: &mut Sim, between: impl FnOnce(&mut Sim, &Given)) -> Given {
     use decide::run::Failure;
-    let told = |entered: &Entered| entered.sent.iter().any(|s| s.part == "cut_off");
+    sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
+    let first = sim.enter(&round, true);
+    sim.tries(&round, 1, first.fills.clone());
+    between(sim, &round);
+    sim.fails_as(&round, Failure::Passing, true);
+    let wait = *sim.calls().last().expect("the wait before it is tried again");
+    sim.done(wait, "over");
+    sim.round().expect("the plan's round is tried again")
+}
+
+// The words that nothing the last round returned was taken stand in place of what the return before it handed in,
+// which that round was told and which, said beside them, would read as what the last return did. Well under a
+// millisecond alone; no other test holds it.
+#[test]
+fn after_a_round_with_nothing_taken_what_the_return_before_it_handed_in_is_not_said_again() {
+    use decide::run::Failure;
     let kept = |entered: &Entered| entered.sent.iter().any(|s| s.part == "taken");
-    // After the build handed in its code, the plan's round fails, the plan's session having it.
     let mut sim = reviewed();
     let round = sim.round().expect("the plan is entered again after the review");
     let entered = sim.enter(&round, sim.begins(&round));
@@ -763,24 +780,27 @@ fn what_is_said_of_a_round_with_nothing_taken_follows_what_the_session_holds_of_
     sim.done(wait, "over");
     let again = sim.round().expect("the plan's round is tried again");
     let entered = sim.enter(&again, sim.begins(&again));
-    assert!(told(&entered) && !kept(&entered), "{}", entered.text);
+    assert!(told_cut_off(&entered) && !kept(&entered), "{}", entered.text);
+}
 
-    // Compacted during the round that failed, the session is told it all the same.
+// A session compacted during the round that failed holds that round's work in its summary: it is told nothing of it was
+// taken all the same. Well under a millisecond alone; no other test holds it.
+#[test]
+fn a_session_compacted_during_a_round_with_nothing_taken_is_told_so() {
     let mut sim = Sim::new();
-    sim.writes("request", "Greet the user.");
-    let round = sim.round().expect("the plan is entered");
-    let first = sim.enter(&round, true);
-    sim.tries(&round, 1, first.fills.clone());
-    let line = sim.line(&round);
-    sim.anew(&line, Why::Compacted);
-    sim.fails_as(&round, Failure::Passing, true);
-    let wait = *sim.calls().last().expect("the wait before it is tried again");
-    sim.done(wait, "over");
-    let again = sim.round().expect("the plan's round is tried again");
+    let again = plan_failed(&mut sim, |sim, round| {
+        let line = sim.line(round);
+        sim.anew(&line, Why::Compacted);
+    });
     let entered = sim.enter(&again, sim.begins(&again));
-    assert!(told(&entered), "{}", entered.text);
+    assert!(told_cut_off(&entered), "{}", entered.text);
+}
 
-    // A return that could not be read is sent back, with why.
+// A return that could not be read is sent back, and its words say why: the round after it is not told that nothing was
+// taken. Well under a millisecond alone; no other test holds it.
+#[test]
+fn a_round_after_a_return_that_could_not_be_read_is_not_told_nothing_was_taken() {
+    use decide::run::Failure;
     let mut sim = Sim::new();
     sim.writes("request", "Greet the user.");
     let round = sim.round().expect("the plan is entered");
@@ -789,27 +809,60 @@ fn what_is_said_of_a_round_with_nothing_taken_follows_what_the_session_holds_of_
     sim.fails_as(&round, Failure::Unread, true);
     let again = sim.round().expect("the plan's round is sent back");
     let entered = sim.enter(&again, sim.begins(&again));
-    assert!(!told(&entered), "{}", entered.text);
+    assert!(!told_cut_off(&entered), "{}", entered.text);
+}
 
-    // Lost by the program in the round after, whose program then reached nothing, the session holds nothing of it.
+// A session lost by the program in the round after, whose program then reached nothing, holds nothing of the round with
+// nothing taken: the round after them is not told of it. Well under a millisecond alone; no other test holds it.
+#[test]
+fn a_session_lost_since_a_round_with_nothing_taken_is_not_told_of_it() {
     let mut sim = Sim::new();
-    sim.writes("request", "Greet the user.");
-    let round = sim.round().expect("the plan is entered");
-    let first = sim.enter(&round, true);
-    sim.tries(&round, 1, first.fills.clone());
-    sim.fails_as(&round, Failure::Passing, true);
-    let wait = *sim.calls().last().expect("the wait before it is tried again");
-    sim.done(wait, "over");
-    let second = sim.round().expect("the plan's round is tried again");
+    let second = plan_failed(&mut sim, |_, _| {});
     let (going_on, anew) = (sim.enter(&second, false), sim.enter(&second, true));
-    assert!(told(&going_on) && !told(&anew));
+    assert!(told_cut_off(&going_on) && !told_cut_off(&anew));
     sim.tries(&second, 1, going_on.fills);
+    let line = sim.line(&second);
     sim.anew(&line, Why::Lost);
     sim.tries(&second, 2, anew.fills);
     sim.fails(&second);
     let third = sim.round().expect("the plan's round is tried again once let on");
     let entered = sim.enter(&third, sim.begins(&third));
-    assert!(!told(&entered), "{}", entered.text);
+    assert!(!told_cut_off(&entered), "{}", entered.text);
+}
+
+// A run given up while its round was under way, as when the owner turns to a cell before it, drops what its round
+// returned: the next round in the session, of the cell entered again, is told that nothing of it was taken. Well under
+// a millisecond alone; no other test holds a round after one of a run given up.
+#[test]
+fn a_round_after_one_of_a_run_given_up_is_told_nothing_of_it_was_taken() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
+    let first = sim.enter(&round, true);
+    sim.tries(&round, 1, first.fills.clone());
+    sim.take(Event::Measured {
+        run: round.run,
+        attempt: 1,
+        measures: work::Measures {
+            received: true,
+            ..work::Measures::default()
+        },
+    });
+    // The loop gives the run up while its round is under way, and the round's end, which comes after, is dropped.
+    let at = sim.work.tick();
+    sim.work
+        .records
+        .abandoned
+        .push(decide::Abandoned { run: round.run, at });
+    sim.hands_in(&round, &[("plan", "Greet by name.", None)]);
+    assert!(
+        sim.work.back.get(&(round.run, 1)).is_none(),
+        "what came back is dropped"
+    );
+    let again = sim.round().expect("the plan is entered again");
+    assert_ne!(again.run, round.run);
+    let entered = sim.enter(&again, sim.begins(&again));
+    assert!(told_cut_off(&entered), "{}", entered.text);
 }
 
 #[test]

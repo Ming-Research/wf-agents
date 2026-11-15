@@ -291,12 +291,15 @@ impl Rounds for Agents {
         let key = (round.work, round.run, round.number);
         if let Some(reply) = self.inner.held.stop(key, reply) {
             // Nothing here carries the round out; a program a process of the engine that ended left running for it
-            // is stopped before the round ends.
+            // is stopped before the round ends, which takes what the try that process left took, as its stream kept it
+            // says, its calls and compactions told as any try's.
             let group = self.inner.kept(&round).with_extension("pgid");
             let dir = git::place(&self.inner.data, &git::tag(&self.inner.installation), round.work).dir;
+            let inner = self.inner.clone();
             tokio::spawn(async move {
                 process::stop_left(&group, &dir).await;
-                reply.ended(Came::hands_in(Vec::new()), Spent::default());
+                let spent = inner.left_spent(&round, &reply.teller()).await;
+                reply.ended(Came::hands_in(Vec::new()), spent);
             });
         }
     }
@@ -365,7 +368,12 @@ impl Inner {
         // that try, where its program said it began, reached the service or printed its result: what the try kept of
         // its stream says what came of it. Nothing is taken in or read of the branch for it as it begins: what that try
         // committed is the round's, read as it ends.
-        let left = left_try(&base).await;
+        let left = match self.left(round, teller).await? {
+            Some(Left {
+                guarded: Some(failed), ..
+            }) => return Ok(failed),
+            left => left,
+        };
         let main = if round.cell.takes_main && left.is_none() {
             self.caught_up(round, &place, of).await?
         } else {
@@ -430,53 +438,15 @@ impl Inner {
             again: base.with_extension("again.md"),
         };
         // The session the program lost is begun again under its id, and that is recorded once for the round.
-        let round_at = work::sessions::began_at(work, round.run, round.number);
-        let recorded =
-            (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && round_at.is_some_and(|a| a < s.at));
+        let recorded = lost_in(work, line, round);
         let (status, stream, stderr, compactions) = match left {
-            // The try the engine that ended left: what came of it is read from what it kept, as of a try that ended by
-            // itself, but for how its program ended, which no process of the engine saw. Its compactions and what its
-            // calls came to are told as any try's are, once: an engine that told them and ended before the round's end
-            // was recorded left them in the records. Nothing is given the session again.
-            Some((n, stream)) => {
-                let compactions = marked(&compacted.marks).await;
-                let _ = tokio::fs::remove_file(&compacted.again).await;
-                let told = tokio::fs::read_to_string(kept::at(&base, n).0)
-                    .await
-                    .unwrap_or_default();
-                let given = told.chars().count() as u64 + returned;
-                let ran = (work.ran.iter()).rfind(|r| r.run == round.run && r.round == round.number && r.attempt == n);
-                let (system, form) = begun_with()?;
-                let before = self.before_messages(ran.map_or(&on, |r| &r.on), &system, &form, &permissions);
-                let mut guard = Guard::new(round.lines.clone(), last, given, waived);
-                let crossing = guard.judge(&stream.own);
-                let halted = crossing.is_some() && guard.stops() && !stream.has_result();
-                let told_before =
-                    (work.measured.iter()).any(|m| m.run == round.run && m.round == round.number && m.attempt == n);
-                if !told_before {
-                    for _ in 0..compactions {
-                        teller.session_began(line.to_string(), Why::Compacted);
-                    }
-                    let priced = !stream.has_result() && stream.priced().is_some();
-                    if let Some(measures) = measures(&stream, given, before, crossing.is_some(), priced) {
-                        teller.measured(n, measures);
-                    }
-                }
-                // A try past a signal the run guard stops a round on, which printed no result, failed for it, as the
-                // engine that ended would have stopped it.
-                if let Some(crossing) = crossing.filter(|_| halted) {
-                    let why = crossing.words(&of.beside.cost.guard, &stream.tools, guarded_before);
-                    let spent = Spent {
-                        compactions,
-                        ..stream.priced().unwrap_or_default()
-                    };
-                    return Ok(Carried::Failed(why, Failure::Guarded, failure::Said::default(), spent));
-                }
-                // A try after one that found the session lost began it again under its id, as the records say.
-                if recorded {
+            // The try the engine that ended left, read as of a try that ended by itself, but for how its program ended,
+            // which no process of the engine saw ([`Inner::left`]). Nothing is given the session again.
+            Some(left) => {
+                if left.anew {
                     begin = Begin::New;
                 }
-                (None, stream, String::new(), compactions)
+                (None, left.stream, String::new(), left.compactions)
             }
             None => {
                 // What the round is sent in the session as it stands, and in one that holds nothing: one begun under
@@ -592,22 +562,15 @@ impl Inner {
                         process::streamed(command, stdin, Some(&group), stop, Some(halted), &mut each).await
                     };
                     // Each compaction of the try is a reopening of the session, told while the round is still under
-                    // way, however the try ended.
+                    // way, however the try ended; and so is what the calls of a try whose program ran came to. A round
+                    // the guard stopped printed no result: what it took is its calls at their models' prices. So is
+                    // what a try took whose program ended of itself with no result to say it, as one that crashed.
                     let compactions = marked(&compacted.marks).await;
-                    for _ in 0..compactions {
-                        teller.session_began(line.to_string(), Why::Compacted);
-                    }
-                    // A round the guard stopped printed no result: what it took is its calls at their models' prices.
-                    // So is what a try took whose program ended of itself with no result to say it, as one that
-                    // crashed.
                     let halted = crossed.is_some() && guard.stops();
                     let ended = matches!(&ran, Ok(Ran::Ended { .. }));
                     let priced = halted || (ended && !kept.stream.has_result() && kept.stream.priced().is_some());
-                    // What the calls of a try whose program ran came to is told before the round ends, however it
-                    // ended.
-                    if let Some(measures) = kept.measures(given, before, crossed.is_some(), priced) {
-                        teller.measured(n, measures);
-                    }
+                    let measures = kept.measures(given, before, crossed.is_some(), priced);
+                    tell_try(teller, line, n, compactions, measures);
                     let ran = match ran {
                         Ok(ran) => ran,
                         Err(why) => {
@@ -619,12 +582,8 @@ impl Inner {
                     let Ran::Ended { status, stderr, .. } = ran else {
                         // Stopped by the guard, the round failed for it, having taken what its calls cost.
                         if let Some(crossing) = crossed.filter(|_| halted) {
-                            let why = crossing.words(&of.beside.cost.guard, kept.tools(), guarded_before);
-                            let spent = Spent {
-                                compactions,
-                                ..kept.stream.priced().unwrap_or_default()
-                            };
-                            return Ok(Carried::Failed(why, Failure::Guarded, failure::Said::default(), spent));
+                            let words = &of.beside.cost.guard;
+                            return Ok(guarded(&crossing, words, &kept.stream, compactions, guarded_before));
                         }
                         return Ok(Carried::Stopped);
                     };
@@ -848,6 +807,127 @@ impl Inner {
             .await
             .map_err(|e| format!("{}: {e}", named()))?;
         Ok(Some(caught))
+    }
+
+    /// Of a round given again, or stopped, after the process of the engine that gave it ended while a try of it ran:
+    /// that try, as what it kept of its stream says, where its program said it began, reached the service or printed
+    /// its result; none where the round kept no such try. What came of it is said to the loop as any try's is, but for
+    /// what the records hold of it already, told by the process that ended: each compaction of it as the session
+    /// reopened, what its calls came to, where the stream kept the start of each, and that the service answered it.
+    async fn left(&self, round: &Round, teller: &Teller) -> Result<Option<Left>, String> {
+        let (flow, work) = (&*round.flow, &*round.kept);
+        let base = self.kept(round);
+        let Some((n, stream)) = left_try(&base).await else {
+            return Ok(None);
+        };
+        let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
+        let of = crate::projects::of(&self.projects, &round.item)?;
+        let ran = (work.ran.iter()).rfind(|r| r.run == round.run && r.round == round.number && r.attempt == n);
+        let on = match ran {
+            Some(ran) => ran.on.clone(),
+            None => (self.settings).ran_on(round.item.level.as_deref(), &round.cell, round.account.as_deref())?,
+        };
+        // What came before the session's messages, as the session kept it when it began.
+        let InSession { number, .. } = cli::in_session(flow, work, line, round.run, round.number);
+        let session = session::session(self.installation, round.work, line, number);
+        let begun = |what| std::fs::read_to_string(system::kept_at(&self.data, session, what)).ok();
+        let (system, form) = (begun(system::Begun::System), begun(system::Begun::Form));
+        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
+        let refused = permissions::refused_commands(&of.beside);
+        let results = self.results_root().await?;
+        let permissions = Permissions::of(round.cell.reads_only, args, &refused, added).reading(&results);
+        let mut before = self.before_messages(
+            &on,
+            system.as_deref().unwrap_or_default(),
+            form.as_deref().unwrap_or_default(),
+            &permissions,
+        );
+        for (part, there) in [("system", &system), ("schema", &form)] {
+            if there.is_none() {
+                before.remove(part);
+            }
+        }
+        // What the try was given, and how the run guard judges its calls.
+        let told = tokio::fs::read_to_string(kept::at(&base, n).0)
+            .await
+            .unwrap_or_default();
+        let returned = driver::history::last_return(flow, work, line, round.run, round.number).map_or(0, chars_of);
+        let given = told.chars().count() as u64 + returned;
+        let last = driver::history::last_prompt(flow, work, line, round.run, round.number);
+        let waived = let_run(work, round.run, round.number, Failure::Guarded);
+        let mut guard = Guard::new(round.lines.clone(), last, given, waived);
+        let crossing = guard.judge(&stream.own);
+        // What the records hold of it already: the compactions told since it began, and its measures.
+        let since = ran
+            .map(|r| r.at)
+            .or_else(|| work::sessions::began_at(work, round.run, round.number));
+        let compacted = (work::sessions::of_line(work, line))
+            .filter(|s| s.why == Why::Compacted && since.is_some_and(|at| at < s.at))
+            .count();
+        let compactions = marked(&base.with_extension("compacted")).await;
+        let more = compactions.saturating_sub(u32::try_from(compacted).unwrap_or(u32::MAX));
+        let measured = (work.measured.iter()).any(|m| m.run == round.run && m.round == round.number && m.attempt == n);
+        // A stream kept before the start of each call was kept with it tells the calls' cost and not their prompts:
+        // its measures are not known, and none are said, which no record would tell from a try that made no call.
+        let starts = stream.own.count > 0 || stream.priced().is_none();
+        if !starts {
+            eprintln!(
+                "work {}: the try {n} of the round {} of run {} kept no start of its calls: what they came to is not \
+                 recorded",
+                round.work.0, round.number, round.run.0
+            );
+        }
+        let priced = !stream.has_result() && stream.priced().is_some();
+        let measures = (!measured && starts)
+            .then(|| measures(&stream, given, before, crossing.is_some(), priced))
+            .flatten();
+        tell_try(teller, line, n, more, measures);
+        // The service served the round: a wait every work shares need not wait for its end (decision
+        // a-wait-is-over-at-the-first-answer).
+        if stream.answered() {
+            teller.answered();
+        }
+        let _ = tokio::fs::remove_file(base.with_extension("again.md")).await;
+        // A try past a signal the run guard stops a round on, which printed no result, failed for it, as the engine
+        // that ended would have stopped it.
+        let guarded_before = stopped_before(work, round.run, round.number, Failure::Guarded);
+        let halted = crossing.is_some() && guard.stops() && !stream.has_result();
+        let guarded = (crossing.filter(|_| halted))
+            .map(|crossing| guarded(&crossing, &of.beside.cost.guard, &stream, compactions, guarded_before));
+        Ok(Some(Left {
+            stream,
+            compactions,
+            guarded,
+            anew: lost_in(work, line, round),
+        }))
+    }
+
+    /// What a round stopped after the process of the engine that gave it ended took: what the try that process left
+    /// took, as what it kept of its stream says ([`Inner::left`]); nothing where it left none. What cannot be read is
+    /// said on the standard error, and taken as nothing.
+    async fn left_spent(&self, round: &Round, teller: &Teller) -> Spent {
+        match self.left(round, teller).await {
+            Ok(Some(left)) => {
+                let line = round.cell.line.as_deref().unwrap_or_default();
+                let InSession { begin, before, .. } =
+                    cli::in_session(&round.flow, &round.kept, line, round.run, round.number);
+                let begin = if left.anew { Begin::New } else { begin };
+                let compactions = left.compactions;
+                let spent = match left.stream.read(begin, before) {
+                    Ok(read) => read.spent,
+                    Err(no) => no.spent.unwrap_or_default(),
+                };
+                Spent { compactions, ..spent }
+            }
+            Ok(None) => Spent::default(),
+            Err(why) => {
+                eprintln!(
+                    "work {}: what the stopped round's try took was not read: {why}",
+                    round.work.0
+                );
+                Spent::default()
+            }
+        }
     }
 
     /// Where what the round was told and returned are kept, without the extension.
@@ -1473,6 +1553,54 @@ fn measures(
     })
 }
 
+/// A try of a round that the process of the engine that gave it left as it ended ([`Inner::left`]).
+struct Left {
+    /// Its program's stream, read from what the try kept of it.
+    stream: cli::Stream,
+    /// How many times the program compacted the session during it.
+    compactions: u32,
+    /// Where it went past a signal the run guard stops a round on and printed no result, the round's failure for it.
+    guarded: Option<Carried>,
+    /// Whether it ran after a try of the round found the session lost, and so began it again under its id.
+    anew: bool,
+}
+
+/// Says to the loop what came of the try of this number: each of these compactions of the session during it as the
+/// session reopened, while the round is still under way, and what its calls came to, where they are said.
+fn tell_try(teller: &Teller, line: &str, n: usize, compactions: u32, measures: Option<Measures>) {
+    for _ in 0..compactions {
+        teller.session_began(line.to_string(), Why::Compacted);
+    }
+    if let Some(measures) = measures {
+        teller.measured(n, measures);
+    }
+}
+
+/// Why a try the run guard stopped failed, in the words beside the flows, with the last tools it used, `again` where
+/// the guard stopped the run's round before it too; and what it took: its calls at their models' prices, with its
+/// compactions.
+fn guarded(
+    crossing: &Crossing,
+    words: &flow::agents::GuardWords,
+    stream: &cli::Stream,
+    compactions: u32,
+    again: bool,
+) -> Carried {
+    let why = crossing.words(words, &stream.tools, again);
+    let spent = Spent {
+        compactions,
+        ..stream.priced().unwrap_or_default()
+    };
+    Carried::Failed(why, Failure::Guarded, failure::Said::default(), spent)
+}
+
+/// Whether a try of the round found its line's session lost, and began it again under its id: as the records say, once
+/// for the round.
+fn lost_in(work: &Work, line: &str, round: &Round) -> bool {
+    let began = work::sessions::began_at(work, round.run, round.number);
+    (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && began.is_some_and(|at| at < s.at))
+}
+
 /// Of a round given again after the process of the engine that gave it ended while a try of it ran: that try's number
 /// and its program's stream, read from what the try kept of it, where the program said it began, reached the service
 /// or printed its result. None where the round has kept no try, or its last try's program said none of these, as one
@@ -1782,6 +1910,11 @@ mod tests {
     /// The carrier of the engineer's flow's rounds, its data in this directory, and a round of R2 it was given, as its
     /// `give` keeps it: its directory made, which the round's message was kept in.
     fn given_round(dir: &Path) -> (Agents, Round) {
+        given_round_of(dir, Work::default(), Default::default())
+    }
+
+    /// R2's first round of run 7 of work 3, the work as kept being this one and the round judged by these lines.
+    fn given_round_of(dir: &Path, kept: Work, lines: driver::history::Lines) -> (Agents, Round) {
         let settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
         let project = settings.projects["example"].clone();
         let (flow, beside) = engineer();
@@ -1807,8 +1940,8 @@ mod tests {
             number: 1,
             given: work::Given::Task,
             item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
-            kept: Arc::new(Work::default()),
-            lines: Default::default(),
+            kept: Arc::new(kept),
+            lines,
             account: None,
         };
         let key = (round.work, round.run, round.number);
@@ -1929,5 +2062,268 @@ mod tests {
             Vec::<Vec<(BlockId, Seq)>>::new(),
             "the round was given none of it"
         );
+    }
+
+    /// A line of a stream: the program's first, which says it took its message in.
+    const INIT: &str = r#"{"type":"system","subtype":"init","claude_code_version":"9.9.9"}"#;
+
+    /// A line of a stream: the start of a call of the session's own agent, whose prompt was sent this fresh.
+    fn start(fresh: u64) -> String {
+        format!(
+            r#"{{"type":"stream_event","event":{{"type":"message_start","message":{{"usage":{{"input_tokens":{fresh},"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}},"parent_tool_use_id":null}}"#
+        )
+    }
+
+    /// A line of a stream: the whole message of a call of the session's own agent to Opus 5.5, of 100 tokens sent,
+    /// 1,000 read from the cache and 10 back.
+    fn called(id: u32) -> String {
+        format!(
+            r#"{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_{id}","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}"#
+        )
+    }
+
+    /// A line of a stream: the program's result, the session having cost this much in all, in dollars.
+    fn result(total: &str) -> String {
+        format!(
+            r#"{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{total},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}},"structured_output":{{"outcome":{{}}}}}}"#
+        )
+    }
+
+    /// A work whose run 7, of R2, began its first round at 5 and ran its first try at 6, after an earlier run of R2, 6,
+    /// had ended a round that cost a cent; with `lost`, that try found the session lost at 7.
+    fn left_work(lost: bool) -> Work {
+        let mut work = Work::default();
+        let started = |run: u64, at: u64| decide::Started {
+            run: RunId(run),
+            cell: "R2".into(),
+            at: Seq(at),
+            because: Vec::new(),
+            basis: BTreeMap::new(),
+        };
+        work.records.started.extend([started(6, 1), started(7, 4)]);
+        work.records.rounds.extend([
+            Began {
+                at: Seq(2),
+                run: RunId(6),
+            },
+            Began {
+                at: Seq(5),
+                run: RunId(7),
+            },
+        ]);
+        work.records.returned.push(Returned {
+            at: Seq(3),
+            run: RunId(6),
+        });
+        let spent = Spent {
+            usd_micros: 10_000,
+            input_tokens: 100,
+            ..Spent::default()
+        };
+        work.spent.insert((RunId(6), 1), spent);
+        work.ran.push(work::Ran {
+            at: Seq(6),
+            run: RunId(7),
+            round: 1,
+            attempt: 1,
+            on: RanOn {
+                level: "1".to_string(),
+                model: "claude-opus-5-5".to_string(),
+                effort: None,
+                account: None,
+            },
+        });
+        if lost {
+            let line = "engineer".to_string();
+            work.sessions.push(work::Session {
+                at: Seq(7),
+                line,
+                why: Why::Lost,
+            });
+        }
+        work
+    }
+
+    /// The round's first try, as the process of the engine that gave it left it: what it was told, its stream as it
+    /// kept it, and so many compactions marked.
+    fn left_by_an_engine(agents: &Agents, round: &Round, stream: &[String], compactions: usize) {
+        let base = agents.inner.kept(round);
+        std::fs::create_dir_all(base.parent().expect("a directory")).unwrap();
+        std::fs::write(kept::at(&base, 1).0, "# Is there a better way\n").unwrap();
+        std::fs::write(kept::stream_at(&base, 1), format!("{}\n", stream.join("\n"))).unwrap();
+        if compactions > 0 {
+            std::fs::write(base.with_extension("compacted"), vec![b'.'; compactions]).unwrap();
+        }
+        let place = git::place(&agents.inner.data, &git::tag(&agents.inner.installation), round.work);
+        std::fs::create_dir_all(place.dir).unwrap();
+    }
+
+    /// What the loop was told, by kind: the measures of each try, the compactions, and whether the service answered.
+    fn told(told: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> (Vec<usize>, usize, bool) {
+        let (mut measured, mut compacted, mut answered) = (Vec::new(), 0, false);
+        for message in std::iter::from_fn(|| told.try_recv().ok()) {
+            match message {
+                service::Message::Happened {
+                    event: engine::Event::Measured { attempt, .. },
+                    ..
+                } => measured.push(attempt),
+                service::Message::Happened {
+                    event: engine::Event::Anew {
+                        why: Why::Compacted, ..
+                    },
+                    ..
+                } => compacted += 1,
+                service::Message::Answered { .. } => answered = true,
+                _ => {}
+            }
+        }
+        (measured, compacted, answered)
+    }
+
+    /// The round carried out, with its teller's channel.
+    async fn carried(
+        agents: &Agents,
+        round: &Round,
+    ) -> (Carried, tokio::sync::mpsc::UnboundedReceiver<service::Message>) {
+        let (to, told) = tokio::sync::mpsc::unbounded_channel();
+        let teller = RoundReply::new(round.work, round.run, to).teller();
+        let carried = (agents.inner)
+            .carry(round, &teller, &mut Stop::never())
+            .await
+            .expect("the round is carried");
+        (carried, told)
+    }
+
+    // A try whose engine told its compactions and measures, and ended before the round's end was recorded, is told only
+    // what the records do not hold: here one of its two compactions and none of its measures; with none told, all of
+    // it; and that the service answered it. Well under a second alone, nothing run; no other test holds what is told
+    // of a left try once.
+    #[tokio::test]
+    async fn a_left_try_is_told_once_what_the_records_do_not_hold_of_it() {
+        let stream = [INIT.to_string(), start(1_000), called(1)];
+        let dir = tempfile::tempdir().unwrap();
+        let mut kept = left_work(false);
+        kept.sessions.push(work::Session {
+            at: Seq(8),
+            line: "engineer".to_string(),
+            why: Why::Compacted,
+        });
+        kept.measured.push(work::Measured {
+            at: Seq(9),
+            run: RunId(7),
+            round: 1,
+            attempt: 1,
+            measures: Measures::default(),
+        });
+        let (agents, round) = given_round_of(dir.path(), kept, Default::default());
+        left_by_an_engine(&agents, &round, &stream, 2);
+        let (_, mut heard) = carried(&agents, &round).await;
+        assert_eq!(told(&mut heard), (Vec::new(), 1, true));
+
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        left_by_an_engine(&agents, &round, &stream, 2);
+        let (carried, mut heard) = carried(&agents, &round).await;
+        assert_eq!(told(&mut heard), (vec![1], 2, true));
+        let Carried::Failed(_, failure, _, spent) = carried else {
+            panic!("the round did not fail");
+        };
+        // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar.
+        assert_eq!(
+            (failure, spent.usd_micros, spent.compactions),
+            (Failure::Passing, 800, 2)
+        );
+    }
+
+    // A left try past the run guard's lines, which printed no result, fails for the guard, as its engine would have
+    // stopped it, so that its line begins a new session. Well under a second alone; no other test holds the guard of a
+    // left try.
+    #[tokio::test]
+    async fn a_left_try_past_the_guard_s_lines_fails_for_the_guard() {
+        let line = |value: f64| driver::history::Line {
+            value,
+            samples: 3,
+            scope: driver::history::Scope::Cell,
+        };
+        let lines = driver::history::Lines {
+            added: Some(line(10.0)),
+            rate: Some(line(5.0)),
+            ..Default::default()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(false), lines);
+        let stream = [INIT.to_string(), start(1_000), called(1), start(5_000), called(2)];
+        left_by_an_engine(&agents, &round, &stream, 0);
+        let (carried, _) = carried(&agents, &round).await;
+        let Carried::Failed(why, failure, _, _) = carried else {
+            panic!("the round did not fail");
+        };
+        assert_eq!(failure, Failure::Guarded, "{why}");
+    }
+
+    // A left try after one that found the session lost began it again under its id: its result costs the whole of the
+    // session's total, as of a session begun, not that less what the line's earlier rounds cost. Well under a second
+    // alone; no other test holds how a left try begun anew is read.
+    #[tokio::test]
+    async fn a_left_try_after_its_session_was_found_lost_is_read_as_beginning_it() {
+        let stream = [INIT.to_string(), start(1_000), called(1), result("0.03")];
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(true), Default::default());
+        left_by_an_engine(&agents, &round, &stream, 0);
+        let (carried, _) = carried(&agents, &round).await;
+        let spent = match carried {
+            Carried::Came(_, spent) | Carried::Failed(_, _, _, spent) => spent,
+            Carried::Stopped => panic!("the round was stopped"),
+        };
+        assert_eq!(spent.usd_micros, 30_000);
+    }
+
+    // A stream kept before the start of each call was kept with it says what the calls cost and not their prompts: no
+    // measures are said, rather than measures of no call, and the round still takes what the calls cost. Well under a
+    // second alone; no other test holds a stream kept so.
+    #[tokio::test]
+    async fn a_left_stream_that_kept_no_start_of_its_calls_says_no_measures() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        left_by_an_engine(&agents, &round, &[INIT.to_string(), called(1)], 0);
+        let (carried, mut heard) = carried(&agents, &round).await;
+        assert_eq!(told(&mut heard).0, Vec::<usize>::new());
+        let Carried::Failed(_, _, _, spent) = carried else {
+            panic!("the round did not fail");
+        };
+        assert_eq!(spent.usd_micros, 800);
+    }
+
+    // A round stopped after the process of the engine that gave it ended takes what the try that process left took,
+    // and tells its measures, so that the session is known to hold its message. Well under a second alone; no other
+    // test holds the stop of a left try.
+    #[tokio::test]
+    async fn a_round_stopped_after_its_engine_ended_takes_what_its_left_try_took() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        left_by_an_engine(&agents, &round, &[INIT.to_string(), start(1_000), called(1)], 0);
+        let (to, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        let reply = RoundReply::new(round.work, round.run, to);
+        agents.stop(round, reply);
+        let mut measured = false;
+        let spent = loop {
+            let message = tokio::time::timeout(std::time::Duration::from_secs(10), heard.recv())
+                .await
+                .expect("the round ends")
+                .expect("the channel is open");
+            match message {
+                service::Message::Happened {
+                    event: engine::Event::Measured { .. },
+                    ..
+                } => measured = true,
+                service::Message::Happened {
+                    event: engine::Event::Returned { spent, .. },
+                    ..
+                } => break spent,
+                _ => {}
+            }
+        };
+        assert!(measured, "its measures are told");
+        assert_eq!(spent.usd_micros, 800);
     }
 }
