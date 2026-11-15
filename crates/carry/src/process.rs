@@ -225,9 +225,8 @@ impl Overseer {
 
     /// Lets the overseer go: the shell is killed while its pipe is still open, since only the pipe closing makes it
     /// stop the group, and waited for.
-    async fn let_go(self) {
-        // To see the test of letting go red: dropped, its pipe closes, and the shell stops the group.
-        drop(self);
+    async fn let_go(mut self) {
+        let _ = self.0.kill().await;
     }
 }
 
