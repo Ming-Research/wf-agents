@@ -406,6 +406,9 @@ pub enum FaultKind {
     RulesNamedAsEnginePart { name: String },
     /// A set of the flow's rules that no line names: no agent would be given it.
     UnusedRules { name: String },
+    /// A line says its agents change only the project's tests, and that they only read: one that only reads changes
+    /// no file, tests or other.
+    ReadsOnlyAndTestsOnly,
     /// A choice has no values to choose from.
     ValuesEmpty,
     /// The block is a note, and people do not write it: a note is their words to the cells that read it.
@@ -1611,9 +1614,10 @@ impl<'a> Definition<'a> {
         }
     }
 
-    /// The faults of the lines' sets of rules: a line naming one twice, one there is not, or a part the engine places
-    /// itself. Of a flow written before it was laid out one thing to a file, whose sets of rules are its own, a set that
-    /// has the name of such a part, or that no line names; the sets beside the flows are every flow's.
+    /// The faults of the lines: of their sets of rules, a line naming one twice, one there is not, or a part the engine
+    /// places itself; and a line that says it only reads and changes only the project's tests. Of a flow written before
+    /// it was laid out one thing to a file, whose sets of rules are its own, a set that has the name of such a part, or
+    /// that no line names; the sets beside the flows are every flow's.
     fn check_lines(&self, parts: &BTreeSet<String>, rules: &BTreeMap<String, String>, faults: &mut Vec<Fault>) {
         let laid_out = self.places.laid_out;
         let list = if laid_out { "rules" } else { "system" };
@@ -1633,6 +1637,10 @@ impl<'a> Definition<'a> {
             };
             for (field, what) in check_list(&line.system, list, known) {
                 faults.push(self.places.fault("lines", name, &field, what));
+            }
+            if line.reads_only && line.tests_only {
+                let what = FaultKind::ReadsOnlyAndTestsOnly;
+                faults.push(self.places.fault("lines", name, "tests_only", what));
             }
         }
         if laid_out {

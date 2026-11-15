@@ -1,11 +1,12 @@
 //! A line that changes only the project's tests: its system prompt says so with the paths of the tests, a round whose
 //! run changed a file that is none of them is sent back naming it, whether its return does the cell's work or asks for
-//! calls, and once the run's change is all tests the work goes on.
+//! calls, and once the run's change is all tests the work goes on. A round whose branch cannot be read as it ends
+//! fails, and its work waits.
 
 use decide::RunId;
-use decide::run::Unmet;
+use decide::run::{Failure, Unmet};
 use service::Act;
-use work::Given;
+use work::{Back, Given};
 
 use crate::{Fake, On, Real, ended};
 
@@ -83,4 +84,26 @@ async fn a_build_that_commits_beside_the_tests_and_then_asks_for_a_call_is_sent_
         None,
         "the run entered for the results changed nothing"
     );
+}
+
+// Nothing after the round holds the line to its tests: a round whose branch cannot be read as it ends fails as a cause
+// no other kind holds, saying why, and pauses its work, rather than its change being taken for tests.
+#[tokio::test]
+async fn a_round_of_a_line_of_tests_whose_branch_cannot_be_read_as_it_ends_fails_and_its_work_waits() {
+    let fake = Fake {
+        build_loses_its_branch: true,
+        ..Fake::default()
+    };
+    let mut real = Real::open(On::Testing, fake, None, "true");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    let kept = real.work(work);
+    let build = real.run_of(work, "build");
+    let Some(Back::Failed { why, failure, .. }) = kept.back.get(&(build, 1)) else {
+        panic!("the build's round did not fail: {:?}", kept.back);
+    };
+    assert_eq!(*failure, Failure::Other);
+    assert!(why.contains("the work's branch could not be read: "), "{why}");
+    assert!(decide::pause(&kept.records).is_some(), "the work waits");
 }

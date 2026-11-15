@@ -389,6 +389,8 @@ pub enum What {
     UnusedRules {
         name: String,
     },
+    /// A line says its agents change only the project's tests, and that they only read.
+    ReadsOnlyAndTestsOnly,
     ValuesEmpty,
     /// The block is a note, and people do not write it.
     NoteNotByPeople {
@@ -805,6 +807,7 @@ impl What {
             F::EnginePart { name } => What::EnginePart { name },
             F::RulesNamedAsEnginePart { name } => What::RulesNamedAsEnginePart { name },
             F::UnusedRules { name } => What::UnusedRules { name },
+            F::ReadsOnlyAndTestsOnly => What::ReadsOnlyAndTestsOnly,
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },

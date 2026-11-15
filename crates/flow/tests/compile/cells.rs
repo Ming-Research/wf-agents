@@ -69,6 +69,27 @@ fn a_cell_on_a_line_that_changes_only_the_tests_changes_only_them_and_the_others
     );
 }
 
+// A line whose agents only read changes no file, so it cannot say they change only the tests: in either layout, the
+// line's file is at fault where it says so.
+#[test]
+fn a_line_that_only_reads_and_changes_only_the_tests_is_refused() {
+    let written = edit(
+        valid(),
+        FLOW_FILE,
+        "[lines.review]",
+        "[lines.review]\nreads_only = true\ntests_only = true",
+    );
+    assert_eq!(
+        faults(&written),
+        [at(FLOW_FILE, "lines.review.tests_only", ReadsOnlyAndTestsOnly)]
+    );
+    let laid = set(laid_out(), "lines/review.toml", "reads_only = true\ntests_only = true");
+    assert_eq!(
+        faults(&laid),
+        [at("lines/review.toml", "tests_only", ReadsOnlyAndTestsOnly)]
+    );
+}
+
 #[test]
 fn an_engine_cell_runs_in_no_line() {
     let source = edit(

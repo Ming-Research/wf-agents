@@ -93,6 +93,9 @@ pub struct Fake {
     /// Whether the build commits its file and then asks for the query of the check, in each round of its runs until one
     /// is given the result, and the run entered for the result hands in what was committed, committing nothing.
     pub build_then_asks: bool,
+    /// Whether the build, as it hands in, deletes the reference of the work's branch after it commits, so that the
+    /// branch cannot be read as its round ends.
+    pub build_loses_its_branch: bool,
     /// The context each call ends with, in tokens, by the call's number, the first being one: each call then says, as
     /// its stream begins, that it took its message in, and that its one call to the model was sent this; a call past
     /// the last given ends with the last. None given, the calls say neither.
@@ -120,6 +123,7 @@ impl Default for Fake {
             moves_main: false,
             build_beside_tests: false,
             build_then_asks: false,
+            build_loses_its_branch: false,
             contexts: &[],
         }
     }
@@ -467,6 +471,9 @@ case "$first" in
             fi
             [ '{then_asks}' = yes ] || built
             head=$(git rev-parse HEAD)
+            if [ '{loses_branch}' = yes ]; then
+                git update-ref -d "$(git symbolic-ref HEAD)"
+            fi
             out="\"code\":\"A greeting, in commit $head.\""
             # Where the cell writes the name of the work's merge, it names it.
             if printf '%s\n' "$text" | grep -q '^- `title`'; then
@@ -510,6 +517,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         moves = yes(fake.moves_main),
         beside_tests = yes(fake.build_beside_tests),
         then_asks = yes(fake.build_then_asks),
+        loses_branch = yes(fake.build_loses_its_branch),
         gave_up = GAVE_UP,
         name = NAMED,
         refused = refused.display(),
