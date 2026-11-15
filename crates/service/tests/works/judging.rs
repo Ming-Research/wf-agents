@@ -12,7 +12,7 @@ use service::script::items::Step;
 use service::{Judged, Script, Shown};
 use work::{Ask, Call, Handed, Question, Spent, Time, Way, Work};
 
-use crate::{START, trial_flow};
+use crate::{START, scoped, trial_flow};
 
 /// A work whose records are built by hand.
 struct Built {
@@ -422,6 +422,12 @@ fn an_answer_where_the_records_hold_the_owners_word_at_a_limit_leaves_the_path()
             r#"{ waits = "review", for = "limit" }"#
         )
     );
+    // The owner lets the review go on: the engine's call at its limit has its word, and the run is given its next round.
+    built.take(Event::LetGo {
+        cell: CellId::from("review"),
+    });
+    let let_go = format!("{limit}, {{ let_go = \"review\" }}, {{ under_way = \"review\", run = 1, round = 4 }}");
+    assert_eq!(built.judged(&let_go), Judged::Took);
 }
 
 #[test]
@@ -795,55 +801,6 @@ fn a_stall_at_a_middle_cell_holds_what_comes_after_it() {
     assert_eq!(built.judged(stalled), Judged::Took);
     let at_the_merge = r#"{ runs = "write" }, { stalled = "merge" }"#;
     assert!(matches!(built.judged(at_the_merge), Judged::Short { step: 2, .. }));
-}
-
-/// A plan that requires the scope its item is added with to be narrow, and a merge, the engine's own cell.
-fn scoped() -> Compiled {
-    let flow = r#"
-        name = "scoped"
-        order = ["plan", "merge"]
-        [limits]
-        again = 2
-        [lines.main]
-        [blocks.request]
-        people = true
-        [blocks.scope]
-        people = true
-        values = ["narrow", "wide"]
-        [blocks.plan]
-        [blocks.merged]
-        shown = true
-    "#;
-    let plan = r#"
-        title = "Plan"
-        kind = "agent"
-        effort = "high"
-        line = "main"
-        task = "Write the plan from the request."
-        requires = { scope = "narrow" }
-        inputs = ["request"]
-        outputs = ["plan"]
-    "#;
-    let merge = r#"
-        title = "Merge"
-        kind = "engine"
-        act = "merge"
-        inputs = ["plan"]
-        outputs = ["merged"]
-    "#;
-    let source = flow::Source {
-        flow: flow.to_string(),
-        cells: [("plan", plan), ("merge", merge)]
-            .iter()
-            .map(|(id, text)| (id.to_string(), text.to_string()))
-            .collect(),
-        ..Default::default()
-    };
-    let has = flow::Has {
-        acts: ["merge".to_string()].into(),
-        ..Default::default()
-    };
-    flow::compile(&source, &has).expect("the definition compiles")
 }
 
 #[test]

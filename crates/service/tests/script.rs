@@ -124,7 +124,7 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
     )
     .unwrap();
     assert_eq!(
-        script.check(&[trial()]),
+        script.check(&[trial()], &words()),
         [
             "flows.other: no flow is named other",
             "flows.trial.values.plan: the block plan is no choice",
@@ -458,7 +458,7 @@ fn a_round_that_fails_is_told_it_neither_hands_in_nor_asks() {
     )
     .unwrap();
     assert_eq!(
-        script.check(&[trial()]),
+        script.check(&[trial()], &words()),
         [
             "flows.trial.rounds[0]: a round that fails neither hands in nor asks",
             "flows.trial.rounds[0].asks[0]: the cell plan may not ask for the tool ci",
@@ -792,7 +792,7 @@ fn a_script_is_told_every_misuse_of_what_a_round_returns_at_once() {
     )
     .unwrap();
     assert_eq!(
-        script.check(&[trial(), engineer()]),
+        script.check(&[trial(), engineer()], &words()),
         [
             "tools.check: no flow names the tool check",
             "outside.finds: the check of the outside finds only what holds every work: usage_limit, cannot_run, \

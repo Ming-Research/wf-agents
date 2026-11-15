@@ -393,37 +393,46 @@ impl<'a> Reading<'a> {
         self.key_holds(flow, &Condition::Test(name.clone()), i)
     }
 
-    /// The blocks that keep one key of the condition or of the preconditions of the cell at place `i` from holding now,
-    /// by the value each has, its default where the flow gives one and it was never written: none where the key holds,
-    /// and a write of any of them can make it hold. A key of a block's value is kept by the block where its value is
-    /// another; a named test, where it looks for its value in every block it reads, by those that lack it, where it
-    /// looks for it, or for content, in one, by every block it reads where none has it, and where it looks for it in
-    /// none, by those that have it: of a test of what stands, those whose value is refused ([`Reading::refused`]).
+    /// The blocks that keep one key of the condition or of the preconditions of the cell at place `i` from holding now:
+    /// none where it holds, and a new version of any of them may make it hold. A block counts as its latest version
+    /// says, and until anyone writes it, as the default its flow gives it (decision
+    /// the-merge-gate-is-a-datum-the-engine-writes: the datum `asked` is `answered` by its default before any
+    /// question). A key that a block has a value is kept by the block while it has another. A named test is kept as its
+    /// kind defines it (crate `decide`, `TestKind`): one that every block it reads has its value, by each that lacks
+    /// it; one that some block has it, or holds anything (decision a-test-of-content-reads-the-record), by all of them
+    /// while none does; one that no block has it, by each that has; and one that none has it standing, by each whose
+    /// value is refused, as [`Reading::refused`] says.
     pub fn keeping<'f>(&self, flow: &'f Flow, key: &'f Condition, i: usize) -> Vec<&'f BlockId> {
-        let value = |block: &BlockId| match self.current(block) {
-            Some(v) => v.value.clone(),
+        // What a block says now: its latest version's value, or, while it has none, its default.
+        let says = |block: &BlockId| match self.current(block) {
+            Some(latest) => latest.value.clone(),
             None => flow.default_of(block).map(str::to_string),
         };
-        let name = match key {
-            Condition::Is { block, value: is } if value(block).as_deref() == Some(is.as_str()) => return Vec::new(),
-            Condition::Is { block, .. } => return vec![block],
-            Condition::Test(name) => name,
+        let test = match key {
+            Condition::Is { block, value } => {
+                return match says(block).as_deref() == Some(value.as_str()) {
+                    true => Vec::new(),
+                    false => vec![block],
+                };
+            }
+            Condition::Test(name) => &flow.tests()[name],
         };
-        let test = &flow.tests()[name];
-        let is = test.is.as_deref();
-        let has = |block: &BlockId| match (test.kind, is) {
-            (TestKind::AnyContent, _) => self.current(block).is_some_and(|v| !v.empty),
-            // A test of a value that names none, which the compiler refuses, finds it in no block.
-            (_, None) => false,
+        // Whether the block is as the test looks for it: holding anything, refusing, or having the value it names; a
+        // test that names no value looks for none in any block.
+        let as_looked_for = |block: &BlockId| match (test.kind, test.is.as_deref()) {
+            (TestKind::AnyContent, _) => self.current(block).is_some_and(|latest| !latest.empty),
             (TestKind::NoneStanding, Some(is)) => self.refusing(flow, block, is, i),
-            (_, Some(is)) => value(block).as_deref() == Some(is),
+            (_, Some(is)) => self.current(block).and_then(|latest| latest.value.as_deref()) == Some(is),
+            (_, None) => false,
         };
-        let reads = test.reads.iter();
+        let mut reads = test.reads.iter();
         match test.kind {
-            TestKind::All => reads.filter(|block| !has(block)).collect(),
-            TestKind::Any | TestKind::AnyContent if test.reads.iter().any(&has) => Vec::new(),
-            TestKind::Any | TestKind::AnyContent => reads.collect(),
-            TestKind::None | TestKind::NoneStanding => reads.filter(|block| has(block)).collect(),
+            TestKind::All => reads.filter(|block| !as_looked_for(block)).collect(),
+            TestKind::Any | TestKind::AnyContent => match reads.any(&as_looked_for) {
+                true => Vec::new(),
+                false => test.reads.iter().collect(),
+            },
+            TestKind::None | TestKind::NoneStanding => reads.filter(|block| as_looked_for(block)).collect(),
         }
     }
 

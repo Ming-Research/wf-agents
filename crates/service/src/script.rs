@@ -119,9 +119,11 @@
 //! head where its cell's line may change the work and it hands in a block an act of the engine's describes the work by:
 //! beside its blocks it hands in a version of the head, saying its cell, run and round, as an agent that wrote the code
 //! would have committed it. The act that checks the work, where its entry says nothing of what it read, takes main in
-//! as the real check does, telling its round the latest the work's block of main holds, which writes no version and
-//! puts that one into the round; only where that block holds none it writes, for its round, a version made up for it,
-//! so that it never writes main back to an older head.
+//! as the real check does, telling its round the latest the work's block of main holds as the round begins, which
+//! writes no version where the block still says it as the loop takes it, and puts that one into the round; only where
+//! the block holds none it writes, for its round, a version made up for it. As with the real check, a main written
+//! between the round's beginning and the loop's taking what it was told is followed by the one the round was told, a
+//! version again.
 //!
 //! ```toml
 //! [[flows.engineer.rounds]]
@@ -161,6 +163,7 @@ use std::collections::BTreeMap;
 
 pub mod items;
 
+use flow::agents::Agents;
 use flow::{CellSpec, Compiled, Kind};
 use serde::Deserialize;
 use work::{Ask, Handed, Question, Spent, Time, Way};
@@ -492,10 +495,11 @@ impl Script {
     /// or, of an agent's, what it read, a block it reads that no source outside the work writes, a round said twice; a
     /// tool a round asks for that its cell may not ask for, the record of the work's questions handed in as a block,
     /// questions of a cell that writes no record of them, what the engine asks as a round ends where it looks at
-    /// nothing; and an act of the engine that asks or costs, or reads without saying how it writes it. A script that
-    /// names a block a cell may not write, or a value a choice does not have, is not wrong: what it hands in is sent
-    /// back.
-    pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
+    /// nothing; and an act of the engine that asks or costs, or reads without saying how it writes it; and what is wrong
+    /// with its items, of which the engine's own question is named as these words beside the flows name it (module
+    /// [`items`]). A script that names a block a cell may not write, or a value a choice does not have, is not wrong:
+    /// what it hands in is sent back.
+    pub fn check(&self, flows: &[Compiled], words: &Agents) -> Vec<String> {
         let mut faults = Vec::new();
         if self.slots == Some(0) {
             faults.push("slots: at least one round must be able to go on".to_string());
@@ -674,7 +678,7 @@ impl Script {
                 }
             }
         }
-        faults.extend(items::check(self, flows));
+        faults.extend(items::check(self, flows, words));
         faults
     }
 

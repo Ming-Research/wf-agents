@@ -129,9 +129,9 @@ impl fmt::Display for Played {
 
 /// Plays the script on these flows, with what is written beside them, over the store at this path, which holds nothing
 /// yet, its items added to the project of this name, its clock starting at the time the script names as its start, or
-/// at `start` where it names none, within the bounds; or says what is
-/// wrong with the script for them, each in words with where it is, as its check says, and each item with no path, since
-/// a play judges what it plays. It runs on the runtime it is called on, whose time the caller pauses.
+/// at `start` where it names none, within the bounds; or says what is wrong with the script for them, each in words
+/// with where it is, as its check says, and each item with no path, since a play judges what it plays. It runs on the
+/// runtime it is called on, whose time the caller pauses.
 pub async fn play(
     script: &Script,
     flows: &[Compiled],
@@ -141,7 +141,7 @@ pub async fn play(
     start: Time,
     bounds: Bounds,
 ) -> Result<Played, Vec<String>> {
-    let mut faults = script.check(flows);
+    let mut faults = script.check(flows, words);
     if script.items.is_empty() {
         faults.push("items: a play adds an item at least, and judges each".to_string());
     }

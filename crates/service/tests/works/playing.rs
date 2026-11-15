@@ -7,7 +7,7 @@ use flow::Compiled;
 use service::{Bounds, Judged, Played, Script, play};
 use store::{Storage, Store, WorkNumber};
 
-use crate::{START, trial_dir, trial_flow, words};
+use crate::{START, scoped, trial_dir, trial_flow, words};
 
 /// The trial's script with these items.
 fn script(items: &str) -> Script {
@@ -231,6 +231,28 @@ async fn a_play_starts_its_clock_at_the_time_the_script_names_as_its_start() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn an_item_added_with_two_writes_rests_only_once_it_is_added() {
+    // The plan requires the scope the item is added with after its request: the engine's adding writes both before the
+    // work rests, so that the plan never waits for the scope; an adding the judge reads otherwise fails here.
+    let script = Script::read(
+        r#"
+        [[items]]
+        title = "Plan narrowly"
+        flow = "scoped"
+        writes = [
+            { block = "request", content = "Plan it, please." },
+            { block = "scope", content = "Narrowly.", value = "narrow" },
+        ]
+        path = [{ runs = "plan" }, { runs = "merge" }, { ends = "merged" }]
+        "#,
+    )
+    .expect("the script reads");
+    let (played, _dir) = played_on(&script, scoped()).await;
+    let played = played.expect("the script is played");
+    assert!(played.took(), "{played}");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_played_item_with_no_path_is_refused() {
     let faults = played(&script(&item(ANSWER, "")))
         .await
@@ -441,6 +463,8 @@ fn a_script_is_told_in_one_pass_everything_its_items_acts_and_paths_name_that_th
             { at = { ends = "merged" }, do = "resume", why = "Now." },
             { at = { waits = "merge", for = "slot" }, do = "pause" },
             { at = { waits = "build", for = "result" }, do = "write", block = "request", content = "Hi.", value = "x" },
+            { at = { waits = "plan", for = "answer", question = "protectd_files" }, do = "pause" },
+            { at = { waits = "plan", for = "answer", question = "protected_files" }, do = "pause" },
         ]
         path = [
             { under_way = "plan" },
@@ -452,16 +476,23 @@ fn a_script_is_told_in_one_pass_everything_its_items_acts_and_paths_name_that_th
             { let_on = false },
             { runs = "plan", key = "ready" },
             {},
+            { waits = "plan", for = "outside", block = "code" },
             { ends = "merged" },
         ]
 
         [[items]]
         title = " "
         flow = "other"
+
+        # The engine's own question, which the words beside the flows name.
+        [[flows.trial.rounds]]
+        cell = "plan"
+        run = 2
+        engine = [{ waits = true, ask = "May this merge?", options = [{ does = "Yes", follows = "It merges." }] }]
         "#,
     );
     assert_eq!(
-        script.check(&[trial_flow()]),
+        script.check(&[trial_flow()], &words()),
         vec![
             "items[0].depends_on: 1 is no place of an item before it, counted from 1",
             "items[0].writes[0]: people do not write the block verdict",
@@ -480,6 +511,7 @@ fn a_script_is_told_in_one_pass_everything_its_items_acts_and_paths_name_that_th
             "items[0].acts[7].at: merge takes no slot, as an act of the engine's takes none",
             "items[0].acts[8].at: build asks for nothing in a record",
             "items[0].acts[8]: the block request is no choice, which x would be",
+            "items[0].acts[9].at: no round of the script asks a question named protectd_files",
             "items[0].path[0]: { under_way = \"plan\" } is read from the engine's view of the work now, and so only a \
              path's end",
             "items[0].path[1]: ready is no key of the preconditions of merge",
@@ -495,6 +527,7 @@ fn a_script_is_told_in_one_pass_everything_its_items_acts_and_paths_name_that_th
             "items[0].path[7]: says key of a step that says runs",
             "items[0].path[8]: says nothing: a step says one of runs, under_way, sent_back, fails, waits, paused, \
              let_on, let_go, reopened, stalled, ends, everything",
+            "items[0].path[9]: no precondition of plan reads code",
             "items[1].title: a title says what the item is to deliver: give it words",
             "items[1].flow: no flow is named other",
         ]

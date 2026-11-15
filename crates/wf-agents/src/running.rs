@@ -430,18 +430,21 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
     let read = match with {
         // What is beside the flows is read as a run with settings reads it: the stand-ins read a return's questions in
         // its words, and a run that cannot read it does not start.
-        With::Script(script) => match (
-            read_script(script, &flows, compiled_all, &mut wrong),
-            beside(dirs, &flows),
-        ) {
-            (Some(script), Ok(beside)) => Some(Read::Script(Box::new(script), Box::new(beside))),
-            (_, beside) => {
-                if let Err(why) = beside {
-                    eprintln!("{why}");
+        With::Script(script) => {
+            let beside = beside(dirs, &flows);
+            match (
+                read_script(script, &flows, beside.as_ref().ok(), compiled_all, &mut wrong),
+                beside,
+            ) {
+                (Some(script), Ok(beside)) => Some(Read::Script(Box::new(script), Box::new(beside))),
+                (_, beside) => {
+                    if let Err(why) = beside {
+                        eprintln!("{why}");
+                    }
+                    None
                 }
-                None
             }
-        },
+        }
         With::Settings(settings) => match (carry::Settings::load(settings), beside(dirs, &flows)) {
             (Ok(settings), Ok(beside)) => {
                 // What the real acts need of a flow and of their words, checked once the flows compiled; what the
@@ -548,15 +551,22 @@ fn beside(dirs: &[PathBuf], flows: &[Compiled]) -> Result<flow::agents::Agents, 
     Ok(beside)
 }
 
-/// The script, checked against the flows where they all compiled; or none, having said why it cannot be read.
-fn read_script(script: &Path, flows: &[Compiled], compiled_all: bool, wrong: &mut bool) -> Option<Script> {
+/// The script, checked against the flows where they all compiled and what is written beside them could be read, with
+/// it; or none, having said why it cannot be read.
+fn read_script(
+    script: &Path,
+    flows: &[Compiled],
+    words: Option<&flow::agents::Agents>,
+    compiled_all: bool,
+    wrong: &mut bool,
+) -> Option<Script> {
     match std::fs::read_to_string(script)
         .map_err(|e| e.to_string())
         .and_then(|t| Script::read(&t))
     {
         Ok(read) if !compiled_all => Some(read),
         Ok(read) => {
-            for fault in read.check(flows) {
+            for fault in words.map(|words| read.check(flows, words)).unwrap_or_default() {
                 eprintln!("{}: {fault}", script.display());
                 *wrong = true;
             }
@@ -831,10 +841,11 @@ mod tests {
                 flow::compile(&source, &has(&dir)).expect("the flow compiles")
             })
             .collect();
+        let words = flow::agents::read(root).expect("what is written beside the flows is read");
         let faults = (scripts.iter())
             .flat_map(|(file, script)| {
                 script
-                    .check(&flows)
+                    .check(&flows, &words)
                     .into_iter()
                     .map(move |fault| format!("{file}: {fault}"))
             })

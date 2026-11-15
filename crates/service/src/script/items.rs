@@ -64,10 +64,10 @@
 //! - `everything`: the pause of everything holds, set by the `owner` or the `engine`.
 //!
 //! A key that says more of a step, left out, matches whatever it would have said, but for a limit's `by`, which names
-//! the engine where it is left out. What a work stands at now, and no step
-//! before it, is a path's end only: a round under way, and what no record holds, which is read from the engine's view
-//! of the work: a stall, a wait for a slot, for the turn or for what every work shares, and the pause of everything.
-//! The result of what a cell asked for in a record is no step of a path: the runs of the cells that give it are.
+//! the engine where it is left out. What a work stands at now, and no step before it, is a path's end only: a round
+//! under way, and what no record holds, which is read from the engine's view of the work: a stall, a wait for a slot,
+//! for the turn or for what every work shares, and the pause of everything. The result of what a cell asked for in a
+//! record is no step of a path: the runs of the cells that give it are.
 //!
 //! An act's `at` is a state of the work as the engine shows it, in the same words: a round under way, a wait at a cell
 //! (but for the turn and what every work shares), paused, stalled or ended. Its `do` is one of what people do to a
@@ -89,6 +89,7 @@ use std::fmt;
 
 use decide::run::Failure;
 use decide::{BlockId, CellId, Condition, End, Pauser};
+use flow::agents::Agents;
 use flow::{Compiled, Kind};
 use serde::{Deserialize, Serialize};
 
@@ -604,7 +605,7 @@ impl Does {
 /// asked for; an act's state that is no state of a work; an act that leaves out a key what it does needs, gives one it
 /// does not take, or names what its flow or the script does not have; and items whose main moves at the same place to
 /// heads that differ.
-pub(super) fn check(script: &Script, flows: &[Compiled]) -> Vec<String> {
+pub(super) fn check(script: &Script, flows: &[Compiled], _words: &Agents) -> Vec<String> {
     let mut faults = Vec::new();
     let items = &script.items;
     for (k, item) in items.iter().enumerate() {
@@ -745,7 +746,7 @@ impl Names<'_> {
     }
 
     /// What is wrong with a question's name: none where a round of the script on this flow asks it, or asks the
-    /// engine's own question, which the words beside the flows name and the check does not read.
+    /// engine's own question, which the words beside the flows name.
     fn question(&self, question: &str) -> Option<String> {
         let rounds = (self.script.flows.get(&self.flow.name)).map_or(&[][..], |script| script.rounds.as_slice());
         let named = |asked: &QuestionScript| match asked {

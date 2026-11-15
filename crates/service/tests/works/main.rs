@@ -106,6 +106,55 @@ pub fn trial_flow() -> Compiled {
     flow::compile(&source, &has).expect("the trial flow compiles")
 }
 
+/// A plan that requires the scope its item is added with to be narrow, and a merge, the engine's own cell.
+pub fn scoped() -> Compiled {
+    let flow = r#"
+        name = "scoped"
+        order = ["plan", "merge"]
+        [limits]
+        again = 2
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.scope]
+        people = true
+        values = ["narrow", "wide"]
+        [blocks.plan]
+        [blocks.merged]
+        shown = true
+    "#;
+    let plan = r#"
+        title = "Plan"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the plan from the request."
+        requires = { scope = "narrow" }
+        inputs = ["request"]
+        outputs = ["plan"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        inputs = ["plan"]
+        outputs = ["merged"]
+    "#;
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: [("plan", plan), ("merge", merge)]
+            .iter()
+            .map(|(id, text)| (id.to_string(), text.to_string()))
+            .collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the definition compiles")
+}
+
 /// The trial flow's script.
 pub fn trial_script() -> Script {
     let text = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
