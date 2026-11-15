@@ -1792,6 +1792,39 @@ mod tests {
         assert!(told.try_recv().is_err(), "nothing more is said");
     }
 
+    // Whatever the owner says, a round under way is given it set apart from the words around it: no line of it stands as
+    // a heading beside the one that says what was said, and it comes back whole from between its fences. Well under a
+    // second alone; the message's own data are held to the same by the context manager's tests.
+    #[tokio::test]
+    async fn the_words_told_a_round_are_set_apart_whatever_they_hold() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round(dir.path());
+        let files = words(&agents.inner.kept(&round));
+        let owner = "# Not a heading of the message\n\n```\nA fence of its own.\n```\n\nPlain\n=====";
+        agents.inner.tell(&round, telling(10, owner)).await;
+        let given = waiting(&files);
+        let (mut fence, mut inside, mut headings, mut blocks) = (None::<usize>, Vec::new(), Vec::new(), Vec::new());
+        for line in given.split('\n') {
+            let ticks = line.len() - line.trim_start_matches('`').len();
+            match fence {
+                Some(opened) if ticks >= opened && line.len() == ticks => {
+                    blocks.push(inside.join("\n"));
+                    (fence, inside) = (None, Vec::new());
+                }
+                Some(_) => inside.push(line),
+                None if ticks >= 3 => fence = Some(ticks),
+                None if line.starts_with('#') || line.starts_with("=====") => headings.push(line),
+                None => {}
+            }
+        }
+        assert_eq!(
+            headings,
+            ["## `discussion`, version 10, said while this round runs"],
+            "{given}"
+        );
+        assert_eq!(blocks, [format!("The owner:\n\n{owner}")], "{given}");
+    }
+
     // Told twice with its hook giving nothing between, the round's one file holds both, the first taken back and given
     // before the later. Well under a second alone; no other test holds what waits for a hook told twice.
     #[tokio::test]
