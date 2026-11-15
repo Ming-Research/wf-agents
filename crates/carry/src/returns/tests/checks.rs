@@ -267,7 +267,12 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
         // A cell's answer to the owner is its entry of the record of what is said, as its run finishes.
         if rng.chance(20) {
             outcome.insert("reply".into(), json!("By first name."));
-            writes.push(("discussion".into(), "write: By first name.".to_string(), None, false));
+            writes.push((
+                "discussion".into(),
+                "An agent:\n\nBy first name.".to_string(),
+                None,
+                false,
+            ));
         }
         r.insert("outcome".into(), Value::Object(outcome));
     }
