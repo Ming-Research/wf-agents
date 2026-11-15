@@ -567,6 +567,10 @@ pub struct Asked {
 pub fn questions(records: &Records, place: Seq) -> BTreeMap<String, Asked> {
     let mut latest: BTreeMap<String, Asked> = BTreeMap::new();
     for q in records.questions.iter().filter(|q| q.at < place) {
+        // Its entries may be listed in any order, as a store gives them back: the latest is that of the latest place.
+        if latest.get(&q.name).is_some_and(|kept| kept.at > q.at) {
+            continue;
+        }
         let asked = Asked {
             cell: q.cell.clone(),
             at: q.at,
