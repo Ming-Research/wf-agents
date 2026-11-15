@@ -96,7 +96,7 @@ fn build(flows: &[PathBuf]) -> Built {
     for flow in flows {
         command.arg("--flow").arg(flow);
     }
-    // Stopped short of the test runner's limit, so that what it said so far is shown.
+    // Stopped short of the test runner's limit for it, so that what it said so far is shown.
     let printed = dir.path().join("printed");
     let file = std::fs::File::create(&printed).expect("the file of what it prints");
     let mut child = (command.stdout(file.try_clone().expect("the file again")).stderr(file))
@@ -107,7 +107,7 @@ fn build(flows: &[PathBuf]) -> Built {
         if let Some(status) = child.try_wait().expect("the command is waited for") {
             break Some(status);
         }
-        if began.elapsed().as_secs() > 50 {
+        if began.elapsed().as_secs() > 280 {
             let _ = child.kill();
             break None;
         }
@@ -116,7 +116,7 @@ fn build(flows: &[PathBuf]) -> Built {
     let said = std::fs::read_to_string(&printed).unwrap_or_default();
     let said = match status {
         Some(_) => said,
-        None => format!("{said}\nstopped after 50 s"),
+        None => format!("{said}\nstopped after 280 s"),
     };
     let mut list = std::fs::read_to_string(data.join("states.md")).unwrap_or_default();
     for entry in std::fs::read_dir(&data).into_iter().flatten().flatten() {

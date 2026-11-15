@@ -238,10 +238,11 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
         let made = make(&making, &mut pool)?;
         reached_all &= made.reached_all;
         println!(
-            "{}: {} states made, {} not, in {:.1?}",
+            "{}: {} states made, {} not, in {} things the play took, in {:.1?}",
             store.dir(),
             made.list.iter().filter(|l| l.made.is_ok()).count(),
             made.list.iter().filter(|l| l.made.is_err()).count(),
+            made.steps,
             began.elapsed()
         );
         listed.push((store.dir(), made.list, made.serving));
@@ -332,6 +333,8 @@ struct Made {
     list: Vec<Listed>,
     serving: String,
     reached_all: bool,
+    /// How many things the store's play took.
+    steps: usize,
 }
 
 /// Makes the store: gives each of its states an item of the pool, writes its script, plays it, and writes beside it the
@@ -519,6 +522,7 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         list,
         serving,
         reached_all,
+        steps: played.steps,
     })
 }
 

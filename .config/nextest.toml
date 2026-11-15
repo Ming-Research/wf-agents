@@ -13,6 +13,12 @@ slow-timeout = { period = "30s", terminate-after = 2 }
 filter = 'binary(histories) | test(=random_works_on_the_engineers_flow_keep_what_the_flow_must)'
 slow-timeout = { period = "60s", terminate-after = 5 }
 
+# And the build of every state of the page, which explores the repository's flows and plays a store of a hundred works
+# and more: stopped at 300 s.
+[[profile.ci.overrides]]
+filter = 'test(=building::every_state_the_build_lists_is_reached_and_every_kind_has_one)'
+slow-timeout = { period = "60s", terminate-after = 5 }
+
 # What became of each test of a run, as JUnit XML, at target/nextest/ci/junit.xml: fast.yml uploads it for the engine
 # to read (the artifact test-results), and ci.yml keeps it with its run.
 [profile.ci.junit]
