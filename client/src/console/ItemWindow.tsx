@@ -312,17 +312,11 @@ export interface WorkState {
 /// The word of a call under way: a tool's call the engine runs for a cell, or an engine cell's act.
 const CALL_WORD = 'Call under way';
 
-/// The cell a work stands at where what it does now names none: the cell of its open run, or else the first in the
-/// walk that runs again or has not run.
-function standsAt(s: Summary): string | null {
-  const open = s.cells.find((c) => c.open !== null);
-  return (open ?? s.cells.find((c) => c.state === 'again' || c.state === 'notYet'))?.cell ?? null;
-}
-
 /// What the work does now, as its state line says it. Whatever the one definition of what waits on the owner counts
 /// (`waitsOf`) waits for you, in the owner's tone, with the keys of what it waits for; a fault and a stalled work are
-/// halted by the engine; the owner's own pause is a pause. Its own pause is said by a key wherever what it does now
-/// says something else, as a round under way or a call goes on under it.
+/// halted by the engine; the owner's own pause is a pause. It names a cell only where the engine's state names one: a
+/// paused, held or faulted work shows none. Its own pause is said by a key wherever what it does now says something
+/// else, as a round under way or a call goes on under it.
 export function stateOf(s: Summary, page: WorkPage | null): WorkState {
   const now = s.now;
   const paused: StateKey[] = s.paused ? [['paused', 'yes']] : [];
@@ -339,14 +333,14 @@ export function stateOf(s: Summary, page: WorkPage | null): WorkState {
         return {
           tone: 'owner',
           word: MOOD_WORDS.owner,
-          cell: standsAt(s),
+          cell: null,
           keys: [['paused', 'by the engine'], ...(now.why === null ? [] : ([['why', now.why]] as StateKey[]))],
         };
       case 'everything':
         return {
           tone: 'owner',
           word: MOOD_WORDS.owner,
-          cell: standsAt(s),
+          cell: null,
           keys: [
             ['paused', 'every work'],
             ['by', 'the engine, as it started again'],
@@ -390,11 +384,11 @@ export function stateOf(s: Summary, page: WorkPage | null): WorkState {
     }
     // The owner's own pause: the engine's waits for the owner, above.
     case 'paused':
-      return { tone: 'paused', word: MOOD_WORDS.paused, cell: standsAt(s), keys: [] };
+      return { tone: 'paused', word: MOOD_WORDS.paused, cell: null, keys: [] };
     case 'everything':
-      return { tone: 'paused', word: MOOD_WORDS.paused, cell: standsAt(s), keys: [['paused', 'every work']] };
+      return { tone: 'paused', word: MOOD_WORDS.paused, cell: null, keys: [['paused', 'every work']] };
     case 'fault':
-      return { tone: 'halted', word: MOOD_WORDS.halted, cell: standsAt(s), keys: [['fault', now.words]] };
+      return { tone: 'halted', word: MOOD_WORDS.halted, cell: null, keys: [['fault', now.words]] };
     case 'merged':
       return { tone: 'ended', word: 'Merged', cell: null, keys: [] };
     case 'cancelled':

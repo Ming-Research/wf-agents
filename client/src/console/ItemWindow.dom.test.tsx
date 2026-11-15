@@ -539,8 +539,6 @@ describe("the work's state line, one part for every state", () => {
         cellsAt('check', 'resting'),
         'check',
       ],
-      [{ kind: 'paused', by: 'owner', why: null }, cellsAt('implement', 'resting'), 'implement'],
-      [{ kind: 'paused', by: 'engine', why: 'It failed.' }, cellsAt('check', 'failed'), 'check'],
     ];
     for (const [now, cells, cell] of states) {
       const el = at(now, cells);
@@ -602,6 +600,21 @@ describe("the work's state line, one part for every state", () => {
     expect(lines(el)[1]).toContain('Waiting for the turn check Check with the latest main');
     expect(keysOf(el)).toEqual(['act check', 'held by W7', `since ${clock(since)}`, 'for 13m']);
     expect(el.querySelector('.cw-item > .status-line .keys a')?.getAttribute('href')).toBe('#/works/7');
+  });
+
+  it('names no cell for a paused, held or faulted work, which the engine names none for', () => {
+    const states: [Now, CellNow[]][] = [
+      [{ kind: 'paused', by: 'owner', why: null }, cellsAt('implement', 'resting')],
+      [{ kind: 'paused', by: 'engine', why: 'It failed.' }, cellsAt('check', 'failed')],
+      [{ kind: 'everything', by: 'engine' }, cellsAt('implement', 'resting')],
+      [{ kind: 'fault', words: 'Two entries at 3' }, cellsAt('implement', 'resting')],
+    ];
+    for (const [now, cells] of states) {
+      const el = at(now, cells);
+      expect(el.querySelector('.cw-item > .status-line .cell-id')).toBeNull();
+      act(() => root?.unmount());
+      root = undefined;
+    }
   });
 
   it('names no cell once the work has ended', () => {
