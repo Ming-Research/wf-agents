@@ -10,7 +10,7 @@ use service::{Act, Acted, Carriers, Message, Round, RoundReply, Rounds, Script, 
 use store::Store;
 use work::{Back, Call, Handed, Spent, Time, Work};
 
-use crate::{START, Trial, act_on, add_to, new_item, trial_dir, trial_flow};
+use crate::{START, Trial, act_on, add_to, new_item, trial_dir, trial_flow, words};
 
 const WHY: &str = "The agent's program could not start.";
 
@@ -25,10 +25,10 @@ fn answering(kept: &Work) -> decide::RunId {
 
 /// The trial's script, the plan's second run, the one entered for the owner's answer, failing.
 fn failing() -> Script {
-    let text = std::fs::read_to_string(trial_dir().join("script.toml")).expect("the script is read");
+    let text = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
     let text = format!("{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nrun = 2\nfails = \"{WHY}\"\n");
     let script = Script::read(&text).expect("the script reads");
-    assert_eq!(script.check(&[trial_flow()]), Vec::<String>::new());
+    assert_eq!(script.check(&[trial_flow()], &crate::words()), Vec::<String>::new());
     script
 }
 
@@ -77,7 +77,7 @@ async fn a_restart_while_the_work_is_paused_hands_out_nothing_and_the_owners_res
     trial.step().await.unwrap();
     let before = trial.work(work);
     trial.restart();
-    assert_eq!(trial.service.driver().pending(), vec![]);
+    assert_eq!(trial.service().driver().pending(), vec![]);
     assert!(
         trial.step().await.is_none(),
         "something was handed out after the restart"
@@ -92,7 +92,7 @@ async fn a_restart_while_the_work_is_paused_hands_out_nothing_and_the_owners_res
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
     assert_eq!(
         trial.finished(work),
-        ["plan", "build", "review", "build", "review", "merge"]
+        ["plan", "plan", "build", "review", "build", "review", "merge"]
     );
 }
 
@@ -139,7 +139,7 @@ async fn history_of(script: Script, stops: &[usize]) -> (Work, usize) {
         let kept = trial.work(work);
         if decide::pause(&kept.records).is_some_and(|p| p.by == Pauser::Engine) {
             trial.act(work, Act::Resume).unwrap();
-        } else if trial.owners_call(work).is_some() {
+        } else if trial.waited_question(work).is_some() {
             trial.answer(work, "Yes, by name.");
         } else {
             assert!(trial.step().await.is_some(), "the work comes to its end");
@@ -163,15 +163,16 @@ async fn a_stop_at_any_step_of_a_work_whose_round_fails_changes_nothing() {
 }
 
 /// The trial's script, the plan's second run, the one entered for the owner's answer, failing for a cause of this kind;
-/// where `resets`, the usage limit resets that many milliseconds after the start.
+/// where `resets`, the usage limit resets that many milliseconds after the start, the script's start being the tests'.
 pub(crate) fn failing_as(failure: &str, resets: Option<u64>) -> Script {
-    let text = std::fs::read_to_string(trial_dir().join("script.toml")).expect("the script is read");
-    let resets = resets.map_or(String::new(), |ms| format!("resets = {}\n", START.0 + ms));
+    let text = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
+    let resets = resets.map_or(String::new(), |ms| format!("resets = {ms}\n"));
     let text = format!(
-        "{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nrun = 2\nfails = \"{WHY}\"\nfailure = \"{failure}\"\n{resets}"
+        "start = {}\n{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nrun = 2\nfails = \"{WHY}\"\nfailure = \"{failure}\"\n{resets}",
+        START.0
     );
     let script = Script::read(&text).expect("the script reads");
-    assert_eq!(script.check(&[trial_flow()]), Vec::<String>::new());
+    assert_eq!(script.check(&[trial_flow()], &crate::words()), Vec::<String>::new());
     script
 }
 
@@ -231,7 +232,7 @@ async fn at_the_usage_limit_no_round_begins_until_it_resets_and_then_the_work_go
     trial.step().await.unwrap();
     trial.answer(work, "Yes, by name.");
     trial.step().await.unwrap();
-    let outage = trial.service.driver().outage().expect("the wait stands");
+    let outage = trial.service().driver().outage().expect("the wait stands");
     assert_eq!(outage.resets, Some(Time(START.0 + hour)));
     assert!(!decide::paused(&trial.work(work).records));
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
@@ -246,7 +247,7 @@ async fn at_the_usage_limit_no_round_begins_until_it_resets_and_then_the_work_go
         kept.time_of(given_again).unwrap().0 >= START.0 + hour,
         "a round began before the limit reset"
     );
-    assert_eq!(trial.service.driver().outage(), None);
+    assert_eq!(trial.service().driver().outage(), None);
 }
 
 /// Agents that end the plan's first round handing in the plan, its work to wait for the owner: the work spent more
@@ -281,7 +282,7 @@ impl Rounds for OverBudget {
 async fn a_round_that_ends_with_its_work_to_wait_is_taken_and_no_round_begins_after_it() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
-    let scripted = Scripted::new(Script::default());
+    let scripted = Scripted::new(Script::default(), words());
     let carriers = Carriers {
         agents: Arc::new(OverBudget {
             scripted: scripted.clone(),

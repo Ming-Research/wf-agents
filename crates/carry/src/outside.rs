@@ -65,7 +65,8 @@ impl Check {
             .ok_or_else(|| format!("agents.levels: there is no level {:?}", cheapest.name))?;
         Ok(Check {
             command: settings.agents.command.clone(),
-            env: cli::environment(&settings.agents, None, std::env::vars()),
+            // The check runs no project's command, so no project's variables are given it.
+            env: cli::environment(&settings.agents, None, std::env::vars(), &Default::default()),
             setting_sources: settings.agents.setting_sources.clone(),
             model,
             dir: std::env::temp_dir(),

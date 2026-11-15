@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::{START, get_json, greeted, pass, post, refused, running};
+use crate::{NAMED, START, get_json, greeted, named, pass, post, refused, running};
 
 const QUESTION: &str = "Should the greeting name the user?";
 
@@ -18,8 +18,23 @@ fn spent(rounds: u64) -> Value {
     })
 }
 
-fn question() -> Value {
-    json!({ "kind": "question", "who": "owner", "question": QUESTION })
+/// The trial plan's question as the work's page shows it, answered where `answer` is.
+fn question(answer: Value) -> Value {
+    json!({
+        "name": "named",
+        "cell": "plan",
+        "version": NAMED,
+        "engine": false,
+        "waits": true,
+        "withdrawn": null,
+        "ask": QUESTION,
+        "options": [
+            { "does": "Greet the user by name", "follows": "A warmer greeting, for a user whose name is known." },
+            { "does": "Greet without a name", "follows": "A plainer greeting, the same for every user." },
+        ],
+        "recommends": 1,
+        "answer": answer,
+    })
 }
 
 #[tokio::test(start_paused = true)]
@@ -30,7 +45,6 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
     let not_yet = |cell: &str| json!({ "cell": cell, "state": "notYet", "finished": 0, "record": null, "open": null });
     let input =
         |block: &str, current: Value| json!({ "block": block, "current": current, "known": null, "changed": false });
-    // The request is new to the plan, whose run that asked dealt with nothing.
     let for_the_request = json!([{ "kind": "changed", "block": "request", "was": null, "behind": false }]);
     let flow = get_json(&running.router, "/api/v1/flow").await["flow"].clone();
     assert_eq!(
@@ -42,13 +56,10 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "flow": "trial",
                 "added": START,
                 "paused": null,
-                "now": {
-                    "kind": "waits",
-                    "at": "plan",
-                    "on": [{ "kind": "call", "call": 2, "who": "owner", "what": question(), "made": asked, "at": null }],
-                },
+                // The plan's question waits for the owner's answer.
+                "now": { "kind": "waits", "at": "plan", "on": [{ "kind": "answer", "question": "named" }] },
                 "cells": [
-                    { "cell": "plan", "state": "again", "finished": 1, "record": 1, "open": null },
+                    { "cell": "plan", "state": "done", "finished": 1, "record": 1, "open": null },
                     not_yet("build"),
                     not_yet("review"),
                     not_yet("merge"),
@@ -61,8 +72,11 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "from": resumed,
                 "bar": "m".repeat(96),
                 "sentBack": 0,
-                // The plan's question is a call of the earlier form, answered in words by the result of its call.
-                "waits": [{ "key": "call-2", "why": QUESTION, "ends": { "kind": "reply", "call": 2 } }],
+                "waits": [{
+                    "key": "answer-named",
+                    "why": QUESTION,
+                    "ends": { "kind": "answer", "question": "named", "version": NAMED },
+                }],
             },
             "title": "Greet the user",
             "level": "2",
@@ -76,17 +90,17 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             "cells": [
                 {
                     "cell": "plan",
-                    "needs": for_the_request,
-                    "inputs": [{ "block": "request", "current": 3, "known": null, "changed": true }],
+                    "needs": [],
+                    "inputs": [
+                        { "block": "request", "current": 3, "known": 3, "changed": false },
+                        input("answered", Value::Null),
+                        input("spoken", Value::Null),
+                    ],
                 },
                 {
                     "cell": "build",
                     "needs": [],
-                    "inputs": [
-                        input("plan", Value::Null),
-                        input("opinions", Value::Null),
-                        input("answered", Value::Null),
-                    ],
+                    "inputs": [input("plan", Value::Null), input("opinions", Value::Null)],
                 },
                 { "cell": "review", "needs": [], "inputs": [input("code", Value::Null)] },
                 { "cell": "merge", "needs": [], "inputs": [input("code", Value::Null)] },
@@ -149,13 +163,20 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "at": 5,
                     "time": resumed,
                     "because": for_the_request,
-                    "basis": [{ "block": "plan", "version": null }, { "block": "request", "version": 3 }],
+                    "basis": [
+                        { "block": "answered", "version": null },
+                        { "block": "plan", "version": null },
+                        { "block": "q_and_a", "version": null },
+                        { "block": "request", "version": 3 },
+                        { "block": "spoken", "version": null },
+                    ],
                     "rounds": [{
                         "number": 1,
                         "began": resumed,
                         "ended": asked,
                         "given": { "kind": "task" },
-                        "back": { "kind": "asked", "asks": [question()] },
+                        // It handed in nothing beside its question, which is the work's own.
+                        "back": { "kind": "handedIn", "blocks": [] },
                         "spent": spent(1),
                         "context": null,
                         "compactions": 0,
@@ -168,34 +189,29 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         // The engine's loop runs with no policy, which a line is worked out by: nothing is judged.
                         "judged": { "cost": null, "time": null },
                     }],
-                    // A question is no call of a tool, whose time alone is judged.
-                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null, "time": null }],
-                    // A return that asks ends its run, having dealt with nothing.
-                    "end": { "kind": "finished", "at": 9, "time": asked, "writes": [] },
+                    "calls": [],
+                    // The run finishes, and its question is asked after its finish.
+                    "end": { "kind": "finished", "at": 8, "time": asked, "writes": [] },
                     "spent": spent(1),
                 },
             ],
-            // The plan's question is a call of the earlier form: no question of the work's own is asked.
-            "questions": [],
-            // The owner's words run no cell of the trial flow.
+            "questions": [question(Value::Null)],
+            // The owner's words reach the plan, which may ask the owner, said to its line or about its question.
             "speaking": [
-                {
-                    "to": { "kind": "line", "line": "engineer" },
-                    "cell": null,
-                    "refused": "the owner's words run no cell of the line engineer",
-                },
+                { "to": { "kind": "line", "line": "engineer" }, "cell": "plan", "refused": null },
                 {
                     "to": { "kind": "line", "line": "reviewer" },
                     "cell": null,
                     "refused": "the owner's words run no cell of the line reviewer",
                 },
+                { "to": { "kind": "question", "name": "named" }, "cell": "plan", "refused": null },
             ],
         })
     );
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_version_a_round_and_a_call_are_given_with_their_content() {
+async fn a_version_a_round_a_question_and_a_call_are_given_with_their_content() {
     let running = running();
     let router = &running.router;
     greeted(router).await;
@@ -208,27 +224,35 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
         json!({ "run": 1, "number": 1, "results": [], "handed": [] })
     );
     assert_eq!(
-        get_json(router, "/api/v1/works/1/calls/2").await,
-        json!({ "call": 2, "what": question(), "result": null })
-    );
-
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
-    assert_eq!(
-        post(router, "/api/v1/works/1/acts", &answer).await.0,
+        post(router, "/api/v1/works/1/acts", &named()).await.0,
         StatusCode::NO_CONTENT
     );
-    let answered = json!({ "call": 2, "what": question(), "result": "Yes, by name." });
-    assert_eq!(get_json(router, "/api/v1/works/1/calls/2").await, answered);
-    // The plan, entered again as its second run, is given the answer, and hands in the plan a second and a half later.
+    let questions = get_json(router, "/api/v1/works/1").await["questions"].clone();
+    let answered = json!({ "option": 1, "at": NAMED + 1, "why": "Yes, by name." });
+    assert_eq!(questions, json!([question(answered)]));
+    // The plan, entered again as its second run for the answer, hands in the plan a second and a half later.
     pass(1600).await;
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/3/rounds/1").await,
+        get_json(router, "/api/v1/works/1/runs/2/rounds/1").await,
         json!({
-            "run": 3,
+            "run": 2,
             "number": 1,
-            "results": [answered],
+            "results": [],
             "handed": [{ "block": "plan", "content": "The plan as plan wrote it in its run 2, round 1." }],
         })
+    );
+    // The build's first run, the work's third, asks for a query a second and a half later: its call is the fourth name,
+    // which the tool answers two and a half seconds after.
+    pass(1500).await;
+    let query = json!({ "kind": "tool", "name": "query", "input": r#"{"sql": "select number from items"}"# });
+    assert_eq!(
+        get_json(router, "/api/v1/works/1/calls/4").await,
+        json!({ "call": 4, "what": query, "result": null })
+    );
+    pass(2500).await;
+    assert_eq!(
+        get_json(router, "/api/v1/works/1/calls/4").await,
+        json!({ "call": 4, "what": query, "result": r#"{"rows": []}"# })
     );
 }
 

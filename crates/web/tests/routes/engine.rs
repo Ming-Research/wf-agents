@@ -117,7 +117,7 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
     let path = dir.path().join("store.sqlite");
     {
         let flow = flow::compile(
-            &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+            &flow::read(&crate::trial_dir().join("trial")).unwrap(),
             &crate::trial_has(&flow::Source::default()),
         )
         .unwrap();

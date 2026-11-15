@@ -20,6 +20,7 @@ import {
   clock,
   dollars,
   duration,
+  EVERYTHING_HOLDS,
   failureWords,
   fullTime,
   outageWords,
@@ -174,7 +175,7 @@ function NowPart({ items, engine, copies, copiesFailed }: {
             ? 'not given'
             : engine.paused === null
               ? 'Every work goes on'
-              : `Every work paused since ${clock(engine.paused.since)}, by the ${engine.paused.by}: no work begins a round but to answer a note`}
+              : `Every work paused since ${clock(engine.paused.since)}, by the ${engine.paused.by}: ${EVERYTHING_HOLDS}`}
         </dd>
         <dt title="Rounds of agents under way, of how many may be at once: agents.slots">Slots</dt>
         <dd>{engine === null ? 'not given' : `${engine.taken} taken of ${engine.slots}`}</dd>

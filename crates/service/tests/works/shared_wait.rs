@@ -24,7 +24,7 @@ async fn waiting(trial: &mut Trial) -> store::WorkNumber {
     trial.step().await.unwrap();
     trial.answer(work, "Yes, by name.");
     trial.step().await.unwrap();
-    assert!(trial.service.driver().outage().is_some(), "the wait stands");
+    assert!(trial.service().driver().outage().is_some(), "the wait stands");
     work
 }
 
@@ -40,7 +40,7 @@ async fn restarted_after(failure: &str, resets: Option<u64>, after: Duration) {
         Decision::Ended(End::Merged),
         "{failure} after {after:?}"
     );
-    assert_eq!(trial.service.driver().outage(), None);
+    assert_eq!(trial.service().driver().outage(), None);
 }
 
 #[tokio::test(start_paused = true)]
@@ -75,13 +75,13 @@ async fn two_works_held_by_the_wait_both_go_on_by_the_loops_timer_whatever_comes
         };
         while !ended(&trial) {
             for work in [held, busy] {
-                if trial.owners_call(work).is_some() {
+                if trial.waited_question(work).is_some() {
                     trial.answer(work, "Yes, by name.");
                 }
             }
             assert!(trial.step().await.is_some(), "{failure}: nothing more comes");
         }
-        assert!(trial.service.driver().outage().is_none());
+        assert!(trial.service().driver().outage().is_none());
     }
 }
 
@@ -151,5 +151,5 @@ async fn while_the_checks_find_the_outside_down_no_round_begins_and_once_one_fin
         .map(|w| (w[1] - w[0]).as_millis() as u64)
         .collect();
     assert_eq!(spaced, vec![PROBE, spacing(1), spacing(2), spacing(3)]);
-    assert_eq!(trial.service.driver().outage(), None);
+    assert_eq!(trial.service().driver().outage(), None);
 }

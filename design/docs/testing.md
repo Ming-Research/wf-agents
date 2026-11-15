@@ -80,9 +80,10 @@ and the scripts that stand in for agents are built; what is not is said at the e
     page, so that it can be looked at as well.
 
 11. **A script in place of the agents.** The program runs with a script, and every agent, act of the engine and tool
-    does what the script says, round by round, at no cost of a model. A round's return depends only on its flow, cell,
-    run and round and the versions its run started from, so that a run stopped and started again goes on as it would
-    have. Such a run shows what the engine and the page do with the case.
+    does what the script says, round by round, at no cost of a model. A round's return depends only on its work, flow,
+    cell, run and round and the versions its run started from, so that a run stopped and started again goes on as it
+    would have; a script says what a round does in one work alone where one work's differs from the rest's. Such a run
+    shows what the engine and the page do with the case.
 
 12. **An agent that plays a part.** What a round is given can be wrong only at one moment, such as an input that
     contradicts itself in one state of the work, and only an agent given it at that moment can see it. So a round can
@@ -100,20 +101,26 @@ and the scripts that stand in for agents are built; what is not is said at the e
     made after the round, is asked about its cell's text (27). It runs on an installation apart from the real one, in a
     repository made for it, so that nothing it does reaches a project.
 
-13. **What a script says**, for one case: what each round of each cell returns (what it hands in, asks or fails with,
-    and what it takes), or the part its agent plays; what each tool answers; what people and the outside do, each at a
-    state of the work, such as an answer while the work waits for it, a pause while a round is under way, or the engine
-    stopped at a step; and the path the run must take: the cells in their order, each wait and whom it waits for, and
-    how the work ends.
+13. **What a script says**, for one case: the items it adds; what each round of each cell returns (what it hands in,
+    asks or fails with, and what it takes) and what it read of the work's branch, which writes the work's tree and head
+    as the real round's reading does, or the part its agent plays; what each tool answers; what people and the outside
+    do, each at a state of the work, such as an answer while the work waits for it, a pause while a round is under way,
+    or the engine stopped at a step; the path the run must take: the cells in their order, each wait and whom it waits
+    for, and how the work ends; and the time its play starts at, every other time it names being an offset from it, so
+    that its run goes on alike whatever the date.
 
-14. **How its run is judged.** A program reads the run's records against the path its script states, and names the
-    first step that left it, with what the records hold there. A script kept beside the flows whose agents are all
-    stood in for is run by a test of the suite, so that a change of the flow it no longer fits fails at that change,
-    not when someone next runs it. A case met in a real run that no script reaches becomes a script, and a fault it
-    showed gets its test at its layer (2).
+14. **How its run is judged.** A program plays a script whose agents are all stood in for on an engine made as
+    `wf-agents run` makes it, on a clock of its own that passes as the engine waits, each act given as its state comes
+    about, and reads each work's records against the path its script states, by the reading of the records the histories
+    and the exploration judge by (4, 5) and not by the deciding code the run tests, but for what no record holds (a
+    stall, a slot, the turn, the wait every work shares, the pause of everything), which it takes from the engine's
+    view; it names the first step that left the path, with what the records hold there. A script kept beside the flows
+    whose agents are all stood in for is run by a test of the suite, so that a change of the flow it no longer fits
+    fails at that change, not when someone next runs it. A case met in a real run that no script reaches becomes a
+    script, and a fault it showed gets its test at its layer (2).
 
-15. Not built: a script's acts of people and the outside, and its path; the program that judges a run by it; the suite
-    running the scripts kept beside the flows; and agents that play a part.
+15. Not built: the command that plays a script, and the suite running the scripts kept beside the flows; and agents
+    that play a part.
 
 ## Every state of the page
 
@@ -143,14 +150,11 @@ and the scripts that stand in for agents are built; what is not is said at the e
     gives what it shows. They agree with themselves and not with the engine, so no change of the page is approved on
     them.
 
-21. Not built: the script saying all the build needs (what a round does in one work alone, the questions a return asks
-    as data, the engine's own questions, the context a round ends with, a tool's time in one work), so that the build
-    runs the program as it is rather than one changed for it; the build kept in the repository beside the program it
-    drives, as 18 needs, the items it fills the store with given from the installation's data (principle
-    harness-only); and the states a script cannot bring about: sessions kept warm and what a round wrote to the cache,
-    which a few works whose agents play parts (12) can show; the settings and the levels, which a script runs without;
-    the copies of the store; and times spread as a real installation's are, which needs the build to run on a clock of
-    its own (principle outside-behind-interfaces).
+21. Not built: the build kept in the repository beside the program it drives, as 18 needs, the items it fills the store
+    with given from the installation's data (principle harness-only); and the states a script cannot bring about:
+    sessions kept warm and what a round wrote to the cache, which a few works whose agents play parts (12) can show; the
+    settings and the levels, which a script runs without; the copies of the store; and times spread as a real
+    installation's are, which needs the build to run on a clock of its own (principle outside-behind-interfaces).
 
 ## A trial on the real installation
 

@@ -1,7 +1,7 @@
 //! The loop with the real carriers, in a git repository made for each test, with a fake of the `claude` command line:
 //! a shell script that keeps what it was given and prints a return, in the form it is given, that deals with what its
 //! message says ran it and writes the outputs of the cell its message names. The flows are the trial flow
-//! (`crates/service/tests/trial/flow`), whose agents ask and judge, `flow` here, which has the acts of an engineer's
+//! (`crates/flow/tests/laid_out/trial`), whose agents ask and judge, `flow` here, which has the acts of an engineer's
 //! work, and the deliver flow as the repository defines it (`flow/deliver`), whose one cell is the act that delivers a
 //! deliverable item; the build of each may ask for the tool `query`, which the tests answer themselves, and may ask the
 //! owner a question it waits for. What is written beside the flows is this repository's (`flow/`).
@@ -221,8 +221,8 @@ pub struct Call {
     pub stdin: String,
     /// The directory it ran in.
     pub dir: PathBuf,
-    /// The account it ran under, as `CLAUDE_CONFIG_DIR` named it to the program; empty where nothing did.
-    pub account: String,
+    /// Its environment, each variable as `NAME=value`.
+    pub env: Vec<String>,
     /// Whether a call before it was still running as it began.
     pub overlapped: bool,
 }
@@ -310,7 +310,7 @@ pub fn beside() -> flow::agents::Agents {
 /// The flow, compiled with what the real carriers have, its build, where it has one, asking for `query`.
 fn compiled(on: On) -> Compiled {
     let dir = match on {
-        On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
+        On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out/trial"),
         On::Acts | On::Tested | On::Reviewed => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
         On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
@@ -325,7 +325,8 @@ fn compiled(on: On) -> Compiled {
             carry::head::HEAD
         ));
     }
-    if let Some(build) = source.cells.get_mut("build") {
+    // The build may ask for `query`, as the trial flow's names it already.
+    if let Some(build) = (source.cells.get_mut("build")).filter(|build| !build.contains("tools = ")) {
         *build = format!("tools = [\"query\"]\n{build}");
     }
     // The build asks for tests in a record, which runs the cell of the act that runs them, whose result runs the build.
@@ -369,19 +370,39 @@ fn compiled(on: On) -> Compiled {
             .flow
             .push_str("\n[blocks.verdict]\nvalues = [\"yes\", \"no\"]\nshown = true\n");
     }
-    // A build the owner's answer runs may ask the owner: the record of the work's questions, which the engine's source
-    // of answers writes, is among its outputs, and the owner's words run it as well, as they run every cell that may ask.
+    // A build may ask the owner: the record of the work's questions, which the engine's source of answers writes, is
+    // among its outputs, and the owner's answer and words run it, as they run every cell that may ask: by blocks of its
+    // own, but for the answer of a build that `answered` runs already. The record is declared where the flow does not
+    // declare it already.
     if let Some(build) = source
         .cells
         .get_mut("build")
-        .filter(|build| build.contains("\"answered\"]"))
+        .filter(|build| build.contains("outputs = [\"code\"]"))
     {
-        *build = (build.replace("\"answered\"]", "\"answered\", \"build_spoken_to\"]"))
-            .replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
-        source.flow.push_str(
-            "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n\n\
-             [blocks.build_spoken_to]\noutside = \"words\"\n",
-        );
+        let answered = build.contains("\"answered\"");
+        let inputs = (build.lines().find(|line| line.starts_with("inputs = ["))).map(str::to_string);
+        let inputs = inputs.expect("the build names its inputs");
+        let its_own = if answered {
+            ", \"build_spoken_to\"]"
+        } else {
+            ", \"build_answered\", \"build_spoken_to\"]"
+        };
+        let more = inputs.replacen(']', its_own, 1);
+        *build = (build.replace(&inputs, &more)).replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
+        if !source.flow.contains("[blocks.q_and_a]") {
+            source.flow.push_str(
+                "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n",
+            );
+        }
+        if !answered {
+            source.flow.push_str(
+                "\n[blocks.build_answered]\noutside = \"answer\"\n\n[blocks.build_answered.writes]\n\
+                 text = \"The owner answered {question} with option {option}, {does}.{why}\"\nwhy = \" {why}\"\n",
+            );
+        }
+        source
+            .flow
+            .push_str("\n[blocks.build_spoken_to]\noutside = \"words\"\n");
     }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
@@ -428,7 +449,7 @@ for arg in "$@"; do
 done
 cat > "$log/$n.stdin"
 pwd > "$log/$n.pwd"
-printf '%s' "$CLAUDE_CONFIG_DIR" > "$log/$n.account"
+env > "$log/$n.env"
 if [ '{compacts}' = yes ]; then
     hook=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 | sed 's/.*"SessionStart".*"command":"\([^"]*\)".*/\1/')
     sh -c "$hook" > "$log/$n.again"
@@ -493,7 +514,7 @@ case "$first" in
         checked=no
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
         answered=no
-        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `answered`' && answered=yes
+        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -qE '^- `(build_)?answered`' && answered=yes
         if [ '{named}' = yes ] && [ ! -f "$log/named-own" ]; then
             # It commits twice and asks for the tests on the first of the two commits, leaving all that ran it for after
             # their result.
@@ -1035,7 +1056,7 @@ impl Real {
                     args: args.lines().map(str::to_string).collect(),
                     stdin: text.unwrap_or_default().to_string(),
                     dir: PathBuf::from(read(n, "pwd").unwrap_or_default().trim_end()),
-                    account: read(n, "account").unwrap_or_default(),
+                    env: read(n, "env").unwrap_or_default().lines().map(str::to_string).collect(),
                     overlapped: self.calls.join(format!("{n}.overlap")).exists(),
                 })
             })

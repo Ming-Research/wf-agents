@@ -38,8 +38,8 @@ async fn a_carrier_that_answers_a_round_twice_stops_the_loop() {
     let carriers = Carriers {
         agents: twice.clone(),
         acts: twice,
-        tools: Arc::new(Scripted::new(Default::default())),
-        outside: Arc::new(Scripted::new(Default::default())),
+        tools: Arc::new(Scripted::new(Default::default(), crate::words())),
+        outside: Arc::new(Scripted::new(Default::default(), crate::words())),
         host: None,
         slots: crate::SLOTS,
     };

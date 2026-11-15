@@ -300,6 +300,9 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'notOfItsShape', block: 'run_tests' })).toBe(
       'it wrote run_tests in another shape than the form gives it',
     );
+    expect(unmetWords({ kind: 'notATest', path: 'crates/carry/src/acts.rs' })).toBe(
+      "its run changed crates/carry/src/acts.rs, which is none of the project's tests, the only files its line changes",
+    );
     expect(unmetWords({ kind: 'unexplained', path: 'AGENTS.md' })).toBe(
       'it left AGENTS.md, a file the project protects, changed, and said not why',
     );

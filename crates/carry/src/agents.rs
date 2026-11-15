@@ -465,6 +465,7 @@ impl Inner {
             let before = self.before_messages(&on, &system, &form, &permissions);
             let command = self.command(
                 &dir,
+                &of.beside.project.environment,
                 &on,
                 &system,
                 &permissions,
@@ -684,11 +685,13 @@ impl Inner {
     }
 
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
-    /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree.
+    /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, with the
+    /// variables its project's declaration names.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
         dir: &Path,
+        declared: &BTreeMap<String, String>,
         on: &RanOn,
         system: &str,
         permissions: &Permissions,
@@ -704,7 +707,12 @@ impl Inner {
         command
             .args(args)
             .env_clear()
-            .envs(cli::environment(agents, on.account.as_deref(), std::env::vars()))
+            .envs(cli::environment(
+                agents,
+                on.account.as_deref(),
+                std::env::vars(),
+                declared,
+            ))
             .current_dir(dir);
         command
     }
@@ -1039,6 +1047,7 @@ impl Inner {
         write(&compacted.again, b"").await.map_err(failed)?;
         let command = self.command(
             &dir,
+            &of.beside.project.environment,
             &on,
             &system,
             &permissions,
@@ -1649,5 +1658,157 @@ mod tests {
             resets: None,
         };
         assert_eq!(chars_of(&failed), 0);
+    }
+
+    /// The carrier of the engineer's flow's rounds, its data in this directory, and a round of R2 it was given, as its
+    /// `give` keeps it: its directory made, which the round's message was kept in.
+    fn given_round(dir: &Path) -> (Agents, Round) {
+        let settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
+        let project = settings.projects["example"].clone();
+        let (flow, beside) = engineer();
+        let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
+        let projects = [("example".to_string(), of)].into();
+        let agents = Agents::new(settings, dir.to_path_buf(), Uuid::nil(), projects);
+        let first = store::First {
+            title: "Greet the user".to_string(),
+            level: None,
+            project: Some("example".to_string()),
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+        };
+        let r2 = (flow.cells.iter())
+            .find(|c| c.id.as_str() == "R2")
+            .expect("the flow has R2")
+            .clone();
+        let round = Round {
+            work: WorkNumber(3),
+            cell: r2,
+            flow: Arc::new(flow),
+            run: RunId(7),
+            number: 1,
+            given: work::Given::Task,
+            item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
+            kept: Arc::new(Work::default()),
+            lines: Default::default(),
+            account: None,
+        };
+        let key = (round.work, round.run, round.number);
+        (agents.inner.said.lock().unwrap()).insert(key, Arc::default());
+        let files = words(&agents.inner.kept(&round));
+        std::fs::create_dir_all(files.waiting.parent().expect("a directory")).unwrap();
+        (agents, round)
+    }
+
+    /// What the owner said to R2 at this version of `discussion`, as the engine tells it.
+    fn telling(at: u64, said: &str) -> Telling {
+        Telling {
+            entry: format!("The owner:\n\n{said}"),
+            block: "discussion".into(),
+            number: Seq(at),
+            trigger: "on_spoken".to_string(),
+            does: Some("Deal with it first.".to_string()),
+            versions: vec![("discussion".into(), Seq(at)), ("r2_spoken_to".into(), Seq(at + 1))],
+        }
+    }
+
+    /// The words said at this version, as `said` in the message's file writes them, with what the cell does for the
+    /// trigger as the part of the triggers says it (`do`).
+    fn said_at(at: u64, said: &str) -> String {
+        format!(
+            "## `discussion`, version {at}, said while this round runs\n\nThe owner:\n\n{said}\n\nIt is new to this \
+             round as `on_spoken`: Deal with it first.\n\nName `on_spoken` in `dealt_with` once you have dealt with it."
+        )
+    }
+
+    /// What waits for the round's hook, as the hook would print it into the session.
+    fn waiting(files: &Words) -> String {
+        let read: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&files.waiting).expect("it waits for the hook")).unwrap();
+        (read["hookSpecificOutput"]["additionalContext"].as_str())
+            .expect("what the hook gives")
+            .to_string()
+    }
+
+    /// The versions each message says reached the round.
+    fn heard(told: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> Vec<Vec<(BlockId, Seq)>> {
+        std::iter::from_fn(|| told.try_recv().ok())
+            .filter_map(|message| match message {
+                service::Message::Happened {
+                    event: engine::Event::SaidToRound { versions, .. },
+                    ..
+                } => Some(versions),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // What the owner says to a round under way is put where the round's hook gives it, in the words of `said`; what the
+    // hook gave before a later telling is counted as given, what still waits for the hook as the round ends is taken
+    // back and stays new to the cell, only what was given is said to have reached the round, and nothing is put once
+    // the round has ended. Well under a second alone, files in a directory of its own, the hook's move made by hand;
+    // no other test holds the carrier's account of what a round was told. Not reached here, nor by the tests of the
+    // real carriers, whose flows hold no record of what is said: the carrier's `give` keeping the round, and its end
+    // hearing what the hook gave, which these tests do by hand.
+    #[tokio::test]
+    async fn the_words_told_a_round_reach_it_only_where_its_hook_gave_them_before_it_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round(dir.path());
+        let files = words(&agents.inner.kept(&round));
+        agents.inner.tell(&round, telling(10, "Keep it to one table.")).await;
+        assert_eq!(waiting(&files), said_at(10, "Keep it to one table."));
+        // The hook gives it, moving it aside as its command does; then the owner says more, which waits.
+        let delivered = std::path::PathBuf::from(format!("{}.1.json", files.delivered.display()));
+        std::fs::rename(&files.waiting, &delivered).unwrap();
+        agents.inner.tell(&round, telling(12, "And name the table.")).await;
+        assert!(files.waiting.exists(), "the later words wait for the hook");
+        // The round's program ends before its hook gives the later words.
+        let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+        let teller = RoundReply::new(round.work, round.run, to).teller();
+        agents.inner.heard(&round, &teller).await;
+        assert!(!files.waiting.exists(), "what waited is taken back");
+        assert_eq!(
+            heard(&mut told),
+            [telling(10, "").versions],
+            "only what the hook gave reached the round"
+        );
+        // Once the round has ended, nothing is put for its hook.
+        agents.inner.tell(&round, telling(14, "Late words.")).await;
+        assert!(!files.waiting.exists(), "nothing waits for a round that ended");
+        agents.inner.heard(&round, &teller).await;
+        assert!(told.try_recv().is_err(), "nothing more is said");
+    }
+
+    // Told twice with its hook giving nothing between, the round's one file holds both, the first taken back and given
+    // before the later. Well under a second alone; no other test holds what waits for a hook told twice.
+    #[tokio::test]
+    async fn words_told_twice_before_the_hook_gives_wait_in_one_file_the_first_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round(dir.path());
+        let files = words(&agents.inner.kept(&round));
+        agents.inner.tell(&round, telling(20, "Keep it short.")).await;
+        agents.inner.tell(&round, telling(22, "Shorter still.")).await;
+        let both = format!("{}\n\n{}", said_at(20, "Keep it short."), said_at(22, "Shorter still."));
+        assert_eq!(waiting(&files), both);
+    }
+
+    // A round told twice whose hook gave nothing, the first words taken back into the one file with the later, ends
+    // having been given neither: no version is said to have reached it. Well under a second alone; no other test holds
+    // the account of words taken back.
+    #[tokio::test]
+    async fn a_round_that_ends_before_its_hook_gave_words_told_twice_is_given_neither() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round(dir.path());
+        let files = words(&agents.inner.kept(&round));
+        agents.inner.tell(&round, telling(20, "Keep it short.")).await;
+        agents.inner.tell(&round, telling(22, "Shorter still.")).await;
+        let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+        let teller = RoundReply::new(round.work, round.run, to).teller();
+        agents.inner.heard(&round, &teller).await;
+        assert!(!files.waiting.exists(), "what waited is taken back");
+        assert_eq!(
+            heard(&mut told),
+            Vec::<Vec<(BlockId, Seq)>>::new(),
+            "the round was given none of it"
+        );
     }
 }

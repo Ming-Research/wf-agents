@@ -1,5 +1,5 @@
-//! `wf-agents run` and the commands that talk to it, each run as the command: the engine runs the trial flow (the
-//! service crate's `tests/trial/flow`), or the flows the repository defines, with a script whose rounds are short, over
+//! `wf-agents run` and the commands that talk to it, each run as the command: the engine runs the trial flow (the flow
+//! crate's `tests/laid_out/trial`), or the flows the repository defines, with a script whose rounds are short, over
 //! a data directory of its own. The tests are kept in modules by subject, so that a new test goes into the module of
 //! what it tests.
 
@@ -8,6 +8,7 @@ mod delivering;
 mod everything;
 mod failing;
 mod items;
+mod saying;
 mod starting;
 mod waiting;
 
@@ -16,32 +17,53 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-/// The trial flow.
+/// The trial flow, beside the files the flows of the tests share (the flow crate's `tests/laid_out`).
 pub fn trial() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out/trial")
 }
 
-/// A script for the trial flow whose rounds and tools take a few milliseconds: the plan asks the owner, the build
-/// asks for the CI, and the review is content at once.
+/// A script for the trial flow whose rounds and tools take a few milliseconds: the build asks for a query, the review
+/// is content at once, and the plan asks the owner a question it waits for ([`ASKED`]).
 pub const SCRIPT: &str = r#"
 [took]
 ms = 20
 
-[tools.ci]
-answer = "Every check passed."
+[tools.query]
+answer = '{"rows": []}'
 ms = 20
 
 [[flows.trial.rounds]]
-cell = "plan"
-asks = [{ question = "Should the greeting name the user?" }]
-
-[[flows.trial.rounds]]
 cell = "build"
-asks = [{ tool = "ci", input = "the work's branch" }]
+asks = [{ tool = "query", input = '{"sql": "select number from items"}' }]
 
 [[flows.trial.rounds]]
 cell = "review"
 hands_in = [{ block = "verdict", value = "yes" }]
+
+[[flows.trial.rounds]]
+cell = "plan"
+hands_in = []
+
+[[flows.trial.rounds.questions]]
+name = "named"
+waits = true
+recommends = 1
+ask = "Should the greeting name the user?"
+options = [{ does = "Greet the user by name", follows = "A warmer greeting." }, { does = "Greet without a name", follows = "A plainer one." }]
+"#;
+
+/// The plan's round of [`SCRIPT`], which asks the owner its question, `named`, that the owner answers as its version 9:
+/// the place the plan's first run asked it at.
+pub const ASKED: &str = r#"[[flows.trial.rounds]]
+cell = "plan"
+hands_in = []
+
+[[flows.trial.rounds.questions]]
+name = "named"
+waits = true
+recommends = 1
+ask = "Should the greeting name the user?"
+options = [{ does = "Greet the user by name", follows = "A warmer greeting." }, { does = "Greet without a name", follows = "A plainer one." }]
 "#;
 
 /// A data directory and a script beside it.

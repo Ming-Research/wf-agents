@@ -124,6 +124,11 @@ pub const WAITING: &str = "waiting";
 /// The value of a [`DEPENDENCIES`] block once every item the work's item depends on has merged, or it depends on none.
 pub const MERGED: &str = "merged";
 
+/// The source outside the works that says what the head of a project's main branch is: the one source said of a project,
+/// which [`Driver::outside`] writes into every going work of it whose flow has its block. The watch of main beside the
+/// loop says it (crate `carry`), and so does a play of a script where it moves main (crate `service`).
+pub const MAIN: &str = "main";
+
 /// The source of the block the driver writes as the owner starts a work: the work, added paused, is let on with nothing
 /// of it started. The block has no content to speak of; its version is what runs the cell that starts the work.
 pub const START: &str = "start";

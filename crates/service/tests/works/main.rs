@@ -1,6 +1,7 @@
-//! The loop with the test carriers, over a store in a temporary directory, on the trial flow and its script
-//! (`tests/trial`). Each test takes the loop one thing at a time, as the loop takes them, with the runtime's time paused
-//! so that each round ends when the script says; after every step it checks what the loop must always keep:
+//! The loop with the test carriers, over a store in a temporary directory, on the trial flow and its script, beside the
+//! files the flows of the tests share (`crates/flow/tests/laid_out`). Each test takes the loop one thing at a time, as a
+//! play of a script steps it (`service::Stepper`), with the runtime's time paused so that each round ends when the
+//! script says; after every step it checks what the loop must always keep:
 //!
 //! - every todo handed out is answered once, or is still to be done;
 //! - nothing is handed out that the store does not hold as to be done.
@@ -13,8 +14,10 @@ mod contract;
 mod dependencies;
 mod failing;
 mod going;
+mod judging;
 mod pausing;
 mod pinging;
+mod playing;
 mod shared_wait;
 mod stopped;
 mod stopping;
@@ -24,13 +27,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use decide::{CallId, Decision, RunId, Waited, Who};
+use decide::{CallId, Decision, RunId, Waited};
 use driver::{FirstWrite, NewItem, Todo};
 use engine::{Effect, Event};
 use flow::Compiled;
 use service::{
     Act, Acted, CallReply, Carriers, Inbox, Message, Ping, PingReply, Refusal, Release, ReleaseReply, Round,
-    RoundReply, Rounds, Script, Scripted, Service, TokioClock, ToolCall, Tools,
+    RoundReply, Rounds, Script, Scripted, Service, Stepper, TokioClock, ToolCall, Tools,
 };
 use store::{ItemNumber, Storage, Store, WorkNumber};
 use tokio::sync::oneshot;
@@ -81,26 +84,86 @@ pub const START: Time = Time(1_794_268_800_000);
 /// The slots of the loops of the tests that do not count them: more than any of them has works.
 pub const SLOTS: usize = 1000;
 
-/// The directory of the trial flow, `flow`, and its script, `script.toml`.
+/// The directory beside the flows of the tests, which holds the trial flow, `trial`, its script, `scripts/trial.toml`,
+/// and what is written beside the flows.
 pub fn trial_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out")
 }
 
 /// The trial flow, compiled.
 pub fn trial_flow() -> Compiled {
-    let source = flow::read(&trial_dir().join("flow")).expect("the trial flow is read");
+    let source = flow::read(&trial_dir().join("trial")).expect("the trial flow is read");
     let has = flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
+        sources: BTreeSet::from([
+            driver::DEPENDENCIES.to_string(),
+            flow::ANSWER.to_string(),
+            flow::WORDS.to_string(),
+        ]),
         acts: BTreeSet::from(["merge".to_string()]),
+        tools: BTreeSet::from(["query".to_string()]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the trial flow compiles")
 }
 
+/// A plan that requires the scope its item is added with to be narrow, and a merge, the engine's own cell.
+pub fn scoped() -> Compiled {
+    let flow = r#"
+        name = "scoped"
+        order = ["plan", "merge"]
+        [limits]
+        again = 2
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.scope]
+        people = true
+        values = ["narrow", "wide"]
+        [blocks.plan]
+        [blocks.merged]
+        shown = true
+    "#;
+    let plan = r#"
+        title = "Plan"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the plan from the request."
+        requires = { scope = "narrow" }
+        inputs = ["request"]
+        outputs = ["plan"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        inputs = ["plan"]
+        outputs = ["merged"]
+    "#;
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: [("plan", plan), ("merge", merge)]
+            .iter()
+            .map(|(id, text)| (id.to_string(), text.to_string()))
+            .collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the definition compiles")
+}
+
 /// The trial flow's script.
 pub fn trial_script() -> Script {
-    let text = std::fs::read_to_string(trial_dir().join("script.toml")).expect("the script is read");
+    let text = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
     Script::read(&text).expect("the script reads")
+}
+
+/// What is written beside the flows of the tests, in whose words the carriers read the questions a round asks.
+pub fn words() -> flow::agents::Agents {
+    flow::agents::read(&trial_dir()).expect("what is written beside the flows is read")
 }
 
 /// A thing to be done that a carrier answers: a round, which its end or its stop answers, or a tool's call, which
@@ -120,8 +183,8 @@ pub struct Trial {
     path: PathBuf,
     script: Script,
     clock: Arc<TokioClock>,
-    service: Service,
-    inbox: Inbox,
+    /// The loop, taken one thing at a time.
+    stepper: Stepper,
     /// What the carriers were handed since the process last started.
     handed: Arc<Mutex<BTreeSet<Unit>>>,
     /// What the carriers were last told of each work's pause since the process last started.
@@ -174,14 +237,13 @@ impl Trial {
         let handed = Arc::new(Mutex::new(BTreeSet::new()));
         let paused = Told::default();
         let carried = (pings.as_ref(), outside.as_ref());
-        let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), carried);
+        let opened = open(&path, &script, &clock, (&handed, &paused), carried);
         let trial = Trial {
             _dir: dir,
             path,
             script,
             clock,
-            service,
-            inbox,
+            stepper: Stepper::new(opened),
             handed,
             paused,
             answered: BTreeMap::new(),
@@ -228,10 +290,14 @@ impl Trial {
         }
         let recorded = (&self.handed, &self.paused);
         let carried = (self.pings.as_ref(), self.outside.as_ref());
-        let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, carried);
-        self.service = service;
-        self.inbox = inbox;
+        let opened = open(&self.path, &self.script, &self.clock, recorded, carried);
+        self.stepper.reopen(opened);
         self.check();
+    }
+
+    /// The loop, as it is between two things it takes.
+    pub fn service(&self) -> &Service {
+        self.stepper.service()
     }
 
     /// Stops the process and starts it again, and the owner, having looked, lifts at once the pause of everything the
@@ -245,7 +311,7 @@ impl Trial {
 
     /// Whether the engine holds everything since it started again with works going on, until the owner lifts it.
     pub fn held_by_its_start(&self) -> bool {
-        (self.service.driver().everything_paused()).is_some_and(|paused| paused.by == decide::Pauser::Engine)
+        (self.service().driver().everything_paused()).is_some_and(|paused| paused.by == decide::Pauser::Engine)
     }
 
     /// The owner sets the pause of everything, or lifts it, the owner's or the engine's own.
@@ -262,14 +328,12 @@ impl Trial {
     /// where nothing more comes.
     pub async fn step(&mut self) -> Option<Event> {
         // An hour of the paused clock passes at once where nothing is under way.
-        let message = tokio::time::timeout(Duration::from_secs(3600), self.inbox.recv())
-            .await
-            .ok()??;
+        let message = self.stepper.next(Duration::from_secs(3600)).await?;
         let (work, event) = match message {
             Message::Happened { work, event } => (work, event),
             // The time a wait was for has come: the loop takes it as it comes, and nothing more is said of it.
             message @ (Message::Due { .. } | Message::Tick { .. }) => {
-                self.service.take(message).expect("the loop takes it");
+                self.stepper.take(message).expect("the loop takes it");
                 self.steps += 1;
                 self.check();
                 return Some(Event::Look);
@@ -288,7 +352,7 @@ impl Trial {
             *self.answered.entry(unit).or_default() += 1;
         }
         let taken = event.clone();
-        self.service
+        self.stepper
             .take(Message::Happened { work, event })
             .expect("the loop takes it");
         self.steps += 1;
@@ -312,7 +376,7 @@ impl Trial {
 
     /// Takes what the owner sends, and checks what must always hold.
     pub fn take(&mut self, message: Message) {
-        self.service.take(message).expect("the loop takes it");
+        self.stepper.take(message).expect("the loop takes it");
         self.check();
     }
 
@@ -337,27 +401,30 @@ impl Trial {
         answer.try_recv().expect("the loop answers at once")
     }
 
-    /// Answers the owner's call the work waits for.
-    pub fn answer(&mut self, work: WorkNumber, result: &str) {
-        let call = self.owners_call(work).expect("the work waits for the owner's call");
-        self.act(
-            work,
-            Act::Result {
-                call,
-                result: result.to_string(),
-            },
-        )
-        .expect("the answer is taken");
+    /// Answers the latest version of the question the work waits for with the option it recommends, saying why.
+    pub fn answer(&mut self, work: WorkNumber, why: &str) {
+        let question = self
+            .waited_question(work)
+            .expect("the work waits for the owner's answer");
+        let kept = self.work(work);
+        let version = (kept.records.questions.iter().rev())
+            .find(|q| q.name == question)
+            .expect("the question was asked")
+            .at;
+        let act = Act::Answer {
+            question,
+            version,
+            option: 1,
+            why: Some(why.to_string()),
+        };
+        self.act(work, act).expect("the answer is taken");
     }
 
-    /// The owner's call the work waits for, where it waits for one.
-    pub fn owners_call(&self, work: WorkNumber) -> Option<CallId> {
+    /// The question the work waits for the owner's answer to, where it waits for one.
+    pub fn waited_question(&self, work: WorkNumber) -> Option<String> {
         match self.decision(work) {
             Decision::Wait { on, .. } => on.iter().find_map(|waited| match waited {
-                Waited::Call {
-                    call,
-                    on: Some(Who::Owner),
-                } => Some(*call),
+                Waited::Answer { question } => Some(question.clone()),
                 _ => None,
             }),
             _ => None,
@@ -371,8 +438,8 @@ impl Trial {
             if matches!(decision, Decision::Ended(_)) {
                 return decision;
             }
-            if self.owners_call(work).is_some() {
-                self.answer(work, "Yes, by name.");
+            if self.waited_question(work).is_some() {
+                self.answer(work, "By name, as the user likes.");
                 continue;
             }
             if self.step().await.is_none() {
@@ -383,7 +450,7 @@ impl Trial {
 
     /// What the work does next.
     pub fn decision(&self, work: WorkNumber) -> Decision {
-        self.service
+        self.service()
             .driver()
             .view(work)
             .expect("the driver has the work")
@@ -392,7 +459,7 @@ impl Trial {
 
     /// Everything kept of the work.
     pub fn work(&self, work: WorkNumber) -> Work {
-        self.service
+        self.service()
             .driver()
             .work(work)
             .expect("the driver has the work")
@@ -421,7 +488,7 @@ impl Trial {
 
     /// How many rounds of the run began.
     fn began(&self, work: WorkNumber, run: RunId) -> usize {
-        let kept = self.service.driver().work(work).expect("the driver has the work");
+        let kept = self.service().driver().work(work).expect("the driver has the work");
         kept.work.records.rounds.iter().filter(|r| r.run == run).count()
     }
 
@@ -436,7 +503,7 @@ impl Trial {
             .into_iter()
             .filter(|unit| !self.answered.contains_key(unit))
             .collect();
-        let driver = self.service.driver();
+        let driver = self.service().driver();
         // What is to be done for a work whose ping is in hand waits for the ping, the loop handing none of it out.
         let pinged = self.pinged();
         let pending: BTreeSet<Unit> = (driver.pending().iter())
@@ -500,7 +567,7 @@ fn open(
 ) -> (Service, Inbox) {
     let store = Store::open(path).expect("the store opens");
     let recording = Arc::new(Recording {
-        scripted: Scripted::new(script.clone()),
+        scripted: Scripted::new(script.clone(), words()),
         handed: handed.clone(),
         paused: paused.clone(),
         path: path.to_path_buf(),

@@ -115,6 +115,8 @@ describe('the System view', () => {
     const now = part(container, 'Now');
     const pairs = texts(now, 'dd');
     expect(pairs[0]).toContain('Every work paused since');
+    // What the pause holds back: every round but one for what the owner said or answered.
+    expect(pairs[0]).toMatch(/, by the owner: no work begins a round but for the owner's words or answers$/);
     expect(pairs[1]).toBe('1 taken of 3');
     expect(pairs[2]).toBe('none');
     expect(pairs[3]).toContain('The newest copy of the database was taken');

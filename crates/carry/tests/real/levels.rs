@@ -17,6 +17,14 @@ fn ran_with(call: &Call) -> (&str, Option<&str>) {
     (after("--model").expect("a model is named"), after("--effort"))
 }
 
+/// The account a call ran under, as `CLAUDE_CONFIG_DIR` named it to the program; empty where nothing did.
+fn account(call: &Call) -> String {
+    (call.env.iter())
+        .find_map(|v| v.strip_prefix("CLAUDE_CONFIG_DIR="))
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// What the try of this number of this round of the cell's last run ran on, as the work's records say.
 fn kept(real: &Real, work: WorkNumber, cell: &str, round: usize, try_: usize) -> RanOn {
     kept_of(real, work, real.run_of(work, cell), round, try_)
@@ -211,9 +219,9 @@ async fn each_round_runs_under_the_account_in_use_and_keeps_it_and_after_a_take_
     let calls = real.calls();
     assert_eq!(calls.len(), 3);
     assert!(
-        calls.iter().all(|call| call.account == first),
+        calls.iter().all(|call| account(call) == first),
         "{:?}",
-        calls.iter().map(|c| &c.account).collect::<Vec<_>>()
+        calls.iter().map(account).collect::<Vec<_>>()
     );
     assert_eq!(kept(&real, work, "plan", 1, 1), under(&first));
     let (reply, mut answer) = tokio::sync::oneshot::channel();
@@ -229,6 +237,6 @@ async fn each_round_runs_under_the_account_in_use_and_keeps_it_and_after_a_take_
     real.until(|real| ended(&real.decision(next))).await;
     let calls = real.calls();
     assert_eq!(calls.len(), 6);
-    assert!(calls[3..].iter().all(|call| call.account == second));
+    assert!(calls[3..].iter().all(|call| account(call) == second));
     assert_eq!(kept(&real, next, "plan", 1, 1), under(&second));
 }

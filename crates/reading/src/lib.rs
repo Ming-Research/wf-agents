@@ -3,8 +3,9 @@
 //! why a run would start (design document `data-and-context`). The properties are judged by this reading, so that a
 //! fault in the walk's own reading is not repeated in the judging. It reads only the records and the flow, with its
 //! named tests, never what the deciding code works out of them: it takes the deciding code's types and calls none of
-//! its walk. It is read by everything that judges the deciding code by the records, the histories of crate `decide`
-//! and the exploration of a flow (crate `explore`), so it is one crate they share (principle `one-thing-one-place`).
+//! its walk. It is read by everything that judges the deciding code by the records, the histories of crate `decide`,
+//! the exploration of a flow (crate `explore`) and the judge of a script's play (crate `service`), so it is one crate
+//! they share (principle `one-thing-one-place`).
 
 use std::collections::BTreeMap;
 
@@ -381,36 +382,57 @@ impl<'a> Reading<'a> {
         (flow.cells()[i].applies.iter()).all(|key| self.key_holds(flow, key, i))
     }
 
-    /// Whether one key of the condition or of the preconditions of the cell at place `i` holds now: its named test, or
-    /// the block's value, which is its default where the flow gives one and it was never written.
+    /// Whether one key of the condition or of the preconditions of the cell at place `i` holds now: no block keeps it
+    /// from holding ([`Reading::keeping`]).
     pub fn key_holds(&self, flow: &Flow, key: &Condition, i: usize) -> bool {
-        match key {
-            Condition::Test(name) => self.holds(flow, name, i),
-            Condition::Is { block, value } => {
-                let now = match self.current(block) {
-                    Some(v) => v.value.as_deref(),
-                    None => flow.default_of(block),
-                };
-                now == Some(value.as_str())
-            }
-        }
+        self.keeping(flow, key, i).is_empty()
     }
 
-    /// Whether the named test holds now for the cell at place `i`, by the current versions of the blocks it reads that
-    /// have the value it tests for: all of them, one, none. A test of what stands holds unless it is refused, as
-    /// [`Reading::refused`] says from the records; a test of content where the current version of one holds anything.
+    /// Whether the named test holds now for the cell at place `i`: no block it reads keeps it from holding.
     pub fn holds(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
-        let test = &flow.tests()[name];
-        let with_value: Vec<&Version> = (test.reads.iter())
-            .filter_map(|b| self.current(b))
-            .filter(|v| v.value.is_some() && v.value == test.is)
-            .collect();
+        self.key_holds(flow, &Condition::Test(name.clone()), i)
+    }
+
+    /// The blocks that keep one key of the condition or of the preconditions of the cell at place `i` from holding now:
+    /// none where it holds, and a new version of any of them may make it hold. A block counts as its latest version
+    /// says, and until anyone writes it, as the default its flow gives it (decision
+    /// the-merge-gate-is-a-datum-the-engine-writes: the datum `asked` is `answered` by its default before any
+    /// question). A key that a block has a value is kept by the block while it has another. A named test is kept as its
+    /// kind defines it (crate `decide`, `TestKind`): one that every block it reads has its value, by each that lacks
+    /// it; one that some block has it, or holds anything (decision a-test-of-content-reads-the-record), by all of them
+    /// while none does; one that no block has it, by each that has; and one that none has it standing, by each whose
+    /// value is refused, as [`Reading::refused`] says.
+    pub fn keeping<'f>(&self, flow: &'f Flow, key: &'f Condition, i: usize) -> Vec<&'f BlockId> {
+        // What a block says now: its latest version's value, or, while it has none, its default.
+        let says = |block: &BlockId| match self.current(block) {
+            Some(latest) => latest.value.clone(),
+            None => flow.default_of(block).map(str::to_string),
+        };
+        let test = match key {
+            Condition::Is { block, value } => {
+                return match says(block).as_deref() == Some(value.as_str()) {
+                    true => Vec::new(),
+                    false => vec![block],
+                };
+            }
+            Condition::Test(name) => &flow.tests()[name],
+        };
+        // Whether the block is as the test looks for it: holding anything, refusing, or having the value it names; a
+        // test that names no value looks for none in any block.
+        let as_looked_for = |block: &BlockId| match (test.kind, test.is.as_deref()) {
+            (TestKind::AnyContent, _) => self.current(block).is_some_and(|latest| !latest.empty),
+            (TestKind::NoneStanding, Some(is)) => self.refusing(flow, block, is, i),
+            (_, Some(is)) => says(block).as_deref() == Some(is),
+            (_, None) => false,
+        };
+        let mut reads = test.reads.iter();
         match test.kind {
-            TestKind::All => with_value.len() == test.reads.len(),
-            TestKind::Any => !with_value.is_empty(),
-            TestKind::None => with_value.is_empty(),
-            TestKind::NoneStanding => !self.refused(flow, name, i),
-            TestKind::AnyContent => (test.reads.iter()).any(|b| self.current(b).is_some_and(|v| !v.empty)),
+            TestKind::All => reads.filter(|block| !as_looked_for(block)).collect(),
+            TestKind::Any | TestKind::AnyContent => match reads.any(&as_looked_for) {
+                true => Vec::new(),
+                false => test.reads.iter().collect(),
+            },
+            TestKind::None | TestKind::NoneStanding => reads.filter(|block| as_looked_for(block)).collect(),
         }
     }
 
@@ -421,23 +443,132 @@ impl<'a> Reading<'a> {
     /// no person and nothing outside wrote the block since.
     pub fn refused(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
         let test = &flow.tests()[name];
-        let is = test.is.as_deref();
-        test.reads.iter().any(|block| {
-            let versions = self.of(block);
-            let outsider = |v: &Version| matches!(v.by, Writer::Person | Writer::Outside);
-            let by_outsider = versions.last().is_some_and(|v| outsider(v) && v.value.as_deref() == is);
-            let by_judge = (flow.cells()[..i].iter().enumerate()).any(|(j, c)| {
-                let own = versions
-                    .iter()
-                    .rev()
-                    .find(|v| matches!(&v.by, Writer::Cell(cell, _) if *cell == c.id));
-                own.is_some_and(|own| {
-                    own.value.as_deref() == is
-                        && !versions.iter().any(|v| v.at > own.at && outsider(v))
-                        && self.applies(flow, j)
+        (test.is.as_deref()).is_some_and(|is| test.reads.iter().any(|block| self.refusing(flow, block, is, i)))
+    }
+
+    /// Whether this block, which a test of what stands reads looking for this value, refuses for the cell at place
+    /// `i`, as [`Reading::refused`] says.
+    fn refusing(&self, flow: &Flow, block: &BlockId, is: &str, i: usize) -> bool {
+        let versions = self.of(block);
+        let outsider = |v: &Version| matches!(v.by, Writer::Person | Writer::Outside);
+        let by_outsider = versions
+            .last()
+            .is_some_and(|v| outsider(v) && v.value.as_deref() == Some(is));
+        let by_judge = (flow.cells()[..i].iter().enumerate()).any(|(j, c)| {
+            let own = versions
+                .iter()
+                .rev()
+                .find(|v| matches!(&v.by, Writer::Cell(cell, _) if *cell == c.id));
+            own.is_some_and(|own| {
+                own.value.as_deref() == Some(is)
+                    && !versions.iter().any(|v| v.at > own.at && outsider(v))
+                    && self.applies(flow, j)
+            })
+        });
+        by_outsider || by_judge
+    }
+
+    /// The cells after the cell at place `i` that wrote what these causes of a run of it, starting at this place, are
+    /// new versions of, each once: of the causes the run dealt with, where it finished. None where one of them is a
+    /// first run or a version that a person, the outside or a cell before it wrote, which is no send-back and starts
+    /// the cell's counts anew; the results of its calls, and those of what it asked for in a record, are no one's
+    /// (decision the-same-sender-again).
+    pub fn sent_by(&self, flow: &Flow, i: usize, because: &[Cause], place: Seq) -> Option<Vec<CellId>> {
+        let cell = &flow.cells()[i].id;
+        let mut senders: Vec<CellId> = Vec::new();
+        for cause in because {
+            match cause {
+                Cause::NoRecord => return None,
+                Cause::Changed { behind: false, .. } => return None,
+                Cause::Changed { block, .. } if self.results.contains(block) => {}
+                Cause::Changed { block, .. } => {
+                    for v in self.new_to(cell, block, place) {
+                        if let Writer::Cell(writer, _) = &v.by
+                            && flow.place(writer).is_some_and(|j| j > i)
+                            && !senders.contains(writer)
+                        {
+                            senders.push(writer.clone());
+                        }
+                    }
+                }
+                Cause::Results { .. } => {}
+            }
+        }
+        Some(senders)
+    }
+
+    /// How many of the cell's finished runs before this place, since its counts last began anew, this sender sent back:
+    /// runs that dealt with something and were for a version it wrote. The counts begin anew where the owner lets the
+    /// cell go on, and with a run of it for a first run or a version a person, the outside or a cell before it wrote.
+    pub fn sent_back_since(&self, flow: &Flow, i: usize, sender: &CellId, place: Seq) -> usize {
+        let cell = &flow.cells()[i].id;
+        let let_go = (self.records.let_go.iter())
+            .filter(|l| &l.cell == cell && l.at < place)
+            .map(|l| l.at)
+            .max();
+        let anew = (self.started.values())
+            .filter(|s| &s.cell == cell && s.at < place && self.sent_by(flow, i, &s.because, s.at).is_none())
+            .map(|s| s.at)
+            .max();
+        let from = let_go.max(anew);
+        let mut count = 0;
+        for s in self.finished_since_let_go(cell, place) {
+            if from.is_some_and(|from| s.at <= from) {
+                continue;
+            }
+            let dealt: Vec<Cause> = (s.because.iter())
+                .filter(|c| match c {
+                    Cause::Changed { block, .. } => self.dealt_with(s.run, block, Seq(u64::MAX)),
+                    _ => true,
                 })
+                .cloned()
+                .collect();
+            let senders = self.sent_by(flow, i, &dealt, s.at).unwrap_or_default();
+            let did = self.finished[&s.run].dealt_with.as_ref().is_none_or(|d| !d.is_empty());
+            if did && senders.contains(sender) {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// The cell's runs that finished before this place, started since the owner last let it go on, in the order they
+    /// finished.
+    fn finished_since_let_go(&self, cell: &CellId, place: Seq) -> Vec<&'a Started> {
+        let let_go = (self.records.let_go.iter())
+            .filter(|l| &l.cell == cell && l.at < place)
+            .map(|l| l.at)
+            .max();
+        let mut runs: Vec<(Seq, &Started)> = (self.finished.values())
+            .filter(|f| f.at < place)
+            .map(|f| (f.at, self.started[&f.run]))
+            .filter(|(_, s)| &s.cell == cell && let_go.is_none_or(|l| s.at > l))
+            .collect();
+        runs.sort_by_key(|(at, _)| *at);
+        runs.into_iter().map(|(_, s)| s).collect()
+    }
+
+    /// The place in the flow of the cell the work stands at now, in the order of the walk: the first cell that applies
+    /// and holds the work, by a run of it that has neither finished nor been abandoned, something it would be entered
+    /// for, a call it is owed that has no result, the result of what it asked for in a record still to come, or a key
+    /// of its preconditions that does not hold, which holds the work at its cell whether or not anything runs the cell
+    /// (decision conditions-and-preconditions). None where no cell holds the work.
+    pub fn standing(&self, flow: &Flow) -> Option<usize> {
+        let now = Seq(u64::MAX);
+        let records = self.records;
+        (0..flow.cells().len()).find(|&i| {
+            let cell = &flow.cells()[i];
+            let open = (records.started.iter()).any(|s| {
+                s.cell == cell.id
+                    && !self.finished.contains_key(&s.run)
+                    && !records.abandoned.iter().any(|a| a.run == s.run)
             });
-            by_outsider || by_judge
+            self.applies(flow, i)
+                && (open
+                    || !self.entering(flow, cell, now).is_empty()
+                    || self.owed(&cell.id, now).iter().any(|c| !self.done(*c, now))
+                    || self.pending(cell, now)
+                    || cell.requires.iter().any(|key| !self.key_holds(flow, key, i)))
         })
     }
 }
@@ -462,6 +593,10 @@ pub struct Asked {
 pub fn questions(records: &Records, place: Seq) -> BTreeMap<String, Asked> {
     let mut latest: BTreeMap<String, Asked> = BTreeMap::new();
     for q in records.questions.iter().filter(|q| q.at < place) {
+        // Its entries may be listed in any order, as a store gives them back: the latest is that of the latest place.
+        if latest.get(&q.name).is_some_and(|kept| kept.at > q.at) {
+            continue;
+        }
         let asked = Asked {
             cell: q.cell.clone(),
             at: q.at,

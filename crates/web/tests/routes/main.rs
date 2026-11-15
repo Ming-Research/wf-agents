@@ -6,6 +6,7 @@
 mod acts;
 mod attention;
 mod calls;
+mod catalogue;
 mod changing;
 mod copies;
 mod definition;
@@ -193,19 +194,30 @@ pub async fn get_json(router: &Router, path: &str) -> serde_json::Value {
 /// When the clock of the engine's loop starts: 2026-11-10, at midnight.
 pub const START: u64 = 1_794_268_800_000;
 
-/// The directory of the trial flow, `flow`, and its script, `script.toml`.
+/// The directory beside the flows of the tests, which holds the trial flow, `trial`, its script, `scripts/trial.toml`,
+/// and what is written beside the flows.
 pub fn trial_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out")
 }
 
-/// What the trial flow is compiled against: the driver's source outside a work, the engine's as the owner answers,
-/// and the act `merge`.
+/// What the trial flow is compiled against: the driver's source outside a work, the engine's as the owner answers and
+/// as the owner speaks, the act `merge` and the tool `query`.
 pub(crate) fn trial_has(_: &Source) -> flow::Has {
     flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
+        sources: BTreeSet::from([
+            driver::DEPENDENCIES.to_string(),
+            flow::ANSWER.to_string(),
+            flow::WORDS.to_string(),
+        ]),
         acts: BTreeSet::from(["merge".to_string()]),
+        tools: BTreeSet::from(["query".to_string()]),
         ..Default::default()
     }
+}
+
+/// What is written beside the flows of the tests, in whose words the carriers read the questions a round asks.
+pub fn words() -> flow::agents::Agents {
+    flow::agents::read(&trial_dir()).unwrap()
 }
 
 /// The interface over the engine's loop on the trial flow, with a store in a directory of its own.
@@ -229,7 +241,7 @@ pub fn running_on(store: Box<dyn store::Storage + Send>, dir: tempfile::TempDir)
 
 /// The trial flow's script.
 pub fn trial_script() -> service::Script {
-    service::Script::read(&std::fs::read_to_string(trial_dir().join("script.toml")).unwrap()).unwrap()
+    service::Script::read(&std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).unwrap()).unwrap()
 }
 
 /// Starts the engine's loop on the trial flow with this script over this store, kept in this directory, and serves
@@ -239,7 +251,7 @@ pub fn running_scripted(
     dir: tempfile::TempDir,
     script: service::Script,
 ) -> Running {
-    running_carried(store, dir, Scripted::new(script).carriers())
+    running_carried(store, dir, Scripted::new(script, words()).carriers())
 }
 
 /// Starts the engine's loop on the trial flow with these carriers over this store, kept in this directory, and serves
@@ -250,7 +262,7 @@ pub fn running_carried(
     carriers: service::Carriers,
 ) -> Running {
     let flow = flow::compile(
-        &flow::read(&trial_dir().join("flow")).unwrap(),
+        &flow::read(&trial_dir().join("trial")).unwrap(),
         &trial_has(&Source::default()),
     )
     .unwrap();
@@ -258,7 +270,7 @@ pub fn running_carried(
     let (service, inbox) = Service::open(store, vec![flow], carriers, clock).unwrap();
     let handle = service.handle();
     tokio::spawn(service.run(inbox));
-    let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
+    let flows = Flows::dirs(trial_dir().join("trial"), Box::new(trial_has));
     // The observations are read from the store's file, as the engine's program serves them.
     let observations = web::observations::router(handle.clone(), dir.path().join("store.sqlite"));
     Running {
@@ -321,8 +333,17 @@ pub async fn pass(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
 }
 
+/// The version of the trial plan's question that the owner answers: the place the plan's first run asked it at, after
+/// its finish.
+pub const NAMED: u64 = 9;
+
+/// The owner's answer to the trial plan's question, by the option it recommends.
+pub fn named() -> Value {
+    json!({ "kind": "answer", "question": "named", "version": NAMED, "option": 1, "why": "Yes, by name." })
+}
+
 /// The trial item, added held at the start and let on a second later: by 2.5 seconds its plan has asked the owner its
-/// question (call 2), and the work waits for the answer.
+/// question, `named`, and the work waits for the answer.
 pub async fn greeted(router: &Router) {
     let item = json!({
         "title": "Greet the user",

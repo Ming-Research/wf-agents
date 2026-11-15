@@ -5,31 +5,20 @@ use axum::http::StatusCode;
 use serde_json::{Value, json};
 use store::Store;
 
-use crate::{START, get_json, greeted, pass, post, refused, running, running_scripted, trial_script};
+use crate::{NAMED, START, get_json, greeted, named, pass, post, refused, running, running_scripted, trial_script};
 
-/// The trial item's line once its plan asked the owner its question, call 2, two and a half seconds in.
+/// The trial item's line once its plan asked the owner its question, `named`, two and a half seconds in.
 fn asked() -> Value {
     json!({
         "kind": "forAPerson",
         "of": { "work": 1, "item": 1, "title": "Greet the user" },
         "since": START + 2500,
-        "now": {
-            "kind": "waits",
-            "at": "plan",
-            "on": [{
-                "kind": "call",
-                "call": 2,
-                "who": "owner",
-                "what": { "kind": "question", "who": "owner", "question": "Should the greeting name the user?" },
-                "made": START + 2500,
-                "at": null,
-            }],
-        },
+        "now": { "kind": "waits", "at": "plan", "on": [{ "kind": "answer", "question": "named" }] },
         // What it waits on the owner for, as the engine's one list of it says.
         "waits": [{
-            "key": "call-2",
+            "key": "answer-named",
             "why": "Should the greeting name the user?",
-            "ends": { "kind": "reply", "call": 2 },
+            "ends": { "kind": "answer", "question": "named", "version": NAMED },
         }],
     })
 }
@@ -60,7 +49,8 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
     failing.run = 2;
-    failing.asks = None;
+    failing.hands_in = None;
+    failing.questions = None;
     failing.took = Default::default();
     failing.fails = Some("The agent's program could not start.".to_string());
     plan.rounds.push(failing);
@@ -71,9 +61,8 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
         .as_str()
         .unwrap()
         .to_string();
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
-        post(router, "/api/v1/works/1/acts", &answer).await.0,
+        post(router, "/api/v1/works/1/acts", &named()).await.0,
         StatusCode::NO_CONTENT
     );
     // The plan's second run, entered for the answer at 3 seconds, has its round fail a second and a half later.
@@ -129,7 +118,8 @@ async fn a_request_held_open_with_no_mark_gives_a_work_that_ended_while_it_was_h
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut script = trial_script();
     // The plan asks nothing, so that nothing of the work is for a person before it merges.
-    script.flows.get_mut("trial").unwrap().rounds[0].asks = None;
+    let plan = &mut script.flows.get_mut("trial").unwrap().rounds[0];
+    (plan.hands_in, plan.questions) = (None, None);
     let running = running_scripted(Box::new(store), dir, script);
     let router = running.router.clone();
     let item = json!({

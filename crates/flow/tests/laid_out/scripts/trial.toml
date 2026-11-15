@@ -8,19 +8,30 @@ input_tokens = 3200
 cached_tokens = 14000
 output_tokens = 450
 
-[tools.ci]
-answer = "Every check passed."
+[tools.query]
+answer = '{"rows": []}'
 ms = 2500
 
-# The plan asks the owner first, and then hands in the plan.
+# The plan asks the owner first whether the greeting names the user, and waits for the answer; entered again for it, it
+# hands in the plan.
 [[flows.trial.rounds]]
 cell = "plan"
-asks = [{ question = "Should the greeting name the user?", who = "owner" }]
+hands_in = []
 
-# The build runs the CI before it hands in the code.
+[[flows.trial.rounds.questions]]
+name = "named"
+waits = true
+recommends = 1
+ask = "Should the greeting name the user?"
+options = [
+    { does = "Greet the user by name", follows = "A warmer greeting, for a user whose name is known." },
+    { does = "Greet without a name", follows = "A plainer greeting, the same for every user." },
+]
+
+# The build asks the engine's records whether the item was worked on before, and then hands in the code.
 [[flows.trial.rounds]]
 cell = "build"
-asks = [{ tool = "ci", input = "the work's branch" }]
+asks = [{ tool = "query", input = '{"sql": "select number from items"}' }]
 
 # The review objects to the first build and is content with the second.
 [[flows.trial.rounds]]

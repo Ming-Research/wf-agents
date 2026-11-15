@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use serde_json::{Value, json};
 use store::Store;
 
-use crate::{START, get_json, greeted, pass, post, running, running_scripted, trial_script};
+use crate::{START, get_json, greeted, named, pass, post, running, running_scripted, trial_script};
 
 const ACTS: &str = "/api/v1/works/1/acts";
 /// The links of the CI runs the tool and the merge's act say they run as.
@@ -37,7 +37,7 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut script = trial_script();
-    script.tools.get_mut("ci").unwrap().at = Some(CI.to_string());
+    script.tools.get_mut("query").unwrap().at = Some(CI.to_string());
     let rounds = &mut script.flows.get_mut("trial").unwrap().rounds;
     let merge = rounds.iter_mut().find(|r| r.cell == "merge").unwrap();
     merge.took.ms = Some(4000);
@@ -46,10 +46,9 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
-    assert_eq!(post(router, ACTS, &answer).await.0, StatusCode::NO_CONTENT);
+    assert_eq!(post(router, ACTS, &named()).await.0, StatusCode::NO_CONTENT);
 
-    // The build's call of the CI runs as the run it says, since it was made; the build is a cell with a call under way.
+    // The build's call of a query runs as the run it says, since it was made; the build is a cell with a call under way.
     let called = until(router, |s| s["now"]["on"][0]["what"]["kind"] == "tool").await;
     let made = called["now"]["on"][0]["made"].as_u64().unwrap();
     assert!(made > START, "{called}");
@@ -60,9 +59,9 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and
             "at": "build",
             "on": [{
                 "kind": "call",
-                "call": 5,
+                "call": 4,
                 "who": null,
-                "what": { "kind": "tool", "name": "ci", "input": "the work's branch" },
+                "what": { "kind": "tool", "name": "query", "input": r#"{"sql": "select number from items"}"# },
                 "made": made,
                 "at": CI,
             }],
@@ -111,8 +110,7 @@ async fn a_stretch_of_the_bar_nothing_ran_in_says_what_the_work_waited_for() {
     // The plan's question waits for the owner half a minute; answered, the plan's next round begins, and the work is
     // paused under it, which holds the build half a minute more.
     pass(30_000).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
-    assert_eq!(post(router, ACTS, &answer).await.0, StatusCode::NO_CONTENT);
+    assert_eq!(post(router, ACTS, &named()).await.0, StatusCode::NO_CONTENT);
     assert_eq!(
         post(router, ACTS, &json!({ "kind": "pause" })).await.0,
         StatusCode::NO_CONTENT

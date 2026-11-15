@@ -725,6 +725,58 @@ mod tests {
         assert!(!place.dir.join("ran.txt").exists(), "the command ran");
     }
 
+    // The runs the check may take as its own are those of the entries of `run_tests` that named no tests or checks, the
+    // latest first. Well under a millisecond alone; no other test holds the order of them.
+    #[test]
+    fn the_whole_runs_are_those_of_the_entries_that_named_nothing_the_latest_first() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+        let has = flow::Has {
+            sources: names(&[
+                "answer",
+                "asked",
+                "dependencies",
+                "main",
+                "session",
+                "start",
+                "head",
+                "tree",
+                "words",
+            ]),
+            acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
+            tools: names(&["query"]),
+            details: names(&["files"]),
+            ..Default::default()
+        };
+        let source = flow::read(&root.join("engineer")).expect("the flow is read");
+        let flow = flow::compile(&source, &has).expect("the flow compiles");
+        let mut work = Work::default();
+        let mut at = Vec::new();
+        for (run, entry) in [
+            (1, "{}"),
+            (2, r#"{"tests": ["a"]}"#),
+            (3, r#"{"checks": ["lint"]}"#),
+            (4, ""),
+        ] {
+            let seq = work.tick();
+            work.records.finished.push(decide::Finished {
+                run: decide::RunId(run),
+                at: seq,
+                writes: vec![decide::Write {
+                    block: "run_tests".into(),
+                    meaning_unchanged: false,
+                    empty: false,
+                    value: None,
+                }],
+                dealt_with: Some(Vec::new()),
+                waits_for: None,
+            });
+            work.contents.insert(("run_tests".into(), seq), entry.to_string());
+            at.push(seq);
+        }
+        assert_eq!(whole(&flow, &work), [Asking::Entry(at[3]), Asking::Entry(at[0])]);
+    }
+
     // An entry names its commit as a string; one that is no string is no entry, said by its reading. Well under a
     // millisecond alone; no other test holds the reading of an entry's commit.
     #[test]
