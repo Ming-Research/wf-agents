@@ -143,9 +143,9 @@
   user-select: all;
 }
 
-/* The accent: the presets as the page's switch, each choice with a mark of the accent it gives, drawn as a cell's mark
-   is, and a colour of the owner's own beside them, which looks as a choice of the switch does: taken, on the accent's
-   tint, in its text, ringed in it. */
+/* The accent: the presets as the page's switch, each choice with a mark of the accent it gives in the theme in force,
+   drawn as a cell's mark is, and a colour of the owner's own beside them, which looks as a choice of the switch does:
+   taken, on the accent's tint, in its text, ringed in it. */
 .accent-pick {
   display: flex;
   flex-wrap: wrap;
@@ -164,6 +164,7 @@
   height: var(--space-8);
   border-radius: var(--space-2);
   background: var(--accent-mark);
+  background: light-dark(var(--accent-mark), var(--accent-mark-dark));
 }
 
 .accent-own {
@@ -176,7 +177,6 @@
   color: var(--muted);
   font-size: var(--size-small);
   cursor: pointer;
-  transition: background-color var(--hover-time);
 }
 
 .accent-own:hover {

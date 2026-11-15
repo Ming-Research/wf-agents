@@ -30,7 +30,7 @@
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
-import { accentNow, turning } from '../accent';
+import { accentNow, onAccent, turning } from '../accent';
 import { MARK, MARKS } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { STATE, stateOf } from '../works/words';
@@ -180,9 +180,8 @@ const between = (a: string, b: string, k: number) => `#${mix(a, b, k).toString(1
 
 /// The scene's colours as the page's theme has them. Those the page's tokens came from are read from the
 /// tokens, which in light are the console's own; the console's other purples are turned to the accent in force, as the
-/// accent's own tones are (accent.ts), read as the scene is made and as the theme changes: the accent is picked in the
-/// Settings view, where the console is not drawn. In dark, the colours the tokens have no step for are worked out from
-/// the tokens and those purples, keeping their relations to the card and the ground, as the console had no dark ground.
+/// accent's own tones are (accent.ts). In dark, the colours the tokens have no step for are worked out from the tokens
+/// and those purples, keeping their relations to the card and the ground, as the console had no dark ground.
 export function themed(): typeof LIGHT {
   const turn = turning(accentNow());
   const own = {
@@ -608,9 +607,9 @@ export class SnapScene {
   private gone = false;
   /// The items as last given to `show`, drawn again in the new colours when the theme changes.
   private roots: Shown[] | null = null;
-  /// What follows the size of what holds the canvas, and the theme; let go when the scene is.
+  /// What follows the size of what holds the canvas, the theme and the accent; let go when the scene is.
   private sized: ResizeObserver | null = null;
-  private themes: { media: MediaQueryList; root: MutationObserver } | null = null;
+  private themes: { media: MediaQueryList; root: MutationObserver; accent: () => void } | null = null;
 
   async mount(host: HTMLElement): Promise<void> {
     Object.assign(PALETTE, themed());
@@ -631,12 +630,12 @@ export class SnapScene {
     // dragged, not only when the window does.
     this.sized = new ResizeObserver(() => this.app.queueResize());
     this.sized.observe(host);
-    // Light or dark, the system's or the page's switch's: drawn again in the theme's colours.
+    // Light or dark, the system's or the page's switch's, and the accent picked: drawn again in the theme's colours.
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const root = new MutationObserver(this.retheme);
     root.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     media.addEventListener('change', this.retheme);
-    this.themes = { media, root };
+    this.themes = { media, root, accent: onAccent(this.retheme) };
     this.world.addChild(this.links, this.layer, this.marks);
     this.app.stage.addChild(this.world, this.edges, this.map);
     this.map.position.set(MAP_INSET, MAP_INSET);
@@ -665,6 +664,7 @@ export class SnapScene {
     this.sized?.disconnect();
     this.themes?.root.disconnect();
     this.themes?.media.removeEventListener('change', this.retheme);
+    this.themes?.accent();
     if (this.ready) this.app.destroy(true, { children: true, texture: true });
   }
 

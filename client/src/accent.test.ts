@@ -137,9 +137,12 @@ describe('a colour refused as the accent', () => {
     expect(refusal(LIGHT.green)).toBe('green');
     expect(refusal(LIGHT['track-tool'])).toBe('tools');
     expect(refusal('#0ea5e9')).toBe('tools');
+    expect(refusal('#ff00ff')).toBe('red');
     expect(refusal('#64748b')).toBe('grey');
     expect(refusal('#808080')).toBe('grey');
     expect(refusal('#ffffff')).toBe('grey');
+    // A near white or a near black has a hue no more than rounding: grey, however little chroma sRGB holds there.
+    for (const near of ['#fefeff', '#fafaff', '#eeeeff', '#000001', '#0a0a0c']) expect(refusal(near), near).toBe('grey');
     // Pale or dark, a colour of a free hue is taken by its hue and strength.
     expect(refusal('#e9d5ff')).toBeNull();
     expect(refusal('#1e3a8a')).toBeNull();
@@ -183,13 +186,34 @@ describe('the tokens', () => {
     const neutral = ['ground', 'card', 'text', 'muted', 'line', 'step', 'window-shadow', 'on-colour', 'track-ground', 'track-gap'];
     const meanings = Object.values(MEANINGS).flat() as string[];
     const placed = new Set([...accent, ...neutral, 'violet', ...meanings]);
-    // A token is a colour where its value is one, or is worked out from one.
-    const isColour = (v: string) => /#[0-9a-f]{3,8}\b|rgb\(|color-mix\(|var\(--(accent|running|own-)/i.test(v);
-    for (const block of [LIGHT, DARK]) {
-      const unplaced = Object.entries(block)
-        .filter(([k, v]) => isColour(v) && !placed.has(k))
+    // A token is a colour where its value is one, in any of CSS's notations, or names a token that is one.
+    const notation = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\(/i;
+    const isColour = (block: Record<string, string>, v: string, depth = 0): boolean =>
+      notation.test(v) ||
+      (depth < 8 &&
+        [...v.matchAll(/var\(--([a-z0-9-]+)/g)].some(([, n]) => {
+          const named = block[n] ?? LIGHT[n];
+          return named !== undefined && isColour(block, named, depth + 1);
+        }));
+    const unplaced = (block: Record<string, string>) =>
+      Object.entries(block)
+        .filter(([k, v]) => isColour(block, v) && !placed.has(k))
         .map(([k]) => k);
-      expect(unplaced).toEqual([]);
+    // A colour of a new meaning, in any notation, or one that names the accent or a tone of it, is one the check
+    // finds; a size is none.
+    expect(
+      unplaced({
+        ...LIGHT,
+        pink: '#ff69b4',
+        sky: 'oklch(0.7 0.1 230)',
+        'chosen-line': 'var(--accent)',
+        'done-line': 'var(--mark-done)',
+        gap: '4px',
+      }),
+    ).toEqual(['pink', 'sky', 'chosen-line', 'done-line']);
+    for (const block of [LIGHT, DARK]) {
+      expect(Object.keys(block).length).toBeGreaterThan(20);
+      expect(unplaced(block)).toEqual([]);
     }
   });
 });

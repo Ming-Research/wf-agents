@@ -112,11 +112,16 @@ const MEANING_HUES: [Meaning, number][] = (Object.keys(MEANINGS) as Meaning[]).f
   THEMES.flatMap((theme) => MEANINGS[m].map((name): [Meaning, number] => [m, lchOf(colourOf(theme, name)).h])),
 );
 
-/// How strong a colour is: its chroma as a part of the most sRGB holds at its lightness and hue.
+/// The lightness, from the darkest to the lightest, at which a colour's strength is measured: towards black and white
+/// sRGB holds almost no chroma, so that a tinge of a near white or a near black, its hue no more than rounding, would
+/// count as a strong colour. By judgment: within them a pale or a dark colour of a hue is measured as itself.
+const MEASURED = [0.25, 0.85] as const;
+
+/// How strong a colour is: its chroma as a part of the most sRGB holds at its hue and its lightness, the lightness
+/// taken within `MEASURED`.
 export function strength(colour: string): number {
   const { l, c, h } = lchOf(colour);
-  const most = widest(l, h);
-  return most === 0 ? 0 : c / most;
+  return c / widest(Math.min(MEASURED[1], Math.max(MEASURED[0], l)), h);
 }
 
 /// How a colour turns the purple: by how many degrees of hue, and how much stronger or weaker.
@@ -189,7 +194,7 @@ export function refusal(colour: string): Refusal | null {
 }
 
 /// The accents offered beside a colour of the owner's own, each the accent it gives in light, at the purple's strength,
-/// from blue to purple; none of them near a colour of a meaning.
+/// from blue to purple, the hues free of the meanings; none of them near a colour of a meaning.
 export const PRESETS: { name: string; colour: string }[] = [
   { name: 'Blue', colour: '#1a77f1' },
   { name: 'Indigo', colour: '#616bf6' },
@@ -269,12 +274,15 @@ export function pickAccent(colour: string | null): Refusal | null {
 /// The accent in force now.
 export const accentNow = (): string | null => state.colour;
 
-function subscribe(listener: () => void): () => void {
+/// Tells `listener` each time the accent changes, until the function it gives back is called.
+export function onAccent(listener: () => void): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 /// The accent in force, and a kept one refused now, followed as they change.
 export function useAccent(): Accent {
-  return useSyncExternalStore(subscribe, () => state);
+  return useSyncExternalStore(onAccent, () => state);
 }

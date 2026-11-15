@@ -95,7 +95,7 @@
      for the owner or because something failed, or a work not done within an hour; the way back; a call under way. A
      mark or a tag takes the colour itself; small text takes its text step, a darker step where the colour does not
      read on white; a fill takes its tint. Only running follows a colour the owner picks: the others keep theirs, and a
-     colour too near one of them is not taken (accent.ts). */
+     colour too near one the accent keeps clear of (accent.ts) is not taken. */
   --green: #2f9e6e;
   --orange: #f5840c;
   --running: var(--accent);
@@ -110,9 +110,10 @@
   --red-text: #c53030;
   --on-colour: #ffffff;
 
-  /* Where a work's time went: a model's stretches in the accent, the tools' in a teal no meaning has, those nothing
-     ran in a light grey, on a muted ground. A stretch nothing ran in takes the colour of what the work waited for:
-     the owner's red, a pause's muted grey, and this light grey for the items it depends on as for anything else. */
+  /* Where a work's time went: a model's stretches in the accent, the tools' in a teal of their own, which no other
+     meaning has and the accent keeps clear of, those nothing ran in a light grey, on a muted ground. A stretch nothing
+     ran in takes the colour of what the work waited for: the owner's red, a pause's muted grey, and this light grey for
+     the items it depends on as for anything else. */
   --track-ground: #818b981f;
   --track-model: var(--accent);
   --track-tool: #14a3a8;

@@ -16,7 +16,7 @@ afterEach(() => {
   for (const u of unmounts) u();
   unmounts = [];
   document.body.innerHTML = '';
-  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   pickAccent(null);
   localStorage.clear();
   document.documentElement.removeAttribute('style');
@@ -287,11 +287,24 @@ describe("the Settings view's accent", () => {
     const page = draw(settingsSource().source);
     await settle();
     const parts = [...page.querySelectorAll('.panel-part-label')].map((h) => h.textContent);
-    expect(parts.at(-1)).toBe('Accent');
+    expect(parts.at(-1)).toBe('Accent, kept in this browser');
     expect(choices(page).map((b) => b.textContent)).toEqual(['Blue', 'Indigo', 'Violet', 'Purple']);
     expect(pressed(page)).toEqual(['Violet']);
     expect(ownBox(page).value).toBe(VIOLET);
     expect(onRoot()).toEqual({});
+    // Each preset's mark is the accent it gives, in light and in dark.
+    const marks = choices(page).map((b) => b.querySelector('.accent-mark') as HTMLElement);
+    expect(marks.map((m) => [m.style.getPropertyValue('--accent-mark'), m.style.getPropertyValue('--accent-mark-dark')])).toEqual(
+      PRESETS.map((p) => [tones(p.colour).light.accent, tones(p.colour).dark.accent]),
+    );
+
+    // While the file is read, the part waits with the rest, so that it does not stand first and then move.
+    const reading = settingsSource();
+    reading.source.loadSettings = () => new Promise<SettingsPage>(() => undefined);
+    const waiting = draw(reading.source);
+    await settle();
+    expect(waiting.querySelector('.message')?.textContent).toBe('Reading the settings');
+    expect(waiting.querySelector('.accent-pick')).toBeNull();
 
     const s = settingsSource();
     s.source.loadSettings = async () => {
@@ -350,11 +363,11 @@ describe("the Settings view's accent", () => {
     expect(localStorage.getItem('wf-agents.accent')).toBe('#1e3a8a');
     expect(ownBox(page).value).toBe('#1e3a8a');
     expect(alerts(page)).toEqual([
-      '#ec4899 is too near the red of a problem, which keeps its meaning: the accent stays as it was, and takes a colour from blue to magenta.',
+      '#ec4899 is too near the red of a problem, which keeps its meaning: the accent stays as it was, and takes a colour from blue to purple.',
     ]);
     pickOwn(page, '#808080');
     expect(alerts(page)).toEqual([
-      '#808080 is too grey to stand apart from the muted words and a pause: the accent stays as it was, and takes a colour from blue to magenta.',
+      '#808080 is too grey to stand apart from the muted words and a pause: the accent stays as it was, and takes a colour from blue to purple.',
     ]);
 
     act(() => choice(page, 'Indigo').click());
@@ -368,7 +381,10 @@ describe("the Settings view's accent", () => {
     expect(localStorage.getItem('wf-agents.accent')).toBeNull();
   });
 
-  it('takes a kept value that is not a colour as none, and says of a kept colour refused now why the page is in its violet', async () => {
+  it('takes a kept value that is not a colour as none, one in capitals as itself, and says of a kept colour refused now why the page is in its violet', async () => {
+    localStorage.setItem('wf-agents.accent', PRESETS[1].colour.toUpperCase());
+    startAccent();
+    expect(onRoot()).toEqual(given(PRESETS[1].colour));
     localStorage.setItem('wf-agents.accent', 'blue');
     startAccent();
     expect(onRoot()).toEqual({});
@@ -393,18 +409,17 @@ describe("the Settings view's accent", () => {
   });
 
   it('draws the page in a colour picked where the browser keeps nothing, and throws nothing', async () => {
-    for (const name of ['getItem', 'setItem', 'removeItem'] as const) {
-      vi.spyOn(Storage.prototype, name).mockImplementation(() => {
-        throw new Error('the browser keeps nothing here');
-      });
-    }
+    const refuse = () => {
+      throw new Error('the browser keeps nothing here');
+    };
+    vi.stubGlobal('localStorage', { getItem: refuse, setItem: refuse, removeItem: refuse, clear: refuse, key: refuse, length: 0 });
     startAccent();
     const page = draw(settingsSource().source);
     await settle();
     act(() => choice(page, 'Purple').click());
     expect(onRoot()).toEqual(given(PRESETS[3].colour));
     expect(pressed(page)).toEqual(['Purple']);
-    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     expect(localStorage.getItem('wf-agents.accent')).toBeNull();
   });
 });

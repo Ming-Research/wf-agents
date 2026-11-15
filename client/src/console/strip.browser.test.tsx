@@ -1,7 +1,7 @@
 // The strip on a console's card, in a real browser (Chromium): the canvas draws the works page's marks, so each mark it
 // drew, as the scene describes it (`drawnStrip`), is held against the works page's own `Strip` laid out by the browser
-// in the same tokens: its size, ring, corners, fill and place, state by state, in light and in dark, and in an accent
-// picked before the scene was made. And a flow with more cells than the card has room for keeps the marks' size.
+// in the same tokens: its size, ring, corners, fill and place, state by state, in light and in dark, and drawn again,
+// with no reload, in an accent picked. And a flow with more cells than the card has room for keeps the marks' size.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -146,15 +146,14 @@ describe("a card's strip", () => {
     expect(drawn(dark)).toEqual(laidOut(cells));
   });
 
-  it('draws the marks in an accent picked before the scene was made, as the works page draws them, in light and in dark', async () => {
+  it('draws the marks again in an accent picked, with no reload, as the works page draws them, in light and in dark', async () => {
     const cells = cellsOf(STATES);
     const blue = PRESETS[0].colour;
-    expect(pickAccent(blue)).toBeNull();
-    // The accent is picked in the Settings view, where no console is drawn: the console comes after it.
-    scene.destroy();
-    scene = new SnapScene();
-    await scene.mount(host);
     scene.show([working(1, cells)]);
+    const before = scene.drawnStrip(1) as DrawnStrip;
+    expect(pickAccent(blue)).toBeNull();
+    await expect.poll(() => scene.drawnStrip(1)).not.toBe(before);
+    await frame();
     const light = scene.drawnStrip(1) as DrawnStrip;
     expect(drawn(light)).toEqual(laidOut(cells));
     const done = light.marks.find((m) => m.state === 'done');
