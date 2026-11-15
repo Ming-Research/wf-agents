@@ -258,7 +258,7 @@ pub async fn sweep(root: &Path, now: std::time::SystemTime) {
 
 /// A result as it is given: its end of whitespace left off, and cut at the most bytes the tool's words allow, at a
 /// whole character, with the words that follow a cut one saying how much was given, how many bytes the record holds,
-/// the `file` that holds it whole and the days that file is kept; as it is where they allow it all.
+/// and the `file` that holds it whole; as it is where they allow it all.
 fn cut(result: &str, given: Option<&ResultGiven>, file: &str) -> String {
     let Some(given) = given.filter(|g| result.len() > g.bound) else {
         return result.trim_end().to_string();
@@ -267,11 +267,8 @@ fn cut(result: &str, given: Option<&ResultGiven>, file: &str) -> String {
     while !result.is_char_boundary(at) {
         at -= 1;
     }
-    let (kept, size, days) = (at.to_string(), result.len().to_string(), KEPT_DAYS.to_string());
-    let words = fill(
-        &given.cut,
-        &[("given", &kept), ("size", &size), ("file", file), ("days", &days)],
-    );
+    let (kept, size) = (at.to_string(), result.len().to_string());
+    let words = fill(&given.cut, &[("given", &kept), ("size", &size), ("file", file)]);
     format!("{}\n\n{words}", &result[..at])
 }
 
@@ -420,17 +417,14 @@ mod tests {
     fn a_result_longer_than_its_tool_s_words_allow_is_given_cut_with_its_size_its_file_and_one_within_it_whole() {
         let words = ResultGiven {
             bound: 40,
-            cut: "(Cut: {given} of {size} bytes; whole in {file}, kept {days} days.)".to_string(),
+            cut: "(Cut: {given} of {size} bytes; whole in {file}.)".to_string(),
         };
         let long = format!("{}é{}", "a".repeat(39), "b".repeat(60));
         // The 40th byte is inside a character, so the cut is before it.
         let size = long.len();
         assert_eq!(
             cut(&long, Some(&words), "/t/1.txt"),
-            format!(
-                "{}\n\n(Cut: 39 of {size} bytes; whole in /t/1.txt, kept {KEPT_DAYS} days.)",
-                "a".repeat(39)
-            )
+            format!("{}\n\n(Cut: 39 of {size} bytes; whole in /t/1.txt.)", "a".repeat(39))
         );
         let short = "b".repeat(40);
         assert_eq!(cut(&short, Some(&words), "/t/1.txt"), short);

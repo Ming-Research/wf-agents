@@ -4,8 +4,7 @@ words = '''
   committed is not run. Ask as `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says
   and checks among {named_checks}; what is named is run alone, by the project's fast workflow. Name none to run the
   project's full workflows. It gives each test, passed or failed, with the time it took and what a failed one said,
-  and each job, how it ended and its wall time: the tests that did not pass first, then the jobs, then the tests that
-  passed. A result too long to give whole is given cut, and says in which file its whole is.'''
+  and each job, how it ended and its wall time.'''
 
 # What it says in place of `words` where the host is the local repository.
 words_local = '''
@@ -23,10 +22,10 @@ additionalProperties = false
 
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is
-# whole, `{file}` the file that holds it whole, `{days}` the days the engine keeps that file after it last wrote it.
+# whole, `{file}` the file that holds it whole.
 [given]
 bound = 20000
-cut = "(The result is cut here: {given} of its {size} bytes are given. The rest is in the file {file}, which holds the whole result and which you can read with your own tools; the engine removes the file {days} days after it last wrote it.)"
+cut = "(The result is cut here: {given} of its {size} bytes are given. The whole result is in the file {file}.)"
 
 # What a result says of what a workflow found, whatever the host. A workflow reports each test as JUnit XML, and the
 # engine reads no log to guess a result. `{...}` are filled in a run.

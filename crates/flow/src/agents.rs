@@ -817,7 +817,7 @@ pub struct ResultGiven {
     /// The most bytes of a result a round is given.
     pub bound: usize,
     /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole, `{file}` the file
-    /// that holds it whole, `{days}` the days that file is kept.
+    /// that holds it whole.
     pub cut: String,
 }
 
