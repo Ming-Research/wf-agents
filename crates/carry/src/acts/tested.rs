@@ -44,13 +44,13 @@ pub(crate) async fn act(
     for entry in &entries {
         let input = (work.contents.get(&(entry.record.clone(), entry.at))).map_or("", String::as_str);
         let said = match named(input) {
-            Err(why) => could_not(&why),
+            Err(why) => could_not(words, &why),
             Ok(named) => match run(host, project, branch, &named, Asking::Entry(entry.at), stop).await {
                 Ok(Some(said)) => said,
                 Ok(None) => return Ok(None),
                 // A host out of reach is no answer to the entry: the round waits with every act for the host.
                 Err(failed) if failed.kind.is_none() && failing::network(&failed.why) => return Err(failed),
-                Err(failed) => could_not(&failed.why),
+                Err(failed) => could_not(words, &failed.why),
             },
         };
         results.push(Handed {
@@ -97,9 +97,10 @@ async fn cancel(host: &impl Host, branch: &Branch<'_>, replaced: &[Asking], word
     )]
 }
 
-/// What a result says where the tests could not be run, said once: the cell may ask again.
-fn could_not(why: &str) -> String {
-    format!("The check could not be run: {why}")
+/// What a result says where the tests could not be run, said once, in the words of the act's file (`could_not`): the
+/// cell may ask again.
+fn could_not(words: &RunTests, why: &str) -> String {
+    flow::agents::fill(&words.could_not, &[("why", why)])
 }
 
 /// Runs the tests and checks as the host does, unless the work's branch does not merge into main's head as the host
@@ -192,7 +193,7 @@ mod tests {
         {
             Ok(Some(said)) => said,
             Ok(None) => panic!("nothing stopped it"),
-            Err(failed) => could_not(&failed.why),
+            Err(failed) => could_not(&crate::acts::words().run_tests, &failed.why),
         }
     }
 
@@ -323,6 +324,9 @@ mod tests {
         assert_eq!(host.askings(), [Asking::Entry(decide::Seq(1)); 2]);
     }
 
+    // What the host could not cancel of what the entries a newer one replaced asked it for is kept as one observation,
+    // in the words of the act's file, and nothing is kept where it cancelled or where nothing was replaced. Well under
+    // a millisecond alone, its repository made and never run; no other test holds what a failed cancel leaves.
     #[tokio::test]
     async fn what_the_host_could_not_cancel_is_kept_in_the_words_of_the_acts_file_and_nothing_else_is() {
         let repo = Repo::new("true");
@@ -358,7 +362,9 @@ mod tests {
         let host = Fake::new("main");
         let said = said_on(&host, &repo, &Named::default()).await;
         let why = crate::host::fake::NO_TOOLS;
-        assert_eq!(said, format!("The check could not be run: {why}"));
+        let words = crate::acts::words().run_tests.could_not;
+        assert_eq!(said, flow::agents::fill(&words, &[("why", why)]));
+        assert!(said.ends_with(why) && !said.contains('{'), "{said}");
         assert_eq!(host.asked(), [Asked::RunTests(Named::default())]);
     }
 }

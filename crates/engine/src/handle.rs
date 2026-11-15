@@ -299,8 +299,8 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             }
             let at = work.tick();
             work.records.let_go.push(LetGo { cell: cell.clone(), at });
-            // A run of the cell that rests at its limit waits for the owner's word, which this is: the round is told so in
-            // the words the message gives a call at a limit, and the result itself says nothing more.
+            // A run of the cell that rests at its limit waits for the owner's word, which this is: the round is told so
+            // in the words the message gives a call at a limit, and the result itself says nothing more.
             for call in at_limit(work, &cell) {
                 let at = work.tick();
                 work.records.done.push(Done { call, at });

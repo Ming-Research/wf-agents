@@ -3,20 +3,21 @@
 //! the same for every cell of the line and every session of it, so that it holds only what the line shares (principle
 //! the-system-prompt-holds-what-a-line-shares).
 //!
-//! The prompt is made as a session begins, the project's files read from the work's worktree, where the agent reads
-//! the project, and kept with the session in the data directory: every later round of the session is given the kept
-//! one ([`of_session`]), so that a change of the files by the work's own commits or by main taken in reaches a session
-//! only when it is reopened, as a new session. The form of return the program is given with every call is the system
-//! prompt sent another way, and is kept beside it by the same means ([`Begun`]): a flow installed since reaches a
-//! session only as a new one (principle one-form-of-return-for-a-session). A file of the project is never read through a symbolic link
-//! ([`read_within`]). The engine fills three places of the texts ([`Filling`]): `{your_line}`, what the line may do in
-//! the worktree ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
-//! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks a cell may name in `run_tests`, in the words the
-//! act's file gives for how the installation runs the project's CI, which the words of that block a message gives a
-//! cell that writes it hold (crate `context`). Each setting the texts name, but in a file of the project, is given with
-//! its value beside it: the project's from its `project.toml`, and the installation's that `agents/installation.toml`
-//! names, from these settings ([`named`]); so is each setting a message names, in the cell's task, in what a trigger
-//! says the cell does for it, and in the words of what the cell returns (crate `context`), with these settings.
+//! The prompt is made as a session begins, the project's files read from the work's worktree, where the agent reads the
+//! project, and kept with the session in the data directory: every later round of the session is given the kept one
+//! ([`of_session`]), so that a change of the files by the work's own commits or by main taken in reaches a session only
+//! when it is reopened, as a new session. The form of return the program is given with every call is the system prompt
+//! sent another way, and is kept beside it by the same means ([`Begun`]): a flow installed since reaches a session only
+//! as a new one (principle one-form-of-return-for-a-session). A file of the project is never read through a symbolic
+//! link ([`read_within`]). The engine fills three places of the texts ([`Filling`]): `{your_line}`, what the line may
+//! do in the worktree ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's
+//! records hold, as [`crate::store`] gives it; and `{named_checks}`, the checks a cell may name in `run_tests`, in the
+//! words the act's file gives for how the installation runs the project's CI, which the words of that block a message
+//! gives a cell that writes it hold (crate `context`). Each setting the texts name, but in a file of the project, is
+//! given with its value beside it: the project's from its `project.toml`, and the installation's that
+//! `agents/installation.toml` names, from these settings ([`named`]); so is each setting a message names, in the cell's
+//! task, in what a trigger says the cell does for it, and in the words of what the cell returns (crate `context`), with
+//! these settings.
 //!
 //! As the engine starts, every text sent to the agents is checked, each fault said with the file or the thing of the
 //! flow that holds the text, all of them at once ([`faults`]): a place the engine does not fill, a setting named that
@@ -280,18 +281,14 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
             ));
         }
     }
-    // A block's shape is held to as a return is read in the words the engine checks alone, and each place of what its
-    // writer is told is filled as a message fills it, for every host a project may have: any other would hold a return
-    // to less than the block's file says, or reach the agent as written.
+    // Each place of what a block's writer is told is filled as a message fills it, for every host a project may have:
+    // any other would reach the agent as written. A block's shape, which the flow alone decides, its compile checks.
     let filled: Vec<(Hosted, std::collections::BTreeMap<String, String>)> = (([Hosted::GitHub, Hosted::Local])
         .into_iter())
     .map(|hosted| (hosted, places(&filling, beside, hosted)))
     .collect();
     for (name, block) in &flow.blocks {
         let name = name.as_str();
-        for word in block.shape.as_ref().map(flow::form::unchecked).unwrap_or_default() {
-            add(format!("block {name}, its shape: the engine holds no return to {word}"));
-        }
         let pieces = block.words.as_deref().map(flow::system::with_slots).unwrap_or_default();
         for piece in pieces {
             let flow::system::Piece::Slot { name: place } = piece else {

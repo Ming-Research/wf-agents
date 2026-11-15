@@ -587,10 +587,11 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
     }
 }
 
-/// Whether the return leaves its cell waiting, so that it owes nothing else: it asks for calls, writes a record in which
-/// its cell asks for what takes time, or asks a question that waits for the owner's answer; or its round was entered
-/// for the owner while its cell waited ([`Told::waits`]). Such a return may leave out the blocks its cell must write and
-/// deal with nothing, since the work stops at the cell until what it waits for comes (decision a-wait-holds-its-cell).
+/// Whether the return leaves its cell waiting, so that it owes nothing else: it asks for calls, writes a record in
+/// which its cell asks for what takes time, or asks a question that waits for the owner's answer; or its round was
+/// entered for the owner while its cell waited ([`Told::waits`]). Such a return may leave out the blocks its cell must
+/// write and deal with nothing, since the work stops at the cell until what it waits for comes (decision
+/// a-wait-holds-its-cell).
 fn leaves_waiting(came: &Came<'_>, requires: Requires) -> bool {
     came.calls > 0
         || came.waits
@@ -599,13 +600,13 @@ fn leaves_waiting(came: &Came<'_>, requires: Requires) -> bool {
 }
 
 /// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
-/// first what was found as it was read, in the order found; then what it says it dealt with, in its order; then one
-/// for each write, in the order of the writes; then whether it asks for calls beside doing the cell's work; then, of a
+/// first what was found as it was read, in the order found; then what it says it dealt with, in its order; then one for
+/// each write, in the order of the writes; then whether it asks for calls beside doing the cell's work; then, of a
 /// return that does not leave its cell waiting ([`leaves_waiting`]), whether it deals with nothing while something ran
 /// its round, and each block the cell must hand in and did not, in the order the cell lists them, but one found written
 /// in a shape it does not take; then each question it writes that it may not, in the order it wrote them; then, of a
-/// return that does not leave its cell waiting, each block an act wrote that it deals with and leaves unanswered, in the
-/// order it dealt with them.
+/// return that does not leave its cell waiting, each block an act wrote that it deals with and leaves unanswered, in
+/// the order it dealt with them.
 fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     let Came {
         dealt_with,

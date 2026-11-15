@@ -7,6 +7,37 @@ use crate::support::{at, compiled, edit, faults, faults_with, has, unreadable, v
 
 const PLAN_INPUTS: &str = r#"inputs = ["request", "opinions"]"#;
 
+// A block's shape is written in the words the engine holds a return to as it reads it, in the forms it reads them in:
+// any other is a fault of the flow, at the block's shape. Well under a millisecond alone; no other test holds a flow to
+// the shapes the engine checks.
+#[test]
+fn a_block_s_shape_in_a_word_the_engine_does_not_check_is_a_fault() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.design]",
+        "[blocks.design]\nshape = { type = [\"string\", \"null\"], minLength = 1 }",
+    );
+    let what = |word: &str| ShapeNotChecked {
+        block: "design".to_string(),
+        word: word.to_string(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "blocks.design.shape", what("`type` written as an array")),
+            at(FLOW_FILE, "blocks.design.shape", what("`minLength`")),
+        ]
+    );
+    let checked = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.design]",
+        "[blocks.design]\nshape = { type = \"string\" }",
+    );
+    assert_eq!(faults(&checked), []);
+}
+
 #[test]
 fn every_block_a_cell_reads_or_writes_is_declared() {
     let source = edit(

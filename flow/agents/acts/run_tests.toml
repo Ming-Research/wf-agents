@@ -11,6 +11,10 @@ as_a_tool = "`{name}` is no tool now: ask for the tests by writing `{name}` in `
 # host's words. The entries are run all the same.
 not_cancelled = "What the replaced entries of `run_tests` ({entries}) asked the host for could not be cancelled: {why}"
 
+# What a result says where the tests an entry asks for could not be run, said once, so that the cell may ask again:
+# `{why}` why, as the host or the reading of the entry says it.
+could_not = "The check could not be run: {why}"
+
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is
 # whole, `{file}` the file that holds it whole.

@@ -4,6 +4,7 @@
 
 as_a_tool = "`{name}` is a record now."
 not_cancelled = "Not cancelled: {entries}: {why}"
+could_not = "Not run: {why}"
 
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is

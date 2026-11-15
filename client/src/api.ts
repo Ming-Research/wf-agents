@@ -244,6 +244,8 @@ export type What =
   | { kind: 'asksAndCannotBeSpokenTo'; block: string }
   /// The cell writes a block that runs the cell that runs the tests, and no block of the result runs it.
   | { kind: 'asksWithNoResult'; block: string }
+  /// The block's shape is written in a word, or a form of one, that the engine holds no return to.
+  | { kind: 'shapeNotChecked'; block: string; word: string }
   /// The trigger says what happened by a place the engine does not fill.
   | { kind: 'unknownDetail'; detail: string }
   /// A trigger of an agent's cell has its agent read a datum that the cell's context does not hold.

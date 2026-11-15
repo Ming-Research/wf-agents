@@ -474,8 +474,8 @@ impl Explorer<'_> {
             );
             return false;
         };
-        // The act that runs the tests the cells ask for hands in the result of each entry it gives, as the asking cell's
-        // own block, and nothing else.
+        // The act that runs the tests the cells ask for hands in the result of each entry it gives, as the asking
+        // cell's own block, and nothing else.
         let results: Option<Vec<BlockId>> = (m.tests == Some(i)).then(|| {
             (decide::asked_of(self.flow(), &s.world.records, cell).into_iter())
                 .map(|entry| entry.result)

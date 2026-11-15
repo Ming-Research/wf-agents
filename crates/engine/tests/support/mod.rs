@@ -83,8 +83,8 @@ pub struct Seen {
 /// A run is held to what its cell must write where its return asked for no call, however much of what ran its round it
 /// dealt with (decision a-return-hands-in-what-its-cell-must-every-time). A return with a question that waits is not
 /// held either; the histories that check this give no cell that must write a question to ask. Nor is a return that asks
-/// for tests in a record its cell asks in, which leaves the cell waiting for the result, nor a run entered while its cell
-/// waited ([`waited`], [`waited_for_a_result`]): each owes nothing else (decision a-wait-holds-its-cell).
+/// for tests in a record its cell asks in, which leaves the cell waiting for the result, nor a run entered while its
+/// cell waited ([`waited`], [`waited_for_a_result`]): each owes nothing else (decision a-wait-holds-its-cell).
 pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
     for finished in &records.finished {
         let started = (records.started.iter())
@@ -336,8 +336,8 @@ impl Driver {
                     }
                 }
                 self.paused = decide::paused(&self.work.records);
-                // A call the work has its result of now, as the owner's letting a cell go on answers its run's call at a
-                // limit, is no longer to be done.
+                // A call the work has its result of now, as the owner's letting a cell go on answers its run's call at
+                // a limit, is no longer to be done.
                 let done = &self.work.records.done;
                 self.held
                     .retain(|e| !matches!(e, Effect::Call { call, .. } if done.iter().any(|d| d.call == *call)));
@@ -419,8 +419,8 @@ impl Driver {
         let mut pending = pending(&self.flow, &self.work);
         pending.sort_by_key(key);
         assert_eq!(pending, self.held, "what is pending is not what the driver holds");
-        // While a cell waits for the result of what it asked for, no round of a later cell is under way but one of a cell
-        // that gives it (decision a-wait-holds-its-cell).
+        // While a cell waits for the result of what it asked for, no round of a later cell is under way but one of a
+        // cell that gives it (decision a-wait-holds-its-cell).
         let now = Seq(u64::MAX);
         let reading = reading::Reading::new(r);
         for effect in &pending {

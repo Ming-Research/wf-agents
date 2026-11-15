@@ -345,8 +345,8 @@ fn shape_of(text: &str) -> flow::Shape {
 
 // A value is of a shape where it is of the type it says, each property of the shape it gives with those it requires and
 // no other where it allows none, each item of the shape it gives, of one of the shapes `anyOf` gives, and one of the
-// values `enum` gives; as the record of the questions and a choice are written. Well under a millisecond alone; no other
-// test holds a value to a shape.
+// values `enum` gives; as the record of the questions and a choice are written. Well under a millisecond alone; no
+// other test holds a value to a shape.
 #[test]
 fn a_value_is_of_a_shape_by_each_word_the_shape_is_written_in() {
     let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/data/q_and_a.toml"))
@@ -379,12 +379,16 @@ fn a_value_is_of_a_shape_by_each_word_the_shape_is_written_in() {
     assert!(!form::fits(&json!({"why": "it holds"}), &choice));
     let open = shape_of("type = \"object\"\nadditionalProperties = { type = \"integer\" }\n");
     assert!(form::fits(&json!({"a": 1, "b": 2}), &open));
+    assert!(
+        form::fits(&json!({"a": 1.0}), &open),
+        "a whole number written as a float"
+    );
     assert!(!form::fits(&json!({"a": 1.5}), &open));
 }
 
-// What of a shape the engine holds no return to is found at every depth: a word it does not check, and a type it does
-// not know; a shape in the words it checks has none. Well under a millisecond alone; no other test holds the words of a
-// shape to those the engine checks.
+// What of a shape the engine holds no return to as it says is found at every depth: a word it does not check, a word it
+// checks written in a form it does not read, and a type it does not know; a shape in the words it checks has none.
+// Well under a millisecond alone; no other test holds the words of a shape to those the engine checks.
 #[test]
 fn a_word_of_a_shape_the_engine_does_not_check_is_found_at_any_depth() {
     let checked = shape_of(
@@ -399,5 +403,25 @@ fn a_word_of_a_shape_the_engine_does_not_check_is_found_at_any_depth() {
     assert_eq!(
         form::unchecked(&unchecked),
         ["`minItems`", "the type `date`", "`pattern`"]
+    );
+    let forms = shape_of(
+        "type = \"object\"\nproperties = { a = { type = [\"string\", \"null\"] }, b = { type = \"array\", items = [{ \
+         type = \"string\" }] }, c = { enum = \"x\" }, d = { type = \"object\", required = \"a\" }, e = { type = \
+         \"object\", required = [1] }, f = { anyOf = { type = \"string\" } }, g = { anyOf = [] }, h = { type = \
+         \"object\", properties = [\"a\"] }, i = { type = \"object\", additionalProperties = \"no\" } }\n",
+    );
+    assert_eq!(
+        form::unchecked(&forms),
+        [
+            "`type` written as an array",
+            "`items` written as an array",
+            "`enum` written as a string",
+            "`required` written as a string",
+            "`required` written as an array",
+            "`anyOf` written as a table",
+            "`anyOf` written as an empty array",
+            "`properties` written as an array",
+            "`additionalProperties` written as a string",
+        ]
     );
 }

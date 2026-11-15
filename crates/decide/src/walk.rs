@@ -6,20 +6,20 @@
 //! told of; a round that fails, a return sent back and a run stopped consume nothing, and nothing else does. The engine
 //! keeps no place where a work is. Each time a round ends or something else happens to the work, it walks the cells
 //! from the first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting;
-//! at the first that has a run at rest the run goes on, unless it waits for something; at the first that waits for
-//! what it asked for, the results of its calls, the result of what it asked for in a record such as a run of the tests,
-//! or the owner's answer to a question of its that waits, the work waits there: no later cell runs but those its
-//! records run, which give their results, the cell being entered meanwhile only for the owner turning to it (design
-//! document `data-and-context`, 36), and again once every result it waits for is in; at the first whose preconditions
-//! do not hold, or that something new runs and that one sender has sent back as often as its limit allows, the work
-//! waits; the first that something new runs is otherwise entered; the rest are passed. A work that waits only for what cells write, and in
-//! which nothing new runs a cell, nothing is under way and no one is waited for, is stalled: every cell before where
-//! it stands was passed and every one after it is held, so no cell will write what it waits for, and it goes on only
-//! once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One round of a work is
-//! under way at a time: a round of a cell after one the owner turned to, by words or by an answer, is stopped, nothing
-//! else beginning until it has ended, and its cell runs again later. A work has ended when its last cell has a record
-//! or its item is cancelled and not reopened since; a reopened work is walked from its records as any other, what its
-//! cancel abandoned leaving no record.
+//! at the first that has a run at rest the run goes on, unless it waits for something; at the first that waits for what
+//! it asked for, the results of its calls, the result of what it asked for in a record such as a run of the tests, or
+//! the owner's answer to a question of its that waits, the work waits there: no later cell runs but those its records
+//! run, which give their results, the cell being entered meanwhile only for the owner turning to it (design document
+//! `data-and-context`, 36), and again once every result it waits for is in; at the first whose preconditions do not
+//! hold, or that something new runs and that one sender has sent back as often as its limit allows, the work waits; the
+//! first that something new runs is otherwise entered; the rest are passed. A work that waits only for what cells
+//! write, and in which nothing new runs a cell, nothing is under way and no one is waited for, is stalled: every cell
+//! before where it stands was passed and every one after it is held, so no cell will write what it waits for, and it
+//! goes on only once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One round
+//! of a work is under way at a time: a round of a cell after one the owner turned to, by words or by an answer, is
+//! stopped, nothing else beginning until it has ended, and its cell runs again later. A work has ended when its last
+//! cell has a record or its item is cancelled and not reopened since; a reopened work is walked from its records as any
+//! other, what its cancel abandoned leaving no record.
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
 //! reasons is a note a person wrote, or the owner turning to the cell, since the cell last ran (since the run of its
@@ -809,10 +809,10 @@ impl<'a> Walk<'a> {
         (v.by.and_then(|run| self.runs.get(&run))).is_some_and(|r| &r.started.cell == cell)
     }
 
-    /// What the work does at the cell at this place, which applies, or none where the walk goes past it: its run at rest
-    /// goes on, or waits for the results of its calls or for a precondition; it waits for what it asked for, while the
-    /// cells that give it run and no other; it waits for a precondition, for the owner at a limit, for the pause or for
-    /// a slot; or it is entered for what is new to it.
+    /// What the work does at the cell at this place, which applies, or none where the walk goes past it: its run at
+    /// rest goes on, or waits for the results of its calls or for a precondition; it waits for what it asked for, while
+    /// the cells that give it run and no other; it waits for a precondition, for the owner at a limit, for the pause or
+    /// for a slot; or it is entered for what is new to it.
     fn at(&self, i: usize, room: Room) -> Option<Decision> {
         let cell = &self.flow.cells()[i];
         let wait = |on| self.waiting(i, on);
@@ -1183,10 +1183,10 @@ impl<'a> Walk<'a> {
     }
 
     /// What is new to the cell at this place: each block that runs it and has a version new to it, in the order the
-    /// cell names them; empty where nothing is.
-    /// A cell that gives the result of what the cells ask for in a record is entered, besides, for a record whose every
-    /// version it consumed where a cell that applies waits for the result of an entry of it: one a run of it passed over
-    /// while that cell was skipped (decision a-wait-of-a-skipped-cell-is-put-away).
+    /// cell names them; empty where nothing is. A cell that gives the result of what the cells ask for in a record is
+    /// entered, besides, for a record whose every version it consumed where a cell that applies waits for the result of
+    /// an entry of it: one a run of it passed over while that cell was skipped (decision
+    /// a-wait-of-a-skipped-cell-is-put-away).
     pub(crate) fn needs(&self, i: usize) -> Vec<Cause> {
         let cell = &self.flow.cells()[i];
         (cell.runs_on.iter())

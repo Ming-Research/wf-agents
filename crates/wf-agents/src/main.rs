@@ -825,6 +825,11 @@ fn words(what: &FaultKind, field: &str) -> String {
                 "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
             )
         }
+        F::ShapeNotChecked { block, word } => {
+            format!(
+                "the shape of {block} is written in {word}, which the engine holds no return to as it reads one: a return would be held to less than the shape says"
+            )
+        }
         F::AsksWithNoResult { block } => {
             format!(
                 "the cell writes {block}, which runs the cell that runs the tests, but no block that cell's act hands in runs it: the result would reach no cell, and it would wait for it for ever"

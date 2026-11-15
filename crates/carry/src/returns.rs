@@ -247,10 +247,13 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
             }
         }
         answered(&outcome, flow, cell, &mut found);
+        // The questions a record holds, which are not of its shape where they cannot be read as questions.
         let mut questions = Vec::new();
-        for value in asked {
-            let asked: Vec<QuestionIn> = serde_json::from_value(value).map_err(not_of_its_form)?;
-            questions.extend(asked.into_iter().map(question));
+        for (block, value) in asked {
+            match serde_json::from_value::<Vec<QuestionIn>>(value) {
+                Ok(asked) => questions.extend(asked.into_iter().map(question)),
+                Err(_) => found.push(Unmet::NotOfItsShape { block }),
+            }
         }
         came.said = Said {
             questions,
@@ -309,11 +312,17 @@ fn questions(asked: &[Question], words: &Agents, found: &mut Vec<Unmet>) {
 }
 
 /// Each block the return writes, in the order the cell writes them, then any other in the order of its name: one the
-/// cell writes there, as a string, as a choice's value with its line of why, or, of a block whose file gives it a shape,
-/// as the JSON that shape holds it to, which is kept as its content. A block that is not among the cell's outputs, one
-/// in a shape neither a block nor a choice has, and one not of the shape its file gives it, is found. Beside them, what the return writes of the record of the
-/// work's questions, which is read as the questions it asks: their entries are the engine's to write.
-fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) -> (Vec<Handed>, Vec<Value>) {
+/// cell writes there, as a string, as a choice's value with its line of why, or, of a block whose file gives it a
+/// shape, as the JSON of that shape it holds ([`shaped`]), which is kept as its content. A block that is not among the
+/// cell's outputs, one in a shape neither a block nor a choice has, and one not of the shape its file gives it, is
+/// found. Beside them, what the return writes of each record of the work's questions, by the record, which is read as
+/// the questions it asks: their entries are the engine's to write.
+fn writes(
+    outcome: &Outcome,
+    flow: &Compiled,
+    cell: &CellSpec,
+    found: &mut Vec<Unmet>,
+) -> (Vec<Handed>, Vec<(BlockId, Value)>) {
     let place = flow.flow.place(&cell.id);
     let outputs = place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]);
     let mut names: Vec<&String> = outcome.outputs.keys().collect();
@@ -330,24 +339,27 @@ fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<U
             continue;
         }
         let declared = flow.blocks.get(&block);
-        if of_questions(flow, &block) {
-            asked.push(outcome.outputs[name].clone());
-            continue;
-        }
         let matters = !outcome.meaning_unchanged.contains(name);
-        // A block of a shape is kept as the JSON it holds, where it holds what the shape says: the form gives the
-        // shape, and the return is held to it as it is read.
+        // A block of a shape is held to it as the return is read, the questions among them: the form gives the shape.
         if let Some(shape) = declared.and_then(|d| d.shape.as_ref()) {
-            if !flow::form::fits(&outcome.outputs[name], shape) {
+            let Some(value) = shaped(&outcome.outputs[name], shape) else {
                 found.push(Unmet::NotOfItsShape { block });
+                continue;
+            };
+            if of_questions(flow, &block) {
+                asked.push((block, value));
                 continue;
             }
             handed.push(Handed {
                 block,
-                content: outcome.outputs[name].to_string(),
+                content: value.to_string(),
                 matters,
                 value: None,
             });
+            continue;
+        }
+        if of_questions(flow, &block) {
+            asked.push((block, outcome.outputs[name].clone()));
             continue;
         }
         let (content, value) = match &outcome.outputs[name] {
@@ -376,6 +388,21 @@ fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<U
 
 /// What is wrong with a block written in a shape neither a block nor a choice has: a choice is not written as its value
 /// and its line of why, and another block not as a string.
+/// What a block of a shape holds as the shape holds it: the value as it is, where it is of the shape; or, written as a
+/// text, the JSON the text holds, where that is of it, as a return that means the form is put into its shape before it
+/// is read (decision normalise-shape-only), such as one read from the stream after the command line gave up on it.
+/// None where neither is.
+fn shaped(value: &Value, shape: &flow::Shape) -> Option<Value> {
+    if flow::form::fits(value, shape) {
+        return Some(value.clone());
+    }
+    let Value::String(text) = value else {
+        return None;
+    };
+    let held: Value = serde_json::from_str(text.trim()).ok()?;
+    flow::form::fits(&held, shape).then_some(held)
+}
+
 fn misshapen(choice: bool, block: BlockId) -> Unmet {
     if choice {
         Unmet::NoValue { block }

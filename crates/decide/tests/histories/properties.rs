@@ -1160,7 +1160,8 @@ pub fn replay(v: &mut Verdict, flow: &Flow, records: &Records, moments: &[Moment
 
 /// A result is no one's send-back (decision the-same-sender-again): of a cell whose limit is one, a run entered by the
 /// result of its entry and by a version a cell after it wrote, then a run entered by the result of its next entry
-/// alone, counts no sender for the result; the count the properties keep says so as the walk does.
+/// alone, counts no sender for the result; the count the properties keep says so as the walk does. Well under a
+/// millisecond alone; the random histories reach this row of acts only now and then, and this holds it every run.
 #[test]
 fn a_result_sends_no_cell_back_in_the_count_the_properties_keep() {
     use crate::support::{Says::Matters, World, cell};

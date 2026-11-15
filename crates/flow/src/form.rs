@@ -200,7 +200,8 @@ fn fits_json(value: &serde_json::Value, shape: &serde_json::Value) -> bool {
         Some("object") => value.is_object(),
         Some("array") => value.is_array(),
         Some("string") => value.is_string(),
-        Some("integer") => value.is_i64() || value.is_u64(),
+        // A whole number written as a float is one, as the command line takes it.
+        Some("integer") => value.is_i64() || value.is_u64() || value.as_f64().is_some_and(|n| n.fract() == 0.0),
         Some("number") => value.is_number(),
         Some("boolean") => value.is_boolean(),
         Some("null") => value.is_null(),
@@ -232,8 +233,11 @@ fn fits_json(value: &serde_json::Value, shape: &serde_json::Value) -> bool {
     typed && valued && one_of && items && members
 }
 
-/// What of the shape the engine would not hold a return to ([`fits`]): each word it is written in that is none of
-/// [`CHECKED`], and each type that is none it knows, at every depth.
+/// What of the shape the engine would not hold a return to as it says ([`fits`]), at every depth: each word it is
+/// written in that is none of [`CHECKED`]; each of those written in a form `fits` does not read, as `type` a list of
+/// types, `items` a list of shapes, `enum` or `anyOf` no list, `required` other than a list of names, `properties` no
+/// table, `additionalProperties` neither a table nor true or false; each type that is none it knows; and what stands
+/// for a shape and is none.
 pub fn unchecked(shape: &Shape) -> Vec<String> {
     let mut found = Vec::new();
     unchecked_in(&shape.0, &mut found);
@@ -242,7 +246,7 @@ pub fn unchecked(shape: &Shape) -> Vec<String> {
 
 fn unchecked_in(shape: &toml::Value, found: &mut Vec<String>) {
     let Some(table) = shape.as_table() else {
-        found.push(format!("{shape} is no shape"));
+        found.push(format!("a shape written as {}", shape.type_str()));
         return;
     };
     for (word, value) in table {
@@ -250,23 +254,45 @@ fn unchecked_in(shape: &toml::Value, found: &mut Vec<String>) {
             found.push(format!("`{word}`"));
             continue;
         }
-        match (word.as_str(), value) {
-            ("type", toml::Value::String(kind)) if !TYPES.contains(&kind.as_str()) => {
-                found.push(format!("the type `{kind}`"));
+        let read = match (word.as_str(), value) {
+            ("type", toml::Value::String(kind)) => {
+                if !TYPES.contains(&kind.as_str()) {
+                    found.push(format!("the type `{kind}`"));
+                }
+                true
             }
             ("properties", toml::Value::Table(properties)) => {
                 for of in properties.values() {
                     unchecked_in(of, found);
                 }
+                true
             }
-            ("items" | "additionalProperties", toml::Value::Table(_)) => unchecked_in(value, found),
-            ("anyOf", toml::Value::Array(shapes)) => {
+            ("items" | "additionalProperties", toml::Value::Table(_)) => {
+                unchecked_in(value, found);
+                true
+            }
+            ("additionalProperties", toml::Value::Boolean(_)) | ("enum", toml::Value::Array(_)) => true,
+            ("anyOf", toml::Value::Array(shapes)) if !shapes.is_empty() => {
                 for of in shapes {
                     unchecked_in(of, found);
                 }
+                true
             }
-            _ => {}
+            ("required", toml::Value::Array(names)) => names.iter().all(toml::Value::is_str),
+            _ => false,
+        };
+        if !read {
+            found.push(format!("`{word}` written as {} {}", article(value), value.type_str()));
         }
+    }
+}
+
+/// The article before the name of a kind of TOML value.
+fn article(value: &toml::Value) -> &'static str {
+    match value {
+        toml::Value::Array(list) if list.is_empty() => "an empty",
+        toml::Value::Array(_) | toml::Value::Integer(_) => "an",
+        _ => "a",
     }
 }
 

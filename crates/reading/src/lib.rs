@@ -292,8 +292,8 @@ impl<'a> Reading<'a> {
     }
 
     /// Of a cell that gives the results of what the cells ask for in a record, each such record that runs it whose
-    /// versions it all consumed where a cell that applies waits for the result of an entry of it: one a run of it passed
-    /// over while that cell was skipped, which enters it again (decision a-wait-of-a-skipped-cell-is-put-away).
+    /// versions it all consumed where a cell that applies waits for the result of an entry of it: one a run of it
+    /// passed over while that cell was skipped, which enters it again (decision a-wait-of-a-skipped-cell-is-put-away).
     pub fn taken_up(&self, flow: &Flow, cell: &Cell, place: Seq) -> Vec<BlockId> {
         (cell.runs_on.iter())
             .filter(|block| self.new_to(&cell.id, block, place).is_empty())

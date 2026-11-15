@@ -1470,8 +1470,8 @@ mod tests {
         )
     }
 
-    /// A work whose runs of I1 each asked for tests, as many as given, the engine pausing the work and the owner letting
-    /// it on after the first where `let_on`.
+    /// A work whose runs of I1 each asked for tests, as many as given, the engine pausing the work and the owner
+    /// letting it on after the first where `let_on`.
     fn asked_for_tests(runs: u64, let_on: bool) -> Work {
         let mut work = Work::default();
         for n in 1..=runs {
@@ -1510,7 +1510,8 @@ mod tests {
     // A cell that asks once more than the rows of asking of its kind explain has its work wait for the owner, said in
     // the words of `agents/cost.toml`; a return that asks nothing, and a row within the line, are not judged so; and
     // the row is counted from where the owner last let the work on after the engine paused it, as the work's spend and
-    // time are. Well under a second alone, the flow compiled from its files; no other test holds the judgment of asking.
+    // time are. Well under a second alone, the flow compiled from its files; no other test holds the judgment of
+    // asking.
     #[test]
     fn a_cell_asking_past_the_line_of_its_kind_has_its_work_wait_counted_from_the_last_let_on() {
         let (flow, beside) = engineer();

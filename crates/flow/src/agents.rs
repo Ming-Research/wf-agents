@@ -736,6 +736,8 @@ pub struct RunTests {
     /// What the act's round keeps as an observation where what the entries a newer one replaced asked the host for
     /// could not be cancelled: `{entries}` those entries, `{why}` the host's words.
     pub not_cancelled: String,
+    /// What a result says where the tests an entry asks for could not be run, said once: `{why}` why.
+    pub could_not: String,
 }
 
 /// What a result of the tests a cell asked for says of the tests and checks a run found. `{...}` are filled in a run.
@@ -982,8 +984,8 @@ pub struct GivenKind {
 }
 
 /// `agents/message/results.toml`: what a round is told of the results of what it asked for. In a text, `{name}` is a
-/// tool's name, `{input}` what it was run on, or the entry in which a cell asked for tests, `{question}` a question as it
-/// was put, `{call}` a call's number.
+/// tool's name, `{input}` what it was run on, or the entry in which a cell asked for tests, `{question}` a question as
+/// it was put, `{call}` a call's number.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Results {

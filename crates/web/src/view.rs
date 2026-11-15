@@ -449,6 +449,11 @@ pub enum What {
     AsksWithNoResult {
         block: String,
     },
+    /// The block's shape is written in a word, or a form of one, that the engine holds no return to.
+    ShapeNotChecked {
+        block: String,
+        word: String,
+    },
     /// A trigger of the cell stands on a block whose every writer runs only where the cell cannot.
     TriggerNeverRuns {
         trigger: String,
@@ -820,6 +825,7 @@ impl What {
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
             F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
             F::AsksWithNoResult { block } => What::AsksWithNoResult { block },
+            F::ShapeNotChecked { block, word } => What::ShapeNotChecked { block, word },
             F::TriggerNeverRuns {
                 trigger,
                 block,

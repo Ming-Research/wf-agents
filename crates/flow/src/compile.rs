@@ -455,6 +455,9 @@ pub enum FaultKind {
     /// runs it: the result of the tests it asks for there would come to no block of its own, and it would wait for it
     /// for ever.
     AsksWithNoResult { block: String },
+    /// The block's shape is written in a word, or a form of one, that the engine holds no return to as it reads it
+    /// ([`crate::form::unchecked`]): a return would be held to less than the shape says.
+    ShapeNotChecked { block: String, word: String },
     /// A trigger of the cell stands on a block that each of its writers, cells only (no person or outside writes it),
     /// writes only where a block has a value that the cell's own condition rules out, and that block no cell can
     /// change from the writer's value to the cell's: the trigger could never run the cell. `needs` is the cell's own
@@ -1521,6 +1524,15 @@ impl<'a> Definition<'a> {
             }
             if name == WHEN_TEST {
                 faults.push(at("", FaultKind::BlockNamedTest));
+            }
+            if let Some(shape) = &block.shape {
+                for word in crate::form::unchecked(&Shape(toml::Value::Table(shape.clone()))) {
+                    let what = FaultKind::ShapeNotChecked {
+                        block: name.clone(),
+                        word,
+                    };
+                    faults.push(at("shape", what));
+                }
             }
             if block.note && !block.people {
                 faults.push(at("note", FaultKind::NoteNotByPeople { block: name.clone() }));

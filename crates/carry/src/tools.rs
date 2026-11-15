@@ -2,9 +2,9 @@
 //! interrupted where it is withdrawn (the module `query`). A tool's result is all an agent learns of it, so what goes
 //! wrong in running it is said in its result, once: it is not tried again here, and the agent may ask again. The result
 //! is kept whole in the records, and a result too long for a message in a file of the temporary directory
-//! ([`keep_wholes`], removed by [`sweep`]); what a message gives of it is cut as the tool's words say ([`given`]). So is
-//! the result of the tests a cell asked for, which the act that runs them writes into a block of the cell's own, as the
-//! act's words say ([`tested`]).
+//! ([`keep_wholes`], removed by [`sweep`]); what a message gives of it is cut as the tool's words say ([`given`]). So
+//! is the result of the tests a cell asked for, which the act that runs them writes into a block of the cell's own, as
+//! the act's words say ([`tested`]).
 
 mod query;
 
@@ -440,9 +440,9 @@ mod tests {
     }
 
     // A call of `run_tests` as a tool, in a work kept from before the cells asked for tests in a record, is answered,
-    // where its run's cell asks for tests in the record, that it is asked for there now, in the words of the act's file,
-    // so that the run goes on to write an entry; of a cell that does not, and a call named after another record the
-    // cell writes, as any tool the engine does not have. Well under a second alone; no other test holds what such a
+    // where its run's cell asks for tests in the record, that it is asked for there now, in the words of the act's
+    // file, so that the run goes on to write an entry; of a cell that does not, and a call named after another record
+    // the cell writes, as any tool the engine does not have. Well under a second alone; no other test holds what such a
     // call is answered.
     #[tokio::test]
     async fn a_call_of_run_tests_as_a_tool_is_told_to_write_an_entry_where_its_cell_asks_for_tests_in_the_record() {
