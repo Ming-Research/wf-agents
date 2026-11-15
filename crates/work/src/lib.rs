@@ -173,7 +173,9 @@ pub enum Back {
     /// kept with it, so that the run is decided again from the records alone; and so is what it says beside its work.
     /// Returns kept before a return was read so have neither, and read as having none. Beside it is what the engine
     /// itself asks the owner from what it found of the work as the round ended, which no word of the agent's is;
-    /// returns kept before the engine asked anything have none.
+    /// returns kept before the engine asked anything have none. And what the carrier read of the work's branch as the
+    /// round ended, which the run writes as it finishes, as what the round committed; returns kept before the branch
+    /// was read so have none.
     Returned {
         dealt_with: Vec<BlockId>,
         handed: Vec<Handed>,
@@ -184,6 +186,8 @@ pub enum Back {
         said: Said,
         #[serde(default)]
         engine: Vec<Question>,
+        #[serde(default)]
+        read: Vec<Handed>,
     },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate

@@ -34,13 +34,22 @@ of another.
 ### decision the-tree-runs-no-cell
 The design tree is a datum each cell that reads the tree is given `last_and_latest`, the files that changed since the
 version its session read, and runs no cell; of what comes from outside the work, only main and `asked` run a cell, the
-check before the merge.
+check before the merge, and the work's head, where no round of the work committed it, the review and the check.
 Why: A changed tree run as a trigger would run the reading cell again, and every cell after it, for each commit that
 touches the tree; given as a datum, it is read where the line goes on, by the cell that next enters the session.
 
+### decision the-review-takes-the-head-and-the-head-runs-the-check
+The review takes `head`, the work's head, among the blocks of the change it is run by, and reads the diff from main to
+it; `head`, not `code` or `tests`, runs the check, beside main, the answer to the check and `asked`. No block names a
+commit.
+Why: Whatever a round commits moves the head, under whatever block it hands in or none, as the fix of W9 answered in
+`reply_check` alone did, so the review runs on every change it has not seen and the check on every head; run by `code`
+and `tests`, the check ran on what a block said and not on what lands. The check holds the head to the review
+(decision the-check-holds-the-head-to-what-the-review-saw).
+
 ### decision the-check-waits-for-the-review
 The check before the merge requires the review's yes beside its other gates, and runs again as the owner's answers
-change whether every question is answered (`asked`), as well as on the change and on main.
+change whether every question is answered (`asked`), as well as on the work's head and on main.
 Why: The watch of main writes main into every work, and before anything is judged the check's other gates hold: a
 research that handed in no plan, or an implementation that handed in nothing, let main run the check on a branch no one
 reviewed, holding the research's commits or nothing, whose CI passed and which merged. The old flow merged only after

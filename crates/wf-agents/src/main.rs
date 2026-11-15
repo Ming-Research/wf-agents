@@ -647,13 +647,15 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
 /// `answer`, written by the engine's loop as the owner answers a question of the cell, and `asked`, as the questions
-/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; `tree`, written
-/// by the carriers as they look at the design tree on a work's branch; and `words`, written by the engine's loop as
-/// the owner speaks to a cell, the record of what is said and the cell's block that it was spoken to.
-const SOURCES: [&str; 8] = [
+/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; `tree` and
+/// `head`, read by the carriers of the design tree and of the work's head on a work's branch, written from outside or
+/// handed in with the round that committed them; and `words`, written by the engine's loop as the owner speaks to a
+/// cell, the record of what is said and the cell's block that it was spoken to.
+const SOURCES: [&str; 9] = [
     "answer",
     "asked",
     "dependencies",
+    "head",
     "main",
     "session",
     "start",

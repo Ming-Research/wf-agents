@@ -5,8 +5,8 @@ kind = "agent"
 line = "code_reviewer"
 effort = "high"
 task = '''
-Review the change in `code`, in a session of your own, and change no file. Read the diff from main to the last commit
-`code` or `tests` names, and whole each file of decisions whose topic it touches. Judge only by what the implementation
+Review the change in `code`, in a session of your own, and change no file. Read the diff from main to `head`, and
+whole each file of decisions whose topic it touches. Judge only by what the implementation
 was asked to do (`plan_owner`, `acceptance`) and the repository's rules.
 
 Does the code do what the plan says, to the standard the tree sets? The work is done once it does; old code that lagged
@@ -31,6 +31,7 @@ context = [
   "decisions",
   "evidence",
   "tests",
+  "head",
   "discussion",
   "plan_owner",
   "plan_agent",
@@ -67,6 +68,7 @@ plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
 tree_edits = "last_and_latest"
 tests = "last_and_latest"
+head = "last_and_latest"
 discussion = "all"
 reply_review = "latest"
 background = "latest"

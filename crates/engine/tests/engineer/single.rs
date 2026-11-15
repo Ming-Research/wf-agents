@@ -77,6 +77,30 @@ impl W {
         });
     }
 
+    /// The round under way, of this agent cell, hands in these blocks, its carrier having read these versions of the
+    /// work's branch as it ended, each a block and what it says: what the round committed. Its return names as dealt
+    /// with every trigger its round was told ran it.
+    pub(super) fn commits(&mut self, cell: &str, blocks: &[(&str, Option<&str>)], read: &[(&str, &str)]) {
+        let (run, under_way) = self.round();
+        assert_eq!(under_way, cell, "the round under way is another cell's");
+        let names = self.told(run, cell);
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut came = self.read(cell, &names, blocks);
+        came.read = (read.iter())
+            .map(|(block, content)| Handed {
+                block: (*block).into(),
+                content: content.to_string(),
+                matters: true,
+                value: None,
+            })
+            .collect();
+        self.on(Event::Returned {
+            run,
+            came,
+            spent: Spent::default(),
+        });
+    }
+
     /// The round under way, of this agent cell, hands in these blocks, naming these as dealt with, as its agent writes
     /// them; gives what the engine gave to be done of it.
     pub(super) fn returns(&mut self, cell: &str, dealt_with: &[&str], blocks: &[(&str, Option<&str>)]) -> Vec<Effect> {

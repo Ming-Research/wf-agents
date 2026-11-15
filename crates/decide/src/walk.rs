@@ -373,6 +373,41 @@ pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
     flow.place(cell).is_some_and(|i| walk.applies(i))
 }
 
+/// A cell that judges what a cell's preconditions wait on, by a block that runs it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Judge {
+    pub cell: CellId,
+    /// The version of the block it consumed: the latest a run of it that dealt with the block was told of; `None`
+    /// where none did.
+    pub consumed: Option<Seq>,
+}
+
+/// Of each cell that writes a block the preconditions of the cell `of` read, that the block `by` runs and that applies
+/// now, in the order of the walk, the version of `by` it consumed: what the check before the merge holds the work's
+/// head to, the judges being found by the flow's graph alone. None where the flow has no cell `of`.
+pub fn judges(flow: &Flow, records: &Records, of: &CellId, by: &BlockId) -> Vec<Judge> {
+    let walk = Walk::new(flow, records);
+    let Some(i) = flow.place(of) else {
+        return Vec::new();
+    };
+    let mut read: Vec<&BlockId> = Vec::new();
+    for key in &flow.cells()[i].requires {
+        match key {
+            Condition::Is { block, .. } => read.push(block),
+            Condition::Test(name) => read.extend(flow.tests().get(name).into_iter().flat_map(|t| &t.reads)),
+        }
+    }
+    (flow.cells().iter().enumerate())
+        .filter(|(j, cell)| {
+            cell.runs_on.contains(by) && read.iter().any(|b| cell.outputs.contains(b)) && walk.applies(*j)
+        })
+        .map(|(_, cell)| Judge {
+            cell: cell.id.clone(),
+            consumed: walk.consumed(&cell.id, by),
+        })
+        .collect()
+}
+
 /// Of each cell that applies now and is owed the results of calls, those calls, in the order they were made: those its
 /// runs asked for, as their returns were taken, that no run of it that finished since was given. A cell that is skipped
 /// now waits for nothing: it is entered for them only if it applies again.

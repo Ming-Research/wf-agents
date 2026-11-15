@@ -45,8 +45,11 @@
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
 //! is told it; a round of the run given again, or another of its rounds given its task, is told what was kept, and
-//! nothing is taken in again for the run. The branch's design tree is looked at after that, and after the round's
-//! program ended ([`tree`]), where it may have changed.
+//! nothing is taken in again for the run. The branch's data, its design tree and the work's head, are read after that,
+//! in the round that took main in, and after the round's program ended, where they may have changed
+//! ([`branch`](crate::branch)): what is read as main is taken in is the outside's, put into the round; what is read as
+//! the round ends is what it committed, handed in with its return, where its line may change the work, and the
+//! outside's where it only reads.
 //!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, and at the
 //! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
@@ -85,7 +88,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::{Project, Settings};
-use crate::{acts, failure, git, kept, protected, returns, session, system, tools, tree};
+use crate::{acts, branch, failure, git, kept, protected, returns, session, system, tools};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -334,10 +337,14 @@ impl Inner {
         } else {
             None
         };
-        // The branch may have a new design tree where it took main in.
-        let tree_dir = &of.project.tree;
-        let mut looking = tree::Looking::of(flow, work, tree_dir);
-        if let (Some(looking), Some(_)) = (&mut looking, &main) {
+        // The branch may have new data where the round took main in, which only the run's first round does: a later
+        // round of the run would find what an earlier one committed, which is that run's.
+        let read_with = branch::Reading {
+            tree: of.project.tree.clone(),
+            main: of.main.clone(),
+        };
+        let mut looking = branch::Looking::of(flow, work, read_with.clone());
+        if main.is_some() && round.number == 1 {
             looking.tell(&place, teller, true).await;
         }
         if let Some(parent) = base.parent() {
@@ -371,8 +378,9 @@ impl Inner {
             item: round.item.number.0,
             title: &round.item.title,
         };
-        // What changed in the design tree, which git compares: the files, from each earlier version to the latest.
-        let changes = tree::changes(flow, work, round.run, round.number, &dir, tree_dir).await?;
+        // What changed in the branch's data, which git compares, from each earlier version to the latest: the files of
+        // the design tree, and the command that shows what the work itself changed.
+        let changes = branch::changes(flow, work, round.run, round.number, &dir, &read_with).await?;
         // The task as the message sends it, each setting it names with its value beside it; and a result of the tool
         // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole and
         // a file in the temporary directory, which the program is let read, holding it whole for the agent.
@@ -527,10 +535,15 @@ impl Inner {
             break (status, stream, stderr, compactions);
         };
         drop(again);
-        // What the round committed may have changed the design tree.
-        if let Some(looking) = &mut looking {
+        // What the round committed is handed in with its return, where its line may change the work; a change found at
+        // the end of a round that only reads is none of its own, and the outside's. A round that fails hands in nothing:
+        // what it committed is read at the end of the round that takes it up.
+        let committed = if round.cell.reads_only {
             looking.tell(&place, teller, false).await;
-        }
+            Vec::new()
+        } else {
+            looking.handed_in(&place).await
+        };
         let had_result = stream.has_result();
         let read = stream.read(begin, before).map(|mut read| {
             read.spent.compactions = compactions;
@@ -565,6 +578,7 @@ impl Inner {
         match returns::came(&read.structured, flow, &round.cell, &of.beside) {
             Ok(reading) => {
                 let mut came = reading.came;
+                came.read = committed;
                 let looked = self.protected(round, &place, of, reading.protected.as_ref()).await;
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });

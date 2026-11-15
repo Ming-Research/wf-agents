@@ -349,6 +349,16 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             if began(work, run) == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
             }
+            // What the carrier read of the branch is of the blocks a source outside the work writes, none a choice.
+            for read in &came.read {
+                let Some(declared) = flow.blocks.get(&read.block) else {
+                    return Err(Refused::NoSuchBlock(read.block.clone()));
+                };
+                if !outside_writes(declared) || declared.values.is_some() {
+                    let (block, by) = (read.block.clone(), Outsider::Outside);
+                    return Err(Refused::NotTheirs { block, by });
+                }
+            }
             // The round of a run that was abandoned has ended too, and what came back from it is dropped; what it
             // took is kept.
             let kept = open(work, run);
@@ -377,6 +387,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                     found: came.found,
                     said: came.said,
                     engine: came.engine,
+                    read: came.read,
                 };
                 work.back.insert((run, number), back);
                 asked::tell(flow, work);
@@ -766,10 +777,18 @@ fn finish(
 ) {
     let mut questions = Vec::new();
     let mut reply = None;
+    let mut read = Vec::new();
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
-        Some(Back::Returned { handed, asks, said, .. }) => {
+        Some(Back::Returned {
+            handed,
+            asks,
+            said,
+            read: on_branch,
+            ..
+        }) => {
             questions = said.questions.clone();
             reply = said.reply.clone();
+            read = on_branch.clone();
             (handed.clone(), asks.clone())
         }
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
@@ -792,9 +811,23 @@ fn finish(
         };
         call(work, run, on, Call::Asked(ask), effects);
     }
+    // What the round committed, as the carrier read it of the branch as the round ended, is the run's own version, but
+    // where the block says it already (decision a-version-read-at-a-rounds-end-is-that-rounds).
+    let read: Vec<work::Handed> = (read.into_iter())
+        .filter(|r| !writes.iter().any(|w| w.block == r.block))
+        .filter(|r| says_now(work, &r.block) != Some(r.content.as_str()))
+        .collect();
     let at = work.tick();
     for h in handed {
         work.contents.insert((h.block, at), h.content);
+    }
+    for r in read {
+        work.contents.insert((r.block.clone(), at), r.content);
+        writes.push(Write {
+            block: r.block,
+            meaning_unchanged: false,
+            value: None,
+        });
     }
     // The cell's answer to the owner is its entry of the record of what is said, a version of its run's as any block it
     // writes.
@@ -982,21 +1015,22 @@ fn outside_writes(declared: &flow::Block) -> bool {
     (declared.writers.outside.as_deref()).is_some_and(|s| !engines.contains(&s))
 }
 
-/// The latest version of the block, where it is one a source outside the work wrote of a block that is no choice, and
-/// says this content.
+/// The latest version of the block, where the block is one a source outside the work writes and no choice, and the
+/// version says this content: written from outside, or by a run that handed in what its round read of the work's
+/// branch.
 fn says_already(flow: &Compiled, work: &Work, block: &BlockId, content: &str) -> Option<Seq> {
     let declared = flow.blocks.get(block)?;
     if !outside_writes(declared) || declared.values.is_some() {
         return None;
     }
     let latest = decide::versions(&work.records).get(block)?.last()?.at;
-    let outside = (work.records.written.iter()).any(|w| w.at == latest && w.by == Outsider::Outside);
-    (outside
-        && work
-            .contents
-            .get(&(block.clone(), latest))
-            .is_some_and(|said| said == content))
-    .then_some(latest)
+    (says_now(work, block) == Some(content)).then_some(latest)
+}
+
+/// What the latest version of the block says, where it has one.
+fn says_now<'a>(work: &'a Work, block: &BlockId) -> Option<&'a str> {
+    let latest = decide::versions(&work.records).get(block)?.last()?.at;
+    work.contents.get(&(block.clone(), latest)).map(String::as_str)
 }
 
 /// The latest version of the block the run's round was told of: the one it started from, or one put in to it since.

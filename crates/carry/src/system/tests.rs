@@ -29,6 +29,7 @@ fn engineer() -> Compiled {
             "main",
             "session",
             "start",
+            "head",
             "tree",
             "words",
         ]),

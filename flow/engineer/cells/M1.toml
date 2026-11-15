@@ -3,8 +3,7 @@ kind = "engine"
 act = "check"
 requires = { test = "settled", asked = "answered", review_ok = "yes" }
 triggered_by = [
-  "on_code",
-  "on_tests",
+  "on_head",
   "on_main",
   "on_reply_check",
   "on_asked",

@@ -67,6 +67,7 @@ fn the_engine_s(_: &flow::Source) -> flow::Has {
             "main",
             "session",
             "start",
+            "head",
             "tree",
             "words",
         ]),

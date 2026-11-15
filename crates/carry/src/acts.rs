@@ -36,11 +36,12 @@ use work::{Handed, Question, Spent, Work};
 mod ends;
 mod failing;
 
+use crate::branch::{self, Looking};
 use crate::git::{self, Started};
 use crate::held::{Failing, Held, Stop};
 use crate::host::{Asking, Branch, Failed, Host, NotMerged};
+use crate::protected;
 use crate::settings::Project;
-use crate::{protected, tree};
 
 use flow::agents::{AskProtected, fill};
 
@@ -291,10 +292,16 @@ impl<H: Host> Inner<H> {
             about: &about,
             place: &place,
         };
+        // What an act reads of the work's branch is no round's commit: it is written from outside.
+        let read_with = branch::Reading {
+            tree: project.tree.clone(),
+            main: self.host.kept_main(),
+        };
+        let looking = || Looking::of(&round.flow, &round.kept, read_with.clone());
         match act {
             "start" => {
                 let started = start(project, &self.host, &branch, &self.repository).await?;
-                tree::look(&round.flow, &round.kept, &project.tree, &started.place, teller).await;
+                looking().tell(&started.place, teller, false).await;
                 let content = fill(
                     &words.start.text,
                     &[
@@ -310,10 +317,15 @@ impl<H: Host> Inner<H> {
                 if !self.take_turn(round.work, stop).await {
                     return Ok(Done::Stopped);
                 }
-                let blocks = naming_blocks(&round.flow, &round.cell.id);
-                let named = described(&blocks, &round.kept);
-                let gate = Gate {
-                    named: &named,
+                // The check reads the branch for its round, and holds the work's head to what the judges that take it
+                // dealt with, as the flow's graph finds them.
+                let mut looking = looking();
+                let reviewed = branch::reviewed(&round.flow, &round.kept, &round.cell.id);
+                let wrote = |block: BlockId, content: String| teller.outside_wrote_for_round(block, content);
+                let mut gate = Gate {
+                    branch: &mut looking,
+                    wrote: &wrote,
+                    reviewed: reviewed.as_deref(),
                     protecting: &self.protecting,
                     work: &round.kept,
                 };
@@ -333,7 +345,7 @@ impl<H: Host> Inner<H> {
                     &self.repository,
                     (asking, stop, &reads),
                     &words.check,
-                    &gate,
+                    &mut gate,
                 );
                 match checked.await {
                     Ok(Some(checked)) => {
@@ -343,7 +355,7 @@ impl<H: Host> Inner<H> {
                             Some(_) => self.end_turn(round.work),
                         }
                         // The check may have taken main in.
-                        tree::look(&round.flow, &round.kept, &project.tree, &place, teller).await;
+                        looking.tell(&place, teller, false).await;
                         let asks = checked.asks.clone().into_iter().collect();
                         let handed = checked_in(&outputs, &checked, &project.main, &words.check)?;
                         Ok(Done::HandsIn(handed, asks))
@@ -579,16 +591,6 @@ fn merged_or_failed(
     }
 }
 
-/// The blocks in which the work names the commit it hands in, as the cells of its flow write them: what any cell
-/// writes but the check's own; not what only people write, nor what a source outside the work writes, as main's head.
-fn naming_blocks(flow: &Compiled, check: &decide::CellId) -> Vec<BlockId> {
-    (flow.blocks.iter())
-        .filter(|(_, block)| block.writers.outside.is_none())
-        .filter(|(_, block)| block.writers.cells.iter().any(|cell| cell != check))
-        .map(|(id, _)| id.clone())
-        .collect()
-}
-
 impl<H: Host> Inner<H> {
     /// Looks at main's head every so often and after each merge, saying each head it reads as it reads it, the
     /// repository held: a check tells its round of the head it reads the same way, so that the two are said in the
@@ -658,18 +660,37 @@ pub(crate) async fn start(
 /// What the check tells the head of main it is checked against, as it reads it.
 pub(crate) type ReadsMain<'a> = &'a (dyn Fn(&str) + Sync);
 
-/// What the check holds a work to: what it wrote in the blocks in which it names the commit it hands in; and for its
-/// change under the protected paths, the paths and the question's words, and the work as it is kept, which says what
-/// the owner answered.
+/// What the check tells what it reads of the work's branch, as the outside's word for its round.
+pub(crate) type Wrote<'a> = &'a (dyn Fn(BlockId, String) + Sync);
+
+/// What the check holds a work to: the work's head, read of its branch for the check's round, each datum of the branch
+/// told to `wrote` as it now stands, against what each cell that judges the work by its head dealt with last
+/// ([`branch::reviewed`]), none where the flow has no head; and for its change under the protected paths, the paths
+/// and the question's words, and the work as it is kept, which says what the owner answered.
 pub(crate) struct Gate<'a> {
-    pub(crate) named: &'a str,
+    pub(crate) branch: &'a mut Looking,
+    pub(crate) wrote: Wrote<'a>,
+    pub(crate) reviewed: Option<&'a [Option<String>]>,
     pub(crate) protecting: &'a Protecting,
     pub(crate) work: &'a Work,
 }
 
-/// Checks the work before its merge: that its worktree holds nothing uncommitted, that the head of its branch is a
-/// commit the work names ([`Gate::named`]), and that its branch merges into the head of main the host gives with no
-/// conflict (worked out without changing anything), all found holding the repository; then main's head is merged into
+/// The work's head, where the check holds it to what the judges dealt with and one of them dealt last with another
+/// head, or with none: the head of a work whose flow has a head, as the gate's last read of the branch left it.
+fn unreviewed<'g>(gate: &'g Gate<'_>) -> Option<&'g str> {
+    let head = gate.branch.head()?;
+    let reviewed = gate.reviewed?;
+    reviewed
+        .iter()
+        .any(|seen| seen.as_deref() != Some(head))
+        .then_some(head)
+}
+
+/// Checks the work before its merge: that its worktree holds nothing uncommitted, and that its branch merges into the
+/// head of main the host gives with no conflict (worked out without changing anything); then that the work's head, read
+/// of the branch for the round, is the one each judge that takes it dealt with last ([`Gate`]), which fails the round
+/// in passing otherwise, so that the judge runs first on the new head and the check is taken again after it; all found
+/// holding the repository. Then main's head is merged into
 /// the branch, where it does not hold it, as a commit of the engine's, so that what is judged is what a merge would
 /// land, which fails the check where it changes nothing against main, there being nothing to merge; then that commit's
 /// own change under the paths the project protects is empty or one the owner let merge, which fails the check
@@ -685,7 +706,7 @@ pub(crate) async fn check(
     repository: &Mutex<()>,
     (asking, stop, reads): (Asking, &mut Stop, ReadsMain<'_>),
     words: &CheckWords,
-    gate: &Gate<'_>,
+    gate: &mut Gate<'_>,
 ) -> Result<Option<Checked>, Failed> {
     let place = branch.place;
     let dir = git::worktree(place)?;
@@ -713,9 +734,6 @@ pub(crate) async fn check(
         if !changes.is_empty() {
             return Ok(Some(found(fill(&words.found.uncommitted, &[("changes", &changes)]))));
         }
-        if let Some(unnamed) = unnamed(project, gate.named, &commit, &words.found).await? {
-            return Ok(Some(found(unnamed)));
-        }
         if let Some(conflict) = git::conflicts(project, &main, &commit).await? {
             let failed = fill(
                 &words.found.conflict,
@@ -727,6 +745,15 @@ pub(crate) async fn check(
                 ],
             );
             return Ok(Some(found(failed)));
+        }
+        // Each datum of the branch is told to the round as it now stands, a new version where none says it: the round
+        // consumes the head it judged, so that a version written since its run began runs the check no more.
+        gate.branch.read(place).await?;
+        for (block, content) in gate.branch.latest() {
+            (gate.wrote)(block, content);
+        }
+        if let Some(head) = unreviewed(gate) {
+            return Err(Failed::passing(fill(&words.found.unreviewed, &[("head", head)])));
         }
         let (commit, took_in) = git::take_in(&dir, &main, project).await?;
         let tree = |of: &str| format!("{of}^{{tree}}");
@@ -785,45 +812,6 @@ pub(crate) async fn check(
     checked.by = verdict.by;
     checked.notes = verdict.notes;
     Ok(Some(checked))
-}
-
-/// What is wrong with the head of the work's branch for the blocks in which the work names it, in the check's words:
-/// they name no commit of the repository, written or not; or none of those they name is the head, nor a commit under
-/// it with only the engine's own merges of main on top ([`git::engine_merge`]). None where they name the head.
-async fn unnamed(
-    project: &Project,
-    text: &str,
-    head: &str,
-    words: &flow::agents::Found,
-) -> Result<Option<String>, String> {
-    // Each word that could be a commit's name, with the commit the repository resolves it to.
-    let mut named: Vec<(&str, String)> = Vec::new();
-    let words_of = text.split(|c: char| !c.is_ascii_alphanumeric());
-    for word in words_of.filter(|w| (7..=40).contains(&w.len()) && w.chars().all(|c| c.is_ascii_hexdigit())) {
-        let commit = format!("{word}^{{commit}}");
-        let resolved = git::said(&project.repo, &["rev-parse", "--verify", "--quiet", &commit]).await?;
-        if resolved.ok && !named.iter().any(|(_, full)| *full == resolved.out) {
-            named.push((word, resolved.out));
-        }
-    }
-    if named.is_empty() {
-        return Ok(Some(fill(&words.unnamed, &[("head", head)])));
-    }
-    // From the head down through the engine's own merges of main, each by its first parent, the branch's side.
-    let mut at = head.to_string();
-    loop {
-        if named.iter().any(|(_, full)| *full == at) {
-            return Ok(None);
-        }
-        match git::engine_merge(project, &at).await? {
-            Some(first) => at = first,
-            None => break,
-        }
-    }
-    let written: Vec<&str> = named.iter().map(|(word, _)| *word).collect();
-    let written = written.join(", ");
-    let slots = [("named", written.as_str()), ("head", head)];
-    Ok(Some(fill(&words.not_head, &slots)))
 }
 
 /// What the block of main of the flow says of main's head, as the watch writes it ([`MAIN`]): the block, and its
@@ -1308,24 +1296,15 @@ mod tests {
         }
     }
 
-    /// What a work writes that names the head of its branch in the repository, where it has one.
-    fn naming_the_head(repo: &Repo, place: &Place) -> String {
-        let head = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&repo.project.repo)
-            .args(["rev-parse", "--verify", "--quiet", &place.reference()])
-            .output()
-            .expect("git runs");
-        format!("In commit {}", String::from_utf8_lossy(&head.stdout).trim())
-    }
-
-    /// Checks the work in the repository with the host, the work naming the head of its branch.
+    /// Checks the work in the repository with the host, its flow holding the work's head to nothing.
     async fn check_with(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, String> {
         let place = repo.place(WORK);
         let (protecting, work) = (Protecting::default(), Work::default());
-        let named = naming_the_head(repo, &place);
-        let gate = Gate {
-            named: &named,
+        let mut looking = Looking::nothing();
+        let mut gate = Gate {
+            branch: &mut looking,
+            wrote: &|_, _| {},
+            reviewed: None,
             protecting: &protecting,
             work: &work,
         };
@@ -1336,19 +1315,35 @@ mod tests {
             &Mutex::new(()),
             (ROUND, stop, &|_| {}),
             &words().check,
-            &gate,
+            &mut gate,
         )
         .await
         .map_err(String::from)
     }
 
-    /// Checks the work in the repository with the host, the work naming in what it wrote what `text` says.
-    async fn check_described(repo: &Repo, host: &impl Host, text: &str) -> Checked {
+    /// Checks the work in the repository with the host, holding its head, whose latest version says `last`, to what the
+    /// judges that take it dealt with last, `reviewed`: what came of it, and what it told of the head as the outside's
+    /// word for its round.
+    async fn check_reviewed(
+        repo: &Repo,
+        host: &impl Host,
+        last: Option<&str>,
+        reviewed: &[Option<String>],
+    ) -> (Result<Option<Checked>, Failed>, Vec<(BlockId, String)>) {
         let place = repo.place(WORK);
         let (lock, mut stop, words, branch) = (Mutex::new(()), Stop::never(), words(), branch(&place));
         let (protecting, work) = (Protecting::default(), Work::default());
-        let gate = Gate {
-            named: text,
+        let reading = branch::Reading {
+            tree: repo.project.tree.clone(),
+            main: crate::host::kept_main(&repo.project),
+        };
+        let mut looking = Looking::head_only(reading, last);
+        let told = std::sync::Mutex::new(Vec::new());
+        let wrote = |block: BlockId, content: String| told.lock().unwrap().push((block, content));
+        let mut gate = Gate {
+            branch: &mut looking,
+            wrote: &wrote,
+            reviewed: Some(reviewed),
             protecting: &protecting,
             work: &work,
         };
@@ -1359,9 +1354,10 @@ mod tests {
             &lock,
             (ROUND, &mut stop, &|_| {}),
             &words.check,
-            &gate,
-        );
-        checked.await.expect("the work is checked").expect("nothing stopped it")
+            &mut gate,
+        )
+        .await;
+        (checked, told.into_inner().unwrap())
     }
 
     // A merge refused for a main that moved since the check fails in passing, in the words of the merge's file, so
@@ -1529,55 +1525,77 @@ mod tests {
         );
     }
 
-    // What is checked and merged is what the work says it handed in: the head of its branch is a commit what runs the
-    // check names, short or whole, or the engine's own merges of main on top of it.
+    // What is checked and merged is what the review saw: the work's head, read of its branch for the check's round, is
+    // the one each judge that takes it dealt with last. A commit no round handed in, as a person's, is read by the check
+    // and told to its round as the outside's word, and fails the check in passing with nothing judged, so that the
+    // review runs on it first; so does a head a judge dealt with no version of, or with another one. In W9 the check
+    // passed, by the commit an answer to the check named, a change of a decision no review had seen.
     #[tokio::test]
-    async fn the_check_passes_only_the_head_the_work_names() {
+    async fn the_check_passes_only_the_head_the_review_saw_and_reads_a_commit_made_outside_any_round_from_outside() {
         let repo = Repo::new("true");
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
         let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
-        let named = commit(&started.place.dir, "farewell.txt", "Bye.\n");
-        let about = format!("Says goodbye, in commit {} (deadbeefcafe is no commit).", &named[..9]);
+        let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let seen = [Some(built.clone())];
         let host = Fake::new(&main).judges(Ok(Some(passes())));
-        let checked = check_described(&repo, &host, &about).await;
-        assert_eq!((checked.commit.as_str(), checked.failed), (named.as_str(), None));
-        // A commit after it that what describes the work does not name is not checked, nor judged.
+        let (checked, told) = check_reviewed(&repo, &host, Some(&built), &seen).await;
+        let checked = checked.expect("the work is checked").expect("nothing stopped it");
+        assert_eq!((checked.commit.as_str(), checked.failed), (built.as_str(), None));
+        let head = |at: &str| vec![(BlockId::from("head"), at.to_string())];
+        assert_eq!(told, head(&built), "the round is told the head it judged");
+        // A commit made outside any round, which no version says yet.
         let after = commit(&started.place.dir, "weather.txt", "Sunny.\n");
         let host = Fake::new(&main);
-        let checked = check_described(&repo, &host, &about).await;
-        let failed = checked.failed.expect("the check fails");
-        let starts = format!(
-            "The work's branch is at {after}, and what the work hands in names {}, ",
-            &named[..9]
-        );
-        assert!(failed.starts_with(&starts), "{failed}");
+        let (checked, told) = check_reviewed(&repo, &host, Some(&built), &seen).await;
+        let failed = checked.expect_err("the check fails in passing");
+        assert_eq!(failed.kind, Some(decide::run::Failure::Passing), "{failed:?}");
+        let said = format!("The work's head is {after}, which the review has not seen");
+        assert!(failed.why.starts_with(&said), "{failed:?}");
+        assert_eq!(told, head(&after), "the commit is told to the round, as the outside's");
         assert_eq!(host.asked(), [Asked::Main], "no verdict is asked for");
-        // Naming no commit fails as well.
-        let checked = check_described(&repo, &Fake::new(&main), "").await;
-        let failed = checked.failed.expect("the check fails");
-        assert!(failed.starts_with("What the work hands in names no commit"), "{failed}");
-        let checked = check_described(&repo, &Fake::new(&main), "Says goodbye.").await;
-        let failed = checked.failed.expect("the check fails");
-        assert!(failed.starts_with("What the work hands in names no commit"), "{failed}");
+        // Once a version says it, a judge that dealt with another, or with none, fails the check all the same.
+        for seen in [
+            vec![Some(built.clone())],
+            vec![None],
+            vec![Some(after.clone()), Some(built.clone())],
+        ] {
+            let (checked, told) = check_reviewed(&repo, &Fake::new(&main), Some(&after), &seen).await;
+            assert!(checked.is_err(), "{seen:?}");
+            assert_eq!(told, head(&after), "{seen:?}");
+        }
+        // Every judge saw it, or no judge takes the head: the check goes on.
+        for seen in [vec![Some(after.clone())], Vec::new()] {
+            let host = Fake::new(&main).judges(Ok(Some(passes())));
+            let (checked, _) = check_reviewed(&repo, &host, Some(&after), &seen).await;
+            let checked = checked.expect("the work is checked").expect("nothing stopped it");
+            assert_eq!((checked.commit, checked.failed), (after.clone(), None), "{seen:?}");
+        }
     }
 
+    // The engine's merges of main on top of the head the review saw bring only main's code: the work's head is still
+    // the one the review saw, and the branch is checked with main taken in.
     #[tokio::test]
-    async fn the_engines_merge_of_main_on_the_head_the_work_names_is_checked_as_it() {
+    async fn the_engines_merge_of_main_on_the_head_the_review_saw_is_checked_as_it() {
         let repo = Repo::new("true");
         let local = run(&repo.project.repo, &["rev-parse", "main"]);
         let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
-        let named = commit(&started.place.dir, "farewell.txt", "Bye.\n");
-        let about = format!("Says goodbye: {named}");
+        let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let seen = [Some(built.clone())];
         let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
         let host = Fake::new(&main).judges(Ok(Some(passes())));
-        let first = check_described(&repo, &host, &about).await;
+        let head = vec![(BlockId::from("head"), built.clone())];
+        let (first, told) = check_reviewed(&repo, &host, Some(&built), &seen).await;
+        let first = first.expect("the work is checked").expect("nothing stopped it");
         assert!(first.took_in && first.failed.is_none(), "{first:?}");
-        // Main moves again: the head is now the engine's merge, which the work does not name, and is checked.
+        assert_eq!(told, head);
+        // Main moves again: the branch's head is now the engine's merge, and the work's the one the review saw.
         let main = commit(&repo.project.repo, "rain.txt", "Rainy.\n");
         let host = Fake::new(&main).judges(Ok(Some(passes())));
-        let again = check_described(&repo, &host, &about).await;
+        let (again, told) = check_reviewed(&repo, &host, Some(&built), &seen).await;
+        let again = again.expect("the work is checked").expect("nothing stopped it");
         assert!(again.took_in && again.failed.is_none(), "{again:?}");
         assert_ne!(again.commit, first.commit);
+        assert_eq!(told, head);
     }
 
     /// Checks the work in the repository with the local host, which must give a verdict.
@@ -1601,12 +1619,14 @@ mod tests {
     }
 
     /// Checks the work with the host, which must give a verdict where it is asked, holding a change to the protected
-    /// paths to what the owner answered in the work, which names the head of its branch.
+    /// paths to what the owner answered in the work, and its head to nothing.
     async fn check_held(repo: &Repo, host: &impl Host, protecting: &Protecting, work: &Work) -> Checked {
         let place = repo.place(WORK);
-        let named = naming_the_head(repo, &place);
-        let gate = Gate {
-            named: &named,
+        let mut looking = Looking::nothing();
+        let mut gate = Gate {
+            branch: &mut looking,
+            wrote: &|_, _| {},
+            reviewed: None,
             protecting,
             work,
         };
@@ -1618,7 +1638,7 @@ mod tests {
             &repository,
             (ROUND, &mut stop, &|_| {}),
             &words().check,
-            &gate,
+            &mut gate,
         )
         .await
         .expect("the work is checked")
