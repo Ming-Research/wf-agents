@@ -121,6 +121,74 @@ async fn a_build_that_asks_for_tests_once_is_given_their_result_and_the_work_mer
     );
 }
 
+// A build that asks for the tests on a commit of its own and then on its head, through the real carriers: each result
+// reaches it as the result of what it asked for, saying first its entry and the commit it ran on; and the review,
+// which asked for none, is given both, each under the heading of the version of the build's block it came in, cut as a
+// result is given. A few seconds alone, a repository on disk and the fake command line; no other test gives one cell's
+// results of tests to another through the carriers.
+#[tokio::test]
+async fn a_build_that_asks_for_tests_on_two_of_its_commits_is_given_each_result_and_its_review_both_cut() {
+    let mut real = Real::open(
+        On::Reviewed,
+        Fake {
+            asks_named_tests: true,
+            ..Fake::default()
+        },
+        None,
+        "head -c 30000 /dev/zero | tr '\\0' x",
+    );
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let finished = real.finished(work);
+    let first = ["start", "build", "tests", "build", "tests", "build"];
+    assert_eq!(finished[..first.len()], first, "{finished:?}");
+    assert!(finished.iter().any(|cell| cell == "review"), "{finished:?}");
+    let kept = real.work(work);
+    let versions = |name: &str| -> Vec<(u64, String)> {
+        (kept.contents.iter())
+            .filter(|((block, _), _)| block.as_str() == name)
+            .map(|((_, at), content)| (at.0, content.clone()))
+            .collect()
+    };
+    let (entries, results) = (versions("run_tests"), versions("build_tested"));
+    assert_eq!((entries.len(), results.len()), (2, 2), "{entries:?}");
+    // The first entry names the first of the build's two commits, which is not its head, and the second its head.
+    let commit = |entry: &str| {
+        let entry: serde_json::Value = serde_json::from_str(entry).expect("an entry");
+        entry["commit"].as_str().expect("a commit named").to_string()
+    };
+    let named = [commit(&entries[0].1), commit(&entries[1].1)];
+    assert_ne!(named[0], named[1]);
+    let bound = crate::beside().acts.run_tests.given.bound;
+    let builds: Vec<Call> = real.calls().into_iter().filter(|c| c.of("Build")).collect();
+    assert_eq!(builds.len(), 3, "the build is entered again for each result");
+    for (i, (_, result)) in results.iter().enumerate() {
+        let opening = format!(
+            "For `run_tests`, version {}:\nOn the commit {}:\n",
+            entries[i].0, named[i]
+        );
+        assert!(result.starts_with(&opening), "{opening}");
+        assert!(result.len() > bound, "the result is longer than a round is given");
+        let given = &builds[i + 1].stdin;
+        assert!(
+            given.contains("### The tests you asked for") && given.contains(&opening),
+            "{opening}"
+        );
+    }
+    let reviews: Vec<Call> = real.calls().into_iter().filter(|c| c.of("Review")).collect();
+    let review = &reviews.first().expect("the review ran").stdin;
+    assert!(
+        !review.contains("The tests you asked for"),
+        "given as no result of its own"
+    );
+    for (at, result) in &results {
+        // Cut as a result is given: its first bytes up to the bound, then the words that say so.
+        let given = format!("## `build_tested`, version {at}\n\n{}\n\n", &result[..bound]);
+        assert!(review.contains(&given), "version {at} is not given cut");
+    }
+}
+
 #[tokio::test]
 async fn a_work_is_started_checked_and_merged_at_the_commit_the_check_passed() {
     let mut real = Real::open(On::Acts, Fake::default(), None, "true");

@@ -13,7 +13,9 @@
 //!
 //! An agent's `run_tests` is run on the last commit of its work's branch, pushed and put in the same pull request:
 //! by the fast workflow where it names tests or checks, by the full ones where it names none (the module `fast`); what
-//! the worktree holds that is not committed is said, and nothing is pushed.
+//! the worktree holds that is not committed is said, and nothing is pushed. An entry that names a commit of the branch
+//! runs that commit, whatever the worktree holds: the branch is pushed, which makes it GitHub's, and no pull request is
+//! opened for it, a run on a commit needing none.
 //!
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
 //! - `output`: what a test said, as a reader wants it.
@@ -473,6 +475,24 @@ impl<A: Api> Host for GitHub<A> {
         let words = (self.config.tool.as_ref())
             .map(|tool| &tool.github)
             .ok_or("the words of run_tests (agents/acts/run_tests.toml) are not given")?;
+        if let Some(commit) = &named.commit {
+            // A commit named is committed: nothing of the worktree is read, and the branch's own reference, not the
+            // worktree's head, is pushed, which carries every commit of the branch to GitHub.
+            git::configuration(&self.project, place).await?;
+            let ci = self.config.ci.as_ref();
+            let role = match self.role(ci, named)? {
+                Ok(role) => role,
+                Err(refused) => return Ok(Some(refused)),
+            };
+            let head = git::git(&self.project.repo, &["rev-parse", "--verify", &place.reference()]).await?;
+            self.push(branch, &head).await?;
+            let request = fast::Request {
+                work: branch.work,
+                commit,
+                asking,
+            };
+            return self.run_role(role, request, named, stop).await;
+        }
         let dir = git::worktree(place)?;
         git::configuration(&self.project, place).await?;
         git::on_branch(place).await?;
@@ -509,16 +529,34 @@ impl<A: Api> Host for GitHub<A> {
         self.run_role(role, request, named, stop).await
     }
 
-    async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[Asking]) -> Result<(), Failed> {
-        if asking.is_empty() {
-            return Ok(());
+    async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[(Asking, Option<String>)]) -> Result<(), Failed> {
+        // An entry that named a commit ran on it; one that named none ran on the head its branch had then, which is
+        // among the branch's commits since main. What could not be found or cancelled is said, every part of it, once
+        // all the rest is cancelled.
+        let mut on: Vec<(Asking, Vec<String>)> = (asking.iter())
+            .filter_map(|(asked, at)| at.as_ref().map(|at| (*asked, vec![at.clone()])))
+            .collect();
+        let mut failed = Vec::new();
+        if asking.iter().any(|(_, at)| at.is_none()) {
+            let repo = &self.project.repo;
+            let span = format!("{}..{}", self.kept_main(), branch.place.reference());
+            match git::git(repo, &["rev-list", "--max-count=100", &span]).await {
+                Ok(commits) => {
+                    let commits: Vec<String> = (commits.lines().map(str::trim))
+                        .filter(|c| !c.is_empty())
+                        .map(str::to_string)
+                        .collect();
+                    let unnamed = asking.iter().filter(|(_, at)| at.is_none());
+                    on.extend(unnamed.map(|(asked, _)| (*asked, commits.clone())));
+                }
+                Err(why) => failed.push(why),
+            }
         }
-        // An entry ran on the head its branch had then, which is among the branch's commits since main.
-        let repo = &self.project.repo;
-        let span = format!("{}..{}", self.kept_main(), branch.place.reference());
-        let commits = git::git(repo, &["rev-list", "--max-count=100", &span]).await?;
-        let commits: Vec<&str> = commits.lines().map(str::trim).filter(|c| !c.is_empty()).collect();
-        self.cancel_runs(branch.work, asking, &commits).await
+        failed.extend(self.cancel_runs(branch.work, &on).await);
+        match failed.is_empty() {
+            true => Ok(()),
+            false => Err(failed.join("; ").into()),
+        }
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

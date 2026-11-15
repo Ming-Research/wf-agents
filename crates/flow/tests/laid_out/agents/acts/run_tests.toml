@@ -5,6 +5,8 @@
 as_a_tool = "`{name}` is a record now."
 not_cancelled = "Not cancelled: {entries}: {why}"
 could_not = "Not run: {why}"
+entry = "Entry {entry}:"
+not_of_the_branch = "Not of the branch."
 
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is
@@ -68,6 +70,8 @@ passed = "passed"
 failed = "failed ({status})"
 could_not = "The check `{command}` could not be run: {why}"
 not_apart = "The tests and checks you named are not run apart: the whole command runs."
+ran_on = "At {commit}:"
+ran_on_changed = "At {commit}, changed:"
 
 # What fills `{named_checks}`, the checks an agent may name, as the project declares its fast workflow (`[ci.fast]` of
 # flow/project.toml): `named`, `{checks}` the checks it runs by name, each between backticks and joined by commas;
