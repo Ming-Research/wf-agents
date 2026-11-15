@@ -225,7 +225,12 @@ fn a_run_s_writes_that_leave_its_own_cell_while_it_waits_are_named() {
     let run = w.start("research");
     let waits = asking("naming", true, false);
     assert_eq!(
-        skips(&w, run, &[chose("deep", "yes"), wrote("plan")], &[waits.clone()]),
+        skips(
+            &w,
+            run,
+            &[chose("deep", "yes"), wrote("plan")],
+            std::slice::from_ref(&waits)
+        ),
         ["deep"]
     );
     assert_eq!(skips(&w, run, &[chose("deep", "yes"), wrote("tests")], &[]), ["deep"]);
@@ -315,7 +320,10 @@ fn a_named_test_condition_is_left_by_the_run_s_write_and_a_cell_already_skipped_
     w.person_sets("go", "yes");
     let run = w.start("research");
     let waits = asking("naming", true, false);
-    assert_eq!(skips(&w, run, &[chose("deep", "yes")], &[waits.clone()]), ["deep"]);
+    assert_eq!(
+        skips(&w, run, &[chose("deep", "yes")], std::slice::from_ref(&waits)),
+        ["deep"]
+    );
     w.person_sets("go", "no");
     assert_eq!(skips(&w, run, &[chose("deep", "yes")], &[waits]), Vec::<String>::new());
 }
