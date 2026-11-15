@@ -351,21 +351,22 @@ pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
     flow.place(cell).is_some_and(|i| walk.applies(i))
 }
 
-/// The blocks that leave the run's cell no longer applying, its condition holding as the records stand (`before`), while
-/// the cell, its return taken in as `after` holds it, with all the engine writes as it takes it in, still waits: for
-/// the answer to a question of its own that holds it, one the return asked or one asked before that it neither withdrew
-/// nor asked anew as not waiting, or for the result of an entry of a record it asks in, written by the return or before
-/// (decision a-return-that-waits-keeps-its-cell). The engine's own questions, which no return of the cell withdraws or
-/// asks anew, are not the cell's. Named, all at once: each block of these writes of the return's, in their order, that
-/// then keeps the condition from holding, or that changes what it says and is read by the condition of a cell before
-/// it whose applying it changes, where a key of the cell is a test of what stands, which that applying decides; then
-/// each block that keeps the condition from holding that the engine wrote anew as it took the return in, as the
-/// questions' standing. None where the cell has no condition, does not apply before, still applies after, or then waits
-/// for nothing, or where the run never started. The records after (`after`, the take-in) are asked for only where the
-/// take-in can leave the cell, by writing a block the condition can turn on, the return's or one a source outside the
-/// work writes as the engine may as it takes the return in; and where the cell can then still wait: the return asks a
-/// question that waits (`waits`) or writes an entry of a record its cell asks in, or the cell holds by a question of its
-/// own or waits for the result of an entry as the records stand.
+/// The blocks that leave the run's cell no longer applying, its condition holding as the records stand (`before`),
+/// while the cell, its return taken in as `after` holds it, with all the engine writes as it takes it in, still waits:
+/// for the answer to a question of its own that holds it, one the return asked or one asked before that it neither
+/// withdrew nor asked anew as not waiting, or for the result of an entry of a record it asks in, written by the return
+/// or before (decision a-return-that-waits-keeps-its-cell). The engine's own questions, which no return of the cell
+/// withdraws or asks anew, are not the cell's. Named, all at once: each block of these writes of the return's, in their
+/// order, that then keeps the condition from holding, or that changes what it says and is read by the condition of a
+/// cell before it whose applying it changes and that writes a block a test of what stands among the cell's keys reads,
+/// which that applying decides; then each block that keeps the condition from holding that the engine wrote anew as it
+/// took the return in, as the questions' standing; and, where none of these is, every block that keeps the condition
+/// from holding, so that no such return is let through. None where the cell has no condition, does not apply before,
+/// still applies after, or then waits for nothing, or where the run never started. The records after (`after`, the
+/// take-in) are asked for only where the take-in can leave the cell, by writing a block the condition can turn on, the
+/// return's or one a source outside the work writes as the engine may as it takes the return in; and where the cell can
+/// then still wait: the return asks a question that waits (`waits`) or writes an entry of a record its cell asks in, or
+/// the cell holds by a question of its own or waits for the result of an entry as the records stand.
 pub fn skipping(
     flow: &Flow,
     before: &Records,
@@ -436,10 +437,22 @@ pub fn skipping(
         let value = walk.value_now(block).map(str::to_string);
         (value, walk.current(block).map(|v| v.empty))
     };
+    // The blocks the cell's tests of what stands read: only a cell before it that writes one of them can turn it.
+    let standing_reads: Vec<&BlockId> = (cells[i].applies.iter())
+        .filter_map(|key| match key {
+            Condition::Test(name) => flow.tests().get(name).filter(|t| t.kind == TestKind::NoneStanding),
+            Condition::Is { .. } => None,
+        })
+        .flat_map(|t| &t.reads)
+        .collect();
     let through = |block: &BlockId| {
         standing
             && says(&was, block) != says(&is, block)
-            && (0..i).any(|j| cells[j].applies.iter().any(|key| reads(key, block)) && was.applies(j) != is.applies(j))
+            && (0..i).any(|j| {
+                cells[j].outputs.iter().any(|o| standing_reads.contains(&o))
+                    && cells[j].applies.iter().any(|key| reads(key, block))
+                    && was.applies(j) != is.applies(j)
+            })
     };
     let mut named: Vec<BlockId> = Vec::new();
     for w in writes {
@@ -449,10 +462,15 @@ pub fn skipping(
     }
     // What the engine wrote anew as it took the return in: a version of the block the records did not hold before.
     let anew = |block: &BlockId| is.current(block).map(|v| v.at) != was.current(block).map(|v| v.at);
-    for block in keeping {
-        if !writes.iter().any(|w| &w.block == block) && anew(block) && !named.contains(block) {
-            named.push(block.clone());
+    for block in &keeping {
+        if !writes.iter().any(|w| &w.block == *block) && anew(block) && !named.contains(*block) {
+            named.push((*block).clone());
         }
+    }
+    // Left by what no block named here does, as through a cell before it whose applying what the engine wrote turns,
+    // the cell is named by the blocks that keep it from applying, so that such a return is never let through.
+    if named.is_empty() {
+        named = keeping.into_iter().cloned().collect();
     }
     named
 }

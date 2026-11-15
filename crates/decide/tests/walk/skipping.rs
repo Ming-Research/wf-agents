@@ -481,3 +481,45 @@ fn what_the_engine_writes_as_it_takes_the_return_in_is_judged_with_it() {
     );
     assert_eq!(skips(&w, run, &[wrote("plan")], &[waits]), Vec::<String>::new());
 }
+
+// A cell left through a cell before it whose applying what the engine writes for the return turns, while it still
+// waits, is never let through with nothing named: the blocks that keep its condition from holding are named, the
+// judge's refusal here, which the engine's writing of the questions' standing has stand again (principle
+// nothing-passes-for-normal). Well under a millisecond alone; no other test has no block of the return's name a skip.
+#[test]
+fn a_cell_left_with_no_block_of_the_return_s_to_name_is_named_by_what_keeps_it() {
+    let judge = when("asked", "waiting", cell("judge", &["brief"], &["verdict"]));
+    let mut fix = cell("fix", &["brief"], &["plan"]);
+    fix.applies = vec![Condition::Test("unrefused".into())];
+    let unrefused = decide::Test {
+        kind: decide::TestKind::NoneStanding,
+        reads: vec!["verdict".into()],
+        is: Some("no".to_string()),
+    };
+    let tests = BTreeMap::from([
+        ("unrefused".into(), unrefused),
+        (support::GATE.into(), support::gate_word()),
+    ]);
+    let people = decide::Outsiders {
+        people: true,
+        ..Default::default()
+    };
+    let asked = decide::Outsiders {
+        outside: Some("asked".to_string()),
+        ..Default::default()
+    };
+    let outsiders = BTreeMap::from([(support::GATE.into(), people), ("asked".into(), asked)]);
+    let flow = Flow::new(vec![judge, fix, gate()], tests, outsiders).expect("the cells make a flow");
+    let mut w = World::of(flow.with_defaults(BTreeMap::from([("asked".into(), "answered".to_string())])));
+    w.person_writes("brief");
+    w.outside_sets("asked", "waiting");
+    w.run("judge", &[("verdict", Value("no"))]);
+    w.outside_sets("asked", "answered");
+    let run = w.start("fix");
+    let waits = asking("naming", true, false);
+    let standing = [("asked", "waiting")];
+    assert_eq!(
+        skips_taken(&w, run, &[wrote("plan")], std::slice::from_ref(&waits), &standing),
+        ["verdict"]
+    );
+}
