@@ -95,8 +95,9 @@ and the scripts that stand in for agents are built; what is not is said at the e
     cost (11). The run goes one round at a time (26). Such a run also shows what only that program does: what the
     context manager filled into a real session, how that session's cache was read and written, what the program printed
     for a session lost, a compaction or a refusal, and what it all cost. What the agent does shows nothing of how an
-    agent acts in real work, since it knows it is in a test; only a trial shows that, where an agent not told it is
-    tested reports what it meets in the same way (27, 28). It runs on an installation apart from the real one, in a
+    agent acts in real work, since it knows it is in a test; only a trial shows that, whose agents are not told they are
+    tested: they report what they meet in their `observations` in the same way (28), and a fork of a round's session,
+    made after the round, is asked about its cell's text (27). It runs on an installation apart from the real one, in a
     repository made for it, so that nothing it does reaches a project.
 
 13. **What a script says**, for one case: what each round of each cell returns (what it hands in, asks or fails with,
