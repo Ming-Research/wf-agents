@@ -95,31 +95,50 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
 /// A work of the engineer's flow, carried out with the plan written by the research and nothing better found, until
 /// the round of this cell is given, which is not carried out: gives the work and that round.
 fn until(id: &str) -> (Sim, support::Given) {
+    carried_until(id, false)
+}
+
+/// A work of the engineer's flow, carried out with the plan written by the deep research, nothing better found and the
+/// plan's review content, until the round of this cell is given, which is not carried out: gives the work and that
+/// round.
+fn deeply_until(id: &str) -> (Sim, support::Given) {
+    carried_until(id, true)
+}
+
+/// A work of the engineer's flow, carried out until the round of this cell is given, which is not carried out, the plan
+/// written by the deep research where `deep` holds and by the research otherwise: gives the work and that round.
+fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
     let mut sim = Sim::of(engineer(), beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     sim.writes("background", "Greet the user by name.");
+    let plan = [
+        ("plan_owner", "Greet by name.", None),
+        ("plan_agent", "Add the name to the greeting.", None),
+        ("acceptance", "The greeting names the user.", None),
+    ];
     loop {
         let round = sim.round().expect("a round is given");
         let cell = sim.cell(&round).id.as_str().to_string();
         if cell == id {
             return (sim, round);
         }
-        let blocks: &[(&str, &str, Option<&str>)] = match cell.as_str() {
-            "S1" => &[("place", "the branch and its worktree", None)],
-            "R0" => &[],
-            "R1" => &[
-                ("deep_needed", "", Some("no")),
-                ("plan_owner", "Greet by name.", None),
-                ("plan_agent", "Add the name to the greeting.", None),
-                ("acceptance", "The greeting names the user.", None),
+        let blocks: Vec<(&str, &str, Option<&str>)> = match cell.as_str() {
+            "S1" => vec![("place", "the branch and its worktree", None)],
+            "R0" => vec![],
+            "R1" if deep => vec![
+                ("deep_needed", "", Some("yes")),
+                ("found", "Where the name comes from is open.", None),
             ],
-            "R2" => &[("better_found", "", Some("no"))],
-            "I1" => &[("code", "abc", None)],
+            "R1" => [("deep_needed", "", Some("no"))].into_iter().chain(plan).collect(),
+            "D1" => plan.to_vec(),
+            "R2" | "D2" => vec![("better_found", "", Some("no"))],
+            "D3" => vec![("plan_ok", "", Some("yes"))],
+            "I1" => vec![("code", "abc", None)],
             other => panic!("{other} is entered before {id}"),
         };
         tried(&mut sim, &round);
-        sim.hands_in(&round, blocks);
+        sim.hands_in(&round, &blocks);
     }
 }
 
@@ -361,10 +380,16 @@ fn a_reopened_session_s_reading_of_the_tree_leaves_the_line_where_its_cell_that_
 
 #[test]
 fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
-    let (mut sim, review) = until("T1");
-    tried(&mut sim, &review);
+    let (mut sim, implement) = deeply_until("I1");
+    tried(&mut sim, &implement);
+    // The reviews ask nothing, and the owner's words run none of their cells: words to their lines are refused, the
+    // plan's review having run.
+    for review in ["plan_reviewer", "code_reviewer"] {
+        let to = To::Line(review.into());
+        assert_eq!(receiver(&sim, to), Err(NoOne::NoneOfTheLine(review.into())));
+    }
     let effects = sim.take(Event::Said {
-        to: To::Line("code_reviewer".into()),
+        to: To::Line("engineer".into()),
         words: "Look at the names too.".to_string(),
     });
     let versions = (effects.into_iter())
@@ -372,30 +397,35 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
             Effect::Tell { telling, .. } => Some(telling.versions),
             _ => None,
         })
-        .expect("the review under way is told");
-    // Words to the implementation, before the review, stop the review's round.
+        .expect("the implementation under way is told");
+    // Words to the deep research, before the implementation, stop the implementation's round.
+    assert_eq!(
+        receiver(&sim, To::Line("deep_researcher".into())),
+        Ok(CellId::from("D2"))
+    );
     let effects = sim.take(Event::Said {
-        to: To::Line("engineer".into()),
+        to: To::Line("deep_researcher".into()),
         words: "Shorter, please.".to_string(),
     });
     assert!(
         effects
             .iter()
-            .any(|e| matches!(e, Effect::Stop { run } if *run == review.run))
+            .any(|e| matches!(e, Effect::Stop { run } if *run == implement.run))
     );
-    // The hook gave the review the owner's words before its round ended.
+    // The hook gave the implementation the owner's words before its round ended.
     sim.take(Event::SaidToRound {
-        run: review.run,
+        run: implement.run,
         versions,
     });
-    sim.returns(&review, Came::default(), 0);
-    let implement = sim.round().expect("a round is given");
-    assert_eq!(implement.cell.as_str(), "I1");
-    tried(&mut sim, &implement);
-    sim.hands_in(&implement, &[]);
-    // The review runs again for the words it never dealt with; its session holds them, and is given what it lacks.
+    sim.returns(&implement, Came::default(), 0);
+    let rethought = sim.round().expect("a round is given");
+    assert_eq!(rethought.cell.as_str(), "D2");
+    tried(&mut sim, &rethought);
+    sim.hands_in(&rethought, &[("better_found", "", Some("no"))]);
+    // The implementation runs again for the words it never dealt with; its session holds them, and is given what it
+    // lacks.
     let again = sim.round().expect("a round is given");
-    assert_eq!(again.cell.as_str(), "T1");
+    assert_eq!(again.cell.as_str(), "I1");
     let entered = sim.enter(&again, sim.begins(&again));
     assert!(
         entered.text.contains("The owner:\n\nShorter, please."),
@@ -407,8 +437,9 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
         "given again:\n{}",
         entered.text
     );
-    // Each entry is kept said to its cell; the review is given the one said to the implementation, which names no cell.
-    assert_eq!(said_to(&sim), ["T1", "I1"]);
+    // Each entry is kept said to its cell; the implementation is given the one said to the deep research, which names
+    // no cell.
+    assert_eq!(said_to(&sim), ["I1", "D2"]);
     let given = record_given(&entered.text);
     assert!(
         !given.is_empty() && !given.iter().any(|g| names_a_cell(&sim.flow, g)),
