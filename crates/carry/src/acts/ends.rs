@@ -583,6 +583,8 @@ async fn a_head_moved_since_the_check_fails_the_merge_in_passing_and_is_written_
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
     let after = commit(&place.dir, "weather.txt", "Sunny.\n");
     let acts = acts(&repo, Fake::new(&main));
+    // The work holds the turn, as after a check that passed: what lets it go is the merge's failure alone.
+    acts.inner.turn().holder = Some((WORK, Some(std::time::Instant::now())));
     let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(5), to).teller();
     let merged = acts.inner.act(&merging(&checked), &teller, &mut Stop::never()).await;
@@ -670,6 +672,8 @@ async fn a_merge_that_cannot_read_the_works_branch_fails_its_round_as_the_check_
     // The branch is gone, as where a person deleted it.
     run(&repo.project.repo, &["update-ref", "-d", &place.reference()]);
     let acts = acts(&repo, Fake::new(&main));
+    // The work holds the turn, as after a check that passed: what lets it go is the merge's failure alone.
+    acts.inner.turn().holder = Some((WORK, Some(std::time::Instant::now())));
     let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(5), to).teller();
     let merged = acts.inner.act(&round, &teller, &mut Stop::never()).await;
@@ -703,6 +707,8 @@ async fn a_merge_that_cannot_read_the_checks_result_fails_and_keeps_no_turn() {
     // The work's head as the merge reads it, and no check that passed it.
     let round = merging(&head);
     let acts = acts(&repo, Fake::new(&main));
+    // The work holds the turn, as after a check that passed: what lets it go is the merge's failure alone.
+    acts.inner.turn().holder = Some((WORK, Some(std::time::Instant::now())));
     let (to, _told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(5), to).teller();
     let merged = acts.inner.act(&round, &teller, &mut Stop::never()).await;
