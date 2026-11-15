@@ -802,6 +802,16 @@ fn words(what: &FaultKind, field: &str) -> String {
         }
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),
+        F::SpokenWithoutText { block, key } => {
+            format!(
+                "{block} is a record of what is said, and its writes give no {key}: its entries of that kind would be empty"
+            )
+        }
+        F::SpokenTextWithoutPlace { block, key, place } => {
+            format!(
+                "{block} is a record of what is said, and its writes.{key} has no {{{place}}}: its entries of that kind would hold none of what was said"
+            )
+        }
         F::NoteIsAChoice { block } => format!("{block} is a note, but it is a choice, and a note is words to a cell"),
         F::ChangedByWithoutSource { block } => {
             format!("{block} says who changes what its source writes, but no source outside the work writes it")

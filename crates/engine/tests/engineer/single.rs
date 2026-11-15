@@ -284,13 +284,4 @@ fn words_that_hold_nothing_add_no_entry_to_the_record_of_what_is_said_and_each_w
     let (empty, kept) = of_discussion(&writes).expect("the answer is kept");
     assert!(kept.contains("The plan stands.") && !empty, "{kept:?}");
     holds_what_it_keeps(&writes);
-
-    // A flow whose record of what is said gives no words for a reply keeps the answer as nothing, and says so.
-    let mut w = W::started();
-    let record = w.flow.blocks.get_mut(&discussion).expect("the record of what is said");
-    record.writes.0.retain(|(name, _)| name != "reply");
-    let writes = answered(&mut w, "The plan stands.");
-    let (empty, kept) = of_discussion(&writes).expect("the answer is kept");
-    assert!(kept.trim().is_empty() && empty, "{kept:?}");
-    holds_what_it_keeps(&writes);
 }
