@@ -178,9 +178,26 @@ function lineWords(w: Waited, cell: string): string {
   }
 }
 
-/// What the work does now, as a word and the facts after it.
+/// What a work that waits at a cell waits for there, in a few words for the status line, the questions apart, which the
+/// body shows.
+function waitsFacts(now: Extract<Summary['now'], { kind: 'waits' }>, page: WorkPage | null): string {
+  const cell = titleOf(page, now.at);
+  const said = now.on.flatMap((w) => (asked(w) ? [] : [lineWords(w, cell)]));
+  return said.length > 0 ? said.join('; ') : `at ${cell}`;
+}
+
+/// What the work does now, as a word and the facts after it. Whatever the one definition of what waits on the owner
+/// counts (`waitsOf`) is said to wait for the owner, with what it waits for and why; a fault and a stalled work are
+/// halted; the owner's own pause is a pause.
 export function nowWords(s: Summary, page: WorkPage | null): { word: string; facts: string | null } {
   const now = s.now;
+  const waits = waitsOf(now);
+  if (waits.length > 0) {
+    return {
+      word: MOOD_WORDS.owner,
+      facts: now.kind === 'waits' ? waitsFacts(now, page) : waits.map((w) => w.words).join('; '),
+    };
+  }
   switch (now.kind) {
     case 'round':
       return {
@@ -190,17 +207,16 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
     case 'next':
       return { word: MOOD_WORDS.running, facts: `next ${titleOf(page, now.cell)}` };
     case 'waits': {
-      const cell = titleOf(page, now.at);
-      const who = [...new Set(now.on.flatMap((w) => whom(w, page) ?? []))];
-      const said = now.on.flatMap((w) => (asked(w) ? [] : [lineWords(w, cell)]));
-      const facts = said.length > 0 ? said.join('; ') : `at ${cell}`;
-      // A work that waits only for what a source outside it gives, such as the items it depends on being merged,
-      // waits for that.
+      // Not the owner's, as the definition says: it waits for whoever else gives what it waits for, or, where only a
+      // source outside it does, such as the items it depends on being merged, for that.
+      const who = [...new Set(now.on.flatMap((w) => whom(w, page) ?? []))].filter((x) => x !== WHO.owner);
+      const facts = waitsFacts(now, page);
       if (who.length === 0) return { word: MOOD_WORDS.waiting, facts };
       return { word: `Waiting for ${who.join(' and ')}`, facts };
     }
+    // The owner's own pause: the engine's waits for the owner, above.
     case 'paused':
-      return now.by === 'engine' ? { word: MOOD_WORDS.halted, facts: now.why } : { word: MOOD_WORDS.paused, facts: null };
+      return { word: MOOD_WORDS.paused, facts: null };
     case 'everything':
       return { word: MOOD_WORDS.paused, facts: 'with every work' };
     case 'fault':

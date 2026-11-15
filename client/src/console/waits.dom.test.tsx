@@ -188,6 +188,13 @@ function draw(
   return container;
 }
 
+/// The work's status line in the panel, under the item's: its word, and what follows it.
+function workLine(el: HTMLElement): { word: string; rest: string } {
+  const line = el.querySelectorAll('.cw-item > .status-line')[1];
+  const word = line.querySelector('.status-word')?.textContent ?? '';
+  return { word, rest: line.textContent?.slice(word.length) ?? '' };
+}
+
 const unmount = () => {
   act(() => root?.unmount());
   root = undefined;
@@ -197,7 +204,7 @@ const unmount = () => {
 const none = () => Promise.resolve(null);
 
 describe('what waits for the owner', () => {
-  it.each(OWNERS)('is counted, marked and carded alike: %s', (_, now, key) => {
+  it.each(OWNERS)('is counted, marked, carded and said on the status line alike: %s', (_, now, key) => {
     const waits = waitsOf(now);
     expect(waits.map((w) => w.key)).toEqual([key]);
     expect(waitsOnOwner(now)).toBe(true);
@@ -205,6 +212,11 @@ describe('what waits for the owner', () => {
     expect(moodOf({ now })).toBe('owner');
     const container = draw(now, key, none);
     expect(container.querySelectorAll(`[data-wait="${key}"]`)).toHaveLength(1);
+    // The status line says that the work waits for you, as the card does, and what it waits for: a pause or a hold
+    // in the card's own words, a wait at a cell in the line's.
+    const line = workLine(container);
+    expect(line.word).toBe('Waiting for you');
+    if (now.kind !== 'waits') expect(line.rest).toContain(waits[0].words);
   });
 
   it("is counted, marked and carded alike where it is a review's verdict that holds the work, for the owner to rule on", async () => {
@@ -221,6 +233,7 @@ describe('what waits for the owner', () => {
     const card = container.querySelector('[data-wait="precondition"]');
     expect(card?.textContent).toContain('The work waits for this ruling');
     expect(scrolled.mock.contexts[0]).toBe(card);
+    expect(workLine(container).word).toBe('Waiting for you');
   });
 
   it.each(NOT_OWNERS)("is none of the three where it is not the owner's to let on: %s", (_, now) => {
@@ -230,6 +243,20 @@ describe('what waits for the owner', () => {
     expect(moodOf({ now })).not.toBe('owner');
     const container = draw(now, undefined, none);
     expect(container.querySelectorAll('[data-wait]')).toHaveLength(0);
+    expect(workLine(container).word).not.toBe('Waiting for you');
+  });
+
+  it("says a fault and a stalled work halted by the engine, and the owner's own pause paused, on the status line", () => {
+    const word = (now: Now) => {
+      const container = draw(now, undefined, none);
+      const said = workLine(container).word;
+      unmount();
+      return said;
+    };
+    expect(word({ kind: 'fault', words: 'Two entries at 3' })).toBe('Halted by the engine');
+    expect(word(STALLED)).toBe('Halted by the engine');
+    expect(word({ kind: 'paused', by: 'owner', why: null })).toBe('Paused');
+    expect(word({ kind: 'everything', by: 'owner' })).toBe('Paused');
   });
 
   it("says on the card of the agents' command line what the owner is to do", () => {

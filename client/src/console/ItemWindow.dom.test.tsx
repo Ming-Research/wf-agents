@@ -165,10 +165,12 @@ describe('the panel of the item selected', () => {
     expect(el.querySelector('.drawer-belongs')).toBeNull();
   });
 
-  it('says a work the engine paused as halted, with the reason, and shows it paused on the switch that starts it', () => {
+  it('says a work the engine paused as waiting for you, with the reason, and shows it paused on the switch that starts it', () => {
     const el = draw(4, answered([]));
     const [, workLine] = lines(el);
-    expect(workLine).toContain("Halted by the engine The agent's program exited with an error: the session could not be resumed.");
+    expect(workLine).toContain(
+      "Waiting for you paused by the engine: The agent's program exited with an error: the session could not be resumed.",
+    );
     expect(el.querySelectorAll('.cw-item > .status-line .strip .state-failed')).toHaveLength(1);
     expect(button(el, 'Pause').getAttribute('aria-pressed')).toBe('true');
     expect(button(el, 'Start').getAttribute('aria-pressed')).toBe('false');
