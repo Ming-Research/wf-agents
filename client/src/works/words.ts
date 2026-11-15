@@ -261,10 +261,9 @@ export function waitedWords(waited: Waited): string {
   switch (waited.kind) {
     case 'call': {
       const what = waited.what;
-      if (what.kind === 'question') return `${personWords(what.who)}'s answer to a question`;
       if (what.kind === 'atLimit') return `the owner to let the run go on: it reached its limit, ${limitWords(what.limit)}`;
       if (what.kind === 'wait') return callWords(what);
-      return `the result of the tool ${what.name}${waited.who ? ` from ${personWords(waited.who)}` : ''}`;
+      return `the result of the tool ${what.name}`;
     }
     case 'precondition':
       return `${waited.words}, which ${waited.by.map(makerWords).join(' or ')} can make hold`;
@@ -352,15 +351,14 @@ export const waitCounted = (n: number): string => `${n === 1 ? 'thing waits' : '
 /// How many things wait for the owner, the one count, said one way wherever it is said.
 export const waitCount = (n: number): string => `${n} ${waitCounted(n)}`;
 
-/// Who gives what a work waits for that is not the owner's: the architect for a question put to them, the engine for a
-/// call it makes, a slot and the wait every work shares, the source outside the work, or else the cells, for a
-/// precondition only they make hold, the cells that give the result of what a cell asked for in a record, the source a
-/// work waits on, and the work that holds the project's turn. None for what waits on the owner, which the engine's list
-/// says.
+/// Who gives what a work waits for that is not the owner's: the engine for a call it makes, a slot and the wait every
+/// work shares, the source outside the work, or else the cells, for a precondition only they make hold, the cells that
+/// give the result of what a cell asked for in a record, the source a work waits on, and the work that holds the
+/// project's turn. None for what waits on the owner, which the engine's list says.
 function whoGives(w: Waited): string | null {
   switch (w.kind) {
     case 'call':
-      return w.who === 'architect' ? 'the architect' : w.who === null ? 'the engine' : null;
+      return w.who === null ? 'the engine' : null;
     case 'precondition': {
       const sources = w.by.flatMap((m) => (m.kind === 'outside' ? [m.source] : []));
       const cells = w.by.flatMap((m) => (m.kind === 'cell' ? [m.cell] : []));
@@ -546,6 +544,8 @@ export function unmetWords(unmet: Unmet): string {
       return `its run changed ${unmet.path}, which is none of the project's tests, the only files its line changes`;
     case 'unanswered':
       return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
+    case 'skipsItsWait':
+      return `it wrote ${unmet.block} so that its cell no longer runs, while the cell waits there`;
   }
 }
 

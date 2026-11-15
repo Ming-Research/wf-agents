@@ -31,7 +31,7 @@
 import { read } from './api';
 import type { Flow } from './api';
 
-export type Person = 'owner' | 'architect';
+export type Person = 'owner';
 
 /// Who paused a work: the owner, or the engine itself, as when a round failed or the work spent more than it may.
 export type Pauser = 'owner' | 'engine';
@@ -106,8 +106,15 @@ export type Maker = { kind: 'owner' } | { kind: 'outside'; source: string } | { 
 export type Waited =
   /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this time,
   /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes. Absent from an engine that does
-  /// not give them yet.
-  | { kind: 'call'; call: number; who: Person | null; what: Call; made?: number; at?: string | null }
+  /// not give them yet. No engine puts a question to a person as a call.
+  | {
+      kind: 'call';
+      call: number;
+      who: Person | null;
+      what: Exclude<Call, { kind: 'question' }>;
+      made?: number;
+      at?: string | null;
+    }
   /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
@@ -252,8 +259,6 @@ export interface Wait {
 export type Ends =
   /// Answers this version of the work's question by one of its options, on its card at the plan's end.
   | { kind: 'answer'; question: string; version: number }
-  /// Answers in words the question this call puts, on its card at the plan's end.
-  | { kind: 'reply'; call: number }
   /// Lets the run at its limit go on, as the result of this call.
   | { kind: 'goOn'; call: number }
   /// Lets the cell go on past its limit.
@@ -389,7 +394,8 @@ export type Unmet =
   | { kind: 'notAnswered'; name: string }
   | { kind: 'unexplained'; path: string }
   | { kind: 'notATest'; path: string }
-  | { kind: 'unanswered'; block: string };
+  | { kind: 'unanswered'; block: string }
+  | { kind: 'skipsItsWait'; block: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.

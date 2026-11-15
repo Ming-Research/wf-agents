@@ -59,12 +59,12 @@ the result, the owner answering; and the cell is entered meanwhile only for the 
 of it has seen, and for the results of the calls such a run asked for, as the cell stood when the round began; a run of
 it that is at rest still goes on to hand its return in. While a run of it rests on a call of its own that has no result,
 the cell that gives a result does not begin: the run goes on to hand its return in first. A return that leaves its cell
-waiting owes nothing else: it may leave out the blocks its cell must write every time and deal with nothing. A result
-comes in a block of the cell's own, which the cell that gives it hands in with the end of its round, as one of its
-outputs, and which runs the asking cell alone and every run of it told of it takes; it is the end of a wait, named in no
-`dealt_with`. An entry replaced by a newer one of the same cell has no result, and what it asked the host for is
-cancelled. The answer runs the cell again by its trigger of an answer; a wait is read from the records, and a question
-is no call.
+waiting owes nothing else: it may leave out the blocks its cell must write every time and deal with nothing, though it
+may not leave its cell (decision a-return-that-waits-keeps-its-cell). A result comes in a block of the cell's own, which
+the cell that gives it hands in with the end of its round, as one of its outputs, and which runs the asking cell alone
+and every run of it told of it takes; it is the end of a wait, named in no `dealt_with`. An entry replaced by a newer
+one of the same cell has no result, and what it asked the host for is cancelled. The answer runs the cell again by its
+trigger of an answer; a wait is read from the records, and a question is no call.
 Why: Each wait was an exception of its own, the question that waits, the round entered for the owner while its cell
 waited for calls, and those planned for a test run, and each left holes: a test run's commit moved the work's head, and
 the review ran on it while the implementation waited for the result; an implementation given a green result was sent
