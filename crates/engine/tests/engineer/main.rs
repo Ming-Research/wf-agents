@@ -22,9 +22,20 @@
 //!    committed to, the branch is at the head the check last passed, and each judge that the head runs and that
 //!    applies, a cell that writes a block the check's preconditions read, was told of a version that says that head
 //!    by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
+//! 7. Main never goes back: after every step, no version of the block of main says a head older than an earlier
+//!    version said, in either order the carriers can make of the check's take-in of main and the watch of main
+//!    (decision the-check-tells-its-round-the-main-it-takes-in).
 //!
-//! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
-//! own reading of the records as they were then (`reading`), never by the deciding code's tests.
+//! The first two are judged as each round of the merge begins, the sixth as the merge finishes, and the seventh after
+//! every step, by the histories' own reading of the records as they were then (`reading`), never by the deciding
+//! code's tests.
+//!
+//! Main is drawn beside the records as a head named by a number, which the outside's write of main moves on, the watch
+//! of main writing the head it moved to, and which the check takes in for its round as it judges. The check reads main
+//! inside the repository's lock and tells its round at once, and the watch reads and writes inside the same lock, both
+//! by the one way to the loop: in a third of the check's rounds among the random steps main moves after the check read
+//! it, the watch writing the newer head after the take-in, and in a third it moves before, the check taking in the
+//! newer head, which the watch then finds said already.
 //!
 //! The work's branch is drawn beside the records, as its carriers read it: its work head is a commit named by a
 //! number, which an agent's round on a line that may change the work moves in two of five, and a person in one act in
@@ -140,27 +151,40 @@ const CONTENT_MERGES: &str = "3: a work everyone is content with merges within t
 const RUNS_FOR_NOTHING: &str = "4: runs for nothing stay within the bound";
 const MUST_WRITE_WRITTEN: &str = "5: no finished run lacks a block its cell must write";
 const MERGE_UNSEEN: &str = "6: the work's head the merge merges is a version the review dealt with";
+const MAIN_NEVER_BACK: &str = "7: no version of main says a head older than an earlier version said";
 const DRIVER: &str = "the driver";
 
 /// The source of the block of the work's head, which the carriers read of the work's branch.
 const HEAD: &str = "head";
 
+/// The source of the block of main, which the watch of main and the check read.
+const MAIN: &str = "main";
+
 /// The work's branch beside the records, shared by the parts of a history and the history itself: its work head, a
 /// commit named by a number, none before the work commits; the work head the check last passed, where its record
 /// passes; how often the check failed in passing on a head a judge had not dealt with, and how often the merge on a
-/// head moved since the check passed.
+/// head moved since the check passed. And main beside it: its head, named by a number from the one the work branched
+/// from; how many rounds of the check main moved after the check read it, and how many before.
 #[derive(Clone, Copy, Debug, Default)]
 struct Branch {
     head: u64,
     passed: Option<u64>,
     gated: u64,
     moved: u64,
+    main: u64,
+    after: u64,
+    before: u64,
 }
 
 impl Branch {
     /// What a version of the work's head says of the branch, where the work has committed.
     fn says(self) -> Option<String> {
         (self.head > 0).then(|| format!("h{}", self.head))
+    }
+
+    /// What a version of main says of main's head.
+    fn main_says(self) -> String {
+        format!("m{}", self.main)
     }
 }
 
@@ -222,12 +246,12 @@ fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, i: usize, came: &mut
     }
 }
 
-/// The check's read of the work's head and its gate, as the check takes them as it judges: the head is told to its
-/// round as the outside's word, written as a new version where none says it, so that the round consumes the head it
-/// judged; and where a judge of the head dealt last with another, or with none, the round fails in passing, judging
-/// nothing. And the merge's read, as it begins: a head moved since its latest version, by a commit no round made, is
-/// written from outside, and the merge fails in passing, merging nothing.
-fn gate(d: &mut Driver, roles: &Roles, branch: &Shared, run: RunId, i: usize) -> Option<(Failure, String)> {
+/// The check's take-in of main ([`take_in_main`]), its read of the work's head and its gate, as the check takes them as
+/// it judges: main and the head are told to its round as the outside's word, each written as a new version where none
+/// says it, so that the round consumes what it judged; and where a judge of the head dealt last with another, or with
+/// none, the round fails in passing, judging nothing. And the merge's read, as it begins: a head moved since its latest
+/// version, by a commit no round made, is written from outside, and the merge fails in passing, merging nothing.
+fn gate(d: &mut Driver, roles: &Roles, branch: &Shared, run: RunId, i: usize, race: bool) -> Option<(Failure, String)> {
     if i == roles.last {
         let (block, content) = read_head(d, roles, branch.get())?;
         let wrote = Event::Wrote {
@@ -246,6 +270,9 @@ fn gate(d: &mut Driver, roles: &Roles, branch: &Shared, run: RunId, i: usize) ->
     }
     if i != roles.check {
         return None;
+    }
+    if let Some(main) = &roles.main {
+        take_in_main(d, main, branch, run, race);
     }
     let block = roles.head.clone()?;
     let now = branch.get().says()?;
@@ -269,6 +296,76 @@ fn gate(d: &mut Driver, roles: &Roles, branch: &Shared, run: RunId, i: usize) ->
     branch.set(b);
     let why = format!("The work's head is {now}, which the review has not seen.");
     Some((Failure::Passing, why))
+}
+
+/// The check's take-in of main as it judges, in an order the real carriers can make: the check reads main inside the
+/// repository's lock and tells its round at once, and the watch of main reads and writes inside the same lock, both by
+/// the one way to the loop. Where `race`, in a third of the rounds main moves after the check read it, the watch
+/// writing the newer head after the take-in; in a third it moves before, the check taking in the newer head, which the
+/// watch then finds said already; otherwise main stays where it is.
+fn take_in_main(d: &mut Driver, main: &BlockId, branch: &Shared, run: RunId, race: bool) {
+    let order = if race { d.rng.below(3) } else { 0 };
+    let mut b = branch.get();
+    if order == 2 {
+        b.main += 1;
+        b.before += 1;
+    }
+    let took = Event::WroteForRound {
+        run,
+        block: main.clone(),
+        content: b.main_says(),
+    };
+    assert!(d.take(took), "the check's take-in of main was refused");
+    if order == 1 {
+        b.main += 1;
+        b.after += 1;
+    }
+    branch.set(b);
+    if order != 0 {
+        watch(d, main, b);
+    }
+}
+
+/// The watch of main writes the head main is at, where the block does not say it already, as the outside's word is
+/// written into a work.
+fn watch(d: &mut Driver, main: &BlockId, branch: Branch) {
+    if says_now(d, main) == Some(branch.main_says().as_str()) {
+        return;
+    }
+    let wrote = Event::Wrote {
+        block: main.clone(),
+        by: Outsider::Outside,
+        content: branch.main_says(),
+        matters: true,
+        value: None,
+    };
+    assert!(d.take(wrote), "the watch's write of main was refused");
+}
+
+/// Where a version of the block of main says a head older than an earlier version said, by the histories' own reading
+/// of the records, which version and what each said; heads are named by their numbers.
+fn main_went_back(d: &Driver, main: &BlockId) -> Option<String> {
+    let reading = Reading::new(&d.flow.flow, &d.work.records, None);
+    let head = |at: Seq| {
+        let says = d.work.contents.get(&(main.clone(), at))?;
+        says.strip_prefix('m')?.parse::<u64>().ok()
+    };
+    let mut newest: Option<u64> = None;
+    for version in reading.of(main) {
+        let Some(said) = head(version.at) else {
+            continue;
+        };
+        if let Some(before) = newest
+            && said < before
+        {
+            return Some(format!(
+                "the version at {} says m{said}, after one said m{before}",
+                version.at.0
+            ));
+        }
+        newest = Some(newest.map_or(said, |before| before.max(said)));
+    }
+    None
 }
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
@@ -315,6 +412,8 @@ struct Roles {
     contents: BTreeSet<BlockId>,
     /// The block of the work's head, where the flow has one.
     head: Option<BlockId>,
+    /// The block of main, where the flow has one.
+    main: Option<BlockId>,
     /// Each judge of the head, by its place: a cell the head runs that writes a block the check's preconditions read.
     head_judges: Vec<usize>,
 }
@@ -363,6 +462,9 @@ impl Roles {
         let head = (flow.blocks.iter())
             .find(|(_, b)| b.writers.outside.as_deref() == Some(HEAD))
             .map(|(id, _)| id.clone());
+        let main = (flow.blocks.iter())
+            .find(|(_, b)| b.writers.outside.as_deref() == Some(MAIN))
+            .map(|(id, _)| id.clone());
         let read: Vec<&BlockId> = (cells[check].requires.iter())
             .flat_map(|key| key_reads(flow, key))
             .collect();
@@ -379,6 +481,7 @@ impl Roles {
             passing,
             contents,
             head,
+            main,
             head_judges,
         }
     }
@@ -414,6 +517,8 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             MERGED_A_REVIEWED_HEAD,
             CHECK_GATED,
             MERGE_ON_A_MOVED_HEAD,
+            MAIN_MOVED_AFTER_THE_TAKE_IN,
+            MAIN_MOVED_BEFORE_THE_CHECK_READ,
         ]
         .map(String::from),
     );
@@ -494,6 +599,10 @@ const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must wri
 const MERGED_A_REVIEWED_HEAD: &str = "the merge merged a head the work committed and the review dealt with";
 const CHECK_GATED: &str = "the check failed in passing on a head a judge of it had not dealt with";
 const MERGE_ON_A_MOVED_HEAD: &str = "the merge failed in passing on a head moved since the check passed";
+const MAIN_MOVED_AFTER_THE_TAKE_IN: &str =
+    "main moved after the check took it in, the watch writing the newer head after";
+const MAIN_MOVED_BEFORE_THE_CHECK_READ: &str =
+    "main moved before the check read it, the check taking the newer head in first";
 
 /// The source of the block the driver writes as the owner starts a work, which runs the first cell.
 const START: &str = "start";
@@ -858,7 +967,7 @@ impl Part for Random {
     }
 
     fn failure(&mut self, d: &mut Driver, run: RunId, cell: &str) -> Option<(Failure, String)> {
-        gate(d, &self.roles, &self.branch, run, place(&d.flow, cell))
+        gate(d, &self.roles, &self.branch, run, place(&d.flow, cell), true)
     }
 
     /// What is drawn for the round, the branch moved where an agent's round on a line that may change the work commits,
@@ -1021,6 +1130,19 @@ impl Random {
                     };
                     wrote(&b, Outsider::Outside, true, Some(value))
                 }
+                // The outside's write of main moves main on, the watch writing the head it moved to.
+                None if Some(&b) == self.roles.main.as_ref() => {
+                    let mut moved = self.branch.get();
+                    moved.main += 1;
+                    self.branch.set(moved);
+                    Event::Wrote {
+                        block: b,
+                        by: Outsider::Outside,
+                        content: moved.main_says(),
+                        matters: true,
+                        value: None,
+                    }
+                }
                 None => {
                     let matters = d.rng.chance(50);
                     wrote(&b, Outsider::Outside, matters, None)
@@ -1111,7 +1233,7 @@ impl Part for Content {
     }
 
     fn failure(&mut self, d: &mut Driver, run: RunId, cell: &str) -> Option<(Failure, String)> {
-        gate(d, &self.roles, &self.branch, run, place(&d.flow, cell))
+        gate(d, &self.roles, &self.branch, run, place(&d.flow, cell), false)
     }
 
     /// What its cell must write to go forward, the branch read as the round ends; the check passes. An agent's round on
@@ -1346,6 +1468,16 @@ impl History {
     fn observe(&mut self) {
         if let Some(why) = lacking_a_must_write(&self.d.flow, &self.d.work.records) {
             self.breach(MUST_WRITE_WRITTEN, why);
+        }
+        if let Some(why) = self.roles.main.as_ref().and_then(|main| main_went_back(&self.d, main)) {
+            self.breach(MAIN_NEVER_BACK, why);
+        }
+        let branch = self.branch.get();
+        if branch.after > 0 {
+            self.reach(MAIN_MOVED_AFTER_THE_TAKE_IN.to_string());
+        }
+        if branch.before > 0 {
+            self.reach(MAIN_MOVED_BEFORE_THE_CHECK_READ.to_string());
         }
         // The engine's own properties, on the real flow: the driver's checks.
         self.d.check();
