@@ -79,7 +79,7 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
     assert_eq!(
         engine.says(&["list"]),
         format!(
-            "{held}; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, W1 on trial: waits at plan for the owner to \
+            "{held}; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: waits at plan for the owner to \
              answer call 2: \"Should the greeting name the user?\"\n"
         )
     );
@@ -125,7 +125,7 @@ fn a_second_engine_on_a_data_directory_one_drives_does_not_start() {
     // The first goes on as it was.
     assert_eq!(
         engine.says(&["list"]),
-        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, W1 on trial: paused\n"
+        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused\n"
     );
 }
 

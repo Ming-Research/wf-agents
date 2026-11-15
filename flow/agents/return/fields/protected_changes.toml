@@ -3,7 +3,6 @@
 # round of a line that may change the work ends, a return that does the cell's work is sent back for each such file
 # the work's branch changes and that neither this field nor the question that stands of the file as it is says why
 # (`unexplained` in `../sent_back.toml`).
-in = ["outcome"]
 told = "listed"
 words = '''
 `protected_changes`: of each file the project protects that a round of yours changes, or changes again, why the

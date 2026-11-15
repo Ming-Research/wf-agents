@@ -79,7 +79,7 @@ fn waiting_for_all(test: &str, blocks: &[&str], c: Cell) -> (Cell, (TestName, Te
     let named = Test {
         kind: TestKind::All,
         reads: blocks.iter().map(|b| (*b).into()).collect(),
-        is: "yes".to_string(),
+        is: Some("yes".to_string()),
     };
     (requiring(test, c), (test.into(), named))
 }

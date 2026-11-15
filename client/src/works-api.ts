@@ -21,8 +21,8 @@
 // - `GET  /api/v1/works/{work}/lines/{line}/sessions/{session}/system`: the system prompt the line's session of this
 //   number, the line's first being none, began with (`SystemPage`).
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
-// - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
-//   was refused (`Refusal`) and a status of 4xx.
+// - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, words said with
+//   the cell the engine gave them to (`Said`), or with why it was refused (`Refusal`) and a status of 4xx.
 // - `GET  /api/v1/engine`: the engine as a whole, its slots and the pause of everything (`Engine`).
 // - `POST /api/v1/engine/acts`: what the owner does to the engine as a whole (`EngineAct`); answers as an act on a work.
 // - `GET  /api/v1/changes`: a stream of server-sent events, one each time something happened (`Changed`), on which a
@@ -56,35 +56,45 @@ export type Failure =
   | 'usageLimit'
   | 'cannotRun'
   | 'offline'
+  | 'unavailable'
   | 'promptTooLong'
   | 'noModel'
   | 'other';
 
-/// When the rounds a wait holds may begin again: at a time, every work's; or one round tries at a time, where `look`
-/// once a look at the network every half minute reaches it; or every round once a look at the host, every half minute
-/// from a time, reaches it; or once the round trying now ends or is answered.
-export type Until =
-  | { kind: 'at'; at: number }
-  | { kind: 'trial'; at: number; look: boolean }
-  | { kind: 'looked'; at: number }
-  | { kind: 'tried' };
+/// When the rounds a wait holds may begin again: once a check of the outside of the agents' rounds, which the engine
+/// takes at a time (at a usage limit whose reset was said, at the reset), finds it well; now, the check at a time having
+/// found it well; or every act once a look at the host, every half minute from a time, reaches it.
+export type Until = { kind: 'checked'; at: number } | { kind: 'well'; at: number } | { kind: 'looked'; at: number };
 
-/// A wait every work shares: a round of an agent failed for a cause no one work has, and no agent's round of any work
-/// begins while it stands.
+/// What a check of the outside found: everything well, or what is down, as a failed round's kind of cause, and why.
+export type Found = { kind: 'well' } | { kind: 'down'; failure: Failure; why: string };
+
+/// The latest check of the outside of the agents' rounds in a wait: when, how many were taken in it, and what it found.
+export interface Checked {
+  at: number;
+  taken: number;
+  found: Found;
+}
+
+/// A wait every work shares: a round of an agent failed for a cause outside every work, and no agent's round of any
+/// work begins while it holds; the engine checks the outside by itself meanwhile.
 export interface Outage {
   /// The service whose rounds it holds: the agents', or the host's the engine's acts reach.
   service: 'agents' | 'host';
+  /// The kind of cause the latest round that failed so met, and why.
   failure: Failure;
   why: string;
-  /// The round that failed so, the latest that did.
+  /// That round.
   work: number;
   run: number;
   round: number;
-  /// When it ended.
+  /// Since when what the rounds need is down: when the first round that failed so in the wait ended.
   since: number;
+  /// The latest check of the outside in the wait, where one was taken.
+  checked: Checked | null;
   until: Until;
-  /// Whether it holds rounds now: past its time it stands only until a round that began after it comes back, and
-  /// holds nothing meanwhile.
+  /// Whether it holds rounds now: once a check found the outside well it stands only until a round that began after
+  /// the latest that failed so comes back, and holds nothing meanwhile.
   holds: boolean;
 }
 
@@ -109,7 +119,10 @@ export type Waited =
   /// The wait every work shares: the cell's agent's round does not begin until it is over.
   | { kind: 'agents'; outage: Outage }
   /// The owner's answer to the latest version of this question, which the cell asked and waits for.
-  | { kind: 'answer'; question: string };
+  | { kind: 'answer'; question: string }
+  /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
+  /// wrote, `why` in its own words, waits for that source before the cell runs again.
+  | { kind: 'outside'; source: string; cell: string; why: string };
 
 /// What a work does now.
 export type Now =
@@ -284,6 +297,8 @@ export interface Version {
   /// The version at which the meaning it has last changed: itself, or an earlier one.
   meaning: number;
   value: string | null;
+  /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
+  saidTo: string | null;
   /// How long its content is, in characters.
   chars: number;
 }
@@ -316,7 +331,9 @@ export type Unmet =
   | { kind: 'questionTwice'; name: string }
   | { kind: 'notAnOption'; name: string }
   | { kind: 'notAnswerable'; name: string }
-  | { kind: 'unexplained'; path: string };
+  | { kind: 'notAnswered'; name: string }
+  | { kind: 'unexplained'; path: string }
+  | { kind: 'unanswered'; block: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
@@ -362,7 +379,35 @@ export interface Round {
   missed: Missed | null;
   /// Whether what it took was worked out from its calls at the models' prices, no result saying it: an estimate.
   estimated: boolean;
+  /// What it cost and how long it took, or has taken so far while it is under way, against the lines of their history.
+  judged: Judged;
 }
+
+/// What a round cost and how long it took against the lines of their history, as they stood when it began: `cost` none
+/// while it is under way, for a round of an act and where too few rounds tell the line; `time` none where too few do.
+export interface Judged {
+  cost: Against | null;
+  time: Against | null;
+}
+
+/// A measure against the line of its history: millionths of a dollar for a cost, milliseconds for a time.
+export interface Against {
+  value: number;
+  line: Line;
+  /// Whether the measure is past its line.
+  past: boolean;
+}
+
+/// The line of a measure's history, in the measure's units: how many values gave it, and what they were of.
+export interface Line {
+  value: number;
+  samples: number;
+  scope: Scope;
+}
+
+/// What gave a line: the rounds of the cell, every agent's round of the flow, the calls of the tool, the flow's other
+/// works, the rounds of the line.
+export type Scope = 'cell' | 'flow' | 'tool' | 'works' | 'line';
 
 /// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
 /// call read less than half of what the session held from the cache. `differs` names what comes before the session's
@@ -405,6 +450,9 @@ export interface CallRow {
   done: number | null;
   /// How long its result is, in characters.
   chars: number | null;
+  /// How long a call of a tool took, or has taken so far while it has no result, against the line of the calls of its
+  /// tool as it stood when it was made.
+  time: Against | null;
 }
 
 export type RunEnd =
@@ -489,6 +537,20 @@ export interface WorkPage {
   blocks: Block[];
   /// In the order it happened.
   steps: Step[];
+  /// Where the owner's words would go now, as the engine chooses it: to each line of the flow, then about each question
+  /// that stands; absent from an engine that does not give it.
+  speaking?: Speaking[];
+}
+
+/// What the owner's words are said to: a line of the work's flow, or a question of the work they are about.
+export type SpokenTo = { kind: 'line'; line: string } | { kind: 'question'; name: string };
+
+/// What the owner's words said to a line, or about a question, would reach now, as the engine chooses it: the cell, or
+/// why no cell can take them, when they are not sent.
+export interface Speaking {
+  to: SpokenTo;
+  cell: string | null;
+  refused: string | null;
 }
 
 export interface VersionPage {
@@ -627,7 +689,15 @@ export type Act =
   /// Answers a version of a question, taking an option counted from one, saying why where the owner does.
   | { kind: 'answer'; question: string; version: number; option: number; why?: string | null }
   /// Has the line begin a new session at its next round.
-  | { kind: 'newSession'; line: string };
+  | { kind: 'newSession'; line: string }
+  /// Says words to a line of the work's flow, or about a question of it: to the cell the engine chooses, which the
+  /// work's page shows (`speaking`).
+  | { kind: 'say'; to: SpokenTo; words: string };
+
+/// What the act that says the owner's words answers with: the cell the engine gave them to.
+export interface Said {
+  reached: string;
+}
 
 export interface NewItem {
   title: string;
@@ -736,7 +806,7 @@ export const loadSystem = (work: number, line: string, session: number) =>
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
 export const loadLevels = () => read<Levels>('/api/v1/levels');
 export const loadProjects = () => read<Projects>('/api/v1/projects');
-export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
+export const act = (work: number, what: Act) => send<Said>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
 export const changeItems = (changes: ItemChanges) => send<ItemsChanged>('/api/v1/items/changes', changes);
 export const loadEngine = () => read<Engine>('/api/v1/engine');

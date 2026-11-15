@@ -77,6 +77,30 @@ impl W {
         });
     }
 
+    /// The round under way, of this agent cell, hands in these blocks, its carrier having read these versions of the
+    /// work's branch as it ended, each a block and what it says: what the round committed. Its return names as dealt
+    /// with every trigger its round was told ran it.
+    pub(super) fn commits(&mut self, cell: &str, blocks: &[(&str, Option<&str>)], read: &[(&str, &str)]) {
+        let (run, under_way) = self.round();
+        assert_eq!(under_way, cell, "the round under way is another cell's");
+        let names = self.told(run, cell);
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut came = self.read(cell, &names, blocks);
+        came.read = (read.iter())
+            .map(|(block, content)| Handed {
+                block: (*block).into(),
+                content: content.to_string(),
+                matters: true,
+                value: None,
+            })
+            .collect();
+        self.on(Event::Returned {
+            run,
+            came,
+            spent: Spent::default(),
+        });
+    }
+
     /// The round under way, of this agent cell, hands in these blocks, naming these as dealt with, as its agent writes
     /// them; gives what the engine gave to be done of it.
     pub(super) fn returns(&mut self, cell: &str, dealt_with: &[&str], blocks: &[(&str, Option<&str>)]) -> Vec<Effect> {
@@ -116,14 +140,13 @@ impl W {
             "R1",
             &[
                 ("deep_needed", Some("no")),
-                ("edits_tree", Some("no")),
                 ("plan_owner", None),
                 ("plan_agent", None),
                 ("acceptance", None),
             ],
             Vec::new(),
         );
-        w.hands_in("R2", &[("better_found", Some("no"))], Vec::new());
+        w.hands_in("R2", &[], Vec::new());
         w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
         w.hands_in(
             "T1",
@@ -154,5 +177,37 @@ pub(super) fn wrote(block: &str, by: Outsider, value: Option<&str>) -> Event {
         content: format!("the {block}"),
         matters: true,
         value: value.map(str::to_string),
+    }
+}
+
+#[test]
+fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is_skipped_where_they_hold_none() {
+    for (edits, next) in [("A decision that a call keeps what it took.", "D4"), (" \n", "I1")] {
+        let mut w = W::started();
+        w.hands_in("S1", &[("place", None)], Vec::new());
+        w.hands_in("R0", &[], Vec::new());
+        let (run, cell) = w.round();
+        assert_eq!(cell, "R1");
+        let names = w.told(run, "R1");
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let plan = [
+            ("deep_needed", Some("no")),
+            ("plan_owner", None),
+            ("plan_agent", None),
+            ("acceptance", None),
+            ("tree_edits", None),
+        ];
+        let mut came = w.read("R1", &names, &plan);
+        for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "tree_edits") {
+            h.content = edits.to_string();
+        }
+        w.on(Event::Returned {
+            run,
+            came,
+            spent: Spent::default(),
+        });
+        // The plan's second look finds no better way, and changes nothing.
+        w.hands_in("R2", &[], Vec::new());
+        assert_eq!(w.round().1, next, "with tree_edits {edits:?}");
     }
 }

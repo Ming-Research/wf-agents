@@ -1,6 +1,7 @@
 //! The design tree on the work's branch as a block of the work: a version where the start made the branch, where the
-//! branch took main in, and where a round of the work committed to the tree.
+//! branch took main in, and where a round of the work committed to the tree, which that round's run hands in.
 
+use decide::Writer;
 use service::Act;
 use store::WorkNumber;
 
@@ -12,16 +13,17 @@ const MOVES_DESIGN_ONCE: &str = "test -f ../moved || { touch ../moved; \
     printf 'Good day.\\n' > \"$r/design/other.md\"; git -C \"$r\" add design/other.md; \
     git -C \"$r\" -c user.name=Tester -c user.email=tester@example.com commit -q -m 'Main moved'; exit 1; }";
 
-/// Each version of the tree block of the work, as its content: the commit and the id of the tree.
-fn versions(real: &Real, work: WorkNumber) -> Vec<(String, String)> {
+/// Each version of the tree block of the work, as its content, the commit and the id of the tree, with whether a run
+/// wrote it.
+fn versions(real: &Real, work: WorkNumber) -> Vec<(String, String, bool)> {
     let kept = real.work(work);
     let block = decide::BlockId::from("tree");
-    let written = kept.records.written.iter().filter(|w| w.block == block);
-    written
-        .map(|w| {
-            let content = &kept.contents[&(block.clone(), w.at)];
+    let versions = decide::versions(&kept.records).remove(&block).unwrap_or_default();
+    (versions.into_iter())
+        .map(|v| {
+            let content = &kept.contents[&(block.clone(), v.at)];
             let (commit, tree) = content.split_once(' ').expect("a commit and a tree");
-            (commit.to_string(), tree.to_string())
+            (commit.to_string(), tree.to_string(), matches!(v.by, Writer::Run(_)))
         })
         .collect()
 }
@@ -46,13 +48,16 @@ async fn the_start_and_a_round_that_commits_to_the_design_tree_each_make_a_versi
     real.until(|real| ended(&real.decision(work))).await;
     let versions = versions(&real, work);
     assert_eq!(versions.len(), 2, "{versions:?}");
-    // The start made the branch from main: the first version is main's, before any round of an agent.
+    // The start made the branch from main: the first version is main's, before any round of an agent, and no round's
+    // commit, written from outside.
     assert_eq!(versions[0].0, main);
     let tree = git_in(&real.repo, &["rev-parse", &format!("{main}:design")]);
     assert_eq!(versions[0].1, tree);
-    // The build committed to the tree: the second is that commit's.
+    assert!(!versions[0].2, "{versions:?}");
+    // The build committed to the tree: the second is that commit's, which the build's run handed in.
     assert_eq!(commit(&real, &versions[1].0), ("Build the greeting".to_string(), 1));
     assert_ne!(versions[1].1, tree);
+    assert!(versions[1].2, "{versions:?}");
 }
 
 #[tokio::test]

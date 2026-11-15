@@ -38,6 +38,7 @@ fn a_run_whose_round_failed_has_that_round_again() {
         Failure::UsageLimit,
         Failure::CannotRun,
         Failure::Offline,
+        Failure::Unavailable,
         Failure::PromptTooLong,
     ] {
         assert_eq!(step(vec![failed_as(kind)], &spec()), Step::Retry, "{kind:?}");
@@ -214,7 +215,12 @@ fn a_failure_running_again_cannot_help_pauses_the_work_and_one_every_work_shares
     for kind in [Failure::PromptTooLong, Failure::Other] {
         assert_eq!(pausing(&let_on(vec![failed_as(kind)], 0)), Some(Pausing::Failed(kind)));
     }
-    for kind in [Failure::UsageLimit, Failure::CannotRun, Failure::Offline] {
+    for kind in [
+        Failure::UsageLimit,
+        Failure::CannotRun,
+        Failure::Offline,
+        Failure::Unavailable,
+    ] {
         assert!(kind.shared(), "{kind:?}");
         assert_eq!(pausing(&let_on(vec![failed_as(kind)], 0)), None, "{kind:?}");
     }
@@ -222,4 +228,40 @@ fn a_failure_running_again_cannot_help_pauses_the_work_and_one_every_work_shares
     // A log whose last round did not fail pauses nothing.
     assert_eq!(pausing(&let_on(vec![wanting()], 0)), None);
     assert_eq!(pausing(&let_on(vec![], 0)), None);
+}
+
+// A round after one that failed for a cause outside every work begins only once the engine found the outside well: so
+// many of them in a row say the rounds meet what the check does not find, and the next pauses the work. Kinds of such
+// causes count together, a failure in passing between does not break the row, and the work let on starts it anew.
+#[test]
+fn so_many_failures_in_a_row_for_a_cause_outside_every_work_pause_the_work() {
+    let s = spec();
+    let outside = |n: usize| -> Vec<Round> {
+        let kinds = [
+            Failure::Unavailable,
+            Failure::UsageLimit,
+            Failure::CannotRun,
+            Failure::Offline,
+        ];
+        (0..n).map(|i| failed_as(kinds[i % kinds.len()])).collect()
+    };
+    let within = outside(PASSING as usize);
+    assert_eq!(pausing(&let_on(within.clone(), 0)), None);
+    assert_eq!(step(within.clone(), &s), Step::Retry);
+    let past = outside(PASSING as usize + 1);
+    assert_eq!(
+        pausing(&let_on(past.clone(), 0)),
+        Some(Pausing::Outside { failed: PASSING + 1 })
+    );
+    let between = [outside(PASSING as usize), passing(1), outside(1)].concat();
+    assert_eq!(
+        pausing(&let_on(between, 0)),
+        Some(Pausing::Outside { failed: PASSING + 1 })
+    );
+    let ended = past.len();
+    let again = [past.clone(), outside(1)].concat();
+    assert_eq!(pausing(&let_on(again, ended)), None, "let on between");
+    // A round that came back between starts the row anew.
+    let back = [outside(PASSING as usize), vec![wanting()], outside(1)].concat();
+    assert_eq!(pausing(&let_on(back, 0)), None);
 }

@@ -1,9 +1,11 @@
 //! The `wf-agents` command. Each part of the system adds its subcommands here.
 //!
+//! - `reference`: `wf-agents help`, the whole reference of the command line.
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
 
+mod reference;
 mod running;
 mod situations;
 mod talk;
@@ -14,7 +16,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Has, Source};
-use web::works::{Act, ChangeAsked, EngineAct};
+use web::works::{Act, ChangeAsked, EngineAct, SpokenTo};
 
 use crate::talk::Asked;
 
@@ -23,7 +25,7 @@ const PORT: u16 = 7470;
 
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
-#[command(version)]
+#[command(version, disable_help_subcommand = true)]
 struct Cli {
     // Required: with none, clap fails with the usage and the names of the subcommands.
     #[command(subcommand)]
@@ -32,6 +34,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// With no command named, prints the whole reference at once: the program's description, then every command with
+    /// its long help, each under a line with its full name. With commands named, prints the long help of that one,
+    /// as its `--help` does.
+    Help {
+        /// The command, and the command under it, to print the help of.
+        command: Vec<String>,
+    },
     /// A flow's definition: a directory holding `flow.toml` and one file for each cell.
     #[command(subcommand)]
     Flow(FlowCommand),
@@ -112,7 +121,7 @@ enum Command {
     },
     /// Gives an item another title, in the owner's language, as the page and the item's agents know it: its merge is
     /// named by a line its work writes in the repository's language, never by its title. The title it had is kept, as
-    /// every change of an item is, with why: `wf-agents show` says each.
+    /// every change of an item is, with why: `wf-agents show` of its work says the latest, and with `history` each.
     SetTitle {
         item: u64,
         title: String,
@@ -240,9 +249,16 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Shows a work: what it does now, its cells, its blocks and its runs.
+    /// Shows a work: what it does now, its cells and its blocks, and the latest ten of what happened to its item, of its
+    /// runs and of its sessions, and ten of its questions, those not answered first, saying how many more there are.
+    /// With a part, that part alone, a hundred at a time.
     Show {
         work: u64,
+        /// The part to give alone.
+        part: Option<talk::Part>,
+        /// The place in the part to give it from, the first being one.
+        #[arg(long, requires = "part", value_name = "N")]
+        from: Option<usize>,
         #[command(flatten)]
         at: At,
     },
@@ -299,6 +315,21 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Says something to a work: about a question of it, or to a line of its flow. The engine chooses the cell it
+    /// reaches, the one that asked the question or the one the line has reached, and refuses it, saying why, where no
+    /// cell can take it.
+    Say {
+        work: u64,
+        words: String,
+        /// The line of the work's flow it is said to.
+        #[arg(long, conflicts_with = "question", required_unless_present = "question")]
+        line: Option<String>,
+        /// The question of the work it is about, by its name.
+        #[arg(long)]
+        question: Option<String>,
+        #[command(flatten)]
+        at: At,
+    },
     /// Answers a version of a question of a work, taking an option, counted from one.
     Answer {
         work: u64,
@@ -338,6 +369,20 @@ enum Command {
     NewSession {
         work: u64,
         line: String,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Shows how the system ran over the last days: what its rounds took; the rounds whose cost or time, and the calls
+    /// of tools whose time, went past the lines of their history, the latest first; and the rounds and calls under way,
+    /// the oldest first, each against its own lines. At most so many of each are listed, and how many more there are
+    /// is said.
+    System {
+        /// How many days the span goes back from now.
+        #[arg(long, default_value_t = 7)]
+        days: u64,
+        /// The most listed of each.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
         #[command(flatten)]
         at: At,
     },
@@ -398,6 +443,24 @@ enum FlowCommand {
 
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::Help { command } => {
+            let program = <Cli as clap::CommandFactory>::command();
+            let said = if command.is_empty() {
+                Some(reference::whole(&program))
+            } else {
+                reference::of(&program, &command)
+            };
+            match said {
+                Some(said) => {
+                    print!("{said}");
+                    ExitCode::SUCCESS
+                }
+                None => {
+                    eprintln!("no command `{}`", command.join(" "));
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Command::Flow(FlowCommand::Check { dir }) => check(&dir),
         Command::Flow(FlowCommand::Page { dir, port }) => page(dir, port),
         Command::Flow(FlowCommand::Situations {
@@ -495,7 +558,7 @@ fn main() -> ExitCode {
         }
         Command::Tags { at } => talk::ask(at.port, Asked::Tags),
         Command::Text { item, block, whole, at } => talk::ask(at.port, Asked::Text { item, block, whole }),
-        Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
+        Command::Show { work, part, from, at } => talk::ask(at.port, Asked::Show { work, part, from }),
         Command::Resume { work, all, at } => match (work, all) {
             (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
             _ => talk::ask(at.port, Asked::Everything(EngineAct::Resume {})),
@@ -549,9 +612,24 @@ fn main() -> ExitCode {
             };
             talk::ask(at.port, Asked::Act(work, act))
         }
+        Command::Say {
+            work,
+            words,
+            line,
+            question,
+            at,
+        } => {
+            let to = match (line, question) {
+                (_, Some(name)) => SpokenTo::Question { name },
+                (Some(line), None) => SpokenTo::Line { line },
+                (None, None) => unreachable!("the command line asks for a line or a question"),
+            };
+            talk::ask(at.port, Asked::Act(work, Act::Say { to, words }))
+        }
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
         Command::NewSession { work, line, at } => talk::ask(at.port, Asked::Act(work, Act::NewSession { line })),
+        Command::System { days, limit, at } => talk::ask(at.port, Asked::System { days, limit }),
     }
 }
 
@@ -569,9 +647,21 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
 /// `answer`, written by the engine's loop as the owner answers a question of the cell, and `asked`, as the questions
-/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; and `tree`,
-/// written by the carriers as they look at the design tree on a work's branch.
-const SOURCES: [&str; 7] = ["answer", "asked", "dependencies", "main", "session", "start", "tree"];
+/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; `tree` and
+/// `head`, read by the carriers of the design tree and of the work's head on a work's branch, written from outside or
+/// handed in with the round that committed them; and `words`, written by the engine's loop as the owner speaks to a
+/// cell, the record of what is said and the cell's block that it was spoken to.
+const SOURCES: [&str; 9] = [
+    "answer",
+    "asked",
+    "dependencies",
+    "head",
+    "main",
+    "session",
+    "start",
+    "tree",
+    "words",
+];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
 /// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
@@ -583,19 +673,6 @@ const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 /// is built yet: a cell may name them, and the system prompt of its line tells of those its flow names, with their
 /// words beside the flows (`agents/tools/`), while the form of the return does not hold them yet.
 const TOOLS: [&str; 2] = ["query", "run_tests"];
-
-/// The names of the fields of a return that are the engine's, as the design of data and context settles them: what a
-/// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions, why the
-/// work changes each file the project protects, and its answer to the owner. A datum may be written through
-/// `questions` or `reply`.
-const FIELDS: [&str; 6] = [
-    "dealt_with",
-    "meaning_unchanged",
-    "observations",
-    "questions",
-    "protected_changes",
-    "reply",
-];
 
 /// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
 /// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
@@ -615,7 +692,6 @@ fn has(dir: &Path) -> Has {
         acts: names(&ACTS),
         tools: names(&TOOLS),
         system: system.into_iter().flatten().collect(),
-        fields: names(&FIELDS),
         details: names(&DETAILS),
     }
 }
@@ -708,9 +784,6 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
-        F::DescribedNotRunOn { block } => {
-            format!("the cell says what the work is by {block}, but {block} does not run it")
-        }
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
@@ -738,10 +811,26 @@ fn words(what: &FaultKind, field: &str) -> String {
             "the cell names triggered_by and context, which only a flow laid out one thing to a file has".to_string()
         }
         F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
-        F::UnknownReturnField { field } => format!("the engine's return has no field named \"{field}\""),
         F::AsksWithNoAnswer { block } => {
             format!(
                 "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"
+            )
+        }
+        F::AsksAndCannotBeSpokenTo { block } => {
+            format!(
+                "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
+            )
+        }
+        F::TriggerNeverRuns {
+            trigger,
+            block,
+            needs,
+            writers,
+        } => {
+            let writers: Vec<String> = writers.iter().map(|(cell, when)| format!("{cell} ({when})")).collect();
+            format!(
+                "the trigger {trigger} stands on {block}, but the cell runs only where {needs}, and each writer of {block} runs only where it cannot: {}; the trigger can never run the cell",
+                writers.join("; ")
             )
         }
         F::UnknownDetail { detail } => format!("the engine fills no place named \"{detail}\""),
@@ -789,6 +878,10 @@ fn words(what: &FaultKind, field: &str) -> String {
         }
         F::UndeclaredTest { test } => format!("the test {test} is not declared in flow.toml"),
         F::ReadsEmpty { test } => format!("the test {test} reads no block"),
+        F::TestNamesNoValue { test } => format!("the test {test} names no value to look for: it has no is"),
+        F::ContentTestNamesValue { test } => {
+            format!("the test {test} looks for content, and names a value to look for, which it does not read")
+        }
         F::UnusedTest { test } => format!("no cell uses the test {test}"),
         F::TestOnOwnOutput { test, block } => format!(
             "the test {test} reads {block}, which the cell itself writes: the cell would decide by what it writes itself \

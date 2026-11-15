@@ -36,6 +36,7 @@ fn a_block_written_by_another_since_the_round_was_told_of_it_stands_at_a_later_v
         told: None,
         latest: None,
         value: None,
+        added: false,
     };
     assert_eq!(told.outputs[&BlockId::from("opinions")], standing);
     let opinion = w.person_writes("opinions");
@@ -44,6 +45,7 @@ fn a_block_written_by_another_since_the_round_was_told_of_it_stands_at_a_later_v
         told: None,
         latest: Some(opinion),
         value: None,
+        added: false,
     };
     assert_eq!(told.outputs[&BlockId::from("opinions")], standing);
     assert_eq!(told.ran_by, vec![BlockId::from("code")]);

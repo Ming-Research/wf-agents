@@ -1,7 +1,8 @@
 //! `GET /api/v1/system`: how the whole system went over a span of time, for the System view: what was produced (works
-//! merged and cancelled, items added), what was spent and on what (by week, by cell, by model, by work), and what was
-//! wasted or went wrong (rounds sent back, rounds failed). What goes on now the view reads from the items and the
-//! engine, as the bar and the works do.
+//! merged and cancelled, items added), what was spent and on what (by week, by cell, by model, by work), what was
+//! wasted or went wrong (rounds sent back, rounds failed), and how well it ran: the rounds and the calls of tools that
+//! went past the lines of their history, and what is under way now against its own (crate `driver`, module `judged`).
+//! What else goes on now the view reads from the items and the engine, as the bar and the works do.
 //!
 //! The span is the weeks the page gives, `weeks`: when each begins, in milliseconds since 1970, the earliest first. The
 //! page cuts them at Monday's midnight in the owner's time zone, which knows when its clocks change and the engine does
@@ -15,14 +16,14 @@ use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use decide::{Decision, End};
+use decide::{CallId, Decision, End, RunId};
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
 use service::Handle;
 use work::Time;
 
 use crate::interface::{fail, refused};
-use crate::works::{Back, Broken, Failure, Given, Run, RunEnd, Spent, runs, time};
+use crate::works::{Against, Back, Broken, Call, Failure, Given, Judged, Line, Run, RunEnd, Spent, runs, time};
 
 /// What the view asks for: when each week of the span begins, joined by commas; none for all time.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -77,6 +78,14 @@ pub struct System {
     pub sent_back: Vec<RoundAt>,
     /// The rounds of the span that failed, the latest first.
     pub failed: Vec<FailedRound>,
+    /// What ended in the span past the line of its history, the latest first: a round whose cost or time went past
+    /// its line, and a call of a tool whose time did.
+    #[serde(default)]
+    pub past: Vec<Past>,
+    /// The rounds and the calls of tools under way now, the oldest first, each with how long it has taken so far
+    /// against its line, and an agent's round with the other lines it is judged by as it runs.
+    #[serde(default)]
+    pub under_way: Vec<UnderWay>,
 }
 
 /// A week: what its rounds took, and how many of each thing that is counted happened in it.
@@ -189,6 +198,107 @@ pub struct FailedRound {
     pub spent: Spent,
 }
 
+/// What ended past the line of its history.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Past {
+    /// A round of a run of the cell, which ended then, its cost or its time past its line: each as judged.
+    Round {
+        work: u64,
+        item: u64,
+        cell: String,
+        run: u64,
+        round: usize,
+        ended: u64,
+        judged: Judged,
+    },
+    /// A call of the tool by a run of the cell, which had its result then, its time past its line.
+    Call {
+        work: u64,
+        item: u64,
+        cell: String,
+        run: u64,
+        call: u64,
+        tool: String,
+        done: u64,
+        time: Against,
+    },
+}
+
+impl Past {
+    /// When it ended.
+    fn ended(&self) -> u64 {
+        match self {
+            Past::Round { ended, .. } => *ended,
+            Past::Call { done, .. } => *done,
+        }
+    }
+}
+
+/// What is under way, against the lines of its history.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum UnderWay {
+    /// A round of a run of the cell, which began then: how long it has taken so far against its line, where enough
+    /// rounds tell one, and for an agent's round the other lines it is judged by as it runs.
+    Round {
+        work: u64,
+        item: u64,
+        cell: String,
+        run: u64,
+        round: usize,
+        began: u64,
+        time: Option<Against>,
+        bounds: Option<Bounds>,
+    },
+    /// A call of the tool by a run of the cell, made then, with no result yet: how long it has taken so far against
+    /// its line, where enough calls of the tool tell one.
+    Call {
+        work: u64,
+        item: u64,
+        cell: String,
+        run: u64,
+        call: u64,
+        tool: String,
+        made: u64,
+        time: Option<Against>,
+    },
+}
+
+impl UnderWay {
+    /// When it began.
+    fn began(&self) -> u64 {
+        match self {
+            UnderWay::Round { began, .. } => *began,
+            UnderWay::Call { made, .. } => *made,
+        }
+    }
+}
+
+/// The lines an agent's round under way is judged by beside its time, each none where too few rounds tell it: the
+/// run guard stops the round where its context grows past both `added` and `rate`, and what it costs is read against
+/// `cost` once it ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Bounds {
+    /// The tokens its context grows by over the round.
+    pub added: Option<Line>,
+    /// The tokens its context grows by for each call after the first.
+    pub rate: Option<Line>,
+    /// What it costs, in millionths of a dollar, among the rounds on the model its try runs on.
+    pub cost: Option<Line>,
+}
+
+impl Bounds {
+    fn of(lines: &driver::history::Lines) -> Bounds {
+        Bounds {
+            added: lines.added.as_ref().map(Line::of),
+            rate: lines.rate.as_ref().map(Line::of),
+            cost: lines.cost.as_ref().map(Line::of),
+        }
+    }
+}
+
 impl System {
     /// How the system went over these weeks, the earliest first, until now; over all time where there are none.
     pub fn of(driver: &Driver, now: Time, weeks: &[u64]) -> Result<System, Broken> {
@@ -208,7 +318,10 @@ impl System {
             added: Vec::new(),
             sent_back: Vec::new(),
             failed: Vec::new(),
+            past: Vec::new(),
+            under_way: Vec::new(),
         };
+        let judged = driver.judged(None, now);
         let mut counted: BTreeMap<u64, Week> = (weeks.iter())
             .map(|&start| {
                 (
@@ -258,7 +371,72 @@ impl System {
             }
             let mut of_work = pinged.as_no_round();
             for run in &runs {
+                let (number, cell) = (kept.head.number, &run.cell);
+                for call in &run.calls {
+                    let Call::Tool { name, .. } = &call.what else {
+                        continue;
+                    };
+                    let time = (judged.calls.get(&(number, CallId(call.call)))).map(Against::of);
+                    match call.done {
+                        // A call being withdrawn with its run or its work is not under way.
+                        None if driver::judged::withdrawn(kept.work, CallId(call.call)) => {}
+                        None => system.under_way.push(UnderWay::Call {
+                            work,
+                            item,
+                            cell: cell.clone(),
+                            run: run.run,
+                            call: call.call,
+                            tool: name.clone(),
+                            made: call.made,
+                            time,
+                        }),
+                        Some(done) if within(done) => {
+                            if let Some(time) = time.filter(|time| time.past) {
+                                system.past.push(Past::Call {
+                                    work,
+                                    item,
+                                    cell: cell.clone(),
+                                    run: run.run,
+                                    call: call.call,
+                                    tool: name.clone(),
+                                    done,
+                                    time,
+                                });
+                            }
+                        }
+                        Some(_) => {}
+                    }
+                }
                 for round in &run.rounds {
+                    let of_round = judged.rounds.get(&(number, RunId(run.run), round.number));
+                    let shown = of_round.map_or_else(Judged::default, Judged::of);
+                    match round.ended {
+                        None => system.under_way.push(UnderWay::Round {
+                            work,
+                            item,
+                            cell: cell.clone(),
+                            run: run.run,
+                            round: round.number,
+                            began: round.began,
+                            time: shown.time,
+                            bounds: of_round.and_then(|judged| judged.lines.as_ref()).map(Bounds::of),
+                        }),
+                        Some(ended) if within(ended) => {
+                            let past = |against: Option<Against>| against.is_some_and(|a| a.past);
+                            if past(shown.cost) || past(shown.time) {
+                                system.past.push(Past::Round {
+                                    work,
+                                    item,
+                                    cell: cell.clone(),
+                                    run: run.run,
+                                    round: round.number,
+                                    ended,
+                                    judged: shown,
+                                });
+                            }
+                        }
+                        Some(_) => {}
+                    }
                     if let Given::SentBack { .. } = round.given
                         && within(round.began)
                     {
@@ -369,6 +547,8 @@ impl System {
         system.added.sort_by_key(|x| std::cmp::Reverse(x.at));
         system.sent_back.sort_by_key(|x| std::cmp::Reverse(x.began));
         system.failed.sort_by_key(|x| std::cmp::Reverse(x.ended));
+        system.past.sort_by_key(|x| std::cmp::Reverse(x.ended()));
+        system.under_way.sort_by_key(UnderWay::began);
         Ok(system)
     }
 }

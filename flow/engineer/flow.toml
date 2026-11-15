@@ -6,10 +6,10 @@ order = ["S1", "R0", "R1", "R2", "D1", "D2", "D3", "D4", "I1", "T1", "T2", "M1",
 # The engine's own data this flow uses, each defined once in `../data/`. The flow's own data are in `blocks/`, its
 # lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each. What runs a cell is named on
 # the cell, from `../triggers/`.
-data = ["background", "dependencies", "questions", "answers", "asked", "discussion", "tree"]
+data = ["background", "dependencies", "q_and_a", "asked", "discussion", "tree", "head"]
 
 # The engine's tools every agent cell of the flow may ask for, each defined once in `../agents/tools/`. The form of a
-# return holds them, the same for every cell of the flow (`../agents/return/return.toml`).
+# return holds them, the same for every line of the flow (`../agents/return/return.toml`).
 tools = ["query", "run_tests"]
 
 # The table of earlier ids: each time cells were numbered anew, oldest first, each cell whose id changed by the id it
@@ -20,8 +20,8 @@ earlier_ids = []
 # The blocks of the plan, which a cell that reviews or rethinks the plan is run by as one: a new version of any of them
 # runs it once (`../triggers/of_a_group/`).
 [groups]
-plan = ["plan_owner", "plan_agent", "acceptance", "questions", "tree_edits"]
-change = ["code", "title", "decisions", "evidence", "tests"]
+plan = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]
+change = ["code", "title", "decisions", "evidence", "tests", "head"]
 
 # Chosen, not measured: no work yet showed what these should be.
 [limits]

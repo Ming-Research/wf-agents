@@ -179,7 +179,9 @@ pub enum Back {
     /// kept with it, so that the run is decided again from the records alone; and so is what it says beside its work.
     /// Returns kept before a return was read so have neither, and read as having none. Beside it is what the engine
     /// itself asks the owner from what it found of the work as the round ended, which no word of the agent's is;
-    /// returns kept before the engine asked anything have none.
+    /// returns kept before the engine asked anything have none. And what the carrier read of the work's branch as the
+    /// round ended, which the run writes as it finishes, as what the round committed; returns kept before the branch
+    /// was read so have none.
     Returned {
         dealt_with: Vec<BlockId>,
         handed: Vec<Handed>,
@@ -190,6 +192,12 @@ pub enum Back {
         said: Said,
         #[serde(default)]
         engine: Vec<Question>,
+        /// A block a source outside the work writes, a new version of which what it writes waits for, where the
+        /// engine's own act says so; returns kept before an act said it have none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        waits_for: Option<BlockId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        read: Vec<Handed>,
     },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate
@@ -206,8 +214,10 @@ pub enum Back {
     },
 }
 
-/// What a return says beside its work: its questions, which are data of their own once its run finishes (design
-/// document `data-and-context`, 32 to 36), its observations and its reply (38 to 40, 49).
+/// What a return says beside the blocks it hands in: its questions, which it writes in the block the engine keeps as
+/// them and which are data of their own once its run finishes (design document `data-and-context`, 26), and its
+/// observations. Its answer to what the owner said to its cell is a block it hands in, the record of what is said; a
+/// return kept before that held it here, and is read without it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Said {
     /// What it asks the owner, each question by its name, in the order it wrote them.
@@ -216,9 +226,6 @@ pub struct Said {
     /// What its agent came across beyond the work, each a text.
     #[serde(default)]
     pub observations: Vec<String>,
-    /// Its answer to what the owner said to its cell, where it gave one.
-    #[serde(default)]
-    pub reply: Option<String>,
 }
 
 impl Said {

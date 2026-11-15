@@ -9,14 +9,15 @@
 //!
 //! Every word sent is read from the files of the flow and from those beside it, and what the page is given of each part
 //! is its key and attributes there, as written; this code holds no word, only how they are put together: which part
-//! comes from which file. The form of a return is the one the engine gives the agents' program, made by the generator
-//! both use (`flow::form`).
+//! comes from which file. The form of a return is the one the engine gives the agents' program for the cell's line,
+//! made by the generator both use (`flow::form`), in its three parts: the engine's fields, the line's blocks and the
+//! flow's tools.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use flow::agents::{Agents, Part as PartIs};
-use flow::system::{with_slots, written};
+use flow::system::{Settings, with_slots, written};
 use flow::{CellSpec, Compiled, Kind};
 use serde::Serialize;
 
@@ -42,7 +43,7 @@ pub enum What {
     Program,
     /// A part of the system prompt of the session.
     System,
-    /// The form of the return.
+    /// A part of the form of the return: the engine's fields, the blocks of the line in `outputs`, or the flow's tools.
     Form,
     /// A part of a message that is no content of a block, nor the task, nor what the cell returns.
     Message,
@@ -80,11 +81,13 @@ pub struct Part {
     /// How it reaches the agent.
     pub carried: Carried,
     /// Its key in the files: a file of the project's by its name in `project.toml`, a set of rules, a file of the
-    /// engine's words, `form`, a part of a message by its `part`, a block by its name.
+    /// engine's words, of the form `form` for the engine's fields, `outputs` for the line's blocks and `tools` for the
+    /// flow's tools, a part of a message by its `part`, a block by its name.
     pub name: String,
     /// Of a part written anew each time, when it is sent at all: its `only`.
     pub only: Option<String>,
-    /// The file its words come from.
+    /// The file its words come from; of a part of the form, each file and directory its definition comes from, in
+    /// order, between commas.
     pub source: String,
     /// The block, of the content of a block the cell is given.
     pub block: Option<String>,
@@ -112,14 +115,12 @@ pub enum Given {
     Compiled {
         /// For each agent's cell, by its id, the parts in the order they are sent.
         cells: BTreeMap<String, Vec<Part>>,
-        /// The names of the engine's tools, so that the page tells a tool in the form from a field.
-        tools: Vec<String>,
         /// What each engine's cell's act writes into its blocks, by the cell's id.
         acts: BTreeMap<String, ActWords>,
         /// Each of the engine's tools as its file in `agents/tools/` writes it, by the tool's name.
         tool_files: BTreeMap<String, ActWords>,
         /// Each name a text sent to an agent gives between backticks that nothing of the flow, the return, the tools
-        /// or the settings defines, with the file it is in.
+        /// (what a tool's file defines included) or the settings defines, with the file it is in.
         unknown: Vec<Unknown>,
     },
     /// The definition does not compile, or cannot be read: there is nothing to work it out of.
@@ -187,7 +188,6 @@ pub fn given(flow: &Compiled, alike: &Alike) -> Given {
     let unknown = build.unknown(&cells);
     Given::Compiled {
         cells,
-        tools: agents.tools.keys().cloned().collect(),
         acts,
         tool_files,
         unknown,
@@ -232,13 +232,18 @@ struct Build<'a> {
 
 impl<'a> Build<'a> {
     /// Each name between backticks in what the cells are sent, but for the project's own files, that nothing defines:
-    /// no block, value of a choice, field, tool, part of the shape of either, kind of return or setting.
+    /// no block, value of a choice, field, tool, part of the shape of a block, a field or a tool, kind of return,
+    /// setting, or name a tool's file defines.
     fn unknown(&self, cells: &BTreeMap<String, Vec<Part>>) -> Vec<Unknown> {
         let agents = self.agents;
-        let mut known: Vec<String> = vec!["calls".into(), "outcome".into()];
+        let kinds = [flow::agents::ReturnKind::Tools, flow::agents::ReturnKind::Outcome];
+        let mut known: Vec<String> = kinds.iter().map(|k| k.name().to_string()).collect();
         for (name, block) in &self.flow.blocks {
             known.push(name.as_str().to_string());
             known.extend(block.values.iter().flatten().cloned());
+            if let Some(flow::Shape(shape)) = &block.shape {
+                properties(shape, &mut known);
+            }
         }
         for (name, field) in &agents.fields {
             known.push(name.clone());
@@ -247,15 +252,20 @@ impl<'a> Build<'a> {
         for (name, tool) in &agents.tools {
             known.push(name.clone());
             properties(&tool.request, &mut known);
+            known.extend(tool.defines.iter().cloned());
         }
-        known.extend(agents.project.project.keys().map(|k| format!("project.{k}")));
+        // The settings a text may name are the engine's: the same set it gives each a value where a text names it.
+        known.extend(
+            Settings::of(&agents.project, &agents.installation, |_| None)
+                .names()
+                .map(str::to_string),
+        );
         known.extend(
             self.flow
                 .cells
                 .iter()
                 .flat_map(|c| c.triggers.iter().map(|t| t.name.clone())),
         );
-        known.extend(agents.installation.names.iter().cloned());
         // The project's own files are the project's to word, and are not checked.
         let project: Vec<&String> = agents.project.files.values().map(|f| &f.path).collect();
         let mut out = std::collections::BTreeSet::new();
@@ -286,14 +296,37 @@ impl<'a> Build<'a> {
     /// The path of the file a cell's task comes from, from the directory that holds the flows' directory: the file the
     /// task is written in, where it has one of its own, else the cell's.
     fn task_source(&self, cell: &CellSpec) -> String {
-        let flow = (self.alike.flow.as_deref())
-            .and_then(Path::file_name)
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
         match &cell.task_file {
-            Some(file) => self.source(&format!("{flow}/{file}")),
-            None => self.source(&format!("{flow}/cells/{}.toml", cell.id.as_str())),
+            Some(file) => self.flow_file(file),
+            None => self.flow_file(&format!("cells/{}.toml", cell.id.as_str())),
         }
+    }
+
+    /// The path of a file of the flow shown, given from its directory, from the directory that holds the flows'
+    /// directory: one beside the flows, as `../data/`, from there.
+    fn flow_file(&self, file: &str) -> String {
+        match file.strip_prefix("../") {
+            Some(beside) => self.source(beside),
+            None => {
+                let flow = (self.alike.flow.as_deref())
+                    .and_then(Path::file_name)
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
+                self.source(&format!("{flow}/{file}"))
+            }
+        }
+    }
+
+    /// The files the blocks of the line in the form come from: the file of each agent's cell of the line, in the order
+    /// of the walk, then the file of each block, in the order of the form.
+    fn of_the_line(&self, line: &str) -> Vec<String> {
+        let cells = (self.flow.cells.iter())
+            .filter(|c| c.kind == Kind::Agent && c.line.as_deref() == Some(line))
+            .map(|c| self.flow_file(&format!("cells/{}.toml", c.id.as_str())));
+        let blocks = (flow::form::blocks(self.flow, line).into_iter())
+            .filter_map(|b| self.flow.blocks.get(b))
+            .map(|b| self.flow_file(&b.file));
+        cells.chain(blocks).collect()
     }
 
     fn part(&self, what: What, carried: Carried, name: &str, source: String, pieces: Vec<Piece>) -> Part {
@@ -319,16 +352,29 @@ impl<'a> Build<'a> {
         let session = self.source("agents/session.toml");
         let mut out = vec![self.part(What::Program, Carried::Program, "program", session, Vec::new())];
         // The form goes with the program's own tools, as a tool the program makes of it, which comes before the system
-        // prompt in every request.
-        // The form, as the engine gives it to the program: made by the one generator both use.
-        let form = written(&flow::form::form(self.flow, agents)?);
+        // prompt in every request: the form of the cell's line, as the engine gives it to the program, made by the one
+        // generator both use, in its three parts, in the order each begins in it.
+        let line = cell.line.as_deref().unwrap_or_default();
+        let form = flow::form::parts(self.flow, agents, line)?;
+        let fields = [
+            self.source("agents/return/return.toml"),
+            self.source("agents/return/fields/"),
+        ];
         out.push(self.part(
             What::Form,
             Carried::Call,
             "form",
-            self.source("agents/return/return.toml"),
-            form,
+            fields.join(", "),
+            written(&form.fields),
         ));
+        if let Some(tools) = &form.tools {
+            let files = [self.flow_file("flow.toml"), self.source("agents/tools/")];
+            out.push(self.part(What::Form, Carried::Call, "tools", files.join(", "), written(tools)));
+        }
+        if let Some(blocks) = &form.blocks {
+            let files = self.of_the_line(line);
+            out.push(self.part(What::Form, Carried::Call, "outputs", files.join(", "), written(blocks)));
+        }
         // The system prompt, as the engine makes it (`flow::system`), the project's files as they are in its checkout.
         let read = |path: &str| {
             let checkout = self.alike.project.as_ref();

@@ -174,7 +174,7 @@ function token(name: string, fallback: string): string {
 /// The colour a part `k` of the way from `a` to `b`, as `#rrggbb`.
 const between = (a: string, b: string, k: number) => `#${mix(a, b, k).toString(16).padStart(6, '0')}`;
 
-/// The scene's colours as the page's theme has them. Those the page's tokens came from (look.md) are read from the
+/// The scene's colours as the page's theme has them. Those the page's tokens came from are read from the
 /// tokens, which in light are the console's own; in dark, the colours the tokens have no step for are worked out from
 /// the tokens, keeping their relations to the card and the ground, as the console had no dark ground.
 export function themed(): typeof LIGHT {

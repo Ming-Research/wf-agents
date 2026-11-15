@@ -66,8 +66,9 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
 /// The file, in `agents/`, of the questions the engine itself asks the owner.
 pub const ASKS_FILE: &str = "asks.toml";
 
-/// The field of a return that holds the blocks a cell writes, each under its name. The form does not list them: the
-/// cell is told its own with its task, and the engine checks what it writes against them.
+/// The field of a return that holds the blocks a cell writes, each under its name, in its own shape. The form of a
+/// line lists the blocks of the line's cells there; the cell is told its own with its task, and the engine sends back
+/// a block that is not among them.
 pub const OUTPUTS: &str = "outputs";
 
 /// All of it, read from the directory that holds the flows.
@@ -274,7 +275,8 @@ pub struct CiFull {
     pub workflows: Vec<String>,
     /// Where they run, as for the fast workflow.
     pub runner: String,
-    /// How long a run may take before it is given up, such as `2h`, `90m` or `30s`.
+    /// How long a run may take, such as `2h`, `90m` or `30s`: one not complete by then is cancelled, and the check
+    /// before the merge fails, its jobs not complete said so.
     pub too_long: String,
     /// The input that takes the commit to check out and test.
     #[serde(default = "commit_input")]
@@ -465,11 +467,11 @@ pub struct Asks {
 }
 
 /// The question the engine asks where a work's own change touches a path the project protects ([`Protected`]): asked
-/// again under its name where that change is another, or the work gives another reason for it, or it was answered with
-/// another option than `merges`; withdrawn once the work touches none. It waits, and recommends none of its
-/// options. `ask` is what it asks, `{files}` the files the change touches, each as `file` says, a blank line between
-/// two: `{path}` its path, `{change}` how it changes (`added`, `changed` or `deleted`), `{why}` why the work says the
-/// change is needed, or `no_reason` where it says nothing, and `{diff}` the file's change itself.
+/// again under its name where that change is another, or the work gives another reason for it before the owner
+/// answered, or it was answered with another option than `merges`; withdrawn once the work touches none. It waits, and
+/// recommends none of its options. `ask` is what it asks, `{files}` the files the change touches, each as `file` says,
+/// a blank line between two: `{path}` its path, `{change}` how it changes (`added`, `changed` or `deleted`), `{why}`
+/// why the work says the change is needed, or `no_reason` where it says nothing, and `{diff}` the file's change itself.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AskProtected {
@@ -497,32 +499,14 @@ pub struct AskOption {
     pub follows: String,
 }
 
-/// The form: the order of the fields of each kind of return, the same for every cell of a flow. The blocks a cell
-/// writes go in the field [`OUTPUTS`], under their names, which the form does not list.
+/// The form: the fields of the kind of return that does the cell's work, in their order, the same for every cell of
+/// a line; the blocks of the line's cells go in the field [`OUTPUTS`]. The kind that asks for tools holds each tool
+/// the flow names, and nothing else.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Form {
-    /// What a return that asks for calls holds, in order.
-    pub calls: Vec<InForm>,
-    /// What a return that does the cell's work holds, in order.
-    pub outcome: Vec<InForm>,
-}
-
-/// What stands at a place of the form: a group the form makes of what the flow has, or a field of the engine's by its
-/// name.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
-pub enum InForm {
-    Group(Group),
-    Field(String),
-}
-
-/// A group the form makes of what the flow has.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Group {
-    /// Each tool the flow names.
-    Tools,
+    /// The engine's fields a return that does the cell's work holds, by name, in order.
+    pub outcome: Vec<String>,
 }
 
 /// What holds together the part on returning of a line's system prompt, the same for every cell of the flow.
@@ -543,7 +527,7 @@ pub struct Told {
     /// The fields the owner reads, in the order `owner_reads` names them.
     pub reads: Vec<String>,
     pub and: String,
-    pub calls: String,
+    /// What heads the tools and says how the kind of return that asks for them holds them, where the flow names any.
     pub tools: String,
 }
 
@@ -560,16 +544,16 @@ pub struct Outputs {
     pub must_write: String,
     /// What stands in place of the list where the cell writes no block.
     pub none: String,
+    /// What follows the list, once, where a block of it is one the owner reads.
+    pub owner_reads: String,
 }
 
-/// A field of a return that is the engine's, which every agent cell has: `agents/return/fields/<name>.toml`.
+/// A field of a return that is the engine's, which every agent cell has: `agents/return/fields/<name>.toml`. It is a
+/// field of the kind of return that does the cell's work.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Field {
-    /// The kinds of return it is a field of.
-    #[serde(rename = "in")]
-    pub kinds: Vec<ReturnKind>,
-    /// Every return of those kinds holds it.
+    /// Every return of that kind holds it.
     #[serde(default)]
     pub required: bool,
     pub told: ToldAs,
@@ -580,11 +564,10 @@ pub struct Field {
 }
 
 /// A kind of return.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReturnKind {
-    /// A return that asks the engine for calls.
-    Calls,
+    /// A return that asks the engine for tools.
+    Tools,
     /// A return that does the cell's work.
     Outcome,
 }
@@ -593,7 +576,7 @@ impl ReturnKind {
     /// Its name, as the files write it, which is its field in a return.
     pub fn name(self) -> &'static str {
         match self {
-            ReturnKind::Calls => "calls",
+            ReturnKind::Tools => "tools",
             ReturnKind::Outcome => "outcome",
         }
     }
@@ -660,9 +643,13 @@ pub struct SentBackFaults {
     pub no_such_question: String,
     pub question_twice: String,
     pub not_an_option: String,
+    /// Of a return read before a cell could ask only where it writes the work's questions.
     pub not_answerable: String,
+    pub not_answered: String,
     /// `{path}` a file the project protects that the work changes, and of which it says not why.
     pub unexplained: String,
+    /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
+    pub unanswered: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -682,11 +669,16 @@ pub enum ToldAs {
 #[serde(deny_unknown_fields)]
 pub struct Tool {
     pub words: String,
+    /// The names its words use that the tool itself defines, such as the keys of what it gives and the SQL function it
+    /// points to: the Flow page counts them as defined among the names between backticks in the texts sent to agents.
+    /// Nothing is filled in for them, as for the settings that `names` in `agents/installation.toml` lists.
+    #[serde(default)]
+    pub defines: Vec<String>,
     /// What the tool says of its own answers, by name, `{name}` places in each filled where it is said.
     #[serde(default)]
     pub texts: BTreeMap<String, String>,
     /// How many bytes of a result of the tool `query` a message gives; a result longer is given cut and kept whole in
-    /// the records. Only `query` has its results cut. With none, a result is given whole.
+    /// the records and in a file. Only `query` has its results cut. With none, a result is given whole.
     pub given_bytes: Option<usize>,
     /// The shape of a request of it.
     pub request: toml::Value,
@@ -721,10 +713,12 @@ pub struct ResultWords {
     pub came_tests: String,
     pub came_checks: String,
     pub came_join: String,
-    /// The title of the tests, and of the checks.
+    /// The title of the tests that did not pass, of those that passed, and of the jobs.
     pub tests_title: String,
-    pub checks_title: String,
-    /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one.
+    pub passed_title: String,
+    pub jobs_title: String,
+    /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one; the
+    /// time of a job is said the same way.
     pub test: String,
     pub time: String,
     pub passed: String,
@@ -736,19 +730,27 @@ pub struct ResultWords {
     pub not_built: String,
     /// What a test that failed said, as the results hold it: `{said}`.
     pub output: String,
-    /// A check, a job of the workflow: `{name}`, `{how}` one of the following, `{link}` as `link` says it.
+    /// A job of the workflow: `{name}`, `{how}` one of the following, `{time}` as `time` says it for a job that ran to a
+    /// conclusion, or as `job_untimed` says where GitHub gives no time for it, and `{link}` as `link` says it.
     pub job: String,
     pub link: String,
     pub job_passed: String,
     pub job_failed: String,
     pub job_broken: String,
     pub job_pending: String,
+    /// A job that did not run.
+    pub job_skipped: String,
+    /// A job that ran to a conclusion and has no time to give.
+    pub job_untimed: String,
     /// A check named that the run has no job of.
     pub job_missing: String,
     /// The run uploaded no JUnit it can read, so no test's result is known: `{why}`.
     pub no_junit: String,
     /// What the check before a merge was judged by: `{urls}` the runs.
     pub verdict_by: String,
+    /// What the check before a merge says of the jobs of its runs that are not said as what failed: `{jobs}` each as
+    /// a line of `job`, joined by a line break and the indent that sets them under it.
+    pub verdict_jobs: String,
     /// A unit not built: `{unit}`, `{why}`.
     pub unit_not_built: String,
     /// A name asked for that no test of the run has; and the same where a unit was not built, so that the test may be
@@ -800,7 +802,8 @@ pub struct LocalWords {
 pub struct ResultGiven {
     /// The most bytes of a result a round is given.
     pub bound: usize,
-    /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole.
+    /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole, `{file}` the file
+    /// that holds it whole.
     pub cut: String,
 }
 
@@ -811,6 +814,10 @@ pub struct Message {
     pub parts: Vec<MessagePart>,
     /// What a session compacted during a round is told before the round's message is given again, whole.
     pub compacted: String,
+    /// What the owner says to a round while it runs, as its session is given it after its next use of a tool: `{entry}`
+    /// the owner's entry of the record of what is said, `{block}` the record's name, `{number}` the entry's version,
+    /// `{trigger}` the trigger it is new to the round as, `{do}` what the cell does for it.
+    pub said: String,
 }
 
 /// A part of a message.
@@ -1002,6 +1009,8 @@ pub struct Start {
 pub struct Merge {
     pub text: String,
     pub moved: String,
+    /// The work's head moved since the check passed: the merge fails in passing, and the review and the check run first.
+    pub unreviewed: String,
 }
 
 /// `agents/acts/deliver.toml`.
@@ -1024,9 +1033,25 @@ pub struct Check {
     pub passed: String,
     pub failed: String,
     pub why: String,
+    /// What fails the work fails on the head of main as well: the choice alone is written, and the work waits for main.
+    pub held: String,
     pub took_in: String,
     pub notes: String,
     pub note: String,
+    /// What the check before a merge says where its full workflows failed tests alone, which it runs again by the fast
+    /// workflow: why they were not run again, `{why}`; what the run on the commit found, `{run}` as a result says it;
+    /// what the run on the head of main found of what failed again, `{main}` the main branch's name, `{head}` its head,
+    /// `{run}`; a test that failed and then passed on the commit, `{test}`, `{commit}`, `{failed}` the links of the
+    /// full workflows' runs and `{again}` of the run again; the tests that failed again and not on main, and those that
+    /// failed on main as well, `{tests}` each as `test_named` says it, `{test}` its name, joined by `tests_between`.
+    pub again_not_run: String,
+    pub again_on_commit: String,
+    pub again_on_main: String,
+    pub flaky: String,
+    pub only_here: String,
+    pub on_main_too: String,
+    pub test_named: String,
+    pub tests_between: String,
     pub values: CheckValues,
     pub found: Found,
 }
@@ -1050,8 +1075,8 @@ pub struct Found {
     pub protected: String,
     /// The change under the paths the project protects could not be looked at.
     pub protected_unread: String,
-    pub unnamed: String,
-    pub not_head: String,
+    /// The work's head is not one the review dealt with: the check fails in passing, and the review runs first.
+    pub unreviewed: String,
     /// The commit checked changes nothing against main: there is nothing to merge.
     pub empty: String,
 }
@@ -1141,13 +1166,9 @@ pub fn read(root: &Path) -> Result<Agents, String> {
     let return_file = at.join("return").join("return.toml");
     let returns: Return = file(&return_file)?;
     let fields: BTreeMap<String, Field> = each(&at.join("return").join("fields"))?;
-    let in_form = (returns.form.calls.iter()).chain(&returns.form.outcome);
-    let named = (in_form.filter_map(|f| match f {
-        InForm::Field(name) => Some(name),
-        InForm::Group(_) => None,
-    }))
-    .chain(&returns.how_you_return.listed)
-    .chain(&returns.how_you_return.reads);
+    let named = (returns.form.outcome.iter())
+        .chain(&returns.how_you_return.listed)
+        .chain(&returns.how_you_return.reads);
     for name in named {
         if !fields.contains_key(name) {
             let what = format!("names the field {name}, which return/fields/ does not have");

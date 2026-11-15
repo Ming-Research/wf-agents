@@ -1,0 +1,10 @@
+# The questions the cells ask the owner and the owner's answers: one record, which the engine's source of answers
+# writes, in a shape of its own where a cell writes it.
+what = "The questions the cells ask the owner, and the owner's answers."
+from = "answer"
+shown = true
+words = "`q_and_a`: what you ask the owner, each with `waits`."
+
+[shape]
+type = "array"
+items = { type = "object", properties = { name = { type = "string" }, waits = { type = "boolean" } }, required = ["name", "waits"], additionalProperties = false }

@@ -1,4 +1,4 @@
--- From version 15 of the schema to version 16: each version of a flow a work ran on is kept once, and each work says
+-- From version 18 of the schema to version 19: each version of a flow a work ran on is kept once, and each work says
 -- from which place on it ran on which. A work kept before has none, and is put on the version installed as the engine
 -- first starts with them; the cells its records name were all recorded before any table of earlier ids. The version's
 -- one row is replaced last.
@@ -21,4 +21,4 @@ CREATE TABLE on_flow (
     ids TEXT NOT NULL,
     PRIMARY KEY (work, at)
 );
-UPDATE schema_version SET version = 16;
+UPDATE schema_version SET version = 19;

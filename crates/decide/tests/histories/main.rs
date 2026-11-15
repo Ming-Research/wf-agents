@@ -330,7 +330,7 @@ impl History {
             let unrefused = Test {
                 kind: TestKind::NoneStanding,
                 reads: vec![VERDICT.into()],
-                is: "no".to_string(),
+                is: Some("no".to_string()),
             };
             World::with_tests(cells, [(TestName::from(UNREFUSED), unrefused)].into())
         } else {
@@ -599,6 +599,7 @@ impl History {
                         found: Vec::new(),
                         waits: false,
                         questions: Vec::new(),
+                        read: Vec::new(),
                     },
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,
@@ -658,6 +659,8 @@ impl History {
             choices: &choices,
             returns: RETURNS,
             told: &told,
+            // No act of the engine's is in these flows.
+            answered_by: &BTreeMap::new(),
         };
         let hold = decide::hold_in(&flow, &self.w.records, run, self.room);
         let step = run::next(&self.log_of(run), requires, hold);
@@ -679,6 +682,7 @@ impl History {
                     at,
                     writes,
                     dealt_with: Some(dealt_with),
+                    waits_for: None,
                 });
             }
             Step::SendBack { unmet } => {
@@ -851,6 +855,7 @@ impl History {
             Write {
                 block: block.clone(),
                 meaning_unchanged: !(meets && choice(block)) && rng.chance(50),
+                empty: false,
                 value,
             }
         };
@@ -1177,6 +1182,31 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
 /// before it fails, and two tests side by side would each take the other's.
 static HOOK: Mutex<()> = Mutex::new(());
 
+/// Runs `f` on each seed below `seeds` on as many threads as the machine has cores, and gives the results in seed order.
+fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
+    let next = std::sync::atomic::AtomicU64::new(0);
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let mut done: Vec<(u64, T)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut mine = Vec::new();
+                    loop {
+                        let seed = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if seed >= seeds {
+                            return mine;
+                        }
+                        mine.push((seed, f(seed)));
+                    }
+                })
+            })
+            .collect();
+        workers.into_iter().flat_map(|w| w.join().expect("a worker")).collect()
+    });
+    done.sort_by_key(|(seed, _)| *seed);
+    done.into_iter().map(|(_, t)| t).collect()
+}
+
 /// Runs this many histories drawn so, and fails if one breaks a property, or if none reached one of these situations.
 fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
     let _hook = HOOK.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1185,10 +1215,13 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
     let mut failures = Vec::new();
     let mut seen = Seen::default();
     let mut broken: BTreeMap<&str, Vec<u64>> = BTreeMap::new();
-    for seed in 0..seeds {
+    let results = in_parallel(seeds, |seed| {
         let mut log = Vec::new();
         let mut verdict = Verdict::default();
         let outcome = panic::catch_unwind(AssertUnwindSafe(|| one_history(seed, drawn, &mut log, &mut verdict)));
+        (verdict, outcome, log)
+    });
+    for (seed, (verdict, outcome, log)) in (0..seeds).zip(results) {
         seen.add(&verdict.seen);
         let mut message = match outcome {
             Err(e) => (e.downcast_ref::<String>().cloned())

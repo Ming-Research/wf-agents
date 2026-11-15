@@ -640,6 +640,8 @@ impl Building {
             by: Outsider::Person,
             matters: true,
             value: None,
+            said_to: None,
+            empty: false,
             at,
         });
         at
@@ -735,10 +737,12 @@ impl Building {
                 .map(|(block, meaning_unchanged, value)| Write {
                     block: (*block).into(),
                     meaning_unchanged: *meaning_unchanged,
+                    empty: false,
                     value: value.map(str::to_string),
                 })
                 .collect(),
             dealt_with: Some(dealt_with.iter().map(|b| (*b).into()).collect()),
+            waits_for: None,
         });
         at
     }
