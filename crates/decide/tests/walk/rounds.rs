@@ -73,8 +73,8 @@ fn a_run_at_rest_at_a_call_for_a_person_waits_for_that_person_and_goes_on_with_t
     let mut w = World::with_gate(vec![cell("a", &["brief"], &[])]);
     w.person_writes("brief");
     let run = w.start("a");
-    let call = w.calls("a", Some(Who::Architect));
-    let on = Some(Who::Architect);
+    let call = w.calls("a", Some(Who::Owner));
+    let on = Some(Who::Owner);
     assert_eq!(w.decide(), wait("a", vec![Waited::Call { call, on }]));
     w.done(call);
     assert_eq!(w.decide(), go_on("a", run));
@@ -153,8 +153,8 @@ fn a_paused_work_that_waits_says_what_it_waits_for() {
     w.resume();
     w.person_writes("background");
     w.start("research");
-    let call = w.calls("research", Some(Who::Architect));
+    let call = w.calls("research", Some(Who::Owner));
     w.pause();
-    let on = Some(Who::Architect);
+    let on = Some(Who::Owner);
     assert_eq!(w.decide(), wait("research", vec![Waited::Call { call, on }]));
 }

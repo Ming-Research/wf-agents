@@ -197,8 +197,6 @@ pub struct Result {
 pub enum Called {
     /// A tool, run on this.
     Tool { name: String, input: String },
-    /// A question put to a person, as it was put.
-    Question(String),
     /// The owner's word at a limit.
     AtLimit,
     /// A call the work does not hold.
@@ -213,7 +211,6 @@ impl Called {
         match self {
             Called::Tool { input, .. } if input.is_empty() => "tool_alone",
             Called::Tool { .. } => "tool",
-            Called::Question(_) => "question",
             Called::AtLimit => "at_limit",
             Called::Unknown(_) => "unknown",
             Called::Tests { .. } => "tests",
@@ -224,7 +221,7 @@ impl Called {
 /// The keys of the words of the part `main` of `message.toml`, and of those of a call in `results.toml`, in the
 /// order the files write them.
 pub const MAIN: [&str; 5] = ["text", "conflict", "uncommitted", "merging", "failed"];
-pub const CALLS: [&str; 6] = ["tool", "tool_alone", "question", "at_limit", "unknown", "tests"];
+pub const CALLS: [&str; 5] = ["tool", "tool_alone", "at_limit", "unknown", "tests"];
 
 /// In which of its forms a part is sent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -679,7 +676,6 @@ impl Build<'_> {
         let head = match key {
             "tool" => &words.tool,
             "tool_alone" => &words.tool_alone,
-            "question" => &words.question,
             "at_limit" => &words.at_limit,
             "unknown" => &words.unknown,
             "tests" => &words.tests,
@@ -705,7 +701,6 @@ impl Build<'_> {
                 .map(|r| {
                     let places: Vec<(&str, String)> = match &r.call {
                         Called::Tool { name, input } => vec![("name", name.clone()), ("input", input.clone())],
-                        Called::Question(question) => vec![("question", question.clone())],
                         Called::AtLimit => Vec::new(),
                         Called::Unknown(call) => vec![("call", call.0.to_string())],
                         Called::Tests { input } => vec![("input", input.clone())],
@@ -824,6 +819,7 @@ impl Build<'_> {
             Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
             Unmet::NotATest { path } => (&f.not_a_test, vec![("path", path.clone())]),
             Unmet::Unanswered { block } => (&f.unanswered, vec![("block", block.to_string())]),
+            Unmet::SkipsItsWait { block: b } => (&f.skips_its_wait, vec![block(b)]),
         };
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))

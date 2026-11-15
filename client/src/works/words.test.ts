@@ -33,12 +33,7 @@ const precondition: Waited = {
   words: 'The owner approved the merge',
   by: [{ kind: 'owner' }],
 };
-const question: Waited = {
-  kind: 'call',
-  call: 4,
-  who: 'owner',
-  what: { kind: 'question', who: 'owner', question: 'Show the cached tokens apart?' },
-};
+const question: Waited = { kind: 'answer', question: 'cached' };
 
 /// A work doing this now, waiting on the owner for these, as the engine's list says.
 const doing = (now: Now, waits: Wait[] = []): Pick<Summary, 'now' | 'cells' | 'waits'> => ({ now, cells: [], waits });
@@ -85,7 +80,11 @@ describe('what a work does now, in words', () => {
       why: '`verdict = yes` does not hold, as `verdict` says, and the cell requires it.',
       ends: { kind: 'write', block: 'verdict', value: 'yes' },
     };
-    const asked: Wait = { key: 'call-4', why: 'Show the cached tokens apart?', ends: { kind: 'reply', call: 4 } };
+    const asked: Wait = {
+      key: 'answer-cached',
+      why: 'Show the cached tokens apart?',
+      ends: { kind: 'answer', question: 'cached', version: 4 },
+    };
     expect(nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, question] }, [asked, ruling, pause]))).toBe(
       'Waiting for you · merge · Show the cached tokens apart? verdict = yes does not hold, as verdict says, and the ' +
         'cell requires it. The engine paused the work. The agent could not start.',
@@ -114,17 +113,6 @@ describe('what a work does now, in words', () => {
   it('says the state word of the catalogue, and the cell only where the state names one', () => {
     expect(stateOf(doing({ kind: 'paused', by: 'owner', why: null }))).toEqual({ tone: 'quiet', word: STATE.paused, cell: null });
     expect(stateOf(doing({ kind: 'fault', words: 'x' }))).toEqual({ tone: 'failed', word: STATE.halted, cell: null });
-    const architect: Waited = {
-      kind: 'call',
-      call: 3,
-      who: 'architect',
-      what: { kind: 'question', who: 'architect', question: 'Which table?' },
-    };
-    expect(stateOf(doing({ kind: 'waits', at: 'plan', on: [architect] }))).toEqual({
-      tone: 'quiet',
-      word: 'Waiting for the architect',
-      cell: 'plan',
-    });
     // A call the engine carries out for a cell is running: the cell's yellow says it is a call.
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
     const calling = { now: { kind: 'waits', at: 'M1', on: [tool] } as Now, cells: [{ cell: 'M1', state: 'calling' as const, finished: 0, record: null, open: 1 }], waits: [] };
@@ -146,7 +134,7 @@ describe('what a work does now, in words', () => {
       words: 'No cell that judged the work says it is not settled',
       by: [{ kind: 'owner' }, { kind: 'cell', cell: 'T1' }],
     };
-    expect(waitedWords(question)).toBe("the owner's answer to a question");
+    expect(waitedWords(question)).toBe("the owner's answer to the question cached");
     expect(waitedWords(tool)).toBe('the result of the tool shell');
     expect(waitedWords(returns)).toBe('the owner to let the run go on: it reached its limit, 2 returns sent back');
     expect(waitedWords(precondition)).toBe('The owner approved the merge, which the owner can make hold');
@@ -308,6 +296,9 @@ describe('why a run ran, in words', () => {
     );
     expect(unmetWords({ kind: 'unanswered', block: 'check' })).toBe(
       'it dealt with check, and committed nothing and asked nothing',
+    );
+    expect(unmetWords({ kind: 'skipsItsWait', block: 'deep_needed' })).toBe(
+      'it wrote deep_needed so that its cell no longer runs, while the cell waits there',
     );
   });
 });

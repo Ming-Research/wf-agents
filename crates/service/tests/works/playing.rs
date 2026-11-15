@@ -347,6 +347,31 @@ async fn main_does_not_move_while_an_item_that_moves_it_stands_elsewhere() {
     assert_eq!((mains(&store, 1), mains(&store, 2)), (0, 0));
 }
 
+// Both writers' rounds end at once, and the loop takes one end while the other waits in the channel: one item stands at
+// its merge, the other's writer is still under way as the loop has it, and main is due to move for both. Taking out
+// what was sent before main moves ends that writer's round, so that its state has passed: main waits for it again, and
+// never moves, since that round never comes again. Whichever end the loop takes first, one of the two plays meets it.
+// Milliseconds alone on a paused clock; no other test plays a state that passes as what was sent is taken out.
+#[tokio::test(start_paused = true)]
+async fn main_does_not_move_once_a_state_it_waited_for_passed_as_what_was_sent_was_taken_out() {
+    let path = r#"{ runs = "write" }, { runs = "merge" }, { ends = "merged" }"#;
+    let (merging, writing) = (r#"{ under_way = "merge" }"#, r#"{ under_way = "write", run = 1 }"#);
+    for (first, second) in [(merging, writing), (writing, merging)] {
+        let (played, dir) = played_on(&moving_items((first, path), (second, path)), moving()).await;
+        let played = played.expect("the script is played");
+        let unreached: Vec<(&Judged, &[usize])> = (played.items.iter())
+            .map(|item| (&item.judged, item.unreached.as_slice()))
+            .collect();
+        assert_eq!(
+            unreached,
+            vec![(&Judged::Took, &[1][..]), (&Judged::Took, &[1][..])],
+            "{first} and {second}: {played}"
+        );
+        let store = store(&dir);
+        assert_eq!((mains(&store, 1), mains(&store, 2)), (0, 0), "{first} and {second}");
+    }
+}
+
 /// A writer of the text a request asks for, the engine's own check of it, which reads main, and the merge, which waits
 /// for the check to say yes.
 fn checking() -> Compiled {
@@ -441,6 +466,51 @@ async fn a_check_given_again_after_main_moved_takes_in_the_main_it_is_given_agai
         2,
         "the main made up for the first round, and the main that moved"
     );
+}
+
+/// What each version of main the work of this number was written says, in the order they were written.
+fn mains_said(store: &Store, work: u64) -> Vec<String> {
+    let kept = store.load(WorkNumber(work)).expect("the store has the work");
+    (kept.records.written.iter())
+        .filter(|w| w.block.as_str() == "main")
+        .map(|w| kept.contents[&(w.block.clone(), w.at)].clone())
+        .collect()
+}
+
+// The check takes main in as its round begins, and main moves while the round is under way: the take-in reaches the
+// loop before main moved, as the real check sends it inside the repository's lock that the watch of main reads in too,
+// so that main's block ends at the head main moved to, and the check runs again for it. Milliseconds alone on a paused
+// clock; no other test plays main moving under a round that has said something already.
+#[tokio::test(start_paused = true)]
+async fn main_moving_while_the_checks_round_is_under_way_comes_after_the_main_the_check_took_in() {
+    let script = Script::read(
+        r#"
+        [[items]]
+        title = "Greet"
+        flow = "checking"
+        writes = [{ block = "request", content = "Greet, please." }]
+        acts = [{ at = { under_way = "check" }, do = "main", content = "The head of main, moved." }]
+        path = [
+            { runs = "write" },
+            { runs = "check" },
+            { runs = "check" },
+            { runs = "merge" },
+            { ends = "merged" },
+        ]
+        "#,
+    )
+    .expect("the script reads");
+    let (played, dir) = played_on(&script, checking()).await;
+    let played = played.expect("the script is played");
+    assert_eq!(
+        mains_said(&store(&dir), 1),
+        [
+            "The main as check took it in in its run 1, round 1.",
+            "The head of main, moved."
+        ],
+        "main went back to the head the check took in"
+    );
+    assert!(played.took(), "{played}");
 }
 
 #[tokio::test(start_paused = true)]

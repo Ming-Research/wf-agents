@@ -34,6 +34,7 @@ not_answered = "`{name}` is not answered."
 unexplained = "`{path}` is protected: say why, or take it back."
 not_a_test = "`{path}` is no test: take it back."
 unanswered = "`{block}` is not answered: commit, or ask."
+skips_its_wait = "`{block}` ends this cell while it waits."
 
 [unread]
 not_of_its_form = "Not of its form: {error}"

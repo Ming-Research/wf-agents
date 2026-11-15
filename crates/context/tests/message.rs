@@ -9,7 +9,7 @@ use context::{Entered, Main, Stands, Values};
 use decide::Outsider;
 use decide::run::Unmet;
 use decide::{BlockId, Seq};
-use engine::{Ask, Came, Event, Fill, Why};
+use engine::{Came, Event, Fill, Tool, Why};
 use flow::InputKind;
 use flow::agents::{MessagePart, Only, Part};
 use support::{Sim, carry, changed};
@@ -309,7 +309,7 @@ fn a_run_entered_for_the_results_of_its_calls_is_sent_them_once() {
     let round = sim.round().expect("the review is entered again");
     let entered = sim.enter(&round, false);
     sim.tries(&round, 1, entered.fills);
-    let ask = Ask::Tool {
+    let ask = Tool {
         name: "query".to_string(),
         input: "{\"sql\": \"select 1\"}".to_string(),
     };
@@ -420,6 +420,25 @@ fn a_return_that_dealt_with_what_ran_it_and_did_nothing_is_sent_back_in_its_word
     let again = sim.round().expect("the build's round after it was sent back");
     let entered = sim.enter(&again, false);
     let said = "## Sent back\n\n- `plan` is not answered: commit, or ask.\n";
+    assert!(entered.text.contains(said), "{}", entered.text);
+}
+
+// A return sent back for asking to wait as its writes leave its own cell is told so in the words of `skips_its_wait`,
+// the block filled in. Well under a millisecond alone; no other test holds the sentence a round is told of it.
+#[test]
+fn a_return_that_asked_to_wait_and_left_its_cell_is_sent_back_in_its_words() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = vec![Unmet::SkipsItsWait { block: "code".into() }];
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    let entered = sim.enter(&again, false);
+    let said = "## Sent back\n\n- `code` ends this cell while it waits.\n";
     assert!(entered.text.contains(said), "{}", entered.text);
 }
 

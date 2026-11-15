@@ -6,10 +6,10 @@
 
 use std::collections::BTreeSet;
 
-use decide::run::Failure;
+use decide::run::{Failure, Unmet};
 use decide::{CallId, Cause, CellId, Decision, Outsider, Pauser, Records, RunId, Seq, Started, decide};
 use engine::spoken::To;
-use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
+use engine::{Ask, Back, Call, Came, Effect, Event, Given, Spent, Time, Work, handle, pending};
 use flow::{CellSpec, Compiled};
 
 /// The cell the owner's words said to this reach, read of the records and the flow apart from the engine's code: of a
@@ -120,6 +120,11 @@ pub struct Seen {
     pub words_refused: usize,
     /// Results of what a cell asked for in a record, handed in by a cell that gives them.
     pub results: usize,
+    /// Hand-ins sent back for leaving their own cell no longer applying while it still waits.
+    pub skipping: usize,
+    /// Of those, the ones whose return asked no wait itself, neither a question that waits nor an entry asking for
+    /// tests: the cell waited by what an earlier return of it left.
+    pub skipping_left_before: usize,
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
@@ -156,6 +161,41 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
                     finished.run, started.cell
                 ));
             }
+        }
+    }
+    None
+}
+
+/// Of the runs that finished as the work went from `before` to `after`, the first whose writes left its cell no longer
+/// applying, where it applied before, while the cell still waits: for the answer to a question of its own that waits,
+/// asked by that run or left before, or for the result of an entry of a record it asks in (decision
+/// a-return-that-waits-keeps-its-cell), said in words; none where there is none. Read by the reading of the records
+/// apart from the deciding code, and only of the runs that finished between the two.
+pub fn skipping_its_wait(flow: &Compiled, before: &Records, after: &Records) -> Option<String> {
+    let now = Seq(u64::MAX);
+    let finished = &after.finished[before.finished.len()..];
+    if finished.is_empty() {
+        return None;
+    }
+    let (was, is) = (reading::Reading::new(before), reading::Reading::new(after));
+    for finished in finished {
+        let started = (after.started.iter())
+            .find(|s| s.run == finished.run)
+            .expect("a finished run started");
+        let Some(i) = flow.flow.place(&started.cell) else {
+            continue;
+        };
+        let cell = &flow.flow.cells()[i];
+        if cell.applies.is_empty() || !was.applies(&flow.flow, i) || is.applies(&flow.flow, i) {
+            continue;
+        }
+        let held = (reading::questions(after, now).values())
+            .any(|q| q.cell == cell.id && !q.engine && q.waits && !q.withdrawn && !q.answered);
+        if held || is.pending(cell, now) {
+            return Some(format!(
+                "run {:?} of {} finished writing what leaves its cell no longer applying while it still waits",
+                finished.run, started.cell
+            ));
         }
     }
     None
@@ -373,6 +413,9 @@ impl Driver {
         match handle(&self.flow, &mut self.work, now, event) {
             Ok(effects) => {
                 self.note(format!("effects: {effects:?}"));
+                if let Some(why) = skipping_its_wait(&self.flow, &before.records, &self.work.records) {
+                    panic!("{why}");
+                }
                 // Words taken go to the cell the records say they reach, and to no other: every entry they wrote is
                 // said to it.
                 if let Some(receiver) = &receiver {
@@ -679,7 +722,7 @@ impl Driver {
         (self.held.iter())
             .filter(|e| match e {
                 Effect::Round { .. } => true,
-                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
+                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool(_))),
                 Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } | Effect::Ping { .. } => true,
                 Effect::Tell { .. } => false,
             })
@@ -730,11 +773,29 @@ impl Driver {
                     && hand_in
                     && !came.said.waits()
                     && must.iter().any(|b| !came.writes.iter().any(|h| h.block == *b));
+                // Whether the return asks a wait itself: a question that waits, or an entry of a record its cell asks in.
+                let asking = &self.flow.flow.cells()[place].asks;
+                let own_wait =
+                    came.said.waits() || (came.writes.iter()).any(|h| asking.iter().any(|a| a.record == h.block));
+                let rounds = |r: &Records| r.rounds.iter().filter(|e| e.run == run).count();
+                let began = rounds(&self.work.records);
                 self.returned(run, came);
                 let r = &self.work.records;
                 let open = !r.finished.iter().any(|f| f.run == run) && !r.abandoned.iter().any(|a| a.run == run);
                 if lacks && open {
                     self.seen.lacking += 1;
+                }
+                // Sent back for leaving its own cell as it still waits: the round after it is told so.
+                let next = rounds(r);
+                let skipping = |unmet: &Unmet| matches!(unmet, Unmet::SkipsItsWait { .. });
+                if next > began
+                    && let Some(Given::SentBack(unmet)) = self.work.given.get(&(run, next))
+                    && unmet.iter().any(skipping)
+                {
+                    self.seen.skipping += 1;
+                    if !own_wait {
+                        self.seen.skipping_left_before += 1;
+                    }
                 }
             }
             Effect::Call { call, .. } => self.give_result(call),
