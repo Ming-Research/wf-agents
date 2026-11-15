@@ -195,7 +195,7 @@ describe('what a work does now, in words', () => {
       until: { kind: 'checked', at: 0 },
       holds: true,
     });
-    expect(said).toContain('(W12, round 1 of run 3: Not logged in)');
+    expect(said).toContain(' Round 1 of run 3 of W12 met it. Not logged in.');
     expect(said).not.toContain('install');
   });
 });
