@@ -400,6 +400,17 @@ pub enum What {
     ChangedByWithoutSource {
         block: String,
     },
+    /// A record of what is said gives no text of this name.
+    SpokenWithoutText {
+        block: String,
+        key: String,
+    },
+    /// A record of what is said gives a text of this name without its place.
+    SpokenTextWithoutPlace {
+        block: String,
+        key: String,
+        place: String,
+    },
     /// The block is a note, and a choice.
     NoteIsAChoice {
         block: String,
@@ -822,6 +833,8 @@ impl What {
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
             F::ChangedByWithoutSource { block } => What::ChangedByWithoutSource { block },
+            F::SpokenWithoutText { block, key } => What::SpokenWithoutText { block, key },
+            F::SpokenTextWithoutPlace { block, key, place } => What::SpokenTextWithoutPlace { block, key, place },
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },

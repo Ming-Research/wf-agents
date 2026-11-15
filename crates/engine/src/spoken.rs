@@ -31,9 +31,9 @@ use crate::asked;
 use crate::event::{Effect, Refused};
 
 /// The text of the record of what is said that is the owner's entry: `{words}` the words.
-pub const OWNER: &str = "owner";
+pub const OWNER: &str = flow::SPOKEN_OWNER;
 /// The text of the record of what is said that is a cell's answer: `{reply}` its answer.
-pub const REPLY: &str = "reply";
+pub const REPLY: &str = flow::SPOKEN_REPLY;
 
 /// What the owner said to a round under way, as its carrier is to hand it in ([`Effect::Tell`]): the owner's entry of
 /// the record of what is said, the record and the entry's version, the trigger of the cell's it is new to the round as
@@ -151,10 +151,7 @@ pub(crate) fn said(
     let mut told = None;
     for block in trigger.records(flow, flow::WORDS) {
         let record = &flow.blocks[block];
-        let entry = fill(
-            record.writes.get(OWNER).unwrap_or_default(),
-            &[("words", words.as_str())],
-        );
+        let entry = fill(&texts(record).owner, &[("words", words.as_str())]);
         let version = write(work, block, entry.clone(), Some(&cell));
         put_in.push((block.clone(), version));
         told.get_or_insert((block.clone(), version, entry));
@@ -234,10 +231,7 @@ pub fn carry(flow: &Compiled, work: &mut Work) -> bool {
         for block in trigger.records(flow, flow::WORDS) {
             let record = &flow.blocks[block];
             for words in &said {
-                let entry = fill(
-                    record.writes.get(OWNER).unwrap_or_default(),
-                    &[("words", words.as_str())],
-                );
+                let entry = fill(&texts(record).owner, &[("words", words.as_str())]);
                 let held = (work.records.written.iter()).any(|w| {
                     w.block == *block
                         && w.said_to.as_ref() == Some(&spec.id)
@@ -290,10 +284,18 @@ fn write(work: &mut Work, block: &BlockId, content: String, said_to: Option<&Cel
 /// block, what it handed in. The cell is the one whose run writes it.
 pub(crate) fn entry<'a>(flow: &Compiled, block: &BlockId, content: &'a str) -> Cow<'a, str> {
     match flow.blocks.get(block) {
-        Some(record) if record.writers.outside.as_deref() == Some(flow::WORDS) => Cow::Owned(fill(
-            record.writes.get(REPLY).unwrap_or_default(),
-            &[("reply", content)],
-        )),
-        _ => Cow::Borrowed(content),
+        Some(record) => match &record.spoken {
+            Some(spoken) => Cow::Owned(fill(&spoken.reply, &[("reply", content)])),
+            None => Cow::Borrowed(content),
+        },
+        None => Cow::Borrowed(content),
     }
+}
+
+/// The texts of a record of what is said, which the flow's compile gives each one of ([`flow::Block::spoken`]).
+fn texts(record: &flow::Block) -> &flow::Spoken {
+    record
+        .spoken
+        .as_ref()
+        .expect("the compile gives every record of what is said its two texts")
 }
