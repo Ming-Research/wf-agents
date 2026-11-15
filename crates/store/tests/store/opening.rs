@@ -362,13 +362,7 @@ fn a_file_of_version_17_is_migrated_and_each_of_its_writes_reads_as_holding_what
     let handed: Vec<bool> = (work.records.finished[0].writes.iter()).map(|w| w.empty).collect();
     assert_eq!(handed, [false, true], "one write holds something and one holds nothing");
     let (old, new) = kept_in(17, &work);
-    // As kept at version 17 each row has the column as 0, whatever it held.
-    {
-        let file = Connection::open(&old.path).expect("the database opens");
-        file.execute("UPDATE written SET empty = 0", [])
-            .expect("kept as before");
-        file.execute("UPDATE writes SET empty = 0", []).expect("kept as before");
-    }
+    // A file of version 17 has no such column: the copy has the rows without it.
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(
