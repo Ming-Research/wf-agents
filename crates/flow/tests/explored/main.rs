@@ -3,32 +3,34 @@
 //! properties the flow must keep checked as each run starts and at each stop by the records read as the design tree
 //! says (crate `reading`), never by the walk's (design document `testing`, 5).
 //!
-//! What happens next, at each state: a round under way returns, and the loop takes it; or the outside writes. What a
-//! round returns (`model::Variant`): the
-//! return of a cell content with its work; or, spending one of the path's two, every other set of values of the choices
-//! it writes, its choices alone, its content with its opinions for the cells before it (all, or each alone), a judge's
-//! refusal with its reasons, of a cell that may ask the owner its content with a question that waits for the owner (with
-//! the content's choices, or with choices that skip the cell itself) or one it goes on past, an entry asking for tests and nothing else, of the check's act a red check or a
-//! merge conflict, and on a path that spent nothing a return that is sent back. The act that runs the tests hands in
-//! the result of each entry it gives as its round ends. An agent's round that deals with what an act after its cell
-//! wrote commits, moving the work's head as it ends, as does a round of such a cell that asks for tests. A return that
-//! sends work round (opinions, a refusal, a send-back, a red check) may be given at every round of its cell from then
-//! on, for the same one spent: the flow's limits must stop it. What the outside writes, spending one: the owner speaks
-//! to a line, changes the background, answers a question as it recommends or takes another option, lets a cell go on at
-//! its limit or gives its word at a run's limit; main moves, a line begins a new session, the tree changes, a commit no round made moves the work's head. It
-//! writes while the work waits or is stalled, on a path that spent at most one before; while a round is under way, the
-//! owner speaks to its cell on such a path, and on a path that spent nothing the background or what runs the cell from
-//! outside is written too. The owner answers a question the work waits on whatever the path spent. Past a write from
-//! outside the cells give their content alone. The items the work depends on merging costs nothing. A stalled work,
-//! which the engine pauses for the owner, saying why, is a stop for the owner as a wait for the owner is.
+//! What happens next, at each state: a round under way returns, and the loop takes it; the engine gives a tool's
+//! result; or the outside writes. What a round returns (`model::Variant`): the return of a cell content with its work;
+//! or, spending one of the path's two, every other set of values of the choices it writes, its choices alone, its
+//! content with its opinions for the cells before it (all, or each alone), a judge's refusal with its reasons, of a
+//! cell that may ask the owner its content with a question that waits for the owner (with the content's choices, or
+//! with choices that skip the cell itself) or one it goes on past, an entry asking for tests and nothing else, of the
+//! check's act a red check, a merge conflict or a red check main fails too; and on a path that spent nothing a return
+//! that is sent back, or a call of a tool. The act that runs the tests hands in the result of each entry it gives as
+//! its round ends. An agent's round that deals with what an act after its cell wrote commits, moving the work's head
+//! as it ends, as does a round of such a cell that asks for tests. A return that sends work round (opinions, a refusal,
+//! a send-back, a red check) may be given at every round of its cell from then on, for the same one spent: the flow's
+//! limits must stop it. What the outside writes, spending one: the owner speaks to a line, changes the background,
+//! answers a question as it recommends or takes another option, lets a cell go on at its limit or gives its word at a
+//! run's limit; main moves, a line begins a new session, the tree changes, a commit no round made moves the work's
+//! head. It writes while the work waits or is stalled, on a path that spent at most one before; while a round is under
+//! way, the owner speaks to its line or answers a question that stands on such a path, and on a path that spent
+//! nothing the background or what runs the cell from outside is written too. The owner answers what the work waits on
+//! whatever the path spent. Past a write from outside the cells give their content alone. The items the work depends
+//! on merging costs nothing. A stalled work, which the engine pauses for the owner, saying why, is a stop for the owner
+//! as a wait for the owner is.
 //!
 //! Two states that would go on alike are one (`explore::Explorer::key`), and one reached having spent no more is kept.
-//! A path of more than 200 things given the loop with nothing written from outside, or that comes back to a state it was in, breaks
-//! property 4.
+//! A path of more than 200 things given the loop with nothing written from outside, or that comes back to a state it
+//! was in, breaks property 4.
 //!
-//! What it costs: a few thousand states, each a few decisions of the walk, in a few seconds; the test prints the
-//! numbers. The search runs once, in one test that checks every property on what it found and names each that fails,
-//! with every breach of it.
+//! What it costs: a few thousand states in a few seconds; the test prints the numbers. The search runs once, in one
+//! test that checks every property on what it found and names each that fails, with every breach of it; the flow
+//! renamed is explored again at a smaller bound, with the flow as it is at that bound beside it.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -36,14 +38,25 @@ use std::path::Path;
 use decide::{BlockId, CellId};
 use explore::model::{Model, ran, ran_on, reply_loop};
 use explore::{
-    A_QUESTION_WAITED, Bounds, Explored, GAVE_RESULTS, MAIN_WHILE_THE_CHECK_WAITS, Property, RAN_FOR_A_WAIT,
-    WAITED_FOR_THE_OWNER, explore, replay,
+    A_QUESTION_WAITED, A_TOOL_ANSWERED, Bounds, CHECKED_CONDITION, CHECKED_GATES, CHECKED_GROUP_DEFINED,
+    CHECKED_GROUP_RUN, CHECKED_RERUN, CHECKED_REST, CHECKED_RUN, CHECKED_STALL, CHECKED_STOP, CHECKED_THE_CHECK,
+    CHECKED_WRITE_AT_STOP, Explored, GAVE_RESULTS, MAIN_WHILE_THE_CHECK_WAITS, Property, RAN_FOR_A_WAIT,
+    WAITED_FOR_MAIN, WAITED_FOR_THE_OWNER, explore, replay,
 };
 use flow::{Compiled, Has, Source, compile, read};
 
 /// The bound of the exploration.
 const BOUNDS: Bounds = Bounds {
     spend: 2,
+    outside_after: 1,
+    steps: 200,
+    states: 200_000,
+};
+
+/// The bound the flow renamed is explored at, beside the flow as it is at that bound: what is named in the code shows
+/// on the first way it goes, and a smaller bound is reached in a fraction of the time.
+const RENAMED_BOUNDS: Bounds = Bounds {
+    spend: 1,
     outside_after: 1,
     steps: 200,
     states: 200_000,
@@ -65,11 +78,11 @@ const KNOWN: &[(Property, &str, &str)] = &[
 ];
 
 /// Why a change of the background while the merge's round is under way reaches no cell.
-const MERGE_UNSTOPPED: &str = "The owner changes the background while the merge's round is under way. A round under way \
-     is stopped only for what a source that turns the work writes (the owner's words, an answer), and the background is \
-     no such block, so the merge goes on; the work has ended once the merge has its record, and R0 and R1, which run on \
-     the background, never read the change. Whether a change of what the item asks should hold the merge is the \
-     owner's to decide.";
+const MERGE_UNSTOPPED: &str = "The engine's behaviour, by decision a-return-that-fits-is-taken-before-the-walk: the \
+     owner changes the background while the merge's round is under way, which does not stop it (only what a source that \
+     turns the work writes does), and the merge's return, fitting the flow, is taken as the round ends, before the walk \
+     is asked what follows: the work has ended once the merge has its record, and R0 and R1 never read the change. \
+     Whether such a change should hold the merge is the owner's to decide.";
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
@@ -118,9 +131,9 @@ fn compiled(source: &Source) -> Compiled {
 fn stats(e: &Explored) -> String {
     let s = &e.stats;
     format!(
-        "{} states, {} decisions of the walk, {} readings of what a round was told, {} runs, at most {} decisions in a \
-         row, in {:.2?}; states by what their paths spent, and whether the outside wrote: {:?}",
-        s.states, s.decisions, s.told, s.runs, s.longest, s.took, s.by_spent
+        "{} states, {} things given the engine's loop, {} readings of what a round was told, {} runs, at most {} \
+         things given in a row, in {:.2?}; states by what their paths spent, and whether the outside wrote: {:?}",
+        s.states, s.given, s.told, s.runs, s.longest, s.took, s.by_spent
     )
 }
 
@@ -209,24 +222,30 @@ fn rare() -> Vec<String> {
         GAVE_RESULTS.to_string(),
         ran_on(&cell("I1"), "on_tested"),
         MAIN_WHILE_THE_CHECK_WAITS.to_string(),
+        // A cell asks for a tool, waits for its result, and is entered again with it.
+        A_TOOL_ANSWERED.to_string(),
+        "R1 was entered with the answers it waited for".to_string(),
+        // The check finds a red that main fails too, and waits for main to move.
+        WAITED_FOR_MAIN.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
         "stop: the work merged".to_string(),
     ]
 }
 
-/// What the coverage lacks: a rarely taken path not reached, and what was never reached against [`NEVER`].
-fn coverage(e: &Explored, m: &Model) -> Vec<String> {
-    let mut failures: Vec<String> = (rare().into_iter())
-        .filter(|r| !e.reached.contains_key(r))
+/// What the coverage lacks: a rarely taken path not reached, and what was never reached against what the flow is said
+/// never to reach.
+fn coverage(e: &Explored, m: &Model, rare: &[String], never: &[(&str, &str)]) -> Vec<String> {
+    let mut failures: Vec<String> = (rare.iter())
+        .filter(|r| !e.reached.contains_key(*r))
         .map(|r| format!("not reached: {r}"))
         .collect();
-    let never: Vec<String> = (m.universe().into_iter())
+    let unreached: Vec<String> = (m.universe().into_iter())
         .filter(|u| !e.reached.contains_key(u))
         .collect();
-    for n in never.iter().filter(|n| !NEVER.iter().any(|(item, _)| item == n)) {
+    for n in unreached.iter().filter(|n| !never.iter().any(|(item, _)| item == n)) {
         failures.push(format!("never reached, and not said why: {n}"));
     }
-    for (item, _) in NEVER.iter().filter(|(item, _)| !never.iter().any(|n| n == item)) {
+    for (item, _) in never.iter().filter(|(item, _)| !unreached.iter().any(|n| n == item)) {
         failures.push(format!("said never reached, and reached: {item}"));
     }
     failures
@@ -259,19 +278,20 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
             failed.push(format!("property {name}:\n{}", failures.join("\n")));
         }
     }
-    let coverage = coverage(&e, &m);
+    let coverage = coverage(&e, &m, &rare(), NEVER);
     if !coverage.is_empty() {
         failed.push(format!("8. coverage:\n  {}", coverage.join("\n  ")));
     }
-    // No property passes by being checked on nothing; the engineer's flow reaches no stall (`NEVER`).
-    failed.extend(unchecked(&e, &[Property::Shown]));
-    failed.extend(replays(&m, &e, &rare()));
+    // No part of a property passes by being checked on nothing; the engineer's flow reaches no stall (`NEVER`).
+    failed.extend(unchecked(&e, &[CHECKED_STALL]));
+    failed.extend(replays(&m, &e));
     // The exploration names no cell, block or trigger: the flow with every one of them renamed alike goes every way
-    // the flow does, its names following.
+    // the flow does at a smaller bound, its names following.
     let (names, renamed) = renamed(&source("engineer"));
+    let small = explore(&m, RENAMED_BOUNDS);
     let rm = Model::new(compiled(&renamed));
-    let re = explore(&rm, BOUNDS);
-    failed.extend(alike(&m, &e, &re, &names));
+    let re = explore(&rm, RENAMED_BOUNDS);
+    failed.extend(alike(&m, &small, &re, &names));
     let is_known = |p: &Property, n: &String| KNOWN.iter().any(|(kp, kn, _)| kp == p && kn == n);
     let mut known = String::new();
     for ((_, name), b) in e.breaches.iter().filter(|((p, n), _)| is_known(p, n)) {
@@ -315,58 +335,80 @@ fn the_deliver_flow_keeps_every_property_on_every_path_explored() {
             failed.push(format!("property {name}:\n{}", breaches.join("\n")));
         }
     }
-    // The deliver flow has no condition, no group and no stall, so those properties are checked on nothing in it.
+    // The deliver flow has no condition, no group, no check and no stall, so those parts are checked on nothing in it.
     failed.extend(unchecked(
         &e,
-        &[Property::Contradicting, Property::Groups, Property::Shown],
+        &[
+            CHECKED_CONDITION,
+            CHECKED_GROUP_RUN,
+            CHECKED_GROUP_DEFINED,
+            CHECKED_THE_CHECK,
+            CHECKED_STALL,
+        ],
     ));
     let way = [
         ran(&CellId::from("V1")),
         "the work waited at V1 on dependencies = merged".to_string(),
         "stop: the work merged".to_string(),
     ];
-    for item in way.iter().filter(|item| !e.reached.contains_key(*item)) {
-        failed.push(format!("not reached: {item}"));
+    let coverage = coverage(&e, &m, &way, DELIVER_NEVER);
+    if !coverage.is_empty() {
+        failed.push(format!("coverage:\n  {}", coverage.join("\n  ")));
     }
+    failed.extend(replays(&m, &e));
     eprintln!("{}\n\n{}", stats(&e), report(&e));
     assert!(failed.is_empty(), "{}\n\n{}", stats(&e), failed.join("\n\n"));
 }
 
-/// Each property but those given that was checked on no case, and each of those given that was checked on some.
-fn unchecked(e: &Explored, none: &[Property]) -> Vec<String> {
+/// What of the deliver flow the exploration never reaches, each with why.
+const DELIVER_NEVER: &[(&str, &str)] = &[];
+
+/// Every part of the properties, as the exploration counts the cases each was checked on.
+const PARTS: [&str; 11] = [
+    CHECKED_RUN,
+    CHECKED_CONDITION,
+    CHECKED_STOP,
+    CHECKED_REST,
+    CHECKED_GROUP_RUN,
+    CHECKED_GROUP_DEFINED,
+    CHECKED_GATES,
+    CHECKED_THE_CHECK,
+    CHECKED_RERUN,
+    CHECKED_WRITE_AT_STOP,
+    CHECKED_STALL,
+];
+
+/// Each part of a property but those given that was checked on no case, and each of those given checked on some.
+fn unchecked(e: &Explored, none: &[&str]) -> Vec<String> {
     let mut wrong = Vec::new();
-    for (property, name) in PROPERTIES.iter().filter(|(p, _)| *p != Property::Engine) {
-        let checked = e.checked.get(property).copied().unwrap_or(0);
-        if none.contains(property) && checked > 0 {
-            wrong.push(format!(
-                "property {name} was checked on {checked} cases, where it has none"
-            ));
-        } else if !none.contains(property) && checked == 0 {
-            wrong.push(format!("property {name} was checked on no case"));
+    for part in PARTS {
+        let checked = e.checked.get(part).copied().unwrap_or(0);
+        if none.contains(&part) && checked > 0 {
+            wrong.push(format!("{part} was checked on {checked} cases, where it has none"));
+        } else if !none.contains(&part) && checked == 0 {
+            wrong.push(format!("{part} was checked on no case"));
         }
     }
     wrong
 }
 
-/// Each of these items whose nearest path, given again to the engine's loop for a new work, does not give the records
-/// the exploration had when it reached it.
-fn replays(m: &Model, e: &Explored, items: &[String]) -> Vec<String> {
+/// Each item whose nearest path, given again to the engine's loop for a new work, does not give the work the
+/// exploration had when it reached it, its records and the content they name.
+fn replays(m: &Model, e: &Explored) -> Vec<String> {
     let mut wrong = Vec::new();
-    for item in items {
-        let Some(path) = e.paths.get(item) else {
-            continue;
-        };
+    for (item, path) in &e.paths {
         match replay(m, &path.given) {
-            Ok(work) if work.records == path.records => {}
-            Ok(_) => wrong.push(format!("the path to {item}, given again, gives other records")),
+            Ok(work) if work == path.work => {}
+            Ok(_) => wrong.push(format!("the path to {item}, given again, gives another work")),
             Err(why) => wrong.push(format!("the path to {item}, given again, is refused: {why:?}")),
         }
     }
     wrong
 }
 
-/// The source with every cell, block and trigger of the flow given another name, and the names given, each by the one
-/// it replaces: a block's trigger of a new version (`on_` and its name) follows the block's.
+/// The source with every cell, block, group, line, named test and trigger of the flow given another name, and the names
+/// given, each by the one it replaces: the trigger of a block's or a group's new version (`on_` and its name) follows
+/// its name, and a line's block of its session (`{line}_session`) the line's.
 fn renamed(source: &Source) -> (BTreeMap<String, String>, Source) {
     let mut names = BTreeMap::new();
     // One prefix for every name, after `on_` for a trigger's, keeps every set of names in the order it had, so that the
@@ -385,8 +427,23 @@ fn renamed(source: &Source) -> (BTreeMap<String, String>, Source) {
         if path.starts_with("blocks/") || path.starts_with("../data/") {
             names.insert(stem.to_string(), new(stem));
             names.insert(format!("on_{stem}"), format!("on_{}", new(stem)));
-        } else if path.starts_with("../triggers/") && !path.ends_with("/changed.toml") {
+        } else if (path.starts_with("../triggers/") && !path.ends_with("/changed.toml"))
+            || path.starts_with("lines/")
+            || path.starts_with("tests/")
+        {
             names.insert(stem.to_string(), new(stem));
+        }
+    }
+    // A group's name, and its trigger, `on_` and its name.
+    let mut groups = false;
+    for line in source.flow.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            groups = line == "[groups]";
+        } else if groups && let Some((group, _)) = line.split_once('=') {
+            let group = group.trim();
+            names.insert(group.to_string(), new(group));
+            names.insert(format!("on_{group}"), new(&format!("on_{group}")));
         }
     }
     let file = |path: &String| {

@@ -42,3 +42,8 @@ opt-level = 3
 
 [profile.ci.package.flow]
 opt-level = 1
+
+# The exploration of a flow drives the engine's loop thousands of times in one test, as the flow's tests once did
+# themselves: optimized as the flow crate is, it takes the time it took there.
+[profile.ci.package.explore]
+opt-level = 1

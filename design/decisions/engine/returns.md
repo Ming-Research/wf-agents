@@ -41,3 +41,14 @@ Why: It is about the work's branch as the round left it, which a return sent bac
 ### decision an-act-is-answered-by-what-runs-it
 A return that deals with a block an act of the engine's after its cell wrote leaves new a block that runs that act: one it hands in, or the work's head it committed among them, or one that is new to the act already as the return is taken; or, where the questions' standing runs the act, a question of the work stands unanswered as the return is taken, whoever asked it, since its answer runs the act. A return that leaves none is sent back; one that leaves its cell waiting is held to nothing of it (decision a-wait-holds-its-cell). The engine finds the act, what runs it and the questions' standing in the flow's graph, by the blocks the act writes and the source of the datum, never by a cell's or a block's name.
 Why: An act reads no words, so an answer in words never reaches it, and a work answered so rests at the act's last record with nothing to run it again. Holding the cell to a block of its own answer was turned down: the act ran on what that block said, not on what was committed. A question already answered writes the questions' standing no more: counted as standing, it let the implementation answer a red check with nothing, and the work rested at the red check. A block new to the act runs it whatever the return leaves: after a check failed on a conflict and main moved, the implementation that merged the new main in cleanly, leaving the head where it was, was sent back though main would run the check again.
+
+### decision a-return-that-fits-is-taken-before-the-walk
+What a round returned is taken as the round ends, before the walk is asked what follows: where it meets everything the
+flow requires, its run finishes then, and no cell before it comes between, though something new to that cell came while
+the round was under way. So the merge's return, taken, ends the work, and a change of the background written while the
+merge's round was under way is read by no cell.
+Why: The return was made on what its round was told and is paid for; asked first, the walk would put a run of the
+earlier cell between the round's end and its taking, which would write under the return what it never saw, and the
+return would be sent back and made again (principle keep-what-was-paid-for). A round under way is stopped only for what
+a source that turns the work writes, the owner's words or an answer, so a write that does not stop it does not undo its
+end either; that this holds for every such write rests on judgment.

@@ -305,7 +305,6 @@ dependencies = [
  "engine",
  "flow",
  "reading",
- "work",
 ]
 
 [[package]]

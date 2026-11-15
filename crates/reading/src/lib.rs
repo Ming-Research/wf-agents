@@ -281,6 +281,14 @@ impl<'a> Reading<'a> {
             .any(|asks| self.awaited(cell, &asks.record, &asks.result, place))
     }
 
+    /// Whether the cell waits at this place for the owner's answer to a question of its own: the latest version before
+    /// the place of a question it asked waits for the answer, is no withdrawal, and has no answer before the place
+    /// (decision a-wait-holds-its-cell). Whether the cell applies is the caller's to judge: a cell skipped holds nothing
+    /// by its wait (decision a-wait-of-a-skipped-cell-is-put-away).
+    pub fn question_waits(&self, cell: &CellId, place: Seq) -> bool {
+        (questions(self.records, place).values()).any(|q| &q.cell == cell && q.waits && !q.withdrawn && !q.answered)
+    }
+
     /// Whether the cell's latest entry of the record before the place has no version of the result after it.
     fn awaited(&self, cell: &Cell, record: &BlockId, result: &BlockId, place: Seq) -> bool {
         let entry = (self.of(record).iter())
@@ -332,7 +340,10 @@ impl<'a> Reading<'a> {
         };
         reasons.sort_by_key(|r| order(r).unwrap_or(usize::MAX));
         let owed = self.owed(&cell.id, place);
-        if owed.iter().any(|c| !self.done(*c, place)) || self.pending(cell, place) {
+        if owed.iter().any(|c| !self.done(*c, place))
+            || self.pending(cell, place)
+            || self.question_waits(&cell.id, place)
+        {
             let abandoned = |run: RunId| (self.records.abandoned.iter()).any(|a| a.run == run && a.at < place);
             let seen = |block: &BlockId| {
                 (self.started.values())
@@ -429,4 +440,39 @@ impl<'a> Reading<'a> {
             by_outsider || by_judge
         })
     }
+}
+
+/// A question put to the owner, as its latest version before a place stands.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Asked {
+    /// The cell that asked it.
+    pub cell: CellId,
+    /// The place of its latest version, which an answer names.
+    pub at: Seq,
+    /// Whether its cell waits for the answer.
+    pub waits: bool,
+    /// Whether that version withdrew it.
+    pub withdrawn: bool,
+    /// Whether the owner answered that version before the place.
+    pub answered: bool,
+}
+
+/// The questions put to the owner before this place, each by its name as its latest version then stands; an answer to an
+/// earlier version answers nothing (decision an-answer-to-an-earlier-version-is-kept).
+pub fn questions(records: &Records, place: Seq) -> BTreeMap<String, Asked> {
+    let mut latest: BTreeMap<String, Asked> = BTreeMap::new();
+    for q in records.questions.iter().filter(|q| q.at < place) {
+        let asked = Asked {
+            cell: q.cell.clone(),
+            at: q.at,
+            waits: q.waits,
+            withdrawn: q.withdrawn,
+            answered: false,
+        };
+        latest.insert(q.name.clone(), asked);
+    }
+    for (name, asked) in latest.iter_mut() {
+        asked.answered = (records.answers.iter()).any(|a| &a.question == name && a.version == asked.at && a.at < place);
+    }
+    latest
 }

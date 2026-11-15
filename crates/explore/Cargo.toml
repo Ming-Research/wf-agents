@@ -12,7 +12,6 @@ decide = { path = "../decide" }
 engine = { path = "../engine" }
 flow = { path = "../flow" }
 reading = { path = "../reading" }
-work = { path = "../work" }
 
 [lints]
 workspace = true

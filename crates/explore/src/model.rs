@@ -9,14 +9,9 @@ use std::fmt;
 
 use decide::run::{Answer, Told};
 use decide::{BlockId, CallId, Cell, CellId, Condition, RunId, TestKind};
-use engine::{Came, Handed, Question, Way};
-use flow::{Compiled, Kind};
-
-/// The sources of the engine's that write as the owner acts: the record of what the owner says to the work, with the
-/// block each cell that may be spoken to has of it; and the record of the questions and the answers, with the block each
-/// cell an answer runs has of it.
-const WORDS: &str = "words";
-const ANSWER: &str = "answer";
+use engine::asked::ASKED;
+use engine::{Ask, Came, Handed, Question, Way};
+use flow::{ANSWER, Compiled, Kind, WORDS};
 
 /// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines, each line
 /// writing a block of its own, the design tree, and the work's head, as a commit no round made moves it.
@@ -29,9 +24,6 @@ pub const HEAD: &str = "head";
 
 /// The engine's act that checks the work before the merge.
 pub const CHECK: &str = "check";
-
-/// The source of the questions' standing, which the engine writes.
-const ASKED: &str = "asked";
 
 /// What a round of a cell returns.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -68,11 +60,16 @@ pub enum Variant {
     /// An entry of each record its cell asks for tests in, and nothing else, dealing with nothing: the cell waits for
     /// the result. Where the cell commits, the round commits as it ends, the tests running on the commit.
     Tests,
+    /// A call of the first tool the cell may ask for, and nothing else: the cell waits for its result and is entered
+    /// again with it.
+    Calls,
 }
 
 /// The check's act on a red check, and on a branch that does not merge into main.
 pub const RED: &str = "a red check";
 pub const CONFLICT: &str = "a merge conflict";
+/// The check's act on a red check that main fails too: its choice alone, waiting for main to move.
+pub const RED_ON_MAIN: &str = "a red check that main fails too";
 
 impl fmt::Display for Variant {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -94,6 +91,7 @@ impl fmt::Display for Variant {
             Variant::AsksGoingOn => write!(f, "its content, and a question it goes on past"),
             Variant::Fails(why) => write!(f, "{why}"),
             Variant::Tests => write!(f, "an entry asking for tests, whose result it waits for"),
+            Variant::Calls => write!(f, "a call of a tool, whose result it waits for"),
             Variant::Empty => write!(f, "its content, with what a test of content reads holding nothing"),
         }
     }
@@ -460,7 +458,11 @@ impl Model {
         let spec = &self.compiled.cells[i];
         if spec.kind == Kind::Engine {
             if Some(i) == self.check {
-                return vec![(Variant::Fails(RED), true), (Variant::Fails(CONFLICT), false)];
+                let mut out = vec![(Variant::Fails(RED), true), (Variant::Fails(CONFLICT), false)];
+                if self.sources.contains_key(MAIN) {
+                    out.push((Variant::Fails(RED_ON_MAIN), false));
+                }
+                return out;
             }
             return Vec::new();
         }
@@ -517,6 +519,9 @@ impl Model {
         if !self.asking[i].is_empty() {
             out.push((Variant::Tests, false));
         }
+        if !self.compiled.cells[i].tools.is_empty() {
+            out.push((Variant::Calls, false));
+        }
         if self.stray[i].is_some() {
             out.push((Variant::SentBack, true));
         }
@@ -569,6 +574,11 @@ impl Model {
             head(&mut came);
             return came;
         }
+        if *variant == Variant::Calls {
+            let name = self.compiled.cells[i].tools[0].clone();
+            let input = format!("What {} asks {name}.", cell.id);
+            return Came::asks(vec![Ask::Tool { name, input }]);
+        }
         if *variant == Variant::SentBack {
             let stray = self.stray[i].as_ref().expect("a block the cell does not write");
             return Came::works(self.dealt_with(i, told), vec![handed(stray, None, false)]);
@@ -608,6 +618,7 @@ impl Model {
                 | Variant::Empty
                 | Variant::SentBack
                 | Variant::Fails(_)
+                | Variant::Calls
                 | Variant::Tests => {}
             }
         } else {
@@ -618,7 +629,8 @@ impl Model {
                     *value = other.expect("a choice has another value").clone();
                 }
             }
-            if Some(i) != self.check || fails {
+            let on_main = *variant == Variant::Fails(RED_ON_MAIN);
+            if Some(i) != self.check || (fails && !on_main) {
                 prose.extend(
                     (cell.outputs.iter())
                         .filter(|b| !self.choices.contains_key(*b))
@@ -639,7 +651,13 @@ impl Model {
             })
             .collect();
         if !self.agent(i) {
-            return Came::hands_in(writes);
+            let mut came = Came::hands_in(writes);
+            // What failed fails on main too: the check writes its choice alone and waits for main to move (decision
+            // a-red-the-change-did-not-make-is-not-sent-back).
+            if *variant == Variant::Fails(RED_ON_MAIN) {
+                came.waits_for = self.sources.get(MAIN).cloned();
+            }
+            return came;
         }
         let dealt_with = self.dealt_with(i, told);
         let waits = match variant {
