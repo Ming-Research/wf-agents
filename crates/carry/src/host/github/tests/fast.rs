@@ -259,6 +259,38 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
     );
 }
 
+// Each job, a line, comes before every test and what a failed one said, however long: a result cut at the bound a round
+// is given keeps every job, how it ended and its time, and what the cut takes away is tests. Well under a second
+// alone, a bare repository for GitHub; no other test holds the jobs to the bound.
+#[tokio::test]
+async fn every_job_comes_before_what_the_tests_said_and_stays_within_the_bound_a_round_is_given() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let bound = crate::acts::words().run_tests.given.bound;
+    let long = "x".repeat(bound + 1000);
+    let xml = format!(
+        r#"<testsuites><testsuite name="carry"><testcase name="tools::tests::a" time="0.12"/><testcase name="tools::tests::b" time="0.3"><failure message="assertion failed">{long}</failure></testcase></testsuite></testsuites>"#
+    );
+    let lint = Check {
+        took: Some(192),
+        ..passed("lint")
+    };
+    let jobs = vec![lint, job("test", Outcome::Failed("failure".into()), 5)];
+    let results = vec![("test.xml".to_string(), xml.into_bytes())];
+    hub.github().fast(&head, jobs, Some(("test-results", results)));
+    let said = hub.named_check(&Named::default()).await.unwrap().expect("run");
+    assert!(said.len() > bound, "the result is longer than a round is given");
+    let jobs = "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 \
+                s https://github.example/checks/test";
+    let at = said.find(jobs).expect("the jobs");
+    assert!(at + jobs.len() <= bound, "the jobs end at byte {}", at + jobs.len());
+    assert!(
+        at < said.find("- tools::tests::b: failed").expect("b"),
+        "{}",
+        &said[..at]
+    );
+}
+
 // A job says how it ended and, where it ran to a conclusion, its wall time; one that did not run, did not finish or was
 // cancelled says so in place of a time, and a job that did not run is no check that came to anything.
 #[tokio::test]
