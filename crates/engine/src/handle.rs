@@ -248,7 +248,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 _ => {}
             }
             let at = work.tick();
-            let empty = value.is_none() && content.trim().is_empty();
+            let empty = decide::holds_nothing(value.as_deref(), &content);
             work.contents.insert((block.clone(), at), content);
             work.records.written.push(Written {
                 block,
@@ -840,7 +840,7 @@ fn finish(
     }
     let at = work.tick();
     for h in handed {
-        let content = spoken::entry(flow, &h.block, h.content);
+        let content = spoken::entry(flow, &h.block, &h.content).into_owned();
         work.contents.insert((h.block, at), content);
     }
     // What the round committed, as the carrier read it of the branch as the round ended, is among what the run writes
@@ -952,13 +952,15 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
 /// the cell's counts last began anew. A return of the form before a return said what it dealt with reads as one that
 /// dealt with nothing where it asked, and with everything that ran its round where it handed in.
 pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run::Log {
+    // Whether a write holds nothing is told of the content the engine keeps of it, which of a record of what is said is
+    // the cell's entry of what it handed in ([`spoken::entry`]).
     let writes = |handed: &[work::Handed]| {
         (handed.iter())
             .map(|h| Write {
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
-                empty: h.value.is_none() && h.content.trim().is_empty(),
+                empty: decide::holds_nothing(h.value.as_deref(), &spoken::entry(flow, &h.block, &h.content)),
             })
             .collect()
     };
