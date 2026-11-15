@@ -1,7 +1,7 @@
 // The strip on a console's card, in a real browser (Chromium): the canvas draws the works page's marks, so each mark it
 // drew, as the scene describes it (`drawnStrip`), is held against the works page's own `Strip` laid out by the browser
-// in the same tokens: its size, ring, corners, fill and place, state by state, in light and in dark. And a flow with
-// more cells than the card has room for keeps the marks' size.
+// in the same tokens: its size, ring, corners, fill and place, state by state, in light and in dark, and drawn again,
+// with no reload, in an accent picked. And a flow with more cells than the card has room for keeps the marks' size.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -11,6 +11,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { pickAccent, PRESETS, tones } from '../accent';
 import { Strip } from '../works/marks';
 import type { CellNow, CellState } from '../works-api';
 import type { Shown } from './items';
@@ -79,6 +80,7 @@ describe("a card's strip", () => {
     host.remove();
     page.remove();
     document.documentElement.removeAttribute('data-theme');
+    pickAccent(null);
   });
 
   /// The works page's strip of `cells`, laid out by the browser: each mark's place from the first's left and from the
@@ -142,6 +144,29 @@ describe("a card's strip", () => {
     const dark = scene.drawnStrip(1) as DrawnStrip;
     expect(dark.marks[0].fill).not.toBe(light.marks[0].fill);
     expect(drawn(dark)).toEqual(laidOut(cells));
+  });
+
+  it('draws the marks again in an accent picked, with no reload, as the works page draws them, in light and in dark', async () => {
+    const cells = cellsOf(STATES);
+    const blue = PRESETS[0].colour;
+    scene.show([working(1, cells)]);
+    const before = scene.drawnStrip(1) as DrawnStrip;
+    expect(pickAccent(blue)).toBeNull();
+    await expect.poll(() => scene.drawnStrip(1)).not.toBe(before);
+    await frame();
+    const light = scene.drawnStrip(1) as DrawnStrip;
+    expect(drawn(light)).toEqual(laidOut(cells));
+    const done = light.marks.find((m) => m.state === 'done');
+    const running = light.marks.find((m) => m.state === 'running');
+    expect(done?.fill).toBe(tones(blue).light['mark-done']);
+    expect(running?.fill).toBe(tones(blue).light['mark-running']);
+
+    document.documentElement.setAttribute('data-theme', 'dark');
+    await expect.poll(() => scene.drawnStrip(1)).not.toBe(light);
+    await frame();
+    const dark = scene.drawnStrip(1) as DrawnStrip;
+    expect(drawn(dark)).toEqual(laidOut(cells));
+    expect(dark.marks.find((m) => m.state === 'done')?.fill).toBe(tones(blue).dark['mark-done']);
   });
 
   it("fits the engineer's ten cells at the marks' full size, and past the card's room draws those that fit and says how many more", () => {

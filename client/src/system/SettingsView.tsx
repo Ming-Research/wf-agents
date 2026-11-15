@@ -6,11 +6,13 @@
 // Save, the one action the view is for, writes what changed into the file, its comments and layout kept, and commits
 // it where the file's directory keeps it in git; what the engine would refuse is refused before anything is written,
 // in the engine's words. What the owner typed and did not save is kept in the browser, key by key, through a reload, a
-// read of the file anew and a save refused.
+// read of the file anew and a save refused. Last, once the file is read or could not be, the accent the page is drawn
+// in, which is no setting of the file: kept in this browser as light or dark is, and taken as it is picked.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { Button, PanelPart } from '../parts';
+import { accentNow, type Meaning, pickAccent, PRESETS, type Refusal, tones, useAccent, VIOLET } from '../accent';
+import { Button, PanelPart, Switch } from '../parts';
 import { useReading } from '../works/source';
 import {
   type Change,
@@ -127,8 +129,14 @@ export function SettingsView() {
   const { value: page, failed, read } = useReading(load);
   const [said, setSaid] = useState<Said>(null);
   if (page === null) {
+    // While the file is read, the accent waits with the rest, so that it does not stand first and then move.
     return failed ? (
-      <p className="message">The page could not read the settings: {failed}</p>
+      <>
+        <p className="message">The page could not read the settings: {failed}</p>
+        <main className="view-page">
+          <AccentPart />
+        </main>
+      </>
     ) : (
       <p className="message muted">Reading the settings</p>
     );
@@ -269,6 +277,7 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
             <FileTable key={t.name} table={t} />
           ))}
         </PanelPart>
+        <AccentPart />
       </main>
     </>
   );
@@ -458,5 +467,104 @@ function Accounts({ onSaid, reread }: { onSaid: (said: Said) => void; reread: ()
         </p>
       )}
     </>
+  );
+}
+
+/// The colours of the meanings the accent keeps clear of, as the page names them.
+const MEANING_WORDS: Record<Meaning, string> = {
+  red: 'the red of a problem',
+  orange: "the orange of a block's meaning changed",
+  yellow: 'the yellow of a call under way',
+  green: 'the green of a work done',
+  tools: "the teal of the tools' time",
+};
+
+/// Why a colour is not taken as the accent, in a clause, the colour as a value.
+function refusedWords(colour: string, why: Refusal): ReactNode {
+  return (
+    <>
+      <span className="mono">{colour}</span>
+      {why === 'grey'
+        ? ' is too grey to stand apart from the muted words and a pause'
+        : ` is too near ${MEANING_WORDS[why]}, which keeps its meaning`}
+    </>
+  );
+}
+
+/// The accent the page is drawn in: the presets as a switch, each with a mark of the accent it gives in light and in
+/// dark, and a colour of the owner's own beside them, taken as the browser's picker closes; one that is refused leaves
+/// the accent as it was, and the part says why under them, once, until the next colour is picked.
+function AccentPart() {
+  const accent = useAccent();
+  const [refused, setRefused] = useState<{ colour: string; why: Refusal } | null>(null);
+  const box = useRef<HTMLInputElement>(null);
+  const inForce = accent.colour ?? VIOLET;
+  const own = accent.colour !== null && !PRESETS.some((p) => p.colour === accent.colour);
+  const marks = useMemo(() => PRESETS.map((p) => tones(p.colour)), []);
+  const pick = useCallback((colour: string) => {
+    const why = pickAccent(colour);
+    setRefused(why === null ? null : { colour, why });
+    // A colour refused does not stay in the box: it shows the accent in force.
+    if (why !== null && box.current !== null) box.current.value = accentNow() ?? VIOLET;
+  }, []);
+  // On the browser's `change`, which a colour picker sends as it closes, and not on each step of a drag in it, which
+  // would draw the whole page and say why anew at every step.
+  useEffect(() => {
+    const input = box.current;
+    if (input === null) return;
+    const changed = () => pick(input.value);
+    input.addEventListener('change', changed);
+    return () => input.removeEventListener('change', changed);
+  }, [pick]);
+  useEffect(() => {
+    if (box.current !== null) box.current.value = inForce;
+  }, [inForce]);
+  return (
+    <PanelPart label="Accent, kept in this browser">
+      <div className="accent-pick">
+        <Switch
+          label="The accent, kept in this browser"
+          value={own ? '' : inForce}
+          onChange={pick}
+          choices={PRESETS.map((p, i) => ({
+            value: p.colour,
+            name: (
+              <>
+                <span
+                  className="accent-mark"
+                  style={
+                    { '--accent-mark': marks[i].light.accent, '--accent-mark-dark': marks[i].dark.accent } as CSSProperties
+                  }
+                />
+                {p.name}
+              </>
+            ),
+            title:
+              p.colour === VIOLET
+                ? 'Draw the page in its own violet, kept in this browser'
+                : `Draw the page's accent in ${p.name.toLowerCase()}, kept in this browser`,
+          }))}
+        />
+        <label
+          className={own ? 'accent-own accent-own-taken' : 'accent-own'}
+          title="Draw the page's accent in a colour of your own, kept in this browser: the page takes its hue and strength, and draws each tone as light as it reads on its ground"
+        >
+          Your own
+          <input ref={box} type="color" className="accent-box" defaultValue={inForce} />
+        </label>
+      </div>
+      {refused !== null ? (
+        <p className="failed small" role="alert">
+          {refusedWords(refused.colour, refused.why)}: the accent stays as it was, and takes a colour from blue to purple.
+        </p>
+      ) : (
+        accent.refused !== null && (
+          <p className="failed small" role="alert">
+            The colour kept in this browser is refused now: {refusedWords(accent.refused.colour, accent.refused.why)}.
+            The page is drawn in its own violet until another is picked.
+          </p>
+        )
+      )}
+    </PanelPart>
   );
 }
