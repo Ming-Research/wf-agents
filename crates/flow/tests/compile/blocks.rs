@@ -35,7 +35,8 @@ fn a_block_s_shape_in_a_word_the_engine_does_not_check_is_a_fault() {
         "[blocks.design]",
         "[blocks.design]\nshape = { type = \"string\" }",
     );
-    assert_eq!(faults(&checked), []);
+    let shape = compiled(&checked).blocks[&"design".into()].shape.clone();
+    assert!(shape.is_some(), "a shape in the words the engine checks compiles");
 }
 
 #[test]
