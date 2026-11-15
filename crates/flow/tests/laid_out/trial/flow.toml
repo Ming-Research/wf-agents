@@ -1,0 +1,84 @@
+# A small flow for trying the engine by hand and for the tests: a plan that waits for the items its item depends on and
+# may ask the owner, a build, a review that judges it and may object, and the merge. Its script, ../scripts/trial.toml,
+# has the plan ask the owner a question it waits for, the build ask for a tool and the review object once.
+name = "trial"
+order = ["plan", "build", "review", "merge"]
+
+[limits]
+again = 2
+
+[lines.engineer]
+[lines.reviewer]
+reads_only = true
+
+[blocks.request]
+people = true
+
+[blocks.dependencies]
+values = ["waiting", "merged"]
+outside = "dependencies"
+
+[blocks.dependencies.writes]
+merged = "Every item this one depends on has merged."
+waiting = "Waits for the items {items} to merge."
+cancelled = "{item} (cancelled)"
+between = ", "
+
+[blocks.plan]
+
+# The questions the plan asks the owner and the owner's answers: the record the engine's source of answers writes, which
+# the plan writes as the questions it asks, each in the shape of an entry.
+[blocks.q_and_a]
+outside = "answer"
+shown = true
+
+[blocks.q_and_a.shape]
+type = "array"
+
+[[blocks.q_and_a.shape.items.anyOf]]
+type = "object"
+properties = { name = { type = "string" }, waits = { type = "boolean" }, recommends = { type = "integer" }, ask = { type = "string" }, options = { type = "array", items = { type = "object", properties = { does = { type = "string" }, follows = { type = "string" } }, required = ["does", "follows"], additionalProperties = false } } }
+required = ["name", "waits", "recommends", "ask", "options"]
+additionalProperties = false
+
+[[blocks.q_and_a.shape.items.anyOf]]
+type = "object"
+properties = { name = { type = "string" }, withdrawn = { type = "string" } }
+required = ["name", "withdrawn"]
+additionalProperties = false
+
+# What the engine writes as the owner answers a question of the plan's, which runs the plan again: `{question}` its
+# name, `{option}` the option's number, `{does}` the option's, `{why}` the owner's reason as `why` says it.
+[blocks.answered]
+outside = "answer"
+
+[blocks.answered.writes]
+text = "The owner answered {question} with option {option}, {does}.{why}"
+why = " {why}"
+
+# What the owner says to the plan, which may ask the owner and so may be spoken to.
+[blocks.spoken]
+outside = "words"
+
+[blocks.opinions]
+people = true
+
+[blocks.code]
+
+[blocks.verdict]
+values = ["yes", "no"]
+
+[blocks.merged]
+shown = true
+
+[tests.ready]
+says = "Every item this one depends on has merged"
+kind = "all"
+reads = ["dependencies"]
+is = "merged"
+
+[tests.content]
+says = "The review is content"
+kind = "all"
+reads = ["verdict"]
+is = "yes"

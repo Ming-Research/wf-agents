@@ -1,5 +1,5 @@
-//! The loop with the test carriers, over a store in a temporary directory, on the trial flow and its script
-//! (`tests/trial`). Each test takes the loop one thing at a time, as the loop takes them, with the runtime's time paused
+//! The loop with the test carriers, over a store in a temporary directory, on the trial flow and its script, beside the
+//! files the flows of the tests share (`crates/flow/tests/laid_out`). Each test takes the loop one thing at a time, as the loop takes them, with the runtime's time paused
 //! so that each round ends when the script says; after every step it checks what the loop must always keep:
 //!
 //! - every todo handed out is answered once, or is still to be done;
@@ -81,17 +81,23 @@ pub const START: Time = Time(1_794_268_800_000);
 /// The slots of the loops of the tests that do not count them: more than any of them has works.
 pub const SLOTS: usize = 1000;
 
-/// The directory of the trial flow, `flow`, and its script, `script.toml`.
+/// The directory beside the flows of the tests, which holds the trial flow, `trial`, its script, `scripts/trial.toml`,
+/// and what is written beside the flows.
 pub fn trial_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out")
 }
 
 /// The trial flow, compiled.
 pub fn trial_flow() -> Compiled {
-    let source = flow::read(&trial_dir().join("flow")).expect("the trial flow is read");
+    let source = flow::read(&trial_dir().join("trial")).expect("the trial flow is read");
     let has = flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
+        sources: BTreeSet::from([
+            driver::DEPENDENCIES.to_string(),
+            flow::ANSWER.to_string(),
+            flow::WORDS.to_string(),
+        ]),
         acts: BTreeSet::from(["merge".to_string()]),
+        tools: BTreeSet::from(["query".to_string()]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the trial flow compiles")
@@ -99,8 +105,13 @@ pub fn trial_flow() -> Compiled {
 
 /// The trial flow's script.
 pub fn trial_script() -> Script {
-    let text = std::fs::read_to_string(trial_dir().join("script.toml")).expect("the script is read");
+    let text = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
     Script::read(&text).expect("the script reads")
+}
+
+/// What is written beside the flows of the tests, in whose words the carriers read the questions a round asks.
+pub fn words() -> flow::agents::Agents {
+    flow::agents::read(&trial_dir()).expect("what is written beside the flows is read")
 }
 
 /// A thing to be done that a carrier answers: a round, which its end or its stop answers, or a tool's call, which
@@ -337,17 +348,34 @@ impl Trial {
         answer.try_recv().expect("the loop answers at once")
     }
 
-    /// Answers the owner's call the work waits for.
-    pub fn answer(&mut self, work: WorkNumber, result: &str) {
-        let call = self.owners_call(work).expect("the work waits for the owner's call");
-        self.act(
-            work,
-            Act::Result {
-                call,
-                result: result.to_string(),
-            },
-        )
-        .expect("the answer is taken");
+    /// Answers the latest version of the question the work waits for with the option it recommends, saying why.
+    pub fn answer(&mut self, work: WorkNumber, why: &str) {
+        let question = self
+            .waited_question(work)
+            .expect("the work waits for the owner's answer");
+        let kept = self.work(work);
+        let version = (kept.records.questions.iter().rev())
+            .find(|q| q.name == question)
+            .expect("the question was asked")
+            .at;
+        let act = Act::Answer {
+            question,
+            version,
+            option: 1,
+            why: Some(why.to_string()),
+        };
+        self.act(work, act).expect("the answer is taken");
+    }
+
+    /// The question the work waits for the owner's answer to, where it waits for one.
+    pub fn waited_question(&self, work: WorkNumber) -> Option<String> {
+        match self.decision(work) {
+            Decision::Wait { on, .. } => on.iter().find_map(|waited| match waited {
+                Waited::Answer { question } => Some(question.clone()),
+                _ => None,
+            }),
+            _ => None,
+        }
     }
 
     /// The owner's call the work waits for, where it waits for one.
@@ -371,8 +399,8 @@ impl Trial {
             if matches!(decision, Decision::Ended(_)) {
                 return decision;
             }
-            if self.owners_call(work).is_some() {
-                self.answer(work, "Yes, by name.");
+            if self.waited_question(work).is_some() {
+                self.answer(work, "By name, as the user likes.");
                 continue;
             }
             if self.step().await.is_none() {
@@ -500,7 +528,7 @@ fn open(
 ) -> (Service, Inbox) {
     let store = Store::open(path).expect("the store opens");
     let recording = Arc::new(Recording {
-        scripted: Scripted::new(script.clone()),
+        scripted: Scripted::new(script.clone(), words()),
         handed: handed.clone(),
         paused: paused.clone(),
         path: path.to_path_buf(),

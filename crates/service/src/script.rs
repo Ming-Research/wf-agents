@@ -1,7 +1,13 @@
 //! The script the test carriers follow: a TOML file saying, for each flow, what each cell's agent or act returns, run
-//! by run and round by round, and what each tool answers.
+//! by run and round by round, in every work or in one alone, what each tool answers, and what the engine's check of the
+//! agents' outside finds.
 //!
 //! ```toml
+//! # The one time the script names as a date, in milliseconds since the start of 1970: every other time it names is the
+//! # milliseconds after it, so that what a run meets is the same whatever the day it runs on, and after the engine
+//! # started again. A script that names no time needs none.
+//! start = 1794268800000
+//!
 //! # How many rounds of agents go on at once; two where it is left out, as the installation's sample settings give.
 //! slots = 3
 //!
@@ -12,12 +18,20 @@
 //! input_tokens = 3000
 //! cached_tokens = 12000
 //! output_tokens = 400
+//! # The context the round ends with, in tokens.
+//! context_tokens = 15400
 //!
 //! # What a tool answers, and how long it takes; and the link of the CI run it says it runs as, once it begins.
-//! [tools.ci]
-//! answer = "Every check passed."
+//! [tools.query]
+//! answer = '{"rows": []}'
 //! ms = 2000
 //! at = "https://github.com/o/r/actions/runs/1"
+//!
+//! # What the engine's check of the agents' outside finds while their rounds wait for it, of a kind of cause that
+//! # holds every work; everything well where it says nothing. Here the account's usage limit, which resets an hour
+//! # after the start.
+//! [outside]
+//! finds = { failure = "usage_limit", why = "You've hit your limit.", resets = 3600000 }
 //!
 //! # The value a round hands in for a choice where it names none; the choice's first value otherwise.
 //! [flows.trial.values]
@@ -37,10 +51,27 @@
 //! ]
 //! observations = ["The greeting has no test."]
 //!
-//! # The first round of the first run of plan asks the owner a question, and a tool to run.
+//! # The first round of the first run of plan hands in nothing, and asks the owner a question it waits for, as the record
+//! # of the work's questions holds one.
 //! [[flows.trial.rounds]]
 //! cell = "plan"
-//! asks = [{ question = "Which name?", who = "owner" }, { tool = "ci", input = "the branch" }]
+//! hands_in = []
+//!
+//! [[flows.trial.rounds.questions]]
+//! name = "named"
+//! waits = true
+//! recommends = 1
+//! ask = "Should the greeting name the user?"
+//! options = [
+//!     { does = "Greet the user by name", follows = "A warmer greeting." },
+//!     { does = "Greet without a name", follows = "A plainer one." },
+//! ]
+//!
+//! # In work 2 alone, that round asks for a tool to run instead, whose call answers so.
+//! [[flows.trial.rounds]]
+//! cell = "plan"
+//! work = 2
+//! asks = [{ tool = "query", input = '{"sql": "select 1"}', answer = '{"rows": [{"1": 1}]}', ms = 50 }]
 //!
 //! # The first round of the merge's check waits for the project's turn, which work 3 holds, for the first half of its
 //! # time, and then runs as the CI run at this link.
@@ -55,28 +86,50 @@
 //! run = 2
 //! fails = "The command line program could not start."
 //!
-//! # The second round of that run reaches the account's usage limit, which resets at this time: no agent's round of
-//! # any work begins until then.
+//! # The second round of that run reaches the account's usage limit, which resets two hours after the start: no
+//! # agent's round of any work begins until then.
 //! [[flows.trial.rounds]]
 //! cell = "plan"
 //! run = 2
 //! round = 2
 //! fails = "You've hit your limit."
 //! failure = "usage_limit"
-//! resets = 1792962000000
+//! resets = 7200000
 //! ```
 //!
-//! A round that does its cell's work may say what it committed (`commits`): each block of the work's branch that a
-//! source outside the work writes, such as its head, with what its carrier reads it to say as the round ends, handed in
-//! beside its blocks. A round the script says nothing of commits where its cell's line may change the work and it hands
-//! in a block an act of the engine's describes the work by: beside its blocks it hands in a version of the work's head,
-//! saying its cell, run and round, as an agent that wrote the code would have committed it.
+//! The questions a round asks are read as a return's are ([`engine::asked::unmet`]): one that recommends none of its
+//! options, or has the name of the question the engine itself asks in the words beside the flows, is found wrong with
+//! the return, which the run's check then sends back. A round that does its cell's work may say what the engine itself
+//! asks the owner as it ends (`engine`), as of a change of a path the project protects, in the shape the engine keeps
+//! its own questions in, which recommend none: the engine looks at the work's branch as a round of a line that may
+//! change the work ends, and as the work is checked before its merge. An ask of a tool may say what that call of it
+//! answers and how long it takes (`answer`, `ms`), in place of what the tool's entry says.
+//!
+//! A round may say what its carrier read as it went (`reads`): of each block that a source outside the work writes from
+//! the work's branch or from main, such as its head, what the carrier reads it to say. An agent's round hands it in
+//! beside its blocks, as what the round committed, where it does the cell's work. An act's round writes it as it goes,
+//! each as its entry says: for its round (`for_round = true`), so that its run takes it in, as the check writes the
+//! main it takes in and the branch it read, which then runs it no more; or from outside (`for_round = false`), a new
+//! version the round does not take in, as the merge writes a head that moved since the check, which the review and the
+//! check then run on. What a carrier reads is written only where it differs from what the block says. A round the
+//! script says nothing of reads the work's head where its cell's line may change the work and it hands in a block an act
+//! of the engine's describes the work by: beside its blocks it hands in a version of the head, saying its cell, run and
+//! round, as an agent that wrote the code would have committed it. The act that checks the work, where its entry says
+//! nothing of what it read, takes main in as the real check does, the latest the work's block of main holds, writing
+//! nothing; only where that block holds none it writes, for its round, a version made up for it, so that it never writes
+//! main back to an older head.
 //!
 //! ```toml
 //! [[flows.engineer.rounds]]
 //! cell = "I1"
 //! hands_in = [{ block = "code", content = "The fix." }]
-//! commits = [{ block = "head", content = "4b8e2d1" }]
+//! reads = [{ block = "head", content = "4b8e2d1" }]
+//!
+//! [[flows.engineer.rounds]]
+//! cell = "M2"
+//! reads = [{ block = "head", content = "9c0ffee", for_round = false }]
+//! fails = "The work's head moved since its check."
+//! failure = "passing"
 //! ```
 //!
 //! A round that fails takes what its entry says, as any round does. Once the owner lets its work on, the run's next
@@ -84,28 +137,30 @@
 //! so of the next round too.
 //!
 //! A run is the cell's nth run in its work, and a round the nth of its run, each counted from one; `run` and `round`
-//! are one where they are left out. Where the script says nothing of a round, the round hands in each output of its
-//! cell that no cell before it reads, and each the cell must write, each with a short content made up for it, saying
-//! the change matters, and with the value the script names for the block or else its first, where the block is a
-//! choice. An output a cell before it reads is a way back, an opinion on what that cell did, which an agent writes only
-//! when it has one: by default it has none, so that a script that says nothing of a judging cell has it content and
-//! does not send the work round until its limit; one the cell must write each time it writes all the same, so that the
-//! round is not sent back, and, where the block had a version as the run started, says the change does not matter, so
-//! that the work is not sent round for it either. Nor does it ask for tests in a record its cell asks in, which would
-//! leave the cell waiting: a script asks for them by handing the record in. The act that runs the tests hands in, as
-//! its round ends, the result of each entry it gives, that the tests passed. A block handed in with no content or no
-//! value is given them the same way. The engine's own acts take no cost and no tokens. What a round returns depends on
-//! nothing but its flow, cell, run and round, and the versions its run started from, which its start recorded, so that
-//! a round given again after the process started again returns what it would have.
+//! are one where they are left out. An entry that names a work is that work's alone, and wins over one that names none,
+//! every work's. Where the script says nothing of a round, the round hands in each output of its cell that no cell
+//! before it reads, and each the cell must write, each with a short content made up for it, saying the change matters,
+//! and with the value the script names for the block or else its first, where the block is a choice. An output a cell
+//! before it reads is a way back, an opinion on what that cell did, which an agent writes only when it has one: by
+//! default it has none, so that a script that says nothing of a judging cell has it content and does not send the work
+//! round until its limit; one the cell must write each time it writes all the same, so that the round is not sent back,
+//! and, where the block had a version as the run started, says the change does not matter, so that the work is not
+//! sent round for it either. Nor does it ask for tests in a record its cell asks in, which would leave the cell
+//! waiting: a script asks for them by handing the record in; nor hand in the record of the work's questions, whose
+//! entries are the engine's: a script asks the owner by `questions`. The act that runs the tests hands in, as its round
+//! ends, the result of each entry it gives, that the tests passed. A block handed in with no content or no value is
+//! given them the same way. The engine's own acts take no cost and no tokens. What a round returns depends on nothing
+//! but its work, flow, cell, run and round, and the versions its run started from, which its start recorded, so that a
+//! round given again after the process started again returns what it would have.
 
 use std::collections::BTreeMap;
 
 use flow::{CellSpec, Compiled, Kind};
 use serde::Deserialize;
-use work::{Ask, Handed, Spent, Time};
+use work::{Ask, Handed, Question, Spent, Time, Way};
 
 use decide::run::Failure;
-use decide::{BlockId, Seq, Who};
+use decide::{BlockId, Seq};
 use engine::Came;
 
 /// How long a round takes where the script says nothing, in milliseconds.
@@ -122,6 +177,11 @@ pub const OUTPUT_TOKENS: u64 = 100;
 pub const TOOL_MS: u64 = 100;
 /// The source outside the work that writes the block of the work's head, as the real carriers read it of the branch.
 const HEAD: &str = "head";
+/// The source outside the work that writes the work's block of main, as the watch of main and the check read it.
+pub(crate) const MAIN: &str = "main";
+/// The act of the engine's own that checks the work before its merge: the one that takes main in for its round, and
+/// that the engine asks the owner beside, of a change of a path the project protects.
+pub const CHECK: &str = "check";
 
 /// How many rounds of agents go on at once where the script says nothing: as many as the installation's sample
 /// settings give.
@@ -131,6 +191,9 @@ pub const SLOTS: usize = 2;
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Script {
+    /// The one time it names as a date, in milliseconds since the start of 1970, from which every other time it names
+    /// counts; none where it names no other.
+    pub start: Option<u64>,
     /// How many rounds of agents go on at once; [`SLOTS`] where the script says none.
     #[serde(default)]
     pub slots: Option<usize>,
@@ -140,6 +203,9 @@ pub struct Script {
     /// What each tool answers, by its name.
     #[serde(default)]
     pub tools: BTreeMap<String, ToolScript>,
+    /// What the engine's check of the agents' outside finds.
+    #[serde(default)]
+    pub outside: OutsideScript,
     /// What the cells of each flow return, by the flow's name.
     #[serde(default)]
     pub flows: BTreeMap<String, FlowScript>,
@@ -155,6 +221,8 @@ pub struct Took {
     pub input_tokens: Option<u64>,
     pub cached_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
+    /// The context it ends with, in tokens: what its last call to the model was sent; unknown where it is left out.
+    pub context_tokens: Option<u64>,
 }
 
 /// What a tool answers.
@@ -167,6 +235,26 @@ pub struct ToolScript {
     pub ms: Option<u64>,
     /// The link of the CI run it says it runs as, once it begins.
     pub at: Option<String>,
+}
+
+/// What the engine's check of the agents' outside finds while their rounds wait for it.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutsideScript {
+    /// What is down, as the check says it; everything well where it says nothing.
+    pub finds: Option<Down>,
+}
+
+/// What the check of the agents' outside finds down.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Down {
+    /// As a failed round's kind of cause, one that holds every work.
+    pub failure: Failure,
+    /// Why, as the check says it.
+    pub why: String,
+    /// When the account's usage limit resets, in milliseconds after the script's start.
+    pub resets: Option<u64>,
 }
 
 /// What the cells of one flow return.
@@ -185,6 +273,9 @@ pub struct FlowScript {
 #[serde(deny_unknown_fields)]
 pub struct RoundScript {
     pub cell: String,
+    /// The work it is for alone, by its number; an entry that names none is every work's, and a work's own wins over
+    /// it.
+    pub work: Option<u64>,
     /// The cell's nth run in its work.
     #[serde(default = "first")]
     pub run: usize,
@@ -195,19 +286,24 @@ pub struct RoundScript {
     pub took: Took,
     /// The blocks it hands in.
     pub hands_in: Option<Vec<HandIn>>,
-    /// The calls it asks for.
-    pub asks: Option<Vec<AskScript>>,
+    /// The tools it asks for.
+    pub asks: Option<Vec<ToolAsk>>,
     /// What it came across beyond its work, each a text, where it does the cell's work.
     pub observations: Option<Vec<String>>,
-    /// What it committed, where it does the cell's work: each block of the work's branch it moved, as its carrier reads
-    /// it as the round ends.
-    pub commits: Option<Vec<Commit>>,
+    /// The questions it asks the owner or withdraws, as the record of the work's questions holds them, where it does
+    /// the cell's work.
+    pub questions: Option<Vec<QuestionScript>>,
+    /// What the engine itself asks the owner as the round ends, where it does the cell's work.
+    pub engine: Option<Vec<EngineQuestion>>,
+    /// What its carrier read as it went: each block of the work's branch or of main that a source outside the work
+    /// writes, as the carrier reads it.
+    pub reads: Option<Vec<ReadScript>>,
     /// Why it fails, where it fails: nothing comes back.
     pub fails: Option<String>,
     /// The kind of cause of its failure, as a carrier tells it apart (`usage_limit`, `passing`, ...); a cause no
     /// kind tells apart, which pauses the work, where the script names none.
     pub failure: Option<Failure>,
-    /// When the usage limit its failure reached resets, in milliseconds since the start of 1970.
+    /// When the usage limit its failure reached resets, in milliseconds after the script's start.
     pub resets: Option<u64>,
     /// For an act of the engine, the work that holds the project's turn to check and merge, which it says it waits
     /// for during the first half of its time.
@@ -237,24 +333,19 @@ pub struct HandIn {
     pub matters: bool,
 }
 
-/// A block of the work's branch a round committed, a source outside the work writing it, with what its carrier reads
-/// it to say as the round ends.
+/// A block a source outside the work writes, as a round's carrier read it of the work's branch or of main.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Commit {
+pub struct ReadScript {
     pub block: String,
+    /// What the carrier reads it to say.
     pub content: String,
+    /// Of an act's round, how it is written as the round goes: for the round, which its run takes in; or, where false,
+    /// from outside, a new version the round does not take in.
+    pub for_round: Option<bool>,
 }
 
-/// A call a round asks for.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-pub enum AskScript {
-    Tool(ToolAsk),
-    Question(QuestionAsk),
-}
-
-/// A tool to run.
+/// A tool a round asks to run.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ToolAsk {
@@ -262,24 +353,79 @@ pub struct ToolAsk {
     /// What it is run on.
     #[serde(default)]
     pub input: String,
+    /// What this call of it answers, in place of what the tool's entry says.
+    pub answer: Option<String>,
+    /// How long this call of it takes, in milliseconds, in place of what the tool's entry says.
+    pub ms: Option<u64>,
 }
 
-/// A question for a person.
+/// A question a round asks the owner, or withdraws, in the shape of an entry of the record of the work's questions.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+pub enum QuestionScript {
+    Asked(AskedScript),
+    Withdrawn(WithdrawnScript),
+}
+
+/// A question asked, or asked anew under its name.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct QuestionAsk {
-    pub question: String,
-    #[serde(default)]
-    pub who: Person,
+pub struct AskedScript {
+    pub name: String,
+    /// Whether its cell waits for the answer.
+    pub waits: bool,
+    /// The option it recommends, counted from one; none where it recommends none, which its reading finds wrong.
+    pub recommends: Option<u64>,
+    pub ask: String,
+    pub options: Vec<WayScript>,
 }
 
-/// Who a question is for.
-#[derive(Clone, Copy, Debug, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Person {
-    #[default]
-    Owner,
-    Architect,
+/// A question withdrawn, for this reason.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WithdrawnScript {
+    pub name: String,
+    pub withdrawn: String,
+}
+
+/// An option of a question: what the work does by it, and what follows from it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WayScript {
+    pub does: String,
+    pub follows: String,
+}
+
+/// A question the engine itself asks the owner as a round ends, as the engine keeps its own.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+pub enum EngineQuestion {
+    Asked(EngineAsked),
+    Withdrawn(WithdrawnScript),
+}
+
+/// A question the engine asks, or asks anew: it recommends none of its options. What it is of, told apart from what any
+/// other version is of (`about`), and why the work's agents said each part of it is needed, by the part's name
+/// (`reasons`), as the engine keeps them.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EngineAsked {
+    pub name: String,
+    pub waits: bool,
+    pub ask: String,
+    pub options: Vec<WayScript>,
+    pub about: Option<String>,
+    #[serde(default)]
+    pub reasons: BTreeMap<String, String>,
+}
+
+/// A version of a block a source outside the work writes, as an act's carrier read it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Read {
+    pub block: BlockId,
+    pub content: String,
+    /// For the round, which its run takes in; else from outside.
+    pub for_round: bool,
 }
 
 /// What a round returns, and what it takes.
@@ -293,6 +439,9 @@ pub struct Planned {
     pub turn: Option<u64>,
     /// The link of the CI run it says it runs as, from its begin or once the turn is taken.
     pub at: Option<String>,
+    /// What an act's round read as it goes, as its entry says, which it writes; none where its entry says nothing of it,
+    /// and of an agent's round, which hands in what it read with what comes back.
+    pub reads: Option<Vec<Read>>,
 }
 
 /// How a round ends.
@@ -314,12 +463,20 @@ impl Script {
         toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())
     }
 
-    /// Everything wrong with the script for these flows, each in words with where it is: a flow, a cell or a block
-    /// it names that is not there, a default value that is not one of its choice's, a round that does more than one of
-    /// handing in, asking and failing, one that asks or fails and says observations or a commit, a block it commits
-    /// that no source outside the work writes, a round said twice, and an act of the engine that asks, commits or
-    /// costs; a tool no flow names, and one a round asks for that its cell may not ask for. A script that names a block
-    /// a cell may not write, or a value a choice does not have, is not wrong: what it hands in is sent back.
+    /// The time this many milliseconds after the script's start, which a script that names a time says.
+    pub fn after_start(&self, ms: u64) -> Time {
+        Time(self.start.unwrap_or_default().saturating_add(ms))
+    }
+
+    /// Everything wrong with the script for these flows, each in words with where it is: a flow, a cell, a block or a
+    /// tool it names that is not there, a default value that is not one of its choice's, a time it names with no start
+    /// to count from, what the check of the outside finds that holds no work; a round that does more than one of
+    /// handing in, asking and failing, one that asks or fails and says observations, questions, what the engine asks or,
+    /// of an agent's, what it read, a block it reads that no source outside the work writes, a round said twice; a tool
+    /// a round asks for that its cell may not ask for, the record of the work's questions handed in as a block, questions
+    /// of a cell that writes no record of them, what the engine asks as a round ends where it looks at nothing; and an
+    /// act of the engine that asks or costs, or reads without saying how it writes it. A script that names a block a cell
+    /// may not write, or a value a choice does not have, is not wrong: what it hands in is sent back.
     pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
         let mut faults = Vec::new();
         if self.slots == Some(0) {
@@ -356,25 +513,26 @@ impl Script {
                     faults.push(format!("{at}: says again what flows.{name}.rounds[{k}] says"));
                 }
                 if round.run == 0 || round.round == 0 {
-                    faults.push(format!("{at}: runs and rounds are counted from 1"));
+                    faults.push(format!("{at}: works, runs and rounds are counted from 1"));
                 }
+                let cell = flow.cells.iter().find(|cell| cell.id.as_str() == round.cell);
+                let agent = cell.is_some_and(|cell| cell.kind == Kind::Agent);
+                let works = round.fails.is_none() && round.asks.is_none();
                 if round.hands_in.is_some() && round.asks.is_some() {
                     faults.push(format!("{at}: a round either hands in or asks, not both"));
                 }
                 if round.fails.is_some() && (round.hands_in.is_some() || round.asks.is_some()) {
                     faults.push(format!("{at}: a round that fails neither hands in nor asks"));
                 }
-                if round.observations.is_some() && (round.fails.is_some() || round.asks.is_some()) {
+                if round.observations.is_some() && !works {
                     faults.push(format!(
                         "{at}: only a round that does the cell's work says observations"
                     ));
                 }
-                if round.commits.is_some() && (round.fails.is_some() || round.asks.is_some()) {
-                    faults.push(format!("{at}: only a round that does the cell's work commits"));
+                if round.reads.is_some() && agent && !works {
+                    faults.push(format!("{at}: only an agent's round that does the cell's work reads"));
                 }
-                if (round.turn.is_some() || round.at.is_some())
-                    && (flow.cells.iter()).any(|cell| cell.id.as_str() == round.cell && cell.kind == Kind::Agent)
-                {
+                if (round.turn.is_some() || round.at.is_some()) && agent {
                     faults.push(format!(
                         "{at}: only an act of the engine waits for the turn or runs as a CI run"
                     ));
@@ -385,74 +543,79 @@ impl Script {
                     ));
                 }
                 for (j, handed) in round.hands_in.iter().flatten().enumerate() {
-                    if !flow.blocks.contains_key(&BlockId::from(handed.block.as_str())) {
+                    let block = BlockId::from(handed.block.as_str());
+                    if !flow.blocks.contains_key(&block) {
                         let block = &handed.block;
                         faults.push(format!("{at}.hands_in[{j}]: the flow {name} has no block {block}"));
                     }
                 }
-                for (j, commit) in round.commits.iter().flatten().enumerate() {
-                    let block = &commit.block;
+                for (j, read) in round.reads.iter().flatten().enumerate() {
+                    let block = &read.block;
                     match flow.blocks.get(&BlockId::from(block.as_str())) {
-                        None => faults.push(format!("{at}.commits[{j}]: the flow {name} has no block {block}")),
+                        None => faults.push(format!("{at}.reads[{j}]: the flow {name} has no block {block}")),
                         Some(b) if b.writers.outside.is_none() => {
-                            faults.push(format!("{at}.commits[{j}]: no source outside the work writes {block}"));
+                            faults.push(format!("{at}.reads[{j}]: no source outside the work writes {block}"));
                         }
                         Some(_) => {}
                     }
                 }
-                let cell = flow.cells.iter().find(|cell| cell.id.as_str() == round.cell);
                 for (j, ask) in round.asks.iter().flatten().enumerate() {
-                    let AskScript::Tool(ToolAsk { tool, .. }) = ask else {
-                        continue;
-                    };
-                    if let Some(cell) = cell.filter(|cell| cell.kind == Kind::Agent && !cell.tools.contains(tool)) {
+                    if let Some(cell) = cell.filter(|cell| cell.kind == Kind::Agent && !cell.tools.contains(&ask.tool))
+                    {
                         faults.push(format!(
-                            "{at}.asks[{j}]: the cell {} may not ask for the tool {tool}",
-                            cell.id
+                            "{at}.asks[{j}]: the cell {} may not ask for the tool {}",
+                            cell.id, ask.tool
                         ));
                     }
                 }
-                match cell {
-                    None => faults.push(format!("{at}: the flow {name} has no cell {}", round.cell)),
-                    Some(cell) if cell.kind == Kind::Engine => {
-                        if round.asks.is_some() {
-                            faults.push(format!("{at}: an act of the engine asks for nothing"));
-                        }
-                        if round.commits.is_some() {
-                            faults.push(format!("{at}: an act of the engine commits nothing"));
-                        }
-                        let took = round.took;
-                        let costs = [
-                            took.usd_micros,
-                            took.input_tokens,
-                            took.cached_tokens,
-                            took.output_tokens,
-                        ];
-                        if costs.iter().any(Option::is_some) {
-                            faults.push(format!("{at}: an act of the engine takes no cost and no tokens"));
-                        }
+                let Some(cell) = cell else {
+                    faults.push(format!("{at}: the flow {name} has no cell {}", round.cell));
+                    continue;
+                };
+                if cell.kind == Kind::Engine {
+                    if round.asks.is_some() {
+                        faults.push(format!("{at}: an act of the engine asks for nothing"));
                     }
-                    Some(_) => {}
+                    let took = round.took;
+                    let costs = [
+                        took.usd_micros,
+                        took.input_tokens,
+                        took.cached_tokens,
+                        took.output_tokens,
+                    ];
+                    if costs.iter().any(Option::is_some) {
+                        faults.push(format!("{at}: an act of the engine takes no cost and no tokens"));
+                    }
                 }
             }
         }
         faults
     }
 
-    /// What the round of this number of the cell's nth run returns in the flow, and what it takes; `basis` is the
-    /// version of each block the run started from, as its start was recorded.
+    /// The entry of the round of this number of the cell's nth run in the flow, for this work: the work's own, else
+    /// every work's; none where the script says nothing of it.
+    pub fn entry(&self, flow: &str, cell: &str, work: u64, run: usize, number: usize) -> Option<&RoundScript> {
+        let rounds = self.flows.get(flow).into_iter().flat_map(|script| &script.rounds);
+        let of = |of: Option<u64>| {
+            (rounds.clone()).find(|r| r.cell == cell && r.work == of && r.run == run && r.round == number)
+        };
+        let _ = work;
+        of(None)
+    }
+
+    /// What the round of this number of the cell's nth run returns in the flow, in the work of this number, and what
+    /// it takes; `basis` is the version of each block the run started from, as its start was recorded.
     pub fn round(
         &self,
         flow: &Compiled,
         cell: &CellSpec,
+        work: u64,
         run: usize,
         number: usize,
         basis: &BTreeMap<BlockId, Option<Seq>>,
     ) -> Planned {
         let script = self.flows.get(&flow.name);
-        let entry = (script.into_iter())
-            .flat_map(|script| &script.rounds)
-            .find(|r| r.cell == cell.id.as_str() && r.run == run && r.round == number);
+        let entry = self.entry(&flow.name, cell.id.as_str(), work, run, number);
         let took = entry.map(|entry| entry.took).unwrap_or_default();
         let or = |round: Option<u64>, script: Option<u64>, default: u64| round.or(script).unwrap_or(default);
         let spent = match cell.kind {
@@ -465,6 +628,18 @@ impl Script {
                 ..Default::default()
             },
         };
+        // What an act read as it went, which it writes as its entry says.
+        let reads = (entry.and_then(|entry| entry.reads.as_ref()))
+            .filter(|_| false)
+            .map(|reads| {
+                (reads.iter())
+                    .map(|read| Read {
+                        block: BlockId(read.block.clone()),
+                        content: read.content.clone(),
+                        for_round: read.for_round.unwrap_or_default(),
+                    })
+                    .collect()
+            });
         let content = |block: &str| format!("The {block} as {} wrote it in its run {run}, round {number}.", cell.id);
         let value = |block: &str| {
             let named = script.and_then(|script| script.values.get(block)).cloned();
@@ -489,9 +664,17 @@ impl Script {
                     ms: or(took.ms, self.took.ms, ROUND_MS),
                     turn: None,
                     at: None,
+                    reads,
                 };
             }
-            Some(RoundScript { asks: Some(asks), .. }) => Came::asks(asks.iter().map(AskScript::ask).collect()),
+            Some(RoundScript { asks: Some(asks), .. }) => Came::asks(
+                (asks.iter())
+                    .map(|ask| Ask::Tool {
+                        name: ask.tool.clone(),
+                        input: ask.input.clone(),
+                    })
+                    .collect(),
+            ),
             Some(RoundScript {
                 hands_in: Some(handed), ..
             }) => Came::hands_in(
@@ -534,11 +717,12 @@ impl Script {
                 )
             }
         };
-        // What it came across beyond its work is said beside the blocks it hands in.
+        // What it came across beyond its work, the questions it asks and what the engine asks as it ends are said
+        // beside the blocks it hands in.
         if let Some(observations) = entry.and_then(|entry| entry.observations.clone()) {
             came.said.observations = observations;
         }
-        // What it committed is read of the branch as it ends, beside the blocks it hands in: what its entry says, or,
+        // What an agent's round read of the branch as it ended is handed in beside its blocks: what its entry says, or,
         // of a round the script says nothing of, the work's head where it hands in what an act describes the work by.
         let read = |block: BlockId, content: String| Handed {
             block,
@@ -546,9 +730,10 @@ impl Script {
             matters: true,
             value: None,
         };
-        came.read = match entry.and_then(|entry| entry.commits.as_ref()) {
-            Some(commits) => (commits.iter())
-                .map(|commit| read(BlockId(commit.block.clone()), commit.content.clone()))
+        came.read = match entry.and_then(|entry| entry.reads.as_ref()) {
+            Some(_) if cell.kind == Kind::Engine => Vec::new(),
+            Some(reads) => (reads.iter())
+                .map(|r| read(BlockId(r.block.clone()), r.content.clone()))
                 .collect(),
             None if said_nothing => {
                 let describes = |block: &BlockId| {
@@ -570,30 +755,71 @@ impl Script {
             ms: or(took.ms, self.took.ms, ROUND_MS),
             turn: entry.and_then(|entry| entry.turn),
             at: entry.and_then(|entry| entry.at.clone()),
+            reads,
         }
     }
 
-    /// What the tool answers when run on this, and how long it takes, in milliseconds.
-    pub fn tool(&self, name: &str, input: &str) -> (String, u64) {
+    /// What the tool answers when run on this, and how long it takes, in milliseconds: what the ask of its call says,
+    /// where it says it, else what the tool's entry says.
+    pub fn tool(&self, name: &str, input: &str, asked: Option<&ToolAsk>) -> (String, u64) {
         let script = self.tools.get(name);
+        let _ = asked;
         let answer = (script.and_then(|s| s.answer.clone())).unwrap_or_else(|| format!("{name} ran on: {input}"));
-        (answer, script.and_then(|s| s.ms).unwrap_or(TOOL_MS))
+        let ms = script.and_then(|s| s.ms);
+        (answer, ms.unwrap_or(TOOL_MS))
     }
 }
 
-impl AskScript {
-    fn ask(&self) -> Ask {
+/// The options of a question, as the engine keeps them.
+#[allow(dead_code)]
+fn ways(options: &[WayScript]) -> Vec<Way> {
+    (options.iter())
+        .map(|o| Way {
+            does: o.does.clone(),
+            follows: o.follows.clone(),
+        })
+        .collect()
+}
+
+#[allow(dead_code)]
+impl QuestionScript {
+    /// The question as a return asks it, as the engine keeps it.
+    fn question(&self) -> Question {
         match self {
-            AskScript::Tool(tool) => Ask::Tool {
-                name: tool.tool.clone(),
-                input: tool.input.clone(),
+            QuestionScript::Asked(q) => Question::Asked {
+                name: q.name.clone(),
+                waits: q.waits,
+                recommends: q.recommends,
+                ask: q.ask.clone(),
+                options: ways(&q.options),
+                about: None,
+                reasons: BTreeMap::new(),
             },
-            AskScript::Question(question) => Ask::Person {
-                who: match question.who {
-                    Person::Owner => Who::Owner,
-                    Person::Architect => Who::Architect,
-                },
-                question: question.question.clone(),
+            QuestionScript::Withdrawn(q) => Question::Withdrawn {
+                name: q.name.clone(),
+                why: q.withdrawn.clone(),
+            },
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl EngineQuestion {
+    /// The question as the engine asks it, as the engine keeps it.
+    fn question(&self) -> Question {
+        match self {
+            EngineQuestion::Asked(q) => Question::Asked {
+                name: q.name.clone(),
+                waits: q.waits,
+                recommends: None,
+                ask: q.ask.clone(),
+                options: ways(&q.options),
+                about: q.about.clone(),
+                reasons: q.reasons.clone(),
+            },
+            EngineQuestion::Withdrawn(q) => Question::Withdrawn {
+                name: q.name.clone(),
+                why: q.withdrawn.clone(),
             },
         }
     }

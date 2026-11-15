@@ -27,32 +27,24 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     );
     assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
     let now = engine.until(&["show", "1"], |line| line.starts_with("Now: waits"));
-    assert_eq!(
-        now,
-        "Now: waits at plan for the owner to answer call 2: \"Should the greeting name the user?\"."
-    );
+    assert_eq!(now, "Now: waits at plan for the owner to answer the question named.");
     let shown = engine.says(&["show", "1"]);
     assert!(
         shown.starts_with("Work 1 of item 1 \"Greet the user\" at level 1, project script, on the flow trial.\n"),
         "{shown}"
     );
-    // The plan's return asked, which ended its run: it is to run again once the owner answers.
-    assert!(
-        shown.contains("\n  plan: runs again, its record being run 1\n"),
-        "{shown}"
-    );
+    // The plan's return asked the owner a question it waits for, beside nothing it handed in: its record is run 1,
+    // and the owner's answer runs it again.
+    assert!(shown.contains("\n  plan: done, its record being run 1\n"), "{shown}");
     assert!(
         shown.contains("\n  request: 1 version, the latest 23 characters, by a person\n"),
         "{shown}"
     );
-    assert!(
-        shown.contains("\n  run 1 of plan: 1 round, calls 2, finished"),
-        "{shown}"
-    );
+    assert!(shown.contains("\n  run 1 of plan: 1 round, finished"), "{shown}");
 
     assert_eq!(
-        engine.says(&["result", "1", "2", "Yes, by name."]),
-        "Call 2 of work 1 has its result.\n"
+        engine.says(&["answer", "1", "named", "9", "1", "--why", "Yes, by name."]),
+        "Version 9 of the question named of work 1 is answered with option 1.\n"
     );
     engine.until(&["list", "--all"], |line| {
         line == "#1 \"Greet the user\" at level 1, project script, W1 on trial: merged"
@@ -64,8 +56,8 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
          wf-agents list --all\n"
     );
     assert_eq!(
-        engine.refuses(&["result", "1", "2", "No."]),
-        "Call 2 has its result already.\n"
+        engine.refuses(&["answer", "1", "named", "9", "3"]),
+        "The version of the question named answered has no option 3.\n"
     );
     // A work that merged is not cancelled, and is not said to be.
     assert_eq!(

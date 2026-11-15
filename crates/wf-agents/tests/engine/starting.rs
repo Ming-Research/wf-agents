@@ -122,14 +122,14 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
         engine.says(&["list"]),
         format!(
             "{held}; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: waits at plan for the owner to \
-             answer call 2: \"Should the greeting name the user?\"\n"
+             answer the question named\n"
         )
     );
     // `wait` says first that the engine waits for the owner.
     let said = engine.says(&["wait", "--for", "0"]);
     assert!(said.starts_with(&format!("{held}, for ")), "{said}");
     // The answer is taken, and the plan's next round waits for the owner to let everything on.
-    engine.says(&["result", "1", "2", "Yes."]);
+    engine.says(&["answer", "1", "named", "9", "1"]);
     engine.until(&["list"], |line| line.ends_with("held back by the pause of everything"));
     assert!(engine.says(&["resume", "--all"]).starts_with("Works go on; "));
     engine.until(&["list", "--all"], |line| line.ends_with(": merged"));
@@ -201,13 +201,18 @@ fn a_flow_that_does_not_compile_keeps_the_engine_from_starting() {
         .output()
         .expect("the command runs");
     assert!(!out.status.success());
+    // Every fault is said at once: the flow's, and that nothing is written beside it, which the flow copied alone lacks.
+    let said = String::from_utf8_lossy(&out.stderr);
+    let lines: Vec<&str> = said.lines().collect();
     assert_eq!(
-        String::from_utf8_lossy(&out.stderr),
+        lines[0],
         format!(
-            "{}/merge.toml inputs[0]: the block kode is not declared in flow.toml\n",
+            "{}/merge.toml inputs[0]: the block kode is not declared in flow.toml",
             flow.display()
         )
     );
+    assert_eq!(lines.len(), 2, "{said}");
+    assert!(lines[1].contains("agents/session.toml: "), "{said}");
     assert!(!place.data().join("store.sqlite").exists(), "the store was opened");
 }
 

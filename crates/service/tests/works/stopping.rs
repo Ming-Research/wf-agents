@@ -49,7 +49,7 @@ async fn history(stops: &[usize]) -> (Work, usize) {
         if matches!(trial.decision(work), Decision::Ended(_)) {
             break;
         }
-        if trial.owners_call(work).is_some() {
+        if trial.waited_question(work).is_some() {
             trial.answer(work, "Yes, by name.");
         } else {
             assert!(trial.step().await.is_some(), "the work comes to its end");

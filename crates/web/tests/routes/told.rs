@@ -86,7 +86,7 @@ fn keeping_all(
 ) -> Running {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
-    let mut carriers = Scripted::new(trial_script()).carriers();
+    let mut carriers = Scripted::new(trial_script(), crate::words()).carriers();
     carriers.agents = Arc::new(Keeping {
         agents: carriers.agents.clone(),
         kept,
@@ -208,12 +208,11 @@ async fn a_round_under_way_is_given_its_message_and_nothing_back() {
         tries: vec![tried("The owner answered.", Back::Nothing)],
         left_out: 0,
     };
-    let running = keeping(BTreeMap::from([((1, 3, 1), told)]));
+    let running = keeping(BTreeMap::from([((1, 2, 1), told)]));
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
-        post(router, "/api/v1/works/1/acts", &answer).await.0,
+        post(router, "/api/v1/works/1/acts", &crate::named()).await.0,
         StatusCode::NO_CONTENT
     );
     // The plan, entered again for the answer, has its round under way for a second and a half.
@@ -223,7 +222,7 @@ async fn a_round_under_way_is_given_its_message_and_nothing_back() {
         "round"
     );
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/3/rounds/1/told").await,
+        get_json(router, "/api/v1/works/1/runs/2/rounds/1/told").await,
         json!({
             "tries": [{ "message": "The owner answered.", "cut": null, "back": { "kind": "nothing" }, "ran": null }],
             "leftOut": 0,
@@ -258,7 +257,7 @@ impl Rounds for Waiting {
 async fn what_a_round_was_told_is_read_off_the_loop_and_only_for_a_round_there_is() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
-    let mut carriers = Scripted::new(trial_script()).carriers();
+    let mut carriers = Scripted::new(trial_script(), crate::words()).carriers();
     let (calls, barrier) = (Arc::new(AtomicUsize::new(0)), Arc::new(Barrier::new(2)));
     carriers.agents = Arc::new(Waiting {
         agents: carriers.agents.clone(),

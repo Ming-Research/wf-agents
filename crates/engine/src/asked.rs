@@ -18,11 +18,15 @@
 //! latest version: [`ANSWERED`] where each has, or none stands, [`WAITING`] while one has not. The engine writes it
 //! as a question is asked, asked anew or withdrawn and as the owner answers, where it does not say so already, so that
 //! a cell that requires it, as the merge's check does, waits while a question stands unanswered.
+//!
+//! What is wrong with the questions a return asks that only its reading sees ([`unmet`]) is found here, where the
+//! reading of a real return and the test carriers both find it.
 
 use decide::questions::questions;
+use decide::run::Unmet;
 use decide::{Answered, BlockId, CellId, Outsider, Questioned, RunId, Seq, Written};
 use flow::Compiled;
-use flow::agents::fill;
+use flow::agents::{Agents, fill};
 use work::{Question, Way, Work};
 
 use crate::event::Refused;
@@ -48,6 +52,30 @@ pub const ENTRIES: [&str; 9] = [
     "goes_on",
     "withdrawn",
 ];
+
+/// What is wrong with the questions a return asks that its reading sees, in the order it wrote them: one that recommends
+/// none of its options, or has none; and one with the name of the question the engine itself asks, as what is written
+/// beside the flows names it. The run's check names these with everything else wrong with the return, in one send-back.
+pub fn unmet(asked: &[Question], words: &Agents) -> Vec<Unmet> {
+    let mut found = Vec::new();
+    for question in asked {
+        let name = || question.name().to_string();
+        if question.name() == words.asks.protected.name {
+            found.push(Unmet::QuestionTaken { name: name() });
+            continue;
+        }
+        let Question::Asked {
+            recommends, options, ..
+        } = question
+        else {
+            continue;
+        };
+        if !recommends.is_some_and(|r| r >= 1 && r <= options.len() as u64) {
+            found.push(Unmet::NotAnOption { name: name() });
+        }
+    }
+    found
+}
 
 /// Records each of these questions, asked, asked anew or withdrawn, as a version of it of the cell, brought by the
 /// run's return, or by the engine at the end of the run's round; each at a place of its own, in the order given, and
