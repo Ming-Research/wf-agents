@@ -516,7 +516,7 @@ const REQUEST_TEXT = (what: string) =>
 function upToReview(h: History, what: string, deepResearch: boolean) {
   h.wrote('request', 'person', REQUEST_TEXT(what));
   h.ran('plan', [
-    { block: 'plan', content: prose('Plan', [what, 'Add the part to look.md', 'Test it in happy-dom']) },
+    { block: 'plan', content: prose('Plan', [what, 'Add the part to parts.tsx', 'Test it in happy-dom']) },
     { block: 'needs_deep_research', content: '', value: deepResearch ? 'yes' : 'no' },
   ]);
   if (deepResearch) h.ran('deep_research', [{ block: 'solution', content: prose('Solution', ['One table, sticky heads']) }]);
@@ -556,7 +556,7 @@ const PLAN_TOLD: ToldPage = {
         '## Results of your calls',
         '',
         '- call 1, `read` `{"block":"request"}`: Show what each round of a work cost…',
-        "- call 2, `read` `{\"path\":\"client/look.md\"}`: # The page's look…",
+        "- call 2, `read` `{\"path\":\"client/src/parts.tsx\"}`: // The page's parts…",
       ].join('\n'),
       cut: null,
       back: {
@@ -597,7 +597,7 @@ function long(start: number): Built {
     minutes: 2,
     asks: [
       { kind: 'tool', name: 'read', input: '{"block":"request"}', result: 'Show what each round of a work cost…' },
-      { kind: 'tool', name: 'read', input: '{"path":"client/look.md"}', result: '# The page\'s look\n\nThe owner\'s page is an instrument panel…' },
+      { kind: 'tool', name: 'read', input: '{"path":"client/src/parts.tsx"}', result: '// The page\'s parts, its own small design system…' },
     ],
   });
   const handed = h.round(plan, {

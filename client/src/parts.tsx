@@ -1,4 +1,4 @@
-// The page's parts, its own small design system (look.md): the bar, the view's line, a button, a segmented switch, a
+// The page's parts, its own small design system: the bar, the view's line, a button, a segmented switch, a
 // label, a list row, the docked panel, the window that floats over a view, and the few signs the chart's heads use.
 // Each is drawn by its class in styles/parts.css from the tokens in styles/tokens.css.
 

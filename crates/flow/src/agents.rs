@@ -683,6 +683,11 @@ pub enum ToldAs {
 #[serde(deny_unknown_fields)]
 pub struct Tool {
     pub words: String,
+    /// The names its words use that the tool itself defines, such as the keys of what it gives and the SQL function it
+    /// points to: the Flow page counts them as defined among the names between backticks in the texts sent to agents.
+    /// Nothing is filled in for them, as for the settings that `names` in `agents/installation.toml` lists.
+    #[serde(default)]
+    pub defines: Vec<String>,
     /// What the tool says of its own answers, by name, `{name}` places in each filled where it is said.
     #[serde(default)]
     pub texts: BTreeMap<String, String>,

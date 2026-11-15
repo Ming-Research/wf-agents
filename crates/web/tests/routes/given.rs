@@ -147,10 +147,68 @@ async fn a_name_a_text_sent_gives_between_backticks_that_nothing_defines_is_said
         .expect("the name is said");
     let source = said["source"].as_str().unwrap();
     assert!(source.ends_with("/agents/rules/general.md"), "{source}");
-    // A name the flow defines is not said: each block and each tool of the flow.
-    for known in ["background", "query"] {
+    // A name the flow defines is not said: each block and each tool of the flow, what a tool's file defines for its
+    // result, and the settings the texts name.
+    for known in [
+        "background",
+        "query",
+        "rows",
+        "cut",
+        "count",
+        "rest",
+        "bytes",
+        "trimmed",
+        "substr",
+        "owner.language",
+        "agents.subagents.most",
+    ] {
         assert!(!unknown.iter().any(|u| u["name"] == json!(known)), "{known}");
     }
+}
+
+#[tokio::test]
+async fn a_name_counts_as_defined_only_where_a_tool_s_file_lists_it_in_defines() {
+    let dir = copied();
+    let file = dir.path().join("agents/tools/query.toml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let line = text
+        .lines()
+        .find(|l| l.starts_with("defines = "))
+        .expect("the file lists what it defines");
+    let given_of = |dir: &Path| {
+        let router = web::router(Flows::dirs(dir.join("engineer"), Box::new(the_engine_s)));
+        async move { get_json(&router, "/api/v1/flow/given").await }
+    };
+    let listed = |given: &serde_json::Value, name: &str| {
+        (given["unknown"].as_array().expect("the unknown names").iter())
+            .find(|u| u["name"] == json!(name))
+            .cloned()
+    };
+    // Where the file lists none, the names its words use that nothing else defines are said, with the file of the
+    // words they are in.
+    std::fs::write(&file, text.replace(line, "")).unwrap();
+    let given = given_of(dir.path()).await;
+    for name in ["cut", "substr"] {
+        let said = listed(&given, name).unwrap_or_else(|| panic!("{name} is said"));
+        assert!(
+            said["source"].as_str().unwrap().ends_with("/agents/return/return.toml"),
+            "{said}"
+        );
+    }
+    // A name it lists defines itself and no other.
+    std::fs::write(&file, text.replace(line, "defines = [\"cut\"]")).unwrap();
+    let given = given_of(dir.path()).await;
+    assert!(listed(&given, "cut").is_none());
+    assert!(listed(&given, "substr").is_some());
+    // The page shows the key as the file writes it.
+    let words = given["toolFiles"]["query"]["words"]
+        .as_array()
+        .expect("the tool's words");
+    let shown = words
+        .iter()
+        .find(|w| w[0] == json!("defines"))
+        .expect("the tool's `defines`");
+    assert!(shown[1][0]["text"].as_str().unwrap().contains("cut"), "{shown}");
 }
 
 #[tokio::test]

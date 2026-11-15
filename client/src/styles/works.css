@@ -1,5 +1,5 @@
 /* The works page: the list of works, a work's head and what it waits for, its history drawn on the flow chart's grid
-   (chart.css), and its panel's parts. Every value is a token (tokens.css); look.md says what each part is for. */
+   (chart.css), and its panel's parts. Every value is a token (tokens.css). */
 
 /* A message in place of a view: reading, or what could not be read. */
 .message {
