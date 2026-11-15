@@ -330,9 +330,9 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
 }
 
 #[test]
-fn a_file_of_version_17_is_migrated_and_its_writes_read_as_holding_something() {
-    // A work as one kept at version 17 holds it: a request a person wrote holding only whitespace, and the writer's
-    // text handed in empty.
+fn a_file_of_version_17_is_migrated_and_each_of_its_writes_reads_as_holding_what_its_content_does() {
+    // A work as one kept at version 17 holds it: a request a person wrote holding only whitespace and another holding
+    // words, and a run's writes, one handing in words and one handing in only whitespace.
     let mut d = Driver::new();
     d.on(Event::Wrote {
         block: "request".into(),
@@ -341,17 +341,34 @@ fn a_file_of_version_17_is_migrated_and_its_writes_read_as_holding_something() {
         matters: true,
         value: None,
     });
-    d.end(Came::hands_in(vec![Handed {
-        block: "text".into(),
-        content: String::new(),
-        matters: true,
+    d.wrote("request", Outsider::Person, None);
+    d.end(hands_in(&[("text", None)]));
+    let mut work = d.work;
+    let finished = &mut work.records.finished[0];
+    finished.writes.push(Write {
+        block: "request".into(),
+        meaning_unchanged: false,
         value: None,
-    }]));
-    let work = d.work;
-    let request = (work.records.written.iter()).find(|w| w.block.as_str() == "request");
-    assert!(request.is_some_and(|w| w.empty), "the request holds nothing");
-    assert!(work.records.finished[0].writes[0].empty, "the text holds nothing");
+        empty: true,
+    });
+    let at = finished.at;
+    work.contents.insert(("request".into(), at), "\t ".to_string());
+    let said = |empty: bool| (work.records.written.iter()).filter(|w| w.empty == empty).count();
+    assert_eq!(
+        (said(true), said(false)),
+        (1, 1),
+        "one request holds nothing and one holds something"
+    );
+    let handed: Vec<bool> = (work.records.finished[0].writes.iter()).map(|w| w.empty).collect();
+    assert_eq!(handed, [false, true], "one write holds something and one holds nothing");
     let (old, new) = kept_in(17, &work);
+    // As kept at version 17 each row has the column as 0, whatever it held.
+    {
+        let file = Connection::open(&old.path).expect("the database opens");
+        file.execute("UPDATE written SET empty = 0", [])
+            .expect("kept as before");
+        file.execute("UPDATE writes SET empty = 0", []).expect("kept as before");
+    }
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(
@@ -359,18 +376,9 @@ fn a_file_of_version_17_is_migrated_and_its_writes_read_as_holding_something() {
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    // A file of this version keeps what each says; in the migrated one each reads as holding something, as kept before.
+    // The migrated file says of each version what a file of this version does: whether its content holds nothing.
     assert_eq!(new.open().load(WorkNumber(1)), Ok(work.clone()));
-    let mut before = work;
-    for w in &mut before.records.written {
-        w.empty = false;
-    }
-    for f in &mut before.records.finished {
-        for w in &mut f.writes {
-            w.empty = false;
-        }
-    }
-    assert_eq!(store.load(WorkNumber(1)), Ok(before));
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
 }
 
 #[test]
