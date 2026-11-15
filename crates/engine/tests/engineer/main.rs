@@ -179,10 +179,24 @@ fn read_head(d: &Driver, roles: &Roles, branch: Branch) -> Option<(BlockId, Stri
     (says_now(d, &block) != Some(now.as_str())).then_some((block, now))
 }
 
-/// What the carriers read of the work's head as the round of the cell at this place ends: an agent's round on a line
-/// that may change the work hands it in with its return; one on a line that only reads, and the start, write it from
-/// outside first. The check reads it as it judges ([`gate`]).
+/// What the carriers write as the round of the cell at this place ends: the act that runs the tests, the result of
+/// each entry it gives, from outside, into the asking cell's own block of it; and the work's head they read: an agent's
+/// round on a line that may change the work hands it in with its return; one on a line that only reads, and the start,
+/// write it from outside first. The check reads it as it judges ([`gate`]).
 fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, i: usize, came: &mut Came) {
+    if d.flow.cells[i].act.as_deref() == Some(flow::RUNS_TESTS) {
+        let cell = d.flow.cells[i].id.clone();
+        for entry in decide::asked_of(&d.flow.flow, &d.work.records, &cell) {
+            let event = Event::Wrote {
+                block: entry.result,
+                by: Outsider::Outside,
+                content: format!("The tests {} asked for passed.", entry.cell),
+                matters: true,
+                value: None,
+            };
+            assert!(d.take(event), "the result of the tests was refused");
+        }
+    }
     let Some((block, content)) = read_head(d, roles, branch) else {
         return;
     };
@@ -385,6 +399,7 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
     reached.extend((roles.judges.iter()).map(|(j, b)| refused(&cells[*j].id, b, &roles.refusals[b])));
     reached.extend(roles.refusals.keys().map(person_wrote));
     reached.extend(roles.check_passes(flow).map(|(b, pass)| check_failed(b, pass)));
+    reached.extend(cells.iter().filter(|c| !c.asks.is_empty()).map(|c| tests_ran(&c.id)));
     reached.extend(
         [
             CELL_LIMIT,
@@ -450,6 +465,10 @@ fn skipped(cell: &CellId) -> String {
 
 fn refused(cell: &CellId, block: &BlockId, refusal: &str) -> String {
     format!("{cell} wrote {block} = {refusal}")
+}
+
+fn tests_ran(cell: &CellId) -> String {
+    format!("the tests {cell} asked for ran, and their result came in")
 }
 
 fn person_wrote(block: &BlockId) -> String {
@@ -1115,7 +1134,10 @@ impl Content {
         // cell fixes what it was told, and says its writes matter.
         let act = d.flow.cells[i].kind == Kind::Engine;
         let answering = answering(d, run, i);
+        // A cell content with its work asks for no tests, which would leave it waiting.
+        let asks = &d.flow.flow.cells()[i].asks;
         let handed_in = (d.flow.flow.cells()[i].outputs.iter())
+            .filter(|b| !asks.iter().any(|a| &a.record == *b))
             .filter_map(|b| {
                 if d.flow.blocks[b].values.is_some() {
                     Some(handed(b, cell, true, Some(self.choices[b].clone())))
@@ -1521,6 +1543,11 @@ impl History {
             if w.by == Outsider::Person && self.roles.refusals.contains_key(&w.block) {
                 reached.push(person_wrote(&w.block));
             }
+            if w.by == Outsider::Outside
+                && let Some(asker) = cells.iter().find(|c| c.asks.iter().any(|a| a.result == w.block))
+            {
+                reached.push(tests_ran(&asker.id));
+            }
         }
         if self.d.seen.limits > 0 {
             reached.push(RUN_LIMIT.to_string());
@@ -1559,11 +1586,15 @@ impl History {
             return None;
         };
         on.iter().find_map(|w| match w {
-            Waited::Limit { .. } | Waited::Calls { .. } => Some((Event::LetGo { cell: at.clone() }, false)),
+            Waited::Limit { .. } => Some((Event::LetGo { cell: at.clone() }, false)),
             Waited::Precondition { on, .. } => {
                 (make_hold(&self.d, on).map(|e| (e, false))).or_else(|| ask_a_cell(&self.d, on).map(|e| (e, true)))
             }
-            Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } | Waited::Outside { .. } => None,
+            Waited::Call { .. }
+            | Waited::Result { .. }
+            | Waited::Slot
+            | Waited::Answer { .. }
+            | Waited::Outside { .. } => None,
         })
     }
 

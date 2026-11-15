@@ -223,6 +223,41 @@ describe('the chart', () => {
     expect(row.className).not.toContain('chosen');
   });
 
+  it('draws the engine’s cell that runs the tests as a column, the record a cell asks in and the trigger of its result as rows', () => {
+    // build asks for tests in run_tests, which runs T3, whose act writes build_tested from outside: that runs build by
+    // its trigger on_tested.
+    const trigger = (name: string, block: string) => ({ name, what: null, block, group: [], read: [], do: null });
+    const flow = flowOf(
+      [
+        cell('build', {
+          runsOn: ['request', 'build_tested'],
+          outputs: ['code', 'run_tests'],
+          triggers: [trigger('on_request', 'request'), trigger('on_tested', 'build_tested')],
+        }),
+        cell('T3', {
+          title: 'Run tests',
+          kind: 'engine',
+          line: null,
+          task: null,
+          act: 'run_tests',
+          runsOn: ['run_tests'],
+          triggers: [trigger('on_run_tests', 'run_tests')],
+        }),
+      ],
+      { request: { people: true }, code: {}, run_tests: {}, build_tested: { outside: 'tested' } },
+    );
+    const page = draw({ state: 'compiled', flow });
+    expect(texts(page, 'thead .cell-head .cell-id')).toEqual(['build', 'T3']);
+    expect(texts(rowOf(page, 'on_run_tests', true), '.spot .visually-hidden')).toEqual([
+      'build outputs run_tests',
+      'T3 triggered_by on_run_tests',
+    ]);
+    const tested = rowOf(page, 'on_tested', true);
+    expect(texts(tested, '.spot .visually-hidden')).toEqual(['build triggered_by on_tested']);
+    expect(tested.querySelector('[title="from tested"]')).not.toBeNull();
+    expect(texts(rowOf(page, 'run_tests'), '.spot .visually-hidden')).toEqual(['build outputs run_tests']);
+  });
+
   it('signs the source outside that writes a block on its row, and says it in its panel by its key', () => {
     const page = draw({ state: 'compiled', flow: small() });
     expect(rowOf(page, 'main').querySelector('[title="from main"]')).not.toBeNull();
@@ -953,10 +988,8 @@ describe('the panel and the widths', () => {
   afterEach(() => localStorage.clear());
 
   it('names the flow’s tools once, in the view’s line after the limits, each opening its panel', () => {
-    const page = draw({ state: 'compiled', flow: flowOf([cell('a', { tools: ['query', 'run_tests'] })], {}) });
-    expect(page.querySelector('.view-facts')?.textContent).toBe(
-      'limits runs 3, returns 2, calls 40 · tools query, run_tests',
-    );
+    const page = draw({ state: 'compiled', flow: flowOf([cell('a', { tools: ['query', 'answers'] })], {}) });
+    expect(page.querySelector('.view-facts')?.textContent).toBe('limits again 3 · tools query, answers');
     expect(texts(page, 'tbody .row-label')).not.toContain('tool');
     click([...page.querySelectorAll('.view-facts button')].find((b) => b.textContent === 'query'));
     expect(page.querySelector('section[aria-label="Tool query"]')).not.toBeNull();
@@ -968,13 +1001,13 @@ describe('the panel and the widths', () => {
 
   it('says the flow’s limits once, in the view’s line, and a cell’s own limit in its panel, by their keys', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    expect(page.querySelector('.view-facts')?.textContent).toBe('limits runs 3, returns 2, calls 40');
+    expect(page.querySelector('.view-facts')?.textContent).toBe('limits again 3');
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     const plan = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(texts(plan, '.status-line').some((line) => line.startsWith('limits'))).toBe(false);
     click(page.querySelectorAll('thead .cell-head .head-button')[3]);
     const answer = page.querySelector('section[aria-label="Cell answer"]') as HTMLElement;
-    expect(texts(answer, '.status-line')).toContain('limits runs 5');
+    expect(texts(answer, '.status-line')).toContain('limits again 5');
   });
 
   it('labels the corner for both: the cells to its right, the blocks under it', () => {

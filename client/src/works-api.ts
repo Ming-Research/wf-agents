@@ -109,10 +109,12 @@ export type Waited =
   /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
-  /// The cell's last runs, this many in a row, were each for what a cell after it wrote.
-  | { kind: 'limit'; runs: number }
-  /// The cell's last runs, this many in a row, each asked for calls and dealt with nothing.
-  | { kind: 'calls'; runs: number }
+  /// This many of the cell's runs since its counts last began anew were each for what this cell after it wrote, and so
+  /// would the next be: the owner lets it go on or cancels the work.
+  | { kind: 'limit'; by: string; runs: number }
+  /// The result of what the cell asked for in this record, which these cells give, those the record runs: the work
+  /// runs them and no other cell meanwhile.
+  | { kind: 'result'; record: string; by: string[] }
   /// A free slot: as many rounds of agents are under way as the engine has slots, and it gives the next that comes free
   /// in its order.
   | { kind: 'slot' }

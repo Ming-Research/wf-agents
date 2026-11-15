@@ -1,6 +1,7 @@
-//! The limits, through the loop: of returns within a run, at which the owner is called, and once the owner lets the run
-//! go on what was held is taken up and the count starts anew; of ways round and of runs that only ask, at which the
-//! work waits at the cell until the owner lets it go on.
+//! The limits, through the loop: of returns sent back, at which the owner is called, and once the owner lets the run go
+//! on what was held is taken up and the count starts anew; of the times one cell after a cell sends it back in a row,
+//! at which the work waits at the cell until the owner lets it go on. Runs that only ask have no limit in the walk:
+//! the engine's line of asking judges them (decision a-wait-holds-its-cell).
 
 use super::*;
 
@@ -43,18 +44,13 @@ fn returns_are_sent_back_up_to_the_limit_then_the_owner_is_called_and_once_let_g
     at_limit(&w.returns(write, wanting()), write, Limit::Returns { sent_back: 2 });
 }
 
-/// The writer, entered for its request, asks for a call in each of its runs, and is entered again once the call has its
-/// result, until the work waits at it: how many runs it asked in, from this run.
-fn asking_until_it_waits(w: &mut W, mut write: RunId) -> usize {
-    let mut runs = 0;
-    loop {
+#[test]
+fn a_cell_entered_again_and_again_only_to_ask_is_entered_each_time_its_results_are_in() {
+    let (mut w, mut write, _) = W::requested();
+    // More times in a row than the flow lets a sender send it back: asking is not sending back.
+    for _ in 0..5 {
         let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a")])));
-        runs += 1;
-        let effects = w.done(calls[0].0);
-        if effects.is_empty() {
-            return runs;
-        }
-        let (run, cell, number, given) = round(&effects);
+        let (run, cell, number, given) = round(&w.done(calls[0].0));
         assert_eq!((cell.as_str(), number), ("write", 1));
         assert_eq!(given, Given::Results(vec![calls[0].0]));
         write = run;
@@ -62,27 +58,9 @@ fn asking_until_it_waits(w: &mut W, mut write: RunId) -> usize {
 }
 
 #[test]
-fn a_cell_entered_again_and_again_only_to_ask_waits_for_the_owner_at_its_limit_of_calls_and_runs_once_let_go_on() {
-    let (mut w, write, _) = W::requested();
-    // The flow lets a cell be entered again for results after up to three runs in a row that only asked.
-    assert_eq!(asking_until_it_waits(&mut w, write), 3);
-    let waits = decide::Decision::Wait {
-        at: "write".into(),
-        on: vec![decide::Waited::Calls { runs: 3 }],
-    };
-    assert_eq!(w.decision(), waits);
-    let effects = w.on(Event::LetGo { cell: "write".into() });
-    let (run, cell, number, given) = round(&effects);
-    assert_eq!((cell.as_str(), number), ("write", 1));
-    assert!(matches!(given, Given::Results(_)));
-    // The count starts anew from there.
-    assert_eq!(asking_until_it_waits(&mut w, run), 3);
-}
-
-#[test]
-fn a_cell_gone_round_to_its_limit_waits_for_the_owner_and_runs_once_let_go_on() {
+fn a_cell_sent_back_by_one_cell_to_its_limit_waits_for_the_owner_and_runs_once_let_go_on() {
     let (mut w, mut write, _) = W::requested();
-    // The writer hands in, the judge writes an opinion for it, and so round: three ways round are allowed.
+    // The writer hands in, the judge writes an opinion for it, and so round: the judge may send it back twice in a row.
     for _ in 0..4 {
         let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
         let effects = w.returns(judge, hands_in(&[("opinions", None)]));
@@ -91,10 +69,18 @@ fn a_cell_gone_round_to_its_limit_waits_for_the_owner_and_runs_once_let_go_on() 
         }
         write = round(&effects).0;
     }
-    let ways_round = (w.work.records.started.iter())
+    let sent_back = (w.work.records.started.iter())
         .filter(|s| s.cell.as_str() == "write" && s.because.iter().all(|c| !c.forward()))
         .count();
-    assert_eq!(ways_round, 3);
+    assert_eq!(sent_back, 2);
+    let waits = decide::Decision::Wait {
+        at: "write".into(),
+        on: vec![decide::Waited::Limit {
+            by: "judge".into(),
+            runs: 2,
+        }],
+    };
+    assert_eq!(w.decision(), waits);
     let effects = w.on(Event::LetGo { cell: "write".into() });
     let (run, cell, number, given) = round(&effects);
     assert_eq!((cell.as_str(), number, given), ("write", 1, Given::Task));
