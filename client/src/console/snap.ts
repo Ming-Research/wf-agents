@@ -300,15 +300,15 @@ const TONE = () => ({
 /// waiting for something else.
 export type Mood = 'running' | 'owner' | 'paused' | 'halted' | 'waiting';
 
-/// A round under way or about to begin is running; a fault halts it, and so does the engine pausing it, as for a round
-/// that failed; a work that waits for anything the owner gives waits for the owner.
+/// A round under way or about to begin is running; a fault halts it, and so does a stall, no cell able to move it on; a
+/// work that waits on the owner, as `waitsOf` says, waits for the owner; the owner's pause and the owner's pause of
+/// everything pause it.
 export function moodOf(w: Pick<ShownWork, 'now'>): Mood {
   const now = w.now;
   if (now.kind === 'round' || now.kind === 'next') return 'running';
-  if (now.kind === 'fault') return 'halted';
+  if (now.kind === 'fault' || now.kind === 'stalled') return 'halted';
   if (waitsOnOwner(now)) return 'owner';
-  if (now.kind === 'paused') return now.by === 'engine' ? 'halted' : 'paused';
-  if (now.kind === 'everything') return 'paused';
+  if (now.kind === 'paused' || now.kind === 'everything') return 'paused';
   return 'waiting';
 }
 

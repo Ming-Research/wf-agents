@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AGAIN_MS, firstOpening, heldByWork, newlyHeld, openingOf, useNotifications } from './notify';
-import type { Item, Items, Now, Waited } from './works-api';
+import type { Failure, Item, Items, Now, Waited } from './works-api';
 import { fixtureItems } from './works/fixtures';
 
 /// The browser's notifications, as a test sees them: each one made, and the leave the page was given.
@@ -77,6 +77,31 @@ const question = (call: number, words = `Question ${call}?`): Waited => ({
 
 const waiting = (...on: Waited[]): Now => ({ kind: 'waits', at: 'plan', on });
 
+/// The wait every work shares, of this cause.
+const shared = (failure: Failure): Waited => ({
+  kind: 'agents',
+  outage: {
+    service: 'agents',
+    failure,
+    why: 'Not logged in',
+    work: 3,
+    run: 2,
+    round: 1,
+    since: 0,
+    checked: null,
+    until: { kind: 'checked', at: 0 },
+    holds: true,
+  },
+});
+
+/// A review's verdict that holds the work, for the owner to rule on.
+const VERDICT: Waited = {
+  kind: 'precondition',
+  test: 'may_merge',
+  words: 'The reviews are content and the owner lets it merge',
+  by: [{ kind: 'owner' }, { kind: 'cell', cell: 'review' }],
+};
+
 /// The fixtures' items, with the work of this item doing this now.
 function withNow(item: number, now: Now): Items {
   const items = fixtureItems().items.map((i): Item => (i.number === item ? { ...i, work: { ...i.work, now } } : i));
@@ -94,7 +119,13 @@ describe('what waits for the owner in a work', () => {
     expect(n(waiting({ kind: 'limit', runs: 3 }))).toBe(1);
     expect(n({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toBe(1);
     expect(n({ kind: 'everything', by: 'engine' })).toBe(1);
+    expect(n(waiting(VERDICT))).toBe(1);
+    expect(n(waiting(shared('cannotRun')))).toBe(1);
     expect(n({ kind: 'everything', by: 'owner' })).toBe(0);
+    expect(n(waiting(shared('usageLimit')))).toBe(0);
+    expect(n(waiting(shared('offline')))).toBe(0);
+    expect(n(waiting(shared('unavailable')))).toBe(0);
+    expect(n({ kind: 'stalled', at: 'M2', on: [], by: [] })).toBe(0);
     expect(n({ kind: 'paused', by: 'owner', why: null })).toBe(0);
     expect(n({ kind: 'fault', words: 'Two entries at 3' })).toBe(0);
   });
@@ -126,26 +157,32 @@ describe("the browser's notifications", () => {
     expect(Told.made[0].closed).toBe(true);
   });
 
-  it('tell of a pause the engine made, a work held after the engine started again and a cell at its limit, each opening its card', () => {
+  it("tell of a pause the engine made, a work held after the engine started again, a cell at its limit and a review's verdict that holds the work, each opening its card", () => {
     const draw = drawn(fixtureItems());
     draw(withNow(142, { kind: 'paused', by: 'engine', why: 'A round failed.' }));
     draw(withNow(142, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }));
     draw(withNow(142, { kind: 'everything', by: 'engine' }));
     draw(withNow(142, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }));
     draw(withNow(142, waiting({ kind: 'limit', runs: 3 })));
+    draw(withNow(142, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }));
+    draw(withNow(142, waiting(VERDICT)));
     expect(Told.made.map((n) => [n.options.body, n.options.tag])).toEqual([
       ['paused by the engine: A round failed.', 'wf-agents-item-142'],
       ['held back by the pause of everything, set as the engine started again', 'wf-agents-item-142'],
       ['plan reached its limit, and waits for you to let it go on', 'wf-agents-item-142'],
+      ['The reviews are content and the owner lets it merge', 'wf-agents-item-142'],
     ]);
     const opens = (now: Now) => openingOf(withNow(142, now).items.find((i) => i.number === 142) as Item)?.opens;
     expect(opens({ kind: 'paused', by: 'engine', why: null })).toBe('#/console/items/142/waits/pause');
     expect(opens({ kind: 'everything', by: 'engine' })).toBe('#/console/items/142/waits/held');
     expect(opens(waiting({ kind: 'limit', runs: 3 }))).toBe('#/console/items/142/waits/limit');
+    expect(opens(waiting(VERDICT))).toBe('#/console/items/142/waits/precondition');
   });
 
-  it('tell nothing of a fault, a pause of the owner, a pause of everything the owner set, or a work held for main', () => {
+  it('tell nothing of a fault, a stall, a pause of the owner, a pause of everything the owner set, a wait the engine lifts, or a work held for main', () => {
     const draw = drawn(fixtureItems());
+    draw(withNow(142, { kind: 'stalled', at: 'M2', on: [], by: [] }));
+    draw(withNow(142, waiting(shared('usageLimit'))));
     draw(withNow(142, { kind: 'paused', by: 'owner', why: null }));
     draw(withNow(142, { kind: 'everything', by: 'owner' }));
     draw(withNow(142, { kind: 'fault', words: 'Two entries at 3' }));

@@ -42,7 +42,8 @@ describe('where a work stands', () => {
     const main = { kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' } as const;
     expect(standingOf(work({ kind: 'waits', at: 'M2', on: [main] }))).toBe('others');
     const stalled = { kind: 'stalled', at: 'M2', on: [{ test: 'checked = yes', words: 'checked = yes' }], by: [{ cell: 'M1', why: { kind: 'nothingNew' } }] } as const;
-    expect(standingOf(work({ ...stalled, on: [...stalled.on], by: [...stalled.by] }))).toBe('owner');
+    // A stalled work is shown as a fault is.
+    expect(standingOf(work({ ...stalled, on: [...stalled.on], by: [...stalled.by] }))).toBe('halted');
   });
 });
 

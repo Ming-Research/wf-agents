@@ -114,7 +114,7 @@ function summary(number: number, now: Now, last: number | null, paused = false):
 }
 
 describe('the list of works', () => {
-  it('puts what waits for the owner first, then a fault, then what goes on, then what the owner paused, then what ended', () => {
+  it('puts what waits for the owner first, then a fault or a stall, then what goes on, then what the owner paused, then what ended', () => {
     const works = [
       summary(1, { kind: 'merged' }, 900),
       summary(2, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 500),
@@ -132,6 +132,8 @@ describe('the list of works', () => {
       summary(12, { kind: 'everything', by: 'owner' }, 700),
       // A work held for main to move goes with what goes on by itself, not with what waits for the owner.
       summary(13, { kind: 'waits', at: 'M2', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'w' }] }, 1000),
+      // A stalled work comes with a fault.
+      summary(14, { kind: 'stalled', at: 'M2', on: [], by: [] }, 5),
     ];
     const items: Item[] = works.map((w) => ({
       number: w.number,
@@ -143,6 +145,6 @@ describe('the list of works', () => {
       history: { first: { title: `${w.number}`, level: '2', dependsOn: [] }, changes: [] },
       work: w,
     }));
-    expect(orderWorks(items).map((w) => w.work.number)).toEqual([10, 11, 7, 4, 6, 13, 3, 2, 5, 12, 9, 8, 1]);
+    expect(orderWorks(items).map((w) => w.work.number)).toEqual([10, 11, 7, 4, 6, 14, 13, 3, 2, 5, 12, 9, 8, 1]);
   });
 });

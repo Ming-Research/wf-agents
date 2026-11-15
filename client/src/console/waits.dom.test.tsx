@@ -6,11 +6,16 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { hashOf, routeOf } from '../route';
+import { standingOf } from '../system/standing';
+import { rank } from '../works/placing';
 import { waitsOf, waitsOnOwner } from '../works/waiting';
-import type { Act, EngineAct, Item, Now, WorkPage } from '../works-api';
+import { nowTone } from '../works/words';
+import type { Flow } from '../api';
+import type { Act, Block, EngineAct, Failure, Item, Now, Outage, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { asksOf } from './items';
-import { ItemPanel } from './ItemWindow';
+import { ItemPanel, nowWords } from './ItemWindow';
+import type { LoadVersion } from './real';
 import { moodOf } from './snap';
 
 let root: Root | undefined;
@@ -24,6 +29,45 @@ afterEach(() => {
 
 const base = fixtureItems().items.find((i) => i.number === 12) as Item;
 const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
+
+/// A work held by the wait every work shares, of this cause.
+const shared = (failure: Failure): Now => {
+  const outage: Outage = {
+    service: 'agents',
+    failure,
+    why: 'Not logged in',
+    work: 3,
+    run: 2,
+    round: 1,
+    since: 0,
+    checked: null,
+    until: { kind: 'checked', at: 0 },
+    holds: true,
+  };
+  return { kind: 'waits', at: 'plan', on: [{ kind: 'agents', outage }] };
+};
+
+/// Every cause of the wait every work shares but the command line that cannot run.
+const LIFTED: Failure[] = [
+  'usageLimit',
+  'offline',
+  'unavailable',
+  'passing',
+  'unread',
+  'flagged',
+  'guarded',
+  'promptTooLong',
+  'noModel',
+  'other',
+];
+
+/// A stalled work: no cell can write what it waits for.
+const STALLED: Now = {
+  kind: 'stalled',
+  at: 'merge',
+  on: [{ test: 'checked = yes', words: 'checked = yes' }],
+  by: [{ cell: 'check', why: { kind: 'nothingNew' } }],
+};
 
 /// Each thing that waits for the owner, as the work's `now` says it, and the key its card is known by.
 const OWNERS: [string, Now, string][] = [
@@ -44,7 +88,38 @@ const OWNERS: [string, Now, string][] = [
   ['a cell at its limit, as runs', { kind: 'waits', at: 'plan', on: [{ kind: 'limit', runs: 3 }] }, 'limit'],
   ['a pause the engine made', { kind: 'paused', by: 'engine', why: 'A round failed.' }, 'pause'],
   ['a work held after the engine started again', { kind: 'everything', by: 'engine' }, 'held'],
+  [
+    'a question the cell asked as data, as the engine asks of a change of a protected file',
+    { kind: 'waits', at: 'plan', on: [{ kind: 'answer', question: 'protected_files' }] },
+    'answer',
+  ],
+  ["the agents' command line, which cannot run", shared('cannotRun'), 'agents'],
 ];
+
+/// A review's verdict that holds the work, for the owner to rule on: the review said it is not content, and the owner,
+/// who may write the verdict as the review may, rules on it at the card of the panel's body that shows it.
+const VERDICT: Now = {
+  kind: 'waits',
+  at: 'merge',
+  on: [
+    {
+      kind: 'precondition',
+      test: 'may_merge',
+      words: 'The reviews are content and the owner lets it merge',
+      by: [{ kind: 'owner' }, { kind: 'cell', cell: 'review' }],
+    },
+  ],
+};
+const RULED: Flow = {
+  ...FLOW,
+  blocks: FLOW.blocks.map((b) => (b.name === 'content' ? { ...b, writtenBy: { ...b.writtenBy, people: true } } : b)),
+};
+const SAID_NO: Block = {
+  name: 'content',
+  versions: [
+    { at: 7, time: 0, by: { kind: 'run', run: 5, cell: 'review' }, meaning: 7, value: 'no', saidTo: null, chars: 0 },
+  ],
+};
 
 /// What is not the owner's to let on.
 const NOT_OWNERS: [string, Now][] = [
@@ -52,6 +127,9 @@ const NOT_OWNERS: [string, Now][] = [
   ['a pause of everything by the owner', { kind: 'everything', by: 'owner' }],
   ['a fault', { kind: 'fault', words: 'Two entries at 3' }],
   ['a free slot', { kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }],
+  ['a stalled work, which is shown as a fault is', STALLED],
+  // Every other cause of the wait every work shares is the engine's, which checks the outside itself and lifts it.
+  ...LIFTED.map((failure): [string, Now] => [`the wait every work shares, for ${failure}`, shared(failure)]),
   [
     'a check held for main to move',
     {
@@ -75,6 +153,7 @@ function draw(
   wait: string | undefined,
   send: (w: number, a: Act) => Promise<unknown>,
   engine?: (a: EngineAct) => Promise<unknown>,
+  read: { flow: Flow; blocks: Block[]; load?: LoadVersion } = { flow: FLOW, blocks: [] },
 ) {
   const item: Item = { ...base, work: { ...base.work, now } };
   const container = document.createElement('div');
@@ -87,9 +166,9 @@ function draw(
     level: item.level,
     project: item.project,
     history: item.history,
-    flow: FLOW,
+    flow: read.flow,
     cells: [],
-    blocks: [],
+    blocks: read.blocks,
     steps: [],
   };
   act(() =>
@@ -102,6 +181,7 @@ function draw(
         onTitle={() => undefined}
         wait={wait}
         actEngine={engine}
+        loadVersion={read.load}
       />,
     ),
   );
@@ -127,6 +207,22 @@ describe('what waits for the owner', () => {
     expect(container.querySelectorAll(`[data-wait="${key}"]`)).toHaveLength(1);
   });
 
+  it("is counted, marked and carded alike where it is a review's verdict that holds the work, for the owner to rule on", async () => {
+    const waits = waitsOf(VERDICT);
+    expect(waits.map((w) => w.key)).toEqual(['precondition']);
+    expect(waitsOnOwner(VERDICT)).toBe(true);
+    expect(asksOf(VERDICT)).toBe(1);
+    expect(moodOf({ now: VERDICT })).toBe('owner');
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    const container = draw(VERDICT, 'precondition', none, undefined, { flow: RULED, blocks: [SAID_NO] });
+    // The ruling is read with the body, once the page has drawn.
+    await act(async () => undefined);
+    const card = container.querySelector('[data-wait="precondition"]');
+    expect(card?.textContent).toContain('The work waits for this ruling');
+    expect(scrolled.mock.contexts[0]).toBe(card);
+  });
+
   it.each(NOT_OWNERS)("is none of the three where it is not the owner's to let on: %s", (_, now) => {
     expect(waitsOf(now)).toEqual([]);
     expect(waitsOnOwner(now)).toBe(false);
@@ -134,6 +230,23 @@ describe('what waits for the owner', () => {
     expect(moodOf({ now })).not.toBe('owner');
     const container = draw(now, undefined, none);
     expect(container.querySelectorAll('[data-wait]')).toHaveLength(0);
+  });
+
+  it("says on the card of the agents' command line what the owner is to do", () => {
+    const container = draw(shared('cannotRun'), undefined, none);
+    expect(container.querySelector('[data-wait="agents"]')?.textContent).toBe(
+      "The work waits for you: the agents' command line cannot run (Not logged in): sign it in again or install it, and the engine lets the work go on once its own check finds it runs",
+    );
+  });
+
+  it('shows a stalled work as a fault is: its tone, its standing and its place on each view', () => {
+    const fault: Now = { kind: 'fault', words: 'Two entries at 3' };
+    const summary = (now: Now) => ({ ...base.work, now });
+    expect(moodOf({ now: STALLED })).toBe(moodOf({ now: fault }));
+    expect(nowTone(STALLED)).toBe(nowTone(fault));
+    expect(rank(summary(STALLED))).toBe(rank(summary(fault)));
+    expect(standingOf(summary(STALLED))).toBe('halted');
+    expect(nowWords(summary(STALLED), null).word).toBe(nowWords(summary(fault), null).word);
   });
 
   it("is let on from its card: the limit let go, the engine's pause resumed, the held works started", () => {

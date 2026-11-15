@@ -6,22 +6,22 @@ import type { Spent, Summary } from '../works-api';
 import { waitsOnOwner } from '../works/waiting';
 import type { Merged } from './api';
 
-/// Where a work stands now, as the owner acts on it, each work in one place: the engine halted it at a fault; it waits
-/// for the owner, as `waitsOf` says, the one definition of what waits on the owner; a round of it runs; its next round
-/// is due, as soon as a slot is free or the owner's pause of everything is lifted; it waits for what another gives; the
-/// owner paused it. What needs the owner comes first.
+/// Where a work stands now, as the owner acts on it, each work in one place: it is halted at a fault, or stalled, no
+/// cell able to move it on; it waits for the owner, as `waitsOf` says, the one definition of what waits on the owner; a
+/// round of it runs; its next round is due, as soon as a slot is free or the owner's pause of everything is lifted; it
+/// waits for what another gives; the owner paused it. What needs the owner comes first.
 export const STANDINGS = ['halted', 'owner', 'running', 'due', 'others', 'paused'] as const;
 export type Standing = (typeof STANDINGS)[number];
 
 export const STANDING_WORDS: Record<Standing, { name: string; title: string }> = {
   halted: {
     name: 'Halted',
-    title: 'At a fault: the owner looks before it goes on',
+    title: 'At a fault, or stalled, no cell able to write what it waits for',
   },
   owner: {
     name: 'Waits for the owner',
     title:
-      'Waits for an answer, a let-go at a limit, or a test only the owner can make hold; is paused by the engine, or held by the pause of everything the engine set as it started again; or is stalled, no cell able to write what it waits for',
+      "Waits for an answer, a let-go at a limit, or a ruling on a review's verdict; is paused by the engine, or held by the pause of everything the engine set as it started again; or waits for the agents' command line, which cannot run",
   },
   running: { name: 'Running', title: 'A round of it is under way' },
   due: {
@@ -55,7 +55,7 @@ export function standingOf(work: Summary): Standing | null {
     case 'next':
       return 'due';
     case 'stalled':
-      return 'owner';
+      return 'halted';
   }
 }
 

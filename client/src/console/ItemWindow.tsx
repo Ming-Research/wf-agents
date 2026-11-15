@@ -209,8 +209,9 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
       return { word: 'Merged', facts: null };
     case 'cancelled':
       return { word: 'Cancelled', facts: null };
+    // A stalled work is shown as a fault is: no cell can move it on, and it is not the owner's to let on.
     case 'stalled':
-      return { word: MOOD_WORDS.owner, facts: `at ${titleOf(page, now.at)}: ${stalledWords(now)}` };
+      return { word: MOOD_WORDS.halted, facts: `at ${titleOf(page, now.at)}: ${stalledWords(now)}` };
   }
 }
 

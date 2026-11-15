@@ -374,8 +374,9 @@ export function nowTone(now: Now): Tone {
       return 'running';
     case 'waits':
       return now.on.some(waitsForOwner) ? 'owner' : 'quiet';
+    // A stalled work is shown as a fault is.
     case 'stalled':
-      return 'owner';
+      return 'failed';
     case 'cancelled':
     case 'everything':
     case 'next':
