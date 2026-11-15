@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use serde_json::{Value, json};
 use store::Store;
 
-use crate::{START, get_json, greeted, pass, post, refused, running_scripted, trial_script};
+use crate::{START, get_json, greeted, pass, post, refused, running_carried, running_scripted, trial_script};
 
 const DAY: u64 = 24 * 60 * 60 * 1000;
 
@@ -147,6 +147,86 @@ async fn a_round_that_failed_is_given_with_its_cause() {
     assert_eq!(failed[0]["failure"], "other");
     assert_eq!(failed[0]["why"], WHY);
     assert_eq!(system["weeks"][0]["failed"], 1);
+}
+
+/// The script's agents, with a policy for the loop as the real carriers give it: a line of history is worked out from
+/// two values at least, and every round runs on [`opus`].
+struct Judging(std::sync::Arc<dyn service::Rounds>);
+
+impl service::Rounds for Judging {
+    fn give(&self, round: service::Round, reply: service::RoundReply) {
+        self.0.give(round, reply);
+    }
+
+    fn stop(&self, round: service::Round, reply: service::RoundReply) {
+        self.0.stop(round, reply);
+    }
+
+    fn policy(&self) -> Option<driver::Policy> {
+        Some(driver::Policy {
+            samples: 2,
+            limit: 1_000_000,
+            on: Box::new(|_, _| Some(opus())),
+            warm: None,
+        })
+    }
+}
+
+// Through the loop with the policy its carriers give, as the engine's program runs it, each round is judged against the
+// line of the history that had ended as it began, and the work's page gives it: a round with no line has nothing
+// judged, and one within its line is judged and not past it, which the system's view then lists nowhere. Well under a
+// second alone, the loop on paused time over a store on disk; no other test judges a round through the loop.
+#[tokio::test(start_paused = true)]
+async fn the_loop_judges_a_round_by_the_line_of_its_history_and_nothing_where_it_has_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut script = trial_script();
+    script.flows.get_mut("trial").unwrap().rounds[0].asks = None;
+    let mut carriers = service::Scripted::new(script).carriers();
+    carriers.agents = std::sync::Arc::new(Judging(carriers.agents));
+    let running = running_carried(Box::new(store), dir, carriers);
+    let router = &running.router;
+    // Three works one after the other, each merged before the next is added.
+    for work in 1..=3 {
+        let item = json!({
+            "title": "Greet the user",
+            "dependsOn": [],
+            "project": "trial",
+            "flow": "trial",
+            "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
+        });
+        assert_eq!(post(router, "/api/v1/items", &item).await.0, StatusCode::OK);
+        let acts = format!("/api/v1/works/{work}/acts");
+        let resumed = post(router, &acts, &json!({ "kind": "resume" })).await;
+        assert_eq!(resumed, (StatusCode::NO_CONTENT, Value::Null));
+        pass(60_000).await;
+        let page = get_json(router, &format!("/api/v1/works/{work}")).await;
+        assert_eq!(page["summary"]["now"], json!({ "kind": "merged" }), "work {work}");
+    }
+    // The plan's first round of a work, as its page gives it.
+    let plan = |page: &Value| {
+        let steps = page["steps"].as_array().expect("steps");
+        let run = (steps.iter())
+            .find(|s| s["kind"] == "run" && s["cell"] == "plan")
+            .expect("the plan ran");
+        run["rounds"][0]["judged"].clone()
+    };
+    let first = get_json(router, "/api/v1/works/1").await;
+    assert_eq!(plan(&first), json!({ "cost": null, "time": null }), "no round had ended");
+    let third = get_json(router, "/api/v1/works/3").await;
+    let judged = plan(&third);
+    for of in ["cost", "time"] {
+        let judged = &judged[of];
+        assert_eq!(judged["past"], json!(false), "{of}: {judged}");
+        assert_eq!(
+            (&judged["line"]["samples"], &judged["line"]["scope"]),
+            (&json!(2), &json!("cell")),
+            "{of}: {judged}"
+        );
+        assert!(judged["value"].as_u64().is_some_and(|v| v > 0), "{of}: {judged}");
+    }
+    let system = get_json(router, "/api/v1/system").await;
+    assert_eq!((&system["past"], &system["underWay"]), (&json!([]), &json!([])), "{system}");
 }
 
 /// What every agent's round runs on, in the history below.

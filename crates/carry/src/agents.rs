@@ -1635,4 +1635,88 @@ mod tests {
         };
         assert_eq!(chars_of(&failed), 0);
     }
+
+    // What the owner says to a round under way is put where the round's hook gives it, in the words of `said`; what the
+    // hook gave before a later telling is counted as given, what still waits for the hook as the round ends is taken
+    // back and stays new to the cell, only what was given is said to have reached the round, and nothing is put once
+    // the round has ended. Well under a second alone, files in a directory of its own, the hook's move made by hand;
+    // no other test holds the carrier's account of what a round was told.
+    #[tokio::test]
+    async fn the_words_told_a_round_reach_it_only_where_its_hook_gave_them_before_it_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
+        let project = settings.projects["example"].clone();
+        let (flow, beside) = engineer();
+        let of = Of::new(&settings, project, beside.clone(), "refs/heads/main".to_string());
+        let projects = [("example".to_string(), of)].into();
+        let agents = Agents::new(settings, dir.path().to_path_buf(), Uuid::nil(), projects);
+        let first = store::First {
+            title: "Greet the user".to_string(),
+            level: None,
+            project: Some("example".to_string()),
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+        };
+        let r2 = (flow.cells.iter()).find(|c| c.id.as_str() == "R2").expect("the flow has R2").clone();
+        let round = Round {
+            work: WorkNumber(3),
+            cell: r2,
+            flow: Arc::new(flow),
+            run: RunId(7),
+            number: 1,
+            given: work::Given::Task,
+            item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
+            kept: Arc::new(Work::default()),
+            lines: Default::default(),
+        };
+        // The round is given, as the carrier's `give` keeps it.
+        let key = (round.work, round.run, round.number);
+        (agents.inner.said.lock().unwrap()).insert(key, Arc::default());
+        let telling = |at: u64, words: &str| Telling {
+            entry: format!("The owner:\n\n{words}"),
+            block: "discussion".into(),
+            number: Seq(at),
+            trigger: "on_spoken".to_string(),
+            does: Some("Deal with it first.".to_string()),
+            versions: vec![("discussion".into(), Seq(at)), ("r2_spoken_to".into(), Seq(at + 1))],
+        };
+        let files = words(&agents.inner.kept(&round));
+        agents.inner.tell(&round, telling(10, "Keep it to one table.")).await;
+        let waiting: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&files.waiting).expect("it waits for the hook")).unwrap();
+        let given = waiting["hookSpecificOutput"]["additionalContext"].as_str().expect("what the hook gives");
+        assert_eq!(given, said(&beside, &telling(10, "Keep it to one table.")));
+        assert!(
+            given.starts_with("## `discussion`, version 10, said while this round runs")
+                && given.contains("Keep it to one table.")
+                && given.contains("`on_spoken`")
+                && !given.contains('{'),
+            "{given}"
+        );
+        // The hook gives it, moving it aside as its command does; then the owner says more, which waits.
+        let delivered = std::path::PathBuf::from(format!("{}.1.json", files.delivered.display()));
+        std::fs::rename(&files.waiting, &delivered).unwrap();
+        agents.inner.tell(&round, telling(12, "And name the table.")).await;
+        assert!(files.waiting.exists(), "the later words wait for the hook");
+        // The round's program ends before its hook gives the later words.
+        let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+        let teller = RoundReply::new(round.work, round.run, to).teller();
+        agents.inner.heard(&round, &teller).await;
+        assert!(!files.waiting.exists(), "what waited is taken back");
+        let heard: Vec<Vec<(BlockId, Seq)>> = std::iter::from_fn(|| told.try_recv().ok())
+            .filter_map(|message| match message {
+                service::Message::Happened {
+                    event: engine::Event::SaidToRound { versions, .. },
+                    ..
+                } => Some(versions),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(heard, [telling(10, "").versions], "only what the hook gave reached the round");
+        // Once the round has ended, nothing is put for its hook.
+        agents.inner.tell(&round, telling(14, "Late words.")).await;
+        assert!(!files.waiting.exists(), "nothing waits for a round that ended");
+        agents.inner.heard(&round, &teller).await;
+        assert!(told.try_recv().is_err(), "nothing more is said");
+    }
 }
