@@ -28,7 +28,9 @@
 //!
 //! The work's branch is drawn beside the records, as its carriers read it: its work head is a commit named by a
 //! number, which an agent's round on a line that may change the work moves in two of five, and a person in one act in
-//! twenty, and once more in one of three steered refusals, after the check passed. As the carriers do, an agent's round
+//! twenty, and once more in one of three steered refusals, after the check passed; and in one content continuation of
+//! ten once just before the check's round begins, and in one of ten once just before the merge's, so that each way the
+//! check and the merge fail in passing is reached on purpose. As the carriers do, an agent's round
 //! on a line that may change the work hands in the head with its return where it moved; a round on a line that only
 //! reads, and the start, write it from outside before they end; the check, as it judges, writes it from outside for
 //! its round where no version says it, and fails in passing, judging nothing, where a judge of the head dealt last with
@@ -1316,6 +1318,17 @@ struct History {
     merged: bool,
     /// The work's branch, as its parts move it.
     branch: Shared,
+    /// Where a person commits on the branch in the content continuation, once, where it is steered so.
+    commits: Option<Commits>,
+}
+
+/// The round a person commits on the work's branch just before, in a content continuation steered so: the check's, so
+/// that the check fails in passing on a head no judge of it dealt with; or the merge's, the check having passed, so
+/// that the merge fails in passing on a head moved since.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Commits {
+    BeforeTheCheck,
+    BeforeTheMerge,
 }
 
 impl History {
@@ -1665,6 +1678,7 @@ impl History {
                 assert!(self.d.take(event), "the continuation's act was refused");
             } else {
                 let effect = doable[self.d.rng.below(doable.len())].clone();
+                self.commit_before(&effect);
                 self.d.carry_out(effect, &mut part, true);
             }
             steps += 1;
@@ -1672,6 +1686,25 @@ impl History {
         }
         self.verdict.steps = Some((steps, bound));
         self.count_runs(from);
+    }
+
+    /// A person's commit on the branch, once, where the continuation is steered so, just before the round of the check
+    /// or of the merge is carried out: nothing is written until a carrier reads it, as the round begins.
+    fn commit_before(&mut self, effect: &Effect) {
+        let (Some(commits), Effect::Round { cell, .. }) = (self.commits, effect) else {
+            return;
+        };
+        let at = match commits {
+            Commits::BeforeTheCheck => self.roles.check,
+            Commits::BeforeTheMerge => self.roles.last,
+        };
+        if place(&self.d.flow, cell.as_str()) != at {
+            return;
+        }
+        self.d
+            .note(format!("a person commits on the branch before the round of {cell}"));
+        commit(&self.branch);
+        self.commits = None;
     }
 
     /// Of each cell, the runs beyond its first that finished from this place on, and those of them that changed no
@@ -1728,6 +1761,13 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         _ => Steer::Not,
     };
     let random = if steer == Steer::Not { random } else { RANDOM };
+    // Where a person commits in the content continuation, drawn by a generator of its own so that the other draws keep
+    // their order.
+    let commits = match Rng::new(seed ^ 0x57EE_4ED0_C4EC_0002).below(10) {
+        0 => Some(Commits::BeforeTheCheck),
+        1 => Some(Commits::BeforeTheMerge),
+        _ => None,
+    };
     let roles = Roles::new(flow);
     let branch: Shared = Rc::default();
     let mut part = Random {
@@ -1750,6 +1790,7 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         ended: false,
         merged: false,
         branch,
+        commits,
     };
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         h.d.take(started(&h.d.flow));
