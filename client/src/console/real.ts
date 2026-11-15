@@ -3,10 +3,10 @@
 // otherwise what the engine gives, with nothing where it gives nothing.
 //
 // From the engine, with the mocks off:
-// - The body, from the work's blocks, the current version of each: Background is `background`; Plan is `plan_owner`,
-//   and under it each entry of the record of the questions and the answers (a block the engine's source of answers
-//   writes that a trigger of an answer has its agent read); there is no Problem. For an item of the `deliver` flow,
-//   Plan is `delivered`.
+// - The body, from the work's blocks, the current version of each: Background is `background`; Plan is `plan_owner`;
+//   there is no Problem. For an item of the `deliver` flow, Plan is `delivered`. The questions put to the owner are
+//   not read from the record of the questions and the answers: the panel draws each from the work's page, once, at the
+//   plan's end.
 // - The messages: of the record of what is said (a block the engine's source of the owner's words writes that a
 //   trigger of the owner's words has its agent read, which the cells write in their returns), each of the owner's entries is the owner's, to the cell the
 //   version is said to, and each a cell wrote is its reply, to the owner, its cell the run's that wrote it; each with
@@ -130,18 +130,8 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     const text = await contentOf(load, work, block, last.at);
     return text.trim() === '' ? [] : [{ kind: 'text', text }];
   };
-  // Each entry of a record, as a passage, in the order written.
-  const passages = async (block: Block | undefined): Promise<Part[]> => {
-    if (block === undefined) return [];
-    const texts = await Promise.all(versionsOf(page, block.name).map((v) => contentOf(load, work, block.name, v.at)));
-    return texts.filter((text) => text.trim() !== '').map((text): Part => ({ kind: 'text', text }));
-  };
   const deliver = page.summary.flow === 'deliver' || page.flow.name === 'deliver';
-  const [background, plan, questions] = await Promise.all([
-    current('background'),
-    current(deliver ? 'delivered' : 'plan_owner'),
-    deliver ? Promise.resolve([]) : passages(questionsOf(page.flow)),
-  ]);
+  const [background, plan] = await Promise.all([current('background'), current(deliver ? 'delivered' : 'plan_owner')]);
   // The owner's notes of a flow before the record, each to the one cell that reads it.
   const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && b.readBy.cells.length === 1);
   // The record of what is said.
@@ -180,7 +170,7 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     .filter((m) => m.text.trim() !== '' && answers(m))
     .sort((a, b) => a.at - b.at || a.place - b.place)
     .map(({ who, at, to, quote, text }) => ({ who, at, to, quote, text }));
-  return { background, problem: [], plan: [...plan, ...questions], planWaits: false, messages };
+  return { background, problem: [], plan, planWaits: false, messages };
 }
 
 /// A block that keeps a precondition the work waits for from holding, which people may write and so the owner may

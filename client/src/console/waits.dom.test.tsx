@@ -11,7 +11,7 @@ import { rank } from '../works/placing';
 import { waitsOf, waitsOnOwner } from '../works/waiting';
 import { nowTone } from '../works/words';
 import type { Flow } from '../api';
-import type { Act, Block, EngineAct, Failure, Item, Now, Outage, WorkPage } from '../works-api';
+import type { Act, Block, EngineAct, Failure, Item, Now, Outage, Question, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { asksOf } from './items';
 import { ItemPanel, nowWords } from './ItemWindow';
@@ -91,7 +91,7 @@ const OWNERS: [string, Now, string][] = [
   [
     'a question the cell asked as data, as the engine asks of a change of a protected file',
     { kind: 'waits', at: 'plan', on: [{ kind: 'answer', question: 'protected_files' }] },
-    'answer',
+    'answer-protected_files',
   ],
   ["the agents' command line, which cannot run", shared('cannotRun'), 'agents'],
 ];
@@ -148,6 +148,29 @@ const NOT_OWNERS: [string, Now][] = [
   ],
 ];
 
+/// The questions of the work's own that the work waits for the answer to, as its page gives them.
+const questionsOf = (now: Now): Question[] =>
+  now.kind !== 'waits'
+    ? []
+    : now.on.flatMap((w): Question[] =>
+        w.kind !== 'answer'
+          ? []
+          : [
+              {
+                name: w.question,
+                cell: now.at,
+                version: 4,
+                engine: false,
+                waits: true,
+                withdrawn: null,
+                ask: `What of ${w.question}?`,
+                options: [{ does: 'Keep it', follows: 'Nothing changes' }],
+                recommends: null,
+                answer: null,
+              },
+            ],
+      );
+
 function draw(
   now: Now,
   wait: string | undefined,
@@ -170,6 +193,7 @@ function draw(
     cells: [],
     blocks: read.blocks,
     steps: [],
+    questions: questionsOf(now),
   };
   act(() =>
     r.render(

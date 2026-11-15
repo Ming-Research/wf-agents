@@ -82,8 +82,9 @@ export function waitsOf(now: Now): Wait[] {
             return w.what.kind === 'question'
               ? [{ key: `q${w.call}`, kind: 'question', words: w.what.question, act: null }]
               : [];
+          // A question of the work's own, by its name, which its card at the plan's end answers.
           case 'answer':
-            return [{ key: 'answer', kind: 'question', words: w.question, act: null }];
+            return [{ key: `answer-${w.question}`, kind: 'question', words: w.question, act: null }];
           case 'limit':
           case 'calls':
             return [

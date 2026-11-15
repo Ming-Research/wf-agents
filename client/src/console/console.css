@@ -160,11 +160,26 @@
   font-weight: var(--weight-strong);
 }
 
-/* Under a question a cell asked, that it stops the work: one line in red, as a card stopped for the owner is. */
-.cw-choice-stops {
+/* What a question asks, as it was written: its paragraphs semibold, a block of code in it, such as the change a
+   question of the engine's is about, as code is shown anywhere in the window. */
+.cw-choice-q .content {
+  font-weight: var(--weight);
+}
+
+/* Under a question, that the work waits for its answer: one line in red, as a card stopped for the owner is; or that
+   the work goes on by the option it recommends, muted. */
+.cw-choice-stops,
+.cw-choice-later {
   margin: calc(-1 * var(--space-4)) 0 var(--space-8);
-  color: var(--red-text);
   font-size: var(--size-small);
+}
+
+.cw-choice-stops {
+  color: var(--red-text);
+}
+
+.cw-choice-later {
+  color: var(--muted);
 }
 
 .cw-option {

@@ -6,7 +6,7 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cellNowWords } from '../works/marks';
-import type { Act, Item, Speaking, WorkPage } from '../works-api';
+import type { Act, Item, Now, Question, Speaking, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
@@ -418,5 +418,143 @@ describe('the panel of the item selected', () => {
     expect(text(discussion(el), 'p')).toEqual(["Reading the work's flow"]);
     draw(12, answered([]), { failed: '/api/v1/works/12 answered 500' });
     expect(text(discussion(el), 'p')).toEqual(['The page could not read the work: /api/v1/works/12 answered 500']);
+  });
+});
+
+/// A question put to the owner, as the work's page gives it, asked by the research.
+const question = (name: string, o: Partial<Question> = {}): Question => ({
+  name,
+  cell: 'research',
+  version: 30,
+  engine: false,
+  waits: false,
+  withdrawn: null,
+  ask: `What of ${name}?`,
+  options: [
+    { does: 'Keep it', follows: 'Nothing changes' },
+    { does: 'Drop it', follows: 'The plan is shorter' },
+  ],
+  recommends: 1,
+  answer: null,
+  ...o,
+});
+
+/// Draws the panel of item 12, its work doing `now`, its page giving `questions`.
+function drawAsking(now: Now, questions: Question[], send: (work: number, what: Act) => Promise<unknown>) {
+  const i = itemOf(12);
+  const item: Item = { ...i, work: { ...i.work, now } };
+  const p = pageOf(item);
+  if (p === null || !('page' in p)) throw new Error('no page');
+  return draw(item, send, { page: { ...p.page, questions } });
+}
+
+/// The options of each question drawn, as its label and whether it is picked.
+const options = (el: HTMLElement) =>
+  [...el.querySelectorAll('.cw-choice')].map((c) =>
+    [...c.querySelectorAll('.cw-option')].map(
+      (o) => `${o.querySelector('.cw-option-label')?.textContent ?? ''}${o.classList.contains('on') ? ' *' : ''}`,
+    ),
+  );
+
+/// Picks the option at this place of the question at that place.
+const pick = (el: HTMLElement, choice: number, option: number) => {
+  const button = el.querySelectorAll('.cw-choice')[choice].querySelectorAll('.cw-option')[option] as HTMLButtonElement;
+  act(() => button.click());
+};
+
+describe("the questions put to the owner, at the plan's end of the panel", () => {
+  it('shows a question the work waits for whole, in its one card, and sends the option picked as the answer to its version', async () => {
+    const sent: Sent = [];
+    const el = drawAsking(
+      { kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'scope' }] },
+      [question('scope', { waits: true })],
+      answered(sent),
+    );
+    // One card, which the address of what the work waits for names, and none under the status line.
+    expect(el.querySelectorAll('[data-wait="answer-scope"]')).toHaveLength(1);
+    expect(el.querySelector('.cw-waits')).toBeNull();
+    expect(text(el, '.cw-choice-q')).toEqual(['What of scope?']);
+    expect(text(el, '.cw-choice-stops')).toEqual(['The work waits for this answer']);
+    expect(text(el, '.cw-choice-later')).toEqual([]);
+    expect(options(el)).toEqual([['Keep itRecommended', 'Drop it']]);
+    expect(text(el, '.cw-option-detail')).toEqual(['Nothing changes', 'The plan is shorter']);
+    expect(button(el, 'Confirm (0/1)').disabled).toBe(true);
+    pick(el, 0, 1);
+    expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
+    await act(async () => button(el, 'Confirm (1/1)').click());
+    expect(sent).toEqual([[12, { kind: 'answer', question: 'scope', version: 30, option: 2, why: null }]]);
+    expect(text(el, '.cw-done')).toEqual(['Your answer was sent.']);
+  });
+
+  it('shows a question the work goes on past by the option it recommends, and sends its answer', async () => {
+    const sent: Sent = [];
+    const el = drawAsking({ kind: 'next', cell: 'implement' }, [question('later', { recommends: 2 })], answered(sent));
+    expect(text(el, '.cw-choice-q')).toEqual(['What of later?']);
+    expect(text(el, '.cw-choice-stops')).toEqual([]);
+    expect(text(el, '.cw-choice-later')).toEqual(['The work goes on by the recommended option until you answer']);
+    expect(options(el)).toEqual([['Keep it', 'Drop itRecommended']]);
+    pick(el, 0, 0);
+    await act(async () => button(el, 'Confirm (1/1)').click());
+    expect(sent).toEqual([[12, { kind: 'answer', question: 'later', version: 30, option: 1, why: null }]]);
+  });
+
+  it("shows the engine's question of a protected change with each file, the reason given for it and its change", async () => {
+    const sent: Sent = [];
+    // As the engine fills its words of the question: each file by its path, what became of it and why, and its diff.
+    const ask = [
+      "Whether this work's change to files that govern the agents may merge: the project protects them, and only the owner changes them.",
+      "`flow/agents/tools/run_tests.toml`, changed. Why, in the work's words: The tool needs a longer timeout.",
+      '```diff\n-ms = 1000\n+ms = 2000\n```',
+      "`flow/project.toml`, added. Why, in the work's words: it gives none.",
+      '```diff\n+name = "x"\n```',
+    ].join('\n\n');
+    const protectedFiles = question('protected_files', {
+      cell: 'implement',
+      engine: true,
+      waits: true,
+      ask,
+      options: [
+        { does: 'Let it merge', follows: 'the change merges with the work as it stands.' },
+        { does: 'Take it back', follows: 'the work takes the change back.' },
+      ],
+      recommends: null,
+      version: 44,
+    });
+    const el = drawAsking(
+      { kind: 'waits', at: 'implement', on: [{ kind: 'answer', question: 'protected_files' }] },
+      [protectedFiles],
+      answered(sent),
+    );
+    const card = el.querySelector('[data-wait="answer-protected_files"]') as HTMLElement;
+    expect(text(card, '.cw-choice-q p code')).toEqual(['flow/agents/tools/run_tests.toml', 'flow/project.toml']);
+    expect(text(card, '.cw-choice-q p').slice(1)).toEqual([
+      "flow/agents/tools/run_tests.toml, changed. Why, in the work's words: The tool needs a longer timeout.",
+      "flow/project.toml, added. Why, in the work's words: it gives none.",
+    ]);
+    expect([...card.querySelectorAll('.cw-choice-q pre.content')].map((p) => p.textContent)).toEqual([
+      '-ms = 1000\n+ms = 2000',
+      '+name = "x"',
+    ]);
+    expect(options(el)).toEqual([['Let it merge', 'Take it back']]);
+    pick(el, 0, 0);
+    await act(async () => button(el, 'Confirm (1/1)').click());
+    expect(sent).toEqual([[12, { kind: 'answer', question: 'protected_files', version: 44, option: 1, why: null }]]);
+  });
+
+  it('shows a question answered with its answer and asks nothing of it, and a question withdrawn not at all', () => {
+    const el = drawAsking(
+      { kind: 'next', cell: 'implement' },
+      [
+        question('old', { answer: { option: 2, at: 40, why: null } }),
+        question('gone', { withdrawn: 'Settled in the plan', ask: null, options: [] }),
+      ],
+      answered([]),
+    );
+    expect(text(el, '.cw-choice-q')).toEqual(['What of old?']);
+    expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-done');
+    expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
+    expect(text(el, '.cw-choice-stops')).toEqual([]);
+    expect(text(el, '.cw-choice-later')).toEqual([]);
+    expect(el.querySelector('.cw-confirm')).toBeNull();
   });
 });

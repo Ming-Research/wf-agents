@@ -34,7 +34,7 @@ function named(hash: string): Route | null {
       ? { view: 'work', work: Number(work[1]) }
       : { view: 'work', work: Number(work[1]), run: Number(work[2]) };
   }
-  const item = /^\/console\/items\/(\d+)(?:\/waits\/([a-z0-9]+))?$/.exec(path);
+  const item = /^\/console\/items\/(\d+)(?:\/waits\/([\w-]+))?$/.exec(path);
   if (item) {
     return item[2] === undefined
       ? { view: 'console', item: Number(item[1]) }

@@ -541,6 +541,31 @@ export interface WorkPage {
   /// Where the owner's words would go now, as the engine chooses it: to each line of the flow, then about each question
   /// that stands; absent from an engine that does not give it.
   speaking?: Speaking[];
+  /// Each question put to the owner, as it stands, in the order of their names; absent from an engine that does not
+  /// give them.
+  questions?: Question[];
+}
+
+/// A question put to the owner, as it stands: its latest version, with the keys a return writes it with, and the
+/// owner's answer to that version, where there is one.
+export interface Question {
+  name: string;
+  /// The cell it belongs to.
+  cell: string;
+  /// The version an answer names: the place of the latest.
+  version: number;
+  /// The engine itself asked it, and not the cell's agent.
+  engine: boolean;
+  /// The cell waits for the answer; else the work goes on by the option it recommends.
+  waits: boolean;
+  /// The latest version withdraws it, for this reason; none while it stands.
+  withdrawn: string | null;
+  /// What it asks, its options and the one it recommends, counted from one; of a question withdrawn, none.
+  ask: string | null;
+  options: { does: string; follows: string }[];
+  recommends: number | null;
+  /// The owner's answer to the latest version: the option taken, counted from one, when, and why where said.
+  answer: { option: number; at: number; why: string | null } | null;
 }
 
 /// What the owner's words are said to: a line of the work's flow, or a question of the work they are about.

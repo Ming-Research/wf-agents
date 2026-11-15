@@ -4,11 +4,13 @@
 // cancel it); two tabs; and under them, while something in the item is new to the owner, a strip that says what
 // changed, with a link to mark the item read. The first tab holds the body (where the item came from, the problem it
 // solves, the plan, with each choice that waits for the owner where it stands in the plan, and after them each question
-// a cell asked the owner that the work waits at, drawn as they are with a line in red that it stops the work, each
-// picked by a press on an option and let go by another, and at the plan's end a button as wide as the body to confirm
-// them, which counts the picks, waits until each choice has one and sends each question's answer to the engine; once
-// confirmed, the picks stand; and last, each ruling of a cell that keeps the work from going on and that the owner may
-// overrule, drawn as such a question is, with a button as wide to count it as settled), each passage
+// put to the owner that stands, the only place the panel draws it: what it asks, as it was written, its options with
+// what each does and what follows, the one it recommends, and a line that the work waits for its answer, in red, or
+// goes on by the option it recommends, muted; one answered stands with its answer. Each is picked by a press on an
+// option and let go by another, and at the plan's end a button as wide as the body confirms them, which counts the
+// picks, waits until each choice has one and sends each question's answer to the engine; once confirmed, the picks
+// stand; and last, each ruling of a cell that keeps the work from going on and that the owner may overrule, drawn as
+// such a question is, with a button as wide to count it as settled), each passage
 // changed since the owner read it marked at its left, and under the body the messages: the owner's and the replies, and a
 // box to write one into a block of the work that people write, chosen above it, which a passage selected in the body
 // can be quoted into and which names the cells that read it. The second holds what of the work the lines do not say,
@@ -41,6 +43,7 @@ import {
   type EngineAct,
   type Item,
   loadVersion as loadVersionOf,
+  type Question,
   type Said,
   type SpokenTo,
   type Summary,
@@ -139,11 +142,44 @@ const titleOf = (page: WorkPage | null, cell: string) => page?.flow.cells.find((
 const asked = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { kind: 'question' } } =>
   w.kind === 'call' && w.what.kind === 'question';
 
-/// The questions a cell asked the owner that the work waits at, as choices at the plan's end.
+/// The questions a cell asked the owner as a call the work waits at, as choices at the plan's end.
 function askedOf(now: Summary['now']): Choice[] {
   if (now.kind !== 'waits') return [];
-  return now.on.flatMap((w) => (asked(w) && w.who === 'owner' ? [askedChoice(w.what.question, w.call, now.at)] : []));
+  return now.on.flatMap((w) =>
+    asked(w) && w.who === 'owner' ? [{ ...askedChoice(w.what.question, w.call, now.at), stops: 'work' as const }] : [],
+  );
 }
+
+/// The questions put to the owner that stand, as the work's page gives them, each as a choice at the plan's end: what
+/// it asks, its options, the one it recommends, and the owner's answer to its latest version, which confirms it; until
+/// it is answered, the work waits for it at its cell, or goes on by the option it recommends.
+function questionsStanding(questions: Question[] | undefined): Choice[] {
+  return (questions ?? []).flatMap((q): Choice[] => {
+    if (q.withdrawn !== null || q.ask === null) return [];
+    const answered = q.answer !== null;
+    return [
+      {
+        kind: 'choice',
+        question: q.ask,
+        options: q.options.map((o) => ({ label: o.does, detail: o.follows })),
+        recommended: q.recommends === null ? null : q.recommends - 1,
+        chosen: q.answer === null ? null : q.answer.option - 1,
+        confirmed: answered,
+        asks: { cell: q.cell, question: q.name, version: q.version },
+        stops: answered ? undefined : q.waits ? 'work' : 'later',
+      },
+    ];
+  });
+}
+
+/// What the owner's pick of a question is kept by: the call that waits for it, or the version of the question.
+const pickKey = (c: Choice): string =>
+  c.asks === undefined ? '' : 'call' in c.asks ? `call ${c.asks.call}` : `${c.asks.question}@${c.asks.version}`;
+
+/// The key of the card of what a work waits for that a question's choice is (`Wait.key`): a question put as a call by
+/// its call, a question of the work's own by its name.
+const waitKeyOf = (c: Choice): string | undefined =>
+  c.asks === undefined ? undefined : 'call' in c.asks ? `q${c.asks.call}` : `answer-${c.asks.question}`;
 
 /// What the work waits for at a cell, in a few words for the status line.
 function lineWords(w: Waited, cell: string): string {
@@ -452,15 +488,16 @@ function ItemView({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [open, fresh, markAsRead]);
-  // The questions a cell asked the owner that the work waits at, after the plan's own, each with the option picked.
-  const [answers, setAnswers] = useState<Record<number, number | null>>({});
-  // What the owner wrote to a question with no options, by its call.
-  const [written, setWritten] = useState<Record<number, string>>({});
-  const questions = askedOf(work.now).map((c) => ({
-    ...c,
-    chosen: answers[c.asks?.call ?? -1] ?? null,
-    answer: written[c.asks?.call ?? -1] ?? '',
-  }));
+  // The questions put to the owner, after the plan's own: those of the work's own that stand, and those a cell asked
+  // as a call the work waits at; each not yet answered with the option picked, or the words written to one with no
+  // options, by what its answer is sent to.
+  const [answers, setAnswers] = useState<Record<string, number | null>>({});
+  const [written, setWritten] = useState<Record<string, string>>({});
+  const questions = [...questionsStanding(read?.questions), ...askedOf(work.now)].map((c) =>
+    c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null, answer: written[pickKey(c)] ?? '' },
+  );
+  // Those still to answer, which Confirm sends.
+  const toAnswer = questions.filter((q) => q.confirmed !== true);
   // Whether a question has its answer: an option picked, or for one with no options, words written.
   const answered = (q: Choice) => (q.options.length === 0 ? (q.answer ?? '').trim() !== '' : q.chosen !== null);
   // The plan as drawn: its own parts, a choice of them open while the plan waits to be confirmed, then the questions.
@@ -470,9 +507,10 @@ function ItemView({
   ];
   // A press on an option picks it, and a press on the one picked lets it go.
   const choose = (at: number, option: number) => {
-    const call = questions[at - body.plan.length]?.asks?.call;
-    if (call !== undefined) {
-      setAnswers((was) => ({ ...was, [call]: was[call] === option ? null : option }));
+    const q = questions[at - body.plan.length];
+    if (q !== undefined) {
+      const key = pickKey(q);
+      setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
       return;
     }
     setBody((was) => ({
@@ -484,23 +522,36 @@ function ItemView({
   };
   // Words written to a question with no options.
   const write = (at: number, text: string) => {
-    const call = questions[at - body.plan.length]?.asks?.call;
-    if (call !== undefined) setWritten((was) => ({ ...was, [call]: text }));
+    const q = questions[at - body.plan.length];
+    if (q !== undefined) setWritten((was) => ({ ...was, [pickKey(q)]: text }));
   };
-  // One Confirm for the plan's choices and the questions: each question's answer, the label of its option or the
-  // words written to it, is sent to the call that waits for it, one after another; once all are taken, the plan's
-  // picks stand.
+  // One Confirm for the plan's choices and the questions: each question's answer is sent, one after another, to what
+  // it answers: the option picked, counted from one, to the version of the work's question; the label of its option or
+  // the words written to it, to the call that waits for it. Once all are taken, the plan's picks stand.
   const answering = useSending(send);
   const ownPicks = body.planWaits ? picks(body) : { picked: 0, all: 0 };
   const count = {
-    picked: ownPicks.picked + questions.filter(answered).length,
-    all: ownPicks.all + questions.length,
+    picked: ownPicks.picked + toAnswer.filter(answered).length,
+    all: ownPicks.all + toAnswer.length,
   };
   const confirm = async () => {
-    for (const q of questions) {
+    for (const q of toAnswer) {
       if (q.asks === undefined || !answered(q)) continue;
-      const result = q.chosen === null ? (q.answer ?? '').trim() : q.options[q.chosen].label;
-      const taken = await answering.send({ kind: 'result', call: q.asks.call, result });
+      const taken = await answering.send(
+        'call' in q.asks
+          ? {
+              kind: 'result',
+              call: q.asks.call,
+              result: q.chosen === null ? (q.answer ?? '').trim() : q.options[q.chosen].label,
+            }
+          : {
+              kind: 'answer',
+              question: q.asks.question,
+              version: q.asks.version,
+              option: (q.chosen ?? 0) + 1,
+              why: null,
+            },
+      );
       if (!taken) return;
     }
     if (body.planWaits) setBody((was) => ({ ...was, planWaits: false }));
@@ -598,14 +649,14 @@ function ItemView({
                 title="Plan"
                 parts={plan}
                 keep={rulings.length > 0}
-                choose={body.planWaits || questions.length > 0 ? choose : undefined}
-                write={questions.length > 0 ? write : undefined}
+                choose={body.planWaits || toAnswer.length > 0 ? choose : undefined}
+                write={toAnswer.length > 0 ? write : undefined}
                 discuss={discuss}
                 about={about}
                 jump={jump}
                 after={
                   <>
-                    {body.planWaits || questions.length > 0 ? (
+                    {body.planWaits || toAnswer.length > 0 ? (
                       <button
                         type="button"
                         className="button button-primary cw-confirm"
@@ -774,9 +825,9 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
   );
 }
 
-/// Whether the body of the panel draws what a work waits for as its own card: a question a call put, as a choice at the
-/// plan's end, and a precondition the owner makes hold, as the ruling on the block that keeps it.
-export const drawnInBody = (w: Wait): boolean => w.key.startsWith('q') || w.kind === 'precondition';
+/// Whether the body of the panel draws what a work waits for as its own card: a question, as a choice at the plan's
+/// end, and a precondition the owner makes hold, as the ruling on the block that keeps it.
+export const drawnInBody = (w: Wait): boolean => w.kind === 'question' || w.kind === 'precondition';
 
 /// What a work waits for from the owner that is not a question drawn in the plan or a ruling: a card for each, in the
 /// words of `waitsOf`, with the button that lets the work on where there is one.
@@ -959,12 +1010,14 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   jump?: (at: number) => void;
 }) {
   return (
-    <div
-      className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}
-      data-wait={p.asks === undefined ? undefined : `q${p.asks.call}`}
-    >
-      <p className="cw-choice-q">{p.question}</p>
-      {p.asks !== undefined && <p className="cw-choice-stops">The work waits for this answer</p>}
+    <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'} data-wait={waitKeyOf(p)}>
+      <div className="cw-choice-q">
+        <Markdown text={p.question} />
+      </div>
+      {p.stops === 'work' && <p className="cw-choice-stops">The work waits for this answer</p>}
+      {p.stops === 'later' && (
+        <p className="cw-choice-later">The work goes on by the recommended option until you answer</p>
+      )}
       {p.options.length === 0 && p.asks !== undefined ? (
         <textarea
           rows={3}
