@@ -493,6 +493,9 @@ impl Explorer<'_> {
             {
                 s.calls.insert(*call);
             }
+            if let Effect::Withdraw { call } = &effect {
+                s.calls.remove(call);
+            }
             let follow = match effect {
                 Effect::Withdraw { call } => Some(Given::Done {
                     call,
@@ -717,7 +720,9 @@ impl Explorer<'_> {
                         events.push(Event::Speaks(line.clone()));
                     }
                     // The owner takes another option for a question that stands: its cell runs again, before the cell
-                    // under way, whose round is stopped. Answered as it recommends, it runs nothing.
+                    // under way, whose round is stopped. Answered as it recommends, it writes `asked`, which runs
+                    // only the check, and the check cannot be under way while the question is unanswered: the answer
+                    // runs the check after the round, as an answer at the next wait does.
                     for (name, q) in questions(&s.work.records, NOW) {
                         if !q.withdrawn && !q.answered {
                             events.push(Event::Answer {
@@ -891,11 +896,14 @@ impl Explorer<'_> {
         let at_limit = new_calls.iter().any(|c| c.run == run && c.on == Some(Who::Owner));
         let asked = new_calls.iter().any(|c| c.run == run && c.on.is_none());
         let reading = Reading::of_flow(self.flow(), before);
-        let written_over = writes.iter().any(|block| {
-            let told = reading.told(run, block);
-            (reading.of(block).iter())
-                .any(|v| Some(v.at) > told && v.changed_meaning() && !matches!(&v.by, Writer::Cell(c, _) if c == cell))
-        });
+        // An entry added to a record, whose versions all still stand, writes over nothing.
+        let written_over = (writes.iter())
+            .filter(|block| !self.flow().adds_entries(block))
+            .any(|block| {
+                let told = reading.told(run, block);
+                (reading.of(block).iter())
+                    .any(|v| Some(v.at) > told && !matches!(&v.by, Writer::Cell(c, _) if c == cell))
+            });
         let right = match v {
             Variant::SentBack => (again || at_limit) && !finished,
             Variant::Calls => asked,
