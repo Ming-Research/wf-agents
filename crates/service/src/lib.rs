@@ -59,7 +59,7 @@ use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
     Back, CallReply, Carriers, Doing, Network, Ping, PingReply, Release, ReleaseReply, Returned, Round, RoundReply,
-    Rounds, Teller, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Rounds, Teller, Told, ToolCall, Tools, Try,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
@@ -68,9 +68,6 @@ pub use script::Script;
 pub use scripted::Scripted;
 pub use titles::{title_fits, title_width};
 pub use words::{record_fault_words, refused_words, store_fault_words};
-
-/// The result of a wait the engine made before a round that failed in passing is tried again, once its time has come.
-pub const WAITED: &str = "The wait is over: the round is tried again.";
 
 /// How many changes are kept for a listener that has not read them yet. One that falls further behind is told that
 /// everything may have changed.
@@ -352,7 +349,7 @@ impl Service {
                     let now = self.now()?;
                     let event = Event::Done {
                         call,
-                        result: WAITED.to_string(),
+                        result: self.carriers.calls.waited.clone(),
                     };
                     let todos = (self.driver.happened(now, work, event)).map_err(|failed| answer(work, failed))?;
                     self.hand(now, todos)?;
@@ -710,7 +707,7 @@ impl Service {
                 Some(Call::Asked(Ask::Person { .. }) | Call::AtLimit(_) | Call::Wait { .. }) => {
                     return Ok(Some(Event::Done {
                         call: *call,
-                        result: WITHDRAWN.to_string(),
+                        result: self.carriers.calls.withdrawn.clone(),
                     }));
                 }
                 None => return Err(stray(Missing::Call(*call))),

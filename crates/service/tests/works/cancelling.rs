@@ -3,7 +3,7 @@
 
 use decide::{CallId, Decision, End};
 use engine::Event;
-use service::{Act, WITHDRAWN};
+use service::{Act, Scripted};
 
 use crate::Trial;
 
@@ -35,7 +35,7 @@ async fn cancelling_at_a_question_withdraws_it() {
     trial.step().await.unwrap();
     trial.act(work, Act::Cancel { why: None }).unwrap();
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
-    assert_eq!(trial.work(work).results[&CallId(2)], WITHDRAWN);
+    assert_eq!(trial.work(work).results[&CallId(2)], Scripted::calls().withdrawn);
     assert_eq!(
         trial.step().await,
         Some(Event::Released),
@@ -60,7 +60,7 @@ async fn cancelling_at_a_tool_withdraws_it() {
     trial.act(work, Act::Cancel { why: None }).unwrap();
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
     trial.step().await.unwrap();
-    assert_eq!(trial.work(work).results[&CallId(5)], WITHDRAWN);
+    assert_eq!(trial.work(work).results[&CallId(5)], Scripted::calls().withdrawn);
     assert_eq!(
         trial.step().await,
         Some(Event::Released),

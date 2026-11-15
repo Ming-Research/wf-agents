@@ -30,10 +30,6 @@ use work::{Fill, Given, Measures, RanOn, Spent, Time, Why, Work};
 
 use crate::Message;
 
-/// The result a withdrawn call has: given by the loop to a person's call, and by what runs a tool to a tool's call it
-/// stopped.
-pub const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its result.";
-
 /// What carries out the rounds of cells of one kind: an agent's rounds, or the engine's own acts.
 ///
 /// Both methods are called inside the loop, between two things it takes: each returns at once, and does its work
@@ -276,8 +272,8 @@ pub trait Tools: Send + Sync {
     /// Runs the tool. The call has its result when the reply gives it.
     fn call(&self, call: ToolCall, reply: CallReply);
 
-    /// Withdraws the call, whose run was abandoned: the tool is stopped where it runs, and the call has
-    /// [`WITHDRAWN`] for its result, or the result that came before it could be stopped. A call has one result:
+    /// Withdraws the call, whose run was abandoned: the tool is stopped where it runs, and the call has the result of
+    /// a call withdrawn ([`Carriers::calls`]) for its result, or the result that came before it could be stopped. A call has one result:
     /// where the reply it was made with is still held, that one is used and this one dropped, and where the call's
     /// result was sent already this one is dropped and nothing more is sent.
     fn withdraw(&self, call: ToolCall, reply: CallReply);
@@ -307,6 +303,10 @@ pub struct Carriers {
     pub network: Arc<dyn Network>,
     /// The look at the network to the host the acts reach; none where no network reaches it, as the local repository.
     pub host: Option<Arc<dyn Network>>,
+    /// The result a call has where the engine ends it itself, which the loop gives a person's call, a run at its limit
+    /// and the engine's wait, and the tools a tool's call they stop: in the words beside the flows, for the real
+    /// carriers.
+    pub calls: flow::agents::Calls,
 }
 
 impl Carriers {
@@ -646,6 +646,7 @@ mod tests {
             slots: 1,
             network: Arc::new(Reached),
             host: None,
+            calls: crate::Scripted::calls(),
         }
     }
 

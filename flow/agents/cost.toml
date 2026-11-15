@@ -23,11 +23,14 @@ flow = "of its flow"
 works = "of the flow's other works"
 line = "of its line"
 
-# Why the engine paused a work whose spend or time, since it started or was last let on after the engine paused it,
-# is past the line the flow's other works give. Filled in a run: `{work}` the work's number, `{value}` its spend in
+# Why the engine paused a work: `spent` and `time` where its spend or time, since it started or was last let on after
+# the engine paused it, is past the line the flow's other works give; `budget` where what its rounds have spent in all
+# is more than the installation lets a work spend. Filled in a run: `{work}` the work's number, `{value}` its spend in
 # dollars or its time in minutes, `{line}` the line, `{works}` how many works gave it, `{since}` the words below of
-# since when; `between` between two reasons it waits for.
+# since when; in `budget`, `{spent}` what it has spent in all and `{budget}` the budget, in dollars. `between` stands
+# between two reasons it waits for, and after why its round failed where it did.
 [work]
+budget = "work W{work} has spent ${spent}, over its budget of ${budget}"
 spent = "work W{work} has spent ${value} since {since}, past the line of ${line} that {works} other works of its flow give"
 time = "work W{work} has taken {value} minutes in its rounds since {since}, past the line of {line} that {works} other works of its flow give"
 started = "it started"

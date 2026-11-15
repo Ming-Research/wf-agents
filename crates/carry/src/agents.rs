@@ -196,7 +196,7 @@ impl Rounds for Agents {
                     let Some(reply) = inner.held.take(key) else {
                         return;
                     };
-                    match inner.to_wait(&round, &spent) {
+                    match inner.to_wait(&round, &spent, None) {
                         Some(why) => reply.ended_and_paused(came, spent, why),
                         None => reply.ended(came, spent),
                     }
@@ -210,11 +210,9 @@ impl Rounds for Agents {
                     // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
                         let resets = resets(failure, &why, &said, &*inner.clock);
-                        match inner.to_wait(&round, &spent) {
-                            Some(over) => {
-                                let pause = format!("{why}; and {over}");
-                                reply.failed_and_paused(failure, resets, why, spent, pause);
-                            }
+                        let paused = inner.to_wait(&round, &spent, Some(why.as_str()));
+                        match paused {
+                            Some(pause) => reply.failed_and_paused(failure, resets, why, spent, pause),
                             None => reply.failed_as(failure, resets, why, spent),
                         }
                     }
@@ -643,16 +641,20 @@ impl Inner {
 
     /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, or
     /// its spend or time since it last waited for the owner is past what the flow's other works explain; both where
-    /// both hold.
-    fn to_wait(&self, round: &Round, spent: &Spent) -> Option<String> {
-        let reasons: Vec<String> = [self.over_budget(round, spent)]
+    /// both hold. Said after why the round failed, where it did, and in the words of the work's project, which a round
+    /// is carried out with, so that a round that ended has them.
+    fn to_wait(&self, round: &Round, spent: &Spent, failed: Option<&str>) -> Option<String> {
+        let words = &crate::projects::of(&self.projects, &round.item).ok()?.beside.cost.work;
+        let reasons: Vec<String> = [self.over_budget(round, spent, words)]
             .into_iter()
             .chain(self.past_history(round, spent))
             .flatten()
             .collect();
-        // Two reasons are joined in the project's words, which the second, of the history, is said in.
-        let between = (crate::projects::of(&self.projects, &round.item)).map(|of| of.beside.cost.work.between.clone());
-        (!reasons.is_empty()).then(|| reasons.join(&between.unwrap_or_default()))
+        if reasons.is_empty() {
+            return None;
+        }
+        let said: Vec<String> = failed.map(str::to_string).into_iter().chain(reasons).collect();
+        Some(said.join(&words.between))
     }
 
     /// Why the work is to wait for the owner, where what it has spent, or the time its rounds have taken, since it
@@ -718,19 +720,20 @@ impl Inner {
     }
 
     /// Why the work is to wait for the owner, where the round took it over its budget: everything its rounds have
-    /// spent, this one with them, is more than the settings let a work spend.
-    fn over_budget(&self, round: &Round, spent: &Spent) -> Option<String> {
+    /// spent, this one with them, is more than the settings let a work spend; in these words.
+    fn over_budget(&self, round: &Round, spent: &Spent, words: &flow::agents::WorkWords) -> Option<String> {
         let budget = self.settings.budget_micros()?;
         // No other round of the work ended while this one was under way: a work has one round under way at a time.
         let pinged = round.kept.pinged.iter().map(|p| p.spent.usd_micros).sum::<u64>();
         let total = round.kept.spent.values().map(|s| s.usd_micros).sum::<u64>() + spent.usd_micros + pinged;
-        let dollars = |micros: u64| micros as f64 / 1_000_000.0;
         (total > budget).then(|| {
-            format!(
-                "work {} has spent ${:.2}, over its budget of ${:.2}",
-                round.work.0,
-                dollars(total),
-                dollars(budget)
+            flow::agents::fill(
+                &words.budget,
+                &[
+                    ("work", &round.work.0.to_string()),
+                    ("spent", &Unit::Dollars.say(total as f64)),
+                    ("budget", &Unit::Dollars.say(budget as f64)),
+                ],
             )
         })
     }

@@ -18,7 +18,7 @@ use std::sync::Arc;
 use decide::CallId;
 use flow::agents::{Agents, ResultGiven, fill};
 use serde::Deserialize;
-use service::{CallReply, ToolCall, Tools as ToolsTrait, WITHDRAWN};
+use service::{CallReply, ToolCall, Tools as ToolsTrait};
 use store::WorkNumber;
 
 use crate::git;
@@ -42,8 +42,7 @@ struct Inner<H> {
     data: PathBuf,
     /// The installation's part of the names of the works' worktrees.
     tag: String,
-    /// What the agent is told of a request it cannot be read, from `agents/tools/run_tests.toml`.
-    unread: Option<String>,
+    said: Said,
     held: Held<(WorkNumber, CallId), CallReply>,
     /// The tool `query`, closed until the settings open it.
     query: Querying,
@@ -55,18 +54,26 @@ enum Answer {
     Withdrawn,
 }
 
+/// What the tools say in the words beside the flows, beside what each tool's own file says.
+pub struct Said {
+    /// What the agent is told of a request of `run_tests` that cannot be read, from `agents/tools/run_tests.toml`:
+    /// `{error}` what the reading said.
+    pub unread: Option<String>,
+    /// The result of a call withdrawn, from `agents/calls.toml`.
+    pub withdrawn: String,
+}
+
 impl<H: Host> Tools<H> {
     /// The tools on this host in this project, with this data directory, which is an absolute path, the
-    /// installation's tag, and what an agent is told of a request of `run_tests` that cannot be read, `{error}` what
-    /// the reading said.
-    pub fn new(host: H, project: Project, data: PathBuf, tag: String, unread: Option<String>) -> Self {
+    /// installation's tag, and what they say in the words beside the flows.
+    pub fn new(host: H, project: Project, data: PathBuf, tag: String, said: Said) -> Self {
         Tools {
             inner: Arc::new(Inner {
                 host,
                 project,
                 data,
                 tag,
-                unread,
+                said,
                 held: Held::new(),
                 query: Querying::closed(),
             }),
@@ -119,7 +126,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 };
                 let tools = flow::form::tools(&call.flow);
                 let told = Told {
-                    unread: inner.unread.as_deref(),
+                    unread: inner.said.unread.as_deref(),
                     tools: &tools,
                 };
                 let asked = Call {
@@ -131,7 +138,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
             };
             let result = match answered {
                 Answer::Result(result) => result,
-                Answer::Withdrawn => WITHDRAWN.to_string(),
+                Answer::Withdrawn => inner.said.withdrawn.clone(),
             };
             if let Some(reply) = inner.held.take(key) {
                 reply.done(result);
@@ -142,7 +149,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
     fn withdraw(&self, call: ToolCall, reply: CallReply) {
         self.prune(&call);
         if let Some(reply) = self.inner.held.stop((call.work, call.call), reply) {
-            reply.done(WITHDRAWN.to_string());
+            reply.done(self.inner.said.withdrawn.clone());
         }
     }
 }
@@ -462,7 +469,11 @@ mod tests {
         let repo = Repo::new("true");
         git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
         let host = Fake::new("unused").runs("The tests passed.");
-        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), None);
+        let said = Said {
+            unread: None,
+            withdrawn: "Withdrawn.".to_string(),
+        };
+        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), said);
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
         let has = flow::Has {
             sources: ["tree", "main"].map(str::to_string).into(),

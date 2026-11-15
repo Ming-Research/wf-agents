@@ -14,7 +14,7 @@ use std::time::Duration;
 use decide::{CallId, RunId};
 use store::WorkNumber;
 
-use crate::carriers::{CallReply, Carriers, Network, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
+use crate::carriers::{CallReply, Carriers, Network, Round, RoundReply, Rounds, ToolCall, Tools};
 use crate::script::{Ends, Planned, Script};
 
 /// Agents, engine acts and tools that follow a script.
@@ -55,6 +55,16 @@ impl Scripted {
             slots: self.inner.script.slots.unwrap_or(crate::script::SLOTS),
             network: Arc::new(self.clone()),
             host: Some(Arc::new(self.clone())),
+            calls: Self::calls(),
+        }
+    }
+
+    /// The result a call has where the engine ends it itself, as the test carriers word it: their own, as a script's
+    /// tools answer in its own words, since a run by a script reads nothing beside its flows.
+    pub fn calls() -> flow::agents::Calls {
+        flow::agents::Calls {
+            withdrawn: "Withdrawn.".to_string(),
+            waited: "Waited.".to_string(),
         }
     }
 
@@ -170,7 +180,7 @@ impl Tools for Scripted {
             }
         };
         if let Some(reply) = reply {
-            reply.done(WITHDRAWN.to_string());
+            reply.done(Self::calls().withdrawn);
         }
     }
 }
