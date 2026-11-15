@@ -21,7 +21,7 @@ Judge it by the tree's rules, on each of these points:
 
 In the why of `tree_ok`, answer each point by its number: none, or what you found. Write what the writer must take in
 `tree_review`, every point at once: this is your one chance, and nothing is raised later that could be raised now.
-Write none with `tree_ok` yes. Leave out what you are not sure is better.
+With `tree_ok` yes, leave `tree_review` out of your return. Leave out what you are not sure is better.
 '''
 when = { edits_tree = "yes" }
 triggered_by = ["on_plan", "on_reply_tree_review"]

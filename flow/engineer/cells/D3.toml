@@ -23,7 +23,7 @@ Judge it only by what it was made for (what `background` asks) and the repositor
 
 In the why of `plan_ok`, answer each point by its number: none, or what you found. Write what the writer must take in
 `plan_review`, every point at once: this is your one chance, and nothing is raised later that could be raised now.
-Write none with `plan_ok` yes. Leave out what you are not sure is better.
+With `plan_ok` yes, leave `plan_review` out of your return. Leave out what you are not sure is better.
 '''
 when = { deep_needed = "yes" }
 triggered_by = ["on_plan", "on_reply_plan_review"]
