@@ -925,7 +925,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
-                empty: decide::holds_nothing(h.value.as_deref(), &spoken::entry(flow, &h.block, h.content.clone())),
+                empty: decide::holds_nothing(h.value.as_deref(), &h.content),
             })
             .collect()
     };
