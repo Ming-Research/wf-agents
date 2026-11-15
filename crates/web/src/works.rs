@@ -1457,6 +1457,7 @@ impl Items {
                     driver.held(kept.head.number),
                     &outages,
                     &driver.along_of(kept.head.number),
+                    now,
                 )?,
             });
         }
@@ -1504,13 +1505,14 @@ impl ItemChanged {
 impl Summary {
     /// The work in brief, from what the driver holds of it, the deciding code's view of it, what holds back the round
     /// it would begin next, the wait every work shares, where one stands, and where each round or call under way
-    /// stands, as what carries it out says.
+    /// stands, as what carries it out says, at the time `when` by the loop's clock.
     pub fn of(
         kept: Kept<'_>,
         view: &View,
         held: Option<Holder>,
         outages: &Outages,
         along: &[(Under, &Along)],
+        when: Time,
     ) -> Result<Summary, Broken> {
         let work = kept.work;
         let runs = runs(kept)?;
@@ -1574,7 +1576,7 @@ impl Summary {
             pinged: pinged(work, &|_| true),
             last: work.moments.last().map(|moment| moment.at.0),
             from: (runs.iter().flat_map(|run| &run.rounds)).map(|round| round.began).min(),
-            bar: bar(kept, &runs),
+            bar: bar(kept, &runs, when),
             sent_back: (runs.iter().flat_map(|run| &run.rounds))
                 .filter(|round| matches!(round.given, Given::SentBack { .. }))
                 .count(),
@@ -1608,11 +1610,9 @@ fn holding(work: &Work, now: &Now) -> Vec<String> {
 /// tool's call cut into [`BAR_CELLS`] equal cells, each the character of what ran most of it. A round of an agent's
 /// cell is a model's; a round of an engine cell, and a tool's call from when it was made to when it was done, are the
 /// tools'. A call to a person waits rather than runs. A cell less than half of which ran is the character of what the
-/// work waited for at its middle ([`waited`]).
-fn bar(kept: Kept<'_>, runs: &[Run]) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+/// work waited for at its middle ([`waited`]). What is under way is counted to `now`, by the loop's clock.
+fn bar(kept: Kept<'_>, runs: &[Run], now: Time) -> String {
+    let now = now.0;
     let agent = |cell: &str| {
         (kept.flow.cells.iter())
             .find(|spec| spec.id.as_str() == cell)
@@ -2078,6 +2078,7 @@ impl WorkPage {
                 driver.held(number),
                 &Outages::of(driver, now),
                 &driver.along_of(number),
+                now,
             )?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
