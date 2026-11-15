@@ -128,11 +128,12 @@ const RESULT_LEFT_OUT: &str = "a work waits at a cell for other than a result no
 /// What the histories whose rounds fail often must reach: a round of the asking cell fails in passing while it waits,
 /// and its run waits for the engine.
 pub const RESULT_RUN_FIRST: &str =
-    "a cell whose run has not finished goes on while a cell that gives its result applies";
+    "a cell whose run rests on a call of its own goes on while its result's giver applies";
+const GIVER_STOPPED: &str = "the owner's words to a cell that waits for a result stop the round of the cell giving it";
 /// Not required: the owner turning to a waiting cell while no slot is free is rare.
 const RESULT_FOR_A_SLOT: &str = "a cell entered but for a slot waits for it while a cell that gives its result applies";
 pub const RESULT_WAITS: &str =
-    "a waited result's giver runs, after any unfinished run of the waiting cell, and a wait names only what can come";
+    "a waited result's giver runs, but while the waiting cell's run rests on its call, and a wait names what can come";
 pub const OUTSIDE: &str = "a work waits for the outside only for what the latest run of a cell said it waits for";
 const OUTSIDE_WAITED: &str = "a work waits for main to move, as a check said what it wrote waits for";
 
@@ -149,6 +150,7 @@ pub const WAITS_REACHED: &[&str] = &[
     WAITING_HOLDS_A_STOP,
     STALLED_FOR_A_RESULT,
     RESULT_LEFT_OUT,
+    GIVER_STOPPED,
 ];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
@@ -631,9 +633,9 @@ fn givers<'f>(flow: &'f Flow, asks: &'f decide::Asks) -> impl Iterator<Item = (u
 /// place: each result the wait names is one the cell asked for in the record named and still awaits, named with the
 /// cells that give it; a result the cell awaits that no cell giving it applies to is named by no wait, nothing being
 /// able to bring it; and one that a cell giving it applies to is awaited where the work waits at the cell only while
-/// the walk lets the cell go first on purpose: entered but for a slot, or with a run that has not finished, which goes
-/// on to hand its return in before a cell that gives a result begins. Anywhere else such a giver would have been tried
-/// while the cell waits, and run.
+/// the walk lets the cell go first on purpose: entered but for a slot, or with a run that rests on a call of its own,
+/// which goes on to hand its return in before a cell that gives a result begins. Anywhere else such a giver would have
+/// been tried while the cell waits, and run.
 fn result_waits(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, on: &[Waited]) {
     let now = Seq(u64::MAX);
     let cell = &flow.cells()[i];
@@ -657,9 +659,7 @@ fn result_waits(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, on: &
             );
         }
     }
-    let unfinished = (records.started.iter()).any(|s| {
-        s.cell == cell.id && !reading.finished.contains_key(&s.run) && !records.abandoned.iter().any(|a| a.run == s.run)
-    });
+    let on_a_call = rests_on_a_call(reading, &cell.id);
     let for_a_slot = matches!(on, [Waited::Slot]);
     for asks in cell.asks.iter().filter(|asks| reading.awaits(cell, asks, now)) {
         let named = (on.iter()).any(|w| matches!(w, Waited::Result { result, .. } if *result == asks.result));
@@ -674,7 +674,7 @@ fn result_waits(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, on: &
             ),
             (false, false) => v.count(RESULT_LEFT_OUT),
             (true, _) if for_a_slot => v.count(RESULT_FOR_A_SLOT),
-            (true, _) if unfinished => v.count(RESULT_RUN_FIRST),
+            (true, _) if on_a_call => v.count(RESULT_RUN_FIRST),
             (true, _) => v.fail(
                 RESULT_WAITS,
                 format!(
@@ -687,29 +687,40 @@ fn result_waits(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, on: &
 }
 
 /// Property a-wait-holds-its-cell, of results, the order: a cell that gives a result begins while no cell that awaits
-/// it, by the histories' own reading, has a run that has not finished, which goes on to hand its return in first.
+/// it, by the histories' own reading, has a run resting on a call of its own, which goes on to hand its return in
+/// first.
 fn begins_after_runs(v: &mut Verdict, flow: &Flow, reading: &Reading, j: usize) {
     let now = Seq(u64::MAX);
-    let records = reading.records;
     let giver = &flow.cells()[j].id;
     for cell in flow.cells() {
         let awaits = (cell.asks.iter())
             .any(|asks| reading.awaits(cell, asks, now) && givers(flow, asks).any(|(_, c)| &c.id == giver));
-        let unfinished = (records.started.iter()).any(|s| {
-            s.cell == cell.id
-                && !reading.finished.contains_key(&s.run)
-                && !records.abandoned.iter().any(|a| a.run == s.run)
-        });
-        if awaits && unfinished {
+        if awaits && rests_on_a_call(reading, &cell.id) {
             v.fail(
                 RESULT_WAITS,
                 format!(
-                    "{giver} begins while a run of {}, which awaits its result, has not finished",
+                    "{giver} begins while a run of {}, which awaits its result, rests on a call of its own",
                     cell.id
                 ),
             );
         }
     }
+}
+
+/// Whether a run of the cell rests on a call of its own that has no result, by the histories' own reading: begun,
+/// neither finished nor abandoned, no round of it under way, and a call it made not done.
+fn rests_on_a_call(reading: &Reading, cell: &decide::CellId) -> bool {
+    let now = Seq(u64::MAX);
+    let records = reading.records;
+    (records.started.iter()).any(|s| {
+        let began = records.rounds.iter().filter(|x| x.run == s.run).count();
+        let ended = records.returned.iter().filter(|x| x.run == s.run).count();
+        &s.cell == cell
+            && began == ended
+            && !reading.finished.contains_key(&s.run)
+            && !records.abandoned.iter().any(|a| a.run == s.run)
+            && (records.called.iter()).any(|c| c.run == s.run && !reading.done(c.call, now))
+    })
 }
 
 /// Property entered-only-for-what-is-new, the order: where the walk enters a cell, goes on with its run or waits at it,
@@ -1015,6 +1026,14 @@ pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, be
         Abandoning::Stopped { cell, block } => {
             v.count(STOPS);
             let place = |c: &decide::CellId| flow.place(c);
+            let awaits = place(cell).is_some_and(|k| {
+                let turned = &flow.cells()[k];
+                (turned.asks.iter())
+                    .any(|asks| reading.awaits(turned, asks, now) && givers(flow, asks).any(|(_, c)| c.id == s.cell))
+            });
+            if awaits {
+                v.count(GIVER_STOPPED);
+            }
             let before = place(cell).zip(place(&s.cell)).is_some_and(|(j, i)| j < i);
             let new = !reading.new_to(cell, block, now).is_empty();
             let applies = place(cell).is_some_and(|j| reading.applies(flow, j));

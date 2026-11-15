@@ -161,9 +161,9 @@ fn unready(gated: bool) -> World {
 }
 
 // The owner turning to a cell that waits for its tests and that its preconditions hold: the cell that gives the result
-// runs while it waits, as it does however the walk comes to the wait (decision a-wait-holds-its-cell), and the work is
-// not stalled with the cell that would give the result held. Well under a millisecond alone; no other test turns to a
-// waiting cell its preconditions hold.
+// runs while it waits, as it does wherever the walk comes to the wait but while a run of the cell rests on a call of
+// its own (decision a-wait-holds-its-cell), and the work is not stalled with the cell that would give the result held.
+// Well under a millisecond alone; no other test turns to a waiting cell its preconditions hold.
 #[test]
 fn the_owner_turning_to_a_waiting_cell_its_preconditions_hold_runs_the_cell_that_gives_its_result() {
     let mut w = unready(false);

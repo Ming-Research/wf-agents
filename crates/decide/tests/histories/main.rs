@@ -17,23 +17,22 @@
 //!   the first test, drawn apart from the rest, a judge stands before the merge, run only while "flip" holds and
 //!   writing a verdict, yes or no; the merge then also waits while the verdict stands at no. In a third of the
 //!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
-//!   entered again for the results of what it asked for one to three times in a row. In about a third of the
-//!   histories, drawn apart, a cell asks for tests in a record, which runs a cell after it that hands in the result of
-//!   each entry it gives, as the engine's act does; the asking cell runs only while "flip" holds in two of five of
-//!   those, and the owner's words run a cell after it in half (properties `WAITS` and `RESULTS`). In half of those
-//!   where it runs only while "flip" holds, the owner is steered so that its entry is taken up again: once it waits for
-//!   the result of an entry, "flip" fails, and once the cell that gives results ran since, passing the entry over,
-//!   "flip" holds again, so that the cell that gives results is entered for the entry (decision
-//!   a-wait-of-a-skipped-cell-is-put-away). In three of ten of those, the cell that gives results runs only while a
-//!   choice the asking cell alone writes says yes, so that a wait may be for a result no cell will give (decision
-//!   a-work-no-cell-can-move-is-stalled); and in half of these the asking cell has the precondition "ready" too, so
-//!   that it may wait for the owner while no cell will give its result (property `RESULT_WAITS`). In half of all the
-//!   histories that ask, the owner's words run the asking cell too, and the owner speaks to it at three of ten steps of
-//!   people while the cell that gives its result has a round under way, so that a round entered for the words while it
-//!   waits may rest at a call, its run going on before the cell that gives results begins again. In about a quarter of
-//!   the histories with no judge, drawn apart, a check stands before the merge, run by the brief and by main, which the
-//!   outside alone writes there, writing a choice only it writes, which the merge waits on at yes; a run of it that
-//!   says no says in half of them that what it wrote waits for main to move (property `OUTSIDE`).
+//!   entered again for the results of what it asked for one to three times in a row. In about a third of the histories,
+//!   drawn apart, a cell asks for tests in a record, which runs a cell after it that hands in the result of each entry
+//!   it gives, as the engine's act does; the asking cell runs only while "flip" holds in two of five of those, and the
+//!   owner's words run a cell after it in half (properties `WAITS` and `RESULTS`). In half of those where it runs only
+//!   while "flip" holds, the owner is steered so that its entry is taken up again: once it waits for the result of an
+//!   entry, "flip" fails, and once the cell that gives results ran since, passing the entry over, "flip" holds again,
+//!   so that the cell that gives results is entered for the entry (decision a-wait-of-a-skipped-cell-is-put-away). In
+//!   three of ten of those, the cell that gives results runs only while a choice the asking cell alone writes says yes,
+//!   so that a wait may be for a result no cell will give (decision a-work-no-cell-can-move-is-stalled); and in half of
+//!   these the asking cell has the precondition "ready" too, so that it may wait for the owner while no cell will give
+//!   its result (property `RESULT_WAITS`). In half of all the histories that ask, the owner's words run the asking cell
+//!   too, and the owner speaks to it at three of ten steps of people while the cell that gives its result has a round
+//!   under way, so that the words to a waiting cell stop the round of the cell that gives its result. In about a
+//!   quarter of the histories with no judge, drawn apart, a check stands before the merge, run by the brief and by
+//!   main, which the outside alone writes there, writing a choice only it writes, which the merge waits on at yes; a
+//!   run of it that says no says in half of them that what it wrote waits for main to move (property `OUTSIDE`).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -1179,8 +1178,9 @@ impl History {
     }
 
     /// Where the owner's words run the asking cell, the owner speaks to it now and then while the cell that gives its
-    /// result has a round under way: the round is stopped, the asking cell is entered for the words, and a round of it
-    /// may rest at a call, its run going on before the cell that gives results begins again (property `RESULT_WAITS`).
+    /// result has a round under way: the round is stopped, and the asking cell is entered for the words (counted as "the
+    /// owner's words to a cell that waits for a result stop the round of the cell giving it", which the histories that
+    /// ask must reach).
     fn speak_to_the_waiting(&mut self) {
         let r = &self.w.records;
         let giving = (r.started.iter()).any(|s| {
