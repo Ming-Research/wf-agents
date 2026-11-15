@@ -330,6 +330,8 @@ mod tests {
         flow::compile(&source, &has).expect("the engineer's flow compiles")
     }
 
+    // Compiles the engineer's flow once, well under a second alone: `entry` is crate-private, and no other test hands in a
+    // block of the owner's words that is no record.
     #[test]
     fn a_cell_s_answer_is_the_reply_text_of_a_record_and_any_other_block_is_handed_in_as_it_is() {
         let flow = engineers();

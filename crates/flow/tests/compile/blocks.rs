@@ -448,6 +448,8 @@ const DISCUSSION: &str = "../data/discussion.toml";
 const OWNERS: &str = "owner = \"The owner:\\n\\n{words}\"\n";
 const REPLIES: &str = "reply = \"An agent:\\n\\n{reply}\"\n";
 
+// Each of the tests below compiles the engineer's flow once or twice, well under a second alone: nothing else holds the
+// compile to the texts of a record of what is said, or to it alone being refused for them.
 #[test]
 fn a_record_of_what_is_said_holds_both_texts_whole_in_the_compiled_flow() {
     let (source, has) = engineers();
