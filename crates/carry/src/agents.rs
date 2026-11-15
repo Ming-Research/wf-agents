@@ -444,8 +444,8 @@ impl Inner {
                         }
                     }
                 };
-                // A program that cannot be started printed no result: its words say whether it is missing, which holds
-                // every work, and any other cause is tried again as a failure in passing.
+                // A program that cannot be started printed no result and never began: it is the command line failing
+                // to run, which holds every work, whatever its words say of why.
                 let stdin = Some(cli::stdin(told));
                 process::streamed(command, stdin, Some(&group), stop, Some(halted), &mut each).await
             };

@@ -109,7 +109,8 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
         "run": 3,
         "round": 1,
         "since": START + 4500,
-        "until": { "kind": "at", "at": resets },
+        "checked": null,
+        "until": { "kind": "checked", "at": resets },
         "holds": true,
     });
     let items = get_json(router, "/api/v1/items").await;
@@ -120,8 +121,8 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
         json!({ "kind": "waits", "at": "plan", "on": [{ "kind": "agents", "outage": outage }] })
     );
     assert_eq!(page["summary"]["paused"], false);
-    // Past the reset the wait no longer holds, though it stands until a round that began after it comes back: the
-    // pages are not told it holds "until" a time gone by.
+    // Past the reset the engine's check finds the outside well, and the wait no longer holds, though it stands until a
+    // round that began after it comes back: the pages are not told it holds "until" a time gone by.
     pass(3_600_000 - 2000 + 100).await;
     let items = get_json(router, "/api/v1/items").await;
     assert!(

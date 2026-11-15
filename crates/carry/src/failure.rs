@@ -5,6 +5,11 @@
 //! wording: the words of what it reported, each met in a real report, tell the kind only where the fields say nothing,
 //! as when it crashed or is of a version that has none, and within the class a status tells. An error nothing tells
 //! the kind of is not taken as passing.
+//!
+//! A cause outside every work and the same for all of them (the sign-in, the account's usage limit, the network, the
+//! service down or overloaded, the command line itself failing to run) holds every work's rounds, and the engine then
+//! checks the outside by itself ([`crate::outside`]); what is one round's own, as a crash after it reached the service
+//! or a cut answer, is tried again in passing.
 
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::Command;
@@ -16,9 +21,10 @@ use serde_json::Value;
 /// How long a look at the network waits for the service's host to take a connection.
 const LOOK_WAIT: Duration = Duration::from_secs(5);
 
-/// The look at the network while the agents' rounds wait for it: whether the agents' service's host, the one
-/// `ANTHROPIC_BASE_URL` names in the engine's environment or else Anthropic's API, resolves and takes a connection
-/// within a few seconds. Looking costs no round and writes nothing in a session.
+/// The look at the network to the agents' service, which the check of the outside takes while the agents' rounds wait
+/// for it ([`crate::outside`]): whether the service's host, the one `ANTHROPIC_BASE_URL` names in the engine's
+/// environment or else Anthropic's API, resolves and takes a connection within a few seconds. Looking costs no round
+/// and writes nothing in a session.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Look;
 
@@ -63,14 +69,18 @@ fn host(base: Option<&str>) -> String {
 /// main loop's latest message, where that message is one, with its kind (`error`), the service's typed kind
 /// (`api_error`), which the result repeats, and the status the service answered with (`api_error_status`); whether the
 /// latest rate limit event refused the account's requests (`rate_limit_event`), with when the limit resets, as that
-/// event or the refusal itself says (`rate_limit_info`); and of the result, whether it was printed at all, and why the
-/// round ended (`terminal_reason`, and the result's `subtype`). An event that refuses while the command line carries
-/// on, on its overage or in a grace, refuses nothing, as the command line itself reads it.
+/// event or the refusal itself says (`rate_limit_info`); whether it said it began, as its first line does once it has
+/// read its input (`system`, `init`); and of the result, whether it was printed at all, and why the round ended
+/// (`terminal_reason`, and the result's `subtype`). An event that refuses while the command line carries on, on its
+/// overage or in a grace, refuses nothing, as the command line itself reads it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Said {
-    /// The kind the command line's own kind of the error tells (`rate_limit`, `overloaded`, `authentication_failed`),
-    /// where it tells one ([`ERRORS`]).
+    /// The kind the command line's own kind of the error tells (`overloaded`, `authentication_failed`), where it tells
+    /// one ([`ERRORS`]).
     error: Option<Failure>,
+    /// Whether the command line's own kind of the error is `rate_limit`, which a rate limit (429) is of: the account's
+    /// usage limit or a throttle, as a rate limit's status is.
+    limited: bool,
     /// The kind the service's typed kind of the error tells (`usage_limit_reached`, `connection_failed`), where it
     /// tells one ([`API_ERRORS`]).
     api_error: Option<Failure>,
@@ -85,6 +95,9 @@ pub struct Said {
     status: Option<u16>,
     /// Whether the command line printed its result. One that printed none crashed, or was stopped.
     pub printed: bool,
+    /// Whether the command line said it began: as its first line does once it has read its input, and as any message of
+    /// its main loop does.
+    pub began: bool,
 }
 
 /// The service's typed kinds of error (`api_error`) that tell a kind, each with it. The others say what running again
@@ -110,9 +123,10 @@ const API_ERRORS: &[(&str, Failure)] = &[
     ("tls_untrusted_ca", Failure::CannotRun),
     ("network_edge_blocked", Failure::CannotRun),
     ("claude_code_version_too_old", Failure::CannotRun),
-    // The service did not answer, or answered with nothing to take: tried again.
-    ("no_response", Failure::Passing),
-    ("stream_idle_timeout", Failure::Passing),
+    // The service did not answer: it holds every work's rounds until it serves again.
+    ("no_response", Failure::Unavailable),
+    ("stream_idle_timeout", Failure::Unavailable),
+    // The round's own, or an answer with nothing to take: tried again.
     ("computer_slept", Failure::Passing),
     ("empty_completion", Failure::Passing),
     ("malformed_tool_use_exhausted", Failure::Passing),
@@ -120,8 +134,9 @@ const API_ERRORS: &[(&str, Failure)] = &[
 ];
 
 /// The command line's kinds of error (`error`) that tell a kind, each with it. Its `rate_limit` is shared by the
-/// account's usage limit and the service's passing throttles, which the typed kind or the rate limit event tells
-/// apart, and its `invalid_request` and `unknown` say nothing: the status and the words tell those.
+/// account's usage limit and the service's throttles, which the typed kind, the rate limit event or else the words tell
+/// apart, as within a rate limit's status ([`Class::Limit`]), and its `invalid_request` and `unknown` say nothing: the
+/// status and the words tell those.
 const ERRORS: &[(&str, Failure)] = &[
     ("authentication_failed", Failure::CannotRun),
     ("oauth_org_not_allowed", Failure::CannotRun),
@@ -130,8 +145,8 @@ const ERRORS: &[(&str, Failure)] = &[
     ("billing_error", Failure::CannotRun),
     ("cloud_credential_error", Failure::CannotRun),
     ("model_not_found", Failure::NoModel),
-    ("overloaded", Failure::Passing),
-    ("server_error", Failure::Passing),
+    ("overloaded", Failure::Unavailable),
+    ("server_error", Failure::Unavailable),
     ("max_output_tokens", Failure::Passing),
 ];
 
@@ -161,11 +176,13 @@ const ENDINGS: &[(&str, Failure)] = &[
 /// report tell apart within it where it holds more than one kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Class {
-    /// The service failed, was overloaded or took too long (408, 500 to 599, 529): in passing, whatever the words.
-    Passing,
+    /// The service failed, was overloaded or took too long (408, 500 to 599, 529): it is unavailable, whatever the
+    /// words.
+    Unavailable,
     /// The service refused the sign-in (401, 403), as the command line itself reads it: the command line cannot run.
     CannotRun,
-    /// A rate limit (429): the account's usage limit where the words say so, else a throttle that passes.
+    /// A rate limit (429): the account's usage limit where the words say so, else a throttle of the account's
+    /// requests, which makes the service unavailable to every work alike.
     Limit,
     /// The service refused the request (any other 4xx): run again, it is refused again. The words may tell the kind of
     /// the refusal, as a context too long, a flagged message or the usage limit; else its work pauses, with why.
@@ -176,7 +193,7 @@ impl Class {
     /// The class of the status, where it has one.
     fn of(status: u16) -> Option<Class> {
         match status {
-            408 | 500..=599 => Some(Class::Passing),
+            408 | 500..=599 => Some(Class::Unavailable),
             401 | 403 => Some(Class::CannotRun),
             429 => Some(Class::Limit),
             400..=499 => Some(Class::Refused),
@@ -187,10 +204,10 @@ impl Class {
     /// The kind of a failure of this class, the words of its report telling this kind where they tell one.
     fn kind(self, words: Option<Failure>) -> Failure {
         match self {
-            Class::Passing => Failure::Passing,
+            Class::Unavailable => Failure::Unavailable,
             Class::CannotRun => Failure::CannotRun,
             Class::Limit if words == Some(Failure::UsageLimit) => Failure::UsageLimit,
-            Class::Limit => Failure::Passing,
+            Class::Limit => Failure::Unavailable,
             Class::Refused => (words)
                 .filter(|kind| !matches!(kind, Failure::Passing | Failure::Offline))
                 .unwrap_or(Failure::Other),
@@ -210,7 +227,9 @@ impl Said {
             // Each message of the main loop says whether it is an error: one that is not ends what an earlier one said,
             // the command line having gone on past it.
             Some("assistant") if line["parent_tool_use_id"].is_null() => {
+                self.began = true;
                 self.error = of(ERRORS, &line["error"]);
+                self.limited = line["error"] == "rate_limit";
                 self.api_error = of(API_ERRORS, &line["api_error"]);
                 self.status = status(line);
                 if let Some(at) = reset(&line["api_error_params"]["rate_limit_info"]) {
@@ -226,6 +245,7 @@ impl Said {
                     self.resets = Some(at);
                 }
             }
+            Some("system") if line["subtype"] == "init" => self.began = true,
             Some("result") => {
                 self.printed = true;
                 if let Some(kind) = of(API_ERRORS, &line["api_error"]) {
@@ -342,7 +362,9 @@ const KINDS: [(Failure, &[&str]); 6] = [
 /// what the round took. Where nothing tells the kind, a round whose command line printed an error is no failure in
 /// passing: run again, it would meet again what nobody has told apart, unseen, and its work is paused, with what it
 /// said. A round that printed no result, as when the command line crashed or was killed, fails in passing unless its
-/// words say otherwise: it is tried again, what it spent counted, and the bound on tries in a row pauses its work.
+/// words say otherwise, where it reached the service or said it began: it is tried again, what it spent counted, and
+/// the bound on tries in a row pauses its work. One that did neither is the command line itself failing to run, which
+/// no work's round runs past.
 pub fn of(report: &str, said: &Said, spent: Option<&work::Spent>) -> Failure {
     let words = words(report);
     // A return the command line gave up on is sent back, whatever the service said of the calls before it.
@@ -350,7 +372,8 @@ pub fn of(report: &str, said: &Said, spent: Option<&work::Spent>) -> Failure {
         return Failure::Unread;
     }
     let reached = spent.is_some_and(|s| s.input_tokens + s.cached_tokens + s.output_tokens > 0);
-    let told = (said.kind()).or_else(|| said.status.and_then(Class::of).map(|class| class.kind(words)));
+    let class = (said.status.and_then(Class::of)).or_else(|| said.limited.then_some(Class::Limit));
+    let told = (said.kind()).or_else(|| class.map(|class| class.kind(words)));
     match (told, words) {
         // A connection that failed after the round had spent tokens is that round's own, cut or ended early, and no
         // sign the network has gone.
@@ -361,6 +384,8 @@ pub fn of(report: &str, said: &Said, spent: Option<&work::Spent>) -> Failure {
         (None, Some(Failure::CannotRun | Failure::Offline)) if reached => Failure::Passing,
         (None, Some(kind)) => kind,
         (None, None) if said.printed => Failure::Other,
+        // It ended before it began and reached nothing: the command line itself fails to run.
+        (None, None) if !reached && !said.began => Failure::CannotRun,
         (None, None) => Failure::Passing,
     }
 }
@@ -669,7 +694,7 @@ mod tests {
         let typed_unknown =
             printed(serde_json::json!({ "api_error": "dlp_request_denied", "terminal_reason": "api_error" }));
         assert_eq!(of(unknown, &typed_unknown, none), Failure::Other);
-        assert_eq!(of(unknown, &Said::default(), None), Failure::Passing);
+        assert_eq!(of(unknown, &began(), None), Failure::Passing);
         // A result that is no error and holds no return is not taken as passing either.
         let bare = said(&[serde_json::json!({ "type": "result", "subtype": "success", "is_error": false })]);
         let empty = "the command line's result holds no structured return";
@@ -684,18 +709,18 @@ mod tests {
         let at = |status: u16| printed(serde_json::json!({ "api_error_status": status }));
         let api = "the command line's result is an error: API Error";
         for status in [408, 500, 502, 503, 504, 529] {
-            assert_eq!(of(api, &at(status), none), Failure::Passing, "{status}");
-            // Whatever words it quotes, a server's fault passes.
+            assert_eq!(of(api, &at(status), none), Failure::Unavailable, "{status}");
+            // Whatever words it quotes, a server's fault is the service's, and every work's.
             assert_eq!(
                 of("Prompt is too long", &at(status), none),
-                Failure::Passing,
+                Failure::Unavailable,
                 "{status}"
             );
         }
         assert_eq!(of(api, &at(401), none), Failure::CannotRun);
         assert_eq!(of(api, &at(403), none), Failure::CannotRun);
-        // A rate limit is the account's usage limit where the words say so, else a throttle that passes.
-        assert_eq!(of("API Error: 429 slow down", &at(429), none), Failure::Passing);
+        // A rate limit is the account's usage limit where the words say so, else a throttle of every work's requests.
+        assert_eq!(of("API Error: 429 slow down", &at(429), none), Failure::Unavailable);
         assert_eq!(
             of("You've hit your weekly limit · resets Nov 15 at 6pm", &at(429), none),
             Failure::UsageLimit
@@ -709,8 +734,10 @@ mod tests {
         );
         assert_eq!(of("API Error: 400 Connection error.", &at(400), none), Failure::Other);
         // The fields come before the status.
-        let overloaded = printed(serde_json::json!({ "api_error_status": 400, "api_error": "no_response" }));
-        assert_eq!(of(api, &overloaded, none), Failure::Passing);
+        let unanswered = printed(serde_json::json!({ "api_error_status": 400, "api_error": "no_response" }));
+        assert_eq!(of(api, &unanswered, none), Failure::Unavailable);
+        let slept = printed(serde_json::json!({ "api_error_status": 529, "api_error": "computer_slept" }));
+        assert_eq!(of(api, &slept, none), Failure::Passing);
     }
 
     // Why the round ended tells the kind where it says one: the return given up on, a context past the model's, a
@@ -736,7 +763,7 @@ mod tests {
         assert_eq!(of(api, &bound, none), Failure::Other);
         // A reason that says only that it failed leaves the kind to the status.
         let failed = printed(serde_json::json!({ "terminal_reason": "api_error", "api_error_status": 529 }));
-        assert_eq!(of(api, &failed, none), Failure::Passing);
+        assert_eq!(of(api, &failed, none), Failure::Unavailable);
         // A result that is no error says nothing of how a round ended.
         let fine =
             said(&[serde_json::json!({ "type": "result", "is_error": false, "subtype": "error_during_execution" })]);
@@ -764,19 +791,43 @@ mod tests {
         assert_eq!(of("You've hit your limit", &none, Some(&spent)), Failure::UsageLimit);
     }
 
-    // A command line that crashed is tried again, as most of its crashes pass: the bound on failures in passing in a
-    // row pauses its work where it goes on crashing.
+    // A command line that crashed once it began is tried again, as most of its crashes pass: the bound on failures in
+    // passing in a row pauses its work where it goes on crashing. One that ended before it began, having reached
+    // nothing, is the command line itself failing to run, whatever its words, as a program that cannot be started is.
     #[test]
-    fn a_round_that_printed_no_result_fails_in_passing_unless_its_words_say_otherwise() {
+    fn a_round_that_printed_no_result_fails_in_passing_where_it_began_unless_its_words_say_otherwise() {
+        let began = began();
+        assert_eq!(of("claude exited with signal: 9", &began, None), Failure::Passing);
+        assert_eq!(of("API Error: 529 Overloaded", &began, None), Failure::Passing);
+        assert_eq!(of("claude: command not found", &began, None), Failure::CannotRun);
+        assert_eq!(
+            of("getaddrinfo ENOTFOUND api.anthropic.com", &began, None),
+            Failure::Offline
+        );
+        assert_eq!(of("Prompt is too long", &began, None), Failure::PromptTooLong);
+        let spent = work::Spent {
+            input_tokens: 10,
+            ..work::Spent::default()
+        };
         let none = Said::default();
-        assert_eq!(of("claude exited with signal: 9", &none, None), Failure::Passing);
-        assert_eq!(of("API Error: 529 Overloaded", &none, None), Failure::Passing);
-        assert_eq!(of("claude: command not found", &none, None), Failure::CannotRun);
+        assert_eq!(
+            of("claude exited with signal: 9", &none, Some(&spent)),
+            Failure::Passing
+        );
+        assert_eq!(of("claude exited with signal: 9", &none, None), Failure::CannotRun);
+        assert_eq!(
+            of("claude cannot be started: Permission denied (os error 13)", &none, None),
+            Failure::CannotRun
+        );
         assert_eq!(
             of("getaddrinfo ENOTFOUND api.anthropic.com", &none, None),
             Failure::Offline
         );
-        assert_eq!(of("Prompt is too long", &none, None), Failure::PromptTooLong);
+    }
+
+    /// What the stream says of a round whose command line said it began, and printed nothing more.
+    fn began() -> Said {
+        said(&[serde_json::json!({ "type": "system", "subtype": "init", "claude_code_version": "2.1.323" })])
     }
 
     /// What the stream's lines say, read one after the other.
@@ -800,7 +851,7 @@ mod tests {
     }
 
     // The fields of the stream tell the kind whatever the words say: a weekly limit in words never met before is the
-    // usage limit, a throttle that shares its error is in passing, and an expired sign-in cannot run.
+    // usage limit, a throttle that shares its error makes the service unavailable, and an expired sign-in cannot run.
     #[test]
     fn the_fields_the_command_line_names_an_error_in_tell_its_kind_before_its_words() {
         let none = Some(&work::Spent::default());
@@ -813,14 +864,14 @@ mod tests {
         );
         assert_eq!(limit.resets, Some(1_793_394_000_000));
         let throttled = said(&[refusal("rate_limit", None, Value::Null)]);
-        assert_eq!(of("API Error: 429 slow down", &throttled, none), Failure::Passing);
+        assert_eq!(of("API Error: 429 slow down", &throttled, none), Failure::Unavailable);
         // The words still tell a limit the fields leave open.
         assert_eq!(
             of("You've hit your limit · resets 5pm", &throttled, none),
             Failure::UsageLimit
         );
         let overloaded = said(&[refusal("overloaded", None, Value::Null)]);
-        assert_eq!(of("Invalid API key", &overloaded, none), Failure::Passing);
+        assert_eq!(of("Invalid API key", &overloaded, none), Failure::Unavailable);
         let signed_out = said(&[refusal("authentication_failed", None, Value::Null)]);
         assert_eq!(of("API Error: 401", &signed_out, none), Failure::CannotRun);
         let offline = serde_json::json!({ "type": "result", "is_error": true, "api_error": "connection_failed" });
@@ -858,12 +909,16 @@ mod tests {
             let on = rejected(carried.clone());
             assert!(!said(std::slice::from_ref(&on)).refused, "{carried}");
             let overloaded = said(&[on, refusal("overloaded", None, Value::Null)]);
-            assert_eq!(of("API Error: 529", &overloaded, none), Failure::Passing, "{carried}");
+            assert_eq!(
+                of("API Error: 529", &overloaded, none),
+                Failure::Unavailable,
+                "{carried}"
+            );
         }
         // A refusing event comes after the round's own error.
         let refused = rejected(serde_json::json!({ "overageStatus": "rejected" }));
         let overloaded = said(&[refused.clone(), refusal("overloaded", None, Value::Null)]);
-        assert_eq!(of("API Error: 529", &overloaded, none), Failure::Passing);
+        assert_eq!(of("API Error: 529", &overloaded, none), Failure::Unavailable);
         assert_eq!(of("API Error", &said(&[refused]), none), Failure::UsageLimit);
     }
 

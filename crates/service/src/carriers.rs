@@ -16,12 +16,14 @@
 //! carrier keeps nothing of a failed round, and tries nothing again itself: when a round is tried again is the engine's
 //! to say, as its records show, and whatever made the round fail is shown on the page.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
-use driver::Policy;
 use driver::history::Lines;
+use driver::{Found, Policy};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -300,6 +302,16 @@ pub trait Network: Send + Sync {
     fn reached(&self) -> bool;
 }
 
+/// What checks the outside the agents' rounds need while they wait for it, by itself and with no round: the sign-in of
+/// their command line, the network to their service and a short request the service answers, each in turn, so that
+/// what is down is said by the first that is. It touches no work's session, and costs at most that short request.
+///
+/// It is called off the loop, and may take as long as the short request may.
+pub trait Outside: Send + Sync {
+    /// What the outside is now.
+    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
+}
+
 /// What carries out each kind of todo.
 #[derive(Clone)]
 pub struct Carriers {
@@ -311,8 +323,8 @@ pub struct Carriers {
     /// How many rounds of agents may go on at once: the engine gives the agents no more than this, and the others wait
     /// for a slot in the engine's order. The engine's own acts take none.
     pub slots: usize,
-    /// The look at the network to the agents' service.
-    pub network: Arc<dyn Network>,
+    /// The check of the outside the agents' rounds need, while they wait for it.
+    pub outside: Arc<dyn Outside>,
     /// The look at the network to the host the acts reach; none where no network reaches it, as the local repository.
     pub host: Option<Arc<dyn Network>>,
 }
@@ -639,11 +651,11 @@ mod tests {
         fn withdraw(&self, _: ToolCall, _: CallReply) {}
     }
 
-    struct Reached;
+    struct Well;
 
-    impl Network for Reached {
-        fn reached(&self) -> bool {
-            true
+    impl Outside for Well {
+        fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+            Box::pin(async { Found::Well })
         }
     }
 
@@ -653,7 +665,7 @@ mod tests {
             acts: Arc::new(Keeps(acts)),
             tools: Arc::new(NoTools),
             slots: 1,
-            network: Arc::new(Reached),
+            outside: Arc::new(Well),
             host: None,
         }
     }

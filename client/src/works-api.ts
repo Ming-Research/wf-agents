@@ -56,35 +56,45 @@ export type Failure =
   | 'usageLimit'
   | 'cannotRun'
   | 'offline'
+  | 'unavailable'
   | 'promptTooLong'
   | 'noModel'
   | 'other';
 
-/// When the rounds a wait holds may begin again: at a time, every work's; or one round tries at a time, where `look`
-/// once a look at the network every half minute reaches it; or every round once a look at the host, every half minute
-/// from a time, reaches it; or once the round trying now ends or is answered.
-export type Until =
-  | { kind: 'at'; at: number }
-  | { kind: 'trial'; at: number; look: boolean }
-  | { kind: 'looked'; at: number }
-  | { kind: 'tried' };
+/// When the rounds a wait holds may begin again: once a check of the outside of the agents' rounds, which the engine
+/// takes at a time (at a usage limit whose reset was said, at the reset), finds it well; now, the check at a time having
+/// found it well; or every act once a look at the host, every half minute from a time, reaches it.
+export type Until = { kind: 'checked'; at: number } | { kind: 'well'; at: number } | { kind: 'looked'; at: number };
 
-/// A wait every work shares: a round of an agent failed for a cause no one work has, and no agent's round of any work
-/// begins while it stands.
+/// What a check of the outside found: everything well, or what is down, as a failed round's kind of cause, and why.
+export type Found = { kind: 'well' } | { kind: 'down'; failure: Failure; why: string };
+
+/// The latest check of the outside of the agents' rounds in a wait: when, how many were taken in it, and what it found.
+export interface Checked {
+  at: number;
+  taken: number;
+  found: Found;
+}
+
+/// A wait every work shares: a round of an agent failed for a cause outside every work, and no agent's round of any
+/// work begins while it holds; the engine checks the outside by itself meanwhile.
 export interface Outage {
   /// The service whose rounds it holds: the agents', or the host's the engine's acts reach.
   service: 'agents' | 'host';
+  /// The kind of cause the latest round that failed so met, and why.
   failure: Failure;
   why: string;
-  /// The round that failed so, the latest that did.
+  /// That round.
   work: number;
   run: number;
   round: number;
-  /// When it ended.
+  /// Since when what the rounds need is down: when the first round that failed so in the wait ended.
   since: number;
+  /// The latest check of the outside in the wait, where one was taken.
+  checked: Checked | null;
   until: Until;
-  /// Whether it holds rounds now: past its time it stands only until a round that began after it comes back, and
-  /// holds nothing meanwhile.
+  /// Whether it holds rounds now: once a check found the outside well it stands only until a round that began after
+  /// the latest that failed so comes back, and holds nothing meanwhile.
   holds: boolean;
 }
 

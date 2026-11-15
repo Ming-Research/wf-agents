@@ -10,6 +10,7 @@
 
 import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
 import { mocksShown } from '../mock-data';
+import { outageDown } from '../works/words';
 import { itemOf } from './real';
 
 /// What the item is to deliver: not yet, delivered, or given up.
@@ -75,7 +76,7 @@ export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'slot') return null;
   if (w.kind === 'answer') return 'owner';
   // A wait every work shares is the owner's to end only where the command line cannot run.
-  if (w.kind === 'agents') return w.outage.failure === 'cannotRun' ? 'owner' : null;
+  if (w.kind === 'agents') return outageDown(w.outage).failure === 'cannotRun' ? 'owner' : null;
   return w.who;
 }
 

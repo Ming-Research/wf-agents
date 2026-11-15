@@ -17,9 +17,10 @@ use web::attention::{Attention, Line, Stuck};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::system::{Past, System, UnderWay};
 use web::works::{
-    Act, Added, Against, Back, Call, CellKey, CellState, ChangeAsked, Engine, EngineAct, Failure, ItemChanged,
-    ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person,
-    QuestionPage, Refusal, Run, SessionWhy, Spent, Stalling, Step, Unrun, Until, VersionPage, Waited, WorkPage, Writer,
+    Act, Added, Against, Back, Call, CellKey, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, Found,
+    ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser,
+    Person, QuestionPage, Refusal, Run, SessionWhy, Spent, Stalling, Step, Unrun, Until, VersionPage, Waited, WorkPage,
+    Writer,
 };
 
 /// What a command asks of the engine.
@@ -1552,31 +1553,70 @@ fn waited(waited: &Waited) -> String {
     }
 }
 
-/// A wait every work shares, as a clause: its cause, when it is over, and the round that met it.
+/// A wait every work shares, as a clause: what is down and since when, as the latest check of the outside found it or
+/// else as the round that met it did; what the engine does next; and the round that met it.
 fn outage(outage: &Outage) -> String {
-    let cause = match outage.failure {
+    let down = match &outage.checked {
+        Some(Checked {
+            found: Found::Down { failure, why },
+            ..
+        }) if outage.holds => Some((*failure, why.as_str())),
+        _ => None,
+    };
+    let cause = |failure: Failure| match failure {
         Failure::UsageLimit => "the account's usage limit was reached",
         Failure::CannotRun => "the agents' command line cannot run; sign it in again or install it",
         Failure::Offline => "the network cannot be reached",
+        Failure::Unavailable => "the agents' service is down, overloaded or not answering",
+        _ if down.is_some() => "the engine's check of the outside failed",
         _ => "a round failed for a cause every work shares",
     };
+    let what = cause(down.map_or(outage.failure, |(failure, _)| failure));
     let until = match outage.until {
-        Until::At { at } => format!("until {}", utc(at)),
-        Until::Trial { at, look: false, .. } => format!("one round tries at {}", utc(at)),
-        Until::Trial { at, .. } => format!(
-            "the network is looked at from {} every half minute, and one round tries once it is reached",
+        Until::Checked { at } => format!(
+            "the engine checks the outside itself at {}, touching no work's session, and every work goes on once it is \
+             well",
+            utc(at)
+        ),
+        Until::Well { at } => format!(
+            "the engine's check at {} found it well, and every work goes on",
             utc(at)
         ),
         Until::Looked { at } => format!(
             "the host is looked at from {} every half minute, and every act goes on once it is reached",
             utc(at)
         ),
-        Until::Tried => "one round tries now".to_string(),
+    };
+    let checked = match (&outage.checked, down) {
+        (Some(checked), Some((_, why))) => {
+            format!(
+                "; the check at {}, the {} in the wait, found: {why}",
+                utc(checked.at),
+                ordinal(checked.taken)
+            )
+        }
+        _ => String::new(),
     };
     format!(
-        "{cause}, {until} (round {} of run {} of work {}: {})",
-        outage.round, outage.run, outage.work, outage.why
+        "{what}, since {}; {until}{checked} (round {} of run {} of work {}: {})",
+        utc(outage.since),
+        outage.round,
+        outage.run,
+        outage.work,
+        outage.why
     )
+}
+
+/// A count as a place in order: 1st, 2nd, 3rd, 4th, 11th, 21st.
+fn ordinal(n: u32) -> String {
+    let end = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{end}")
 }
 
 /// A time in milliseconds since the start of 1970, as the owner reads it: its day and minute in UTC.
@@ -1910,6 +1950,47 @@ mod tests {
 
     fn items(items: Vec<Item>) -> Items {
         Items { items, outage: None }
+    }
+
+    // The list says what is down while the wait holds, as the latest check found it, since when, and when the engine
+    // checks next; once a check found the outside well it holds nothing, and the list says nothing of it.
+    #[test]
+    fn a_list_says_what_is_down_since_when_and_when_the_engine_checks_next() {
+        let hour = 3_600_000;
+        let mut waiting = items(vec![item(1, false, &[], &[])]);
+        waiting.outage = Some(Outage {
+            service: web::works::Service::Agents,
+            failure: Failure::Unavailable,
+            why: "API Error: 529 Overloaded".to_string(),
+            work: 1,
+            run: 2,
+            round: 1,
+            since: hour,
+            checked: Some(Checked {
+                at: 2 * hour,
+                taken: 2,
+                found: Found::Down {
+                    failure: Failure::CannotRun,
+                    why: "the agents' command line is not signed in".to_string(),
+                },
+            }),
+            until: Until::Checked { at: 3 * hour },
+            holds: true,
+        });
+        let said = list(&waiting, &Listing::default());
+        let first = said.lines().next().unwrap_or_default();
+        assert_eq!(
+            first,
+            "No agent's round of any work begins: the agents' command line cannot run; sign it in again or install \
+             it, since 1970-01-01 01:00 UTC; the engine checks the outside itself at 1970-01-01 03:00 UTC, touching \
+             no work's session, and every work goes on once it is well; the check at 1970-01-01 02:00 UTC, the 2nd \
+             in the wait, found: the agents' command line is not signed in (round 1 of run 2 of work 1: API Error: \
+             529 Overloaded)."
+        );
+        let outage = waiting.outage.as_mut().unwrap();
+        outage.until = Until::Well { at: 2 * hour };
+        outage.holds = false;
+        assert!(list(&waiting, &Listing::default()).starts_with("#1 "));
     }
 
     #[test]

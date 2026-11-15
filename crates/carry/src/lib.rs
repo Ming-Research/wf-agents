@@ -17,8 +17,9 @@
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
 //! - [`permissions`]: what the agents of a line may run, and what they are told of it.
 //! - [`failure`]: the kind of cause of a round that failed, told apart by the fields the command line names the
-//!   service's errors in and by the words of what it reported, and the look at the network while the agents' rounds
-//!   wait for it.
+//!   service's errors in and by the words of what it reported, and the looks at the network.
+//! - [`outside`]: the check of the outside the agents' rounds need, which the engine takes by itself while they wait
+//!   for it: the sign-in, the network and a short request.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
@@ -40,6 +41,7 @@ pub mod guard;
 mod held;
 mod host;
 mod kept;
+pub mod outside;
 pub mod permissions;
 mod process;
 pub mod projects;
@@ -164,6 +166,7 @@ pub fn carry(
         of.insert(name, agents::Of::new(&settings, project, beside, main));
     }
     let slots = settings.agents.slots;
+    let outside = outside::Check::of(&settings)?;
     let carriers = Carriers {
         slots,
         agents: Arc::new(Agents::new(settings, data.clone(), installation, of)),
@@ -175,7 +178,7 @@ pub fn carry(
             of: tools,
             said: beside.installation.no_project.clone(),
         }),
-        network: Arc::new(failure::Look),
+        outside: Arc::new(outside),
         host: host_look,
     };
     Ok((carriers, watches))
