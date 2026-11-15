@@ -195,12 +195,6 @@ impl Built {
 
     /// The round under way asks the owner a question named `named`, which it waits for, and hands in nothing.
     fn asks_the_owner(&mut self) {
-        self.asks_the_owner_handing_in(&[]);
-    }
-
-    /// The round under way asks the owner a question named `named`, which it waits for, and hands in these blocks, each
-    /// with its value where it is a choice.
-    fn asks_the_owner_handing_in(&mut self, blocks: &[(&str, Option<&str>)]) {
         let way = |does: &str| Way {
             does: does.to_string(),
             follows: format!("The greeting {does}."),
@@ -214,15 +208,7 @@ impl Built {
             about: None,
             reasons: Default::default(),
         };
-        let handed = (blocks.iter())
-            .map(|(block, value)| Handed {
-                block: (*block).into(),
-                content: format!("The {block}."),
-                matters: true,
-                value: value.map(str::to_string),
-            })
-            .collect();
-        let mut came = Came::hands_in(handed);
+        let mut came = Came::hands_in(Vec::new());
         came.said.questions = vec![question];
         self.returns(came);
     }
@@ -475,8 +461,8 @@ fn a_question_that_waits_is_a_wait_for_its_answer_while_it_stands() {
     assert_eq!(built.judged(&format!("{asked}, {{ runs = \"plan\" }}")), Judged::Took);
 }
 
-/// A research that may find that the deep research is needed, which then alone writes the plan, the research no longer
-/// applying; and the merge, which requires every question to be answered.
+/// A research that runs while the owner has not said that the deep research is needed, which then alone writes the
+/// plan, the research no longer applying; and the merge, which requires every question to be answered.
 fn deepening() -> Compiled {
     let flow = r#"
         name = "deepening"
@@ -499,6 +485,7 @@ fn deepening() -> Compiled {
         [blocks.deep_needed]
         values = ["yes", "no"]
         default = "no"
+        people = true
         [blocks.plan]
         [blocks.merged]
         shown = true
@@ -512,10 +499,7 @@ fn deepening() -> Compiled {
     let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = { asked = \"answered\" }\n\
                  inputs = [\"plan\"]\noutputs = [\"merged\"]\n";
     let cells = [
-        (
-            "research",
-            agent("no", "\"request\", \"answered\"", "\"deep_needed\", \"plan\""),
-        ),
+        ("research", agent("no", "\"request\", \"answered\"", "\"plan\"")),
         ("deep", agent("yes", "\"request\"", "\"plan\"")),
         ("merge", merge.to_string()),
     ];
@@ -532,14 +516,24 @@ fn deepening() -> Compiled {
     flow::compile(&source, &has).expect("the definition compiles")
 }
 
-// A question that waits, of a cell its own return leaves no longer applying, holds nothing (decision
-// a-wait-of-a-skipped-cell-is-put-away): the work goes on, and waits at the merge for the owner's answer by the block
-// that says how the questions stand, a key of its preconditions the owner's answer alone makes hold.
+// A question that waits, of a cell skipped once it asked it, holds nothing from then on (decision
+// a-wait-of-a-skipped-cell-is-put-away): the research waits for the answer until the owner says that the deep research
+// is needed, and the work then goes on, and waits at the merge for the owner's answer by the block that says how the
+// questions stand, a key of its preconditions the owner's answer alone makes hold; a path that says the research still
+// holds the work leaves where the deep research runs. A research's own return cannot skip it so while it still waits:
+// that return is sent back (decision a-return-that-waits-keeps-its-cell).
 #[test]
-fn a_question_of_a_cell_its_return_skips_holds_nothing_and_the_merge_waits_for_the_answer() {
+fn a_question_of_a_cell_skipped_once_it_asked_holds_nothing_and_the_merge_waits_for_the_answer() {
     let mut built = Built::on(deepening(), None, &[("request", None)]);
     built.take(Event::Resumed);
-    built.asks_the_owner_handing_in(&[("deep_needed", Some("yes"))]);
+    built.asks_the_owner();
+    built.take(Event::Wrote {
+        block: "deep_needed".into(),
+        by: Outsider::Person,
+        content: "The deep research is needed.".to_string(),
+        matters: true,
+        value: Some("yes".to_string()),
+    });
     built.hands_in(&[("plan", None)]);
     assert!(
         matches!(&built.shown().decision, Decision::Wait { at, on }
@@ -547,16 +541,17 @@ fn a_question_of_a_cell_its_return_skips_holds_nothing_and_the_merge_waits_for_t
         "{:?}",
         built.shown().decision
     );
-    let waits = r#"{ runs = "research" }, { runs = "deep" }, { waits = "merge", for = "precondition", key = "asked" }"#;
-    assert_eq!(built.judged(waits), Judged::Took);
-    let held = r#"{ runs = "research" }, { waits = "research", for = "answer", question = "named" }"#;
+    let asked = r#"{ runs = "research" }, { waits = "research", for = "answer", question = "named" }"#;
+    let waits = format!(r#"{asked}, {{ runs = "deep" }}, {{ waits = "merge", for = "precondition", key = "asked" }}"#);
+    assert_eq!(built.judged(&waits), Judged::Took);
+    // A path that says the research still holds the work there leaves it where the deep research runs.
     assert_eq!(
-        built.judged(held),
-        left(
-            2,
-            r#"{ waits = "research", for = "answer", question = "named" }"#,
-            r#"{ runs = "deep" }"#
-        )
+        built.judged(asked),
+        Judged::Left {
+            step: 3,
+            said: None,
+            records: r#"{ runs = "deep" }"#.to_string(),
+        }
     );
     built.answers("named");
     assert_eq!(built.judged(&format!("{waits}, {{ runs = \"merge\" }}")), Judged::Took);

@@ -1194,6 +1194,8 @@ pub enum Unmet {
     NotATest { path: String },
     /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question.
     Unanswered { block: String },
+    /// It writes this block so that its cell no longer applies while the cell still waits, for an answer or for tests.
+    SkipsItsWait { block: String },
 }
 
 /// What came back at the end of a round.
@@ -2838,6 +2840,9 @@ impl Unmet {
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
             UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
+                block: block.to_string(),
+            },
+            UnmetOf::SkipsItsWait { block } => Unmet::SkipsItsWait {
                 block: block.to_string(),
             },
         }

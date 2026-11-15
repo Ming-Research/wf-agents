@@ -168,6 +168,10 @@ pub enum Return {
         /// The blocks of the work's branch the carrier read new as the round ended, as what the round committed: the
         /// run writes each as it finishes, beside the blocks it writes itself.
         read: Vec<BlockId>,
+        /// The blocks that would leave its cell no longer applying, its condition holding as the round ends, while
+        /// the cell, the return taken in with all the engine writes as it takes it, still waits
+        /// ([`crate::skipping`]): worked out for the round the run's next step is judged by, and none of another.
+        skips: Vec<BlockId>,
     },
     /// The round failed: nothing came back, for this kind of cause, said so.
     Failed {
@@ -384,6 +388,11 @@ pub enum Unmet {
     /// runs that act, neither by what it hands in, the work's head it committed among it, nor by a question that
     /// stands for the owner ([`Answer`]): the act reads no words, and would never run again.
     Unanswered { block: BlockId },
+    /// The block, as the return writes it, or as the engine writes it as it takes the return in, leaves its cell no
+    /// longer applying, while the cell, the return taken in, still waits: for the answer to a question of its own, or
+    /// for the result of an entry of a record it asks in. A wait of a cell that does not apply holds nothing (decision
+    /// a-return-that-waits-keeps-its-cell).
+    SkipsItsWait { block: BlockId },
 }
 
 /// What runs an act of the engine's again, of a block it wrote that runs a cell before it: the blocks that run the
@@ -482,6 +491,7 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             waits,
             questions,
             read,
+            skips,
         } => {
             let came = Came {
                 dealt_with,
@@ -491,23 +501,18 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
                 waits: *waits,
                 questions,
                 read,
+                skips,
             };
             let unmet = unmet(&came, requires);
             if unmet.is_empty() {
-                // What the round committed is the run's too, as the carrier read it of the branch.
-                let committed = (read.iter())
-                    .filter(|block| !writes.iter().any(|w| &w.block == *block))
-                    .map(|block| Write {
-                        block: block.clone(),
-                        meaning_unchanged: false,
-                        value: None,
-                        // What the carrier read of the branch, a commit, holds something.
-                        empty: false,
-                    });
-                let written = (writes.iter()).filter(|w| !takes_nothing_away(w, requires)).cloned();
+                // A write that takes nothing away is no write (decision a-write-of-nothing-only-empties).
+                let written: Vec<Write> = (writes.iter())
+                    .filter(|w| !takes_nothing_away(w, requires))
+                    .cloned()
+                    .collect();
                 return Step::Finish {
                     dealt_with: consumed(dealt_with, requires),
-                    writes: written.chain(committed).collect(),
+                    writes: taken_writes(&written, read),
                 };
             }
             unmet
@@ -520,6 +525,21 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
         return Step::AtLimit(Limit::Returns { sent_back });
     }
     held(Step::SendBack { unmet }, hold)
+}
+
+/// What a run writes as its return is taken: the blocks it writes, then each block of the work's branch the carrier read
+/// new as the round ended that it does not write itself, as what the round committed.
+pub fn taken_writes(writes: &[Write], read: &[BlockId]) -> Vec<Write> {
+    let committed = (read.iter())
+        .filter(|block| !writes.iter().any(|w| &w.block == *block))
+        .map(|block| Write {
+            block: block.clone(),
+            meaning_unchanged: false,
+            value: None,
+            // What the carrier read of the branch, a commit, holds something.
+            empty: false,
+        });
+    writes.iter().cloned().chain(committed).collect()
 }
 
 /// The step, which begins a round, or its being held where the pause holds that round back.
@@ -625,9 +645,10 @@ fn takes_nothing_away(write: &Write, requires: Requires) -> bool {
 /// each write, in the order of the writes; then whether it asks for calls beside doing the cell's work; then, of a
 /// return that does not leave its cell waiting ([`leaves_waiting`]) and wrote in its shape every block that would,
 /// whether it deals with nothing while something ran its round, and each block the cell must hand in and did not, in
-/// the order the cell lists them, but one found written in a shape it does not take; then each question it writes that
-/// it may not, in the order it wrote them; then, of such a return, each block an act wrote that it deals with and
-/// leaves unanswered, in the order it dealt with them.
+/// the order the cell lists them, but one found written in a shape it does not take; then each block it writes so that
+/// its cell no longer applies while the cell still waits; then each question it writes that it may not, in the order
+/// it wrote them; then, of a return that does not leave its cell waiting, each block an act wrote that it deals with
+/// and leaves unanswered, in the order it dealt with them.
 fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     let Came {
         dealt_with,
@@ -637,6 +658,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         waits,
         questions,
         read,
+        skips,
     } = *came;
     let told = requires.told;
     let mut unmet = found.to_vec();
@@ -727,6 +749,10 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             }
         }
     }
+    // A return whose writes leave its cell no longer applying while the cell still waits contradicts itself: the wait
+    // of a cell that does not apply is put away and holds nothing (decision a-return-that-waits-keeps-its-cell). The
+    // walk judges both, on the records as the return would leave them.
+    unmet.extend(skips.iter().map(|block| Unmet::SkipsItsWait { block: block.clone() }));
     // A question is one cell's: its agent alone writes it anew or withdraws it, under a name no other question has.
     for (i, q) in questions.iter().enumerate() {
         let name = || q.name.clone();
@@ -780,4 +806,5 @@ struct Came<'r> {
     waits: bool,
     questions: &'r [Asking],
     read: &'r [BlockId],
+    skips: &'r [BlockId],
 }
