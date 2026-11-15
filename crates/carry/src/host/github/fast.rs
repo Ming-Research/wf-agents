@@ -26,6 +26,7 @@ use uuid::Uuid;
 use super::api::{Api, Check, Outcome, Run};
 use super::results::{self, Became, Case};
 use super::{GitHub, output};
+use crate::git;
 use crate::held::Stop;
 use crate::host::{Asking, Failed, Named, Verdict};
 use crate::process;
@@ -84,19 +85,24 @@ impl Again {
 
 /// The names of the tests the runs failed, each once, in the order the runs give them, where nothing but tests did
 /// not pass: each run's results were read, none has a unit not built, each job that did not pass judged the code and
-/// found it wanting, and each such job that reported results of its own reported a failed test of its own. None where
-/// anything else did not pass, as a job of tests red for a step before or beside them, or where no test failed.
-fn failed_alone(ran: &[Ran]) -> Option<Vec<String>> {
+/// found it wanting, and each such job reported a failed test of its own in results of its own, or is among the jobs
+/// `accounted` for without ([`GitHub::accounted`]). None where anything else did not pass, as a job of tests red for a
+/// step before or beside them, or one that left no results, or where no test failed.
+fn failed_alone(ran: &[Ran], accounted: &[String]) -> Option<Vec<String>> {
     let mut tests: Vec<String> = Vec::new();
     for one in ran {
         let run = one.results.as_ref().ok()?;
         let judged = (one.jobs.iter())
             .filter(|j| red_job(j))
             .all(|j| matches!(j.outcome, Outcome::Failed(_)));
-        // A job that ran tests and did not pass, and reported no failed test of its own, failed for something else.
+        // A job that did not pass and reported no failed test of its own failed for something else, unless the run
+        // again reproduces it or it only sums up the others.
         let own = (one.jobs.iter())
-            .filter(|j| red_job(j) && run.reported.contains(&j.name))
-            .all(|j| (run.cases.iter()).any(|c| c.job == j.name && c.outcome == results::Outcome::Failed));
+            .filter(|j| red_job(j))
+            .all(|j| match run.reported.contains(&j.name) {
+                true => (run.cases.iter()).any(|c| c.job == j.name && c.outcome == results::Outcome::Failed),
+                false => accounted.contains(&j.name),
+            });
         if !run.unbuilt.is_empty() || !judged || !own {
             return None;
         }
@@ -207,6 +213,26 @@ impl<A: Api> GitHub<A> {
             .as_ref()
             .ok_or("the words of run_tests have no [result]")?;
         Ok(Some(said(words, &role, request.commit, &ran, named, false)))
+    }
+
+    /// The jobs of the full workflows that did not pass may be let through with no failed test of their own, as the
+    /// project's own declaration and workflows say them, the files of them as main holds them at `main`, the head the
+    /// commit checked holds: each check the fast workflow runs by name, which the run again runs and so finds red
+    /// again; and each job of a full workflow that needs every other job of it, which only sums them up
+    /// ([`super::workflow::summing`]). A workflow whose file cannot be read lets none through for summing up.
+    pub(super) async fn accounted(&self, main: &str) -> Vec<String> {
+        let ci = self.config.ci.as_ref();
+        let mut accounted = (ci.and_then(|ci| ci.fast.as_ref())).map_or_else(Vec::new, |fast| fast.checks.clone());
+        let workflows = (ci.and_then(|ci| ci.full.as_ref())).map_or(&[][..], |full| &full.workflows[..]);
+        for workflow in workflows {
+            let file = format!("{main}:.github/workflows/{workflow}");
+            if let Ok(said) = git::said(&self.project.repo, &["show", &file]).await
+                && said.ok
+            {
+                accounted.extend(super::workflow::summing(&said.out));
+            }
+        }
+        accounted
     }
 
     /// The value the run of the workflow asked for by the request holds in its name: a name-based UUID (version 5) of
@@ -333,7 +359,8 @@ impl<A: Api> GitHub<A> {
             return Ok(Some(verdict));
         }
         let first = said(words, &role, commit, &ran, &named, true);
-        let Some(tests) = failed_alone(&ran) else {
+        let accounted = self.accounted(main).await;
+        let Some(tests) = failed_alone(&ran, &accounted) else {
             verdict.failed = Some(first);
             return Ok(Some(verdict));
         };

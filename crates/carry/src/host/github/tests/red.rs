@@ -41,7 +41,25 @@ fn runs(hub: &Hub) -> Vec<(String, String, String, String)> {
         .collect()
 }
 
+/// The project's full workflow as main holds it in these tests: the page, the tests and the docs, and `check`, which
+/// needs every other job and so sums them up.
+const CI: &str = "name: ci\njobs:\n  page:\n    runs-on: x\n  test:\n    runs-on: x\n  docs:\n    runs-on: x\n  \
+                  check:\n    needs: [page, test, docs]\n    if: always()\n";
+
+/// A file of results of the job, named by it.
+fn file(job: &str, xml: &str) -> (String, Vec<u8>) {
+    (format!("{job}.xml"), xml.as_bytes().to_vec())
+}
+
 impl Hub {
+    /// Main holds this file of the full workflow, on GitHub as here: before the work starts, which takes main in.
+    fn with_workflow(&self, text: &str) {
+        let repo = &self.repo.project.repo;
+        std::fs::create_dir_all(repo.join(".github/workflows")).unwrap();
+        commit(repo, ".github/workflows/ci.yml", text);
+        run(repo, &["push", "-q", &self.github().bare.display().to_string(), "main"]);
+    }
+
     /// The work's commit, whose full workflows pass the lint and fail `tools::tests::b`, the job of the tests failing
     /// with it; and the head of main on GitHub.
     async fn red_by_b(&self) -> (String, String) {
@@ -222,7 +240,6 @@ async fn nothing_is_run_again_where_more_than_tests_failed_or_nothing_can_run_th
 // job. Well under a second alone, a repository on disk and GitHub in memory; no other test holds a job to its own file.
 #[tokio::test]
 async fn a_job_red_with_no_failed_test_of_its_own_fails_the_commit_beside_a_test_that_would_pass_again() {
-    let file = |job: &str, xml: &str| (format!("{job}.xml"), xml.as_bytes().to_vec());
     let tests = r#"<testsuites><testsuite name="carry"><testcase name="tools::tests::b"><failure/></testcase></testsuite></testsuites>"#;
     let page = r#"<testsuites><testsuite name="src/page.test.ts"><testcase name="a page > shows the list"/></testsuite></testsuites>"#;
     let step = r#"<testsuites><testsuite name="page"><error message="the step Build the page of the job failed"/></testsuite></testsuites>"#;
@@ -231,6 +248,7 @@ async fn a_job_red_with_no_failed_test_of_its_own_fails_the_commit_beside_a_test
         (step, Some("page: the step Build the page of the job failed")),
     ] {
         let hub = Hub::new();
+        hub.with_workflow(CI);
         let head = hub.committed().await;
         let jobs = vec![check("page", red()), check("test", red()), check("check", red())];
         let files = vec![file("page", page), file("test", tests)];
@@ -247,15 +265,57 @@ async fn a_job_red_with_no_failed_test_of_its_own_fails_the_commit_beside_a_test
         }
         assert_eq!(runs(&hub).len(), 1, "only the full workflows ran");
     }
-    // Where the job of the failed test is the one that did not pass, the test is run again.
-    let hub = Hub::new();
-    let head = hub.committed().await;
-    let jobs = vec![passed("page"), check("test", red()), check("check", red())];
-    let files = vec![file("page", page), file("test", tests)];
-    hub.github()
-        .of_workflow("ci.yml", &head, jobs, Some(("test-results", files)));
-    hub.fast_on(&head, true, Outcome::Passed);
-    let verdict = hub.verdict(&head).await.unwrap().expect("judged");
-    assert_eq!(verdict.failed, None, "{verdict:?}");
-    assert_eq!(runs(&hub).len(), 2, "the test was run again");
+}
+
+// A job that did not pass and left no results of its own, as one whose runner died before it named them, is let
+// through only where the run again reproduces it, as a check the fast workflow runs by name, or where it only sums up
+// the others, needing every other job of the full workflow as main holds it: beside a failed test of another job that
+// would pass again, any other such job fails the commit as the full workflows found it, and nothing is run again.
+// Well under a second alone, a repository on disk and GitHub in memory; no other test holds a red job with no results.
+#[tokio::test]
+async fn a_red_job_that_left_no_results_of_its_own_fails_the_commit_unless_the_run_again_or_the_sum_accounts_for_it() {
+    let tests = r#"<testsuites><testsuite name="carry"><testcase name="tools::tests::b"><failure/></testcase></testsuite></testsuites>"#;
+    let judged = |workflow: bool, jobs: Vec<Check>| async move {
+        let hub = Hub::new();
+        if workflow {
+            hub.with_workflow(CI);
+        }
+        let head = hub.committed().await;
+        let files = vec![file("test", tests)];
+        hub.github()
+            .of_workflow("ci.yml", &head, jobs, Some(("test-results", files)));
+        hub.fast_on(&head, true, Outcome::Passed);
+        let verdict = hub.verdict(&head).await.unwrap().expect("judged");
+        (verdict, runs(&hub).len())
+    };
+    // The docs left nothing, and neither the run again nor the sum accounts for them.
+    let (verdict, ran) = judged(
+        true,
+        vec![check("docs", red()), check("test", red()), check("check", red())],
+    )
+    .await;
+    let failed = verdict.failed.expect("the docs fail it");
+    assert!(
+        failed.contains("- docs: failed (failure)") && !failed.contains("run again"),
+        "{failed}"
+    );
+    assert_eq!((ran, verdict.observations.len()), (1, 0), "nothing is run again");
+    // The lint is a check the fast workflow runs by name, which the run again passes; `check` sums up the others.
+    let (verdict, ran) = judged(
+        true,
+        vec![check("lint", red()), check("test", red()), check("check", red())],
+    )
+    .await;
+    assert_eq!(
+        (verdict.failed, ran),
+        (None, 2),
+        "the run again accounts for the lint, the sum for check"
+    );
+    // With no file of the workflow on main, nothing says `check` only sums up the others.
+    let (verdict, ran) = judged(false, vec![check("test", red()), check("check", red())]).await;
+    assert!(
+        verdict.failed.is_some_and(|f| f.contains("- check: failed (failure)")),
+        "check fails it"
+    );
+    assert_eq!(ran, 1, "nothing is run again");
 }

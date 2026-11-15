@@ -24,6 +24,7 @@ mod fast;
 mod gh;
 mod output;
 mod results;
+mod workflow;
 
 #[cfg(test)]
 mod fake;
