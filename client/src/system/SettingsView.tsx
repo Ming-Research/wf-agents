@@ -437,7 +437,7 @@ function Accounts({ reread }: { reread: () => void }) {
               </td>
               <td>
                 {a.inUse ? (
-                  <span className="tag account-named">in use</span>
+                  <span className="tag account-in-use">in use</span>
                 ) : !a.running ? (
                   <span className="muted small">taken as the engine starts again</span>
                 ) : a.signedInAs === null ? (

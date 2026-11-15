@@ -401,7 +401,9 @@ fn the_accounts_are_shown_in_the_owners_order_with_the_one_in_use_the_ones_at_a_
         true,
     );
     let page = accounts_of(&install, &running).map_err(|r| r.1).unwrap();
-    let rows: Vec<(&str, Option<&str>, bool, bool, Option<u64>)> = (page.accounts.iter())
+    /// An account as the table shows it: its name, who it is signed in as, in use, run with, and its limit's reset.
+    type Row<'a> = (&'a str, Option<&'a str>, bool, bool, Option<u64>);
+    let rows: Vec<Row> = (page.accounts.iter())
         .map(|a| {
             (
                 a.name.as_str(),

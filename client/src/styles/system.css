@@ -119,7 +119,7 @@
 }
 
 /* The account in use. */
-.account-named {
+.account-in-use {
   background: var(--accent);
 }
 
