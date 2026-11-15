@@ -176,7 +176,7 @@ impl<H: Host> Acts<H> {
 }
 
 /// The source outside the works whose block the watch of main writes.
-pub const MAIN: &str = "main";
+pub use driver::MAIN;
 
 /// How often the watch of main looks at its head: within a minute of another work's merge, the works whose check had
 /// passed are checked again before they merge, and a look costs one fetch.

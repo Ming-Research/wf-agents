@@ -100,20 +100,24 @@ and the scripts that stand in for agents are built; what is not is said at the e
     made after the round, is asked about its cell's text (27). It runs on an installation apart from the real one, in a
     repository made for it, so that nothing it does reaches a project.
 
-13. **What a script says**, for one case: what each round of each cell returns (what it hands in, asks or fails with,
-    and what it takes), or the part its agent plays; what each tool answers; what people and the outside do, each at a
-    state of the work, such as an answer while the work waits for it, a pause while a round is under way, or the engine
-    stopped at a step; and the path the run must take: the cells in their order, each wait and whom it waits for, and
-    how the work ends.
+13. **What a script says**, for one case: the items it adds; what each round of each cell returns (what it hands in,
+    asks or fails with, and what it takes), or the part its agent plays; what each tool answers; what people and the
+    outside do, each at a state of the work, such as an answer while the work waits for it, a pause while a round is
+    under way, or the engine stopped at a step; and the path the run must take: the cells in their order, each wait and
+    whom it waits for, and how the work ends.
 
-14. **How its run is judged.** A program reads the run's records against the path its script states, and names the
-    first step that left it, with what the records hold there. A script kept beside the flows whose agents are all
-    stood in for is run by a test of the suite, so that a change of the flow it no longer fits fails at that change,
-    not when someone next runs it. A case met in a real run that no script reaches becomes a script, and a fault it
-    showed gets its test at its layer (2).
+14. **How its run is judged.** A program plays a script whose agents are all stood in for on an engine made as
+    `wf-agents run` makes it, on a clock of its own that passes as the engine waits, each act given as its state comes
+    about, and reads each work's records against the path its script states, by the reading of the records the histories
+    and the exploration judge by (4, 5) and not by the deciding code the run tests, but for what no record holds (a
+    stall, a slot, the turn, the wait every work shares), which it takes from the engine's view; it names the first step
+    that left the path, with what the records hold there. A script kept beside the flows whose agents are all stood in
+    for is run by a test of the suite, so that a change of the flow it no longer fits fails at that change, not when
+    someone next runs it. A case met in a real run that no script reaches becomes a script, and a fault it showed gets
+    its test at its layer (2).
 
-15. Not built: a script's acts of people and the outside, and its path; the program that judges a run by it; the suite
-    running the scripts kept beside the flows; and agents that play a part.
+15. Not built: the command that plays a script, and the suite running the scripts kept beside the flows; and agents
+    that play a part.
 
 ## Every state of the page
 

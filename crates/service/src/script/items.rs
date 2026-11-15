@@ -60,10 +60,11 @@
 //! - `ends`: the work ends `merged` or `cancelled`.
 //! - `everything`: the pause of everything holds, set by the `owner` or the `engine`.
 //!
-//! A step of a path left out of a key that names one thing of several matches any of them. What no record of a work
-//! holds is read from the engine's view of it now, so that a path names it only as its end: a round under way, a stall,
-//! a wait for a slot, the turn or what every work shares, and the pause of everything. The result of what a cell asked
-//! for in a record is no step of a path: the runs of the cells that give it are.
+//! A key that says more of a step, left out, matches whatever it would have said, but for a limit's `by`, which names
+//! the engine where it is left out. What a work stands at now, and no step before it, is a path's end only: a round
+//! under way, and what no record holds, which is read from the engine's view of the work: a stall, a wait for a slot,
+//! for the turn or for what every work shares, and the pause of everything. The result of what a cell asked for in a
+//! record is no step of a path: the runs of the cells that give it are.
 //!
 //! An act's `at` is a state of the work as the engine shows it, in the same words: a round under way, a wait at a cell
 //! (but for the turn and what every work shares), paused, stalled or ended. Its `do` is one of what people do to a
@@ -79,11 +80,12 @@
 //! still to give stands at its next one, so that the one write is each work's own. The head is no act, nor the tree:
 //! they are written by the round that reads the work's branch, as the real carrier writes them.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use decide::run::Failure;
-use decide::{BlockId, CellId, End, Pauser, Who};
-use flow::Compiled;
+use decide::{BlockId, CellId, Condition, End, Pauser, Who};
+use flow::{Compiled, Kind};
 use serde::{Deserialize, Serialize};
 
 use super::{Person, Script};
@@ -325,6 +327,33 @@ impl Step {
                 }
         )
     }
+
+    /// Whether the step is a state a work stands at, which an act may wait for.
+    fn state(&self) -> bool {
+        match self {
+            Step::UnderWay { .. } | Step::Paused(_) | Step::Stalled(_) | Step::Ends(_) => true,
+            Step::Waits { on, .. } => !matches!(on, Wait::Turn | Wait::Shared),
+            _ => false,
+        }
+    }
+
+    /// The cells it names.
+    fn cells(&self) -> Vec<&CellId> {
+        match self {
+            Step::Runs(cell)
+            | Step::UnderWay { cell, .. }
+            | Step::SentBack(cell)
+            | Step::Fails { cell, .. }
+            | Step::LetGo(cell)
+            | Step::Stalled(cell) => vec![cell],
+            Step::Waits {
+                cell,
+                on: Wait::Limit(Some(by)),
+            } => vec![cell, by],
+            Step::Waits { cell, .. } => vec![cell],
+            Step::Paused(_) | Step::LetOn | Step::Reopened | Step::Ends(_) | Step::Everything(_) => Vec::new(),
+        }
+    }
 }
 
 /// A step as a script writes it.
@@ -525,8 +554,267 @@ impl StepScript {
     }
 }
 
-/// Everything wrong with the script's items for these flows: nothing of them is checked yet.
+impl ActScript {
+    /// The keys it gives beside `at` and `do`, by name.
+    fn given(&self) -> Vec<&'static str> {
+        let keys = [
+            ("block", self.block.is_some()),
+            ("content", self.content.is_some()),
+            ("value", self.value.is_some()),
+            ("cell", self.cell.is_some()),
+            ("why", self.why.is_some()),
+            ("result", self.result.is_some()),
+            ("line", self.line.is_some()),
+            ("question", self.question.is_some()),
+            ("words", self.words.is_some()),
+            ("option", self.option.is_some()),
+            ("title", self.title.is_some()),
+            ("item", self.item.is_some()),
+            ("tag", self.tag.is_some()),
+        ];
+        keys.into_iter()
+            .filter(|(_, given)| *given)
+            .map(|(key, _)| key)
+            .collect()
+    }
+}
+
+impl Does {
+    /// The keys an act that does this must give, and those it may give besides.
+    fn keys(self) -> (&'static [&'static str], &'static [&'static str]) {
+        match self {
+            Does::Write => (&["block", "content"], &["value"]),
+            Does::LetGo => (&["cell"], &[]),
+            Does::Cancel => (&[], &["why"]),
+            Does::Result => (&["result"], &[]),
+            Does::Say => (&["words"], &["line", "question"]),
+            Does::Answer => (&["question", "option"], &["why"]),
+            Does::NewSession => (&["line"], &[]),
+            Does::Title => (&["title", "why"], &[]),
+            Does::DependsOn | Does::NoLongerDependsOn => (&["item", "why"], &[]),
+            Does::Tag | Does::Untag => (&["tag", "why"], &[]),
+            Does::Reopen => (&["why"], &[]),
+            Does::Main => (&["content"], &[]),
+            Does::Pause | Does::Resume | Does::PauseEverything | Does::ResumeEverything | Does::Restart => (&[], &[]),
+        }
+    }
+}
+
+/// Everything wrong with the script's items for these flows, each in words with where it is: an item of a flow there is
+/// not, of a blank title, depending on an item that does not come before it, or written a block people do not write;
+/// a step or a state that says other than one thing, or names a cell, a block, a key, a question or a sender its flow
+/// does not have; a path whose step that only the engine's view shows is not its end, or that names the result of what
+/// a cell asked for; an act's state that is no state of a work; an act that leaves out a key what it does needs, gives
+/// one it does not take, or names what its flow or the script does not have; and items whose main moves at the same
+/// place to heads that differ.
 pub(super) fn check(script: &Script, flows: &[Compiled]) -> Vec<String> {
-    let _ = (script, flows);
-    Vec::new()
+    let mut faults = Vec::new();
+    let items = &script.items;
+    for (k, item) in items.iter().enumerate() {
+        let at = format!("items[{k}]");
+        if item.title.trim().is_empty() {
+            faults.push(format!(
+                "{at}.title: a title says what the item is to deliver: give it words"
+            ));
+        }
+        for place in &item.depends_on {
+            if *place == 0 || *place > k {
+                faults.push(format!(
+                    "{at}.depends_on: {place} is no place of an item before it, counted from 1"
+                ));
+            }
+        }
+        let Some(flow) = flows.iter().find(|flow| flow.name == item.flow) else {
+            faults.push(format!("{at}.flow: no flow is named {}", item.flow));
+            continue;
+        };
+        let names = Names { flow };
+        for (j, write) in item.writes.iter().enumerate() {
+            if let Some(fault) = names.people_write(&write.block) {
+                faults.push(format!("{at}.writes[{j}]: {fault}"));
+            }
+        }
+        for (j, act) in item.acts.iter().enumerate() {
+            let at = format!("{at}.acts[{j}]");
+            match act.at.step() {
+                Err(fault) => faults.push(format!("{at}.at: {fault}")),
+                Ok(state) if !state.state() => faults.push(format!("{at}.at: {state} is no state of a work")),
+                Ok(state) => faults.extend(names.step(&state).into_iter().map(|fault| format!("{at}.at: {fault}"))),
+            }
+            let (needs, takes) = act.does.keys();
+            let given = act.given();
+            for key in needs.iter().filter(|key| !given.contains(key)) {
+                faults.push(format!("{at}: an act that does {} gives {key}", named(act.does)));
+            }
+            for key in given.iter().filter(|key| !needs.contains(key) && !takes.contains(key)) {
+                faults.push(format!("{at}: an act that does {} takes no {key}", named(act.does)));
+            }
+            if act.does == Does::Say && act.line.is_some() == act.question.is_some() {
+                faults.push(format!(
+                    "{at}: words are said to a line or about a question, one of them"
+                ));
+            }
+            faults.extend(
+                names
+                    .act(act, items.len(), k)
+                    .into_iter()
+                    .map(|fault| format!("{at}: {fault}")),
+            );
+        }
+        let last = item.path.len().saturating_sub(1);
+        for (j, step) in item.path.iter().enumerate() {
+            let at = format!("{at}.path[{j}]");
+            let step = match step.step() {
+                Ok(step) => step,
+                Err(fault) => {
+                    faults.push(format!("{at}: {fault}"));
+                    continue;
+                }
+            };
+            if step.ends_only() && j != last {
+                faults.push(format!(
+                    "{at}: {step} is read from the engine's view of the work now, and so only a path's end"
+                ));
+            }
+            if matches!(step, Step::Waits { on: Wait::Result, .. }) {
+                faults.push(format!(
+                    "{at}: the result of what a cell asked for is no step of a path: the runs of the cells that give it \
+                     are"
+                ));
+            }
+            faults.extend(names.step(&step).into_iter().map(|fault| format!("{at}: {fault}")));
+        }
+    }
+    // Main moves once for every item whose act moves it, so the acts that move it together say one head.
+    let mut heads: BTreeMap<usize, Vec<(usize, &str)>> = BTreeMap::new();
+    for (k, item) in items.iter().enumerate() {
+        let moves = (item.acts.iter()).filter(|act| act.does == Does::Main);
+        for (n, act) in moves.enumerate() {
+            heads
+                .entry(n)
+                .or_default()
+                .push((k, act.content.as_deref().unwrap_or_default()));
+        }
+    }
+    for (n, moved) in heads {
+        if moved.iter().any(|(_, head)| *head != moved[0].1) {
+            let items: Vec<String> = moved.iter().map(|(k, _)| format!("items[{k}]")).collect();
+            faults.push(format!(
+                "{}: main moves once for all of them at their main act {}, and they say other heads",
+                items.join(", "),
+                n + 1
+            ));
+        }
+    }
+    faults
+}
+
+/// What the names a script's item gives are checked against: its flow.
+struct Names<'a> {
+    flow: &'a Compiled,
+}
+
+impl Names<'_> {
+    /// What is wrong with a cell's name: none where the flow has the cell.
+    fn cell(&self, cell: &CellId) -> Option<String> {
+        let has = self.flow.cells.iter().any(|c| c.id == *cell);
+        (!has).then(|| format!("the flow {} has no cell {cell}", self.flow.name))
+    }
+
+    /// What is wrong with a block people are to write: none where people write it.
+    fn people_write(&self, block: &str) -> Option<String> {
+        let name = &self.flow.name;
+        match self.flow.blocks.get(&BlockId::from(block)) {
+            None => Some(format!("the flow {name} has no block {block}")),
+            Some(b) if !b.writers.people => Some(format!("people do not write the block {block}")),
+            Some(_) => None,
+        }
+    }
+
+    /// What is wrong with a question's name: none where a round of the script asks it. No round of a script asks the
+    /// owner a question of the record of questions: what one asks a person is a call, which an act gives its result.
+    fn question(question: &str) -> Option<String> {
+        Some(format!("no round of the script asks a question named {question}"))
+    }
+
+    /// Everything wrong with what the step names.
+    fn step(&self, step: &Step) -> Vec<String> {
+        let mut faults: Vec<String> = step.cells().into_iter().filter_map(|cell| self.cell(cell)).collect();
+        if !faults.is_empty() {
+            return faults;
+        }
+        let place = |cell: &CellId| self.flow.flow.place(cell);
+        let Step::Waits { cell, on } = step else {
+            return faults;
+        };
+        let spec = self.flow.cells.iter().find(|c| c.id == *cell);
+        let i = place(cell).expect("the cell is in the flow");
+        match on {
+            Wait::Limit(Some(by)) if place(by).is_none_or(|j| j <= i) => {
+                faults.push(format!("{by} is no cell after {cell}, which sends a cell back"));
+            }
+            Wait::Precondition(Some(key)) => {
+                let named = |c: &Condition| match c {
+                    Condition::Test(test) => test.as_str() == key,
+                    Condition::Is { block, .. } => block.as_str() == key,
+                };
+                if !self.flow.flow.cells()[i].requires.iter().any(named) {
+                    faults.push(format!("{key} is no key of the preconditions of {cell}"));
+                }
+            }
+            Wait::Outside(Some(block)) => match self.flow.blocks.get(block) {
+                None => faults.push(format!("the flow {} has no block {block}", self.flow.name)),
+                Some(b) if b.writers.outside.is_none() => {
+                    faults.push(format!("no source outside the work writes {block}"));
+                }
+                Some(_) => {}
+            },
+            Wait::Answer(Some(question)) => faults.extend(Self::question(question)),
+            Wait::Turn if spec.is_some_and(|spec| spec.kind == Kind::Agent) => {
+                faults.push(format!(
+                    "{cell} is no act of the engine, which alone waits for the turn"
+                ));
+            }
+            _ => {}
+        }
+        faults
+    }
+
+    /// Everything wrong with what the act names, among `items` items, it being of the item at place `k`.
+    fn act(&self, act: &ActScript, items: usize, k: usize) -> Vec<String> {
+        let mut faults = Vec::new();
+        let lines = |line: &str| self.flow.lines.contains_key(line);
+        match act.does {
+            Does::Write => faults.extend(act.block.as_deref().and_then(|block| self.people_write(block))),
+            Does::LetGo => faults.extend(act.cell.as_deref().and_then(|cell| self.cell(&CellId::from(cell)))),
+            Does::Say | Does::NewSession => {
+                if let Some(line) = act.line.as_deref().filter(|line| !lines(line)) {
+                    faults.push(format!("the flow {} has no line {line}", self.flow.name));
+                }
+                faults.extend(act.question.as_deref().and_then(Self::question));
+            }
+            Does::Answer => faults.extend(act.question.as_deref().and_then(Self::question)),
+            Does::DependsOn | Does::NoLongerDependsOn => {
+                if let Some(item) = act.item.filter(|item| *item == 0 || *item > items || *item == k + 1) {
+                    faults.push(format!(
+                        "{item} is no place of another of the script's items, counted from 1"
+                    ));
+                }
+            }
+            Does::Main
+                if !self
+                    .flow
+                    .blocks
+                    .values()
+                    .any(|b| b.writers.outside.as_deref() == Some(driver::MAIN)) =>
+            {
+                faults.push(format!("the flow {} has no block of {}", self.flow.name, driver::MAIN));
+            }
+            _ => {}
+        }
+        if act.does == Does::Answer && act.option == Some(0) {
+            faults.push("an option is counted from 1".to_string());
+        }
+        faults
+    }
 }

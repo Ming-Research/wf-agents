@@ -3,9 +3,9 @@
 //! why a run would start (design document `data-and-context`). The properties are judged by this reading, so that a
 //! fault in the walk's own reading is not repeated in the judging. It reads only the records and the flow, with its
 //! named tests, never what the deciding code works out of them: it takes the deciding code's types and calls none of
-//! its walk. It is read by every test that judges the deciding code by the records, the histories of crate `decide`
-//! and the exploration of the repository's own flow (crate `flow`, `tests/explored`), so it is one crate they share
-//! (principle `one-thing-one-place`).
+//! its walk. It is read by everything that judges the deciding code by the records, the histories of crate `decide`,
+//! the exploration of the repository's own flow (crate `flow`, `tests/explored`) and the judge of a script's play
+//! (crate `service`), so it is one crate they share (principle `one-thing-one-place`).
 
 use std::collections::BTreeMap;
 
@@ -430,4 +430,146 @@ impl<'a> Reading<'a> {
             by_outsider || by_judge
         })
     }
+
+    /// The cells after the cell at place `i` that wrote what these causes of a run of it, starting at this place, are
+    /// new versions of, each once: of the causes the run dealt with, where it finished. None where one of them is a
+    /// first run or a version that a person, the outside or a cell before it wrote, which is no send-back and starts
+    /// the cell's counts anew; the results of its calls, and those of what it asked for in a record, are no one's
+    /// (decision the-same-sender-again).
+    pub fn sent_by(&self, flow: &Flow, i: usize, because: &[Cause], place: Seq) -> Option<Vec<CellId>> {
+        let cell = &flow.cells()[i].id;
+        let mut senders: Vec<CellId> = Vec::new();
+        for cause in because {
+            match cause {
+                Cause::NoRecord => return None,
+                Cause::Changed { behind: false, .. } => return None,
+                Cause::Changed { block, .. } if self.results.contains(block) => {}
+                Cause::Changed { block, .. } => {
+                    for v in self.new_to(cell, block, place) {
+                        if let Writer::Cell(writer, _) = &v.by
+                            && flow.place(writer).is_some_and(|j| j > i)
+                            && !senders.contains(writer)
+                        {
+                            senders.push(writer.clone());
+                        }
+                    }
+                }
+                Cause::Results { .. } => {}
+            }
+        }
+        Some(senders)
+    }
+
+    /// How many of the cell's finished runs before this place, since its counts last began anew, this sender sent back:
+    /// runs that dealt with something and were for a version it wrote. The counts begin anew where the owner lets the
+    /// cell go on, and with a run of it for a first run or a version a person, the outside or a cell before it wrote.
+    pub fn sent_back_since(&self, flow: &Flow, i: usize, sender: &CellId, place: Seq) -> usize {
+        let cell = &flow.cells()[i].id;
+        let let_go = (self.records.let_go.iter())
+            .filter(|l| &l.cell == cell && l.at < place)
+            .map(|l| l.at)
+            .max();
+        let anew = (self.started.values())
+            .filter(|s| &s.cell == cell && s.at < place && self.sent_by(flow, i, &s.because, s.at).is_none())
+            .map(|s| s.at)
+            .max();
+        let from = let_go.max(anew);
+        let mut count = 0;
+        for s in self.finished_since_let_go(cell, place) {
+            if from.is_some_and(|from| s.at <= from) {
+                continue;
+            }
+            let dealt: Vec<Cause> = (s.because.iter())
+                .filter(|c| match c {
+                    Cause::Changed { block, .. } => self.dealt_with(s.run, block, Seq(u64::MAX)),
+                    _ => true,
+                })
+                .cloned()
+                .collect();
+            let senders = self.sent_by(flow, i, &dealt, s.at).unwrap_or_default();
+            let did = self.finished[&s.run].dealt_with.as_ref().is_none_or(|d| !d.is_empty());
+            if did && senders.contains(sender) {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// The cell's runs that finished before this place, started since the owner last let it go on, in the order they
+    /// finished.
+    fn finished_since_let_go(&self, cell: &CellId, place: Seq) -> Vec<&'a Started> {
+        let let_go = (self.records.let_go.iter())
+            .filter(|l| &l.cell == cell && l.at < place)
+            .map(|l| l.at)
+            .max();
+        let mut runs: Vec<(Seq, &Started)> = (self.finished.values())
+            .filter(|f| f.at < place)
+            .map(|f| (f.at, self.started[&f.run]))
+            .filter(|(_, s)| &s.cell == cell && let_go.is_none_or(|l| s.at > l))
+            .collect();
+        runs.sort_by_key(|(at, _)| *at);
+        runs.into_iter().map(|(_, s)| s).collect()
+    }
+
+    /// The place in the flow of the cell the work stands at now, in the order of the walk: the first cell that applies
+    /// and holds the work, by a run of it that has neither finished nor been abandoned, something it would be entered
+    /// for, a call it is owed that has no result, the result of what it asked for in a record still to come, or a key
+    /// of its preconditions that does not hold, which holds the work at its cell whether or not anything runs the cell
+    /// (decision conditions-and-preconditions). None where no cell holds the work.
+    pub fn standing(&self, flow: &Flow) -> Option<usize> {
+        let now = Seq(u64::MAX);
+        let records = self.records;
+        (0..flow.cells().len()).find(|&i| {
+            let cell = &flow.cells()[i];
+            let open = (records.started.iter()).any(|s| {
+                s.cell == cell.id
+                    && !self.finished.contains_key(&s.run)
+                    && !records.abandoned.iter().any(|a| a.run == s.run)
+            });
+            self.applies(flow, i)
+                && (open
+                    || !self.entering(flow, cell, now).is_empty()
+                    || self.owed(&cell.id, now).iter().any(|c| !self.done(*c, now))
+                    || self.pending(cell, now)
+                    || cell.requires.iter().any(|key| !self.key_holds(flow, key, i)))
+        })
+    }
+}
+
+/// A question put to the owner, as its latest version before a place stands.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Asked {
+    /// The cell that asked it.
+    pub cell: CellId,
+    /// The place of its latest version, which an answer names.
+    pub at: Seq,
+    /// Whether its cell waits for the answer.
+    pub waits: bool,
+    /// Whether that version withdrew it.
+    pub withdrawn: bool,
+    /// Whether the owner answered that version before the place.
+    pub answered: bool,
+}
+
+/// The questions put to the owner before this place, each by its name as its latest version then stands; an answer to
+/// an earlier version answers nothing (decision an-answer-to-an-earlier-version-is-kept).
+pub fn questions(records: &Records, place: Seq) -> BTreeMap<String, Asked> {
+    let mut latest: BTreeMap<String, Asked> = BTreeMap::new();
+    for q in records.questions.iter().filter(|q| q.at < place) {
+        if latest.get(&q.name).is_some_and(|kept| kept.at > q.at) {
+            continue;
+        }
+        let asked = Asked {
+            cell: q.cell.clone(),
+            at: q.at,
+            waits: q.waits,
+            withdrawn: q.withdrawn,
+            answered: false,
+        };
+        latest.insert(q.name.clone(), asked);
+    }
+    for (name, asked) in latest.iter_mut() {
+        asked.answered = (records.answers.iter()).any(|a| &a.question == name && a.version == asked.at && a.at < place);
+    }
+    latest
 }

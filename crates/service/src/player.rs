@@ -14,15 +14,20 @@
 
 use std::fmt;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
+use decide::{Decision, Waited};
+use driver::{Asked, FirstWrite, NewItem};
 use flow::Compiled;
-use store::WorkNumber;
+use store::{ItemChange, ItemNumber, Store, WorkNumber};
+use tokio::sync::oneshot;
 use work::Time;
 
-use crate::judge::Judged;
+use crate::judge::{self, Judged, Shown};
 use crate::script::Script;
-use crate::{Fault, Inbox, Message, Service};
+use crate::script::items::{ActScript, Does, LEVEL, Step};
+use crate::{Act, Clock, Fault, Inbox, Message, Refusal, Scripted, Service, TokioClock, store_fault_words};
 
 /// The loop run in this process one thing at a time, on the clock of the runtime it runs on: what a play takes, and
 /// what the service's own tests drive.
@@ -133,6 +138,338 @@ pub async fn play(
     start: Time,
     bounds: Bounds,
 ) -> Result<Played, Vec<String>> {
-    let _ = (script, flows, store, project, start, bounds);
-    Err(vec!["a script is not played yet".to_string()])
+    let mut faults = script.check(flows);
+    if script.items.is_empty() {
+        faults.push("items: a play adds an item at least, and judges each".to_string());
+    }
+    for (k, item) in script.items.iter().enumerate() {
+        if item.path.is_empty() {
+            faults.push(format!(
+                "items[{k}].path: a played item says the path its work must take"
+            ));
+        }
+    }
+    if !faults.is_empty() {
+        return Err(faults);
+    }
+    let clock = Arc::new(TokioClock::new(start));
+    let open = || -> Result<(Service, Inbox), String> {
+        let opened = Store::open(store).map_err(|fault| store_fault_words(&fault))?;
+        let carriers = Scripted::new(script.clone()).carriers();
+        let clock: Arc<dyn Clock> = clock.clone();
+        Service::open(Box::new(opened), flows.to_vec(), carriers, clock).map_err(|fault| fault.to_string())
+    };
+    let mut stepper = Stepper::new(open().map_err(|fault| vec![fault])?);
+    let mut play = Play {
+        script,
+        project,
+        stepper: &mut stepper,
+        items: Vec::new(),
+        works: Vec::new(),
+        next: vec![0; script.items.len()],
+        refused: vec![Vec::new(); script.items.len()],
+    };
+    for item in &script.items {
+        let depends_on = (item.depends_on.iter()).map(|place| play.items[place - 1]).collect();
+        let new = NewItem {
+            title: item.title.clone(),
+            level: LEVEL.to_string(),
+            project: project.to_string(),
+            depends_on,
+            tags: Vec::new(),
+            flow: item.flow.clone(),
+            writes: (item.writes.iter())
+                .map(|write| FirstWrite {
+                    block: write.block.as_str().into(),
+                    content: write.content.clone(),
+                    value: write.value.clone(),
+                })
+                .collect(),
+        };
+        let (reply, answer) = oneshot::channel();
+        let added = play
+            .send(Message::Add { item: new, reply }, answer)
+            .map_err(|why| vec![why])?;
+        let (item, work) = added.map_err(|refusal| vec![refusal.to_string()])?;
+        play.items.push(item);
+        play.works.push(work);
+    }
+    for (k, item) in script.items.iter().enumerate() {
+        if !item.held {
+            let work = play.works[k];
+            play.act(work, Act::Resume)
+                .map_err(|why| vec![format!("items[{k}]: it could not be let on: {why}")])?;
+        }
+    }
+    let until = Time(start.0.saturating_add(bounds.ms));
+    let mut steps = 0;
+    let mut fault = None;
+    loop {
+        if let Err(stopped) = play.give(&open) {
+            fault = Some(stopped);
+            break;
+        }
+        if play.done() || steps >= bounds.steps {
+            break;
+        }
+        let now = clock.now().unwrap_or(until);
+        let within = Duration::from_millis(until.0.saturating_sub(now.0));
+        let Some(message) = play.stepper.next(within).await else {
+            break;
+        };
+        steps += 1;
+        if let Err(stopped) = play.stepper.take(message) {
+            fault = Some(stopped.to_string());
+            break;
+        }
+    }
+    let driver = play.stepper.service().driver();
+    let items = (script.items.iter().enumerate())
+        .map(|(k, item)| {
+            let work = play.works[k];
+            let path: Vec<Step> = item.path.iter().filter_map(|step| step.step().ok()).collect();
+            let judged = match (driver.work(work), Shown::of(driver, work)) {
+                (Some(kept), Some(shown)) => judge::judge(kept.flow, kept.work, item.held, &path, &shown),
+                _ => Judged::Short {
+                    step: 1,
+                    said: path.first().map(Step::to_string).unwrap_or_default(),
+                    shown: Some("no work: the engine holds none of this number".to_string()),
+                },
+            };
+            ItemPlayed {
+                work,
+                judged,
+                unreached: (play.next[k]..item.acts.len()).map(|j| j + 1).collect(),
+                refused: play.refused[k].clone(),
+            }
+        })
+        .collect();
+    Ok(Played { items, steps, fault })
+}
+
+/// A play under way: the loop, and how far each item's acts have gone.
+struct Play<'a> {
+    script: &'a Script,
+    project: &'a str,
+    stepper: &'a mut Stepper,
+    /// The number of each item added, in the script's order.
+    items: Vec<ItemNumber>,
+    /// The work of each.
+    works: Vec<WorkNumber>,
+    /// The place of each item's next act to give.
+    next: Vec<usize>,
+    /// Each item's acts the engine refused, by their places counted from one, with why.
+    refused: Vec<Vec<(usize, String)>>,
+}
+
+impl Play<'_> {
+    /// Gives the loop a message from someone who is not the loop, and gives its answer, which comes at once.
+    fn send<T>(&mut self, message: Message, mut answer: oneshot::Receiver<T>) -> Result<T, String> {
+        self.stepper.take(message).map_err(|fault| fault.to_string())?;
+        answer.try_recv().map_err(|_| "the loop did not answer".to_string())
+    }
+
+    /// Does what the owner does to the work; the loop's refusal said, where it refused.
+    fn act(&mut self, work: WorkNumber, act: Act) -> Result<(), String> {
+        let (reply, answer) = oneshot::channel();
+        let acted = self.send(Message::Act { work, act, reply }, answer)?;
+        acted.map(|_| ()).map_err(|refusal| refusal.to_string())
+    }
+
+    /// Whether the play can end before its bounds: every item stands at its path's end with no act left to give, or
+    /// has left its path for good.
+    fn done(&self) -> bool {
+        let driver = self.stepper.service().driver();
+        (self.script.items.iter().enumerate()).all(|(k, item)| {
+            let path: Vec<Step> = item.path.iter().filter_map(|step| step.step().ok()).collect();
+            let judged = (driver.work(self.works[k]).zip(Shown::of(driver, self.works[k])))
+                .map(|(kept, shown)| judge::judge(kept.flow, kept.work, item.held, &path, &shown));
+            match judged {
+                Some(Judged::Took) => self.next[k] == item.acts.len(),
+                Some(Judged::Left { .. }) => true,
+                _ => false,
+            }
+        })
+    }
+
+    /// The states the engine shows the item's work at now.
+    fn states(&self, k: usize) -> Vec<Step> {
+        let driver = self.stepper.service().driver();
+        let work = self.works[k];
+        match (driver.work(work), Shown::of(driver, work)) {
+            (Some(kept), Some(shown)) => judge::states(kept.work, &shown),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Whether the item's next act, of this place, waits for a state the work stands at now.
+    fn due(&self, k: usize, j: usize) -> bool {
+        let act = &self.script.items[k].acts[j];
+        let Ok(at) = act.at.step() else {
+            return false;
+        };
+        self.states(k).iter().any(|state| at.matches(state))
+    }
+
+    /// Gives each item's next act whose state the work stands at, again and again until none is due; says what stopped
+    /// the loop, where something did, or the engine could not be opened again.
+    fn give(&mut self, open: &dyn Fn() -> Result<(Service, Inbox), String>) -> Result<(), String> {
+        let script = self.script;
+        loop {
+            let mut given = false;
+            for k in 0..script.items.len() {
+                let j = self.next[k];
+                let Some(act) = script.items[k].acts.get(j) else {
+                    continue;
+                };
+                if !self.due(k, j) {
+                    continue;
+                }
+                if act.does == Does::Main {
+                    // Main moves once, for every item with an act that moves it still to give, once each stands at it.
+                    let moving: Vec<usize> = (0..script.items.len())
+                        .filter(|&m| {
+                            script.items[m].acts[self.next[m]..]
+                                .iter()
+                                .any(|a| a.does == Does::Main)
+                        })
+                        .collect();
+                    let all = moving.iter().all(|&m| {
+                        let next = &script.items[m].acts[self.next[m]];
+                        next.does == Does::Main && self.due(m, self.next[m])
+                    });
+                    if !all {
+                        continue;
+                    }
+                    let message = Message::Outside {
+                        project: self.project.to_string(),
+                        source: driver::MAIN.to_string(),
+                        content: act.content.clone().unwrap_or_default(),
+                    };
+                    self.stepper.take(message).map_err(|fault| fault.to_string())?;
+                    for m in moving {
+                        self.next[m] += 1;
+                    }
+                    given = true;
+                    continue;
+                }
+                self.next[k] += 1;
+                given = true;
+                if let Err(why) = self.carry_out(k, act, open)? {
+                    self.refused[k].push((j + 1, why));
+                }
+            }
+            if !given {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Carries out the act of the item at place `k`: the loop's refusal, where it refused, inside what stopped the loop
+    /// or kept the engine from opening again.
+    fn carry_out(
+        &mut self,
+        k: usize,
+        act: &ActScript,
+        open: &dyn Fn() -> Result<(Service, Inbox), String>,
+    ) -> Result<Result<(), String>, String> {
+        let work = self.works[k];
+        let text = |text: &Option<String>| text.clone().unwrap_or_default();
+        let owners = match act.does {
+            Does::Write => Some(Act::Write {
+                block: text(&act.block).as_str().into(),
+                content: text(&act.content),
+                value: act.value.clone(),
+            }),
+            Does::LetGo => Some(Act::LetGo {
+                cell: text(&act.cell).as_str().into(),
+            }),
+            Does::Pause => Some(Act::Pause),
+            Does::Resume => Some(Act::Resume),
+            Does::Cancel => Some(Act::Cancel { why: act.why.clone() }),
+            Does::Result => match self.persons_call(work) {
+                Some(call) => Some(Act::Result {
+                    call,
+                    result: text(&act.result),
+                }),
+                None => return Ok(Err("the work waits for no person's call".to_string())),
+            },
+            Does::Say => Some(Act::Say {
+                to: match &act.line {
+                    Some(line) => engine::spoken::To::Line(line.clone()),
+                    None => engine::spoken::To::Question(text(&act.question)),
+                },
+                words: text(&act.words),
+            }),
+            Does::Answer => {
+                let question = text(&act.question);
+                let driver = self.stepper.service().driver();
+                let version = (driver.work(work).into_iter())
+                    .flat_map(|kept| &kept.work.records.questions)
+                    .filter(|q| q.name == question)
+                    .map(|q| q.at)
+                    .max();
+                match version {
+                    Some(version) => Some(Act::Answer {
+                        question,
+                        version,
+                        option: act.option.unwrap_or(1),
+                        why: act.why.clone(),
+                    }),
+                    None => return Ok(Err(format!("the work has no question named {question}"))),
+                }
+            }
+            Does::NewSession => Some(Act::NewSession { line: text(&act.line) }),
+            _ => None,
+        };
+        if let Some(owners) = owners {
+            return Ok(self.act(work, owners));
+        }
+        let item = self.items[k];
+        let other = |place: Option<usize>| self.items[place.unwrap_or(1) - 1];
+        let changed = match act.does {
+            Does::Title => Some(Asked::Item(ItemChange::Title(text(&act.title)))),
+            Does::DependsOn => Some(Asked::Item(ItemChange::DependsOn(other(act.item)))),
+            Does::NoLongerDependsOn => Some(Asked::Item(ItemChange::NoLongerDependsOn(other(act.item)))),
+            Does::Tag => Some(Asked::Item(ItemChange::Tagged(text(&act.tag)))),
+            Does::Untag => Some(Asked::Item(ItemChange::Untagged(text(&act.tag)))),
+            Does::Reopen => Some(Asked::Reopen),
+            _ => None,
+        };
+        if let Some(changed) = changed {
+            let (reply, answer) = oneshot::channel();
+            let message = Message::Change {
+                why: text(&act.why),
+                changes: vec![(item, changed)],
+                reply,
+            };
+            let made = self.send(message, answer)?;
+            return Ok(made.map(|_| ()).map_err(|refusal: Refusal| refusal.to_string()));
+        }
+        match act.does {
+            Does::PauseEverything | Does::ResumeEverything => {
+                let (reply, answer) = oneshot::channel();
+                let paused = act.does == Does::PauseEverything;
+                let set = self.send(Message::Everything { paused, reply }, answer)?;
+                Ok(set.map_err(|refusal| refusal.to_string()))
+            }
+            Does::Restart => {
+                self.stepper.reopen(open()?);
+                Ok(Ok(()))
+            }
+            _ => Ok(Ok(())),
+        }
+    }
+
+    /// The call of a person the work waits for, the first where it waits for more than one.
+    fn persons_call(&self, work: WorkNumber) -> Option<decide::CallId> {
+        let view = self.stepper.service().driver().view(work)?;
+        let Decision::Wait { on, .. } = view.decision else {
+            return None;
+        };
+        on.iter().find_map(|waited| match waited {
+            Waited::Call { call, on: Some(_) } => Some(*call),
+            _ => None,
+        })
+    }
 }
