@@ -51,7 +51,9 @@ reports (`wf-agents wait`):
 - **A slot is free**: choose the next item by section 9 and let it start, saying why it was chosen among those that can
   start. A pull request half done is finished first; an old one is continued or closed. Where nothing can start, tell
   the owner, and make no item only to fill a slot.
-- **main is red**: make an item, under what waits for it.
+- **main is red**: this is a serious incident, and comes before everything else. Make an item for it at once, under
+  what waits for it, let it start ahead of every other item, and tell the owner. The works that cannot merge until
+  main is green depend on it.
 - **A fault of the flow or of the engine**: the architect of another project only reports it to the architect of
   wf-agents, which takes it as an observation of its own project (section 7).
 
@@ -157,9 +159,9 @@ reports (`wf-agents wait`):
 
 ## 9. Order
 
-- Dependencies decide what can start. Among what can, what the owner said comes first goes first; where the owner said
-  nothing, the item that the most items not held wait for, directly or through others; between equals, the one added
-  first. Items have no priority.
+- Dependencies decide what can start. Among what can, an item that makes a red main green goes first; then what the
+  owner said comes first; where the owner said nothing, the item that the most items not held wait for, directly or
+  through others; between equals, the one added first. Items have no priority.
 - An order the owner gave is written, with its purpose, in the deliver items it concerns, and counts no more once the
   purpose is met; it grows old, and is confirmed with the owner from time to time. A single thing the owner asks for
   counts as the owner saying it comes first. Work to be done each time something happens is written in the deliver item
