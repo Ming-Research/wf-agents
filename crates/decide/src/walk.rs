@@ -1014,7 +1014,7 @@ impl<'a> Walk<'a> {
     fn wait_at(&self, i: usize, on: Vec<Waited>, room: Room) -> Decision {
         let cell = &self.flow.cells()[i].id;
         let on_a_call =
-            (self.runs.values()).any(|r| r.at_rest() && &r.started.cell == cell && !self.open_calls(r).is_empty());
+            (self.runs.values()).any(|r| r.at_rest() && &r.started.cell == cell);
         if !on_a_call {
             for j in self.giving(i, &self.pending(i)) {
                 if let Some(decision) = self.at(j, room) {
