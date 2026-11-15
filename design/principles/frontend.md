@@ -103,9 +103,9 @@ shows it.
 
 ### principle one-count-of-what-waits
 What waits on the owner is defined once: a question that holds a work, a cell at its limit, a change of a protected
-file, a pause the engine made, the works held after the engine started again, and a review's verdict that holds the
-work, for the owner to rule on. The count, each item's mark, the cards inside the item where the owner acts on each, and
-the browser's notifications, which open the item at its card, are all read from that definition; nothing else counts or
-notifies.
+file, a pause the engine made, the works held after the engine started again, a review's verdict that holds the work,
+for the owner to rule on, and the agents' command line when it cannot run until the owner signs it in or installs it.
+The count, each item's mark, the cards inside the item where the owner acts on each, and the browser's notifications,
+which open the item at its card, are all read from that definition; nothing else counts or notifies.
 Why: Counts with different meanings did not agree, and nobody trusted them; a count with nothing to act on inside the
 item leaves the owner searching for what it counts.
