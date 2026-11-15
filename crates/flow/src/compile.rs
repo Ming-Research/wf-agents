@@ -216,7 +216,7 @@ impl Trigger {
     pub fn said_in<'f>(&'f self, flow: &'f Compiled) -> impl Iterator<Item = &'f BlockId> + 'f {
         let own = self.of_source(flow, WORDS);
         let words = |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref()) == Some(WORDS);
-        (self.read.iter()).filter(move |b| own.is_some_and(|own| *b != own) && words(*b))
+        (self.read.iter()).filter(move |b| own.is_some_and(|own| *b != own) && words(b))
     }
 }
 
@@ -2257,7 +2257,7 @@ impl<'a> Definition<'a> {
                     what: declared.what.clone(),
                     kept: declared.kept.clone(),
                     words: declared.words.clone(),
-                    shape: declared.shape.clone().map(Shape),
+                    shape: declared.shape.clone().map(|shape| Shape(toml::Value::Table(shape))),
                     trigger: self.trigger_blocks.contains(name),
                     writes: declared.writes.clone(),
                     writers: Writers {

@@ -327,6 +327,12 @@ fn each_fault_is_in_the_file_of_the_thing_it_is_about_flow_toml_first_then_the_c
 fn a_file_laid_out_one_thing_to_a_file_that_cannot_be_read_is_reported_by_its_path() {
     unreadable(&set(laid_out(), "cells/judge.toml", "title = "), "cells/judge.toml");
     let message = unreadable(
+        &edit(laid_out(), "blocks/check/ci.toml", "values", "look = \"prose\"\nvalues"),
+        "blocks/check/ci.toml",
+    );
+    assert!(message.contains("look"), "{message}");
+    // A block's own shape is a table of the form's, never a word.
+    let message = unreadable(
         &edit(
             laid_out(),
             "blocks/check/ci.toml",

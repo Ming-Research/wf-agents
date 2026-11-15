@@ -375,7 +375,7 @@ pub struct BlockFile {
     /// What a cell that writes the block is told of writing it, after the list of what it returns.
     pub words: Option<String>,
     /// The shape a return holds the block to, where it is neither a text nor a choice.
-    pub shape: Option<toml::Value>,
+    pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
     /// `{name}` in it a place the engine fills in a run.
     #[serde(default)]
@@ -411,7 +411,7 @@ pub struct LaidOutBlockFile {
     /// What a cell that writes the block is told of writing it, after the list of what it returns.
     pub words: Option<String>,
     /// The shape a return holds the block to, where it is neither a text nor a choice.
-    pub shape: Option<toml::Value>,
+    pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
     /// `{name}` in it a place the engine fills in a run. The words are the flow's, so the code holds none of them.
     #[serde(default)]
