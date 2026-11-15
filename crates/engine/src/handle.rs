@@ -90,8 +90,9 @@ pub fn handle_then(
         && let Some(told) = told(&flow.flow, &work.records, run)
     {
         let choices = choices(flow);
+        let questions = questions(flow);
         let answers = answers(flow, work, run);
-        if let Some(requires) = requires(flow, &choices, &answers, &told, work, run)
+        if let Some(requires) = requires(flow, (&choices, &questions), &answers, &told, work, run)
             && let Step::Finish { dealt_with, writes } = run::next(
                 &log(flow, work, run, &told),
                 requires,
@@ -693,11 +694,12 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
 /// a wait made or came to rest for the owner at a limit, and not when a round of it began or is held.
 fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<Effect>) -> bool {
     let choices = choices(flow);
+    let questions = questions(flow);
     let answers = answers(flow, work, run);
     let Some(told) = told(&flow.flow, &work.records, run) else {
         return false;
     };
-    let Some(requires) = requires(flow, &choices, &answers, &told, work, run) else {
+    let Some(requires) = requires(flow, (&choices, &questions), &answers, &told, work, run) else {
         return false;
     };
     let Some(started) = work.records.started.iter().find(|s| s.run == run) else {
@@ -879,6 +881,15 @@ fn call(work: &mut Work, run: RunId, on: Option<Who>, what: Call, effects: &mut 
     effects.push(Effect::Call { call, run, what });
 }
 
+/// The records of the flow that hold the questions the cells ask the owner: those the engine's source of answers
+/// writes ([`flow::ANSWER`]).
+pub(crate) fn questions(flow: &Compiled) -> Vec<BlockId> {
+    (flow.blocks.iter())
+        .filter(|(_, b)| b.writers.outside.as_deref() == Some(flow::ANSWER))
+        .map(|(block, _)| block.clone())
+        .collect()
+}
+
 /// The values of each block of the flow that is a choice.
 pub(crate) fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
     (flow.blocks.iter())
@@ -890,7 +901,7 @@ pub(crate) fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
 /// not in the flow.
 pub(crate) fn requires<'a>(
     flow: &'a Compiled,
-    choices: &'a BTreeMap<BlockId, Vec<String>>,
+    (choices, questions): (&'a BTreeMap<BlockId, Vec<String>>, &'a [BlockId]),
     answered_by: &'a BTreeMap<BlockId, Answer>,
     told: &'a Told,
     work: &Work,
@@ -905,6 +916,7 @@ pub(crate) fn requires<'a>(
         groups: &cell.groups,
         must_write: &spec.must_write,
         asking: &cell.asks,
+        questions,
         choices,
         again: cell.again,
         told,

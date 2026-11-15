@@ -133,6 +133,8 @@ fn each_trigger_of_each_cell_named_as_dealt_with_is_taken_for_any_block_it_stand
                     groups: &cell.groups,
                     must_write: &[],
                     asking: &cell.asks,
+                    // This test's returns are found wanting in nothing as they are read.
+                    questions: &[],
                     choices: &choices,
                     again: 3,
                     told: &told,

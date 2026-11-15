@@ -250,6 +250,9 @@ pub struct Requires<'a> {
     /// What the cell asks for in records ([`crate::Cell::asks`]): a return that writes one of the records leaves its
     /// cell waiting for the result.
     pub asking: &'a [crate::Asks],
+    /// The records of the flow that hold the questions the cells ask the owner: a return that asks one there that
+    /// waits leaves its cell waiting for the answer.
+    pub questions: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
     /// How many times in a row the engine may send the cell's returns back.
@@ -602,11 +605,11 @@ fn leaves_waiting(came: &Came<'_>, requires: Requires) -> bool {
 /// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
 /// first what was found as it was read, in the order found; then what it says it dealt with, in its order; then one for
 /// each write, in the order of the writes; then whether it asks for calls beside doing the cell's work; then, of a
-/// return that does not leave its cell waiting ([`leaves_waiting`]), whether it deals with nothing while something ran
-/// its round, and each block the cell must hand in and did not, in the order the cell lists them, but one found written
-/// in a shape it does not take; then each question it writes that it may not, in the order it wrote them; then, of a
-/// return that does not leave its cell waiting, each block an act wrote that it deals with and leaves unanswered, in
-/// the order it dealt with them.
+/// return that does not leave its cell waiting ([`leaves_waiting`]) and wrote in its shape every block that would,
+/// whether it deals with nothing while something ran its round, and each block the cell must hand in and did not, in
+/// the order the cell lists them, but one found written in a shape it does not take; then each question it writes that
+/// it may not, in the order it wrote them; then, of such a return, each block an act wrote that it deals with and
+/// leaves unanswered, in the order it dealt with them.
 fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     let Came {
         dealt_with,
@@ -677,8 +680,14 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         unmet.push(Unmet::AsksAndWorks);
     }
     // A return that leaves its cell waiting stops the work at the cell, which may leave all that ran it for after what
-    // it waits for comes.
-    let waiting = leaves_waiting(came, requires);
+    // it waits for comes. Where a block that would leave it waiting, a record it asks in or one of its questions, was
+    // found not of its shape, whether it waits is not known: what depends on it waits for the block written in its
+    // shape, which the return is sent back for (principle report-all-at-once).
+    let unknown = (found.iter()).any(|u| {
+        matches!(u, Unmet::NotOfItsShape { block }
+            if requires.asking.iter().any(|a| a.record == *block) || requires.questions.contains(block))
+    });
+    let waiting = leaves_waiting(came, requires) || unknown;
     if !waiting && dealt_with.is_empty() && !told.ran_by.is_empty() {
         unmet.push(Unmet::DealtWithNothing);
     }

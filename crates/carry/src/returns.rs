@@ -83,9 +83,20 @@ enum QuestionIn {
 struct AskedIn {
     name: String,
     waits: bool,
+    #[serde(deserialize_with = "whole")]
     recommends: u64,
     ask: String,
     options: Vec<WayIn>,
+}
+
+/// A whole number, written as one or as a float with nothing after the point, as the shape's `integer` takes it
+/// ([`flow::form::fits`]).
+fn whole<'de, D: serde::Deserializer<'de>>(written: D) -> Result<u64, D::Error> {
+    let n = serde_json::Number::deserialize(written)?;
+    let float = n
+        .as_f64()
+        .filter(|f| f.fract() == 0.0 && *f >= 0.0 && *f <= u64::MAX as f64);
+    (n.as_u64().or(float.map(|f| f as u64))).ok_or_else(|| serde::de::Error::custom(format!("{n} is no whole number")))
 }
 
 #[derive(Debug, Deserialize)]
@@ -386,8 +397,6 @@ fn writes(
     (handed, asked)
 }
 
-/// What is wrong with a block written in a shape neither a block nor a choice has: a choice is not written as its value
-/// and its line of why, and another block not as a string.
 /// What a block of a shape holds as the shape holds it: the value as it is, where it is of the shape; or, written as a
 /// text, the JSON the text holds, where that is of it, as a return that means the form is put into its shape before it
 /// is read (decision normalise-shape-only), such as one read from the stream after the command line gave up on it.
@@ -403,6 +412,8 @@ fn shaped(value: &Value, shape: &flow::Shape) -> Option<Value> {
     flow::form::fits(&held, shape).then_some(held)
 }
 
+/// What is wrong with a block written in a shape neither a block nor a choice has: a choice is not written as its value
+/// and its line of why, and another block not as a string.
 fn misshapen(choice: bool, block: BlockId) -> Unmet {
     if choice {
         Unmet::NoValue { block }

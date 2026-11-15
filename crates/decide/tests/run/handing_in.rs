@@ -127,6 +127,41 @@ fn an_entry_written_as_changing_nothing_in_meaning_is_sent_back() {
     ));
 }
 
+// A block that would leave the cell waiting, the record it asks for tests in or the record of its questions, written in
+// another shape than its own leaves it unknown whether the return waits: it is sent back for the shape alone, not also
+// for dealing with nothing, for a block its cell must write or for an act's words it leaves unanswered, all of which
+// a return that waits may do. Well under a millisecond alone; no other test holds a check to what depends on another.
+#[test]
+fn a_block_that_would_leave_its_cell_waiting_written_in_another_shape_is_sent_back_for_that_alone() {
+    let mut s = asking_for_tests(&["verdict"]);
+    s.outputs.push("questions".into());
+    s.questions = vec!["questions".into()];
+    s.answered_by = BTreeMap::from([(
+        "request".into(),
+        Answer {
+            runs: vec!["plan".into()],
+            question: false,
+            new: false,
+        },
+    )]);
+    for block in ["tests", "questions"] {
+        let unmet = vec![Unmet::NotOfItsShape { block: block.into() }];
+        let round = came(&[], vec![], unmet.clone(), false);
+        assert_eq!(step(vec![round], &s), send_back(unmet), "{block}");
+    }
+    // A block of a shape that would not leave it waiting leaves the other checks as they were.
+    let unmet = vec![Unmet::NotOfItsShape { block: "plan".into() }];
+    let round = came(&["request"], vec![], unmet.clone(), false);
+    let mut expected = unmet;
+    expected.push(Unmet::NotHandedIn {
+        block: "verdict".into(),
+    });
+    expected.push(Unmet::Unanswered {
+        block: "request".into(),
+    });
+    assert_eq!(step(vec![round], &s), send_back(expected));
+}
+
 // A return that writes an entry in which its cell asks for tests leaves the cell waiting for the result, and so owes
 // nothing else: it may leave out what its cell must write, and deal with nothing (decision a-wait-holds-its-cell).
 #[test]

@@ -408,7 +408,8 @@ fn a_word_of_a_shape_the_engine_does_not_check_is_found_at_any_depth() {
         "type = \"object\"\nproperties = { a = { type = [\"string\", \"null\"] }, b = { type = \"array\", items = [{ \
          type = \"string\" }] }, c = { enum = \"x\" }, d = { type = \"object\", required = \"a\" }, e = { type = \
          \"object\", required = [1] }, f = { anyOf = { type = \"string\" } }, g = { anyOf = [] }, h = { type = \
-         \"object\", properties = [\"a\"] }, i = { type = \"object\", additionalProperties = \"no\" } }\n",
+         \"object\", properties = [\"a\"] }, i = { type = \"object\", additionalProperties = \"no\" }, j = { enum = [] } \
+         }\n",
     );
     assert_eq!(
         form::unchecked(&forms),
@@ -417,11 +418,12 @@ fn a_word_of_a_shape_the_engine_does_not_check_is_found_at_any_depth() {
             "`items` written as an array",
             "`enum` written as a string",
             "`required` written as a string",
-            "`required` written as an array",
+            "`required` holding other than the names of properties",
             "`anyOf` written as a table",
             "`anyOf` written as an empty array",
             "`properties` written as an array",
             "`additionalProperties` written as a string",
+            "`enum` written as an empty array",
         ]
     );
 }

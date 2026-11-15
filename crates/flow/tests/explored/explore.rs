@@ -520,6 +520,8 @@ impl Explorer<'_> {
             groups: &m.cells()[i].groups,
             must_write: &spec.must_write,
             asking: &m.cells()[i].asks,
+            // The model's returns are found wanting in nothing as they are read, a block's shape among it.
+            questions: &[],
             choices: &m.choices,
             again: spec.again,
             told: &told,

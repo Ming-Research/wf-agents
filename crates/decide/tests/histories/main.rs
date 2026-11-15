@@ -758,6 +758,8 @@ impl History {
             groups: &cell.groups,
             must_write: &[],
             asking: &cell.asks,
+            // No cell of these flows asks the owner in a record of questions.
+            questions: &[],
             choices: &choices,
             again: RETURNS,
             told: &told,

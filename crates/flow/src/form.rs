@@ -235,9 +235,9 @@ fn fits_json(value: &serde_json::Value, shape: &serde_json::Value) -> bool {
 
 /// What of the shape the engine would not hold a return to as it says ([`fits`]), at every depth: each word it is
 /// written in that is none of [`CHECKED`]; each of those written in a form `fits` does not read, as `type` a list of
-/// types, `items` a list of shapes, `enum` or `anyOf` no list, `required` other than a list of names, `properties` no
-/// table, `additionalProperties` neither a table nor true or false; each type that is none it knows; and what stands
-/// for a shape and is none.
+/// types, `items` a list of shapes, `enum` or `anyOf` no list or an empty one, `required` other than a list of names,
+/// `properties` no table, `additionalProperties` neither a table nor true or false; each type that is none it knows;
+/// and what stands for a shape and is none.
 pub fn unchecked(shape: &Shape) -> Vec<String> {
     let mut found = Vec::new();
     unchecked_in(&shape.0, &mut found);
@@ -271,14 +271,20 @@ fn unchecked_in(shape: &toml::Value, found: &mut Vec<String>) {
                 unchecked_in(value, found);
                 true
             }
-            ("additionalProperties", toml::Value::Boolean(_)) | ("enum", toml::Value::Array(_)) => true,
+            ("additionalProperties", toml::Value::Boolean(_)) => true,
+            ("enum", toml::Value::Array(values)) => !values.is_empty(),
             ("anyOf", toml::Value::Array(shapes)) if !shapes.is_empty() => {
                 for of in shapes {
                     unchecked_in(of, found);
                 }
                 true
             }
-            ("required", toml::Value::Array(names)) => names.iter().all(toml::Value::is_str),
+            ("required", toml::Value::Array(names)) => {
+                if !names.iter().all(toml::Value::is_str) {
+                    found.push("`required` holding other than the names of properties".to_string());
+                }
+                true
+            }
             _ => false,
         };
         if !read {

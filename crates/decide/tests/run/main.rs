@@ -26,6 +26,7 @@ struct Spec {
     groups: BTreeMap<BlockId, Vec<BlockId>>,
     must_write: Vec<BlockId>,
     asking: Vec<Asks>,
+    questions: Vec<BlockId>,
     choices: BTreeMap<BlockId, Vec<String>>,
     returns: u32,
     told: Told,
@@ -39,6 +40,7 @@ impl Spec {
             groups: &self.groups,
             must_write: &self.must_write,
             asking: &self.asking,
+            questions: &self.questions,
             choices: &self.choices,
             again: self.returns,
             told: &self.told,
@@ -62,6 +64,7 @@ fn spec() -> Spec {
         groups: BTreeMap::new(),
         must_write: vec![],
         asking: vec![],
+        questions: vec![],
         choices: BTreeMap::from([("verdict".into(), vec!["yes".to_string(), "no".to_string()])]),
         returns: 2,
         told: Told {

@@ -315,6 +315,34 @@ fn a_block_that_is_not_among_the_cell_s_outputs_is_found_the_questions_and_the_r
     assert!(came.writes.iter().any(|h| h.block.as_str() == "discussion"));
 }
 
+// The option a question recommends, a whole number, is read where it is written as a float with nothing after the point,
+// as the shape of the questions takes it; with a part after the point it is not of the shape. Well under a millisecond
+// alone; no other test holds the reading of a question to its shape's numbers.
+#[test]
+fn a_recommended_option_written_as_a_whole_float_is_read_as_its_number() {
+    let asked = |recommends: Value| {
+        let mut r = work();
+        r["outcome"]["outputs"]["q_and_a"] = json!([{"name": "q", "waits": false, "recommends": recommends,
+            "ask": "Which?", "options": [{"does": "this", "follows": "that"}]}]);
+        r
+    };
+    let came = read(&asked(json!(1.0))).expect("it is read");
+    assert_eq!(came.found, []);
+    assert!(
+        matches!(
+            &came.said.questions[..],
+            [Question::Asked {
+                recommends: Some(1),
+                ..
+            }]
+        ),
+        "{:?}",
+        came.said.questions
+    );
+    questions_not_of_their_shape(&asked(json!(1.5)));
+    questions_not_of_their_shape(&asked(json!(-1.0)));
+}
+
 // The work's questions are a list of questions: written as anything else, as a text, they are not of their shape, as
 // any block of a shape, and none is taken.
 #[test]
