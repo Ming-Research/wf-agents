@@ -968,9 +968,9 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             .collect::<Vec<Write>>()
     };
     // The blocks that would leave a return's cell no longer applying while the cell still waits, judged on the records
-    // as the engine's own taking of the return in would leave them, with all it writes for it (`finish`): worked out
-    // only for the round the run's next step is judged by, the last, only of an agent's, as an act never waits, and
-    // only of a cell with a condition.
+    // as the engine's own taking of the return in would leave them, with all it writes for it (`finish`), taken in on
+    // a copy of the work only where the walk asks for it: worked out only for the round the run's next step is judged
+    // by, the last, only of an agent's, as an act never waits, and only of a cell with a condition.
     let last = began(work, run);
     let place = (work.records.started.iter().find(|s| s.run == run)).and_then(|s| flow.flow.place(&s.cell));
     let judged = place.is_some_and(|i| flow.cells[i].kind == Kind::Agent && !flow.flow.cells()[i].applies.is_empty());
@@ -978,16 +978,13 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
         if i + 1 != last || !judged {
             return Vec::new();
         }
-        let mut taken = work.clone();
-        finish(
-            flow,
-            &mut taken,
-            run,
-            Vec::new(),
-            run::taken_writes(writes, read),
-            &mut Vec::new(),
-        );
-        decide::skipping(&flow.flow, &work.records, &taken.records, run, writes)
+        let taken = || {
+            let mut taken = work.clone();
+            let writes = run::taken_writes(writes, read);
+            finish(flow, &mut taken, run, Vec::new(), writes, &mut Vec::new());
+            taken.records
+        };
+        decide::skipping(&flow.flow, &work.records, run, writes, taken)
     };
     let returned = |i: usize, b: &Back| match b {
         Back::Returned {

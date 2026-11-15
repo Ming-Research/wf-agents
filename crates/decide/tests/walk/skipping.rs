@@ -188,40 +188,43 @@ fn asking(name: &'static str, waits: bool, withdrawn: bool) -> Asking {
 /// engine takes it in: the run finished with them, its questions written after, and these blocks written from outside
 /// with these values, as the engine writes the questions' standing.
 fn skips_taken(w: &World, run: RunId, writes: &[Write], questions: &[Asking], engine: &[(&str, &str)]) -> Vec<String> {
-    let cell = (w.records.started.iter())
-        .find(|s| s.run == run)
-        .map_or_else(|| "none".into(), |s| s.cell.clone());
-    let mut after = w.records.clone();
-    after.finished.push(decide::Finished {
-        run,
-        at: Seq(1_000_000),
-        writes: writes.to_vec(),
-        dealt_with: Some(Vec::new()),
-        waits_for: None,
-    });
-    for (k, q) in questions.iter().enumerate() {
-        after.questions.push(decide::Questioned {
-            name: q.name.to_string(),
-            cell: cell.clone(),
+    let after = || {
+        let cell = (w.records.started.iter())
+            .find(|s| s.run == run)
+            .map_or_else(|| "none".into(), |s| s.cell.clone());
+        let mut after = w.records.clone();
+        after.finished.push(decide::Finished {
             run,
-            engine: false,
-            waits: q.waits && !q.withdrawn,
-            withdrawn: q.withdrawn,
-            at: Seq(1_000_001 + k as u64),
+            at: Seq(1_000_000),
+            writes: writes.to_vec(),
+            dealt_with: Some(Vec::new()),
+            waits_for: None,
         });
-    }
-    for (k, (block, value)) in engine.iter().enumerate() {
-        after.written.push(Written {
-            block: (*block).into(),
-            by: decide::Outsider::Outside,
-            matters: true,
-            value: Some(value.to_string()),
-            empty: false,
-            said_to: None,
-            at: Seq(2_000_000 + k as u64),
-        });
-    }
-    (decide::skipping(&w.flow, &w.records, &after, run, writes).into_iter())
+        for (k, q) in questions.iter().enumerate() {
+            after.questions.push(decide::Questioned {
+                name: q.name.to_string(),
+                cell: cell.clone(),
+                run,
+                engine: false,
+                waits: q.waits && !q.withdrawn,
+                withdrawn: q.withdrawn,
+                at: Seq(1_000_001 + k as u64),
+            });
+        }
+        for (k, (block, value)) in engine.iter().enumerate() {
+            after.written.push(Written {
+                block: (*block).into(),
+                by: decide::Outsider::Outside,
+                matters: true,
+                value: Some(value.to_string()),
+                empty: false,
+                said_to: None,
+                at: Seq(2_000_000 + k as u64),
+            });
+        }
+        after
+    };
+    (decide::skipping(&w.flow, &w.records, run, writes, after).into_iter())
         .map(|b| b.0)
         .collect()
 }

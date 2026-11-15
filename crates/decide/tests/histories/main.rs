@@ -705,7 +705,7 @@ impl History {
                         // leave its own cell no longer applying while the cell still waits, its run finished with its
                         // writes, which is all the histories' engine writes as it takes a return in.
                         skips: match i + 1 == last {
-                            true => {
+                            true => decide::skipping(&self.w.flow, r, run, writes, || {
                                 let mut after = r.clone();
                                 after.finished.push(Finished {
                                     run,
@@ -714,8 +714,8 @@ impl History {
                                     dealt_with: Some(Vec::new()),
                                     waits_for: None,
                                 });
-                                decide::skipping(&self.w.flow, r, &after, run, writes)
-                            }
+                                after
+                            }),
                             false => Vec::new(),
                         },
                     },

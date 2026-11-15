@@ -361,8 +361,16 @@ pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
 /// it whose applying it changes, where a key of the cell is a test of what stands, which that applying decides; then
 /// each block that keeps the condition from holding that the engine wrote anew as it took the return in, as the
 /// questions' standing. None where the cell has no condition, does not apply before, still applies after, or then waits
-/// for nothing, or where the run never started.
-pub fn skipping(flow: &Flow, before: &Records, after: &Records, run: RunId, writes: &[Write]) -> Vec<BlockId> {
+/// for nothing, or where the run never started. The records after (`after`, the take-in) are asked for only where the
+/// take-in can leave the cell: it writes a block the condition can turn on, or such a block is one a source outside the
+/// work writes, as the engine may as it takes the return in.
+pub fn skipping(
+    flow: &Flow,
+    before: &Records,
+    run: RunId,
+    writes: &[Write],
+    after: impl FnOnce() -> Records,
+) -> Vec<BlockId> {
     let Some(i) = (before.started.iter())
         .find(|s| s.run == run)
         .and_then(|s| flow.place(&s.cell))
@@ -370,11 +378,42 @@ pub fn skipping(flow: &Flow, before: &Records, after: &Records, run: RunId, writ
         return Vec::new();
     };
     let cells = flow.cells();
-    let was = Walk::new(flow, before);
-    if cells[i].applies.is_empty() || !was.applies(i) {
+    if cells[i].applies.is_empty() {
         return Vec::new();
     }
-    let is = Walk::new(flow, after);
+    // A test of what stands among the cell's keys turns on whether the cells before it apply.
+    let standing = (cells[i].applies.iter()).any(|key| {
+        matches!(key, Condition::Test(name) if flow.tests().get(name).is_some_and(|t| t.kind == TestKind::NoneStanding))
+    });
+    let reads = |key: &Condition, block: &BlockId| match key {
+        Condition::Is { block: b, .. } => b == block,
+        Condition::Test(name) => flow.tests().get(name).is_some_and(|t| t.reads.contains(block)),
+    };
+    // The blocks the cell's condition can turn on: those its keys read, and, where one of them is a test of what
+    // stands, those the conditions of the cells before it read, whose applying decides whether a version stands.
+    let turning: Vec<BlockId> = (cells[..=i].iter().enumerate())
+        .filter(|(j, _)| *j == i || standing)
+        .flat_map(|(_, c)| &c.applies)
+        .flat_map(|key| match key {
+            Condition::Is { block, .. } => vec![block.clone()],
+            Condition::Test(name) => flow.tests().get(name).map_or_else(Vec::new, |t| t.reads.clone()),
+        })
+        .collect();
+    // The take-in leaves the cell only by writing one of them: the return writes it, or a source outside the work does,
+    // as the engine writes the questions' standing and what the round committed as it takes the return in.
+    let outside = |block: &BlockId| flow.outsiders(block).is_some_and(|o| o.outside.is_some());
+    if !turning
+        .iter()
+        .any(|b| outside(b) || writes.iter().any(|w| &w.block == b))
+    {
+        return Vec::new();
+    }
+    let was = Walk::new(flow, before);
+    if !was.applies(i) {
+        return Vec::new();
+    }
+    let after = after();
+    let is = Walk::new(flow, &after);
     let cell = &cells[i].id;
     let holds = (is.questions.values()).any(|q| &q.latest.cell == cell && !q.latest.engine && q.holds());
     if is.applies(i) || !(holds || !is.pending(i).is_empty()) {
@@ -386,14 +425,6 @@ pub fn skipping(flow: &Flow, before: &Records, after: &Records, run: RunId, writ
             keeping.push(block);
         }
     }
-    // A test of what stands among the cell's keys turns on whether the cells before it apply.
-    let standing = (cells[i].applies.iter()).any(|key| {
-        matches!(key, Condition::Test(name) if flow.tests().get(name).is_some_and(|t| t.kind == TestKind::NoneStanding))
-    });
-    let reads = |key: &Condition, block: &BlockId| match key {
-        Condition::Is { block: b, .. } => b == block,
-        Condition::Test(name) => flow.tests().get(name).is_some_and(|t| t.reads.contains(block)),
-    };
     let says = |walk: &Walk<'_>, block: &BlockId| {
         let value = walk.value_now(block).map(str::to_string);
         (value, walk.current(block).map(|v| v.empty))
