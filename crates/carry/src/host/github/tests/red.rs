@@ -1,8 +1,9 @@
 //! The check before a merge on the GitHub host where the full workflows failed tests and nothing else: the failed tests
 //! are run again by the fast workflow on the commit, beside every check it runs by name, and what fails again there is
 //! run on main's head. A test that passes again passes the commit and is observed as maybe flaky; a test that fails on
-//! main's head as well holds the commit; one that fails on the commit alone fails it. Each test here runs in well under
-//! a second alone, a repository on disk and GitHub in memory, and is the only one that holds its outcome to the runs.
+//! main's head as well holds the commit; one that fails on the commit alone, or that could not be run again, fails it,
+//! and so does a run again that judged nothing. Each test here runs in well under a second alone, a repository on disk
+//! and GitHub in memory, and is the only one that holds its outcome to the runs.
 
 use super::super::api::Outcome;
 use super::*;
@@ -318,4 +319,89 @@ async fn a_red_job_that_left_no_results_of_its_own_fails_the_commit_unless_the_r
         "check fails it"
     );
     assert_eq!(ran, 1, "nothing is run again");
+}
+
+// A run again that judged nothing fails the commit, never holds it, said as the full workflows found it and as that run
+// found it: on the commit, a run that uploaded no results, after which nothing is run on main; on main's head, a run
+// whose job of the tests ended without judging the code, though the results it uploaded fail the test there as well.
+// Well under a second alone each, a repository on disk and GitHub in memory; no other test holds a run again that
+// judged nothing.
+#[tokio::test]
+async fn a_run_again_on_the_commit_or_on_mains_head_that_judged_nothing_fails_the_commit() {
+    let hub = Hub::new();
+    let (head, _) = hub.red_by_b().await;
+    let jobs = vec![passed("lint"), passed("test")];
+    hub.github().of_workflow("fast.yml", &head, jobs, None);
+    let verdict = hub.verdict(&head).await.unwrap().expect("judged");
+    assert_eq!(verdict.held, None, "{verdict:?}");
+    let failed = verdict.failed.expect("failed");
+    assert!(
+        failed.starts_with(&format!("The full workflows ran on the commit {head}")),
+        "{failed}"
+    );
+    let again = failed
+        .split("What failed was run again on the commit")
+        .nth(1)
+        .expect("the run again is said");
+    assert!(
+        again.contains("The run uploaded no JUnit results the engine can read"),
+        "{failed}"
+    );
+    assert_eq!(runs(&hub).len(), 2, "nothing is run on main");
+
+    let hub = Hub::new();
+    let (head, main) = hub.red_by_b().await;
+    hub.fast_on(&head, false, Outcome::Passed);
+    let broken = vec![check("test", Outcome::Broken("cancelled".into()))];
+    hub.github()
+        .of_workflow("fast.yml", &main, broken, Some(("test-results", b(false))));
+    let verdict = hub.verdict(&head).await.unwrap().expect("judged");
+    assert_eq!(verdict.held, None, "main's run judged nothing: {verdict:?}");
+    let failed = verdict.failed.expect("failed");
+    let on_main = failed
+        .split(&format!("What failed again was run on the head of main, {main}:"))
+        .nth(1)
+        .expect("main's run is said");
+    assert!(
+        on_main.contains("- test: ended without judging the code (cancelled)"),
+        "{failed}"
+    );
+    assert!(!failed.contains("Failed again on the commit"), "{failed}");
+    assert_eq!(runs(&hub).len(), 3);
+}
+
+// A test the run again did not run could not be run again: the commit fails as the full workflows found it and as the
+// run again found it, which says the test was not run, and never says it failed again; nothing is run on main,
+// whatever main would make of it. Counted as failed again, a test run on neither read "Failed again on the commit, and
+// not on the head of main", and one that fails on main's head held the work for main. Well under a second alone each
+// way, a repository on disk and GitHub in memory; no other test holds a test the run again did not run.
+#[tokio::test]
+async fn a_test_the_run_again_did_not_run_fails_the_commit_and_is_never_said_to_have_failed_again() {
+    for fails_on_main in [false, true] {
+        let hub = Hub::new();
+        let (head, main) = hub.red_by_b().await;
+        // The run again holds no test of that name.
+        let ran = || vec![passed("lint"), passed("test")];
+        hub.github()
+            .of_workflow("fast.yml", &head, ran(), Some(("test-results", fast::junit_green())));
+        if fails_on_main {
+            hub.fast_on(&main, false, Outcome::Passed);
+        } else {
+            hub.github()
+                .of_workflow("fast.yml", &main, ran(), Some(("test-results", fast::junit_green())));
+        }
+        let verdict = hub.verdict(&head).await.unwrap().expect("judged");
+        assert_eq!(verdict.held, None, "{verdict:?}");
+        let failed = verdict.failed.expect("failed");
+        let again = failed
+            .split("What failed was run again on the commit")
+            .nth(1)
+            .expect("the run again is said");
+        assert!(
+            again.contains("- tools::tests::b: not run: no test of the run has this name"),
+            "{failed}"
+        );
+        assert!(!failed.contains("Failed again on the commit"), "{failed}");
+        assert_eq!(runs(&hub).len(), 2, "nothing is run on main");
+    }
 }

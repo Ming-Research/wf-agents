@@ -303,6 +303,8 @@ export interface Version {
   saidTo: string | null;
   /// How long its content is, in characters.
   chars: number;
+  /// Whether it holds nothing, as the engine recorded it and a test of content reads it.
+  empty: boolean;
 }
 
 export interface Block {

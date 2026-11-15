@@ -703,6 +703,8 @@ pub struct Version {
     pub said_to: Option<String>,
     /// How long its content is, in characters.
     pub chars: usize,
+    /// Whether it holds nothing, as the engine recorded it and a test of content reads it.
+    pub empty: bool,
 }
 
 /// Who wrote a version of a block.
@@ -2036,6 +2038,7 @@ impl WorkPage {
                         value: version.value.clone(),
                         said_to: said_to(work, block, version.at),
                         chars: chars(work, block, version.at)?,
+                        empty: version.empty,
                     })
                 })
                 .collect::<Result<_, Broken>>()?;

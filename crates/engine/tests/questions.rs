@@ -1,5 +1,5 @@
-//! Simulated histories of works whose cells put questions to the owner (principle simulated-histories; design
-//! document `data-and-context`, 32 to 36): agents ask, ask anew and withdraw questions at any step, waiting for them
+//! Simulated histories of works whose cells put questions to the owner (design documents `testing`, 4, and
+//! `data-and-context`, 32 to 36): agents ask, ask anew and withdraw questions at any step, waiting for them
 //! or not, and now and then ask for a tool; the engine asks one of its own beside a round now and then, and the owner answers at any step, a version
 //! that is the latest or an earlier one, with the option the work goes by or another, or with no such option. The
 //! driver is `support`'s; at any step the engine may stop.

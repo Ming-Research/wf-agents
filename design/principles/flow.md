@@ -46,21 +46,9 @@ Why: Reviews are not always right, and a wrong finding that cannot be disputed f
 A cell's prompt, rules, inputs or outputs change only for a problem that can be named, and a change takes effect only after the changed cell has run on a few real past cases, covering every way a work can enter it, with its inputs and returns compared to the old cell's case by case. What has no serious problem is left alone.
 Why: Changes made by reasoning alone made cells worse than before, and changing a cell that works puts at risk what it already does well. A cell tried from one direction breaks when entered from another.
 
-### principle trial-round-by-round
-A changed flow is tried one round at a time: before the next round runs, its inputs are read (their order, their size, and nothing given that the session already held), its return and route, and its token and cache numbers; then a fork asks about the cell's text.
-Why: A hundred and one rounds run in a row once missed a problem that was there in the first; a round's numbers show an input given twice or a cache missed, which its return does not.
-
-### principle ask-in-a-fork
-What an agent thinks of a cell is asked after its round, in a fork of its session with no tools and nothing of the work changed; the round itself runs as usual, and the agent is not told it is being tested. The fork is asked only about the cell's text: which words can be read another way, what is missing or unneeded, how to fix each, quoting the text.
-Why: An agent that knows it is being tested does not do what it would in real work (an inference, not measured). The return cannot show which words can be read another way; the fork, holding everything the round saw, can. Asking why it acted as it did is refused whole by the model's safety check (it happened on 2026-11-08).
-
 ### principle audit-cell-by-cell
 The flow is audited or redone one cell at a time, each finished before the next, starting from the problem the cell is there to stop and the ideal cell, with existing cells and recorded rounds only as evidence; the cell's decision says what problem it stops, how, why by that means and at what cost. A cell is frozen once the owner has reviewed it as it stands in the definition, on the chart, and only the owner reopens it.
 Why: Cells added one at a time, each reasonable alone, drift apart, and only going through all of them shows it; cells settled in a draft came out different in the definition. With each cell's problem and cost written down, taking a capability from a cell shows which problem must be met elsewhere.
-
-### principle flow-tests-formal
-The flow's routing is kept right by tests in the project's suite, which run at every change, not by trying the flow once; trials on past cases judge a cell's text, not its routing.
-Why: A trial goes one way through the flow; the next change then meets a way no one ever ran.
 
 ### principle flow-change-spares-works
 A flow change is made so that returns already handed in still pass where it can, and what installing it does to each work in progress is shown before it is approved.

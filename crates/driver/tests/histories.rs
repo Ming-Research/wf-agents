@@ -1,4 +1,4 @@
-//! Simulated histories of several works through the driver (principle simulated-histories). Items are added, some
+//! Simulated histories of several works through the driver (design document `testing`, 4). Items are added, some
 //! depending on others; what the driver gives to be done is answered in a random order and in random ways; people act
 //! at random; and the process stops, or the store fails, at random calls, the driver being opened anew each time on the
 //! same file.

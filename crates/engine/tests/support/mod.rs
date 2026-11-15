@@ -1,4 +1,4 @@
-//! The driver of simulated histories of whole works through `handle` only (principle simulated-histories), which the
+//! The driver of simulated histories of whole works through `handle` only (design document `testing`, 4), which the
 //! tests of histories share. It holds what the engine gave to be done and not yet done (rounds to end, calls to answer,
 //! rounds to stop, calls to withdraw) and at each step does one of those things, or a person or the outside acts; at
 //! any step the engine may stop, and the driver then forgets what it held and takes `pending` instead. What an agent
