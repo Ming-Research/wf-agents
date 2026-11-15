@@ -334,6 +334,20 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
             } => match source(flow, block) {
                 Some(s) if s == driver::DEPENDENCIES => continue,
                 Some(s) if s == driver::MAIN => {
+                    // A script's check, as the real one, writes over a main that moved while its round was told what
+                    // it takes in the one it was told, which the exploration's model does not.
+                    let checking = match &at {
+                        Step::UnderWay { cell, .. } => (flow.cells.iter())
+                            .any(|c| c.id == *cell && c.act.as_deref() == Some(service::script::CHECK)),
+                        _ => false,
+                    };
+                    if checking {
+                        return Err(
+                            "its path moves main while the check's round is under way, where a script's \
+                                    check, as the real one, writes over it the main it was told: not built"
+                                .to_string(),
+                        );
+                    }
                     let mut main = act("main");
                     main.insert("content".to_string(), text(content));
                     acts.push(main);
