@@ -212,8 +212,11 @@ fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is
     }
 }
 
+// Of the record of what is said, words that hold nothing add no entry, though the cell's entry of them would hold the
+// reply's words around them (decision a-write-of-nothing-only-empties); and each write kept is told to hold nothing or
+// something as the content kept of it does, by the test a migration reads it by.
 #[test]
-fn a_write_to_the_record_of_what_is_said_holds_nothing_by_the_entry_kept_not_by_the_words_handed_in() {
+fn words_that_hold_nothing_add_no_entry_to_the_record_of_what_is_said_and_each_write_holds_what_its_content_does() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
     w.hands_in("R0", &[], Vec::new());
@@ -240,17 +243,26 @@ fn a_write_to_the_record_of_what_is_said_holds_nothing_by_the_entry_kept_not_by_
         .find(|f| f.run == run)
         .expect("the run finished");
     let at = finished.at;
-    let kept = w
-        .work
-        .contents
-        .get(&("discussion".into(), at))
-        .expect("the entry is kept");
     assert!(
-        !kept.trim().is_empty(),
-        "the entry has the reply's words around the handed in ones: {kept:?}"
+        !finished.writes.iter().any(|x| x.block.as_str() == "discussion"),
+        "{:?}",
+        finished.writes
     );
-    let write = (finished.writes.iter())
-        .find(|x| x.block.as_str() == "discussion")
-        .expect("written");
-    assert!(!write.empty, "the entry kept holds something");
+    assert_eq!(w.work.contents.get(&("discussion".into(), at)), None);
+    for block in ["deep_needed", "plan_owner", "plan_agent", "acceptance"] {
+        assert!(
+            finished.writes.iter().any(|x| x.block.as_str() == block),
+            "{block} is written: {:?}",
+            finished.writes
+        );
+    }
+    for write in &finished.writes {
+        let kept = (w.work.contents.get(&(write.block.clone(), at))).expect("the content of a write is kept");
+        assert_eq!(
+            write.empty,
+            decide::holds_nothing(write.value.as_deref(), kept),
+            "{}",
+            write.block
+        );
+    }
 }
