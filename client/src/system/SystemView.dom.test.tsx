@@ -67,7 +67,7 @@ function sources(engine: Engine = { slots: 2, taken: 1, paused: null }) {
     loadSettings: async () => fixtureSettings(),
     saveSettings: async () => ({ said: '', committed: false }),
     loadAccounts: async () => fixtureAccounts(),
-    chooseAccount: async () => ({ said: '', committed: false }),
+    changeAccounts: async () => null,
   };
   return { works, system, asked, changed: (c: Changed) => listening.forEach((l) => l.onChanged(c)) };
 }
