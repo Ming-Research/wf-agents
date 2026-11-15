@@ -139,8 +139,7 @@ fn kept_before() -> Work {
     d.wrote("request", Outsider::Person, None);
     d.on(Event::Resumed);
     d.end(hands_in(&[("text", None)]));
-    let asked = made(&d.end(Came::asks(vec![tool("a")])));
-    put_to_the_owner(&mut d.work, asked);
+    d.asks_the_owner();
     // Its rounds were kept before a round said the context it ended with and how often it was compacted, and its
     // runs before a return said what it dealt with.
     for spent in d.work.spent.values_mut() {

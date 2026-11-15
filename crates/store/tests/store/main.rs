@@ -220,9 +220,15 @@ impl Driver {
     /// Takes the event, which the loop must take, and gives what is to be done. Where the work is saved, it is saved
     /// and must load back as it is.
     fn on(&mut self, event: Event) -> Vec<Effect> {
+        self.on_kept_as(event, |_, _| {})
+    }
+
+    /// Takes the event as [`Driver::on`] does, the work changed so, by what is to be done, before it is saved.
+    fn on_kept_as(&mut self, event: Event, kept_as: impl FnOnce(&mut Work, &[Effect])) -> Vec<Effect> {
         self.clock += 1000;
         let now = Time(self.clock);
         let effects = handle(&self.flow, &mut self.work, now, event).expect("the event is taken");
+        kept_as(&mut self.work, &effects);
         if let Some(s) = &mut self.saving {
             s.store.save(s.work, &self.work).expect("the work is saved");
             let loaded = s.db.open().load(s.work).expect("the work loads");
@@ -249,6 +255,16 @@ impl Driver {
         let (run, _) = self.under_way();
         let spent = self.spent();
         self.on(Event::Returned { run, came, spent })
+    }
+
+    /// The round under way ends asking the owner a question by a call, as records kept before a return that asks a
+    /// person was refused hold it.
+    fn asks_the_owner(&mut self) -> Vec<Effect> {
+        let (run, _) = self.under_way();
+        let spent = self.spent();
+        let came = Came::asks(vec![tool("asked")]);
+        let returned = Event::Returned { run, came, spent };
+        self.on_kept_as(returned, |work, effects| put_to_the_owner(work, made(effects)))
     }
 
     /// The round under way fails, for this reason: the engine pauses the work with it.
@@ -481,8 +497,7 @@ fn history(d: &mut Driver) {
     d.on(Event::Resumed);
     // The judge asks the owner, as records kept from before hold it, and the writer runs again for a new request while
     // the judge waits for the answer.
-    let asked = made(&d.end(Came::asks(vec![tool("f")])));
-    put_to_the_owner(&mut d.work, asked);
+    d.asks_the_owner();
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
     d.wrote("checks", Outsider::Outside, Some("pass"));
