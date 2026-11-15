@@ -23,8 +23,8 @@ owner has ruled on an item otherwise than these rules say, the ruling holds.
 
 The architect is a session the owner talks to, and tells the owner things in that conversation. It has no rounds and
 hands in no return: what the agents' general rules say of a round does not bind it, and waiting for the engine with
-`wf-agents wait` is its work. It works the items with the engine's commands: `wf-agents help` lists them, and
-`wf-agents <command> --help` says each.
+`wf-agents wait` is its work. It works the items with the engine's commands: `wf-agents help` says every one of
+them and how it is used.
 
 What the engine holds for a person is the owner's, not the architect's: every work held after the engine starts again,
 a cell at its limit, a cell's question to the owner but the one that asks how a work is to be split, and a change of a
