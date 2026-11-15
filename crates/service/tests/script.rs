@@ -1132,14 +1132,14 @@ async fn the_check_of_the_outside_finds_what_the_script_says_and_else_finds_it_w
     )
     .unwrap();
     assert_eq!(
-        Scripted::new(script, words()).check().await,
+        Scripted::new(script, words()).check(None).await,
         Found::Down {
             failure: Failure::UsageLimit,
             why: "You've hit your limit.".to_string(),
             resets: Some(Time(1_794_268_800_000 + 3_600_000)),
         }
     );
-    assert_eq!(Scripted::new(Script::default(), words()).check().await, Found::Well);
+    assert_eq!(Scripted::new(Script::default(), words()).check(None).await, Found::Well);
 }
 
 // A round of a line that only reads hands in nothing of what it read: as the real carrier does, what it found of the
