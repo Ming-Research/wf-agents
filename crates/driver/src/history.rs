@@ -519,10 +519,10 @@ mod tests {
                     on: None,
                     at,
                 });
-                let ask = work::Ask::Tool {
+                let ask = work::Ask::Tool(work::Tool {
                     name: "query".to_string(),
                     input: "{}".to_string(),
-                };
+                });
                 work.calls.insert(call, work::Call::Asked(ask));
             }
             let block = if *how == "entry" { "run_tests" } else { "code" };

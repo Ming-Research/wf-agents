@@ -219,7 +219,7 @@ pub fn withdrawn(work: &Work, call: CallId) -> bool {
 /// The tool a call runs, where it is a call of a tool.
 fn tool(work: &Work, call: CallId) -> Option<&str> {
     match work.calls.get(&call) {
-        Some(Call::Asked(Ask::Tool { name, .. })) => Some(name),
+        Some(Call::Asked(Ask::Tool(work::Tool { name, .. }))) => Some(name),
         _ => None,
     }
 }

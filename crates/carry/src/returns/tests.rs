@@ -527,11 +527,11 @@ fn why_what_came_back_cannot_be_read_is_said_in_the_words_of_the_files() {
 fn a_return_that_asks_for_tools_asks_one_call_for_each_request_and_deals_with_nothing() {
     let r = json!({"tools": {"query": [{"sql": "select 1"}, {"sql": "select 2"}]}});
     let asks = vec![
-        Ask::Tool {
+        Tool {
             name: "query".to_string(),
             input: r#"{"sql":"select 1"}"#.to_string(),
         },
-        Ask::Tool {
+        Tool {
             name: "query".to_string(),
             input: r#"{"sql":"select 2"}"#.to_string(),
         },
