@@ -245,10 +245,7 @@ impl Overseer {
 
 impl Drop for Overseer {
     /// The shell is killed while its pipe is still open: only the pipe closing makes it stop the group.
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
+    fn drop(&mut self) {}
 }
 
 /// Stops the process group the file names, where one was left running by a process of the engine that ended: TERM,
