@@ -257,9 +257,10 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
         finished.dealt_with = None;
     }
     work.records.finished[0].writes[0].meaning_unchanged = true;
-    // Nor were its questions and answers entries of their own.
+    // Nor were its questions and answers entries of their own, nor what the runs of its calls reported kept.
     work.records.questions.clear();
     work.records.answers.clear();
+    work.tested.clear();
     let (old, new) = kept_in(9, &work);
     let mut store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
