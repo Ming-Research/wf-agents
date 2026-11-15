@@ -36,7 +36,7 @@ describe('the words of a round that failed and of the waits that follow', () => 
     expect(words).toContain('the engine checks the outside itself at ');
     expect(words).toContain("(W3, round 1 of run 2: You've hit your limit)");
     // What the owner does where the command line cannot run is the engine's to say, on the wait's card, once.
-    expect(outageWords(outage({ failure: 'cannotRun' }))).not.toContain('sign');
+    expect(outageWords(outage({ failure: 'cannotRun' }))).not.toContain('install');
     // What the latest check found down is what is said down, with what it found.
     const checked = outage({
       failure: 'unavailable',

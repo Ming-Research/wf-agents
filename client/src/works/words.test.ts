@@ -154,7 +154,7 @@ describe('what a work does now, in words', () => {
     const said = outageWords({
       service: 'agents',
       failure: 'cannotRun',
-      why: 'not signed in',
+      why: 'Not logged in',
       work: 12,
       run: 3,
       round: 1,
@@ -163,8 +163,8 @@ describe('what a work does now, in words', () => {
       until: { kind: 'checked', at: 0 },
       holds: true,
     });
-    expect(said).toContain('(W12, round 1 of run 3: not signed in)');
-    expect(said).not.toContain('sign');
+    expect(said).toContain('(W12, round 1 of run 3: Not logged in)');
+    expect(said).not.toContain('install');
   });
 });
 

@@ -48,7 +48,8 @@ pub fn has() -> Has {
     }
 }
 
-/// A flow compiled from the text of its files.
+/// A flow compiled from the text of its files, written as flows were before they were laid out, with the words beside
+/// the repository's flows, which it has none of its own beside it.
 pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
     let source = Source {
         flow: flow.to_string(),
@@ -57,7 +58,10 @@ pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
             .collect(),
         ..Default::default()
     };
-    compile(&source, &has()).expect("the definition compiles")
+    let mut flow = compile(&source, &has()).expect("the definition compiles");
+    flow.waits =
+        flow::agents::Waits::of(include_str!("../../../../flow/agents/waits.toml")).expect("the words are read");
+    flow
 }
 
 /// The block the driver writes as the owner starts a work, which runs the first cell of each flow.
