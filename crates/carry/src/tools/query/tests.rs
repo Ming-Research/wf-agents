@@ -545,7 +545,6 @@ fn a_query_of_the_real_store_naming_a_column_its_schema_hides_is_refused_and_one
     for (table, column) in [
         ("ran", "account"),
         ("backup_failures", "why"),
-        ("results", "result"),
         ("back", "back"),
         ("calls", "what"),
     ] {
@@ -559,8 +558,9 @@ fn a_query_of_the_real_store_naming_a_column_its_schema_hides_is_refused_and_one
         }
     }
     assert_eq!(rows(&ask(&querying, "SELECT work, run FROM ran")), Vec::<Value>::new());
+    // What a tool said is read, as the rest of a result cut for its size is.
     assert_eq!(
-        rows(&ask(&querying, "SELECT count(*) AS n FROM results")),
+        rows(&ask(&querying, "SELECT count(result) AS n FROM results")),
         [json!({"n": 0})]
     );
     drop(store);

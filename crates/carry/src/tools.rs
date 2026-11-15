@@ -5,8 +5,8 @@
 //! GitHub is. A tool's result is all an agent learns of it, so what goes wrong in running it is said in its result,
 //! once: it is not tried again here, and the agent may ask again. Withdrawn, what runs it is stopped. A `run_tests` of
 //! a branch that does not merge into main's head is answered at once with the files in conflict (the module
-//! `conflict`). The result is kept whole in the records; what a message gives of it is cut as the tool's words say
-//! ([`given`]).
+//! `conflict`). The result is kept whole in the records; what a message gives of it is cut as the tool's words say,
+//! with the request of `query` that reads the rest from the records ([`given`]).
 
 mod conflict;
 mod query;
@@ -155,10 +155,12 @@ impl<H> Tools<H> {
     }
 }
 
-/// Each result of the work a message gives otherwise than the records hold it, the records holding each whole: a
-/// result of the tool `query` longer than its file says a message gives, cut as the tool cuts it; one of a tool whose
-/// file gives a bound, cut at it, with the words that follow a cut one; and any, its end of whitespace left off.
-pub fn given(work: &work::Work, words: &Agents) -> BTreeMap<CallId, String> {
+/// Each result of the work of this number a message gives otherwise than the records hold it, the records holding each
+/// whole: a result of the tool `query` longer than its file says a message gives, cut as the tool cuts it; one of a
+/// tool whose file gives a bound, cut at it, with the words that follow a cut one, which give the request of `query`
+/// that reads the rest from the records; and any, its end of whitespace left off.
+pub fn given(number: WorkNumber, work: &work::Work, words: &Agents) -> BTreeMap<CallId, String> {
+    let room = words.tools.get(QUERY).and_then(|t| t.given_bytes);
     (work.calls.iter())
         .filter_map(|(call, asked)| {
             let work::Call::Asked(work::Ask::Tool { name, input }) = asked else {
@@ -168,7 +170,12 @@ pub fn given(work: &work::Work, words: &Agents) -> BTreeMap<CallId, String> {
             let tool = words.tools.get(name);
             let given = match tool.and_then(|t| t.given_bytes) {
                 Some(bytes) if name == QUERY => Querying::cut(result.trim_end(), input, bytes),
-                _ => cut(result, tool.and_then(|t| t.given.as_ref())),
+                _ => {
+                    // The parts of the rest are each given whole in a message, which gives a result of `query` whole
+                    // where its file gives no bound.
+                    let reading = |from: usize, bound: usize| rest(number, *call, from, part(room.unwrap_or(bound)));
+                    cut(result, tool.and_then(|t| t.given.as_ref()), reading)
+                }
             };
             Some((*call, given))
         })
@@ -176,9 +183,10 @@ pub fn given(work: &work::Work, words: &Agents) -> BTreeMap<CallId, String> {
 }
 
 /// A result as it is given: its end of whitespace left off, and cut at the most bytes the tool's words allow, at a
-/// whole character, with the words that follow a cut one saying how much was given and how many bytes the record
-/// holds; as it is where they allow it all.
-fn cut(result: &str, given: Option<&ResultGiven>) -> String {
+/// whole character, with the words that follow a cut one saying how much was given, how many bytes the record holds
+/// and the request that reads the rest, which `rest` makes of the character the rest begins at, the first being one,
+/// and of the bound; as it is where they allow it all.
+fn cut(result: &str, given: Option<&ResultGiven>, rest: impl FnOnce(usize, usize) -> String) -> String {
     let Some(given) = given.filter(|g| result.len() > g.bound) else {
         return result.trim_end().to_string();
     };
@@ -187,8 +195,30 @@ fn cut(result: &str, given: Option<&ResultGiven>) -> String {
         at -= 1;
     }
     let (kept, size) = (at.to_string(), result.len().to_string());
-    let words = fill(&given.cut, &[("given", &kept), ("size", &size)]);
+    // SQLite counts a text by its characters, not its bytes.
+    let rest = rest(result[..at].chars().count() + 1, given.bound);
+    let words = fill(&given.cut, &[("given", &kept), ("size", &size), ("rest", &rest)]);
     format!("{}\n\n{words}", &result[..at])
+}
+
+/// The request of `query` that reads the result of the call of the work kept in the records from this character on,
+/// the first being one: its text in parts of this many characters, a row each in order, so that a message gives as
+/// many parts whole as it has room for, and the `rest` of the query's own cut the parts after them.
+fn rest(work: WorkNumber, call: CallId, from: usize, part: usize) -> String {
+    let (work, call) = (work.0, call.0);
+    let sql = format!(
+        "WITH RECURSIVE parts(at) AS (SELECT {from} UNION ALL SELECT at + {part} FROM parts WHERE at + {part} <= \
+         (SELECT length(result) FROM results WHERE work = {work} AND call = {call})) SELECT substr(result, at, {part}) \
+         AS part FROM parts, results WHERE work = {work} AND call = {call} ORDER BY at"
+    );
+    serde_json::json!({ "sql": sql }).to_string()
+}
+
+/// How many characters a part of the rest of a result holds, for a message that gives this many bytes of a result of
+/// `query`: as many as its row holds within them however they are written in JSON, where a character takes at most
+/// six bytes, as a control character does (`\u001f`), with room for the row's key and its marks.
+fn part(room: usize) -> usize {
+    (room.saturating_sub(16) / 6).max(1)
 }
 
 /// What a result of `answer` says that is the flow's: the words an unreadable request is told in, and the tools the
@@ -336,23 +366,104 @@ mod tests {
     fn a_result_longer_than_its_tool_s_words_allow_is_given_cut_with_its_size_and_one_within_it_whole() {
         let words = ResultGiven {
             bound: 40,
-            cut: "(Cut: {given} of {size} bytes.)".to_string(),
+            cut: "(Cut: {given} of {size} bytes; the rest: {rest}.)".to_string(),
         };
+        let rest = |from: usize, bound: usize| format!("from {from} within {bound}");
         let long = format!("{}é{}", "a".repeat(39), "b".repeat(60));
-        // The 40th byte is inside a character, so the cut is before it.
+        // The 40th byte is inside a character, so the cut is before it, and the rest is from the character after.
         let size = long.len();
         assert_eq!(
-            cut(&long, Some(&words)),
-            format!("{}\n\n(Cut: 39 of {size} bytes.)", "a".repeat(39))
+            cut(&long, Some(&words), rest),
+            format!(
+                "{}\n\n(Cut: 39 of {size} bytes; the rest: from 40 within 40.)",
+                "a".repeat(39)
+            )
         );
+        // The rest is from a character, counted as SQLite counts a text: after one of two bytes, the 41st byte begins
+        // the 40th character.
+        let wide = format!("é{}", "c".repeat(60));
+        assert!(cut(&wide, Some(&words), rest).ends_with("the rest: from 40 within 40.)"));
         let short = "b".repeat(40);
-        assert_eq!(cut(&short, Some(&words)), short);
+        assert_eq!(cut(&short, Some(&words), rest), short);
         // The size is the bytes the record holds, the whitespace at its end among them.
         let padded = format!("{}\n\n\n", "c".repeat(41));
-        let said = format!("(Cut: 40 of {} bytes.)", padded.len());
-        assert!(cut(&padded, Some(&words)).ends_with(&said));
+        let said = format!("(Cut: 40 of {} bytes; the rest: from 41 within 40.)", padded.len());
+        assert!(cut(&padded, Some(&words), rest).ends_with(&said));
         // A tool whose words give no bound is given whole, its end of whitespace left off.
-        assert_eq!(cut(&format!("{long}\n"), None), long);
+        assert_eq!(cut(&format!("{long}\n"), None, rest), long);
+    }
+
+    // What a result too large to give whole is given ends with the request of `query` that gets the rest, as the agent
+    // sends it: sent to the tool, and each request after it that the tool's own cut gives, it reads the rest of the
+    // result from the records whole and in order, each of its parts whole in a message however JSON writes it.
+    #[test]
+    fn the_rest_of_a_cut_result_is_read_whole_from_the_records_by_the_request_it_is_given_with() {
+        let beside = flow::agents::read(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow"))
+            .expect("the files beside the flows are read");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(store::FILE);
+        let store = store::Store::open(&file).unwrap();
+        // Characters of one, two, three and four bytes, and those JSON writes longest.
+        let result: String = (0..1500).map(|n| format!("{n}: é ✓ 𝄞 \u{1}\"\\\n")).collect();
+        let (number, call) = (WorkNumber(4), CallId(9));
+        // The result alone, with none of the records it belongs to, which the store's keys would ask for.
+        let db = rusqlite::Connection::open(&file).unwrap();
+        db.pragma_update(None, "foreign_keys", false).unwrap();
+        db.execute(
+            "INSERT INTO results (work, call, result) VALUES (?1, ?2, ?3)",
+            (number.0, call.0, &result),
+        )
+        .unwrap();
+        let mut kept = work::Work::default();
+        let asked = work::Ask::Tool {
+            name: RUN_TESTS.to_string(),
+            input: String::new(),
+        };
+        kept.calls.insert(call, work::Call::Asked(asked));
+        kept.results.insert(call, result.clone());
+        let given = given(number, &kept, &beside)
+            .remove(&call)
+            .expect("the result is given");
+        let mut at = beside.tools[RUN_TESTS].given.as_ref().expect("a bound").bound;
+        while !result.is_char_boundary(at) {
+            at -= 1;
+        }
+        assert!(at < result.len() && given.starts_with(&result[..at]), "{given}");
+        let notice = &given[at..];
+        let from = notice
+            .find("{\"sql\"")
+            .unwrap_or_else(|| panic!("no request in {notice}"));
+        let request: serde_json::Value = (serde_json::Deserializer::from_str(&notice[from..]).into_iter())
+            .next()
+            .expect("a request")
+            .expect("the request is JSON");
+        let open = crate::settings::Query {
+            open: true,
+            ..Default::default()
+        };
+        let querying = Querying::new(&open, Some(&beside.tools[QUERY]), dir.path(), store::SCHEMA).unwrap();
+        let room = beside.tools[QUERY]
+            .given_bytes
+            .expect("what a message gives of a query");
+        let (mut asking, mut read, mut messages) = (request.to_string(), String::new(), 0);
+        loop {
+            messages += 1;
+            assert!(messages < 100, "the rest is read in a few messages");
+            let answered = querying.answer(&asking, &Arc::new(query::Cancel::default()));
+            let shown = Querying::cut(&answered, &asking, room);
+            let shown: serde_json::Value = serde_json::from_str(&shown).unwrap_or_else(|e| panic!("{e}: {shown}"));
+            assert!(shown["cut"]["trimmed"].is_null(), "{shown}");
+            for row in shown["rows"].as_array().unwrap_or_else(|| panic!("{shown}")) {
+                read.push_str(row["part"].as_str().expect("a part"));
+            }
+            match shown["cut"]["rest"].as_str() {
+                Some(rest) => asking = serde_json::json!({ "sql": rest }).to_string(),
+                None => break,
+            }
+        }
+        assert_eq!(read, result[at..]);
+        assert!(messages > 1, "the parts come in more than one message");
+        drop(store);
     }
 
     /// The words an unreadable request is told in, as a file of the flow gives them.

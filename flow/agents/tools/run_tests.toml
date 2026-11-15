@@ -21,10 +21,11 @@ properties = { tests = { type = "array", items = { type = "string" } }, checks =
 additionalProperties = false
 
 # How much of a result is given. The engine keeps it whole in its records and gives a round the first `bound` bytes of
-# it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is whole.
+# it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is whole, `{rest}` the request of `query`
+# that reads the rest from the records, in parts.
 [given]
 bound = 20000
-cut = "(The result is cut here: {given} of its {size} bytes are given.)"
+cut = "(The result is too large to give whole and is cut here: {given} of its {size} bytes are given. Ask `query` for the rest as `{rest}`.)"
 
 # What a result says of what a workflow found, whatever the host. A workflow reports each test as JUnit XML, and the
 # engine reads no log to guess a result. `{...}` are filled in a run.

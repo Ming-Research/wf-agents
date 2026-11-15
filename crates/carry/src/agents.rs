@@ -346,9 +346,9 @@ impl Inner {
         };
         // What changed in the design tree, which git compares: the files, from each earlier version to the latest.
         let changes = tree::changes(flow, work, round.run, round.number, &dir, tree_dir).await?;
-        // The task as the message sends it, each setting it names with its value beside it; and a result of the tool
-        // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole.
-        let results = tools::given(work, &of.beside);
+        // The task as the message sends it, each setting it names with its value beside it; and a result longer than
+        // its tool's file says a message gives, cut as its file says, the records holding it whole.
+        let results = tools::given(round.work, work, &of.beside);
         let told = main.as_ref().and_then(CaughtUp::told);
         let carried = context::Carried {
             about,

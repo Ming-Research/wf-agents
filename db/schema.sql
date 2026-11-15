@@ -332,7 +332,7 @@ CREATE TABLE calls (
 CREATE TABLE results (
     work INTEGER NOT NULL,
     call INTEGER NOT NULL,
-    result TEXT NOT NULL, -- Hidden from agents.
+    result TEXT NOT NULL,
     PRIMARY KEY (work, call),
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );

@@ -814,7 +814,8 @@ pub struct LocalWords {
 pub struct ResultGiven {
     /// The most bytes of a result a round is given.
     pub bound: usize,
-    /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole.
+    /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole, `{rest}` the request
+    /// of `query` that reads the rest of it from the records.
     pub cut: String,
 }
 

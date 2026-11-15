@@ -37,8 +37,8 @@ What `{store}` in the words of `query` is filled with, by `carry::store`, is mad
 Why: A description written apart from the schema drifts from it. Marking nothing hidden would give agents the machine's paths and what they are not meant to read by default; the owner is made to choose.
 
 ### decision a-tools-result-is-kept-whole-and-given-cut
-What a tool says is kept whole in the work's records, and cut only where a round is given it, at the bound its tool's words name.
-Why: Cut where the host made it, the engine's records kept only what the agent was given, and what was cut could never be read again; the bound is the round's, not the result's.
+What a tool says is kept whole in the work's records, and cut only where a round is given it, at the bound its tool's words name, with the request of `query` that reads the rest from the records: the rest in parts, a row each, each small enough that a message gives it whole however JSON writes it, so that the query's own cut moves on through them. That is why the column that holds what a tool said, `result` of `results`, is not hidden from agents.
+Why: Cut where the host made it, the engine's records kept only what the agent was given, and what was cut could never be read again; the bound is the round's, not the result's. A query of the rest as one value was turned down: a message gives a row longer than its room shortened, and the `rest` of the query's cut goes on from the row after it, so the agent would have to read the value in parts by hand.
 
 ### decision a-times-are-kept-with-the-run
 What a request of `run_tests` gives of each test includes the time its results give, and of each job of the workflows that ran, the wall time GitHub records for it, from its start to its end; a job that did not run or did not finish says so in place of a time. The check before the merge gives each job's time in the notes it hands in, on a pass as on a failure, and tells no job twice. Each result is kept whole in the records with the run that made it, so that a time has a history there.
