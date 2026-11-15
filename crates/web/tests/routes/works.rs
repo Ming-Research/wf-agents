@@ -159,8 +159,11 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "tries": [],
                         "missed": null,
                         "estimated": false,
+                        // The engine's loop runs with no policy, which a line is worked out by: nothing is judged.
+                        "judged": { "cost": null, "time": null },
                     }],
-                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null }],
+                    // A question is no call of a tool, whose time alone is judged.
+                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null, "time": null }],
                     // A return that asks ends its run, having dealt with nothing.
                     "end": { "kind": "finished", "at": 9, "time": asked, "writes": [] },
                     "spent": spent(1),
