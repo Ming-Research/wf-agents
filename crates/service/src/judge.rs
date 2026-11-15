@@ -6,18 +6,20 @@
 //! The records hold, in the order of their places, each step of a path but a few waits: a run of a cell started; a
 //! round that failed, with its kind; a return sent back, where the run's next round begins, given why; a call a run
 //! rests at, for a tool, the engine's wait before a round is tried again, or the owner's word on the engine's own call
-//! at a run's limit; a question that waits for the owner's answer; the work paused and let on, by whom; a cell let go
-//! at its limit; a cancel, a reopen, and the merge's finished run. A wait on a precondition, for the outside or at a
-//! cell's limit of a sender has no entry: it is read where the work came to rest after a thing that happened to it,
-//! with nothing of it under way and no call or question waited for, at the cell the reading finds it stands at. There a
-//! key of the cell's preconditions that does not hold is a wait for the outside where only cells write the blocks
-//! keeping it and the latest run of each said that what it wrote waits for a source outside the work (decision
-//! what-a-run-wrote-may-wait-for-the-outside), a precondition where a person or a source outside the work writes one of
-//! them, and else a stall, which the engine's view shows; with every key holding, the cell waits at its limit where it
-//! would run once more for what a sender wrote that sent it back as often as the flow's `again` lets one since its
-//! counts last began anew (decision the-same-sender-again). A wait that lasts over several things that happened is one
-//! step. The work's adding (the pause it was added with, the write of its block of dependencies and of what people
-//! wrote for it) and the letting on a play gives it then are the item's start: no step of its path, and no rest.
+//! at a run's limit; a question that waits for the owner's answer, of a cell that applies once it is asked, since a
+//! wait of a skipped cell holds nothing (decision a-wait-of-a-skipped-cell-is-put-away); the work paused and let on, by
+//! whom; a cell let go at its limit; a cancel, a reopen, and the merge's finished run. A wait on a precondition, for
+//! the outside or at a cell's limit of a sender has no entry: it is read where the work came to rest after a thing that
+//! happened to it, with nothing of it under way and no call, or question of a cell that applies, waited for, at the
+//! cell the reading finds it stands at. There a key of the cell's preconditions that does not hold is a wait for the
+//! outside where only cells write the blocks keeping it and the latest run of each said that what it wrote waits for a
+//! source outside the work (decision what-a-run-wrote-may-wait-for-the-outside), a precondition where a person or a
+//! source outside the work writes one of them, and else a stall, which the engine's view shows; with every key holding,
+//! the cell waits at its limit where it would run once more for what a sender wrote that sent it back as often as the
+//! flow's `again` lets one since its counts last began anew (decision the-same-sender-again). A wait that lasts over
+//! several things that happened is one step. The work's adding (the pause it was added with, the write of its block of
+//! dependencies and of what people wrote for it) and the letting on a play gives it then are the item's start: no step
+//! of its path, and no rest.
 //!
 //! What no record holds is read from the engine's view of the work now, and so only as a path's end: a stall, which
 //! the reading bears out where it finds the work stalled at the same cell; a wait for a slot, for the turn to check and
@@ -400,17 +402,31 @@ pub fn seen(flow: &Compiled, work: &Work, added: Added) -> Vec<Seen> {
         let stands = !r.done.iter().any(|d| d.call == c.call);
         push(c.at, Step::Waits { cell, on }, stands);
     }
-    // A question that waits is one wait while it is asked anew unanswered, and stands while its latest version waits.
+    // Where each thing that happened to the work began, in order.
+    let mut froms: Vec<Seq> = work.moments.iter().map(|m| m.from).collect();
+    froms.sort();
+    // Whether the cell applies once the thing that happened at this place is over: a question of a cell that does not
+    // then holds nothing (decision a-wait-of-a-skipped-cell-is-put-away).
+    let applies = |cell: &CellId, at: Seq| {
+        let end = (froms.iter().copied()).find(|from| *from > at).unwrap_or(Seq(u64::MAX));
+        let records = r.before(end);
+        let reading = Reading::of_flow(&flow.flow, &records);
+        (flow.flow.place(cell)).is_some_and(|i| reading.applies(&flow.flow, i))
+    };
+    // A question that waits, of a cell that applies once it is asked, is one wait while it is asked anew unanswered,
+    // and stands while its latest version waits and its cell applies.
     let now = reading::questions(r, Seq(u64::MAX));
     let mut questions: Vec<&decide::Questioned> = r.questions.iter().collect();
     questions.sort_by_key(|q| q.at);
     for q in questions {
         let before = reading::questions(r, q.at);
-        let waited = (before.get(&q.name)).is_some_and(|b| b.waits && !b.withdrawn && !b.answered);
-        if !q.waits || q.withdrawn || waited {
+        let waited =
+            (before.get(&q.name)).is_some_and(|b| b.waits && !b.withdrawn && !b.answered && applies(&b.cell, b.at));
+        if !q.waits || q.withdrawn || waited || !applies(&q.cell, q.at) {
             continue;
         }
-        let stands = (now.get(&q.name)).is_some_and(|n| n.waits && !n.withdrawn && !n.answered);
+        let stands = (now.get(&q.name)).is_some_and(|n| n.waits && !n.withdrawn && !n.answered)
+            && applies(&q.cell, Seq(u64::MAX));
         let on = Wait::Answer(Some(q.name.clone()));
         push(
             q.at,
@@ -455,9 +471,7 @@ pub fn seen(flow: &Compiled, work: &Work, added: Added) -> Vec<Seen> {
 
     // The waits no entry records, read where the work came to rest after each thing that happened to it from the end of
     // its adding on: within the adding, no cell had what it was added with yet.
-    let mut froms: Vec<Seq> = work.moments.iter().map(|m| m.from).collect();
-    froms.sort();
-    let mut ends: Vec<Seq> = froms.into_iter().skip(added.moments(flow)).collect();
+    let mut ends: Vec<Seq> = froms.iter().copied().skip(added.moments(flow)).collect();
     ends.push(Seq(u64::MAX));
     let mut seen = Vec::new();
     let mut entries = entries.into_iter().peekable();
@@ -498,8 +512,8 @@ pub fn seen(flow: &Compiled, work: &Work, added: Added) -> Vec<Seen> {
 /// How the work rests as these records stand, by the reading.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Rest {
-    /// Nothing no entry records holds it: something of it is under way, a call or a question waits, it has ended, or
-    /// it would go on, from the cell where it stands where it stands at one.
+    /// Nothing no entry records holds it: something of it is under way, a call or a question of a cell that applies
+    /// waits, it has ended, or it would go on, from the cell where it stands where it stands at one.
     Nothing(Option<CellId>),
     /// It waits at the cell it stands at for these, which no entry records.
     Waits(Vec<Step>),
@@ -508,13 +522,14 @@ enum Rest {
 }
 
 /// How the work rests as these records stand (decisions conditions-and-preconditions,
-/// what-a-run-wrote-may-wait-for-the-outside, the-same-sender-again): where nothing of it is under way and no call or
-/// question waits, at the cell the reading finds it stands at, each key of that cell's preconditions that does not
-/// hold is a wait for the outside where only cells write the blocks keeping it and the latest run of each said what it
-/// wrote waits for a source outside the work, of which nothing new has come, and a precondition otherwise; where only
-/// cells write what keeps each, none of which waits so, the work is stalled there. With no key unmet, the cell's limit
-/// of the first sender that sent it back as often as its limit lets one, where it would run once more for what that
-/// sender wrote. With no cell to stand at, it is stalled at its last cell, which nothing new runs.
+/// what-a-run-wrote-may-wait-for-the-outside, the-same-sender-again): where nothing of it is under way and no call, or
+/// question of a cell that applies (decision a-wait-of-a-skipped-cell-is-put-away), waits, at the cell the reading
+/// finds it stands at, each key of that cell's preconditions that does not hold is a wait for the outside where only
+/// cells write the blocks keeping it and the latest run of each said what it wrote waits for a source outside the work,
+/// of which nothing new has come, and a precondition otherwise; where only cells write what keeps each, none of which
+/// waits so, the work is stalled there. With no key unmet, the cell's limit of the first sender that sent it back as
+/// often as its limit lets one, where it would run once more for what that sender wrote. With no cell to stand at, it
+/// is stalled at its last cell, which nothing new runs.
 fn at_rest(flow: &Compiled, records: &Records) -> Rest {
     let reading = Reading::of_flow(&flow.flow, records);
     let now = Seq(u64::MAX);
@@ -528,7 +543,12 @@ fn at_rest(flow: &Compiled, records: &Records) -> Rest {
         began > records.returned.iter().filter(|r| r.run == s.run).count()
     });
     let calling = (records.called.iter()).any(|c| !records.done.iter().any(|d| d.call == c.call));
-    let asking = (reading::questions(records, now).values()).any(|q| q.waits && !q.withdrawn && !q.answered);
+    let asking = (reading::questions(records, now).values()).any(|q| {
+        q.waits
+            && !q.withdrawn
+            && !q.answered
+            && (flow.flow.place(&q.cell)).is_some_and(|i| reading.applies(&flow.flow, i))
+    });
     let standing = reading.standing(&flow.flow);
     let at = standing.map(|i| cells[i].id.clone());
     if records.cancelled().is_some() || merged || under_way || calling || asking {
