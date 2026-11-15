@@ -1520,7 +1520,7 @@ impl<'a> Walk<'a> {
             // A cell with a run unfinished holds the work there: the run goes on, or waits while the cell that gives
             // what it waits for runs, and no cell after it that the owner turns to runs before it.
             if self.runs.values().any(|r| r.open() && r.started.cell == cell.id) {
-                return None;
+                continue;
             }
             let (because, on) = self.entering(j);
             // A cell that waits holds the work: no cell after it runs, whoever the owner turns to there, but the one
