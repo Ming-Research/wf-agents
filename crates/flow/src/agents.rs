@@ -1106,6 +1106,8 @@ pub struct Given {
     /// cell worked from an earlier version, `held_new` where it never worked from it.
     pub held: String,
     pub held_new: String,
+    /// What is sent of a datum that has no version yet, where no round of the cell in the session was told so.
+    pub unwritten: String,
     pub latest: GivenKind,
     pub last_and_latest: GivenKind,
     pub all: GivenKind,

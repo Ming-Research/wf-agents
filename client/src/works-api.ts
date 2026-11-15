@@ -491,13 +491,14 @@ export interface RoundTry {
 
 /// One thing filled into a session, as the flow's files name it: a part of the message the session keeps, by its
 /// `part`; a version of a datum of the cell's context, whole, or as what changed since an earlier one; the results of
-/// calls; why what a round of the run returned was sent back.
+/// calls; why what a round of the run returned was sent back; that a datum of the cell's context has no version yet.
 export type Fill =
   | { kind: 'part'; part: string }
   | { kind: 'whole'; block: string; version: number }
   | { kind: 'change'; block: string; version: number; since: number }
   | { kind: 'results'; calls: number[] }
-  | { kind: 'sentBack'; round: number };
+  | { kind: 'sentBack'; round: number }
+  | { kind: 'unwritten'; block: string };
 
 export interface CallRow {
   call: number;

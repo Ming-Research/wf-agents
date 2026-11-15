@@ -12,6 +12,9 @@ choice = ", with the value `{value}`"
 # entered after another of its line that read or wrote it.
 held = "## `{block}`, version {number}, in this session already; you last worked from version {last_number}"
 held_new = "## `{block}`, version {number}, in this session already"
+# What stands in place of a datum that has no version yet, where no round of the cell in the session was told so since
+# the session last held nothing.
+unwritten = "## `{block}`, no version yet"
 
 [latest]
 text = "## `{block}`, version {number}{choice}\n\n{content}"

@@ -1121,6 +1121,8 @@ pub enum Fill {
     Results { calls: Vec<u64> },
     /// Why what the round of this number of the same run returned was sent back.
     SentBack { round: usize },
+    /// That a datum of the cell's context has no version yet.
+    Unwritten { block: String },
 }
 
 /// What a round is given.
@@ -1536,6 +1538,9 @@ impl Fill {
                 calls: calls.iter().map(|call| call.0).collect(),
             },
             FillOf::SentBack { round } => Fill::SentBack { round: *round },
+            FillOf::Unwritten { block } => Fill::Unwritten {
+                block: block.to_string(),
+            },
         }
     }
 }

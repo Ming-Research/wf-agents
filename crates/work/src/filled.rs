@@ -38,6 +38,8 @@ pub enum Fill {
     Results(Vec<CallId>),
     /// Why what the round of this number of the same run returned was sent back.
     SentBack { round: usize },
+    /// That a block the round's cell is given has no version yet.
+    Unwritten { block: BlockId },
 }
 
 impl Fill {
@@ -81,7 +83,7 @@ pub fn check(work: &Work) -> Result<(), FillFault> {
                 Fill::SentBack { round } if *round == 0 || *round > f.round => {
                     return Err(FillFault::NotEarlier(f.at));
                 }
-                Fill::Part { .. } | Fill::Results(_) | Fill::SentBack { .. } => continue,
+                Fill::Part { .. } | Fill::Results(_) | Fill::SentBack { .. } | Fill::Unwritten { .. } => continue,
             };
             if !std::iter::once(version).chain(since).all(|v| records.wrote(block, v)) {
                 return Err(FillFault::NoVersion(f.at));

@@ -2,6 +2,7 @@
 choice = ", with the value `{value}`"
 held = "## `{block}`, version {number}, in this session already; last worked from {last_number}"
 held_new = "## `{block}`, version {number}, in this session already"
+unwritten = "## `{block}`, no version yet"
 
 [latest]
 text = "## `{block}`, version {number}{choice}\n\n{content}"

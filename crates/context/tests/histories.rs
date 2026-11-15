@@ -8,8 +8,9 @@
 //! What is checked of every round, as it is entered in its session and in one that holds nothing:
 //! - it is filled with exactly what its cell is given and its session lacks, each datum by its kind, in the cell's
 //!   order, then what the session keeps that it lacks, the results of calls and why what was returned was sent back;
-//! - nothing is filled that the cell is not given, its own outputs among them, and a datum with no version is never
-//!   sent;
+//! - nothing is filled that the cell is not given, its own outputs among them, and a datum with no version is said to
+//!   have none where no round of the cell in the session was told so since the session last held nothing, and is sent
+//!   nothing otherwise;
 //! - a session that holds nothing is filled from the top, and the task is filled once a session;
 //! - what the last return in the session handed in is what the message says it is kept as;
 //! - entered again, before its try or after it, the round is sent the same bytes;
@@ -20,8 +21,9 @@
 //!   of what the engine sends in it, each place standing for what fills it.
 //!
 //! The histories must reach each of these: a change sent, one of the tree, several versions of a datum given `all` sent at once, a
-//! session reopened, lost and compacted, results given and a return sent back; each is counted, and a test of no
-//! history reaching one fails. A failing case prints its seed.
+//! datum with no version said to have none and one the cell was told of, a session reopened, lost and compacted,
+//! results given and a return sent back; each is counted, and a test of no history reaching one fails. A failing case
+//! prints its seed.
 
 mod support;
 
@@ -81,6 +83,8 @@ struct Held {
     sent_back: BTreeSet<(RunId, usize)>,
     /// What the last return in it handed in.
     taken: Vec<(BlockId, Seq)>,
+    /// The blocks a round of each cell in it was told have no version yet, by the cell.
+    unwritten: BTreeSet<(CellId, BlockId)>,
     /// How often each task was filled into it.
     tasks: BTreeMap<String, u32>,
 }
@@ -90,8 +94,8 @@ impl Held {
         self.versions.get(block).is_some_and(|v| v.contains(&at))
     }
 
-    /// What a round that reached the model filled into it.
-    fn fill(&mut self, run: RunId, fills: &[Fill]) {
+    /// What a round of the cell that reached the model filled into it.
+    fn fill(&mut self, run: RunId, cell: &CellId, fills: &[Fill]) {
         for fill in fills {
             match fill {
                 Fill::Whole { block, version } | Fill::Change { block, version, .. } => {
@@ -108,6 +112,9 @@ impl Held {
                 Fill::Results(calls) => self.results.extend(calls.iter().copied()),
                 Fill::SentBack { round } => {
                     self.sent_back.insert((run, *round));
+                }
+                Fill::Unwritten { block } => {
+                    self.unwritten.insert((cell.clone(), block.clone()));
                 }
             }
         }
@@ -135,6 +142,10 @@ struct Reached {
     wrote: usize,
     /// New versions given whole that said what one the session held said.
     said_again: usize,
+    /// Data with no version said to have none.
+    unwritten: usize,
+    /// Data with no version the cell was told of already in its session.
+    told_unwritten: usize,
 }
 
 /// One history, and the test's account beside it.
@@ -260,7 +271,10 @@ impl History {
             // A round that failed after its program had its message, as at the usage limit, put it into its session;
             // one that failed before its program ran put nothing there.
             if self.rng.chance(50) {
-                self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
+                self.lines
+                    .entry(line.clone())
+                    .or_default()
+                    .fill(round.run, &round.cell, &used.fills);
                 self.sim.fails_as(round, decide::run::Failure::UsageLimit, true);
                 reached.wrote += 1;
             } else {
@@ -268,7 +282,10 @@ impl History {
             }
             return;
         }
-        self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
+        self.lines
+            .entry(line.clone())
+            .or_default()
+            .fill(round.run, &round.cell, &used.fills);
         let compactions = u32::from(self.rng.chance(10));
         let came = self.came(round);
         self.sim.returns(round, came, compactions);
@@ -374,7 +391,11 @@ impl History {
         let records = sim.work.records.before(began);
         let versions = decide::versions(&records);
         let Some(all) = versions.get(block).filter(|v| !v.is_empty()) else {
-            return (Stands::Unwritten, Vec::new(), None);
+            if held.unwritten.contains(&(cell.id.clone(), block.clone())) {
+                return (Stands::HoldsUnwritten, Vec::new(), None);
+            }
+            let told = Fill::Unwritten { block: block.clone() };
+            return (Stands::Unwritten, vec![told], None);
         };
         let latest = all.last().expect("a version").at;
         let last = self.worked.get(&(cell.id.clone(), block.clone())).copied();
@@ -564,7 +585,18 @@ impl History {
                     );
                     reached.held_new += 1;
                 }
-                Stands::Holds | Stands::Unwritten => assert!(sent.is_none(), "{name} is sent"),
+                Stands::Unwritten => {
+                    let sent = sent.expect("the line of a datum with no version");
+                    assert_eq!(sent.form, Form::Unwritten);
+                    let said = sim.words.given.unwritten.replace("{block}", name);
+                    assert_eq!(as_written(&sent.pieces), said);
+                    reached.unwritten += 1;
+                }
+                Stands::HoldsUnwritten => {
+                    assert!(sent.is_none(), "{name} is sent");
+                    reached.told_unwritten += 1;
+                }
+                Stands::Holds => assert!(sent.is_none(), "{name} is sent"),
                 Stands::Lacks | Stands::HoldsLast => assert!(sent.is_some(), "{name} is not sent"),
             }
         }
@@ -574,10 +606,9 @@ impl History {
             "main taken in"
         );
         reached.main += usize::from(entered.situation.main.is_some());
-        let versions = decide::versions(&sim.work.records);
         for fill in &entered.fills {
             match fill {
-                Fill::Whole { block, .. } | Fill::Change { block, .. } => {
+                Fill::Whole { block, .. } | Fill::Change { block, .. } | Fill::Unwritten { block } => {
                     assert!(given.contains(&block), "{block} is filled and not given to {}", cell.id);
                 }
                 Fill::Results(_) => reached.results += 1,
@@ -609,21 +640,33 @@ impl History {
         if all.count() > 1 {
             reached.versions += 1;
         }
+        // A datum is sent as having no version where it had none as the round began.
+        let began = (sim.work.records.rounds.iter())
+            .filter(|r| r.run == round.run)
+            .nth(round.number - 1)
+            .expect("the round began")
+            .at;
+        let then = decide::versions(&sim.work.records.before(began));
         for sent in &entered.sent {
             if let Some(block) = &sent.block {
-                let written = versions
-                    .get(&BlockId::from(block.as_str()))
-                    .is_some_and(|v| !v.is_empty());
-                assert!(written, "{block} is sent with no version");
+                let written = then.get(&BlockId::from(block.as_str())).is_some_and(|v| !v.is_empty());
+                assert_eq!(
+                    written,
+                    sent.form != Form::Unwritten,
+                    "{block} is sent so with no version"
+                );
             }
         }
-        // A session that holds nothing is filled with every datum written and the task.
-        if held.versions.is_empty() && held.parts.is_empty() {
+        // A session that holds nothing is filled with every datum written, that every other has no version, and the
+        // task.
+        if held.versions.is_empty() && held.parts.is_empty() && held.unwritten.is_empty() {
             for g in &cell.given {
                 let written = entered.run.data.contains_key(&g.block);
                 let filled = (entered.fills.iter())
                     .any(|f| matches!(f, Fill::Whole { block, .. } | Fill::Change { block, .. } if *block == g.block));
                 assert_eq!(written, filled, "{} from the top", g.block);
+                let told = (entered.fills.iter()).any(|f| matches!(f, Fill::Unwritten { block } if *block == g.block));
+                assert_eq!(!written, told, "{} said to have no version from the top", g.block);
             }
             assert!(
                 entered
@@ -724,6 +767,11 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
         ("a return sent back", reached.sent_back),
         ("a round that failed after its program had its message", reached.wrote),
         ("a new version given that said what one held said", reached.said_again),
+        ("a datum with no version said to have none", reached.unwritten),
+        (
+            "a datum with no version the cell was told of in its session",
+            reached.told_unwritten,
+        ),
     ] {
         assert!(n > 0, "no history reached {what}");
     }

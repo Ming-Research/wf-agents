@@ -42,6 +42,18 @@ fn whole(block: &str, version: u64) -> Fill {
     }
 }
 
+/// That the block has no version yet, filled.
+fn unwritten(block: &str) -> Fill {
+    Fill::Unwritten {
+        block: BlockId::from(block),
+    }
+}
+
+/// What is sent of a block that has no version yet, as the words of the tests say it.
+fn no_version(block: &str) -> String {
+    format!("## `{block}`, no version yet")
+}
+
 const CODE: &str = "fn greet() {\n    say(\"hello\");\n}\n\nfn say(what: &str) {\n    print(what);\n}\n\nfn main() {\n    greet();\n}\n";
 
 /// The work as far as the review's first round: the plan, the build and the review each entered once.
@@ -57,6 +69,7 @@ fn reviewed() -> Sim {
     sim
 }
 
+// Of each datum no one wrote yet, the first round is told it has none.
 #[test]
 fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_its_task_and_what_ran_it() {
     let mut sim = Sim::new();
@@ -68,6 +81,10 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
     let expected = message(&[
         "# Plan".to_string(),
         format!("## `request`, version {request}\n\nGreet the user."),
+        no_version("notes"),
+        no_version("opinions"),
+        no_version("plan"),
+        no_version("tree"),
         outputs.clone(),
         "Write the plan for the request.".to_string(),
         ran_by(&["request"]),
@@ -77,6 +94,10 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
         entered.fills,
         [
             whole("request", request),
+            unwritten("notes"),
+            unwritten("opinions"),
+            unwritten("plan"),
+            unwritten("tree"),
             part("outputs", &outputs),
             part("task", "Write the plan for the request.")
         ]
@@ -94,12 +115,15 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_
     let entered = sim.enter(&round, false);
     let (plan, request) = (sim.version("plan"), sim.version("request"));
     let outputs = returns(&["- `code`: "]);
-    // The build never worked from either: each is new to it, and the session holds it already.
+    // The build never worked from either: each is new to it, and the session holds it already. It is told the tree has
+    // no version, as the plan was before it in the session, and the code.
     let expected = message(&[
         format!("Kept: `plan` {plan}"),
         "# Build".to_string(),
         format!("## `plan`, version {plan}, in this session already"),
         format!("## `request`, version {request}, in this session already"),
+        no_version("code"),
+        no_version("tree"),
         outputs.clone(),
         "Build what the plan says.".to_string(),
         ran_by(&["plan"]),
@@ -107,7 +131,12 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_
     assert_eq!(entered.text, expected);
     assert_eq!(
         entered.fills,
-        [part("outputs", &outputs), part("task", "Build what the plan says.")]
+        [
+            unwritten("code"),
+            unwritten("tree"),
+            part("outputs", &outputs),
+            part("task", "Build what the plan says.")
+        ]
     );
     assert_eq!(entered.situation.data["request"], Stands::HoldsNew);
 }
@@ -129,6 +158,7 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
         "# Review".to_string(),
         format!("## `code`, version {code}\n\n{}", CODE.trim_end()),
         format!("## `plan`, version {plan}\n\nGreet by name."),
+        no_version("notes"),
         outputs.clone(),
         "Review the code.".to_string(),
         ran_by(&["code"]),

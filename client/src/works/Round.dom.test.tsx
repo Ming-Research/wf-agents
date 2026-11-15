@@ -167,6 +167,15 @@ describe("a round's part of a run's panel", () => {
     expect(order.indexOf('Filled')).toBeLessThan(order.indexOf('Show what it was told'));
   });
 
+  it('shows a datum filled as having no version by the key of its words and its name', async () => {
+    const page = fixtureWork(41);
+    const run = page.steps.find((s) => s.kind === 'run');
+    if (run?.kind !== 'run') throw new Error('no run');
+    run.rounds[0].tries[0].filled[0].push({ kind: 'unwritten', block: 'notes' });
+    const panel = await runPanel(page, 1, sourceOf());
+    expect(rows(pair(roundPart(panel, 1), 'Filled')).at(-1)).toBe('unwritten notes');
+  });
+
   it("shows on each round the system prompt of its session, which each round is sent, read once when opened", async () => {
     const source = sourceOf();
     const panel = await runPanel(fixtureWork(41), 1, source);

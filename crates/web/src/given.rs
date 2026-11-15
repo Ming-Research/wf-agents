@@ -102,6 +102,9 @@ pub struct Part {
     pub held_new: Vec<Piece>,
     /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
     pub whole: Vec<Piece>,
+    /// Of the content of a block, what is sent where it has no version yet and no round of the cell in the session was
+    /// told so: `unwritten`.
+    pub unwritten: Vec<Piece>,
     /// Of the triggers' part, the line of each trigger of the cell, by the trigger's name, in the order the cell names
     /// them, which come after `pieces` for each trigger that ran the cell; and then `after`.
     pub items: Vec<(String, Vec<Piece>)>,
@@ -342,6 +345,7 @@ impl<'a> Build<'a> {
             held: Vec::new(),
             held_new: Vec::new(),
             whole: Vec::new(),
+            unwritten: Vec::new(),
             items: Vec::new(),
             after: Vec::new(),
         }
@@ -398,6 +402,7 @@ impl<'a> Build<'a> {
                 held: part.held,
                 held_new: part.held_new,
                 whole: part.whole,
+                unwritten: part.unwritten,
                 items: part.items,
                 after: part.after,
             });

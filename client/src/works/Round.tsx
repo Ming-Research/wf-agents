@@ -116,6 +116,12 @@ function FillRow({ fill }: { fill: Fill }) {
           <Attr name="sent_back" value={`round ${fill.round}`} />
         </ListRow>
       );
+    case 'unwritten':
+      return (
+        <ListRow>
+          <Attr name="unwritten" value={fill.block} />
+        </ListRow>
+      );
   }
 }
 

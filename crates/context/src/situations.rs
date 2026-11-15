@@ -28,7 +28,8 @@
 //! cell alone writes, is new to it never: unwritten on a first entry, held on a later one, lacking on one reopened, and
 //! unwritten on either where it is not certainly written. Any other datum stands any way the entry allows: unwritten
 //! where it is not certainly written, lacking, held from a cell of the line, or, on a later entry, held as last worked
-//! from, latest, or with nothing new.
+//! from, latest, or with nothing new. A datum unwritten on a later entry is one the cell was told has no version, by
+//! its own entry before; on a first entry or one reopened it was not.
 //!
 //! A datum's text is the builder's from its kind and from how the session stands with it alone, so a product of every
 //! datum's own states repeats the same texts: it is counted ([`combinations`]), and the situations hold every state of
@@ -46,6 +47,14 @@ use flow::system::Settings;
 use flow::{CellSpec, Compiled, Kind, Trigger};
 
 use crate::message::{CALLS, MAIN, Situation, Stands, Values, kept};
+
+/// How a datum with no version stands on the entry: told so by the cell's own entry before, on a later one.
+fn unwritten_on(entry: Entry) -> Stands {
+    match entry {
+        Entry::Later => Stands::HoldsUnwritten,
+        Entry::First | Entry::Reopened => Stands::Unwritten,
+    }
+}
 
 /// A situation, with a name that says it, its parts joined by `-`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,10 +151,9 @@ pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &s
                                 Class::Rest => rest,
                                 Class::Never => allowed.first().copied(),
                             };
-                            let instead = match allowed.contains(&Stands::Unwritten) {
-                                true => Stands::Unwritten,
-                                false => Stands::Lacks,
-                            };
+                            let instead = (allowed.iter().copied())
+                                .find(|s| matches!(s, Stands::Unwritten | Stands::HoldsUnwritten))
+                                .unwrap_or(Stands::Lacks);
                             let stands = wanted.filter(|s| allowed.contains(s)).unwrap_or(instead);
                             (block.to_string(), stands)
                         })
@@ -299,7 +307,7 @@ impl<'a> Reach<'a> {
 
     /// The states of any datum, unwritten where it may be and held from another cell of the line where it may be.
     fn rest(&self, entry: Entry, unwritten: bool, may_hold: bool) -> Vec<Stands> {
-        let mut states: Vec<Stands> = unwritten.then_some(Stands::Unwritten).into_iter().collect();
+        let mut states: Vec<Stands> = unwritten.then_some(unwritten_on(entry)).into_iter().collect();
         match entry {
             Entry::First => {
                 states.push(Stands::Lacks);
@@ -321,7 +329,7 @@ impl<'a> Reach<'a> {
     fn allowed(&self, entry: Entry, block: &BlockId, class: &Class) -> Vec<Stands> {
         let unwritten = !self.certain.contains(block);
         if entry == Entry::First && !self.early(block) {
-            return vec![Stands::Unwritten];
+            return vec![unwritten_on(entry)];
         }
         match class {
             Class::Fired => self.newly(entry, self.may_hold(block)),
@@ -333,7 +341,7 @@ impl<'a> Reach<'a> {
                     Entry::Reopened => vec![Stands::Lacks],
                 };
                 if unwritten || states.is_empty() {
-                    states.push(Stands::Unwritten);
+                    states.push(unwritten_on(entry));
                 }
                 states
             }

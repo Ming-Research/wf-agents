@@ -730,6 +730,12 @@ fn a_datum_with_no_version_is_said_to_have_none_once_a_session() {
     let entered = sim.enter(&round, sim.begins(&round));
     for block in &unwritten {
         assert_eq!(named(&entered, block), 1, "{block}:\n{}", entered.text);
+        let said = sim.words.given.unwritten.replace("{block}", block);
+        assert!(
+            entered.text.contains(&format!("\n{said}\n")),
+            "{said}:\n{}",
+            entered.text
+        );
     }
     // It asks for a tool, and is entered again for the result in the same session.
     sim.tries(&round, 1, entered.fills);
