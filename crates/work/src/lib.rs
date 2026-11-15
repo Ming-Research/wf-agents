@@ -323,7 +323,7 @@ pub enum Call {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Ask {
     /// A tool the engine runs, with what it is run on.
-    Tool { name: String, input: String },
+    Tool(Tool),
     /// A question for a person, which one work's old records hold: a return asks for tools alone, and a person is
     /// asked by the work's questions (decision a-return-asks-no-person-by-a-call).
     Person { who: Who, question: String },
@@ -338,9 +338,6 @@ pub struct Tool {
 
 impl From<Tool> for Ask {
     fn from(tool: Tool) -> Ask {
-        Ask::Tool {
-            name: tool.name,
-            input: tool.input,
-        }
+        Ask::Tool(tool)
     }
 }

@@ -1066,10 +1066,10 @@ fn called(mut work: Work, calls: &[(u64, &str)]) -> Work {
             on: None,
             at: Seq(300 + i as u64),
         });
-        let ask = Ask::Tool {
+        let ask = Ask::Tool(Tool {
             name: "query".to_string(),
             input: input.to_string(),
-        };
+        });
         work.calls.insert(CallId(*call), Call::Asked(ask));
     }
     work

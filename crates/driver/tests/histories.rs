@@ -525,7 +525,7 @@ impl History {
     fn answer(&mut self, people: bool) -> bool {
         let doable: Vec<Todo> = (sorted(&self.h.outstanding).into_iter())
             .filter(|t| match &t.effect {
-                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
+                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool(_))),
                 _ => true,
             })
             .collect();
@@ -716,7 +716,7 @@ impl History {
             },
             42..=54 => {
                 let asked: Vec<Todo> = (sorted(&self.h.outstanding).into_iter())
-                    .filter(|t| matches!(&t.effect, Effect::Call { what, .. } if !matches!(what, Call::Asked(Ask::Tool { .. }))))
+                    .filter(|t| matches!(&t.effect, Effect::Call { what, .. } if !matches!(what, Call::Asked(Ask::Tool(_)))))
                     .collect();
                 if asked.is_empty() {
                     Event::Look
@@ -888,7 +888,7 @@ fn one_history(seed: u64, faults: bool, warming: bool, log: &mut Vec<String>) ->
                 panic!("at rest something other than a call is pending: {todo:?}");
             };
             assert!(
-                !matches!(what, Call::Asked(Ask::Tool { .. })),
+                !matches!(what, Call::Asked(Ask::Tool(_))),
                 "at rest a tool's call is pending: {todo:?}"
             );
         }

@@ -83,9 +83,10 @@ questions.
 
 ### decision a-return-asks-no-person-by-a-call
 A return asks for tools alone, each a call that waits on nobody, and an agent asks the owner by the work's questions
-(decision the-questions-and-the-answers-are-one-record); the engine's own call at a run's limit is the one call on the
-owner. A question that one work's old records hold as a call on the owner is read as it was recorded: in the store, in
-the work's history, and on its bar as a wait on the owner while it stood unanswered.
+(decision the-questions-and-the-answers-are-one-record); a call on the owner is the engine's own at a run's limit, or a
+question a run left from before asked, made as that run finishes. A question that one work's old records hold as a
+call on the owner is read as it was recorded: in the store, in the work's history, and on its bar as a wait on the
+owner while it stood unanswered.
 Why: A question in free words put by a call can be neither answered quickly nor told from a remark (principle
 a-question-is-a-choice), and the past is read as it ran (principle the-past-as-it-ran). The call at a run's limit asks
 for the run's let-go, which judges and recommends nothing and so is no question of the record (principle

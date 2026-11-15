@@ -757,7 +757,7 @@ impl Service {
             Effect::Call {
                 call,
                 run,
-                what: Call::Asked(Ask::Tool { name, input }),
+                what: Call::Asked(Ask::Tool(work::Tool { name, input })),
             } => {
                 let order = ToolCall {
                     work,
@@ -789,7 +789,7 @@ impl Service {
             // owner's answer.
             Effect::Call { .. } => {}
             Effect::Withdraw { call } => match kept.work.calls.get(call) {
-                Some(Call::Asked(Ask::Tool { name, input })) => {
+                Some(Call::Asked(Ask::Tool(work::Tool { name, input }))) => {
                     let called =
                         (records.called.iter().find(|c| c.call == *call)).ok_or_else(|| stray(Missing::Call(*call)))?;
                     let order = ToolCall {

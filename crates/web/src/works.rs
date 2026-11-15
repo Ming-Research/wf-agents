@@ -2767,7 +2767,7 @@ fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
 impl Ask {
     fn of(ask: &AskOf) -> Ask {
         match ask {
-            AskOf::Tool { name, input } => Ask::Tool {
+            AskOf::Tool(work::Tool { name, input }) => Ask::Tool {
                 name: name.clone(),
                 input: input.clone(),
             },

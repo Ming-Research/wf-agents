@@ -57,7 +57,7 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
 
     let calls: Vec<&Call> = w.calls.values().collect();
     let kinds = [
-        calls.iter().any(|c| matches!(c, Call::Asked(Ask::Tool { .. }))),
+        calls.iter().any(|c| matches!(c, Call::Asked(Ask::Tool(_)))),
         calls.iter().any(|c| matches!(c, Call::Asked(Ask::Person { .. }))),
         calls.contains(&&Call::AtLimit(Limit::Returns { sent_back: 2 })),
     ];
@@ -224,4 +224,38 @@ fn a_run_that_finished_waiting_for_a_block_loads_back_waiting_for_it() {
     let waits = loaded.records.finished.last().and_then(|f| f.waits_for.clone());
     assert_eq!(waits, Some("main".into()));
     assert_eq!(loaded, new);
+}
+
+// A tool's call is kept in the form the store has always written it, `{"Asked":{"Tool":{"name":..,"input":..}}}`, and
+// a row in that form reads as the tool it names. Well under a second alone; no other test reads a call's row as it is
+// written.
+#[test]
+fn a_tools_call_is_kept_in_the_form_it_was_written_in_and_reads_back_from_it() {
+    let new = of_the_new_form();
+    let db = Db::new();
+    let mut store = db.open();
+    let work = first_work(&mut store);
+    store.save(work, &new).expect("the work is saved");
+    let conn = Connection::open(&db.path).expect("the database opens");
+    let row = |conn: &Connection| -> String {
+        (conn.query_row("SELECT what FROM calls WHERE work = ?1", [work.0], |r| r.get(0))).expect("the call's row")
+    };
+    assert_eq!(
+        row(&conn),
+        r#"{"Asked":{"Tool":{"name":"check","input":"what check is run on"}}}"#
+    );
+    let other = r#"{"Asked":{"Tool":{"name":"lint","input":"all"}}}"#;
+    let changed = (conn.execute(
+        "UPDATE calls SET what = ?1 WHERE work = ?2",
+        rusqlite::params![other, work.0],
+    ))
+    .expect("the row is written in that form");
+    assert_eq!(changed, 1);
+    let call = *new.calls.keys().next().expect("the call");
+    let lint = Tool {
+        name: "lint".to_string(),
+        input: "all".to_string(),
+    };
+    let loaded = db.open().load(work).expect("the work loads");
+    assert_eq!(loaded.calls.get(&call), Some(&Call::Asked(Ask::Tool(lint))));
 }

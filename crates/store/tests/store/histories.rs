@@ -262,7 +262,7 @@ impl History {
         }
         let doable: Vec<Effect> = (pending(&self.flow, &self.work).into_iter())
             .filter(|e| match e {
-                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
+                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool(_))),
                 _ => true,
             })
             .collect();

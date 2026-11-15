@@ -838,7 +838,7 @@ fn finish(
     for ask in asks {
         let on = match &ask {
             Ask::Person { who, .. } => Some(who.clone()),
-            Ask::Tool { .. } => None,
+            Ask::Tool(_) => None,
         };
         call(work, run, on, Call::Asked(ask), effects);
     }

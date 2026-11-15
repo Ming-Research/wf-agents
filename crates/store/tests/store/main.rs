@@ -802,10 +802,10 @@ impl Building {
         });
         self.w.calls.insert(
             call,
-            engine::Call::Asked(Ask::Tool {
+            engine::Call::Asked(Ask::Tool(Tool {
                 name: tool.to_string(),
                 input: format!("what {tool} is run on"),
-            }),
+            })),
         );
         call
     }

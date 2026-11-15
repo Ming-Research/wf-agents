@@ -27,7 +27,7 @@ use decide::{BlockId, CallId, Records, RunId, Seq, VersionView, Writer};
 use flow::agents::{Agents, Part};
 use flow::{CellSpec, Compiled, InputKind};
 use work::sessions::{began_at, number_at, of_line, of_round, start};
-use work::{Ask, Back, Call, Fill, Given, Why, Work};
+use work::{Ask, Back, Call, Fill, Given, Tool, Why, Work};
 
 use crate::diff;
 use crate::message::{self, Called, Datum, Form, Main, Run, Sent, Situation, Stands, Values, Version};
@@ -409,7 +409,7 @@ fn entry(
 /// A call whose result the round is given, as the carrier gives it, or else as the work holds it.
 fn result(work: &Work, call: CallId, given: &BTreeMap<CallId, String>) -> message::Result {
     let called = match work.calls.get(&call) {
-        Some(Call::Asked(Ask::Tool { name, input })) => Called::Tool {
+        Some(Call::Asked(Ask::Tool(Tool { name, input }))) => Called::Tool {
             name: name.clone(),
             input: input.clone(),
         },
