@@ -10,6 +10,8 @@ use decide::Outsider;
 use decide::run::Unmet;
 use decide::{BlockId, Seq};
 use engine::{Came, Event, Fill, Tool, Why};
+use flow::InputKind;
+use flow::agents::{MessagePart, Only, Part};
 use support::{Sim, carry, changed};
 
 /// What ran a round, as it is told last: each of these triggers.
@@ -461,6 +463,74 @@ fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_
     assert!(
         !sim.enter(&round, false).text.contains("merged"),
         "nothing where the branch held main"
+    );
+}
+
+/// A part of the message sent only to a round its script gives a part to play, as a script of parts gives it: kept by
+/// the session, in the kind given, or written anew where none is.
+fn tested(part: Part, kind: Option<InputKind>, text: &str) -> MessagePart {
+    MessagePart {
+        part,
+        kind,
+        only: Some(Only::Part),
+        text: Some(text.to_string()),
+        conflict: None,
+        uncommitted: None,
+        merging: None,
+        failed: None,
+        each: None,
+        between: None,
+        held: None,
+        detail: None,
+        does: None,
+        after: None,
+    }
+}
+
+// A round its script gives a part to play is sent, after all its cell gives it, the words that it is a test agent and
+// its part, its own filled in; the session keeps the words, so that the next round of the session given a part is sent
+// its part alone, and one that holds nothing, as one begun anew, the words again; a round given no part is sent
+// neither.
+#[test]
+fn a_round_given_a_part_is_sent_the_words_to_a_test_agent_once_a_session_and_its_part() {
+    let mut sim = Sim::new();
+    let told = "You are a test agent.";
+    let parts = &mut sim.words.message.parts;
+    parts.push(tested(Part::Told, Some(InputKind::Latest), told));
+    parts.push(tested(Part::Played, None, "## Your part\n\n{part}"));
+    sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
+    let none = sim.enter(&round, false);
+    assert!(
+        !none.text.contains(told) && !none.text.contains("## Your part"),
+        "{}",
+        none.text
+    );
+    sim.part = Some("Plan it.".to_string());
+    let plan = carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    assert_eq!(
+        plan.text,
+        message(&[
+            none.text.trim_end().to_string(),
+            told.to_string(),
+            "## Your part\n\nPlan it.".to_string()
+        ])
+    );
+    assert_eq!(plan.fills, [none.fills, vec![part("told", told)]].concat());
+    sim.part = Some("Build it.".to_string());
+    let round = sim.round().expect("the build is entered");
+    let anew = sim.enter(&round, true);
+    assert!(anew.text.contains(told), "{}", anew.text);
+    let build = carry(&mut sim, &[("code", CODE, None)]);
+    assert!(build.text.ends_with("## Your part\n\nBuild it.\n"), "{}", build.text);
+    assert!(!build.text.contains(told), "{}", build.text);
+    assert!(!build.fills.contains(&part("told", told)));
+    sim.part = None;
+    let review = carry(&mut sim, &[("verdict", "yes", Some("yes"))]);
+    assert!(
+        !review.text.contains(told) && !review.text.contains("## Your part"),
+        "{}",
+        review.text
     );
 }
 

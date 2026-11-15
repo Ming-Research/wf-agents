@@ -821,6 +821,171 @@ fn a_script_is_told_every_misuse_of_what_a_round_returns_at_once() {
     );
 }
 
+// A part is played only by an agent, in a round whose entry says nothing else of it, which the real agent runs: each
+// misuse is told in one pass, with where it is.
+#[test]
+fn a_script_is_told_every_misuse_of_a_part_at_once() {
+    let script = Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "merge"
+        part = "Merge it."
+
+        [[flows.trial.rounds]]
+        cell = "plan"
+        part = "Plan it."
+        hands_in = []
+
+        [[flows.trial.rounds]]
+        cell = "build"
+        part = "Build it."
+        took = { ms = 10 }
+
+        [[flows.trial.rounds]]
+        cell = "review"
+        part = "Review it."
+
+        [[flows.trial.rounds]]
+        cell = "review"
+        run = 2
+        part = " "
+        "#,
+    )
+    .unwrap();
+    assert_eq!(
+        script.check(&[trial()], &words()),
+        [
+            "flows.trial.rounds[0]: only an agent plays a part, and merge is an act of the engine",
+            "flows.trial.rounds[1]: a round that plays a part is the real agent's, and its entry says nothing of what \
+             it returns or takes",
+            "flows.trial.rounds[2]: a round that plays a part is the real agent's, and its entry says nothing of what \
+             it returns or takes",
+            "flows.trial.rounds[4].part: a part says what the agent plays: give it words",
+        ]
+    );
+}
+
+// Beside the settings every round, act and tool is the real one: a script given with them is told that it gives no
+// part, that the run keeps no time it starts at, and each thing it says that stands in for a real one, with where it
+// is; one of parts alone is told nothing.
+// Without the settings, whose agents are all stood in for, a script of parts is told each part it gives.
+#[test]
+fn a_script_of_parts_stands_in_for_nothing_beside_the_settings_and_is_refused_without_them() {
+    let standing_in = Script::read(
+        r#"
+        start = 1794268800000
+        slots = 3
+        took = { ms = 10 }
+
+        [tools.query]
+        answer = "Rows."
+
+        [outside]
+        finds = { failure = "offline", why = "No network." }
+
+        [flows.trial.values]
+        verdict = "yes"
+
+        [[flows.trial.rounds]]
+        cell = "plan"
+        hands_in = []
+        "#,
+    )
+    .unwrap();
+    let stands_in = |at: &str| {
+        format!("{at}: beside the settings, every round, act and tool is the real one, and a script stands in for none")
+    };
+    assert_eq!(
+        standing_in.with_settings(),
+        [
+            "it gives no part: beside the settings, a script gives only the parts the real agents play".to_string(),
+            "start: beside the settings, the engine runs on the system's clock, from now".to_string(),
+            stands_in("slots"),
+            stands_in("took"),
+            stands_in("tools.query"),
+            stands_in("outside.finds"),
+            stands_in("flows.trial.values.verdict"),
+            stands_in("flows.trial.rounds[0]"),
+        ]
+    );
+    assert_eq!(standing_in.without_settings(), Vec::<String>::new());
+    let parts = Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "plan"
+        part = "Plan it."
+
+        [[flows.trial.rounds]]
+        cell = "build"
+        part = "Build it."
+        "#,
+    )
+    .unwrap();
+    assert_eq!(parts.with_settings(), Vec::<String>::new());
+    assert_eq!(parts.check(&[trial()], &words()), Vec::<String>::new());
+    let played = |at: &str| {
+        format!(
+            "{at}: a part is played by a real agent, which runs with the installation's settings (`wf-agents run \
+             --settings`), and here every agent is stood in for"
+        )
+    };
+    assert_eq!(
+        parts.without_settings(),
+        [played("flows.trial.rounds[0]"), played("flows.trial.rounds[1]")]
+    );
+}
+
+// The part a round is given is its entry's, found as a stand-in's entry is: by its work, its cell, its run counted as
+// the cell's nth in the work, and its number; a work's own entry wins over every work's. A round given again after
+// rounds of its run that failed is given the part of the first of them, as it is given what that round was.
+#[test]
+fn a_round_is_given_the_part_of_its_entry() {
+    let script = Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "plan"
+        part = "Plan it."
+
+        [[flows.trial.rounds]]
+        cell = "plan"
+        run = 2
+        part = "Plan it again."
+
+        [[flows.trial.rounds]]
+        cell = "plan"
+        work = 1
+        run = 2
+        part = "Plan it again, in the first work."
+        "#,
+    )
+    .unwrap();
+    let flow = trial();
+    let first = round(&flow, "plan", kept(&["plan"], 1, Work::default()));
+    assert_eq!(script.part(&first), Some("Plan it."));
+    let again = round(&flow, "plan", kept(&["plan", "build", "plan"], 1, Work::default()));
+    assert_eq!(script.part(&again), Some("Plan it again, in the first work."));
+    let mut of_another = again.clone();
+    of_another.work = WorkNumber(2);
+    assert_eq!(script.part(&of_another), Some("Plan it again."));
+    let build = round(&flow, "build", kept(&["plan", "build"], 1, Work::default()));
+    assert_eq!(script.part(&build), None);
+    let mut later = round(&flow, "plan", kept(&["plan"], 2, Work::default()));
+    later.number = 2;
+    assert_eq!(script.part(&later), None, "a round its entry does not name");
+    // The run's first two rounds failed: its third is given what the first was.
+    let failed = || work::Back::Failed {
+        why: "Prompt is too long.".to_string(),
+        failure: Failure::default(),
+        resets: None,
+    };
+    let mut work = kept(&["plan"], 3, Work::default());
+    work.back.insert((RunId(1), 1), failed());
+    work.back.insert((RunId(1), 2), failed());
+    let mut after = round(&flow, "plan", work);
+    after.number = 3;
+    assert_eq!(script.part(&after), Some("Plan it."));
+}
+
 /// Work 1 as kept with its runs started, each of a cell, in order from run 1, and the given number of rounds of its
 /// last run begun; the rest as given.
 fn kept(cells: &[&str], rounds: usize, mut work: Work) -> Work {
