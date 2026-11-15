@@ -1186,7 +1186,10 @@ dependencies = [
  "carry",
  "clap",
  "context",
+ "decide",
  "driver",
+ "engine",
+ "explore",
  "flow",
  "http-body-util",
  "hyper",
@@ -1197,6 +1200,7 @@ dependencies = [
  "store",
  "tempfile",
  "tokio",
+ "toml",
  "web",
  "work",
 ]

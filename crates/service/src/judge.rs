@@ -20,7 +20,7 @@
 //! since its counts last began anew (decision the-same-sender-again). A wait that lasts over several things that
 //! happened is one step. The work's adding (the pause it was added with, the write of its block of dependencies and of
 //! what people wrote for it) and the letting on a play gives it then are the item's start: no step of its path, and no
-//! rest.
+//! rest: a held item, never let on, may end its path there, paused by the owner as it was added.
 //!
 //! What no record holds is read from the engine's view of the work now, and so only as a path's end: a stall, which
 //! the reading bears out where it finds the work stalled at the same cell; a wait for a slot, for the turn to check and
@@ -172,6 +172,7 @@ pub fn judge(flow: &Compiled, work: &Work, added: Added, path: &[Step], shown: &
     for (k, said) in steps.iter().enumerate() {
         match seen.get(k) {
             Some(s) if said.matches(&s.step) => {}
+            None if k + 1 == steps.len() && end.is_none() && held_as_added(work, added, said) => {}
             Some(s) => {
                 return Judged::Left {
                     step: k + 1,
@@ -225,6 +226,12 @@ pub fn judge(flow: &Compiled, work: &Work, added: Added, path: &[Step], shown: &
             _ => Judged::Took,
         },
     }
+}
+
+/// Whether the step is the pause a held work was added with, which still stands: an item never let on stands paused by
+/// the owner as it was added, which is its start and no step its records hold, and its path may end so.
+fn held_as_added(work: &Work, added: Added, step: &Step) -> bool {
+    added.held && *step == Step::Paused(Pauser::Owner) && work.records.pauses.iter().all(|p| p.paused)
 }
 
 /// Whether the work stands now at an end its records do not hold, as the engine shows it: where it does not, what the

@@ -12,7 +12,11 @@ backup = { path = "../backup" }
 carry = { path = "../carry" }
 clap = { version = "4.6.7", features = ["derive"] }
 context = { path = "../context" }
+decide = { path = "../decide" }
 driver = { path = "../driver" }
+engine = { path = "../engine" }
+# The build of the page's states takes each flow's states from its exploration.
+explore = { path = "../explore" }
 flow = { path = "../flow" }
 # The commands that talk to a running engine send their requests with the HTTP library the engine serves with.
 http-body-util = "0.1.3"
@@ -22,6 +26,8 @@ serde.workspace = true
 serde_json = "1.0.154"
 service = { path = "../service" }
 store = { path = "../store" }
+# The build writes the scripts it plays and serves.
+toml.workspace = true
 # A play runs the engine on a runtime of its own whose time is paused (`test-util`), so that its rounds take no time and
 # every act is given at the step its state comes; nothing else calls it.
 tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "test-util", "time"] }
