@@ -27,10 +27,12 @@
 //!   a-wait-of-a-skipped-cell-is-put-away). In three of ten of those, the cell that gives results runs only while a
 //!   choice the asking cell alone writes says yes, so that a wait may be for a result no cell will give (decision
 //!   a-work-no-cell-can-move-is-stalled); and in half of these the asking cell has the precondition "ready" too, so
-//!   that it may wait for the owner while no cell will give its result (property `RESULT_WAITS`). In about a quarter of
-//!   the histories with no judge, drawn apart, a check stands before the merge, run by the brief and by main, which the
-//!   outside alone writes there, writing a choice only it writes, which the merge waits on at yes; a run of it that
-//!   says no says in half of them that what it wrote waits for main to move (property `OUTSIDE`).
+//!   that it may wait for the owner while no cell will give its result (property `RESULT_WAITS`). In half of all the
+//!   histories that ask, the owner's words run the asking cell too, so that a round entered for them while it waits may
+//!   rest at a call, its run going on before the cell that gives results begins. In about a quarter of the histories
+//!   with no judge, drawn apart, a check stands before the merge, run by the brief and by main, which the outside alone
+//!   writes there, writing a choice only it writes, which the merge waits on at yes; a run of it that says no says in
+//!   half of them that what it wrote waits for main to move (property `OUTSIDE`).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -410,6 +412,12 @@ impl History {
                 if asking.chance(50) && !cells[i].requires.contains(&"ready".into()) {
                     cells[i].requires.push("ready".into());
                 }
+            }
+            // In half of all of them the owner's words run the asking cell too, so that a round entered for them while
+            // it waits may rest at a call, its run going on before the cell that gives results begins (property
+            // `RESULT_WAITS`).
+            if asking.chance(50) && !cells[i].runs_on.contains(&SPOKEN.into()) {
+                cells[i].runs_on.push(SPOKEN.into());
             }
             result
         });
