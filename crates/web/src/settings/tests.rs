@@ -18,7 +18,7 @@ slots = 2
 args = [
   "--permission-mode", "acceptEdits",
 ]
-permissions = { heavy = ["uv"] }
+permissions = { locks = ["uv lock"] }
 
 [agents.levels.1]
 desc = "Easy work"
@@ -178,7 +178,7 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
     );
     assert_eq!(
         key(&page, "agents", "permissions").written.as_deref(),
-        Some("{ heavy = [\"uv\"] }")
+        Some("{ locks = [\"uv lock\"] }")
     );
     assert_eq!(key(&page, "agents", "command").change, None, "only the file changes it");
     assert_eq!(key(&page, "agents.levels.2", "model").change, Some(Change::Name));
