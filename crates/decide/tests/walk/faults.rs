@@ -99,6 +99,7 @@ fn two_entries_at_one_place_are_a_fault() {
         by: decide::Outsider::Person,
         matters: true,
         value: None,
+        said_to: None,
         at,
     });
     assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));

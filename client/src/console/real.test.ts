@@ -38,18 +38,14 @@ const SPOKEN: Flow = {
         [
           'owner',
           [
-            { piece: 'text', text: 'The owner, to `' },
-            { piece: 'slot', name: 'cell' },
-            { piece: 'text', text: '`:\n\n' },
+            { piece: 'text', text: 'The owner:\n\n' },
             { piece: 'slot', name: 'words' },
           ],
         ],
         [
           'reply',
           [
-            { piece: 'text', text: '`' },
-            { piece: 'slot', name: 'cell' },
-            { piece: 'text', text: '`, to the owner:\n\n' },
+            { piece: 'text', text: 'An agent, to the owner:\n\n' },
             { piece: 'slot', name: 'reply' },
           ],
         ],
@@ -59,21 +55,22 @@ const SPOKEN: Flow = {
   ],
 };
 
-const version = (at: number, by: Version['by'], chars: number): Version => ({
+const version = (at: number, by: Version['by'], chars: number, saidTo: string | null = null): Version => ({
   at,
   time: at * 1000,
   by,
   meaning: at,
   value: null,
+  saidTo,
   chars,
 });
 
 describe('the messages of a work, read from the record of what is said', () => {
-  it("are the owner's entries, each to the cell the same act spoke to, and the cells' replies, with the words alone", async () => {
+  it("are the owner's entries, each to the cell its version is said to, and the cells' replies, with the words alone", async () => {
     const item = fixtureItems().items[0];
     const contents: Record<string, string> = {
-      'discussion@5': 'The owner, to `implement`:\n\n> Greet them.\n\nBy the first name.',
-      'discussion@9': '`implement`, to the owner:\n\nDone.',
+      'discussion@5': 'The owner:\n\n> Greet them.\n\nBy the first name.',
+      'discussion@9': 'An agent, to the owner:\n\nDone.',
     };
     const page: WorkPage = {
       summary: item.work,
@@ -84,7 +81,7 @@ describe('the messages of a work, read from the record of what is said', () => {
       flow: SPOKEN,
       cells: [],
       blocks: [
-        { name: 'discussion', versions: [version(5, { kind: 'outside' }, 60), version(9, { kind: 'run', run: 3, cell: 'implement' }, 30)] },
+        { name: 'discussion', versions: [version(5, { kind: 'outside' }, 60, 'implement'), version(9, { kind: 'run', run: 3, cell: 'implement' }, 30)] },
         { name: 'implement_spoken_to', versions: [version(6, { kind: 'outside' }, 0)] },
       ],
       steps: [],
@@ -98,7 +95,7 @@ describe('the messages of a work, read from the record of what is said', () => {
     ]);
   });
 
-  it("read an owner's entry no block of the owner's words follows, as one carried from before the record, as to the cell it names", async () => {
+  it("read each of the owner's entries as to the cell its version is said to, which its words do not name", async () => {
     const item = fixtureItems().items[0];
     const page: WorkPage = {
       summary: item.work,
@@ -108,12 +105,15 @@ describe('the messages of a work, read from the record of what is said', () => {
       history: item.history,
       flow: SPOKEN,
       cells: [],
-      blocks: [{ name: 'discussion', versions: [version(12, { kind: 'outside' }, 40)] }],
+      blocks: [{ name: 'discussion', versions: [version(12, { kind: 'outside' }, 25, 'implement'), version(14, { kind: 'outside' }, 25, 'review')] }],
       steps: [],
     };
     const load = (_: number, block: string, at: number): Promise<VersionPage> =>
-      Promise.resolve({ block, at, content: 'The owner, to `implement`:\n\nOne table.' });
+      Promise.resolve({ block, at, content: 'The owner:\n\nOne table.' });
     const body = await readBody(page, load);
-    expect(body.messages).toEqual([{ who: 'owner', at: 12000, to: ['implement'], quote: null, text: 'One table.' }]);
+    expect(body.messages).toEqual([
+      { who: 'owner', at: 12000, to: ['implement'], quote: null, text: 'One table.' },
+      { who: 'owner', at: 14000, to: ['review'], quote: null, text: 'One table.' },
+    ]);
   });
 });

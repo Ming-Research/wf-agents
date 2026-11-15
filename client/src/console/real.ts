@@ -6,11 +6,11 @@
 // - The body, from the work's blocks, the current version of each: Background is `background`; Plan is `plan_owner`,
 //   and under it `questions`; there is no Problem. For an item of the `deliver` flow, Plan is `delivered`.
 // - The messages: of the record of what is said (the block the engine's source of the owner's words writes and the
-//   cells write through the return's field `reply`), each of the owner's entries is the owner's, to the cell it names,
-//   and each a cell wrote is its reply, to the owner, each with the words alone, the cell and the words read back out
-//   of the entry by the record's `owner` or `reply` text; of a flow before that record, each version of a block people
-//   write as a note to one cell (one people write, with no fixed values, that one cell reads) is the owner's, to that
-//   cell. In the order of their times.
+//   cells write through the return's field `reply`), each of the owner's entries is the owner's, to the cell the
+//   version is said to, and each a cell wrote is its reply, to the owner, its cell the run's that wrote it; each with
+//   the words alone, read back out of the entry by the record's `owner` or `reply` text; of a flow before that record,
+//   each version of a block people write as a note to one cell (one people write, with no fixed values, that one cell
+//   reads) is the owner's, to that cell. In the order of their times.
 // - A question a cell asked the owner: its sentence alone, answered in words, since the engine gives no options.
 // - A ruling: for each precondition the work waits for, each block its test reads that people write whose current
 //   version keeps the test from holding, with that version's writer and content (`readRulings`).
@@ -127,10 +127,8 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
         const words = placesOf(entry, text('reply'))?.get('reply') ?? entry;
         return { who: v.by.cell, at: v.time, to: ['owner'], quote: null, text: words, place: v.at };
       }
-      const places = placesOf(entry, text('owner'));
-      const cell = places?.get('cell');
-      const { quote, text: words } = quoted(places?.get('words') ?? entry);
-      return { who: 'owner', at: v.time, to: cell === undefined ? [] : [cell], quote, text: words, place: v.at };
+      const { quote, text: words } = quoted(placesOf(entry, text('owner'))?.get('words') ?? entry);
+      return { who: 'owner', at: v.time, to: v.saidTo === null ? [] : [v.saidTo], quote, text: words, place: v.at };
     }),
     ...notes.flatMap((b) =>
       versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {

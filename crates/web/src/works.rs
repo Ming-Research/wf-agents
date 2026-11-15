@@ -675,6 +675,8 @@ pub struct Version {
     pub meaning: u64,
     /// The block's value, where it is a choice.
     pub value: Option<String>,
+    /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
+    pub said_to: Option<String>,
     /// How long its content is, in characters.
     pub chars: usize,
 }
@@ -1999,6 +2001,7 @@ impl WorkPage {
                         by: writer(&version.by)?,
                         meaning: version.meaning.0,
                         value: version.value.clone(),
+                        said_to: said_to(work, block, version.at),
                         chars: chars(work, block, version.at)?,
                     })
                 })
@@ -2354,6 +2357,13 @@ fn chars(work: &Work, block: &BlockId, at: Seq) -> Result<usize, Broken> {
     (work.contents.get(&(block.clone(), at)))
         .map(|content| content.chars().count())
         .ok_or_else(|| Broken(format!("the version of {block} at {} has no content", at.0)))
+}
+
+/// The cell the version of the block written at this place is said to, where it is said to one.
+fn said_to(work: &Work, block: &BlockId, at: Seq) -> Option<String> {
+    (work.records.written.iter())
+        .find(|w| w.at == at && w.block == *block)
+        .and_then(|w| w.said_to.as_ref().map(|c| c.0.clone()))
 }
 
 /// Whether the run's last round that ended failed.

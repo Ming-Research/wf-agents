@@ -6,15 +6,16 @@
 //! it the owner's words run. Where that cell cannot take them, as one the owner's words do not run or one that does
 //! not apply now, or where the work has ended, the words are refused, saying why, and go to no other cell.
 //!
-//! In one act the words are the owner's entry of the record of what is said, the datum the cell's trigger of the owner's
-//! words has its agent read (`discussion` in the engineer's flow), in the words of that datum's `owner`, with the cell;
-//! and the trigger's block of that cell, which the engine's source [`flow::WORDS`] writes, has a new version, which runs
-//! the cell, stops a round under way of a later cell and enters the cell while it waits, as the owner turning to a cell
-//! does. Where a round of the cell is under way, its carrier is given the entry to hand to the round after its next use
-//! of a tool ([`Effect::Tell`]); only once it says the round was given it ([`Event::SaidToRound`]) are the two versions
-//! put into the round, so that a round consumes only words that reached it and a session is not given again what its
-//! round was told. A cell answers in its return's field `reply`, and the answer is its entry of the record as its run
-//! finishes, in the words of that datum's `reply` (`handle`).
+//! In one act the words are the owner's entry of the record of what is said, the datum the cell's trigger of the
+//! owner's words has its agent read (`discussion` in the engineer's flow), in the words of that datum's `owner`, which
+//! name no cell, and kept said to the cell; and the trigger's block of that cell, which the engine's source
+//! [`flow::WORDS`] writes, has a new version, which runs the cell, stops a round under way of a later cell and enters
+//! the cell while it waits, as the owner turning to a cell does. Where a round of the cell is under way, its carrier is
+//! given the entry to hand to the round after its next use of a tool ([`Effect::Tell`]); only once it says the round
+//! was given it ([`Event::SaidToRound`]) are the two versions put into the round, so that a round consumes only words
+//! that reached it and a session is not given again what its round was told. A cell answers in its return's field
+//! `reply`, and the answer is its entry of the record as its run finishes, in the words of that datum's `reply`
+//! (`handle`), which name no cell either: the run that wrote it is the cell's.
 //!
 //! [`Event::SaidToRound`]: crate::Event::SaidToRound
 
@@ -27,9 +28,9 @@ use work::Work;
 use crate::asked;
 use crate::event::{Effect, Refused};
 
-/// The text of the record of what is said that is the owner's entry: `{cell}` the cell spoken to, `{words}` the words.
+/// The text of the record of what is said that is the owner's entry: `{words}` the words.
 pub const OWNER: &str = "owner";
-/// The text of the record of what is said that is a cell's answer: `{cell}` the cell, `{reply}` its answer.
+/// The text of the record of what is said that is a cell's answer: `{reply}` its answer.
 pub const REPLY: &str = "reply";
 /// The field of a return that holds the cell's answer to the owner, which the record of what is said is written through.
 pub const REPLY_FIELD: &str = "reply";
@@ -158,14 +159,14 @@ pub(crate) fn said(
         };
         let entry = fill(
             record.writes.get(OWNER).unwrap_or_default(),
-            &[("cell", cell.as_str()), ("words", words.as_str())],
+            &[("words", words.as_str())],
         );
-        let version = write(work, block, entry.clone());
+        let version = write(work, block, entry.clone(), Some(&cell));
         put_in.push((block.clone(), version));
         told.get_or_insert((block.clone(), version, entry));
     }
     let content = flow.blocks[own].writes.get("text").unwrap_or_default().to_string();
-    put_in.push((own.clone(), write(work, own, content)));
+    put_in.push((own.clone(), write(work, own, content, None)));
     // A round of the cell under way is told of them as it runs; they are put into it once it was.
     if let (Some(run), Some((block, number, entry))) = (under_way(work, &cell), told) {
         let telling = Telling {
@@ -222,8 +223,8 @@ pub(crate) fn heard(
 
 /// Carries into the record of what is said the owner's words of a work kept before the record held them: each version a
 /// person wrote, with words, of a cell's block of the owner's words, which the engine alone writes now, and with none,
-/// is the owner's entry to that cell, written once, after everything the work holds, at the time of the last thing that
-/// happened to it. It runs no cell: the words ran it as they were written. Gives whether it wrote any.
+/// is the owner's entry said to that cell, written once, after everything the work holds, at the time of the last thing
+/// that happened to it. It runs no cell: the words ran it as they were written. Gives whether it wrote any.
 pub fn carry(flow: &Compiled, work: &mut Work) -> bool {
     let mut carried = false;
     for spec in &flow.cells {
@@ -243,12 +244,15 @@ pub fn carry(flow: &Compiled, work: &mut Work) -> bool {
             for words in &said {
                 let entry = fill(
                     record.writes.get(OWNER).unwrap_or_default(),
-                    &[("cell", spec.id.as_str()), ("words", words.as_str())],
+                    &[("words", words.as_str())],
                 );
-                let held = (work.records.written.iter())
-                    .any(|w| w.block == *block && work.contents.get(&(block.clone(), w.at)) == Some(&entry));
+                let held = (work.records.written.iter()).any(|w| {
+                    w.block == *block
+                        && w.said_to.as_ref() == Some(&spec.id)
+                        && work.contents.get(&(block.clone(), w.at)) == Some(&entry)
+                });
                 if !held {
-                    write(work, block, entry);
+                    write(work, block, entry, Some(&spec.id));
                     carried = true;
                 }
             }
@@ -271,8 +275,9 @@ fn under_way(work: &Work, cell: &CellId) -> Option<RunId> {
         })
 }
 
-/// Writes a version of the block with this content, as the engine's source of the owner's words, and gives its place.
-fn write(work: &mut Work, block: &BlockId, content: String) -> Seq {
+/// Writes a version of the block with this content, as the engine's source of the owner's words, said to the cell where
+/// it is said to one, and gives its place.
+fn write(work: &mut Work, block: &BlockId, content: String, said_to: Option<&CellId>) -> Seq {
     let at = work.tick();
     work.contents.insert((block.clone(), at), content);
     work.records.written.push(Written {
@@ -280,20 +285,19 @@ fn write(work: &mut Work, block: &BlockId, content: String) -> Seq {
         by: Outsider::Outside,
         matters: true,
         value: None,
+        said_to: said_to.cloned(),
         at,
     });
     at
 }
 
 /// The cell's answer to the owner, as its entry of the record of what is said: in the words of that datum's `reply`,
-/// where the cell writes the datum the field `reply` is written through and the answer has words; none otherwise.
+/// where the cell writes the datum the field `reply` is written through and the answer has words; none otherwise. The
+/// cell is the one whose run writes it.
 pub(crate) fn reply(flow: &Compiled, cell: &CellId, reply: Option<&str>) -> Option<(BlockId, String)> {
     let reply = reply.filter(|r| !r.trim().is_empty())?;
     let (block, declared) = (flow.blocks.iter()).find(|(_, b)| b.field.as_deref() == Some(REPLY_FIELD))?;
     let writes = (flow.flow.cells().iter()).any(|c| c.id == *cell && c.outputs.contains(block));
-    let entry = fill(
-        declared.writes.get(REPLY).unwrap_or_default(),
-        &[("cell", cell.as_str()), ("reply", reply)],
-    );
+    let entry = fill(declared.writes.get(REPLY).unwrap_or_default(), &[("reply", reply)]);
     writes.then(|| (block.clone(), entry))
 }

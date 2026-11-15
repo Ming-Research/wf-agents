@@ -252,6 +252,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 by,
                 matters,
                 value,
+                said_to: None,
                 at,
             });
         }

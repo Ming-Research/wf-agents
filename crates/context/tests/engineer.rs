@@ -142,6 +142,32 @@ fn last_entry(sim: &Sim) -> &str {
     sim.content("discussion", at)
 }
 
+/// The cell each of the owner's entries of `discussion` is kept said to, in order.
+fn said_to(sim: &Sim) -> Vec<&str> {
+    (sim.work.records.written.iter())
+        .filter(|w| w.block.as_str() == "discussion")
+        .map(|w| w.said_to.as_ref().map_or("", |c| c.as_str()))
+        .collect()
+}
+
+/// Each datum `discussion` of the message, up to the next heading of the message, as the cell is given it.
+fn record_given(text: &str) -> Vec<&str> {
+    let mut given = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("## `discussion`") {
+        let from = &rest[at..];
+        let end = from[1..].find("\n#").map_or(from.len(), |n| n + 1);
+        given.push(&from[..end]);
+        rest = &from[end..];
+    }
+    given
+}
+
+/// Whether the text names any cell of the flow by its id.
+fn names_a_cell(flow: &Compiled, text: &str) -> bool {
+    (flow.cells.iter()).any(|c| text.contains(c.id.as_str()))
+}
+
 #[test]
 fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_under_discussion() {
     let (mut sim, round) = until("R2");
@@ -199,12 +225,19 @@ fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_und
         .expect("R2 is entered for the owner's words while its question waits");
     assert_eq!(round.cell.as_str(), "R2");
     let entered = sim.enter(&round, sim.begins(&round));
-    let entry = "The owner, to `R2`:\n\nWhy not the name the item gives?";
+    // The entry is kept said to R2, and its words, as R2 is given them, name no cell.
+    assert_eq!(said_to(&sim), ["R2"]);
+    let entry = "The owner:\n\nWhy not the name the item gives?";
     assert!(entered.text.contains("## `discussion`, version "), "{}", entered.text);
     assert!(
         entered.text.contains(entry),
         "the owner's words are not in R2's message:\n{}",
         entered.text
+    );
+    let given = record_given(&entered.text);
+    assert!(
+        !given.is_empty() && !given.iter().any(|g| names_a_cell(&sim.flow, g)),
+        "{given:?}"
     );
     assert!(entered.text.contains("- `on_spoken`"), "{}", entered.text);
 
@@ -222,7 +255,7 @@ fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_und
     sim.returns(&round, came, 0);
     assert_eq!(
         last_entry(&sim),
-        "`R2`, to the owner:\n\nThe item gives none: the first name it is."
+        "An agent, to the owner:\n\nThe item gives none: the first name it is."
     );
     assert_eq!(sim.round(), None, "the work waits for the answer at R2 again");
 }
@@ -242,7 +275,7 @@ fn words_to_a_line_go_to_its_cell_under_way_and_stay_new_to_it_until_its_round_w
     });
     assert_eq!(
         told,
-        Some((round.run, "The owner, to `I1`:\n\nKeep the greeting short.".to_string()))
+        Some((round.run, "The owner:\n\nKeep the greeting short.".to_string()))
     );
     // The round ends without having been told them: its return deals with nothing of them, and I1 is entered again,
     // given them.
@@ -287,7 +320,7 @@ fn words_a_round_under_way_was_told_are_consumed_by_its_return() {
         ..Came::default()
     };
     sim.returns(&round, came, 0);
-    assert_eq!(last_entry(&sim), "`I1`, to the owner:\n\nKept short.");
+    assert_eq!(last_entry(&sim), "An agent, to the owner:\n\nKept short.");
     let next = sim.round().expect("a round is given");
     assert_ne!(
         next.cell.as_str(),
@@ -364,11 +397,22 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
     let again = sim.round().expect("a round is given");
     assert_eq!(again.cell.as_str(), "T1");
     let entered = sim.enter(&again, sim.begins(&again));
-    assert!(entered.text.contains("The owner, to `I1`:"), "{}", entered.text);
     assert!(
-        !entered.text.contains("The owner, to `T1`:"),
+        entered.text.contains("The owner:\n\nShorter, please."),
+        "{}",
+        entered.text
+    );
+    assert!(
+        !entered.text.contains("Look at the names too."),
         "given again:\n{}",
         entered.text
+    );
+    // Each entry is kept said to its cell; the review is given the one said to the implementation, which names no cell.
+    assert_eq!(said_to(&sim), ["T1", "I1"]);
+    let given = record_given(&entered.text);
+    assert!(
+        !given.is_empty() && !given.iter().any(|g| names_a_cell(&sim.flow, g)),
+        "{given:?}"
     );
     assert!(entered.text.contains("- `on_spoken`"), "{}", entered.text);
 }

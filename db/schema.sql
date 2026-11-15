@@ -178,7 +178,8 @@ CREATE TABLE put_in (
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
--- A person or the outside (`writer`) wrote a block: whether the change matters, and its value where it is a choice.
+-- A person or the outside (`writer`) wrote a block: whether the change matters, its value where it is a choice, and
+-- the cell it is said to where it is said to one, as the owner's entry of the record of what is said is.
 CREATE TABLE written (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
@@ -186,6 +187,7 @@ CREATE TABLE written (
     writer TEXT NOT NULL,
     matters INTEGER NOT NULL CHECK (matters IN (0, 1)),
     value TEXT,
+    said_to TEXT,
     PRIMARY KEY (work, at)
 );
 

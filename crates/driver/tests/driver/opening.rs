@@ -419,39 +419,47 @@ fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_re
     let (_, work, _) =
         (driver.add(Time(START), new_item("Greet the user", &[], "engineer"))).expect("the item is added");
     drop(driver);
-    // As the console wrote the owner's words before the record held them: into R1's block of them, as a person's.
+    // As the console wrote the owner's words before the record held them: into R1's block of them, as a person's, and
+    // the same words into R2's.
     let mut store = db.open();
     let mut kept = store.load(work).expect("the work loads");
-    let at = kept.tick();
-    let block = decide::BlockId::from("r1_spoken_to");
-    kept.contents
-        .insert((block.clone(), at), "Keep it to one table.".to_string());
-    kept.records.written.push(decide::Written {
-        block,
-        by: Outsider::Person,
-        matters: true,
-        value: None,
-        at,
-    });
+    for block in ["r1_spoken_to", "r2_spoken_to"] {
+        let at = kept.tick();
+        let block = decide::BlockId::from(block);
+        kept.contents
+            .insert((block.clone(), at), "Keep it to one table.".to_string());
+        kept.records.written.push(decide::Written {
+            block,
+            by: Outsider::Person,
+            matters: true,
+            value: None,
+            said_to: None,
+            at,
+        });
+    }
     store.save(work, &kept).expect("the work is saved");
     drop(store);
     let carried = |db: &Db| {
         let w = db.open().load(work).expect("the work loads");
         (w.records.written.iter())
             .filter(|x| x.block.as_str() == "discussion" && x.by == Outsider::Outside)
-            .map(|x| w.contents[&(x.block.clone(), x.at)].clone())
+            .map(|x| {
+                let to = x.said_to.as_ref().map(|c| c.as_str().to_string());
+                (to, w.contents[&(x.block.clone(), x.at)].clone())
+            })
             .collect::<Vec<_>>()
     };
-    assert_eq!(carried(&db), Vec::<String>::new());
+    assert_eq!(carried(&db), Vec::<(Option<String>, String)>::new());
     let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
     drop(driver);
-    let entry = "The owner, to `R1`:\n\nKeep it to one table.".to_string();
+    let entry = "The owner:\n\nKeep it to one table.".to_string();
+    let each = vec![(Some("R1".to_string()), entry.clone()), (Some("R2".to_string()), entry)];
     assert_eq!(
         carried(&db),
-        vec![entry.clone()],
-        "the words are the owner's entry to R1"
+        each,
+        "the words are the owner's entries said to R1 and to R2"
     );
     let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens again");
     drop(driver);
-    assert_eq!(carried(&db), vec![entry], "they are carried once");
+    assert_eq!(carried(&db), each, "they are carried once");
 }

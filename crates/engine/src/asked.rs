@@ -182,6 +182,7 @@ fn said(flow: &Compiled, work: &mut Work, cell: &CellId, answered: &Said, turns:
             by: Outsider::Person,
             matters: true,
             value: None,
+            said_to: None,
             at,
         });
     }
@@ -195,6 +196,7 @@ fn said(flow: &Compiled, work: &mut Work, cell: &CellId, answered: &Said, turns:
             by: Outsider::Outside,
             matters: true,
             value: None,
+            said_to: None,
             at,
         });
     }
@@ -238,6 +240,7 @@ pub(crate) fn tell(flow: &Compiled, work: &mut Work) {
         by: Outsider::Outside,
         matters: true,
         value: Some(value.to_string()),
+        said_to: None,
         at,
     });
 }

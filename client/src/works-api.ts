@@ -284,6 +284,8 @@ export interface Version {
   /// The version at which the meaning it has last changed: itself, or an earlier one.
   meaning: number;
   value: string | null;
+  /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
+  saidTo: string | null;
   /// How long its content is, in characters.
   chars: number;
 }
