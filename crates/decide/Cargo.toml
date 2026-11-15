@@ -10,5 +10,9 @@ repository.workspace = true
 [dependencies]
 serde.workspace = true
 
+[dev-dependencies]
+# The tests judge the deciding code by the records read as the design tree says, apart from the walk.
+reading = { path = "../reading" }
+
 [lints]
 workspace = true

@@ -1,8 +1,8 @@
 //! The engineer's flow as the repository defines it (`flow/engineer`), explored: every way a work on it can go within a
 //! bound, the walk being the deciding code's own (`decide::decide`), a return taken or sent back as the engine's check
 //! of a return says (`decide::run::next`), and the properties the flow must keep checked at each decision by the
-//! histories' own reading of the records (crate `decide`, `tests/histories/reading.rs`), never by the walk's (design
-//! document `testing`, 5). The work's records are kept by the helper the deciding code's tests share (`tests/support`).
+//! histories' own reading of the records (crate `reading`), never by the walk's (design document `testing`, 5). The
+//! work's records are kept by the helper the deciding code's tests share (`tests/support`).
 //!
 //! What happens next, at each state: the engine does what the walk says (starts a run, takes a return, goes on with a
 //! run, abandons one); a round under way returns; the outside writes. What a round returns (`model::Variant`): the
@@ -33,10 +33,6 @@
 #[allow(dead_code)]
 #[path = "../../../decide/tests/support/mod.rs"]
 mod support;
-
-#[allow(dead_code)]
-#[path = "../../../decide/tests/histories/reading.rs"]
-mod reading;
 
 mod explore;
 mod model;

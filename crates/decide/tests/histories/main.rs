@@ -2,9 +2,9 @@
 //! step by step as an engine would drive them, agents returning at random and people acting at random in the first
 //! part of each history. After every step the properties the engine must always keep are checked (`properties`, and
 //! those of a pause in `pausing` and of the room in `room`), each stating what a rule of the design protects and
-//! judged by the histories' own reading of the records (`reading`), not by the walk's; once people stop, the work must
-//! come to rest within a bound its limits give, and once it rests, what people wrote must have reached the cells it
-//! runs.
+//! judged by the histories' own reading of the records (crate `reading`), not by the walk's; once people stop, the
+//! work must come to rest within a bound its limits give, and once it rests, what people wrote must have reached the
+//! cells it runs.
 //!
 //! What the driver reaches, roughly:
 //! - the flow: each of the six shapes in a sixth of the histories, cut to its first two cells in a fifth and
@@ -51,7 +51,6 @@ mod support;
 
 mod pausing;
 mod properties;
-mod reading;
 mod room;
 
 use std::collections::{BTreeMap, BTreeSet};
