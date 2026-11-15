@@ -441,6 +441,8 @@ fn a_file_of_version_17_that_lacks_what_a_version_holds_is_not_opened_and_is_lef
         }),
         ("a write of a run that has no end", |old, _| {
             let file = Connection::open(&old.path).expect("the database opens");
+            file.pragma_update(None, "foreign_keys", "OFF")
+                .expect("the foreign keys are let be");
             file.execute("DELETE FROM finished WHERE run = 1", [])
                 .expect("the run is lacking");
             "by run 1 of work 1 has no finished run".to_string()
