@@ -184,7 +184,6 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             values: values.map(|v| v.iter().map(|s| s.to_string()).collect()),
             default: None,
             what: None,
-            kept: None,
             words: None,
             shape: None,
             trigger: false,

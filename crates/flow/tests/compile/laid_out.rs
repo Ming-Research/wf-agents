@@ -74,7 +74,7 @@ fn the_engine_s_own_data_a_flow_names_are_its_blocks_as_defined_beside_the_flows
         discussion.words.as_deref(),
         Some("`discussion`: your answer to what the owner said to the cell.")
     );
-    assert_eq!((&discussion.kept, &discussion.shape), (&None, &None));
+    assert_eq!(discussion.shape, None);
     assert!(discussion.writers.people && discussion.readers.shown && !discussion.trigger);
     // A datum beside the flows that a flow does not name is none of its blocks.
     assert!(
