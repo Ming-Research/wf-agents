@@ -416,14 +416,7 @@ export function fixtureItems(start = Date.now()): Items {
           {
             kind: 'waits',
             at: 'research',
-            on: [
-              {
-                kind: 'call',
-                call: 3,
-                who: 'architect',
-                what: { kind: 'question', who: 'architect', question: 'Which table keeps the tokens of a round?' },
-              },
-            ],
+            on: [{ kind: 'slot' }],
           },
           cellsAt('research', 'resting'),
           { hours: 0.3, dollars: 0.21, rounds: 2 },
@@ -492,15 +485,7 @@ export function fixtureItems(start = Date.now()): Items {
           {
             kind: 'waits',
             at: 'implement',
-            on: [
-              {
-                kind: 'call',
-                call: 12,
-                who: 'owner',
-                what: { kind: 'question', who: 'owner', question: 'May a page keep its stream open while hidden?' },
-              },
-              owners(PLAN_CONFIRMED),
-            ],
+            on: [owners(PLAN_CONFIRMED)],
           },
           cellsAt('implement', 'resting'),
           {
@@ -508,10 +493,7 @@ export function fixtureItems(start = Date.now()): Items {
             dollars: 2.2,
             rounds: 19,
             quiet: 12,
-            waits: [
-              wait('call-12', 'May a page keep its stream open while hidden?', { kind: 'reply', call: 12 }),
-              ruling(PLAN_CONFIRMED, 'plan_confirmed'),
-            ],
+            waits: [ruling(PLAN_CONFIRMED, 'plan_confirmed')],
           },
         ),
     },

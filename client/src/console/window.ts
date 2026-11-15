@@ -17,8 +17,8 @@ export type Passage = { kind: 'text'; text: string; changed?: boolean };
 
 /// A part of the body: a passage, or a choice that waits for the owner where it stands in the text, which the owner
 /// may already have confirmed while others still wait. A choice a cell asked while working (`asks`) is answered to the
-/// call that waits for it, or to the version of the work's question of that name; it holds the work (`holds`) where
-/// the engine's one list of what waits on the owner names it, at the cell that asked it or at the merge.
+/// version of the work's question of that name; it holds the work (`holds`) where the engine's one list of what waits
+/// on the owner names it, at the cell that asked it or at the merge.
 export type Part =
   | Passage
   | {
@@ -29,13 +29,11 @@ export type Part =
       chosen: number | null;
       confirmed?: boolean;
       changed?: boolean;
-      asks?: { cell: string; call: number } | { cell: string; question: string; version: number };
+      asks?: { cell: string; question: string; version: number };
       holds?: boolean;
       /// Why a cell other than the one that asked it waits for it, in the engine's sentence, said under what it asks:
       /// as of a question the merge waits for (`Wait.under`).
       under?: string;
-      /// What the owner wrote as the answer to a question with no options, which is answered in words.
-      answer?: string;
     };
 
 export type Choice = Extract<Part, { kind: 'choice' }>;

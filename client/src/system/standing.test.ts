@@ -41,8 +41,8 @@ describe('where a work stands', () => {
     expect(standingOf(work({ kind: 'everything', by: 'engine' }, [wait('held')]))).toBe('owner');
     expect(standingOf(work({ kind: 'paused', by: 'owner', why: null }))).toBe('paused');
     expect(standingOf(work({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }))).toBe('running');
-    const question = { kind: 'call', call: 2, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } } as const;
-    expect(standingOf(work({ kind: 'waits', at: 'plan', on: [question, { kind: 'slot' }] }, [wait('call-2')]))).toBe('owner');
+    const question = { kind: 'answer', question: 'q' } as const;
+    expect(standingOf(work({ kind: 'waits', at: 'plan', on: [question, { kind: 'slot' }] }, [wait('answer-q')]))).toBe('owner');
     expect(standingOf(work({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }))).toBe('due');
     expect(standingOf(work({ kind: 'everything', by: 'owner' }))).toBe('due');
     // What the engine's list does not hold is not the owner's, whatever the work does.
