@@ -1013,8 +1013,13 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
         held !== undefined && heldOn === l.name ? { kind: 'question', name: held.question } : { kind: 'line', line: l.name };
       return { line: l.name, to, speaking: read?.speaking?.find((s) => sameTo(s.to, to)) };
     });
-  // The one chosen, else the line the work stands at, else the first.
-  const target = targets.find((t) => t.line === messageTo) ?? targets.find((t) => t.line === heldOn) ?? targets[0];
+  // The one chosen, else the line the work stands at, else the first the engine has a cell for, or says why it has none.
+  const target =
+    targets.find((t) => t.line === messageTo) ??
+    targets.find((t) => t.line === heldOn) ??
+    targets.find((t) => t.speaking?.cell != null) ??
+    targets.find((t) => t.speaking !== undefined) ??
+    targets[0];
   const speaking = target?.speaking;
   return (
     <Fold title="Discussion" count={messages.length}>

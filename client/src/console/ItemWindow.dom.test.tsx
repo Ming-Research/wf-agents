@@ -210,7 +210,7 @@ describe('the panel of the item selected', () => {
     // The engine gives the words to another cell than the one the page read it would: the page says the engine's.
     const el = draw(12, answered(sent, { reached: 'R1' }), undefined, true);
     // A button for each line that can ask the owner a question, and none for the review's line, which cannot.
-    expect(text(el, '.cw-to .switch-choice')).toEqual(['Implement', 'D1']);
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['D1', 'Implement']);
     expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Implement']);
     expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
     act(() => button(el, 'Implement').click());
@@ -254,7 +254,7 @@ describe('the panel of the item selected', () => {
     ];
     const i = itemOf(12);
     const el = draw(i, answered(sent, { reached: 'deep_research' }), pageOf(i, speaking));
-    expect(text(el, '.cw-to .switch-choice')).toEqual(['Implement', 'Deep research']);
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['Deep research', 'Implement']);
     act(() => button(el, 'Deep research').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Deep research']);
     type(el.querySelector('textarea') as HTMLTextAreaElement, 'Look at the second table');
