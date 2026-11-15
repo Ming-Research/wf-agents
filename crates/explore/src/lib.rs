@@ -463,8 +463,17 @@ impl Explorer<'_> {
         s.since += 1;
         self.out.stats.given += 1;
         self.out.stats.longest = self.out.stats.longest.max(s.since);
+        let trace = s.trace.clone();
         s.trace = s.trace.gave(s.spent, given.clone());
-        let effects = engine::handle(&self.model.compiled, &mut s.work, Time(s.clock), given)?;
+        // What the loop refused it left as it was: the path holds none of it.
+        let effects = match engine::handle(&self.model.compiled, &mut s.work, Time(s.clock), given) {
+            Ok(effects) => effects,
+            Err(why) => {
+                s.trace = trace;
+                s.clock -= 1000;
+                return Err(why);
+            }
+        };
         self.after(s, &before);
         for effect in effects {
             let follow = match effect {
@@ -833,7 +842,7 @@ impl Explorer<'_> {
     }
 
     /// Whether the loop took the return as its variant says it should be taken: one that does not meet the flow sent
-    /// back; one that asks for a call, the call made; any other, its run finished, or sent back only for writing over a
+    /// back, or at the run's limit the owner asked; one that asks for a call, the call made; any other, its run finished, or sent back only for writing over a
     /// version its round was not told of, or at the run's limit, the owner asked.
     fn judge_return(&mut self, s: &State, before: &Records, cell: &CellId, run: RunId, v: &Variant) {
         let r = &s.work.records;
@@ -844,7 +853,7 @@ impl Explorer<'_> {
         let at_limit = new_calls.iter().any(|c| c.run == run && c.on == Some(Who::Owner));
         let asked = new_calls.iter().any(|c| c.run == run && c.on.is_none());
         let right = match v {
-            Variant::SentBack => again && !finished,
+            Variant::SentBack => (again || at_limit) && !finished,
             Variant::Calls => asked,
             _ => finished || (again && written_over) || at_limit,
         };
