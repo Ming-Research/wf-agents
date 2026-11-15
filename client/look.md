@@ -383,9 +383,10 @@ smoothly, and the panel at its right with the item selected. It is the console o
   marks (`StateLegend`). A choice of the plan stays the window's own: a frame in the accent on its tint, its options
   buttons, the one picked ringed in the accent. At the plan's end stands each question put to the owner that has not
   been withdrawn, drawn as a choice: what it asks, its options (what each does, and what follows from it muted), the one
-  it recommends tagged; under what it asks, in red, that the work waits for its answer at its cell or that the merge
-  waits for it, or, muted, that it is still to confirm where the work has gone on past it; one answered stands with its
-  answer picked. The plan's Confirm sends each answer picked.
+  it recommends tagged. One that holds the work, at its cell or at the merge, stands on `--red-tint` edged in `--red`,
+  and one the merge waits for says so under what it asks, in red; one the work has gone on past keeps the look of a
+  choice and says, muted, that it is still to confirm; one answered stands with its answer picked. The plan's Confirm
+  sends each answer picked.
 
 The canvas follows light and dark: the colours the tokens came from it takes from the tokens, and those that have no
 token (the faint and pale greys, the ribbons, the map's bars) are worked out from the tokens in dark, keeping their

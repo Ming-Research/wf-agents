@@ -155,6 +155,12 @@
   background: var(--ground);
 }
 
+/* A question that holds the work, at its cell or at the merge: on the red tint, edged in red. */
+.cw-choice-holds {
+  border-color: var(--red);
+  background: var(--red-tint);
+}
+
 /* What a question asks, as it was written: its paragraphs semibold, a block of code in it, such as the change a
    question of the engine's is about, as code is shown anywhere in the window. */
 .cw-choice-q {
@@ -166,8 +172,8 @@
   font-weight: var(--weight);
 }
 
-/* Under a question a cell asked, that it stops the work or the merge: one line in red, as the count of the questions
-   that hold a work is; or, where the work has gone on past it, that it is still to confirm, muted. */
+/* Under a question the merge waits for, or a ruling the work waits for, that it does: one line in red; or, where the
+   work has gone on past a question, that it is still to confirm, muted. */
 .cw-choice-stops,
 .cw-choice-later {
   margin: calc(-1 * var(--space-4)) 0 var(--space-8);

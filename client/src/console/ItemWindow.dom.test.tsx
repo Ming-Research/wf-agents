@@ -173,7 +173,9 @@ describe('the panel of the item selected', () => {
     const [, workLine] = lines(el);
     expect(workLine).toContain('Waiting for you implement Implement until the owner confirmed the plan');
     expect(text(el, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
-    expect(text(el, '.cw-choice-stops')).toEqual(['The work waits for this answer']);
+    // It holds the work: on the red tint, with no line to say so.
+    expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-holds');
+    expect(text(el, '.cw-choice-stops')).toEqual([]);
   });
 
   it('writes a message into the block that is the owner\'s words to the cell chosen, and names the cells that read it', async () => {
@@ -363,7 +365,9 @@ describe('the questions put to the owner, in the panel of the item selected', ()
       answered(sent),
     );
     expect(text(el, '.cw-choice-q')).toEqual(['What of scope?']);
-    expect(text(el, '.cw-choice-stops')).toEqual(['The work waits for this answer']);
+    // It holds the work: on the red tint, edged in red, with no line to say so.
+    expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-holds');
+    expect(text(el, '.cw-choice-stops')).toEqual([]);
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it']]);
     expect(text(el, '.cw-option-detail')).toEqual(['Nothing changes', 'The plan is shorter']);
     expect(button(el, 'Confirm (0/1)').disabled).toBe(true);
@@ -396,8 +400,13 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     expect(workLine).toContain('Waiting for you merge Merge until asked = answered W25');
     expect(text(el, '.cw-choice-q')).toEqual(['What of measure?', 'What of old?', 'What of read-time?']);
     expect(text(el, '.cw-choice-stops')).toEqual(['The merge waits for this answer', 'The merge waits for this answer']);
-    // The one answered stands with its answer, and is not asked again.
-    expect(el.querySelectorAll('.cw-choice')[1].className).toBe('cw-choice cw-choice-done');
+    // Those the merge waits for hold the work, on the red tint; the one answered stands with its answer, and is not
+    // asked again.
+    expect([...el.querySelectorAll('.cw-choice')].map((c) => c.className)).toEqual([
+      'cw-choice cw-choice-holds',
+      'cw-choice cw-choice-done',
+      'cw-choice cw-choice-holds',
+    ]);
     expect(options(el)[1]).toEqual(['Keep itRecommended *', 'Drop it']);
     act(() => (el.querySelectorAll('.cw-choice')[0].querySelectorAll('.cw-option')[0] as HTMLButtonElement).click());
     expect(button(el, 'Confirm (1/2)').disabled).toBe(true);
@@ -423,6 +432,8 @@ describe('the questions put to the owner, in the panel of the item selected', ()
   it('shows a question the work has gone on past as still to confirm, which stops nothing yet', () => {
     const el = drawAsking({ kind: 'next', cell: 'implement' }, [], [question('later')]);
     expect(text(el, '.cw-choice-q')).toEqual(['What of later?']);
+    // It keeps the look of a choice of the plan.
+    expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice');
     expect(text(el, '.cw-choice-stops')).toEqual([]);
     expect(text(el, '.cw-choice-later')).toEqual(['Still to confirm']);
     expect(text(el, '.cw-confirm')).toEqual(['Confirm (0/1)']);

@@ -4,8 +4,9 @@
 // cancel it); two tabs; and under them, while something in the item is new to the owner, a strip that says what
 // changed, with a link to mark the item read. The first tab holds the body (where the item came from, the problem it
 // solves, the plan, with each choice that waits for the owner where it stands in the plan, and after them each question
-// put to the owner that stands, drawn as they are with a line in red where it stops the work or the merge, muted where
-// the work has gone on past it and it is still to confirm, an answered one with the answer picked, each picked by a
+// put to the owner that stands, drawn as they are, one that holds the work on the red tint and one the merge waits for
+// saying so in red, muted where the work has gone on past it and it is still to confirm, an answered one with the
+// answer picked, each picked by a
 // press on an option and let go by another, and at the plan's end a button as wide as the body to confirm them, which
 // counts the picks, waits until each choice has one and sends each question's answer to the engine; once confirmed,
 // the picks stand; and last, each ruling of a cell that keeps the work from going on and that the owner may
@@ -927,7 +928,8 @@ function Section({
 
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
 /// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about
-/// it, which brings the first into view. A question with no options is answered in words, in a box in their place.
+/// it, which brings the first into view. A question with no options is answered in words, in a box in their place. A
+/// question that holds the work, at its cell or at the merge, is on the red tint, edged in red.
 function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   p: Choice;
   pick?: (option: number) => void;
@@ -936,12 +938,12 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   messages: number[];
   jump?: (at: number) => void;
 }) {
+  const holds = p.stops === 'work' || p.stops === 'merge';
   return (
-    <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}>
+    <div className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${holds ? ' cw-choice-holds' : ''}`}>
       <div className="cw-choice-q">
         <Markdown text={p.question} />
       </div>
-      {p.stops === 'work' && <p className="cw-choice-stops">The work waits for this answer</p>}
       {p.stops === 'merge' && <p className="cw-choice-stops">The merge waits for this answer</p>}
       {p.stops === 'later' && <p className="cw-choice-later">Still to confirm</p>}
       {p.options.length === 0 && p.asks !== undefined ? (
