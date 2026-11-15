@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Puts together `AGENTS.md` beside this script, which an architect session started in this directory reads: the
-architect's rules and what it reports, the installation's settings an architect works by, the project's constitution and the rules of its
-design tree, the rules every agent of the engine works by, and the help of the engine's commands.
+architect's rules and what it reports, the installation's settings an architect works by, the project's constitution
+and the rules of its design tree, and the rules every agent of the engine works by.
 
 The architect's own files are read as they stand beside this script. What the engine gives its agents is read as the
 project's main branch holds it, the branch the engine takes its flows from, so that the architect is given what the
@@ -10,7 +10,6 @@ address, which must be running. Run it from any directory, again whenever one of
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -21,8 +20,6 @@ HERE = Path(__file__).resolve().parent
 OUT = HERE / "AGENTS.md"
 # The architect's own files, in the order they are given.
 OWN = [HERE / "rules.md", HERE / "notes.md"]
-# The engine's commands an architect has no use for: the engine's own start, the flow's tooling and the help itself.
-NOT_THE_ARCHITECTS = {"run", "flow", "help"}
 # The settings an architect works by, as prefixes of their names; a project's are added as its own.
 SETTINGS = ["owner.", "agents.slots", "agents.work_budget_usd", "agents.levels.", "items."]
 PROJECT_SETTINGS = ["main", "github.repository"]
@@ -87,23 +84,6 @@ def installation(values: dict, project: str) -> str:
     return "# The installation's settings\n\n```toml\n" + "\n".join(lines) + "\n```"
 
 
-def commands(program: str) -> str:
-    top = run([program, "help"])
-    names, listing = [], False
-    for line in top.splitlines():
-        if line.startswith("Commands:"):
-            listing = True
-        elif listing and not line.strip():
-            break
-        elif listing and line.startswith("  ") and not line.startswith("   "):
-            names.append(line.split()[0])
-    parts = ["# The commands of `wf-agents`", f"```text\n{top.strip()}\n```"]
-    for name in names:
-        if name not in NOT_THE_ARCHITECTS:
-            parts.append(f"## `wf-agents {name}`\n\n```text\n{run([program, name, '--help']).strip()}\n```")
-    return "\n\n".join(parts)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port", type=int, default=7470, help="the port the engine serves on (default 7470)")
@@ -126,7 +106,6 @@ def main() -> None:
     def part(path: str, text: str) -> str:
         return heading.format(path=path, text=text.strip())
 
-    program = shutil.which("wf-agents") or str(Path.home() / ".local" / "bin" / "wf-agents")
     general = f"flow/agents/rules/{rule_sets['general']['file']}"
     parts = [
         *(part(str(own.relative_to(root)), named(own.read_text(), names, values)) for own in OWN),
@@ -136,7 +115,6 @@ def main() -> None:
             for kind in ("constitution", "tree_rules")
         ),
         part(general, named(on_main(root, ref, general), names, values)),
-        commands(program),
     ]
     head = f"<!-- Made by assemble.py from {ref} and the engine's settings: run it again rather than edit this file. -->"
     OUT.write_text(head + "\n\n" + "\n\n".join(parts) + "\n")

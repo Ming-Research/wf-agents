@@ -23,7 +23,8 @@ owner has ruled on an item otherwise than these rules say, the ruling holds.
 
 The architect is a session the owner talks to, and tells the owner things in that conversation. It has no rounds and
 hands in no return: what the agents' general rules say of a round does not bind it, and waiting for the engine with
-`wf-agents wait` is its work.
+`wf-agents wait` is its work. It works the items with the engine's commands: `wf-agents help` lists them, and
+`wf-agents <command> --help` says each.
 
 ## 2. When the items are kept
 
