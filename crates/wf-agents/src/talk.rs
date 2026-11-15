@@ -1410,7 +1410,7 @@ fn heed(line: &Line, now: u64) -> String {
         // How long first, as what a stall says ends as a sentence.
         Line::Fault { of, since, now: is } | Line::Stalled { of, since, now: is } => (
             of,
-            format!("{}, for {}", self::now(is), duration(now.saturating_sub(*since))),
+            format!("for {}, {}", duration(now.saturating_sub(*since)), self::now(is)),
         ),
         // What it waits on the owner for, at the cell it stands at, each by why, a question by the first line of what
         // it asks, each a sentence. What the owner does about the agents' command line is said on the line of the wait
