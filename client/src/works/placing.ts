@@ -11,7 +11,8 @@
 
 import type { Flow } from '../api';
 import type { Block, Item, Run, Step, Summary } from '../works-api';
-import { isWayRound, waitsForOwner } from './words';
+import { waitsOnOwner } from './waiting';
+import { isWayRound } from './words';
 
 /// What a row marks in a cell's column besides a run: the cell reads the block written, its condition reads it, or it
 /// is the cell let go on.
@@ -105,13 +106,12 @@ export function findRun(steps: Step[], run: number): Run | undefined {
   return runsOf(steps).find((r) => r.run === run);
 }
 
-/// Where a work stands in the list: what waits for the owner first, a stalled work among it, then a fault or a pause
-/// of the engine's, as for a round that failed, then what goes on by itself, then what the owner paused, then what has
-/// ended.
+/// Where a work stands in the list: what waits for the owner first, as `waitsOf` says, the one definition of what waits
+/// on the owner, then a fault, then what goes on by itself, then what the owner paused, then what has ended.
 export function rank(summary: Summary): number {
   const now = summary.now;
-  if ((now.kind === 'waits' && now.on.some(waitsForOwner)) || now.kind === 'stalled') return 0;
-  if (now.kind === 'fault' || (now.kind === 'paused' && now.by === 'engine')) return 1;
+  if (waitsOnOwner(now)) return 0;
+  if (now.kind === 'fault') return 1;
   if (now.kind === 'merged' || now.kind === 'cancelled') return 4;
   if (summary.paused || now.kind === 'paused' || now.kind === 'everything') return 3;
   return 2;

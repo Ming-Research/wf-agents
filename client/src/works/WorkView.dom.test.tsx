@@ -172,11 +172,12 @@ describe('the list of works', () => {
   it('lists the work of every item, those waiting for the owner first and edged, and a row opens its work', async () => {
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     const rows = [...page.querySelectorAll('tbody tr.work-row')] as HTMLElement[];
-    expect(rows.map((r) => Number(r.dataset.work))).toEqual([43, 44, 45, 41, 50, 49, 42, 46, 47, 48]);
-    expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([true, true, true, true, false, false, false, false, false, false]);
-    expect(rows[0].querySelector('.now-words')?.textContent).toBe("Waits at plan for the owner's answer to a question");
-    expect(rows[0].querySelectorAll('.strip .state-mark')).toHaveLength(6);
-    await click(rows[3]);
+    // The work the engine paused waits for the owner, as `waitsOf` says, and the fault comes after.
+    expect(rows.map((r) => Number(r.dataset.work))).toEqual([50, 43, 44, 45, 41, 49, 42, 46, 47, 48]);
+    expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([true, true, true, true, true, false, false, false, false, false]);
+    expect(rows[1].querySelector('.now-words')?.textContent).toBe("Waits at plan for the owner's answer to a question");
+    expect(rows[1].querySelectorAll('.strip .state-mark')).toHaveLength(6);
+    await click(rows[4]);
     expect(window.location.hash).toBe('#/works/41');
   });
 
@@ -188,17 +189,17 @@ describe('the list of works', () => {
     expect(select.value).toBe('');
     expect(listed(page)).toHaveLength(10);
     const facts = () => page.querySelector('.view-facts')?.textContent;
-    expect(facts()).toBe('10 works, 4 waiting for the owner');
-    // The works waiting for the owner of the other project, 44 and 41, stay; the counts stay those of every work.
+    expect(facts()).toBe('10 works, 5 waiting for the owner');
+    // The works waiting for the owner of the other project, 50, 44 and 41, stay; the counts stay those of every work.
     pick(select, 'Whitefoot');
-    expect(listed(page)).toEqual([43, 44, 45, 41, 47]);
-    expect(facts()).toBe('10 works, 4 waiting for the owner, 5 shown');
+    expect(listed(page)).toEqual([50, 43, 44, 45, 41, 47]);
+    expect(facts()).toBe('10 works, 5 waiting for the owner, 6 shown');
     // An item added before items had projects is shown only with none chosen, as it waits for nobody.
     pick(select, 'wf-agents');
-    expect(listed(page)).toEqual([43, 44, 45, 41, 50, 42, 46, 48]);
+    expect(listed(page)).toEqual([50, 43, 44, 45, 41, 42, 46, 48]);
     pick(select, '');
     expect(listed(page)).toHaveLength(10);
-    expect(facts()).toBe('10 works, 4 waiting for the owner');
+    expect(facts()).toBe('10 works, 5 waiting for the owner');
   });
 
   it('keeps no project chosen once the list is drawn anew, and takes no room for a choice with one project', async () => {

@@ -102,13 +102,9 @@ Why: The owner reads the page in English, and one catalogue makes the name of ea
 shows it.
 
 ### principle one-count-of-what-waits
-The owner sees one count, of what waits on the owner: a question that holds a work; a cell at its limit, waiting for the
-owner to let it go on; a change of a protected file, waiting for the owner's yes; a pause the engine made, with its
-reason; and every work held after the engine started again, until the owner lets them on. What waits is defined once,
-and the count, the mark on each item's card and the cards in its panel are all read from that one definition: an item
-counted is marked, and shows inside it a card of each thing it waits for, which the owner can act on there. Only these
-notify, in the browser, once as each comes and again each hour while any is left, and a click on a notification opens
-the console on the item at the card of what it was about; everything else is only marked as unread, and a question a
-work has gone on past is shown as still to confirm and raises nothing until the merge waits for it.
-Why: Several counts with different meanings did not agree with one another, and nobody trusted them; a count or a mark
-with nothing to see or do inside the item leaves the owner looking for what it counts.
+What waits on the owner is defined once: a question that holds a work, a cell at its limit, a change of a protected
+file, a pause the engine made, and the works held after the engine started again. The count, each item's mark, the cards
+inside the item where the owner acts on each, and the browser's notifications, which open the item at its card, are all
+read from that definition; nothing else counts or notifies.
+Why: Counts with different meanings did not agree, and nobody trusted them; a count with nothing to act on inside the
+item leaves the owner searching for what it counts.

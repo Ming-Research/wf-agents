@@ -26,7 +26,9 @@ describe('where a work stands', () => {
     expect(standingOf(work({ kind: 'merged' }))).toBeNull();
     expect(standingOf(work({ kind: 'cancelled' }))).toBeNull();
     expect(standingOf(work({ kind: 'fault', words: 'broken' }))).toBe('halted');
-    expect(standingOf(work({ kind: 'paused', by: 'engine', why: 'failed' }))).toBe('halted');
+    // The engine's pause, and its pause of everything as it started again, wait for the owner, as `waitsOf` says.
+    expect(standingOf(work({ kind: 'paused', by: 'engine', why: 'failed' }))).toBe('owner');
+    expect(standingOf(work({ kind: 'everything', by: 'engine' }))).toBe('owner');
     expect(standingOf(work({ kind: 'paused', by: 'owner', why: null }))).toBe('paused');
     expect(standingOf(work({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }))).toBe('running');
     const question = { kind: 'call', call: 2, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } } as const;

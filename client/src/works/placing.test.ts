@@ -114,7 +114,7 @@ function summary(number: number, now: Now, last: number | null, paused = false):
 }
 
 describe('the list of works', () => {
-  it("puts what waits for the owner first, then a fault or the engine's pause, then what goes on, then what the owner paused, then what ended", () => {
+  it('puts what waits for the owner first, then a fault, then what goes on, then what the owner paused, then what ended', () => {
     const works = [
       summary(1, { kind: 'merged' }, 900),
       summary(2, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 500),
@@ -125,7 +125,11 @@ describe('the list of works', () => {
       summary(7, { kind: 'waits', at: 'plan', on: [{ kind: 'precondition', test: 't', words: 'w', by: [{ kind: 'owner' }] }] }, 200),
       summary(8, { kind: 'cancelled' }, 990),
       summary(9, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 600, true),
-      summary(10, { kind: 'paused', by: 'engine', why: 'A round failed.' }, 20, true),
+      // The engine's pause and its pause of everything as it started again wait for the owner, as `waitsOf` says;
+      // the owner's pause of everything does not.
+      summary(10, { kind: 'paused', by: 'engine', why: 'A round failed.' }, 300, true),
+      summary(11, { kind: 'everything', by: 'engine' }, 250),
+      summary(12, { kind: 'everything', by: 'owner' }, 700),
     ];
     const items: Item[] = works.map((w) => ({
       number: w.number,
@@ -137,6 +141,6 @@ describe('the list of works', () => {
       history: { first: { title: `${w.number}`, level: '2', dependsOn: [] }, changes: [] },
       work: w,
     }));
-    expect(orderWorks(items).map((w) => w.work.number)).toEqual([7, 4, 10, 6, 3, 2, 5, 9, 8, 1]);
+    expect(orderWorks(items).map((w) => w.work.number)).toEqual([10, 11, 7, 4, 6, 3, 2, 5, 12, 9, 8, 1]);
   });
 });
