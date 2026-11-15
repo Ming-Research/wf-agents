@@ -24,10 +24,10 @@
 //!    by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
 //! 7. The main the check takes in is what its run read: as a run of the check finishes, the latest version of the
 //!    block of main it was told of says the head its last round took in; while main is still at that head, it is new
-//!    to the check no more; where main moved after the take-in, a version of the newer head is new to the check, and
-//!    the check runs again before any round of the merge begins (decision
-//!    the-check-tells-its-round-the-main-it-takes-in). Both orders the carriers can make of the take-in and the watch
-//!    of main are drawn.
+//!    to the check no more; and where main moved after the take-in, a version of the newer head is new to the check
+//!    (decision the-check-tells-its-round-the-main-it-takes-in). That the check then runs again before the merge is
+//!    judged by the second (property merge-only-on-what-is-current), and the runs of it again are counted. Both orders
+//!    the carriers can make of the take-in and the watch of main are drawn.
 //!
 //! The first two are judged as each round of the merge begins, the sixth as the merge finishes, and the seventh as the
 //! check's run finishes, by the histories' own reading of the records as they were then (`reading`), never by the
@@ -152,7 +152,7 @@ const CONTENT_MERGES: &str = "3: a work everyone is content with merges within t
 const RUNS_FOR_NOTHING: &str = "4: runs for nothing stay within the bound";
 const MUST_WRITE_WRITTEN: &str = "5: no finished run lacks a block its cell must write";
 const MERGE_UNSEEN: &str = "6: the work's head the merge merges is a version the review dealt with";
-const MAIN_TAKEN_IN: &str = "7: the check's run read the main it took in, and runs again only for a newer head";
+const MAIN_TAKEN_IN: &str = "7: the check's run read the main it took in, and only a newer head is new to it";
 const DRIVER: &str = "the driver";
 
 /// The source of the block of the work's head, which the carriers read of the work's branch.
@@ -166,7 +166,7 @@ const MAIN: &str = "main";
 /// passes; how often the check failed in passing on a head a judge had not dealt with, and how often the merge on a
 /// head moved since the check passed. And main beside it: its head, named by a number from the one the work branched
 /// from; the check's latest take-in of it, until its run finishes or is abandoned; and the check's run that finished
-/// with a newer head new to it, with the place it finished at, until the check runs again.
+/// with a newer head new to it, until the check runs again.
 #[derive(Clone, Copy, Debug, Default)]
 struct Branch {
     head: u64,
@@ -175,7 +175,7 @@ struct Branch {
     moved: u64,
     main: u64,
     taken: Option<Taken>,
-    owed: Option<(RunId, Seq)>,
+    owed: Option<RunId>,
 }
 
 /// A round of the check took main in at this head, main having moved as this says.
@@ -1429,9 +1429,9 @@ struct Verdict {
 }
 
 /// Property 7, after a step: a run of the check that finished since is judged on the main its last round took in, by
-/// the histories' own reading of the records; a run owed for a newer head is held to running again before any round of
-/// the merge begins. Gives what broke it, in words, and what was reached; `b` keeps the take-in and the run owed from
-/// one step to the next.
+/// the histories' own reading of the records; a run of the check after one that owed it for a newer head is counted.
+/// Gives what broke it, in words, and what was reached; `b` keeps the take-in and the run owed from one step to the
+/// next.
 fn take_in_judged(d: &Driver, roles: &Roles, b: &mut Branch) -> (Vec<String>, Vec<&'static str>) {
     let Some(main) = roles.main.clone() else {
         return (Vec::new(), Vec::new());
@@ -1439,28 +1439,16 @@ fn take_in_judged(d: &Driver, roles: &Roles, b: &mut Branch) -> (Vec<String>, Ve
     let flow = &d.flow.flow;
     let records = &d.work.records;
     let check = &flow.cells()[roles.check].id;
-    let last = &flow.cells()[roles.last].id;
     let mut broken = Vec::new();
     let mut reached = Vec::new();
-    if let Some((owed, since)) = b.owed {
-        let again = (records.started.iter()).any(|s| &s.cell == check && s.run > owed);
-        let merge_began = (records.rounds.iter())
-            .any(|r| r.at > since && records.started.iter().any(|s| s.run == r.run && &s.cell == last));
-        if again {
-            reached.push(CHECK_RAN_AGAIN_FOR_MAIN);
-            b.owed = None;
-        } else if merge_began {
-            broken.push(format!(
-                "a round of the merge began with main moved after run {} of the check took it in, and the check \
-                 not run again",
-                owed.0
-            ));
-            b.owed = None;
-        }
+    if let Some(owed) = b.owed
+        && (records.started.iter()).any(|s| &s.cell == check && s.run > owed)
+    {
+        reached.push(CHECK_RAN_AGAIN_FOR_MAIN);
+        b.owed = None;
     }
     if let Some(taken) = b.taken {
-        let finished = records.finished.iter().find(|f| f.run == taken.run).map(|f| f.at);
-        if let Some(at) = finished {
+        if records.finished.iter().any(|f| f.run == taken.run) {
             b.taken = None;
             let reading = Reading::new(flow, records, None);
             let says = |at: Seq| d.work.contents.get(&(main.clone(), at)).map(String::as_str);
@@ -1486,7 +1474,7 @@ fn take_in_judged(d: &Driver, roles: &Roles, b: &mut Branch) -> (Vec<String>, Ve
                     taken.head + 1,
                     taken.run.0
                 )),
-                Moved::After => b.owed = Some((taken.run, at)),
+                Moved::After => b.owed = Some(taken.run),
                 _ => {}
             }
             reached.push(match taken.moved {
@@ -1499,91 +1487,6 @@ fn take_in_judged(d: &Driver, roles: &Roles, b: &mut Branch) -> (Vec<String>, Ve
         }
     }
     (broken, reached)
-}
-
-// The clause of property 7 that a round of the merge waits for the check to run again for main moved after its take-in
-// is fed hand-made records, as no single fault of the engine reaches it in the histories: what runs the check and the
-// cells its own record runs before the merge each run the check again first. Run 1 of the check takes in m0, main moves
-// to m1 while its round is under way, and it finishes; then a round of the merge begins, the check not run again.
-// Milliseconds alone; no history reaches it.
-#[test]
-fn property_7_says_a_merge_that_begins_before_the_check_runs_again_for_main_moved_after_its_take_in() {
-    let flow = engineer();
-    let roles = Roles::new(&flow);
-    let main = roles.main.clone().expect("the flow has main");
-    let check = flow.flow.cells()[roles.check].id.clone();
-    let merge = flow.flow.cells()[roles.last].id.clone();
-    let mut d = Driver::new(flow, Rng::new(1), 1, false);
-    let w = &mut d.work;
-    let begins = |w: &mut engine::Work, run: RunId, cell: &CellId| {
-        let at = w.tick();
-        let basis = [(main.clone(), None)].into();
-        (w.records.started).push(decide::Started {
-            run,
-            cell: cell.clone(),
-            at,
-            because: Vec::new(),
-            basis,
-        });
-        let at = w.tick();
-        w.records.rounds.push(decide::Round { run, at });
-    };
-    let watch = |w: &mut engine::Work, says: &str| {
-        let at = w.tick();
-        w.contents.insert((main.clone(), at), says.to_string());
-        (w.records.written).push(decide::Written {
-            block: main.clone(),
-            by: Outsider::Outside,
-            matters: true,
-            value: None,
-            empty: false,
-            said_to: None,
-            at,
-        });
-        at
-    };
-    begins(w, RunId(1), &check);
-    let m0 = watch(w, "m0");
-    let at = w.tick();
-    (w.records.put_in).push(decide::PutIn {
-        run: RunId(1),
-        block: main.clone(),
-        version: m0,
-        at,
-    });
-    watch(w, "m1");
-    let at = w.tick();
-    w.records.returned.push(decide::Returned { run: RunId(1), at });
-    let finished = w.tick();
-    w.records.finished.push(decide::Finished {
-        run: RunId(1),
-        at: finished,
-        writes: Vec::new(),
-        dealt_with: Some(vec![main.clone()]),
-        waits_for: None,
-    });
-    let taken = Taken {
-        run: RunId(1),
-        head: 0,
-        moved: Moved::After,
-    };
-    let mut b = Branch {
-        main: 1,
-        taken: Some(taken),
-        ..Branch::default()
-    };
-    // As the run finishes, the newer head is new to the check, which owes a run for it.
-    let (broken, reached) = take_in_judged(&d, &roles, &mut b);
-    assert_eq!(broken, Vec::<String>::new());
-    assert_eq!(reached, [MAIN_MOVED_AFTER_THE_TAKE_IN]);
-    assert_eq!(b.owed, Some((RunId(1), finished)));
-    // A round of the merge begins, and the check has not run again.
-    begins(&mut d.work, RunId(2), &merge);
-    let (broken, _) = take_in_judged(&d, &roles, &mut b);
-    let said = "a round of the merge began with main moved after run 1 of the check took it in, and the check not run \
-                again";
-    assert_eq!(broken, [said]);
-    assert_eq!(b.owed, None);
 }
 
 /// A history of a work on the engineer's flow.
