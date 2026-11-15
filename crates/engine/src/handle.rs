@@ -93,7 +93,7 @@ pub fn handle_then(
         let answers = answers(flow, work, run);
         if let Some(requires) = requires(flow, &choices, &answers, &told, work, run)
             && let Step::Finish { dealt_with, writes } = run::next(
-                &log(work, run, &told),
+                &log(flow, work, run, &told),
                 requires,
                 hold_in(&flow.flow, &work.records, run, room),
             )
@@ -426,7 +426,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                     },
                 );
                 let told = told(&flow.flow, &work.records, run).unwrap_or_default();
-                if let Some(pausing) = run::pausing(&log(work, run, &told)) {
+                if let Some(pausing) = run::pausing(&log(flow, work, run, &told)) {
                     let at = work.tick();
                     work.records.pauses.push(Pause {
                         paused: true,
@@ -692,7 +692,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
         _ => None,
     });
     let next = run::next(
-        &log(work, run, &told),
+        &log(flow, work, run, &told),
         requires,
         hold_in(&flow.flow, &work.records, run, at.room),
     );
@@ -916,14 +916,16 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
 
 /// The run so far, as the deciding code reads it. A return of the form before a return said what it dealt with reads
 /// as one that dealt with nothing where it asked, and with everything that ran its round where it handed in.
-pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
+pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run::Log {
+    // Whether a write holds nothing is told of the content the engine keeps of it, which of a record of what is said is
+    // the cell's entry of what it handed in ([`spoken::entry`]).
     let writes = |handed: &[work::Handed]| {
         (handed.iter())
             .map(|h| Write {
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
-                empty: decide::holds_nothing(h.value.as_deref(), &h.content),
+                empty: decide::holds_nothing(h.value.as_deref(), &spoken::entry(flow, &h.block, h.content.clone())),
             })
             .collect()
     };

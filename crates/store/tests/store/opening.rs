@@ -155,11 +155,27 @@ fn kept_before() -> Work {
 /// The work as a file made with this earlier version of the schema holds it, and a file of this version that holds
 /// it: the rows a store of this version keeps, each copied into the earlier file in the columns its table has there.
 fn kept_in(version: u32, work: &Work) -> (Db, Db) {
+    kept_in_works(version, &[work])
+}
+
+/// As [`kept_in`], of several works, the first of the first item and each after it of an item of its own.
+fn kept_in_works(version: u32, works: &[&Work]) -> (Db, Db) {
     let new = Db::new();
     {
         let mut store = new.open();
         let number = first_work(&mut store);
-        store.save(number, work).expect("the work is saved");
+        store.save(number, works[0]).expect("the work is saved");
+        for (i, work) in works.iter().enumerate().skip(1) {
+            let (_, number) = store
+                .add(
+                    &first("another item", "2", &[]),
+                    "judged",
+                    Time(START + i as u64),
+                    &Work::default(),
+                )
+                .expect("the item is added");
+            store.save(number, work).expect("the work is saved");
+        }
     }
     let old = Db::new();
     {
@@ -170,9 +186,7 @@ fn kept_in(version: u32, work: &Work) -> (Db, Db) {
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
-        for migration in &MIGRATIONS[..version as usize - 1] {
-            file.execute_batch(migration).expect("the migration runs");
-        }
+        store::migrate(&file, 1, version).expect("the migrations run");
         let path = new.path.to_str().expect("the path is text");
         file.execute("ATTACH DATABASE ?1 AS new", [path])
             .expect("the new file is attached");
@@ -219,33 +233,6 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
     old.open();
     assert_eq!(dump(&old.path), before, "opening the migrated file again changed it");
 }
-
-/// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
-pub(crate) const MIGRATIONS: [&str; 17] = [
-    include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
-    include_str!("../../../../db/migrations/202611102304-give-items-a-level.sql"),
-    include_str!("../../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
-    include_str!("../../../../db/migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
-    include_str!("../../../../db/migrations/202611111600-record-the-sessions-of-lines-and-the-context-of-rounds.sql"),
-    include_str!("../../../../db/migrations/202611111830-keep-each-change-of-an-item-and-why-it-was-cancelled.sql"),
-    include_str!("../../../../db/migrations/202611112000-say-who-paused-everything.sql"),
-    include_str!("../../../../db/migrations/202611112100-record-backups.sql"),
-    include_str!(
-        "../../../../db/migrations/202611131500-keep-what-a-return-dealt-with-what-reached-a-round-and-what-filled-it.sql"
-    ),
-    include_str!("../../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"),
-    include_str!("../../../../db/migrations/202611141700-give-items-a-project.sql"),
-    include_str!("../../../../db/migrations/202611141900-keep-the-questions-put-to-the-owner-and-the-answers.sql"),
-    include_str!(
-        "../../../../db/migrations/202611142000-say-why-each-change-of-an-item-was-made-tag-items-and-reopen-them.sql"
-    ),
-    include_str!(
-        "../../../../db/migrations/202611142100-keep-what-the-calls-of-a-round-came-to-and-the-pings-of-sessions.sql"
-    ),
-    include_str!("../../../../db/migrations/202611142300-keep-the-cell-an-entry-of-what-is-said-is-said-to.sql"),
-    include_str!("../../../../db/migrations/202611151200-say-what-a-finished-run-waits-for-from-outside.sql"),
-    include_str!("../../../../db/migrations/202611151600-say-whether-a-version-holds-anything.sql"),
-];
 
 #[test]
 fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_that_ran_them() {
@@ -329,40 +316,81 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
     assert!(migrated.iter().all(|o| o.read.is_none()));
 }
 
-#[test]
-fn a_file_of_version_17_is_migrated_and_each_of_its_writes_reads_as_holding_what_its_content_does() {
-    // A work as one kept at version 17 holds it: a request a person wrote holding only whitespace and another holding
-    // words, and a run's writes, one handing in words and one handing in only whitespace.
+/// A work as one kept at version 17 holds it, in which a version is empty where `empty` says so and holds words
+/// otherwise, and the same with `inverse` the other way round: the same places, blocks and writers, the two works
+/// differing only in which version holds nothing. A request a person wrote, the owner's main written by the outside
+/// as one that does not matter and said to a cell, a choice the outside wrote with an empty content, and a run's
+/// writes, one of them changing nothing in meaning and one with a value.
+fn kept_at_17(inverse: bool) -> Work {
+    // Whether the version of the pattern's `empty` holds nothing in this work.
+    let nothing = |empty: bool| empty != inverse;
+    let content = |empty: bool| if nothing(empty) { " \t\n" } else { "words" }.to_string();
     let mut d = Driver::new();
     d.on(Event::Wrote {
         block: "request".into(),
         by: Outsider::Person,
-        content: " \n".to_string(),
+        content: content(true),
         matters: true,
         value: None,
     });
-    d.wrote("request", Outsider::Person, None);
+    d.on(Event::Wrote {
+        block: "main".into(),
+        by: Outsider::Outside,
+        content: content(false),
+        matters: false,
+        value: None,
+    });
+    d.on(Event::Wrote {
+        block: "checks".into(),
+        by: Outsider::Outside,
+        content: String::new(),
+        matters: true,
+        value: Some("pass".to_string()),
+    });
     d.end(hands_in(&[("text", None)]));
     let mut work = d.work;
+    for w in &mut work.records.written {
+        w.empty = match w.block.as_str() {
+            "request" => nothing(true),
+            "main" => {
+                w.said_to = Some(decide::CellId("write".into()));
+                nothing(false)
+            }
+            _ => false,
+        };
+    }
     let finished = &mut work.records.finished[0];
+    let at = finished.at;
+    finished.writes[0].empty = nothing(false);
     finished.writes.push(Write {
         block: "request".into(),
-        meaning_unchanged: false,
+        meaning_unchanged: true,
         value: None,
-        empty: true,
+        empty: nothing(true),
     });
-    let at = finished.at;
-    work.contents.insert(("request".into(), at), "\t ".to_string());
-    let said = |empty: bool| (work.records.written.iter()).filter(|w| w.empty == empty).count();
-    assert_eq!(
-        (said(true), said(false)),
-        (1, 1),
-        "one request holds nothing and one holds something"
-    );
-    let handed: Vec<bool> = (work.records.finished[0].writes.iter()).map(|w| w.empty).collect();
-    assert_eq!(handed, [false, true], "one write holds something and one holds nothing");
-    let (old, new) = kept_in(17, &work);
-    // A file of version 17 has no such column: the copy has the rows without it.
+    finished.writes.push(Write {
+        block: "verdict".into(),
+        meaning_unchanged: false,
+        value: Some("no".to_string()),
+        empty: false,
+    });
+    work.contents.insert(("text".into(), at), content(false));
+    work.contents.insert(("request".into(), at), content(true));
+    work.contents.insert(("verdict".into(), at), String::new());
+    work
+}
+
+#[test]
+fn a_file_of_version_17_is_migrated_and_each_of_its_writes_reads_as_holding_what_its_content_does() {
+    let (kept, other) = (kept_at_17(false), kept_at_17(true));
+    let of = |w: &Work| -> Vec<bool> {
+        (w.records.written.iter().map(|w| w.empty))
+            .chain(w.records.finished[0].writes.iter().map(|w| w.empty))
+            .collect()
+    };
+    assert_eq!(of(&kept), [true, false, false, false, true, false]);
+    assert_eq!(of(&other), [false, true, false, true, false, false]);
+    let (old, new) = kept_in_works(17, &[&kept, &other]);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(
@@ -370,18 +398,73 @@ fn a_file_of_version_17_is_migrated_and_each_of_its_writes_reads_as_holding_what
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    // The migrated file says of each version what a file of this version does: whether its content holds nothing.
-    assert_eq!(new.open().load(WorkNumber(1)), Ok(work.clone()));
-    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    // The migrated file says of each version what a file of this version does, each row with all its columns.
+    let new = new.open();
+    assert_eq!(new.load(WorkNumber(1)), Ok(kept.clone()));
+    assert_eq!(new.load(WorkNumber(2)), Ok(other.clone()));
+    assert_eq!(store.load(WorkNumber(1)), Ok(kept));
+    assert_eq!(store.load(WorkNumber(2)), Ok(other));
+}
+
+#[test]
+fn a_file_of_version_17_that_lacks_what_a_version_holds_is_not_opened_and_is_left_as_it_was() {
+    let work = kept_at_17(false);
+    let places = |old: &Db| -> (i64, i64) {
+        let file = Connection::open(&old.path).expect("the database opens");
+        let written = file
+            .query_row("SELECT at FROM written WHERE block = 'request'", [], |r| r.get(0))
+            .expect("a place");
+        let finished = file
+            .query_row("SELECT at FROM finished WHERE run = 1", [], |r| r.get(0))
+            .expect("a place");
+        (written, finished)
+    };
+    type Lack = fn(&Db, (i64, i64)) -> String;
+    let lacks: [(&str, Lack); 3] = [
+        ("a written version", |old, (written, _)| {
+            let file = Connection::open(&old.path).expect("the database opens");
+            file.execute(
+                "DELETE FROM contents WHERE block = 'request' AND version = ?1",
+                [written],
+            )
+            .expect("the content is lacking");
+            format!("the content of the version of request written at {written} of work 1 is missing")
+        }),
+        ("a version a run wrote", |old, (_, finished)| {
+            let file = Connection::open(&old.path).expect("the database opens");
+            file.execute(
+                "DELETE FROM contents WHERE block = 'verdict' AND version = ?1",
+                [finished],
+            )
+            .expect("the content is lacking");
+            format!("the content of the version of verdict written by run 1 at {finished} of work 1 is missing")
+        }),
+        ("a write of a run that has no end", |old, _| {
+            let file = Connection::open(&old.path).expect("the database opens");
+            file.execute("DELETE FROM finished WHERE run = 1", [])
+                .expect("the run is lacking");
+            "by run 1 of work 1 has no finished run".to_string()
+        }),
+    ];
+    for (lack, make) in lacks {
+        let (old, _) = kept_in(17, &work);
+        let wanted = make(&old, places(&old));
+        let before = dump(&old.path);
+        match Store::open(&old.path) {
+            Err(Fault::Database(said)) => {
+                assert!(said.contains(&wanted), "{lack}: {said:?} does not say {wanted:?}");
+            }
+            other => panic!("{lack}: opened or failed otherwise: {:?}", other.map(|_| ())),
+        }
+        assert_eq!(dump(&old.path), before, "{lack}: the file was changed");
+        let copies = before_migration::copies(&before_migration::dir(&old.path));
+        assert_eq!(copies.len(), 1, "{lack}");
+        assert_eq!(dump(&copies[0]), before, "{lack}: the copy is not the file as it was");
+    }
 }
 
 #[test]
 fn a_file_of_every_earlier_version_is_brought_to_this_one_as_it_is_opened() {
-    assert_eq!(
-        MIGRATIONS.len() as u32 + 1,
-        SCHEMA_VERSION,
-        "a migration is missing here"
-    );
     let new = Db::new();
     new.open();
     for version in 1..SCHEMA_VERSION {
@@ -391,9 +474,7 @@ fn a_file_of_every_earlier_version_is_brought_to_this_one_as_it_is_opened() {
             file.execute_batch(SCHEMA_1).expect("the first schema is made");
             file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
                 .expect("its version is written");
-            for migration in &MIGRATIONS[..version as usize - 1] {
-                file.execute_batch(migration).expect("the migration runs");
-            }
+            store::migrate(&file, 1, version).expect("the migrations run");
             assert_eq!(versions(&old.path), [version]);
         }
         old.open();
@@ -456,9 +537,7 @@ fn an_item_kept_before_items_had_projects_is_opened_with_none() {
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
-        for migration in &MIGRATIONS[..10] {
-            file.execute_batch(migration).expect("the migration runs");
-        }
+        store::migrate(&file, 1, 11).expect("the migrations run");
         assert_eq!(versions(&db.path), [11]);
         file.execute(
             "INSERT INTO items (title, added, level) VALUES ('kept before', 5, '2')",

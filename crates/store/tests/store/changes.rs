@@ -5,7 +5,7 @@
 use rusqlite::params;
 use store::{Change, Fault, ItemChange, ItemNumber, SCHEMA_VERSION};
 
-use super::opening::{MIGRATIONS, SCHEMA_1, versions};
+use super::opening::{SCHEMA_1, versions};
 use super::*;
 
 #[test]
@@ -167,9 +167,7 @@ fn a_file_of_version_6_keeps_each_level_change_as_a_change_and_its_cancels_with_
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
-        for migration in &MIGRATIONS[..5] {
-            file.execute_batch(migration).expect("the migration runs");
-        }
+        store::migrate(&file, 1, 6).expect("the migrations run");
         assert_eq!(versions(&db.path), [6]);
         file.execute("INSERT INTO items (title, added, level) VALUES ('kept', 5, '1')", [])
             .expect("an item is kept");
@@ -220,9 +218,7 @@ fn a_file_of_version_10_keeps_its_cancel_its_release_and_its_changes_with_no_rea
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
-        for migration in &MIGRATIONS[..9] {
-            file.execute_batch(migration).expect("the migration runs");
-        }
+        store::migrate(&file, 1, 10).expect("the migrations run");
         assert_eq!(versions(&db.path), [10]);
         file.execute("INSERT INTO items (title, added, level) VALUES ('kept', 5, '1')", [])
             .expect("an item is kept");

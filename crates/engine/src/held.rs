@@ -33,7 +33,7 @@ pub fn held(flow: &Compiled, work: &Work, room: Room) -> Option<Holder> {
             let answers = answers(flow, work, run);
             let told = told(&flow.flow, records, run)?;
             let requires = requires(flow, &choices, &answers, &told, work, run)?;
-            let log = log(work, run, &told);
+            let log = log(flow, work, run, &told);
             let held = |hold: Hold| run::next(&log, requires, hold) == Step::Held;
             // The pauses alone, as if a slot were free; then everything the room holds back.
             let paused_only = Room { slot: true, ..room };

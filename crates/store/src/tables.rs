@@ -899,31 +899,32 @@ pub(crate) fn from_name<T: DeserializeOwned>(table: &'static str, name: String) 
     })
 }
 
-/// Fills the tables `writes` and `written` that migration 18 made new, from the rows it left in `writes_before_18` and
-/// `written_before_18`, each with `empty` set from the content of its version, by the test the engine applies as it
-/// writes one, and takes the old tables out. A version with no content is a fault, not a version that holds something.
+/// The step of migration 18: fills the tables `writes` and `written` that its SQL made anew, from the rows it put aside
+/// in `writes_before_18` and `written_before_18`. Each row is carried whole, with `empty` set from the content its
+/// version has, by the test the engine applies as it writes one; no row is changed where it stands. The old tables are
+/// then taken out. A version with no content, or a write of a run that did not finish, is a fault that says which,
+/// not a version that holds something.
 pub(crate) fn fill_empty(db: &Connection) -> Result<(), Fault> {
-    let missing = |what: &str, work: i64| {
-        Fault::Database(format!("the content of a version of {what} of work {work} is missing"))
-    };
     let mut query = db.prepare(
         "SELECT w.work, w.at, w.block, w.writer, w.matters, w.value, w.said_to, c.content FROM written_before_18 w \
          LEFT JOIN contents c ON c.work = w.work AND c.block = w.block AND c.version = w.at",
     )?;
     let mut rows = query.query([])?;
     while let Some(row) = rows.next()? {
-        let work: i64 = row.get(0)?;
+        let (work, at, block): (i64, i64, String) = (row.get(0)?, row.get(1)?, row.get(2)?);
         let value: Option<String> = row.get(5)?;
-        let content: String = row
-            .get::<_, Option<String>>(7)?
-            .ok_or_else(|| missing("what was written", work))?;
+        let content: String = row.get::<_, Option<String>>(7)?.ok_or_else(|| {
+            Fault::Database(format!(
+                "migration 18: the content of the version of {block} written at {at} of work {work} is missing"
+            ))
+        })?;
         db.execute(
             "INSERT INTO written (work, at, block, writer, matters, value, said_to, empty) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 work,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
+                at,
+                block,
                 row.get::<_, String>(3)?,
                 row.get::<_, bool>(4)?,
                 value,
@@ -935,24 +936,31 @@ pub(crate) fn fill_empty(db: &Connection) -> Result<(), Fault> {
     drop(rows);
     drop(query);
     let mut query = db.prepare(
-        "SELECT w.work, w.run, w.n, w.block, w.matters, w.value, c.content FROM writes_before_18 w \
-         JOIN finished f ON f.work = w.work AND f.run = w.run \
+        "SELECT w.work, w.run, w.n, w.block, w.matters, w.value, f.at, c.content FROM writes_before_18 w \
+         LEFT JOIN finished f ON f.work = w.work AND f.run = w.run \
          LEFT JOIN contents c ON c.work = w.work AND c.block = w.block AND c.version = f.at",
     )?;
     let mut rows = query.query([])?;
     while let Some(row) = rows.next()? {
-        let work: i64 = row.get(0)?;
+        let (work, run, n, block): (i64, i64, i64, String) = (row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?);
         let value: Option<String> = row.get(5)?;
-        let content: String = row
-            .get::<_, Option<String>>(6)?
-            .ok_or_else(|| missing("a write", work))?;
+        let at: i64 = row.get::<_, Option<i64>>(6)?.ok_or_else(|| {
+            Fault::Database(format!(
+                "migration 18: the write of {block} by run {run} of work {work} has no finished run to take its place from"
+            ))
+        })?;
+        let content: String = row.get::<_, Option<String>>(7)?.ok_or_else(|| {
+            Fault::Database(format!(
+                "migration 18: the content of the version of {block} written by run {run} at {at} of work {work} is missing"
+            ))
+        })?;
         db.execute(
             "INSERT INTO writes (work, run, n, block, matters, value, empty) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 work,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
+                run,
+                n,
+                block,
                 row.get::<_, bool>(4)?,
                 value,
                 holds_nothing(value.as_deref(), &content)

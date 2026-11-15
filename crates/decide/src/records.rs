@@ -206,7 +206,7 @@ pub struct Write {
     pub meaning_unchanged: bool,
     /// The block's value, where a condition reads it: a choice such as yes or no.
     pub value: Option<String>,
-    /// Whether the version holds nothing: it has no value, and what the run handed in of it is empty, or only
+    /// Whether the version holds nothing: it has no value, and the content kept of it is empty, or only
     /// whitespace. A test of content reads it.
     #[serde(default)]
     pub empty: bool,
@@ -243,7 +243,7 @@ pub struct Written {
     pub matters: bool,
     /// The block's value, where a condition reads it.
     pub value: Option<String>,
-    /// Whether the version holds nothing: it has no value, and what was written is empty, or only whitespace. A test
+    /// Whether the version holds nothing: it has no value, and the content kept of it is empty, or only whitespace. A test
     /// of content reads it.
     #[serde(default)]
     pub empty: bool,
