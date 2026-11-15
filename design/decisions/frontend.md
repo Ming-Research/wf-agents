@@ -8,6 +8,11 @@ library.
 Why: The page needs only a few formats, and nothing an agent writes may become markup the page did not mean (principle
 agent-writing-is-data); a library was turned down for that.
 
+### decision the-page-uses-no-component-library
+The page is drawn with a small set of parts of its own (`client/src/parts.tsx`), and uses no component library.
+Why: A library's parts spend room on padding and chrome the owner does not read, and one small set of our own is
+learned once; Primer's was turned down for that.
+
 ### decision an-engines-halt-is-red
 A work the engine halted is marked in the red of a fault, and one the owner paused is not.
 Why: Red says there is a problem to look at, and a pause is something someone chose.
