@@ -1407,6 +1407,7 @@ fn heed(line: &Line, now: u64) -> String {
                 outage(o),
             );
         }
+        // How long first, as what a stall says ends as a sentence.
         Line::Fault { of, since, now: is } | Line::Stalled { of, since, now: is } => (
             of,
             format!("{}, for {}", self::now(is), duration(now.saturating_sub(*since))),
@@ -2089,6 +2090,26 @@ mod tests {
             "{said}"
         );
         assert_eq!(said.matches("Sign it in again").count(), 1, "{said}");
+    }
+
+    #[test]
+    fn wait_says_a_stalled_work_by_the_engines_sentence_after_how_long_it_stood_so() {
+        let hour = 3_600_000;
+        let stalled = item(2, false, &[], &[]);
+        let line = Line::Stalled {
+            of: web::attention::Of {
+                work: 2,
+                item: 2,
+                title: "item 2".to_string(),
+            },
+            since: hour,
+            now: stalled.work.now,
+        };
+        assert_eq!(
+            heed(&line, 2 * hour),
+            "Item 2 \"item 2\", work 2: for 1h 00m, stalled at merge. Nothing new runs `merge`, its last cell, and no \
+             cell can write what runs it."
+        );
     }
 
     #[test]
