@@ -17,7 +17,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use flow::{Compiled, Has, Source};
-use service::{Carriers, Levels, Projects, Script, Scripted, Service, SystemClock};
+use service::{Carriers, Clock, Inbox, Levels, Projects, Script, Scripted, Service, SystemClock};
 use store::Store;
 
 /// The file in the data directory whose lock says that an engine runs on it.
@@ -40,7 +40,7 @@ pub enum With {
 }
 
 /// What carries the works out, read and checked: a script or the settings, each with what is written beside the flows.
-enum Read {
+pub enum Read {
     /// The script, and what is written beside the flows, in whose words its rounds' questions are read.
     Script(Box<Script>, Box<flow::agents::Agents>),
     /// The settings, and what is written beside the flows: what the acts write and the agents' rounds are told, and
@@ -59,16 +59,26 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         eprintln!("no flow is given: the engine runs on at least one");
         return ExitCode::FAILURE;
     };
-    // The settings' file, which the page shows and the owner changes there.
-    let settings_file = match &with {
-        With::Settings(file) => Some(file.clone()),
-        With::Script(_) => None,
+    // The settings' file, which the page shows and the owner changes there; or the script's.
+    let (settings_file, script_file) = match &with {
+        With::Settings(file) => (Some(file.clone()), None),
+        With::Script(file) => (None, Some(file.clone())),
     };
     // The one project of a script's items, named before what carries the works out is read.
     let scripted = script_projects(&with);
     let Some((flows, with)) = read(data, dirs, &with) else {
         return ExitCode::FAILURE;
     };
+    // What a play of the script adds and does is checked as it is read, and a run carries none of it out.
+    if let (Read::Script(script, _), Some(file)) = (&with, &script_file)
+        && !script.items.is_empty()
+    {
+        eprintln!(
+            "{}: its items, their acts and their paths are checked, and none is carried out: a run adds no item a \
+             script names",
+            file.display()
+        );
+    }
     // Held until the process ends.
     let _held = match hold(data) {
         Ok(held) => held,
@@ -99,17 +109,6 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             Ok(address) => address,
             Err(e) => {
                 eprintln!("{address}: {e}");
-                return ExitCode::FAILURE;
-            }
-        };
-        let store = match Store::open(data.join(store::FILE)) {
-            Ok(store) => store,
-            Err(fault) => {
-                let words = service::store_fault_words(&fault);
-                eprintln!(
-                    "{}: the store cannot be opened: {words}",
-                    data.join(store::FILE).display()
-                );
                 return ExitCode::FAILURE;
             }
         };
@@ -145,7 +144,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         // The settings as the page shows them, beside those the engine runs with; a script has none.
         let mut install: Option<web::settings::Install> = None;
         let (carriers, watches): (Carriers, Vec<carry::ProjectWatch>) = match with {
-            Read::Script(script, beside) => (Scripted::new(*script, *beside).carriers(), Vec::new()),
+            Read::Script(script, beside) => (script_carriers(*script, *beside), Vec::new()),
             Read::Settings(settings, beside) => {
                 if let Some(file) = settings_file {
                     match installed(file, &settings) {
@@ -172,10 +171,10 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 }
             }
         };
-        let (service, inbox) = match Service::open(Box::new(store), flows, carriers, Arc::new(SystemClock)) {
+        let (service, inbox) = match engine(data, flows, carriers, Arc::new(SystemClock)) {
             Ok(opened) => opened,
-            Err(fault) => {
-                eprintln!("The engine cannot start: {fault}.");
+            Err(why) => {
+                eprintln!("{why}");
                 return ExitCode::FAILURE;
             }
         };
@@ -228,6 +227,29 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         }
         ExitCode::FAILURE
     })
+}
+
+/// The engine's loop opened on the store in the data directory, with these flows and carriers, on this clock: what
+/// `run` serves and `play` plays, made by one function so that a play is played on the engine a run runs; or why it
+/// cannot be opened, in words.
+pub fn engine(
+    data: &Path,
+    flows: Vec<Compiled>,
+    carriers: Carriers,
+    clock: Arc<dyn Clock>,
+) -> Result<(Service, Inbox), String> {
+    let path = data.join(store::FILE);
+    let store = Store::open(&path).map_err(|fault| {
+        let words = service::store_fault_words(&fault);
+        format!("{}: the store cannot be opened: {words}", path.display())
+    })?;
+    Service::open(Box::new(store), flows, carriers, clock).map_err(|fault| format!("The engine cannot start: {fault}."))
+}
+
+/// The carriers of an engine whose agents, acts and tools follow the script, reading what is written beside the flows
+/// as the real ones do.
+pub fn script_carriers(script: Script, beside: flow::agents::Agents) -> Carriers {
+    Scripted::new(script, beside).carriers()
 }
 
 /// The settings as the page shows them: their file, read as the engine reads it, beside those the engine runs with.
@@ -345,10 +367,18 @@ fn said(out: &backup::Outcome) {
 /// script's file is, without its extension.
 fn script_projects(with: &With) -> Projects {
     let name = match with {
-        With::Script(script) => script.file_stem().map(|stem| stem.to_string_lossy().into_owned()),
-        With::Settings(_) => None,
+        With::Script(script) => script_project(script),
+        With::Settings(_) => String::new(),
     };
-    Projects::one(&name.unwrap_or_default())
+    Projects::one(&name)
+}
+
+/// The name of the one project of the items of an engine whose agents follow the script in this file: the file's name,
+/// without its extension.
+pub fn script_project(script: &Path) -> String {
+    (script.file_stem())
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// The checkout of the project whose repository holds the directory of the flow shown, where one does.
@@ -374,7 +404,7 @@ fn script_levels() -> Levels {
 /// when the process ends however it ends, killed or failed as much as stopped; a file made to say an engine runs, and
 /// taken away when it stops, would outlive a process that was killed and keep the next one out for nothing. The file
 /// is left in the directory: its lock, not the file, says that an engine runs.
-fn hold(data: &Path) -> Result<File, String> {
+pub fn hold(data: &Path) -> Result<File, String> {
     let path = data.join(HELD);
     let file = (OpenOptions::new().create(true).truncate(false).write(true).open(&path))
         .map_err(|e| format!("{}: the data directory cannot be held: {e}", path.display()))?;
@@ -391,7 +421,7 @@ fn hold(data: &Path) -> Result<File, String> {
 /// The flows compiled and what carries the works out, checked against them; or none, having said everything wrong
 /// with them. A script is checked only against flows that all compiled, so that it is not told of a flow missing for
 /// that.
-fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Read)> {
+pub fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Read)> {
     let mut wrong = false;
     if !data.is_dir() {
         eprintln!(
@@ -569,14 +599,6 @@ fn read_script(
             for fault in words.map(|words| read.check(flows, words)).unwrap_or_default() {
                 eprintln!("{}: {fault}", script.display());
                 *wrong = true;
-            }
-            // What a play of the script adds and does is checked, and a run carries none of it out.
-            if !read.items.is_empty() {
-                println!(
-                    "{}: its items, their acts and their paths are checked, and none is carried out: a run adds no \
-                     item a script names",
-                    script.display()
-                );
             }
             Some(read)
         }

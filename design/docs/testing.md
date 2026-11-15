@@ -110,17 +110,17 @@ and the scripts that stand in for agents are built; what is not is said at the e
     that its run goes on alike whatever the date.
 
 14. **How its run is judged.** A program plays a script whose agents are all stood in for on an engine made as
-    `wf-agents run` makes it, on a clock of its own that passes as the engine waits, each act given as its state comes
-    about, and reads each work's records against the path its script states, by the reading of the records the histories
-    and the exploration judge by (4, 5) and not by the deciding code the run tests, but for what no record holds (a
-    stall, a slot, the turn, the wait every work shares, the pause of everything), which it takes from the engine's
-    view; it names the first step that left the path, with what the records hold there. A script kept beside the flows
-    whose agents are all stood in for is run by a test of the suite, so that a change of the flow it no longer fits
-    fails at that change, not when someone next runs it. A case met in a real run that no script reaches becomes a
-    script, and a fault it showed gets its test at its layer (2).
+    `wf-agents run` makes it, on a clock of its own that passes as the engine waits and starts where the script says,
+    each act given as its state comes about, and reads each work's records against the path its script states, by the
+    reading of the records the histories and the exploration judge by (4, 5) and not by the deciding code the run tests,
+    but for what no record holds (a stall, a slot, the turn, the wait every work shares, the pause of everything), which
+    it takes from the engine's view; it names the first step that left the path, with what the records hold there. The
+    program is `wf-agents play`, which plays on an empty data directory and leaves the store, which `wf-agents run` with
+    the same script serves. A script kept beside the flows whose agents are all stood in for is played by a test of the
+    suite, so that a change of the flow it no longer fits fails at that change, not when someone next runs it. A case
+    met in a real run that no script reaches becomes a script, and a fault it showed gets its test at its layer (2).
 
-15. Not built: the command that plays a script, and the suite running the scripts kept beside the flows; and agents
-    that play a part.
+15. Not built: agents that play a part.
 
 ## Every state of the page
 
@@ -129,9 +129,11 @@ and the scripts that stand in for agents are built; what is not is said at the e
     the real installation, served on a port of its own by the program of the change being judged, where every round
     follows a script.
 
-17. Only the program writes the store. A build starts the engine on an empty data directory with a script, adds the
-    items, and brings each work to its state with the engine's own commands and its interface, each act at the state it
-    waits for. A state written into the store by hand may be one no engine reaches, and the page would be judged on it.
+17. Only the program writes the store. A build plays its cases on an empty data directory: the engine adds the items and
+    brings each work to its state by the acts its commands and its interface give it, each at the state it waits for. A
+    state written into the store by hand may be one no engine reaches, and the page would be judged on it. Driving the
+    program from outside, through its commands and its interface, was turned down: an act at a round under way then
+    rested on how soon the driver saw the round, and the build took as long as its rounds.
 
 18. The states are taken from the flow's definition and the engine's own kinds, never from what was seen: under way at
     each cell; waiting, at each cell that can, for each thing it can wait for (an answer, a call's result, the engine's

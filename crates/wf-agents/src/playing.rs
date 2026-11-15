@@ -12,8 +12,12 @@
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
-use service::{Bounds, Played};
+use service::{Bounds, Clock, Played, SystemClock};
+use work::Time;
+
+use crate::running::{self, Read, With};
 
 /// When a play ends at the latest: once it has taken this many things, or once a day of its clock has passed, which
 /// passes at once while nothing is under way.
@@ -25,21 +29,100 @@ pub const BOUND: Bounds = Bounds {
 /// How many lines of items a play prints at most, those that did not take their paths first.
 pub const SHOWN: usize = 20;
 
-/// Plays nothing yet, and fails.
+/// Plays the script on the flows in these directories over the data directory, and says how each item's work went;
+/// fails where the script or the data directory is refused, the loop stopped, or any item did not take its path or an
+/// act of it was not given or was refused.
 pub fn play(data: &Path, dirs: &[PathBuf], script: &Path) -> ExitCode {
-    let _ = (dirs, BOUND, SHOWN);
-    let played = Played {
-        items: Vec::new(),
-        steps: 0,
-        fault: None,
+    // A play writes its store anew: a data directory that holds anything would hold another store, or another play's.
+    let holds = std::fs::read_dir(data).map(|mut entries| entries.next().is_some());
+    if holds.unwrap_or(false) {
+        eprintln!(
+            "{}: the data directory holds files already: a play writes its store into an empty one",
+            data.display()
+        );
+        return ExitCode::FAILURE;
+    }
+    let with = With::Script(script.to_path_buf());
+    let Some((flows, Read::Script(read, beside))) = running::read(data, dirs, &with) else {
+        return ExitCode::FAILURE;
     };
-    print!("{}", said(&played, script, data));
-    ExitCode::FAILURE
+    // Held until the play ends, as a run holds it.
+    let _held = match running::hold(data) {
+        Ok(held) => held,
+        Err(why) => {
+            eprintln!("{why}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let start = match SystemClock.now() {
+        Ok(now) => Time(now.0.saturating_sub(BOUND.ms)),
+        Err(why) => {
+            eprintln!("the clock cannot be read: {why}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .start_paused(true)
+        .build();
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("the engine cannot start: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let project = running::script_project(script);
+    let open = |clock: Arc<dyn Clock>| {
+        let carriers = running::script_carriers((*read).clone(), (*beside).clone());
+        running::engine(data, flows.clone(), carriers, clock)
+    };
+    let played = runtime.block_on(service::play(&read, &flows, &beside, &open, &project, start, BOUND));
+    match played {
+        Err(faults) => {
+            for fault in faults {
+                eprintln!("{}: {fault}", script.display());
+            }
+            ExitCode::FAILURE
+        }
+        Ok(played) => {
+            print!("{}", said(&played, script, data));
+            match played.took() {
+                true => ExitCode::SUCCESS,
+                false => ExitCode::FAILURE,
+            }
+        }
+    }
 }
 
-/// Says nothing yet.
-fn said(_played: &Played, _script: &Path, _data: &Path) -> String {
-    String::new()
+/// What came of the play, a line for each item, those that did not take their paths first, at most [`SHOWN`] of them,
+/// and what was left out with how to see it; and a line for what stopped the loop.
+fn said(played: &Played, script: &Path, data: &Path) -> String {
+    let lines: Vec<String> = played.to_string().lines().map(str::to_string).collect();
+    let (items, fault): (Vec<String>, Vec<String>) = lines.into_iter().partition(|line| line.starts_with("items["));
+    let took = |line: &String| line.contains(": took its path") && !line.contains("; its act");
+    let (mut shown, left): (Vec<String>, Vec<String>) = items.into_iter().partition(|line| !took(line));
+    shown.extend(left);
+    let mut said = String::new();
+    for line in shown.iter().take(SHOWN) {
+        said.push_str(line);
+        said.push('\n');
+    }
+    let more = shown.len().saturating_sub(SHOWN);
+    if more > 0 {
+        let untaken = (shown.iter().skip(SHOWN)).filter(|line| !took(line)).count();
+        said.push_str(&format!(
+            "And {more} more items, {untaken} of which did not take their paths: `wf-agents run --script {} --data {}` \
+             serves the store the play left, and `wf-agents list --all` lists them.\n",
+            script.display(),
+            data.display()
+        ));
+    }
+    for line in fault {
+        said.push_str(&line);
+        said.push('\n');
+    }
+    said
 }
 
 #[cfg(test)]
