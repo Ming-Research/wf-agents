@@ -17,9 +17,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use decide::{Decision, Seq, Waited};
+use decide::Seq;
 use driver::{Asked, FirstWrite, NewItem};
 use flow::Compiled;
+use flow::agents::Agents;
 use store::{ItemChange, ItemNumber, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::Time;
@@ -126,13 +127,14 @@ impl fmt::Display for Played {
     }
 }
 
-/// Plays the script on these flows over the store at this path, which holds nothing yet, its items added to the
-/// project of this name, its clock starting at `start`, within the bounds; or says what is wrong with the script for
-/// them, each in words with where it is, as its check says, and each item with no path, since a play judges what it
-/// plays. It runs on the runtime it is called on, whose time the caller pauses.
+/// Plays the script on these flows, with what is written beside them, over the store at this path, which holds nothing
+/// yet, its items added to the project of this name, its clock starting at `start`, within the bounds; or says what is
+/// wrong with the script for them, each in words with where it is, as its check says, and each item with no path, since
+/// a play judges what it plays. It runs on the runtime it is called on, whose time the caller pauses.
 pub async fn play(
     script: &Script,
     flows: &[Compiled],
+    words: &Agents,
     store: &Path,
     project: &str,
     start: Time,
@@ -155,7 +157,7 @@ pub async fn play(
     let clock = Arc::new(TokioClock::new(start));
     let open = || -> Result<(Service, Inbox), String> {
         let opened = Store::open(store).map_err(|fault| store_fault_words(&fault))?;
-        let carriers = Scripted::new(script.clone()).carriers();
+        let carriers = Scripted::new(script.clone(), words.clone()).carriers();
         let clock: Arc<dyn Clock> = clock.clone();
         Service::open(Box::new(opened), flows.to_vec(), carriers, clock).map_err(|fault| fault.to_string())
     };
@@ -405,13 +407,6 @@ impl Play<'_> {
             Does::Pause => Some(Act::Pause),
             Does::Resume => Some(Act::Resume),
             Does::Cancel => Some(Act::Cancel { why: act.why.clone() }),
-            Does::Result => match self.persons_call(work) {
-                Some(call) => Some(Act::Result {
-                    call,
-                    result: text(&act.result),
-                }),
-                None => return Ok(Err("the work waits for no person's call".to_string())),
-            },
             Does::Say => Some(Act::Say {
                 to: match &act.line {
                     Some(line) => engine::spoken::To::Line(line.clone()),
@@ -477,17 +472,5 @@ impl Play<'_> {
             }
             _ => Ok(Ok(())),
         }
-    }
-
-    /// The call of a person the work waits for, the first where it waits for more than one.
-    fn persons_call(&self, work: WorkNumber) -> Option<decide::CallId> {
-        let view = self.stepper.service().driver().view(work)?;
-        let Decision::Wait { on, .. } = view.decision else {
-            return None;
-        };
-        on.iter().find_map(|waited| match waited {
-            Waited::Call { call, on: Some(_) } => Some(*call),
-            _ => None,
-        })
     }
 }

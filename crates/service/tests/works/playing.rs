@@ -7,11 +7,11 @@ use flow::Compiled;
 use service::{Bounds, Judged, Played, Script, play};
 use store::{Storage, Store, WorkNumber};
 
-use crate::{START, trial_dir, trial_flow};
+use crate::{START, trial_dir, trial_flow, words};
 
 /// The trial's script with these items.
 fn script(items: &str) -> Script {
-    let trial = std::fs::read_to_string(trial_dir().join("script.toml")).expect("the script is read");
+    let trial = std::fs::read_to_string(trial_dir().join("scripts/trial.toml")).expect("the script is read");
     Script::read(&format!("{trial}\n{items}")).expect("the script reads")
 }
 
@@ -30,7 +30,7 @@ async fn played_on(script: &Script, flow: Compiled) -> (Result<Played, Vec<Strin
         ms: 3_600_000,
     };
     let path = dir.path().join("store.sqlite");
-    let played = play(script, &[flow], &path, "trial", START, bounds).await;
+    let played = play(script, &[flow], &words(), &path, "trial", START, bounds).await;
     (played, dir)
 }
 
@@ -128,11 +128,12 @@ fn item(acts: &str, path: &str) -> String {
 }
 
 /// The owner answers the plan's question once the plan waits for it.
-const ANSWER: &str = r#"{ at = { waits = "plan", for = "person" }, do = "result", result = "Yes, by name." }"#;
+const ANSWER: &str =
+    r#"{ at = { waits = "plan", for = "answer", question = "named" }, do = "answer", question = "named", option = 1 }"#;
 
 /// The trial's way from the plan's question to the merge, as its script has it: the build asks the CI, the review
 /// objects to the first build and is content with the second.
-const MERGED: &str = r#"{ runs = "plan" }, { waits = "plan", for = "person" }, { runs = "plan" },
+const MERGED: &str = r#"{ runs = "plan" }, { waits = "plan", for = "answer", question = "named" }, { runs = "plan" },
     { runs = "build" }, { waits = "build", for = "tool" }, { runs = "build" },
     { runs = "review" }, { runs = "build" }, { runs = "review" }, { runs = "merge" }, { ends = "merged" }"#;
 
@@ -150,7 +151,7 @@ async fn a_pause_while_the_builds_round_is_under_way_holds_the_work_until_it_is_
         r#"{ANSWER}, {{ at = {{ under_way = "build" }}, do = "pause" }},
         {{ at = {{ waits = "build", for = "tool" }}, do = "resume" }}"#
     );
-    let path = r#"{ runs = "plan" }, { waits = "plan", for = "person" }, { runs = "plan" }, { runs = "build" },
+    let path = r#"{ runs = "plan" }, { waits = "plan", for = "answer" }, { runs = "plan" }, { runs = "build" },
         { paused = "owner" }, { waits = "build", for = "tool" }, { let_on = true }, { runs = "build" },
         { runs = "review" }, { runs = "build" }, { runs = "review" }, { runs = "merge" }, { ends = "merged" }"#;
     let played = played(&script(&item(&acts, path))).await.expect("the script is played");
@@ -172,7 +173,7 @@ async fn the_engine_stopped_while_the_reviews_round_is_under_way_gives_the_round
 #[tokio::test(start_paused = true)]
 async fn a_cancel_while_a_round_is_under_way_ends_the_work() {
     let acts = format!(r#"{ANSWER}, {{ at = {{ under_way = "build" }}, do = "cancel", why = "Not needed." }}"#);
-    let path = r#"{ runs = "plan" }, { waits = "plan", for = "person" }, { runs = "plan" }, { runs = "build" },
+    let path = r#"{ runs = "plan" }, { waits = "plan", for = "answer" }, { runs = "plan" }, { runs = "build" },
         { ends = "cancelled" }"#;
     let played = played(&script(&item(&acts, path))).await.expect("the script is played");
     assert!(played.took(), "{played}");

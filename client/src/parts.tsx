@@ -101,10 +101,11 @@ export function Confirm({ title, children, verb, ready, onAnswer }: {
   );
 }
 
-/// A segmented switch between two or three choices, each a button pressed while chosen.
+/// A segmented switch between a few choices, each a button pressed while chosen, named in words or with a mark beside
+/// them.
 export function Switch<T extends string>({ label, choices, value, onChange }: {
   label: string;
-  choices: { value: T; name: string; title?: string }[];
+  choices: { value: T; name: ReactNode; title?: string }[];
   value: T;
   onChange: (value: T) => void;
 }) {

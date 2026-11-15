@@ -8,14 +8,18 @@ import '../styles/tokens.css';
 import '../styles/parts.css';
 import '../styles/chart.css';
 import '../styles/works.css';
+import { startAccent } from '../accent';
 import { useTheme } from '../theme';
 import { ConsolePage } from './index';
 
-/// The console with the theme kept in this browser, which the bar's switch would set.
+/// The console with the theme and the accent kept in this browser, which the bar's switch and the Settings view would
+/// set.
 function Alone() {
   useTheme();
   return <ConsolePage />;
 }
+
+startAccent();
 
 const root = document.getElementById('root');
 if (root) {

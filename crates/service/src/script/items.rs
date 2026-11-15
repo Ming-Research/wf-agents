@@ -11,11 +11,13 @@
 //! # What people write for it as it is added.
 //! writes = [{ block = "request", content = "Greet the user, please." }]
 //! # What people and the outside do, each once the work stands at its state, in order.
-//! acts = [{ at = { waits = "plan", for = "person" }, do = "result", result = "Yes, by name." }]
+//! acts = [
+//!     { at = { waits = "plan", for = "answer", question = "named" }, do = "answer", question = "named", option = 1 },
+//! ]
 //! # The steps its work takes, in order; the last is its end, where the work stands as the play ends.
 //! path = [
 //!     { runs = "plan" },
-//!     { waits = "plan", for = "person" },
+//!     { waits = "plan", for = "answer", question = "named" },
 //!     { runs = "plan" },
 //!     { runs = "build" },
 //!     { waits = "build", for = "tool" },
@@ -43,17 +45,16 @@
 //!   given, each counted from one.
 //! - `sent_back`: what a round of the cell returned is sent back.
 //! - `fails`: a round of the cell fails, of the kind of cause `failure` names, as a round entry names it.
-//! - `waits`: the work waits at the cell, `for` what: `tool`, a tool's result; `person`, a person's result to a call,
-//!   `who` being the owner unless it says the architect; `retry`, the engine's wait before a round that failed in
-//!   passing is tried again; `answer`, the owner's answer to a question, the one named `question` where it names one;
-//!   `outside`, a new version of a block a source outside the work writes, where only cells write what keeps a key of
-//!   the cell's preconditions from holding and the latest run of each said that what it wrote waits for that version
-//!   (decision what-a-run-wrote-may-wait-for-the-outside), the block it wrote being `block` where it names one;
-//!   `limit`, the owner's word on the cell at its limit of a sender, the cell after it named `by`, or, where it names
-//!   none, the engine, which sent the cell's returns back; `precondition`, a key of the cell's preconditions that does
-//!   not hold, the one named `key` (a named test, or the block a key reads) where it names one; `result`, the result of
-//!   what the cell asked for in a record; `slot`, a free slot; `turn`, the turn to check and merge, which another work
-//!   holds; `shared`, the wait every work shares.
+//! - `waits`: the work waits at the cell, `for` what: `tool`, a tool's result; `retry`, the engine's wait before a
+//!   round that failed in passing is tried again; `answer`, the owner's answer to a question, the one named `question`
+//!   where it names one; `outside`, a new version of a block a source outside the work writes, where only cells write
+//!   what keeps a key of the cell's preconditions from holding and the latest run of each said that what it wrote waits
+//!   for that version (decision what-a-run-wrote-may-wait-for-the-outside), the block it wrote being `block` where it
+//!   names one; `limit`, the owner's word on the cell at its limit of a sender, the cell after it named `by`, or, where
+//!   it names none, the engine, which sent the cell's returns back; `precondition`, a key of the cell's preconditions
+//!   that does not hold, the one named `key` (a named test, or the block a key reads) where it names one; `result`, the
+//!   result of what the cell asked for in a record; `slot`, a free slot; `turn`, the turn to check and merge, which
+//!   another work holds; `shared`, the wait every work shares.
 //! - `paused`: the work is paused, by the `owner` or the `engine`.
 //! - `let_on = true`: the owner lets the work on.
 //! - `let_go`: the owner lets the cell go on at its limit.
@@ -63,35 +64,35 @@
 //! - `everything`: the pause of everything holds, set by the `owner` or the `engine`.
 //!
 //! A key that says more of a step, left out, matches whatever it would have said, but for a limit's `by`, which names
-//! the engine where it is left out, and a person's `who`, which names the owner. What a work stands at now, and no step
+//! the engine where it is left out. What a work stands at now, and no step
 //! before it, is a path's end only: a round under way, and what no record holds, which is read from the engine's view
 //! of the work: a stall, a wait for a slot, for the turn or for what every work shares, and the pause of everything.
 //! The result of what a cell asked for in a record is no step of a path: the runs of the cells that give it are.
 //!
 //! An act's `at` is a state of the work as the engine shows it, in the same words: a round under way, a wait at a cell
 //! (but for the turn and what every work shares), paused, stalled or ended. Its `do` is one of what people do to a
-//! work: `write` the `block` with `content` and a `value` where it is a choice; `let_go` the `cell`; `pause`; `resume`;
-//! `cancel`, for a reason `why` where one is given, which is the change of the item whoever plans the work makes too,
-//! refused while an item that depends on it has not ended; `result`, giving the person's call the work waits for its
-//! `result`; `say` the `words` to a `line`, or about a `question`; `answer` the `question`, taking the `option` counted
-//! from one, for a reason `why` where one is given; and `new_session` of a `line`. Or one of what whoever plans the
-//! work does to its item, for a reason `why`: give it a `title`; make it depend on the `item` of a place among the
-//! items (`depends_on`) or no longer (`no_longer_depends_on`); `tag` or `untag` it with a `tag`; `reopen` it. Or one of
-//! what is done to the engine as a whole: `pause_everything`; `resume_everything`; `restart`, stopping the engine and
-//! opening it again on its store; and `main`, main moving to a head that says `content`, which the engine writes into
-//! every going work of the project whose flow has its block, and which a play gives once every item with a `main` act
-//! still to give stands at its next one, so that the one write is each work's own. The head is no act, nor the tree:
-//! they are written by the round that reads the work's branch, as the real carrier writes them.
+//! work: `write` the `block` with `content` and a `value` where it is a choice; `let_go` the `cell` at its limit, which
+//! is the owner's word on the engine's call at a run's limit too; `pause`; `resume`; `cancel`, for a reason `why` where
+//! one is given, which is the change of the item whoever plans the work makes too, refused while an item that depends
+//! on it has not ended; `say` the `words` to a `line`, or about a `question`; `answer` the `question`, taking the
+//! `option` counted from one, for a reason `why` where one is given; and `new_session` of a `line`. Or one of what
+//! whoever plans the work does to its item, for a reason `why`: give it a `title`; make it depend on the `item` of a
+//! place among the items (`depends_on`) or no longer (`no_longer_depends_on`); `tag` or `untag` it with a `tag`;
+//! `reopen` it. Or one of what is done to the engine as a whole: `pause_everything`; `resume_everything`; `restart`,
+//! stopping the engine and opening it again on its store; and `main`, main moving to a head that says `content`, which
+//! the engine writes into every going work of the project whose flow has its block, and which a play gives once every
+//! item with a `main` act still to give stands at its next one, so that the one write is each work's own. The head is
+//! no act, nor the tree: they are written by the round that reads the work's branch, as the real carrier writes them.
 
 use std::collections::BTreeMap;
 use std::fmt;
 
 use decide::run::Failure;
-use decide::{BlockId, CellId, Condition, End, Pauser, Who};
+use decide::{BlockId, CellId, Condition, End, Pauser};
 use flow::{Compiled, Kind};
 use serde::{Deserialize, Serialize};
 
-use super::{Person, Script};
+use super::{QuestionScript, Script};
 
 /// The one level of the items of an engine whose agents follow a script, which run on no model: a play adds every
 /// item at it, and a script's engine has no other.
@@ -146,7 +147,6 @@ pub struct StepScript {
     pub waits: Option<String>,
     #[serde(rename = "for")]
     pub on: Option<Waiting>,
-    pub who: Option<Person>,
     pub question: Option<String>,
     pub block: Option<String>,
     pub by: Option<String>,
@@ -165,7 +165,6 @@ pub struct StepScript {
 #[serde(rename_all = "snake_case")]
 pub enum Waiting {
     Tool,
-    Person,
     Retry,
     Answer,
     Outside,
@@ -205,7 +204,6 @@ pub struct ActScript {
     pub value: Option<String>,
     pub cell: Option<String>,
     pub why: Option<String>,
-    pub result: Option<String>,
     pub line: Option<String>,
     pub question: Option<String>,
     pub words: Option<String>,
@@ -224,7 +222,6 @@ pub enum Does {
     Pause,
     Resume,
     Cancel,
-    Result,
     Say,
     Answer,
     NewSession,
@@ -274,7 +271,6 @@ pub enum Step {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Wait {
     Tool,
-    Person(Who),
     Retry,
     Answer(Option<String>),
     Outside(Option<BlockId>),
@@ -390,8 +386,6 @@ impl fmt::Display for Step {
                 write!(f, "{{ waits = \"{cell}\", for = ")?;
                 match on {
                     Wait::Tool => f.write_str("\"tool\"")?,
-                    Wait::Person(Who::Owner) => f.write_str("\"person\"")?,
-                    Wait::Person(Who::Architect) => f.write_str("\"person\", who = \"architect\"")?,
                     Wait::Retry => f.write_str("\"retry\"")?,
                     Wait::Answer(None) => f.write_str("\"answer\"")?,
                     Wait::Answer(Some(question)) => write!(f, "\"answer\", question = \"{question}\"")?,
@@ -441,7 +435,6 @@ impl StepScript {
             ("failure", self.failure.is_some()),
             ("waits", self.waits.is_some()),
             ("for", self.on.is_some()),
-            ("who", self.who.is_some()),
             ("question", self.question.is_some()),
             ("block", self.block.is_some()),
             ("by", self.by.is_some()),
@@ -488,7 +481,6 @@ impl StepScript {
         let more: &[&str] = match (said, self.on) {
             ("under_way", _) => &["run", "round"],
             ("fails", _) => &["failure"],
-            ("waits", Some(Waiting::Person)) => &["for", "who"],
             ("waits", Some(Waiting::Answer)) => &["for", "question"],
             ("waits", Some(Waiting::Outside)) => &["for", "block"],
             ("waits", Some(Waiting::Limit)) => &["for", "by"],
@@ -529,10 +521,6 @@ impl StepScript {
                 };
                 let on = match on {
                     Waiting::Tool => Wait::Tool,
-                    Waiting::Person => Wait::Person(match self.who {
-                        Some(Person::Architect) => Who::Architect,
-                        _ => Who::Owner,
-                    }),
                     Waiting::Retry => Wait::Retry,
                     Waiting::Answer => Wait::Answer(self.question.clone()),
                     Waiting::Outside => Wait::Outside(self.block.as_deref().map(BlockId::from)),
@@ -572,7 +560,6 @@ impl ActScript {
             ("value", self.value.is_some()),
             ("cell", self.cell.is_some()),
             ("why", self.why.is_some()),
-            ("result", self.result.is_some()),
             ("line", self.line.is_some()),
             ("question", self.question.is_some()),
             ("words", self.words.is_some()),
@@ -595,7 +582,6 @@ impl Does {
             Does::Write => (&["block", "content"], &["value"]),
             Does::LetGo => (&["cell"], &[]),
             Does::Cancel => (&[], &["why"]),
-            Does::Result => (&["result"], &[]),
             Does::Say => (&["words"], &["line", "question"]),
             Does::Answer => (&["question", "option"], &["why"]),
             Does::NewSession => (&["line"], &[]),
@@ -639,7 +625,7 @@ pub(super) fn check(script: &Script, flows: &[Compiled]) -> Vec<String> {
             faults.push(format!("{at}.flow: no flow is named {}", item.flow));
             continue;
         };
-        let names = Names { flow };
+        let names = Names { flow, script };
         for (j, write) in item.writes.iter().enumerate() {
             let written = names.written(&write.block, write.value.as_deref());
             faults.extend(written.into_iter().map(|fault| format!("{at}.writes[{j}]: {fault}")));
@@ -719,9 +705,10 @@ pub(super) fn check(script: &Script, flows: &[Compiled]) -> Vec<String> {
     faults
 }
 
-/// What the names a script's item gives are checked against: its flow.
+/// What the names a script's item gives are checked against: its flow, and the script's rounds on it.
 struct Names<'a> {
     flow: &'a Compiled,
+    script: &'a Script,
 }
 
 impl Names<'_> {
@@ -757,10 +744,17 @@ impl Names<'_> {
         faults
     }
 
-    /// What is wrong with a question's name: none where a round of the script asks it. No round of a script asks the
-    /// owner a question of the record of questions: what one asks a person is a call, which an act gives its result.
-    fn question(question: &str) -> Option<String> {
-        Some(format!("no round of the script asks a question named {question}"))
+    /// What is wrong with a question's name: none where a round of the script on this flow asks it, or asks the
+    /// engine's own question, which the words beside the flows name and the check does not read.
+    fn question(&self, question: &str) -> Option<String> {
+        let rounds = (self.script.flows.get(&self.flow.name)).map_or(&[][..], |script| script.rounds.as_slice());
+        let named = |asked: &QuestionScript| match asked {
+            QuestionScript::Asked(asked) => asked.name == question,
+            QuestionScript::Withdrawn(withdrawn) => withdrawn.name == question,
+        };
+        let asked = (rounds.iter()).any(|round| round.questions.iter().flatten().any(named));
+        let engine = rounds.iter().any(|round| round.engine.is_some());
+        (!asked && !engine).then(|| format!("no round of the script asks a question named {question}"))
     }
 
     /// Everything wrong with what the step names.
@@ -800,7 +794,7 @@ impl Names<'_> {
             Wait::Result if self.flow.flow.cells()[i].asks.is_empty() => {
                 faults.push(format!("{cell} asks for nothing in a record"));
             }
-            Wait::Answer(Some(question)) => faults.extend(Self::question(question)),
+            Wait::Answer(Some(question)) => faults.extend(self.question(question)),
             Wait::Turn if spec.is_some_and(|spec| spec.kind == Kind::Agent) => {
                 faults.push(format!(
                     "{cell} is no act of the engine, which alone waits for the turn"
@@ -827,9 +821,9 @@ impl Names<'_> {
                 if let Some(line) = act.line.as_deref().filter(|line| !lines(line)) {
                     faults.push(format!("the flow {} has no line {line}", self.flow.name));
                 }
-                faults.extend(act.question.as_deref().and_then(Self::question));
+                faults.extend(act.question.as_deref().and_then(|question| self.question(question)));
             }
-            Does::Answer => faults.extend(act.question.as_deref().and_then(Self::question)),
+            Does::Answer => faults.extend(act.question.as_deref().and_then(|question| self.question(question))),
             Does::DependsOn | Does::NoLongerDependsOn => {
                 if let Some(item) = act.item.filter(|item| *item == 0 || *item > items || *item == k + 1) {
                     faults.push(format!(

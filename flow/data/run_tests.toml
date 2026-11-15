@@ -5,10 +5,11 @@
 # project's tests, and `[shape]` is what the form of its line holds it to.
 what = "The tests and checks each cell asked to have run, an entry for each time it asked."
 words = '''
-`run_tests`: {runs_on} Write `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says and checks
-among {named_checks}; {named_run} The work waits at this cell, and you are entered again with the result: {result_gives}'''
+`run_tests`: {runs_on} Write `{"tests": [...], "checks": [...], "commit": "..."}`, naming tests as `project.test_names`
+says and checks among {named_checks}; {named_run} `commit`, a full commit hash of the work's branch, is run in place of
+the last commit or worktree. The work waits at this cell, and you are entered again with the result: {result_gives}'''
 
 [shape]
 type = "object"
-properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } } }
+properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } }, commit = { type = "string" } }
 additionalProperties = false

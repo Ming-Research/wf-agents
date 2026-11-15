@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use serde_json::{Value, json};
 use store::Store;
 
-use crate::{START, get_json, greeted, pass, post, refused, running_scripted, trial_script};
+use crate::{START, get_json, greeted, named, pass, post, refused, running_scripted, trial_script};
 
 const DAY: u64 = 24 * 60 * 60 * 1000;
 
@@ -14,7 +14,8 @@ async fn merged() -> crate::Running {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut script = trial_script();
-    script.flows.get_mut("trial").unwrap().rounds[0].asks = None;
+    let plan = &mut script.flows.get_mut("trial").unwrap().rounds[0];
+    (plan.hands_in, plan.questions) = (None, None);
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     let item = json!({
@@ -128,15 +129,14 @@ async fn a_round_that_failed_is_given_with_its_cause() {
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
     failing.run = 2;
-    failing.asks = None;
+    (failing.hands_in, failing.questions) = (None, None);
     failing.fails = Some(WHY.to_string());
     plan.rounds.push(failing);
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
-        post(router, "/api/v1/works/1/acts", &answer).await.0,
+        post(router, "/api/v1/works/1/acts", &named()).await.0,
         StatusCode::NO_CONTENT
     );
     pass(2000).await;
@@ -245,7 +245,7 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let flow = flow::compile(
-        &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+        &flow::read(&crate::trial_dir().join("trial")).unwrap(),
         &crate::trial_has(&flow::Source::default()),
     )
     .unwrap();

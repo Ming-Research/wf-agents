@@ -18,6 +18,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 
+import { pickAccent, PRESETS, tones, VIOLET } from '../accent';
+import { apart, lchOf } from '../colour';
 import { fixtureSource } from './fixtures';
 import { ConsolePage } from './index';
 import type { Shown } from './items';
@@ -350,6 +352,40 @@ describe('the tree in columns', () => {
     expect(themed()).toMatchObject({ page: '#f6f7f9', card: '#ffffff', ink: '#1f2937', running: '#8b5cf6', halted: '#e5484d' });
     document.documentElement.setAttribute('data-theme', 'dark');
     expect(themed()).toMatchObject({ page: '#17191e', card: '#1f2127', ink: '#c8ccd4', running: '#a78bfa' });
+  });
+
+  it('turns every purple of its own to an accent picked, its hue turned as the accent is, and keeps its other colours, in light and in dark', () => {
+    const blue = PRESETS[0].colour;
+    const turn = lchOf(blue).h - lchOf(VIOLET).h;
+    const t = tones(blue);
+    /// The scene's colours of the violet's hue: what an accent picked is to turn.
+    const purples = (colours: ReturnType<typeof themed>) =>
+      Object.entries(colours).filter(
+        (e): e is [string, string] =>
+          typeof e[1] === 'string' && lchOf(e[1]).c > 0.04 && apart(lchOf(e[1]).h, lchOf(VIOLET).h) < 30,
+      );
+    try {
+      for (const theme of ['light', 'dark']) {
+        document.documentElement.setAttribute('data-theme', theme);
+        pickAccent(null);
+        const before = themed();
+        expect(purples(before).length).toBeGreaterThan(8);
+        expect(pickAccent(blue)).toBeNull();
+        const after = themed();
+        for (const [key, colour] of purples(before)) {
+          const now = after[key as keyof typeof after] as string;
+          expect(now, key).not.toBe(colour);
+          // In light each is turned as a tone of the accent is; in dark some are mixed with the card, a little off.
+          expect(apart(lchOf(now).h, lchOf(colour).h + turn), key).toBeLessThan(theme === 'light' ? 4 : 10);
+        }
+        const others = Object.keys(before).filter((k) => !purples(before).some(([p]) => p === k));
+        expect(others.map((k) => after[k as keyof typeof after])).toEqual(others.map((k) => before[k as keyof typeof before]));
+        const accent = theme === 'light' ? t.light.accent : t.dark.accent;
+        expect(after).toMatchObject({ chosen: accent, running: accent, model: accent });
+      }
+    } finally {
+      pickAccent(null);
+    }
   });
 });
 

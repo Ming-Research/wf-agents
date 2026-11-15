@@ -11,6 +11,7 @@ pub(super) fn named(tests: &[&str], checks: &[&str]) -> Named {
     Named {
         tests: all(tests),
         checks: all(checks),
+        commit: None,
     }
 }
 
@@ -239,11 +240,11 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
     let a = said.find("- tools::tests::a: passed in 0.12 s").expect("a");
     assert!(b < a, "{said}");
     assert!(said.contains("assertion failed: said.is_empty()"), "{said}");
-    // What did not pass and the jobs come before what passed, which a result cut short loses first.
+    // The jobs come before what did not pass, and that before what passed, which a result cut short loses first.
     let jobs = "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 \
                 s https://github.example/checks/test";
     let at = said.find(jobs).expect("the jobs");
-    assert!(b < at && at < a, "{said}");
+    assert!(at < b && b < a, "{said}");
     assert!(
         said.ends_with("The tests that passed:\n- tools::tests::a: passed in 0.12 s"),
         "{said}"
@@ -255,6 +256,38 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
             branch: "main".to_string(),
             inputs: full_inputs(&head),
         }]
+    );
+}
+
+// Each job, a line, comes before every test and what a failed one said, however long: a result cut at the bound a round
+// is given keeps every job, how it ended and its time, and what the cut takes away is tests. Well under a second
+// alone, a bare repository for GitHub; no other test holds the jobs to the bound.
+#[tokio::test]
+async fn every_job_comes_before_what_the_tests_said_and_stays_within_the_bound_a_round_is_given() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let bound = crate::acts::words().run_tests.given.bound;
+    let long = "x".repeat(bound + 1000);
+    let xml = format!(
+        r#"<testsuites><testsuite name="carry"><testcase name="tools::tests::a" time="0.12"/><testcase name="tools::tests::b" time="0.3"><failure message="assertion failed">{long}</failure></testcase></testsuite></testsuites>"#
+    );
+    let lint = Check {
+        took: Some(192),
+        ..passed("lint")
+    };
+    let jobs = vec![lint, job("test", Outcome::Failed("failure".into()), 5)];
+    let results = vec![("test.xml".to_string(), xml.into_bytes())];
+    hub.github().fast(&head, jobs, Some(("test-results", results)));
+    let said = hub.named_check(&Named::default()).await.unwrap().expect("run");
+    assert!(said.len() > bound, "the result is longer than a round is given");
+    let jobs = "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 \
+                s https://github.example/checks/test";
+    let at = said.find(jobs).expect("the jobs");
+    assert!(at + jobs.len() <= bound, "the jobs end at byte {}", at + jobs.len());
+    assert!(
+        at < said.find("- tools::tests::b: failed").expect("b"),
+        "{}",
+        &said[..at]
     );
 }
 
@@ -523,4 +556,119 @@ fn a_time_is_read_in_seconds_minutes_hours_or_days() {
     for wrong in ["", "h", "2", "2 weeks", "-1h"] {
         assert!(span_of(wrong).is_err(), "{wrong:?}");
     }
+}
+
+/// The commit each run by hand was asked for on.
+fn dispatched_on(hub: &Hub) -> Vec<String> {
+    (hub.dispatched().into_iter())
+        .filter_map(|asked| match asked {
+            Asked::Dispatch { inputs, .. } => inputs.into_iter().find(|(name, _)| name == "commit").map(|(_, c)| c),
+            _ => None,
+        })
+        .collect()
+}
+
+// An entry that names a commit of the branch runs that commit, whatever the worktree holds, and opens no pull request:
+// a run on a commit needs none, and GitHub opens none for a branch with nothing of its own, as a work's in research.
+// One that names none is held to the worktree as before. Under a second alone, a bare repository for GitHub; no other
+// test holds a named commit to its run on GitHub.
+#[tokio::test]
+async fn a_commit_named_is_run_whatever_the_worktree_holds_and_opens_no_pull_request() {
+    let hub = Hub::new();
+    let place = hub.place();
+    crate::acts::start(&hub.repo.project, &hub.host, &branch(&place), &Mutex::new(()))
+        .await
+        .expect("the work starts");
+    // The branch holds nothing of its own, and the worktree has a change not committed.
+    let main = run(&place.dir, &["rev-parse", "HEAD"]);
+    std::fs::write(place.dir.join("draft.txt"), "Not committed.\n").unwrap();
+    let refused = hub.named_check(&named(&["a"], &[])).await.unwrap().expect("said");
+    assert!(refused.contains("not committed"), "{refused}");
+    assert_eq!(dispatched_on(&hub), Vec::<String>::new(), "nothing is run");
+    hub.github()
+        .fast(&main, vec![passed("test")], Some(("test-results", junit_green())));
+    let mut asked = named(&["a"], &[]);
+    asked.commit = Some(main.clone());
+    let said = hub.named_check(&asked).await.unwrap().expect("run");
+    assert!(
+        said.starts_with(&format!("The fast workflow ran on the commit {main} (")),
+        "{said}"
+    );
+    assert_eq!(dispatched_on(&hub), [main], "the commit named is run");
+    assert_eq!(hub.opened(), 0, "no pull request is opened");
+}
+
+// A newer entry of a cell has the runs of the one it replaced cancelled on the commit that one named, though that
+// commit is none of the branch's own since main, as the point the branch left main is. Well under a second alone, a
+// bare repository for GitHub; no other test holds a cancel to the commit an entry named.
+#[tokio::test]
+async fn the_runs_of_a_replaced_entry_are_cancelled_on_the_commit_it_named() {
+    let hub = Hub::new();
+    let fork = run(&hub.repo.project.repo, &["rev-parse", "main"]);
+    hub.committed().await;
+    hub.github().runs_go_on();
+    let replaced = Asking::Entry(decide::Seq(1));
+    let request = super::super::fast::Request {
+        work: WORK,
+        commit: &fork,
+        asking: replaced,
+    };
+    let call = hub.host.call(request, "fast.yml");
+    let inputs = [("commit".to_string(), fork.clone()), ("call".to_string(), call)];
+    super::super::api::Api::dispatch(hub.github(), "fast.yml", "main", &inputs)
+        .await
+        .unwrap();
+    let place = hub.place();
+    hub.host
+        .cancel_tests(&branch(&place), &[(replaced, Some(fork.clone()))])
+        .await
+        .expect("cancelled");
+    assert!(
+        hub.github().asked().contains(&Asked::Cancel(1000)),
+        "the run on the commit named is cancelled: {:?}",
+        hub.github().asked()
+    );
+}
+
+// The runs of several replaced entries, each named or not, are found in one list of each workflow's runs, and a run
+// whose cancel GitHub refuses leaves the others cancelled all the same, the refusal said. Well under a second alone, a
+// bare repository for GitHub; no other test holds a cancel to more than one entry.
+#[tokio::test]
+async fn the_runs_of_several_replaced_entries_are_listed_once_and_each_cancelled_whatever_one_refuses() {
+    let hub = Hub::new();
+    let fork = run(&hub.repo.project.repo, &["rev-parse", "main"]);
+    let head = hub.committed().await;
+    hub.github().runs_go_on();
+    let replaced = [
+        (Asking::Entry(decide::Seq(1)), Some(fork.clone())),
+        (Asking::Entry(decide::Seq(2)), Some(head.clone())),
+        (Asking::Entry(decide::Seq(3)), None),
+    ];
+    for (asking, on) in &replaced {
+        let commit = on.as_deref().unwrap_or(&head);
+        let request = super::super::fast::Request {
+            work: WORK,
+            commit,
+            asking: *asking,
+        };
+        let call = hub.host.call(request, "fast.yml");
+        let inputs = [("commit".to_string(), commit.to_string()), ("call".to_string(), call)];
+        super::super::api::Api::dispatch(hub.github(), "fast.yml", "main", &inputs)
+            .await
+            .unwrap();
+    }
+    hub.github()
+        .refuse_cancel(1000, "HTTP 409: Cannot cancel a workflow run that is completed");
+    let place = hub.place();
+    let refused = hub
+        .host
+        .cancel_tests(&branch(&place), &replaced)
+        .await
+        .expect_err("one cancel was refused");
+    assert!(refused.why.contains("HTTP 409: Cannot cancel"), "{refused:?}");
+    let asked = hub.github().asked();
+    for run in [1000, 1001, 1002] {
+        assert!(asked.contains(&Asked::Cancel(run)), "{run}: {asked:?}");
+    }
+    assert_eq!(hub.github().listed(), 2, "one list of each workflow's runs");
 }

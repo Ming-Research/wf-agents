@@ -1,7 +1,7 @@
 //! The loop with the real carriers, in a git repository made for each test, with a fake of the `claude` command line:
 //! a shell script that keeps what it was given and prints a return, in the form it is given, that deals with what its
 //! message says ran it and writes the outputs of the cell its message names. The flows are the trial flow
-//! (`crates/service/tests/trial/flow`), whose agents ask and judge, `flow` here, which has the acts of an engineer's
+//! (`crates/flow/tests/laid_out/trial`), whose agents ask and judge, `flow` here, which has the acts of an engineer's
 //! work, and the deliver flow as the repository defines it (`flow/deliver`), whose one cell is the act that delivers a
 //! deliverable item; the build of each may ask for the tool `query`, which the tests answer themselves, and may ask the
 //! owner a question it waits for. What is written beside the flows is this repository's (`flow/`).
@@ -70,6 +70,9 @@ pub struct Fake {
     pub quiet_after_answer: bool,
     /// Whether the build, the first time it runs, asks for the tests in `run_tests`, all of them, dealing with nothing.
     pub asks_tests: bool,
+    /// Whether the build, in its first run, commits twice and asks for the tests on the first of the two commits, and,
+    /// in the run their result runs, asks for them on its head, each time dealing with nothing.
+    pub asks_named_tests: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
@@ -119,6 +122,7 @@ impl Default for Fake {
             question_first: false,
             quiet_after_answer: false,
             asks_tests: false,
+            asks_named_tests: false,
             plan_sleeps: 0,
             context: None,
             compacts: false,
@@ -199,6 +203,9 @@ pub enum On {
     /// The flow here, its build asking for tests in `run_tests`, which a cell of the act that runs them gives the
     /// result of, before the check.
     Tested,
+    /// The flow of `Tested`, with a review on a line of its own after the tests, given every result of them, which it
+    /// did not ask for.
+    Reviewed,
     /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
     Deliver,
     /// The trial flow with a plan that loads the engineer's session (`loading` here).
@@ -301,8 +308,8 @@ pub fn beside() -> flow::agents::Agents {
 /// The flow, compiled with what the real carriers have, its build, where it has one, asking for `query`.
 fn compiled(on: On) -> Compiled {
     let dir = match on {
-        On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
-        On::Acts | On::Tested => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
+        On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out/trial"),
+        On::Acts | On::Tested | On::Reviewed => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
         On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
@@ -316,11 +323,12 @@ fn compiled(on: On) -> Compiled {
             carry::head::HEAD
         ));
     }
-    if let Some(build) = source.cells.get_mut("build") {
+    // The build may ask for `query`, as the trial flow's names it already.
+    if let Some(build) = (source.cells.get_mut("build")).filter(|build| !build.contains("tools = ")) {
         *build = format!("tools = [\"query\"]\n{build}");
     }
     // The build asks for tests in a record, which runs the cell of the act that runs them, whose result runs the build.
-    if matches!(on, On::Tested) {
+    if matches!(on, On::Tested | On::Reviewed) {
         let build = source.cells.get_mut("build").expect("the flow has a build");
         *build = (build.replace(
             "inputs = [\"request\", \"place\", \"failures\"]",
@@ -340,19 +348,59 @@ fn compiled(on: On) -> Compiled {
             .flow
             .push_str("\n[blocks.run_tests]\n\n[blocks.run_tests.shape]\ntype = \"object\"\n\n[blocks.build_tested]\n");
     }
-    // A build the owner's answer runs may ask the owner: the record of the work's questions, which the engine's source
-    // of answers writes, is among its outputs, and the owner's words run it as well, as they run every cell that may ask.
+    // The review is given every result of the tests the build asked for, each as the version of the build's block it
+    // came in.
+    if matches!(on, On::Reviewed) {
+        let review = "title = \"Review\"\nkind = \"agent\"\neffort = \"high\"\nline = \"reviewer\"\n\
+                      task = \"Review the code by the results of its tests.\"\nruns_on = [\"code\"]\n\
+                      given = [\"code\", \"build_tested\"]\noutputs = [\"verdict\"]\n\n[give.code]\nkind = \"latest\"\n\n\
+                      [give.build_tested]\nkind = \"all\"\n";
+        source.cells.insert("review".to_string(), review.to_string());
+        source.flow = (source
+            .flow
+            .replace("\"tests\", \"check\"", "\"tests\", \"review\", \"check\""))
+        .replace(
+            "[lines.engineer]\n",
+            "[lines.engineer]\n\n[lines.reviewer]\nreads_only = true\n",
+        );
+        // The owner's page shows the verdict, which no cell reads.
+        source
+            .flow
+            .push_str("\n[blocks.verdict]\nvalues = [\"yes\", \"no\"]\nshown = true\n");
+    }
+    // A build may ask the owner: the record of the work's questions, which the engine's source of answers writes, is
+    // among its outputs, and the owner's answer and words run it, as they run every cell that may ask: by blocks of its
+    // own, but for the answer of a build that `answered` runs already. The record is declared where the flow does not
+    // declare it already.
     if let Some(build) = source
         .cells
         .get_mut("build")
-        .filter(|build| build.contains("\"answered\"]"))
+        .filter(|build| build.contains("outputs = [\"code\"]"))
     {
-        *build = (build.replace("\"answered\"]", "\"answered\", \"build_spoken_to\"]"))
-            .replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
-        source.flow.push_str(
-            "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n\n\
-             [blocks.build_spoken_to]\noutside = \"words\"\n",
-        );
+        let answered = build.contains("\"answered\"");
+        let inputs = (build.lines().find(|line| line.starts_with("inputs = ["))).map(str::to_string);
+        let inputs = inputs.expect("the build names its inputs");
+        let its_own = if answered {
+            ", \"build_spoken_to\"]"
+        } else {
+            ", \"build_answered\", \"build_spoken_to\"]"
+        };
+        let more = inputs.replacen(']', its_own, 1);
+        *build = (build.replace(&inputs, &more)).replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
+        if !source.flow.contains("[blocks.q_and_a]") {
+            source.flow.push_str(
+                "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n",
+            );
+        }
+        if !answered {
+            source.flow.push_str(
+                "\n[blocks.build_answered]\noutside = \"answer\"\n\n[blocks.build_answered.writes]\n\
+                 text = \"The owner answered {question} with option {option}, {does}.{why}\"\nwhy = \" {why}\"\n",
+            );
+        }
+        source
+            .flow
+            .push_str("\n[blocks.build_spoken_to]\noutside = \"words\"\n");
     }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
@@ -463,8 +511,22 @@ case "$first" in
         checked=no
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
         answered=no
-        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `answered`' && answered=yes
-        if [ '{tests}' = yes ] && [ ! -f "$log/tested" ]; then
+        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -qE '^- `(build_)?answered`' && answered=yes
+        if [ '{named}' = yes ] && [ ! -f "$log/named-own" ]; then
+            # It commits twice and asks for the tests on the first of the two commits, leaving all that ran it for after
+            # their result.
+            touch "$log/named-own"
+            built
+            own=$(git rev-parse HEAD)
+            built
+            dealt=''
+            out="\"run_tests\":{{\"tests\":[],\"checks\":[],\"commit\":\"$own\"}}"
+        elif [ '{named}' = yes ] && [ ! -f "$log/named-head" ]; then
+            # Then on its head, leaving all that ran it for after their result again.
+            touch "$log/named-head"
+            dealt=''
+            out="\"run_tests\":{{\"tests\":[],\"checks\":[],\"commit\":\"$(git rev-parse HEAD)\"}}"
+        elif [ '{tests}' = yes ] && [ ! -f "$log/tested" ]; then
             # It asks for the tests, and leaves all that ran it for after their result.
             touch "$log/tested"
             dealt=''
@@ -543,6 +605,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         question = yes(fake.question_first),
         quiet = yes(fake.quiet_after_answer),
         tests = yes(fake.asks_tests),
+        named = yes(fake.asks_named_tests),
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
         compacts = yes(fake.compacts),

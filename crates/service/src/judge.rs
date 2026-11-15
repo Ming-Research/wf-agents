@@ -5,18 +5,18 @@
 //!
 //! The records hold, in the order of their places, each step of a path but a few waits: a run of a cell started; a
 //! round that failed, with its kind; a return sent back, which the run's next round is given; a call a run rests at,
-//! for a tool, a person, the engine's wait before a round is tried again, or the owner's word on the engine's own call
-//! at a run's limit; a question that waits for the owner's answer; the work paused and let on, by whom; a cell let go
-//! at its limit; a cancel, a reopen, and the merge's finished run. A wait on a precondition, for the outside or at a
-//! cell's limit of a sender has no entry: it is read where the work came to rest after a thing that happened to it,
-//! with nothing of it under way and no call or question waited for, at the cell the reading finds it stands at. There a
-//! key of the cell's preconditions that does not hold is a wait for the outside where only cells write the blocks
-//! keeping it and the latest run of each said that what it wrote waits for a source outside the work (decision
+//! for a tool, the engine's wait before a round is tried again, or the owner's word on the engine's own call at a run's
+//! limit; a question that waits for the owner's answer; the work paused and let on, by whom; a cell let go at its
+//! limit; a cancel, a reopen, and the merge's finished run. A wait on a precondition, for the outside or at a cell's
+//! limit of a sender has no entry: it is read where the work came to rest after a thing that happened to it, with
+//! nothing of it under way and no call or question waited for, at the cell the reading finds it stands at. There a key
+//! of the cell's preconditions that does not hold is a wait for the outside where only cells write the blocks keeping
+//! it and the latest run of each said that what it wrote waits for a source outside the work (decision
 //! what-a-run-wrote-may-wait-for-the-outside), a precondition where a person or a source outside the work writes one of
 //! them, and else a stall, which the engine's view shows; with every key holding, the cell waits at its limit where it
 //! would run once more for what a sender wrote that sent it back as often as the flow's `again` lets one since its
-//! counts last began anew (decision the-same-sender-again). A wait that lasts over several things that happened is
-//! one step. The work's adding (the pause it was added with, the write of its block of dependencies and of what people
+//! counts last began anew (decision the-same-sender-again). A wait that lasts over several things that happened is one
+//! step. The work's adding (the pause it was added with, the write of its block of dependencies and of what people
 //! wrote for it) and the letting on a play gives it then are the item's start: no step of its path, and no rest.
 //!
 //! What no record holds is read from the engine's view of the work now, and so only as a path's end: a stall, which
@@ -308,9 +308,11 @@ pub fn states(work: &Work, shown: &Shown) -> Vec<Step> {
                         Some(Call::Wait { .. }) => Wait::Retry,
                         _ => Wait::Tool,
                     },
-                    Waited::Call { call, on: Some(who) } => match work.calls.get(call) {
+                    // The owner's word on the engine's own call at a run's limit: no carrier makes a call of a person
+                    // else, a script asking the owner by its questions.
+                    Waited::Call { call, on: Some(_) } => match work.calls.get(call) {
                         Some(Call::AtLimit(_)) => Wait::Limit(None),
-                        _ => Wait::Person(who.clone()),
+                        _ => continue,
                     },
                     Waited::Precondition { on, .. } => Wait::Precondition(Some(key(on))),
                     Waited::Limit { by, .. } => Wait::Limit(Some(by.clone())),
@@ -382,10 +384,11 @@ pub fn seen(flow: &Compiled, work: &Work, added: Added) -> Vec<Seen> {
     for c in &r.called {
         let on = match work.calls.get(&c.call) {
             Some(Call::Asked(Ask::Tool { .. })) => Wait::Tool,
-            Some(Call::Asked(Ask::Person { who, .. })) => Wait::Person(who.clone()),
             Some(Call::AtLimit(_)) => Wait::Limit(None),
             Some(Call::Wait { .. }) => Wait::Retry,
-            None => continue,
+            // No carrier makes a call of a person, a script asking the owner by its questions: a play's records hold
+            // none.
+            Some(Call::Asked(Ask::Person { .. })) | None => continue,
         };
         let Some(cell) = cell_of(c.run) else { continue };
         let stands = !r.done.iter().any(|d| d.call == c.call);

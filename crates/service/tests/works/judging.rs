@@ -1,19 +1,16 @@
 //! The judge of a play, on records built by hand, of the trial flow and of a flow whose check may wait for main: each
 //! thing that happened given in turn to the engine's own keeping of the records (`engine::handle`), as the loop would
-//! give it, and, where the trial flow makes no such entry, the entry written in. For each kind of step a path names, a
-//! path the records hold is taken, and one wrong at that step left there, the judge saying what the records hold
-//! there.
+//! give it. For each kind of step a path names, a path the records hold is taken, and one wrong at that step left there,
+//! the judge saying what the records hold there.
 
 use decide::run::Failure;
-use decide::{
-    Answered, CallId, CellId, Decision, Finished, Outsider, Pauser, Questioned, Returned, Room, Stalling, Unrun, Waited,
-};
+use decide::{CallId, CellId, Decision, Outsider, Pauser, Room, Stalling, Unrun, Waited};
 use engine::{Came, Effect, Event};
 use flow::Compiled;
 use service::judge::Added;
 use service::script::items::Step;
 use service::{Judged, Script, Shown};
-use work::{Ask, Call, Handed, Spent, Time, Work};
+use work::{Ask, Call, Handed, Question, Spent, Time, Way, Work};
 
 use crate::{START, trial_flow};
 
@@ -179,24 +176,56 @@ impl Built {
     fn to_the_review() -> Built {
         let mut built = Built::to_the_build();
         let call = built.asks(Ask::Tool {
-            name: "ci".to_string(),
-            input: "the branch".to_string(),
+            name: "query".to_string(),
+            input: "select number from items".to_string(),
         });
         built.done(call);
         built.hands_in(&[("code", None)]);
         built
     }
 
-    /// The work from its add to the build's first round under way, the owner having answered the plan.
+    /// The work from its add to the build's first round under way, the owner having answered the plan's question.
     fn to_the_build() -> Built {
         let mut built = Built::added("merged");
-        let call = built.asks(Ask::Person {
-            who: decide::Who::Owner,
-            question: "Which name?".to_string(),
-        });
-        built.done(call);
+        built.asks_the_owner();
+        built.answers("named");
         built.hands_in(&[("plan", None)]);
         built
+    }
+
+    /// The round under way asks the owner a question named `named`, which it waits for, and hands in nothing.
+    fn asks_the_owner(&mut self) {
+        let way = |does: &str| Way {
+            does: does.to_string(),
+            follows: format!("The greeting {does}."),
+        };
+        let question = Question::Asked {
+            name: "named".to_string(),
+            waits: true,
+            recommends: Some(1),
+            ask: "Should the greeting name the user?".to_string(),
+            options: vec![way("names the user"), way("names nobody")],
+            about: None,
+            reasons: Default::default(),
+        };
+        let mut came = Came::hands_in(Vec::new());
+        came.said.questions = vec![question];
+        self.returns(came);
+    }
+
+    /// The owner answers the latest version of the question of this name with its first option.
+    fn answers(&mut self, question: &str) {
+        let version = (self.work.records.questions.iter())
+            .filter(|q| q.name == question)
+            .map(|q| q.at)
+            .max()
+            .expect("the question was asked");
+        self.take(Event::Answer {
+            question: question.to_string(),
+            version,
+            option: 1,
+            why: None,
+        });
     }
 
     /// What the engine's view shows of the work now, were nothing outside its records to hold it back.
@@ -223,11 +252,6 @@ impl Built {
         };
         service::judge::judge(&self.flow, &self.work, added, &path(steps), shown)
     }
-
-    /// The next place in the work's records, for an entry written in.
-    fn tick(&self) -> decide::Seq {
-        self.work.tick()
-    }
 }
 
 /// The steps of a path, as a script writes them.
@@ -240,8 +264,7 @@ fn path(steps: &str) -> Vec<Step> {
 }
 
 /// What the path of a work merged on the trial flow says up to its build's first round.
-const TO_THE_BUILD: &str =
-    r#"{ runs = "plan" }, { waits = "plan", for = "person" }, { runs = "plan" }, { runs = "build" }"#;
+const TO_THE_BUILD: &str = r#"{ runs = "plan" }, { waits = "plan", for = "answer", question = "named" }, { runs = "plan" }, { runs = "build" }"#;
 
 fn left(step: usize, said: &str, records: &str) -> Judged {
     Judged::Left {
@@ -276,14 +299,14 @@ fn a_path_the_records_hold_is_taken_and_one_of_another_cell_leaves_where_it_diff
 }
 
 #[test]
-fn a_wait_for_a_tool_is_no_wait_for_a_person() {
+fn a_wait_for_a_tool_is_no_wait_for_an_answer() {
     let built = Built::to_the_review();
-    let steps = format!("{TO_THE_BUILD}, {{ waits = \"build\", for = \"person\" }}");
+    let steps = format!("{TO_THE_BUILD}, {{ waits = \"build\", for = \"answer\" }}");
     assert_eq!(
         built.judged(&steps),
         left(
             5,
-            r#"{ waits = "build", for = "person" }"#,
+            r#"{ waits = "build", for = "answer" }"#,
             r#"{ waits = "build", for = "tool" }"#
         )
     );
@@ -404,54 +427,29 @@ fn an_answer_where_the_records_hold_the_owners_word_at_a_limit_leaves_the_path()
 #[test]
 fn a_question_that_waits_is_a_wait_for_its_answer_while_it_stands() {
     let mut built = Built::added("merged");
-    // The plan's round ends asking a question that waits, which the trial flow cannot ask: its entries written in.
-    let run = built.under_way();
-    let at = built.tick();
-    built.work.records.returned.push(Returned { run, at });
-    let at = built.tick();
-    let finished = Finished {
-        run,
-        at,
-        writes: Vec::new(),
-        dealt_with: Some(Vec::new()),
-        waits_for: None,
-    };
-    built.work.records.finished.push(finished);
-    let at = built.tick();
-    let question = Questioned {
-        name: "naming".to_string(),
-        cell: CellId::from("plan"),
-        run,
-        engine: false,
-        waits: true,
-        withdrawn: false,
-        at,
-    };
-    built.work.records.questions.push(question);
-    let asked = r#"{ runs = "plan" }, { waits = "plan", for = "answer", question = "naming" }"#;
+    built.asks_the_owner();
+    let asked = r#"{ runs = "plan" }, { waits = "plan", for = "answer", question = "named" }"#;
     assert_eq!(built.judged(asked), Judged::Took);
-    let person = r#"{ runs = "plan" }, { waits = "plan", for = "person" }"#;
+    let tool = r#"{ runs = "plan" }, { waits = "plan", for = "tool" }"#;
     assert_eq!(
-        built.judged(person),
+        built.judged(tool),
         left(
             2,
-            r#"{ waits = "plan", for = "person" }"#,
-            r#"{ waits = "plan", for = "answer", question = "naming" }"#
+            r#"{ waits = "plan", for = "tool" }"#,
+            r#"{ waits = "plan", for = "answer", question = "named" }"#
         )
     );
-    let version = at;
-    let at = built.tick();
-    built.work.records.answers.push(Answered {
-        question: "naming".to_string(),
-        version,
-        option: 1,
-        why: None,
-        at,
-    });
-    assert!(
-        matches!(built.judged(asked), Judged::Short { step: 2, .. }),
-        "an answered question holds the work no more"
+    // Answered, the question holds the work no more, and the plan runs again for the answer.
+    built.answers("named");
+    assert_eq!(
+        built.judged(asked),
+        Judged::Left {
+            step: 3,
+            said: None,
+            records: r#"{ runs = "plan" }"#.to_string(),
+        }
     );
+    assert_eq!(built.judged(&format!("{asked}, {{ runs = \"plan\" }}")), Judged::Took);
 }
 
 /// A writer of the text a request asks for; a check of the text, which reads main as well and alone writes whether it
@@ -919,7 +917,7 @@ fn a_path_that_stops_short_or_goes_on_past_its_end_is_not_taken() {
             shown: None,
         }
     );
-    let shorter = r#"{ runs = "plan" }, { waits = "plan", for = "person" }, { runs = "plan" }"#;
+    let shorter = r#"{ runs = "plan" }, { waits = "plan", for = "answer" }, { runs = "plan" }"#;
     assert_eq!(
         built.judged(shorter),
         Judged::Left {

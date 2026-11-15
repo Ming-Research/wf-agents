@@ -14,7 +14,8 @@
 //! `dealt_with` that is none of the cell's triggers, a tool the cell may not ask for, a name in `meaning_unchanged` it
 //! does not write, a block it writes in `outputs` that is not among the cell's outputs or in a shape it does not take,
 //! the owner's words named as dealt with and not answered in the record of what is said, and a question that
-//! recommends none of its options or has the name of a question the engine itself asks. The run's check names these
+//! recommends none of its options or has the name of a question the engine itself asks ([`engine::asked::unmet`],
+//! which the test carriers find in a script's questions the same way). The run's check names these
 //! with everything else wrong with the return, in one send-back (crate `decide`, module `run`). Why what came back
 //! cannot be read at all is said in the words of `agents/return/sent_back.toml`.
 
@@ -276,7 +277,7 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
             questions,
             observations: outcome.observations,
         };
-        self::questions(&came.said.questions, words, &mut found);
+        found.extend(engine::asked::unmet(&came.said.questions, words));
     }
     if let Some(tools) = r.tools {
         came.asks = asks(tools, cell, &mut found, words)?;
@@ -303,27 +304,6 @@ fn answered(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec
         };
         if trigger.of_source(flow, flow::WORDS).is_some() && !trigger.records(flow, flow::WORDS).any(words) {
             found.push(Unmet::NotAnswered { name: name.clone() });
-        }
-    }
-}
-
-/// What is wrong with the questions the return asks that its reading sees, in the order it wrote them: one that
-/// recommends none of its options, or has none; and one with the name of the question the engine itself asks.
-fn questions(asked: &[Question], words: &Agents, found: &mut Vec<Unmet>) {
-    for question in asked {
-        let name = || question.name().to_string();
-        if question.name() == words.asks.protected.name {
-            found.push(Unmet::QuestionTaken { name: name() });
-            continue;
-        }
-        let Question::Asked {
-            recommends, options, ..
-        } = question
-        else {
-            continue;
-        };
-        if !recommends.is_some_and(|r| r >= 1 && r <= options.len() as u64) {
-            found.push(Unmet::NotAnOption { name: name() });
         }
     }
 }

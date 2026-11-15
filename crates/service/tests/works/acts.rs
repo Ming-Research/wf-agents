@@ -15,7 +15,7 @@ async fn an_answer_to_a_tools_call_is_refused() {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.step().await.unwrap();
-    trial.answer(work, "Yes, by name.");
+    trial.answer(work, "By name, as the user likes.");
     trial
         .until(
             work,
@@ -23,13 +23,13 @@ async fn an_answer_to_a_tools_call_is_refused() {
         )
         .await;
     let answer = Act::Result {
-        call: CallId(5),
+        call: CallId(4),
         result: "It passed.".to_string(),
     };
-    assert_eq!(trial.act(work, answer), Err(Refusal::NotAPersonsCall(CallId(5))));
+    assert_eq!(trial.act(work, answer), Err(Refusal::NotAPersonsCall(CallId(4))));
     // The tool's own result is taken.
     trial.step().await.unwrap();
-    assert_eq!(trial.work(work).results[&CallId(5)], "Every check passed.");
+    assert_eq!(trial.work(work).results[&CallId(4)], r#"{"rows": []}"#);
 }
 
 #[tokio::test(start_paused = true)]

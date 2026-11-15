@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::{get_json, greeted, pass, post, post_text, running};
+use crate::{NAMED, get_json, greeted, named, pass, post, post_text, running};
 
 const ACTS: &str = "/api/v1/works/1/acts";
 
@@ -91,18 +91,33 @@ async fn an_act_that_cannot_be_taken_is_refused_with_why() {
         "{json}"
     );
 
-    // The question answered, the plan hands in and the build asks for the CI: a tool's call, which no person answers.
-    assert_eq!(post(router, ACTS, &answer(2)).await.0, StatusCode::NO_CONTENT);
+    // The question answered by an option it does not have, or a version that is not one of it, is refused; answered,
+    // the plan hands in and the build asks for a query: a tool's call, which no person answers.
+    let by = |version: u64, option: u64| json!({ "kind": "answer", "question": "named", "version": version, "option": option });
     assert_eq!(
-        post(router, ACTS, &answer(2)).await,
-        (unprocessable, error("Call 2 has its result already."))
-    );
-    pass(4000).await;
-    assert_eq!(
-        post(router, ACTS, &answer(5)).await,
+        post(router, ACTS, &by(NAMED, 3)).await,
         (
             unprocessable,
-            error("Call 5 is a tool's: the tool gives its result, not a person.")
+            error("The version of the question named answered has no option 3.")
+        )
+    );
+    assert_eq!(
+        post(router, ACTS, &by(NAMED - 1, 1)).await,
+        (
+            unprocessable,
+            error(&format!(
+                "The question named has no version {} that asks it.",
+                NAMED - 1
+            ))
+        )
+    );
+    assert_eq!(post(router, ACTS, &named()).await.0, StatusCode::NO_CONTENT);
+    pass(4000).await;
+    assert_eq!(
+        post(router, ACTS, &answer(4)).await,
+        (
+            unprocessable,
+            error("Call 4 is a tool's: the tool gives its result, not a person.")
         )
     );
 }

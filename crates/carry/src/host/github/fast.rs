@@ -274,20 +274,17 @@ impl<A: Api> GitHub<A> {
         }))
     }
 
-    /// Cancels each run of the project's workflows not complete that one of `asking` asked for, of the work of this
-    /// number, on one of these commits: found by the values that ask for it.
-    pub(super) async fn cancel_runs(
-        &self,
-        work: WorkNumber,
-        asking: &[Asking],
-        commits: &[&str],
-    ) -> Result<(), Failed> {
+    /// Cancels each run of the project's workflows not complete that one of the askings asked for, of the work of this
+    /// number, on one of the commits beside it: found by the values that ask for it, in one list of each workflow's
+    /// runs. Gives why, for each list or run, it could not be listed or cancelled; the rest are cancelled all the same.
+    pub(super) async fn cancel_runs(&self, work: WorkNumber, on: &[(Asking, Vec<String>)]) -> Vec<String> {
         let ci = self.config.ci.as_ref();
         let fast = (ci.and_then(|ci| ci.fast.as_ref())).map(|fast| fast.workflow.as_str());
         let full = (ci.and_then(|ci| ci.full.as_ref())).map_or(&[][..], |full| &full.workflows[..]);
+        let mut failed = Vec::new();
         for workflow in fast.into_iter().chain(full.iter().map(String::as_str)) {
-            let calls: Vec<String> = (asking.iter())
-                .flat_map(|asking| {
+            let calls: Vec<String> = (on.iter())
+                .flat_map(|(asking, commits)| {
                     (commits.iter()).map(move |commit| Request {
                         work,
                         commit,
@@ -296,12 +293,23 @@ impl<A: Api> GitHub<A> {
                 })
                 .map(|request| self.call(request, workflow))
                 .collect();
-            let runs = self.api.runs(workflow, &self.project.main).await?;
+            if calls.is_empty() {
+                continue;
+            }
+            let runs = match self.api.runs(workflow, &self.project.main).await {
+                Ok(runs) => runs,
+                Err(why) => {
+                    failed.push(why.why);
+                    continue;
+                }
+            };
             for run in (runs.iter()).filter(|r| !r.completed && calls.iter().any(|c| r.title.contains(c))) {
-                self.api.cancel(run.id).await?;
+                if let Err(why) = self.api.cancel(run.id).await {
+                    failed.push(why.why);
+                }
             }
         }
-        Ok(())
+        failed
     }
 
     /// The jobs of the full workflows that did not pass may be let through with no failed test of their own, as the
@@ -489,6 +497,7 @@ impl<A: Api> GitHub<A> {
         let named = Named {
             tests: tests.clone(),
             checks,
+            commit: None,
         };
         let role = match self.role(ci, &named)? {
             Ok(role) => role,
@@ -559,6 +568,7 @@ impl<A: Api> GitHub<A> {
         let named_main = Named {
             tests: red_again.clone(),
             checks: Vec::new(),
+            commit: None,
         };
         let Some(on_main) = self.execute_role(&role, at_main, &named_main, stop).await? else {
             return Ok(None);
@@ -692,9 +702,10 @@ impl<A: Api> GitHub<A> {
     }
 }
 
-/// What became of the runs, in words for the agent: a line of what they came to, the tests that did not pass, each
-/// job, and the tests that passed, so that what a cut result gives is what matters. A run whose results could not be
-/// read says no test's result is known.
+/// What became of the runs, in words for the agent: a line of what they came to, each job, the tests that did not pass
+/// and the tests that passed. What has a bound comes first, the line and each job a line, and then the tests, the
+/// failed before the passed, so that a result cut takes only tests away, however long what a failed one said. A run
+/// whose results could not be read says no test's result is known.
 fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: &Named, red_only: bool) -> String {
     let which = match role {
         Role::Fast(_) => &words.which_fast,
@@ -781,9 +792,6 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     );
     lines.push(head);
     lines.extend(unread);
-    if !tests.is_empty() {
-        lines.push(format!("{}\n{}", words.tests_title, tests.join("\n")));
-    }
     let missing: Vec<&String> = match role {
         Role::Fast(_) => (named.checks.iter())
             .filter(|c| !ran.iter().flat_map(|r| &r.jobs).any(|j| &j.name == *c))
@@ -802,6 +810,9 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     }));
     if !said_jobs.is_empty() {
         lines.push(format!("{}\n{}", words.jobs_title, said_jobs.join("\n")));
+    }
+    if !tests.is_empty() {
+        lines.push(format!("{}\n{}", words.tests_title, tests.join("\n")));
     }
     if !green.is_empty() {
         lines.push(format!("{}\n{}", words.passed_title, green.join("\n")));
