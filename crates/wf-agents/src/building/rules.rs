@@ -117,6 +117,10 @@ pub fn ruled(flow: &Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case>, Vec
     }
     let changing = (flow.cells.iter()).filter(|c| c.kind == Kind::Agent && !c.reads_only);
     for cell in changing {
+        // A name written into the build, to see its renaming property fail (not for merging).
+        if cell.id.as_str() == "x_R1" {
+            continue;
+        }
         match under_way_at(&cell.id) {
             Some(base) => match engine_question(flow, base, cases, words) {
                 Some(case) => ruled.push(case),

@@ -585,7 +585,8 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         data: store_data.clone(),
         flows: dirs.clone(),
         script: serving_file.clone(),
-        held,
+        // Said otherwise than it is, to see the test of serving fail (not for merging).
+        held: !held,
         let_on,
     };
     let how_text = toml::to_string(&how).map_err(|e| format!("{}: how it is served: {e}", m.store.dir()))?;
