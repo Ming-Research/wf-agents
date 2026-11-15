@@ -414,16 +414,20 @@ fn renamed(source: &Source) -> (BTreeMap<String, String>, Source) {
     (names, renamed)
 }
 
-/// The text with each word the names give renamed, but where the word names no cell, block or trigger: a source or an
-/// act (`outside`, `from`, `act`), a place a text fills (`{name}`), a value of a choice (a list of `values`, or what a
-/// key of a block is set to), or a key of what a block's words say for each of its values (a table of `writes`).
+/// The text with each word the names give renamed, but where the word names no cell, block or trigger: a key of the
+/// file's own form (a key at the start of a line, but in a table whose keys are names: `kinds`, `do`, `groups`), a
+/// source or an act (`outside`, `from`, `act`), a place a text fills (`{name}`), a value of a choice (a list of
+/// `values`, or what a key of a block is set to), and the line of a table's name.
 fn rename_text(text: &str, names: &BTreeMap<String, String>) -> String {
+    const NAMED: [&str; 3] = ["kinds", "do", "groups"];
     let mut out = String::with_capacity(text.len());
-    let mut writes = false;
+    let mut table = String::new();
     for line in text.split_inclusive('\n') {
         let trimmed = line.trim_start();
         if trimmed.starts_with('[') && !trimmed.starts_with("[\"") {
-            writes = trimmed.trim_end().ends_with("writes]");
+            table = trimmed.trim_end().trim_matches(|c| c == '[' || c == ']').to_string();
+            out.push_str(line);
+            continue;
         }
         if trimmed.starts_with("values") {
             out.push_str(line);
@@ -445,16 +449,17 @@ fn rename_text(text: &str, names: &BTreeMap<String, String>) -> String {
             let word: String = chars[start..i].iter().collect();
             let before: String = chars[..start].iter().collect();
             let after: String = chars[i..].iter().collect();
-            let key_of_writes = writes && before.trim().is_empty() && after.trim_start().starts_with('=');
+            let key = after.trim_start().starts_with('=') && !after.trim_start().starts_with("==");
+            let form = key && before.trim().is_empty() && !NAMED.contains(&table.as_str());
             let value_of_a_block = (before.strip_suffix("= \"").map(str::trim_end)).is_some_and(|key| {
                 let at = key.rfind(|c: char| !word_char(c)).map_or(0, |at| at + 1);
                 names.contains_key(&key[at..])
             });
-            let kept = before.ends_with('{')
+            let kept = form
+                || before.ends_with('{')
                 || ["outside = \"", "from = \"", "act = \""]
                     .iter()
                     .any(|k| before.ends_with(k))
-                || key_of_writes
                 || value_of_a_block;
             match names.get(&word) {
                 Some(new) if !kept => out.push_str(new),
