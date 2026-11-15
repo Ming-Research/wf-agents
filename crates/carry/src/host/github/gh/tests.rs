@@ -351,6 +351,33 @@ fn an_answer_is_read_with_its_status_and_a_refusal_in_githubs_words() {
     assert_eq!(included("gh: not logged in"), None);
 }
 
+// GitHub's refusal is of the kind its status tells, whatever its words: its own fault, or its limit on the requests it
+// takes, passes by itself; any other refusal waits for the owner, though its words name a timeout.
+#[test]
+fn a_refusal_is_of_the_kind_its_status_tells_whatever_its_words() {
+    use decide::run::Failure;
+    let kind = |head: &str| {
+        let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"Connection timed out\"}}");
+        refused(&included(&out).expect("an answer")).kind
+    };
+    for passes in [
+        "HTTP/2.0 500 Internal Server Error",
+        "HTTP/2.0 502 Bad Gateway",
+        "HTTP/2.0 429 Too Many Requests",
+        "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 0",
+        "HTTP/2.0 403 Forbidden\r\nretry-after: 60",
+    ] {
+        assert_eq!(kind(passes), Some(Failure::Passing), "{passes}");
+    }
+    for refused in [
+        "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 4999",
+        "HTTP/2.0 405 Method Not Allowed",
+        "HTTP/2.0 422 Unprocessable Entity",
+    ] {
+        assert_eq!(kind(refused), Some(Failure::Other), "{refused}");
+    }
+}
+
 #[test]
 fn gh_is_given_the_token_and_nothing_else_of_the_engines_but_what_git_is() {
     let engine = [
@@ -395,6 +422,10 @@ async fn a_gh_that_never_answers_is_given_up_within_its_limit() {
         .within(std::time::Duration::from_millis(500));
     let began = std::time::Instant::now();
     let given_up = gh.pulls("work-1").await.expect_err("given up");
-    assert!(given_up.contains("did not end within"), "{given_up}");
+    assert!(given_up.why.contains("did not end within"), "{given_up}");
+    assert_eq!(
+        given_up.kind, None,
+        "no answer tells no kind: the words are read for the network's"
+    );
     assert!(began.elapsed() < std::time::Duration::from_secs(10));
 }

@@ -27,7 +27,7 @@ use super::api::{Api, Check, Outcome, Run};
 use super::results::{self, Became, Case};
 use super::{GitHub, output};
 use crate::held::Stop;
-use crate::host::{Asking, Named, Verdict};
+use crate::host::{Asking, Failed, Named, Verdict};
 use crate::process;
 
 /// A request for runs of the workflows: the commit they run on, and which of the work's asks it is, by which its runs
@@ -166,7 +166,7 @@ impl<A: Api> GitHub<A> {
         request: Request<'_>,
         named: &Named,
         stop: &mut Stop,
-    ) -> Result<Option<Vec<Ran>>, String> {
+    ) -> Result<Option<Vec<Ran>>, Failed> {
         let commit = request.commit;
         let mut ran = Vec::new();
         match role {
@@ -223,11 +223,11 @@ impl<A: Api> GitHub<A> {
     /// once, and judged by what they uploaded and by their jobs: it failed where a test failed, where a job did not
     /// pass, or where a run uploaded no JUnit the engine can read, said as `run_tests` says what a run found, of what
     /// did not pass. None where it was told to stop.
-    pub(super) async fn judge_full(&self, request: Request<'_>, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+    pub(super) async fn judge_full(&self, request: Request<'_>, stop: &mut Stop) -> Result<Option<Verdict>, Failed> {
         let (commit, named) = (request.commit, Named::default());
         let role = match self.role(self.config.ci.as_ref(), &named)? {
             Ok(role) => role,
-            Err(refused) => return Err(refused),
+            Err(refused) => return Err(Failed::refused(refused)),
         };
         let Some(ran) = self.execute_role(&role, request, &named, stop).await? else {
             return Ok(None);
@@ -264,7 +264,12 @@ impl<A: Api> GitHub<A> {
     /// already, before the engine started again, where one was not cancelled; or, where none was, one the workflow is
     /// dispatched for now with the plan's inputs. Of two runs of the request, the first asked for is waited for, which
     /// began first. None where it was told to stop.
-    async fn execute(&self, plan: &Plan<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Ran>, String> {
+    ///
+    /// A run that never started, GitHub listing none or no runner taking it in the time the CI may take to start, is
+    /// cancelled where it is listed, so that it does not run later for nothing, and fails in passing: what stops it is
+    /// no work's (GitHub, or a runner offline), and asked for again after a wait it may start. A run not complete in the
+    /// time it may take is cancelled, and is what it found: its jobs not complete said so, and no test's result known.
+    async fn execute(&self, plan: &Plan<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Ran>, Failed> {
         let workflow = plan.workflow;
         let main = &self.project.main;
         let Some(asked) = self.runs_of(plan, stop).await? else {
@@ -273,8 +278,9 @@ impl<A: Api> GitHub<A> {
         // A run cancelled judged nothing, and is passed over: the request asks for another.
         let cancelled: Vec<u64> = (asked.iter()).filter(|r| r.cancelled).map(|r| r.id).collect();
         if asked.len() == cancelled.len() {
-            (self.api.dispatch(workflow, main, &plan.inputs).await)
-                .map_err(|why| format!("GitHub refused to run {workflow} on {main} for {commit}: {why}"))?;
+            (self.api.dispatch(workflow, main, &plan.inputs).await).map_err(|failed| {
+                failed.said(|why| format!("GitHub refused to run {workflow} on {main} for {commit}: {why}"))
+            })?;
         }
         let began = tokio::time::Instant::now();
         let run = loop {
@@ -290,23 +296,29 @@ impl<A: Api> GitHub<A> {
                 // Listed at once as queued where no runner is online: given up as never started, not waited for
                 // until the run would time out.
                 Some(run) if !run.started && waited >= self.config.start => {
-                    return Err(format!(
-                        "the run of {workflow} asked for on {commit} never started: no runner took it after {} ({})",
+                    self.api.cancel(run.id).await?;
+                    return Err(Failed::passing(format!(
+                        "the run of {workflow} asked for on {commit} never started: no runner took it after {} ({}), \
+                         and the engine cancelled it",
                         super::span(self.config.start),
                         run.url
-                    ));
+                    )));
                 }
                 None if waited >= self.config.start => {
-                    return Err(format!(
+                    return Err(Failed::passing(format!(
                         "the run of {workflow} asked for on {commit} never started: GitHub listed none after {}",
                         super::span(self.config.start)
-                    ));
+                    )));
                 }
-                _ if waited >= plan.limit => {
-                    return Err(format!(
-                        "the run of {workflow} on {commit} is not complete after {}",
+                // Its jobs are read before it is cancelled, so that those still under way are said not complete.
+                Some(run) if run.started && waited >= plan.limit => {
+                    let jobs = self.api.jobs(run.id).await?;
+                    self.api.cancel(run.id).await?;
+                    let results = Err(format!(
+                        "the run did not complete within {}, the time it may take, and the engine cancelled it",
                         super::span(plan.limit)
                     ));
+                    return Ok(Some(Ran { run, jobs, results }));
                 }
                 _ => {}
             }
@@ -326,7 +338,7 @@ impl<A: Api> GitHub<A> {
 
     /// The runs by hand of the plan's workflow on main whose name holds the plan's value; none where it was told to
     /// stop.
-    async fn runs_of(&self, plan: &Plan<'_>, stop: &mut Stop) -> Result<Option<Vec<Run>>, String> {
+    async fn runs_of(&self, plan: &Plan<'_>, stop: &mut Stop) -> Result<Option<Vec<Run>>, Failed> {
         let runs = tokio::select! {
             runs = self.api.runs(plan.workflow, &self.project.main) => runs?,
             () = stop.told() => return Ok(None),

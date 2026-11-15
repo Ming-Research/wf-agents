@@ -274,7 +274,8 @@ pub struct CiFull {
     pub workflows: Vec<String>,
     /// Where they run, as for the fast workflow.
     pub runner: String,
-    /// How long a run may take before it is given up, such as `2h`, `90m` or `30s`.
+    /// How long a run may take, such as `2h`, `90m` or `30s`: one not complete by then is cancelled, and the check
+    /// before the merge fails, its jobs not complete said so.
     pub too_long: String,
     /// The input that takes the commit to check out and test.
     #[serde(default = "commit_input")]

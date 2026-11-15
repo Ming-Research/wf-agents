@@ -412,10 +412,42 @@ async fn a_run_no_runner_took_is_given_up_as_never_started() {
         )),
         "{why}"
     );
-    assert!(why.ends_with("(https://github.example/actions/runs/1000)"), "{why}");
+    assert!(
+        why.ends_with("(https://github.example/actions/runs/1000), and the engine cancelled it"),
+        "{why}"
+    );
     assert!(
         began.elapsed() < Duration::from_secs(2),
         "the timeout was not waited for"
+    );
+    assert!(
+        hub.github().asked().contains(&Asked::Cancel(1000)),
+        "the run is cancelled"
+    );
+}
+
+// A run not complete in the time a run may take is cancelled, and said as what it found: each job, the one not
+// complete said so, and no test's result known.
+#[tokio::test]
+async fn a_run_past_its_time_is_cancelled_and_said_with_its_jobs_not_complete() {
+    let hub = Hub::new().with(|config| config.timeout = Duration::from_secs(1));
+    let head = hub.committed().await;
+    hub.github().runs_go_on();
+    let jobs = vec![check("lint", Outcome::Pending)];
+    hub.github().fast(&head, jobs, Some(("test-results", junit())));
+    let said = hub
+        .named_check(&named(&["a"], &["lint"]))
+        .await
+        .expect("said")
+        .expect("run");
+    assert!(
+        said.contains("the run did not complete within 1 second, the time it may take, and the engine cancelled it"),
+        "{said}"
+    );
+    assert!(said.contains("- lint: not complete"), "{said}");
+    assert!(
+        hub.github().asked().contains(&Asked::Cancel(1000)),
+        "the run is cancelled"
     );
 }
 

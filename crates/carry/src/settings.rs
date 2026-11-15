@@ -289,11 +289,12 @@ pub struct GitHub {
     /// The variable of the engine's environment that holds the engine's token for GitHub.
     #[serde(default = "token_env")]
     pub token_env: String,
-    /// How many minutes a named check may have no run on a pushed commit before the CI is taken never to have
-    /// started.
+    /// How many minutes a run of a workflow may be unlisted or queued before the CI is taken never to have started:
+    /// the engine cancels the run it asked for, and the check fails its round in passing, or the agents' tool says so.
     #[serde(default = "start_minutes")]
     pub start_minutes: u64,
-    /// How many minutes the CI of a commit may take before it is given up.
+    /// How many minutes a run of the fast workflow may take: one not complete by then is cancelled, and said as what
+    /// it found. The full workflows take the time the project's declaration gives them.
     #[serde(default = "timeout_minutes")]
     pub timeout_minutes: u64,
     /// How a pull request is merged: `squash`, `merge` or `rebase`.

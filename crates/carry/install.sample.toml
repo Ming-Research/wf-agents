@@ -51,11 +51,12 @@ check = "./test.sh"
 # remote = "origin"
 # # The variable of the engine's environment that holds its token. No agent is given it.
 # token_env = "WF_GITHUB_TOKEN"
-# # A run of a workflow that is not listed, or never leaves the queue, after this many minutes: the CI never started,
-# # and the check fails its round, or the agents' tool says so.
+# # A run of a workflow that is not listed, or never leaves the queue, after this many minutes: the CI never started.
+# # The engine cancels the run it asked for, and the check fails its round in passing and is tried again after a wait,
+# # or the agents' tool says so.
 # start_minutes = 10
-# # The CI not complete after this many minutes is given up, and the check fails its round, or the agents' tool says
-# # so.
+# # A run of the fast workflow not complete after this many minutes is cancelled, and said as what it found; the full
+# # workflows take the time flow/project.toml gives them (`ci.full.too_long`).
 # timeout_minutes = 120
 # # How a pull request is merged: squash, merge or rebase.
 # merge_method = "squash"

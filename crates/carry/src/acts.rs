@@ -36,11 +36,9 @@ use work::{Handed, Question, Spent, Work};
 mod ends;
 mod failing;
 
-use failing::Failed;
-
 use crate::git::{self, Started};
 use crate::held::{Failing, Held, Stop};
-use crate::host::{Asking, Branch, Host, NotMerged};
+use crate::host::{Asking, Branch, Failed, Host, NotMerged};
 use crate::settings::Project;
 use crate::{protected, tree};
 
@@ -356,7 +354,7 @@ impl<H: Host> Inner<H> {
                     }
                     Err(why) => {
                         self.end_turn(round.work);
-                        Err(why.into())
+                        Err(why)
                     }
                 }
             }
@@ -375,13 +373,13 @@ impl<H: Host> Inner<H> {
                 let merged = merge(&self.host, &branch, checked.as_deref(), &self.repository).await;
                 // Merged or refused for a moved main, the watch looks at main at once.
                 self.merged.notify_one();
-                let merged = merged_or_failed(merged, &project.main, &words.merge);
                 // A work refused for a moved main keeps its turn, for its check on main's new head, as after a check
                 // that passed.
                 match &merged {
-                    Err(Failed { kind: Some(_), .. }) => self.passed_turn(round.work),
+                    Err(NotMerged::Moved { .. }) => self.passed_turn(round.work),
                     _ => self.end_turn(round.work),
                 }
+                let merged = merged_or_failed(merged, &project.main, &words.merge);
                 let merged = merged?;
                 let content = fill(
                     &words.merge.text,
@@ -577,7 +575,7 @@ fn merged_or_failed(
             let slots = [("main", main), ("head", head.as_str()), ("checked", checked.as_str())];
             Err(Failed::passing(fill(&words.moved, &slots)))
         }
-        Err(NotMerged::Failed(why)) => Err(why.into()),
+        Err(NotMerged::Failed(why)) => Err(why),
     }
 }
 
@@ -688,7 +686,7 @@ pub(crate) async fn check(
     (asking, stop, reads): (Asking, &mut Stop, ReadsMain<'_>),
     words: &CheckWords,
     gate: &Gate<'_>,
-) -> Result<Option<Checked>, String> {
+) -> Result<Option<Checked>, Failed> {
     let place = branch.place;
     let dir = git::worktree(place)?;
     let (commit, took_in, main) = {
@@ -1341,6 +1339,7 @@ mod tests {
             &gate,
         )
         .await
+        .map_err(String::from)
     }
 
     /// Checks the work in the repository with the host, the work naming in what it wrote what `text` says.
@@ -1381,7 +1380,7 @@ mod tests {
         );
         assert_eq!(failed, Failed::passing(said));
         assert!(failed.why.contains("fedcba"), "{failed:?}");
-        let refused = merged_or_failed(Err(NotMerged::Failed("no".to_string())), "main", &words);
+        let refused = merged_or_failed(Err(NotMerged::Failed("no".into())), "main", &words);
         assert_eq!(refused, Err(Failed::from("no".to_string())));
         assert_eq!(
             merged_or_failed(Ok("head".to_string()), "main", &words),
@@ -1832,7 +1831,7 @@ mod tests {
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
         let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
-        let host = Fake::new(&main).judges(Err("GitHub cannot be reached".to_string()));
+        let host = Fake::new(&main).judges(Err("GitHub cannot be reached".into()));
         let failed = check_with(&repo, &host, &mut Stop::never())
             .await
             .expect_err("it fails");
