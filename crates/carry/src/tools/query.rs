@@ -7,9 +7,9 @@
 //!
 //! The answer is `{"rows": [...]}`, each row an object by the column names. Where the rows past a bound were not kept,
 //! it holds `"cut": {"count": n, "rest": "<query>"}` too; and a message gives a result longer than the tool's file
-//! says cut to its first rows, with `"cut": {"count": n, "bytes": <the whole's size>, "rest": "<query>"}`, and
-//! `"trimmed": true` where the first row alone was too long and its long values were shortened. The whole is kept in
-//! the records as it is answered here.
+//! says cut to its first rows, with `"cut": {"count": n, "bytes": <the whole's size>, "file": "<path>", "rest":
+//! "<query>"}`, and `"trimmed": true` where the first row alone was too long and its long values were shortened. The
+//! whole is kept in the records as it is answered here, and in the file the cut names ([`super::keep_wholes`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -326,8 +326,8 @@ impl Querying {
     /// What a message gives of a result: the result, or where it is longer than the tool's file says a message gives,
     /// the first of its rows that fit with the size of the whole and the query that reads the rest. Where the first
     /// row alone does not fit, it is given with its long values shortened, so that the rest is the query from the
-    /// row after it and each cut makes progress.
-    pub fn cut(result: &str, input: &str, given_bytes: usize) -> String {
+    /// row after it and each cut makes progress. `file` is the file that holds the whole result.
+    pub fn cut(result: &str, input: &str, given_bytes: usize, file: &str) -> String {
         if result.len() <= given_bytes {
             return result.to_string();
         }
@@ -356,7 +356,7 @@ impl Querying {
             first.push(shortened(&rows[0], given_bytes));
         }
         let count = first.len();
-        let mut cut = json!({ "count": count, "bytes": result.len(), "rest": rest(&sql, count) });
+        let mut cut = json!({ "count": count, "bytes": result.len(), "file": file, "rest": rest(&sql, count) });
         if trimmed {
             cut["trimmed"] = json!(true);
         }

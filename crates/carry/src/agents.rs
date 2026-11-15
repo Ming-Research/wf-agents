@@ -374,8 +374,14 @@ impl Inner {
         // What changed in the design tree, which git compares: the files, from each earlier version to the latest.
         let changes = tree::changes(flow, work, round.run, round.number, &dir, tree_dir).await?;
         // The task as the message sends it, each setting it names with its value beside it; and a result of the tool
-        // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole.
-        let results = tools::given(work, &of.beside);
+        // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole and
+        // a file in the temporary directory, which the program is let read, holding it whole for the agent.
+        let files = tools::files_dir(&std::env::temp_dir(), &git::tag(&self.installation), round.work);
+        if let Some(root) = files.parent() {
+            tools::sweep(root, std::time::SystemTime::now()).await;
+        }
+        tools::keep_wholes(work, &of.beside.tools, &files).await?;
+        let results = tools::given(work, &of.beside.tools, &files);
         let told = main.as_ref().and_then(CaughtUp::told);
         let carried = context::Carried {
             about,
