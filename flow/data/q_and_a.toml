@@ -41,12 +41,12 @@ additionalProperties = false
 # A question withdrawn: `{version}` the version that withdraws it, `{was}` the version withdrawn, `{why}` why, as
 # `why` says it.
 [writes]
-text = "`{question}`, version {version}: option {option}, {does}: {follows}.{why}"
+text = "`{question}`, version {version}, answered: option {option}, {does}: {follows}.{why}"
 why = " Why: {why}"
-asked = "`{question}`, version {version}: {ask}{options}{recommends}{waits}"
-asked_anew = "`{question}`, version {version}, the new version of version {was}: {ask}{options}{recommends}{waits}"
+asked = "`{question}`, version {version}, asked: {ask}{options}{recommends}{waits}"
+asked_anew = "`{question}`, version {version}, asked anew in place of version {was}: {ask}{options}{recommends}{waits}"
 option = "\n- option {option}, {does}: {follows}"
 recommends = "\nRecommended: option {option}."
 waits = "\nThe work waits for the answer."
 goes_on = "\nThe work goes on by the recommendation."
-withdrawn = "`{question}`, version {version}: version {was} withdrawn.{why}"
+withdrawn = "`{question}`, version {was}, withdrawn.{why}"

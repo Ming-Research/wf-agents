@@ -186,7 +186,16 @@ impl<'a> Reading<'a> {
     /// version a run of the cell was told of and dealt with, changing what the block says, and not written by the
     /// cell itself.
     pub fn new_to(&self, cell: &CellId, block: &BlockId) -> Vec<&Version> {
-        let consumed = (self.finished.iter())
+        let consumed = self.dealt_with(cell, block).into_iter().max();
+        (self.of(block).iter())
+            .filter(|v| Some(v.at) > consumed && v.changed_meaning() && self.cell_of(v) != Some(cell))
+            .collect()
+    }
+
+    /// Of each run of the cell that finished dealing with the block, the latest version of it the run was told of: the
+    /// one it began from, or one put in to it since.
+    pub fn dealt_with(&self, cell: &CellId, block: &BlockId) -> Vec<Seq> {
+        (self.finished.iter())
             .filter(|f| &self.started[&f.run].cell == cell)
             .filter(|f| match &f.dealt_with {
                 Some(named) => named.contains(block),
@@ -199,9 +208,6 @@ impl<'a> Reading<'a> {
                     .map(|p| p.version);
                 began.into_iter().chain(put_in).max()
             })
-            .max();
-        (self.of(block).iter())
-            .filter(|v| Some(v.at) > consumed && v.changed_meaning() && self.cell_of(v) != Some(cell))
             .collect()
     }
 

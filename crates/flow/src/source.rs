@@ -562,8 +562,8 @@ pub struct CellFile {
     /// The blocks among its outputs that every hand-in of the cell includes.
     #[serde(default)]
     pub must_write: Vec<String>,
-    /// The blocks among those that run it that say what the work is where the host of the project's repository shows
-    /// the work, as the body of its pull request; an engine cell's act reads them.
+    /// The blocks that say what the work is where the host of the project's repository shows the work, as the body of
+    /// its pull request, whether or not they run the cell; an engine cell's act reads them.
     #[serde(default)]
     pub describes: Vec<String>,
     /// The block whose first line names the work's merge where the host shows it, as the title of its pull request

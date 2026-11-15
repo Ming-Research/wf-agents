@@ -51,6 +51,9 @@ not_answerable = "The question `{name}` cannot be asked from this cell: no answe
 unexplained = "`{path}` is a file the project protects, which the work's branch changes, and nothing says why: give in `protected_changes` why the change is needed, or take it back."
 # Of a return of the form before a return said what it dealt with, which asked for calls and named none.
 asks_nothing = "The return asks for calls, and for none."
+# A block an act of the engine's after the cell wrote, `{block}`, dealt with by a return that leaves new nothing that
+# runs the act again: no block it writes or commits, and no question that stands.
+unanswered = "`{block}` is dealt with, and nothing is committed and no question asked: commit the fix, or ask the owner."
 
 # Why what came back could not be read as a return, said in `{why}` of `unreadable`: `{error}` what the reading of its
 # JSON says, `{name}` a tool's name.

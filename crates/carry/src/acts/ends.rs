@@ -406,3 +406,107 @@ fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
          its latest run on this commit passed; its earlier runs on it: failure."
     );
 }
+
+/// The flow of the end-to-end tests with a block of the work's head, which the owner reads.
+fn acts_flow_with_head() -> Compiled {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
+    let mut source = flow::read(&dir).unwrap();
+    source
+        .flow
+        .push_str("\n[blocks.head]\noutside = \"head\"\nshown = true\n");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = flow::Has {
+        sources: names(&["tree", "main", "head"]),
+        acts: names(&["start", "check", "merge"]),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).unwrap()
+}
+
+/// The first round of the merge's run 5 of the work as it is kept, whose head's latest version says `head`.
+fn merging(head: &str) -> Round {
+    let flow = Arc::new(acts_flow_with_head());
+    let merge = (flow.cells.iter()).find(|cell| cell.act.as_deref() == Some("merge"));
+    let mut kept = Work::default();
+    let at = kept.tick();
+    kept.records.written.push(Written {
+        block: "head".into(),
+        by: Outsider::Outside,
+        matters: true,
+        value: None,
+        said_to: None,
+        empty: false,
+        at,
+    });
+    kept.contents.insert(("head".into(), at), head.to_string());
+    Round {
+        work: WORK,
+        flow: flow.clone(),
+        cell: merge.expect("the flow has a merge").clone(),
+        run: RunId(5),
+        number: 1,
+        given: work::Given::Task,
+        item: item("Greet the user"),
+        kept: Arc::new(kept),
+        lines: Default::default(),
+    }
+}
+
+/// What the outside wrote while the round was under way, as the teller said it: each block and its content.
+fn written_from_outside(told: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> Vec<(String, String)> {
+    let mut written = Vec::new();
+    while let Ok(message) = told.try_recv() {
+        if let service::Message::Happened {
+            event:
+                engine::Event::Wrote {
+                    block,
+                    by: Outsider::Outside,
+                    content,
+                    ..
+                },
+            ..
+        } = message
+        {
+            written.push((block.to_string(), content));
+        }
+    }
+    written
+}
+
+// A commit made after the check passed and before the merge moves the work's head: the merge reads it as the check
+// does, writes it from outside and fails in passing, asking the host nothing, so that the review and the check run on
+// it first. Refused for the branch it moved, the merge stopped the work for the owner, and letting it on refused it
+// again, as nothing ran the check on it. A head that did not move lets the merge go on to what the check passed.
+#[tokio::test]
+async fn a_head_moved_since_the_check_fails_the_merge_in_passing_and_is_written_from_outside() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let place = repo.place(WORK);
+    let checked = run(&repo.project.repo, &["rev-parse", &place.reference()]);
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let after = commit(&place.dir, "weather.txt", "Sunny.\n");
+    let acts = acts(&repo, Fake::new(&main));
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    let merged = acts.inner.act(&merging(&checked), &teller, &mut Stop::never()).await;
+    let Err(failed) = merged else {
+        panic!("the merge went on over a head the check did not pass");
+    };
+    let said = fill(&super::words().merge.unreviewed, &[("head", &after)]);
+    assert_eq!(failed, Failed::passing(said));
+    assert_eq!(written_from_outside(&mut told), [("head".to_string(), after.clone())]);
+    assert!(
+        !(acts.inner.host.asked().iter()).any(|a| matches!(a, Asked::Merge(_))),
+        "the host is asked to merge nothing"
+    );
+    // Its head as its latest version says it, the merge goes on to what the check passed, which here is nothing.
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    let merged = acts.inner.act(&merging(&after), &teller, &mut Stop::never()).await;
+    let Err(failed) = merged else {
+        panic!("the merge went on with no check that passed");
+    };
+    assert_ne!(failed.kind, Some(decide::run::Failure::Passing), "{failed:?}");
+    assert!(failed.why.contains("latest check did not pass"), "{failed:?}");
+    assert_eq!(written_from_outside(&mut told), Vec::new());
+}

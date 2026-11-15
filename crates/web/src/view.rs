@@ -403,10 +403,6 @@ pub enum What {
     NotAnOutput {
         block: String,
     },
-    /// The cell says what the work is by the block, and the block does not run it.
-    DescribedNotRunOn {
-        block: String,
-    },
     /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
     TakenNotRead {
         block: String,
@@ -811,7 +807,6 @@ impl What {
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
-            F::DescribedNotRunOn { block } => What::DescribedNotRunOn { block },
             F::TakenNotRead { block } => What::TakenNotRead { block },
             F::TwoForms => What::TwoForms,
             F::NoSuchData { name } => What::NoSuchData { name },

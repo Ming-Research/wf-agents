@@ -1,12 +1,151 @@
 //! Single works on the engineer's flow taken through `handle` step by step, each to what its merge rests on: the check
-//! waits for the review's yes, whatever main does, so that no branch the review has not seen is checked or merged; and
-//! the owner's answer to a question the check asked, which only the implementation is told, runs the check again by
-//! itself, so that the answer alone leads to the merge.
+//! waits for the review's yes, whatever main does, so that no branch the review has not seen is checked or merged; the
+//! work's head, which the review takes and which runs the check, holds the merge to the head the review saw; the
+//! implementation answers a red check by what runs the check again, a commit or a question, and a return that answers
+//! it with neither is sent back; and the owner's answer to a question the check asked, which only the implementation is
+//! told, runs the check again by itself, so that the answer alone leads to the merge.
 
-use decide::{Decision, End, Outsider, Seq, Waited};
-use engine::{Event, Question, Way};
+use decide::run::{Failure, Unmet};
+use decide::{BlockId, CellId, Decision, End, Outsider, Seq, Waited};
+use engine::{Call, Effect, Event, Given, Question, Spent, Way, pending};
 
 use super::single::{W, wrote};
+
+/// What each judge the work's head runs dealt with last of it, as the check holds the head to them, by the judge.
+fn seen(w: &W) -> Vec<(String, Option<String>)> {
+    let head = BlockId::from("head");
+    let judges = decide::judges(&w.flow.flow, &w.work.records, &CellId::from("M1"), &head);
+    (judges.into_iter())
+        .map(|judge| {
+            let said = judge
+                .consumed
+                .and_then(|at| w.work.contents.get(&(head.clone(), at)).cloned());
+            (judge.cell.0, said)
+        })
+        .collect()
+}
+
+/// The work from its start to the review's yes on the implementation's code, which its round committed at the head
+/// `c1`: the research hands in a plan with no deeper look and no change of the tree, and the review asks for no
+/// testing.
+fn reviewed_at_c1() -> W {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    w.hands_in(
+        "R1",
+        &[
+            ("deep_needed", Some("no")),
+            ("edits_tree", Some("no")),
+            ("plan_owner", None),
+            ("plan_agent", None),
+            ("acceptance", None),
+        ],
+        Vec::new(),
+    );
+    w.hands_in("R2", &[("better_found", Some("no"))], Vec::new());
+    w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
+    w.hands_in(
+        "T1",
+        &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
+        Vec::new(),
+    );
+    assert_eq!(seen(&w), [("T1".to_string(), Some("c1".to_string()))]);
+    w
+}
+
+// W9's course: the review saw the change at one head; the check found main in conflict; the implementation merged main
+// in, resolving the conflict, and handed in nothing but what it committed. Its new head runs the review and the check,
+// and the review comes before the check, so that the merge lands only the head it saw. Run by what names a commit, the
+// check passed and the merge landed a change of a design decision no review had seen.
+#[test]
+fn a_fix_run_by_a_red_check_reaches_the_review_and_the_check_through_the_head() {
+    let mut w = reviewed_at_c1();
+    w.hands_in("M1", &[("checked", Some("no")), ("check", None)], Vec::new());
+    w.commits("I1", &[], &[("head", "c2")]);
+    assert_eq!(w.round().1, "T1", "the review runs before the check");
+    assert_eq!(seen(&w), [("T1".to_string(), Some("c1".to_string()))]);
+    w.hands_in(
+        "T1",
+        &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
+        Vec::new(),
+    );
+    assert_eq!(seen(&w), [("T1".to_string(), Some("c2".to_string()))]);
+    assert_eq!(w.round().1, "M1", "the check runs on the head the review saw");
+    w.hands_in("M1", &[("checked", Some("yes"))], Vec::new());
+    w.hands_in("M2", &[("merged", None)], Vec::new());
+    assert_eq!(w.decision(), Decision::Ended(End::Merged));
+}
+
+// The check reads no words: a return that deals with it and commits nothing and asks nothing would leave nothing to run
+// it again, and is sent back. The round given again commits its fix, and the work goes on to the review.
+#[test]
+fn a_return_that_answers_the_check_with_nothing_new_is_sent_back() {
+    let mut w = reviewed_at_c1();
+    w.hands_in("M1", &[("checked", Some("no")), ("check", None)], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "I1");
+    assert_eq!(w.told(run, "I1"), ["on_check"]);
+    let effects = w.returns("I1", &["on_check"], &[("code", None)]);
+    let unmet = (effects.iter()).find_map(|e| match e {
+        Effect::Round {
+            run: r,
+            given: Given::SentBack(unmet),
+            ..
+        } if *r == run => Some(unmet.clone()),
+        _ => None,
+    });
+    assert_eq!(unmet, Some(vec![Unmet::Unanswered { block: "check".into() }]));
+    w.commits("I1", &[("code", None)], &[("head", "c2")]);
+    assert_eq!(w.round().1, "T1", "the fix runs the review");
+}
+
+// A commit no round handed in, as a person's, is read by the check from outside for its round, which fails in passing
+// as the review has not seen it: the review runs on it first, and the check is taken again after its wait.
+#[test]
+fn a_head_the_check_reads_that_the_review_has_not_seen_runs_the_review_before_the_check_again() {
+    let mut w = reviewed_at_c1();
+    let (run, cell) = w.round();
+    assert_eq!(cell, "M1");
+    w.on(Event::WroteForRound {
+        run,
+        block: "head".into(),
+        content: "c3".to_string(),
+    });
+    w.on(Event::Failed {
+        run,
+        why: "The work's head is c3, which the review has not seen.".to_string(),
+        failure: Failure::Passing,
+        resets: None,
+        spent: Spent::default(),
+    });
+    assert_eq!(w.round().1, "T1", "the review runs first, on the head the check read");
+    w.hands_in(
+        "T1",
+        &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
+        Vec::new(),
+    );
+    assert_eq!(seen(&w), [("T1".to_string(), Some("c3".to_string()))]);
+    let wait = (pending(&w.flow, &w.work).into_iter())
+        .find_map(|effect| match effect {
+            Effect::Call {
+                call,
+                what: Call::Wait { .. },
+                ..
+            } => Some(call),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("the check does not wait: {:?}", w.decision()));
+    w.on(Event::Done {
+        call: wait,
+        result: "waited".to_string(),
+    });
+    let (again, cell) = w.round();
+    assert_eq!((again, cell.as_str()), (run, "M1"), "the check's run is taken again");
+    w.hands_in("M1", &[("checked", Some("yes"))], Vec::new());
+    w.hands_in("M2", &[("merged", None)], Vec::new());
+    assert_eq!(w.decision(), Decision::Ended(End::Merged));
+}
 
 /// The question the check asks of a change to a file the project protects, as the engine asks it.
 fn protected() -> Question {

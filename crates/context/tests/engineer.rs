@@ -33,6 +33,7 @@ fn engineer() -> Compiled {
             "main",
             "session",
             "start",
+            "head",
             "tree",
             "words",
         ]),
@@ -514,7 +515,10 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
     let entries = sim.versions("q_and_a");
     assert_eq!(entries.len(), 1, "the question is an entry");
     let question = sim.content("q_and_a", entries[0]).to_string();
-    let head = format!("`naming`, version {}: Which name does the greeting use?", version.0);
+    let head = format!(
+        "`naming`, version {}, asked: Which name does the greeting use?",
+        version.0
+    );
     assert!(question.starts_with(&head), "{question}");
     for part in [
         "option 1, The first name: Shorter",
@@ -540,7 +544,7 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
     assert_eq!(entries.len(), 2, "the answer is an entry");
     let answer = sim.content("q_and_a", entries[1]).to_string();
     let said = format!(
-        "`naming`, version {}: option 2, The full name: Longer. Why: It is formal.",
+        "`naming`, version {}, answered: option 2, The full name: Longer. Why: It is formal.",
         version.0
     );
     assert_eq!(answer, said);

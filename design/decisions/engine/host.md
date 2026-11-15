@@ -34,9 +34,9 @@ Why: The project says how long its run takes, so a run past that has not shown t
 The check merges main's head into the work's branch as a commit of the engine's own and judges that commit, and the merge lands only a commit that holds the main the check took in.
 Why: What passes is then exactly what lands. GitHub's test merge lost because it leaves no mark when main moves after the CI began and the local host has none; an agent's round lost as exact work an agent sometimes gets wrong (principle mechanical-engine).
 
-### decision the-check-holds-the-head-to-what-the-work-names
-The check passes only a branch whose head is a commit the work names in what its cells write (but the check's own), or such a commit with only the engine's own merges of main on top of it, each known by its address, its words and the main it merged; where the work names none, or none that is the head, the check fails with why. What only people write, and what a source outside writes, as main's head, names nothing.
-Why: An agent that committed after handing in what it did, or named a commit it did not make, would have code merged that nobody judged by its words. The commit is read where the work already names it (the code, the tests a tester committed, an answer to a review or to the check, "fixed, with its commit") rather than from a field of its own: a judgment, no case having tried the other. A merge by the engine's address alone is no merge of the engine's: an agent can commit by any address.
+### decision the-check-holds-the-head-to-what-the-review-saw
+The check passes only where the work's head, which it reads of the branch for its round, is what the version of `head` each judge of it dealt with last says: each cell that writes a choice the check's preconditions read and that `head` runs, as the flow's graph finds them, where it applies. Otherwise the round fails in passing, judging nothing, the head told to it as the outside's, so that the judge, to which the head is new, runs first. No block names a commit for the check.
+Why: Held to a commit named in any block a cell wrote, the check passed in W9 the implementation's fix of a conflict with main, named only in its answer to the check: the review never ran again, and the merge landed a change of a design decision nobody had reviewed; a tester's commits passed the same way. Read of the branch, whatever is committed is held to the review, under any block's words or none. A failure handed to the implementation lost: it has nothing to fix, what is missing being the review's look.
 
 ### decision one-work-checks-and-merges-at-a-time
 The works of a project take turns to check and merge, in the order their checks began to wait: a work keeps the turn from its check until its merge or its check failing, and once its check passed no longer than a quarter of an hour. A work a pause holds, its own or the owner's of everything, neither takes the turn nor keeps it, and a merge whose work gave it up waits for it again. The turn is kept in memory only, so that after a stop the first check to wait takes it.
@@ -50,6 +50,10 @@ Why: A check that waited for its turn while another work merged took the new mai
 A merge refused because main moved since the check passed, as the engine finds or GitHub says ("Base branch was modified"), fails in passing and keeps the work's turn: the watch of main writes main's new head into the work at once, which runs the check again on it, and the merge is tried again after its wait with what that check found. Nothing waits for the owner.
 Why: Main moves under a checked work where it was merged by hand or by another engine; a refusal that waited for the owner stopped the work for what passes by itself. Merging main in within the merge lost, since what lands would be what no check judged (decision the-check-takes-main-in).
 
+### decision a-moved-head-is-reviewed-and-checked-again-before-the-merge
+The merge reads the work's head as the check does; where it moved since the check passed, by a commit no round made, it is written from outside, and the merge fails in passing and gives up the work's turn, so that the review and the check run on it before the merge is tried again. Nothing waits for the owner.
+Why: Refused for the owner, a commit made between the check and the merge stopped the work, and letting it on refused it again, as nothing read the head and so nothing ran the check on it. The review comes first, and may take long, so the turn is given up rather than kept as for a moved main.
+
 ### decision the-check-passes-no-empty-change
 The check fails, before the host is asked, a commit that changes nothing against the main it took in, in the words of its own file.
 Why: Its CI would pass and the merge would land nothing, the work merged with no change made, and nobody would see it; the flow's gate on the review's yes keeps such a branch from the check, and this holds whatever the flow's gates are.
@@ -57,6 +61,10 @@ Why: Its CI would pass and the merge would land nothing, the work merged with no
 ### decision the-pull-request-says-what-the-work-wrote
 A work's pull request is a draft until just before its merge; its body is what the work wrote in the blocks the flow's check names, published with no mention, reference, closing word or path of this machine left to act, cut to a bound, and written over at each check and before the merge, a person's edit included; the check before the merge and the agents' check work it out alike.
 Why: Anyone on GitHub sees what the change is and that it is not yet to be reviewed, and an agent's text on a public repository must notify, close and reveal nothing. Worked out otherwise by either check, the two would rewrite each other's body each time.
+
+### decision blocks-that-describe-the-work-need-not-run-the-check
+The check describes the work by blocks of the flow with content, whether or not they run it: the definition holds a block it names only to be one of the flow's, named once.
+Why: The pull request's text is written again from what the work wrote before the merge (decision the-pull-request-says-what-the-work-wrote), so what merges always says what the work handed in, and a draft's text may wait for the next check. Held to blocks that run it, the check would be run by the words that describe the change as well as by the work's head, a whole CI for a change of words alone.
 
 ### decision a-merge-is-named-by-its-works-line
 A work's merge, its pull request and the commit it makes, is named by the first line of the latest version of the block the flow's merge names (`named_by`), which the cell that writes the code writes in the repository's language; until it is written, by the words of the engine's commits for a work with no name, made from the work's number. The host is given nothing of the item; on GitHub the name is published as the body is, with nothing left to act, and brought up to date at each check and before the merge, which titles its commit so.

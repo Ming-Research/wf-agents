@@ -131,6 +131,10 @@ pub struct Came {
     /// A block a source outside the work writes, which runs the cell, a new version of which what the return writes
     /// waits for, as the engine's own act says where what it found waits for that source; none of an agent's return.
     pub waits_for: Option<BlockId>,
+    /// What the carrier read of the work's branch as the round ended, of the blocks a source outside the work writes
+    /// from it, where it differs from what each says: what the round committed, which the run writes as it finishes,
+    /// beside its own blocks; nothing of it is written where the return is sent back.
+    pub read: Vec<Handed>,
 }
 
 impl Came {

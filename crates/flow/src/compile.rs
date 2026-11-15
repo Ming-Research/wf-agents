@@ -128,7 +128,8 @@ pub struct CellSpec {
     /// The blocks among its outputs that every hand-in of the cell includes, in the order written: a hand-in that lacks
     /// one is sent back.
     pub must_write: Vec<BlockId>,
-    /// The blocks among those that run it that say what the work is where the host shows it, in the order written.
+    /// The blocks that say what the work is where the host shows it, in the order written: blocks of the flow with
+    /// content, whether or not they run the cell.
     pub describes: Vec<BlockId>,
     /// The block whose first line names the work's merge where the host shows it; none where the cell names none.
     pub named_by: Option<BlockId>,
@@ -411,9 +412,6 @@ pub enum FaultKind {
     NoSuchBlock { block: String },
     /// The cell must write the block each time, and it is not among its outputs.
     NotAnOutput { block: String },
-    /// The cell says what the work is by the block, and the block does not run it: a change of it would not run the
-    /// cell again, and what the host shows would fall behind.
-    DescribedNotRunOn { block: String },
     /// In the old form, the cell says how or why it takes the block, and the block is not among its `inputs`.
     TakenNotRead { block: String },
     /// The cell names what it takes in two forms of three: `inputs`; `runs_on` and `given`; `triggered_by` and `context`.
@@ -1806,14 +1804,9 @@ impl<'a> Definition<'a> {
             };
             (!file.outputs.iter().any(|o| o == block)).then_some(what)
         }));
-        let describes = if unread_triggers { &[][..] } else { &file.describes[..] };
-        found.extend(check_list(describes, "describes", |block| {
-            let what = FaultKind::DescribedNotRunOn {
-                block: block.to_string(),
-            };
-            let run_on = takes.runs_on.iter().any(|r| r.block.as_str() == block);
-            self.trigger_only(block).or_else(|| (!run_on).then_some(what))
-        }));
+        // The work is described by blocks of the flow with content, whether or not they run the cell: what merges is
+        // described again from them before the merge (decision blocks-that-describe-the-work-need-not-run-the-check).
+        found.extend(check_list(&file.describes, "describes", with_content));
         if let Some(what) = file.named_by.as_deref().and_then(with_content) {
             found.push(("named_by".to_string(), what));
         }

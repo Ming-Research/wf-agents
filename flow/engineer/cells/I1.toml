@@ -6,8 +6,8 @@ line = "engineer"
 effort = "xhigh"
 takes_main = true
 task = '''
-Implement `plan_agent`, changing only what this work needs. Follow for each of `q_and_a` the option the owner took
-in `q_and_a`, or else the one it recommends, and write into `design/` what `tree_edits` holds: an entry may follow
+Implement `plan_agent`, changing only what this work needs. Follow for each question in `q_and_a` the option the
+owner took, or else the one it recommends, and write into `design/` what `tree_edits` holds: an entry may follow
 main's tree in wording and place, not in meaning. Start from a test that shows what the change is for, red on the code
 before it: the research's, where it left one. Run each test you add or extend on the change and on the code before it;
 a test removed, skipped or weakened needs a technical reason. Where cost per operation or request can change, measure
@@ -21,9 +21,8 @@ Commit everything in the worktree, and hand in `code`, `decisions` and `evidence
 your last commit: `title` with your first `code` and again when what the change does changes, `decisions` only where
 there is one, and `acceptance` only when a condition must change, the whole list as it now stands, with why.
 
-A red check is fixed, or shown not to be this change's. Where main does not merge into the branch, merge it in
-yourself and run the check again. A point its judge insists on, fix or have the owner rule. If what the item asks
-needs no change, ask the owner.
+Where main does not merge into the branch, merge it in yourself and run the check again. A point its judge insists on,
+fix or have the owner rule. If what the item asks needs no change, ask the owner.
 '''
 triggered_by = [
   "on_plan",
@@ -57,7 +56,6 @@ outputs = [
   "acceptance",
   "reply_review",
   "reply_testing",
-  "reply_check",
   "plan_doubts",
   "q_and_a",
   "discussion",
@@ -70,7 +68,7 @@ on_spoken = """The owner has said something to you in `discussion`: that comes f
 on_answer = """The owner has answered one of your questions in `q_and_a` with another option than yours, or one you wait for: follow the option the owner took."""
 on_review = """Answer each point of `review` in `reply_review`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 on_testing = """Answer each point of `testing` in `reply_testing`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
-on_check = """Answer each point of `check` in `reply_check`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
+on_check = """Fix what `check` found and commit; where you judge it not this change's to fix, ask the owner."""
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]

@@ -648,6 +648,8 @@ pub struct SentBackFaults {
     pub not_answered: String,
     /// `{path}` a file the project protects that the work changes, and of which it says not why.
     pub unexplained: String,
+    /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
+    pub unanswered: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -1007,6 +1009,8 @@ pub struct Start {
 pub struct Merge {
     pub text: String,
     pub moved: String,
+    /// The work's head moved since the check passed: the merge fails in passing, and the review and the check run first.
+    pub unreviewed: String,
 }
 
 /// `agents/acts/deliver.toml`.
@@ -1071,8 +1075,8 @@ pub struct Found {
     pub protected: String,
     /// The change under the paths the project protects could not be looked at.
     pub protected_unread: String,
-    pub unnamed: String,
-    pub not_head: String,
+    /// The work's head is not one the review dealt with: the check fails in passing, and the review runs first.
+    pub unreviewed: String,
     /// The commit checked changes nothing against main: there is nothing to merge.
     pub empty: String,
 }
