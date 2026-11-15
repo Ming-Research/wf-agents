@@ -737,7 +737,7 @@ fn a_datum_with_no_version_is_said_to_have_none_once_a_session() {
             entered.text
         );
     }
-    // It asks for a tool, and is entered again for the result in the same session.
+    // It asks for a tool, and is entered again for the result, by a run of its own, in the same session.
     sim.tries(&round, 1, entered.fills);
     let ask = Ask::Tool {
         name: "query".to_string(),
@@ -747,7 +747,8 @@ fn a_datum_with_no_version_is_said_to_have_none_once_a_session() {
     let call = *sim.calls().first().expect("the tool is called");
     sim.done(call, "the rows");
     let again = sim.round().expect("the review is entered again for the result");
-    assert_eq!(again.run, round.run);
+    assert_eq!(again.cell, round.cell);
+    assert!(!sim.begins(&again), "the review goes on in its session");
     let entered = sim.enter(&again, sim.begins(&again));
     for block in &unwritten {
         assert_eq!(named(&entered, block), 0, "{block}:\n{}", entered.text);
