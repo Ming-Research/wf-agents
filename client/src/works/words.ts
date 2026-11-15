@@ -446,6 +446,8 @@ export function unmetWords(unmet: Unmet): string {
       return `its question ${unmet.name} recommends none of its options`;
     case 'notAnswerable':
       return `it asked the question ${unmet.name}, and no answer runs its cell`;
+    case 'notAnswered':
+      return `it dealt with the owner's words by ${unmet.name}, and gave no reply`;
     case 'unexplained':
       return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
   }

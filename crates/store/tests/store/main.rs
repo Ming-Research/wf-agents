@@ -639,6 +639,7 @@ impl Building {
             by: Outsider::Person,
             matters: true,
             value: None,
+            said_to: None,
             at,
         });
         at

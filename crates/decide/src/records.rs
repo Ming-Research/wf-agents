@@ -228,6 +228,10 @@ pub struct Written {
     pub matters: bool,
     /// The block's value, where a condition reads it.
     pub value: Option<String>,
+    /// The cell what was written is said to, where it is said to one: of the owner's entry of the record of what is
+    /// said, the cell the words were given to. Records kept before an entry held its cell have none, and read so.
+    #[serde(default)]
+    pub said_to: Option<CellId>,
     pub at: Seq,
 }
 

@@ -198,6 +198,14 @@ impl Trigger {
     pub fn ran(&self, ran_by: &[BlockId]) -> bool {
         decide::flow::ran(self.blocks(), ran_by).next().is_some()
     }
+
+    /// The block it stands on that this source outside the work writes, where one is: of the trigger of an answer, the
+    /// block the engine writes as the owner answers ([`ANSWER`]); of the owner's words, the one it writes as the owner
+    /// speaks to the cell ([`WORDS`]).
+    pub fn of_source<'f>(&'f self, flow: &Compiled, source: &str) -> Option<&'f BlockId> {
+        let writes = |b: &&BlockId| flow.blocks.get(*b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
+        self.blocks().iter().find(writes)
+    }
 }
 
 impl CellSpec {
@@ -412,6 +420,9 @@ pub enum FaultKind {
     /// The cell writes the block, which holds the work's questions ([`QUESTIONS`]), and no block of the source
     /// [`ANSWER`] runs it: the owner's answer to a question it asks would run no cell.
     AsksWithNoAnswer { block: String },
+    /// The cell writes the block, which holds the work's questions ([`QUESTIONS`]), and no block of the source
+    /// [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
+    AsksAndCannotBeSpokenTo { block: String },
     /// A trigger of the cell stands on a block that each of its writers, cells only (no person or outside writes it),
     /// writes only where a block has a value that the cell's own condition rules out, and that block no cell can
     /// change from the writer's value to the cell's: the trigger could never run the cell. `needs` is the cell's own
@@ -1722,14 +1733,22 @@ impl<'a> Definition<'a> {
             Form::Triggers => found.extend(self.check_triggers(id, file)),
         }
         found.extend(check_list(&file.outputs, "outputs", with_content));
-        // A cell that may ask the owner is run by the answer; where its triggers could not be read, what runs it is
-        // not known.
+        // A cell that may ask the owner is run by the answer and by the owner's words, which may be about what it
+        // asks; where its triggers could not be read, what runs it is not known.
         let source = |block: &str| self.flow.blocks.get(block).and_then(|b| b.outside.as_deref());
-        let answered = takes.runs_on.iter().any(|r| source(r.block.as_str()) == Some(ANSWER));
-        if !unread_triggers && !answered {
+        let run_by = |of: &str| takes.runs_on.iter().any(|r| source(r.block.as_str()) == Some(of));
+        let (answered, spoken_to) = (run_by(ANSWER), run_by(WORDS));
+        if !unread_triggers {
             for (i, block) in file.outputs.iter().enumerate() {
-                if self.flow.blocks.get(block).and_then(|b| b.field.as_deref()) == Some(QUESTIONS) {
+                if self.flow.blocks.get(block).and_then(|b| b.field.as_deref()) != Some(QUESTIONS) {
+                    continue;
+                }
+                if !answered {
                     let what = FaultKind::AsksWithNoAnswer { block: block.clone() };
+                    found.push((format!("outputs[{i}]"), what));
+                }
+                if !spoken_to {
+                    let what = FaultKind::AsksAndCannotBeSpokenTo { block: block.clone() };
                     found.push((format!("outputs[{i}]"), what));
                 }
             }

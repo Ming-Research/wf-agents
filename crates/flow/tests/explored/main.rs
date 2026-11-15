@@ -74,7 +74,16 @@ fn engineer() -> Compiled {
     let source = read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&["answer", "asked", "dependencies", "main", "session", "start", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "tree",
+            "words",
+        ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
         fields: names(&["questions", "reply"]),

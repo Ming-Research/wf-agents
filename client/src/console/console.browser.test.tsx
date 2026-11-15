@@ -507,8 +507,8 @@ describe('the console page, when a work cannot be read', () => {
     await expect.poll(said).toBe('The page could not read the work: /api/v1/works/12 answered 500');
     fails = false;
     (reopened as (() => void) | null)?.();
-    // The made-up flow has no block that is the owner's words to one cell of the engineer's, so no box is offered.
-    await expect.poll(said).toBe('People write no block of this flow');
+    // The made-up flow has none of the engineer's cells the box offers, so no box is offered.
+    await expect.poll(said).toBe("No cell of this flow takes the owner's words");
     root.unmount();
     container.remove();
   });

@@ -66,6 +66,7 @@ fn every_kind() -> Records {
                 by: Outsider::Person,
                 matters: true,
                 value: None,
+                said_to: None,
                 at: Seq(1),
             },
             Written {
@@ -73,6 +74,7 @@ fn every_kind() -> Records {
                 by: Outsider::Person,
                 matters: true,
                 value: None,
+                said_to: None,
                 at: Seq(8),
             },
             Written {
@@ -80,6 +82,7 @@ fn every_kind() -> Records {
                 by: Outsider::Outside,
                 matters: true,
                 value: None,
+                said_to: None,
                 at: Seq(12),
             },
         ],

@@ -99,6 +99,7 @@ fn two_entries_at_one_place_are_a_fault() {
         by: decide::Outsider::Person,
         matters: true,
         value: None,
+        said_to: None,
         at,
     });
     assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));
@@ -202,10 +203,11 @@ fn a_version_put_in_while_its_run_has_no_round_under_way_is_a_fault() {
     w.returns("a");
     let at = put(&mut w, run, version);
     assert_eq!(w.decide(), Decision::Fault(RecordFault::PutInNoRound(at)));
-    // After the run was abandoned, its round not yet ended.
+    // After the run was abandoned and its round ended.
     let (mut w, run, version) = begun();
     let gone = w.tick();
     w.records.abandoned.push(Abandoned { run, at: gone });
+    w.stopped(run);
     let at = put(&mut w, run, version);
     assert_eq!(w.decide(), Decision::Fault(RecordFault::PutInNoRound(at)));
     // Before its next round began, the round before having ended.
@@ -215,6 +217,16 @@ fn a_version_put_in_while_its_run_has_no_round_under_way_is_a_fault() {
     let next = w.tick();
     w.records.rounds.push(Round { run, at: next });
     assert_eq!(w.decide(), Decision::Fault(RecordFault::PutInNoRound(at)));
+}
+
+#[test]
+fn a_version_put_into_the_round_of_a_run_abandoned_while_it_is_still_under_way_is_no_fault() {
+    // What its hook gave the round before it was stopped: its session holds it.
+    let (mut w, run, version) = begun();
+    let gone = w.tick();
+    w.records.abandoned.push(Abandoned { run, at: gone });
+    put(&mut w, run, version);
+    assert!(!matches!(w.decide(), Decision::Fault(_)), "{:?}", w.decide());
 }
 
 #[test]

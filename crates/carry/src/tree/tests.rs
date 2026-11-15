@@ -228,6 +228,7 @@ async fn a_round_is_given_the_files_that_changed_from_each_earlier_version_of_th
             by: decide::Outsider::Outside,
             matters: true,
             value: None,
+            said_to: None,
             at: Seq(at),
         });
     }

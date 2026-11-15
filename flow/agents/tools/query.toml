@@ -5,11 +5,11 @@ words = '''
 `query`: one read-only SQL query on the engine's records, as `{"sql": "..."}`. {store}
   It gives `{"rows": [...]}`, each row an object by the column names. Rows past the bounds of a query are left out, and
   `cut` says in `count` how many rows are given and has in `rest` the query that reads the rest; a result too large to
-  give whole comes cut in the same way, with its size in `bytes`, and `trimmed` where the first row alone was too long
-  and its long values were shortened (read them in parts with `substr`). No value of a query is longer than the engine
-  allows, however it is made.'''
+  give whole comes cut in the same way, with its size in `bytes`, the file that holds the whole result in `file`, and
+  `trimmed` where the first row alone was too long and its long values were shortened (read them in parts with
+  `substr`). No value of a query is longer than the engine allows, however it is made.'''
 # What the words use that this tool defines: the keys of its result `{"rows": [...]}` and the SQL function it points to.
-defines = ["rows", "cut", "count", "rest", "bytes", "trimmed", "substr"]
+defines = ["rows", "cut", "count", "rest", "bytes", "file", "trimmed", "substr"]
 # How many bytes of a result a message gives, past which it is given cut.
 given_bytes = 12000
 

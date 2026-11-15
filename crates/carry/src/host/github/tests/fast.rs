@@ -123,8 +123,8 @@ async fn the_tests_named_run_by_the_fast_workflow_and_each_is_said_with_its_resu
         "{said}"
     );
     for line in [
-        "The tests:\n- tools::tests::a: passed in 0.12 s\n",
-        "- tools::tests::b: failed in 0.3 s\n  What it said:\n```\nthread 'tools::tests::b' panicked at \
+        "The tests that passed:\n- tools::tests::a: passed in 0.12 s",
+        "The tests that did not pass:\n- tools::tests::b: failed in 0.3 s\n  What it said:\n```\nthread 'tools::tests::b' panicked at \
          crates/carry/src/tools.rs:9:5:\nassertion failed: said.is_empty()\n```",
         "- a_name_of_no_test: not run: no test of the run has this name",
     ] {
@@ -238,11 +238,13 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
     let a = said.find("- tools::tests::a: passed in 0.12 s").expect("a");
     assert!(b < a, "{said}");
     assert!(said.contains("assertion failed: said.is_empty()"), "{said}");
+    // What did not pass and the jobs come before what passed, which a result cut short loses first.
+    let jobs = "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 \
+                s https://github.example/checks/test";
+    let at = said.find(jobs).expect("the jobs");
+    assert!(b < at && at < a, "{said}");
     assert!(
-        said.ends_with(
-            "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 s \
-             https://github.example/checks/test"
-        ),
+        said.ends_with("The tests that passed:\n- tools::tests::a: passed in 0.12 s"),
         "{said}"
     );
     assert_eq!(
@@ -278,7 +280,7 @@ async fn each_job_is_said_with_how_it_ended_and_its_wall_time_or_why_it_has_none
     let said = hub.named_check(&Named::default()).await.unwrap().expect("run");
     assert!(said.contains("; 2 of the 4 checks passed."), "{said}");
     assert!(
-        said.ends_with(
+        said.contains(
             "The jobs:\n\
              - lint: passed in 192 s https://github.example/checks/lint\n\
              - page: ended without judging the code (cancelled) https://github.example/checks/page\n\
@@ -309,7 +311,7 @@ async fn the_fast_workflows_run_says_every_job_of_it_and_a_check_named_that_it_h
         .unwrap()
         .expect("run");
     assert!(
-        said.ends_with(
+        said.contains(
             "The jobs:\n- test: passed in 95 s https://github.example/checks/test\n\
              - lint: did not run https://github.example/checks/lint"
         ),

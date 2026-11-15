@@ -12,6 +12,7 @@ fn a_persons_write_is_kept_with_its_content_and_the_first_cell_is_given_its_task
         by: Outsider::Person,
         matters: true,
         value: None,
+        said_to: None,
         at,
     };
     assert_eq!(w.work.records.written, vec![written]);
@@ -41,6 +42,7 @@ fn a_write_from_outside_is_kept_as_the_outside_wrote_it() {
         by: Outsider::Outside,
         matters: false,
         value: None,
+        said_to: None,
         at,
     };
     assert_eq!(w.work.records.written, vec![written]);
