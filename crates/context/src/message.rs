@@ -1,6 +1,8 @@
 //! The message a cell's agent is sent as the engine enters the cell, built from the flow's files alone: its parts in
 //! the order `message.toml` gives them, each datum of the cell's context as `given.toml` words it for the kind the cell
-//! gives it in. The code holds no word an agent is sent, only how the words are put together.
+//! gives it in. The code holds no word an agent is sent, only how the words are put together: what fills a place with a
+//! text that is not the flow's words, a datum's content or what changed in it and a call's result, is set apart in a
+//! fence ([`text::fenced`]), so that nothing it holds is read as the message's own structure.
 //!
 //! What is sent depends on the situation the entry is in ([`Situation`]): which of the parts the session keeps it
 //! holds, whether the last return in it handed in blocks, which triggers ran the cell, and how the session stands with
@@ -614,7 +616,7 @@ impl Build<'_> {
                 let values = declared.and_then(|b| b.values.as_ref());
                 let choice = values.map_or_else(String::new, |values| {
                     let ticked: Vec<String> = values.iter().map(|v| format!("`{v}`")).collect();
-                    told.choice.replace("{values}", &ticked.join(", "))
+                    flow::agents::fill(&told.choice, &[("values", &ticked.join(", "))])
                 });
                 let shown = if declared.is_some_and(|b| b.readers.shown) {
                     told.shown.as_str()
@@ -653,11 +655,10 @@ impl Build<'_> {
             .chain(words)
             .collect();
         // The places of the blocks' words the engine fills are filled in a run, and shown as written on the page.
-        let mut text = self.named(&parts.join("\n\n"));
-        for (name, value) in self.run().map(|run| &run.places).into_iter().flatten() {
-            text = text.replace(&format!("{{{name}}}"), value);
-        }
-        written(&text)
+        let places: Vec<(&str, &str)> = (self.run().map(|run| &run.places).into_iter().flatten())
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect();
+        written(&flow::agents::fill(&self.named(&parts.join("\n\n")), &places))
     }
 
     /// What comes before the results of the calls, in the words of `results.toml`.
@@ -705,12 +706,12 @@ impl Build<'_> {
                         Called::Unknown(call) => vec![("call", call.0.to_string())],
                         Called::Tests { input } => vec![("input", input.clone())],
                     };
-                    let result = r
-                        .result
-                        .as_deref()
-                        .map(str::trim_end)
-                        .unwrap_or(&words.none)
-                        .to_string();
+                    // A result is set apart from the message's own words, whatever it holds; where there is none,
+                    // the words say so.
+                    let result = match r.result.as_deref() {
+                        Some(result) => text::fenced(result),
+                        None => words.none.clone(),
+                    };
                     let places: Vec<(&str, &str)> = (places.iter().map(|(n, v)| (*n, v.as_str())))
                         .chain([("result", result.as_str())])
                         .collect();
@@ -743,7 +744,7 @@ impl Build<'_> {
         };
         let reasons = |unmet: &[Unmet]| -> String {
             let items: Vec<String> = (unmet.iter())
-                .map(|u| words.item.replace("{text}", &self.fault(u)))
+                .map(|u| flow::agents::fill(&words.item, &[("text", &self.fault(u))]))
                 .collect();
             items.join("\n")
         };
@@ -751,7 +752,7 @@ impl Build<'_> {
         for (round, unmet) in &run.sent_back {
             match round {
                 Some(round) => {
-                    let heading = words.earlier.replace("{round}", &round.to_string());
+                    let heading = flow::agents::fill(&words.earlier, &[("round", &round.to_string())]);
                     text.push_str(&format!("{heading}\n\n{}\n\n", reasons(unmet)));
                 }
                 None => {
@@ -856,7 +857,12 @@ impl Build<'_> {
             Some(declared) if declared.values.is_some() => given.choice.as_str(),
             _ => "",
         };
-        let form = |text: &str| fill(&text.replace("{choice}", choice), &[("block", block.as_str())]);
+        let form = |text: &str| {
+            fill(
+                &flow::agents::fill(text, &[("choice", choice)]),
+                &[("block", block.as_str())],
+            )
+        };
         let datum = self.run().and_then(|run| run.data.get(block));
         let text = match (kind, datum) {
             (InputKind::All, Some(datum)) => self.versions(&form(&words.text), &datum.versions),
@@ -902,17 +908,20 @@ impl Build<'_> {
         }
     }
 
-    /// A text of a datum with the places of this version of it filled.
+    /// A text of a datum with the places of this version of it filled: its content, and what changed in it, each set
+    /// apart from the message's own words, whatever it holds.
     fn filled_by(&self, pieces: Vec<Piece>, datum: &Datum, version: &Version) -> Vec<Piece> {
         let number = version.number.0.to_string();
         let last = datum.last.map(|l| l.0.to_string()).unwrap_or_default();
+        let diff = text::fenced(datum.diff.as_deref().unwrap_or_default());
+        let content = text::fenced(&version.content);
         let places = [
             ("number", number.as_str()),
             ("last_number", last.as_str()),
             ("first_number", number.as_str()),
             ("value", version.value.as_deref().unwrap_or_default()),
-            ("diff", datum.diff.as_deref().unwrap_or_default()),
-            ("content", version.content.as_str()),
+            ("diff", diff.as_str()),
+            ("content", content.as_str()),
         ];
         filled(pieces, &places)
     }

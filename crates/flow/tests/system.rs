@@ -125,7 +125,10 @@ fn a_lines_system_prompt_holds_the_parts_session_toml_names_in_its_order() {
             (Of::Returns, "how_you_return", "flow/agents/return/return.toml"),
         ]
     );
-    assert_eq!(as_written(&parts[0].pieces), "# `AGENTS.md`\n\nThe text of AGENTS.md.");
+    assert_eq!(
+        as_written(&parts[0].pieces),
+        "# `AGENTS.md`\n\n```\nThe text of AGENTS.md.\n```"
+    );
     assert_eq!(as_written(&parts[3].pieces), agents.rules["general"].text.trim_end());
     assert_eq!(
         as_written(&parts[5].pieces),
@@ -140,7 +143,7 @@ fn a_lines_system_prompt_holds_the_parts_session_toml_names_in_its_order() {
     // As sent, the engine's words have their place filled, and the settings the texts name, but for the project's
     // files, their values beside them.
     let sent = sent(&parts, &agents);
-    assert!(sent.starts_with("# `AGENTS.md`\n\nThe text of AGENTS.md.\n\n# `design/constitution.md`"));
+    assert!(sent.starts_with("# `AGENTS.md`\n\n```\nThe text of AGENTS.md.\n```\n\n# `design/constitution.md`"));
     assert!(
         sent.contains("worktree of the work's own branch. YOUR LINE Never switch"),
         "{sent}"

@@ -67,7 +67,7 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
     let outputs = returns(&["- `plan`: "]);
     let expected = message(&[
         "# Plan".to_string(),
-        format!("## `request`, version {request}\n\nGreet the user."),
+        format!("## `request`, version {request}\n\n```\nGreet the user.\n```"),
         outputs.clone(),
         "Write the plan for the request.".to_string(),
         ran_by(&["request"]),
@@ -127,8 +127,8 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
     ]);
     let expected = message(&[
         "# Review".to_string(),
-        format!("## `code`, version {code}\n\n{}", CODE.trim_end()),
-        format!("## `plan`, version {plan}\n\nGreet by name."),
+        format!("## `code`, version {code}\n\n```\n{CODE}\n```"),
+        format!("## `plan`, version {plan}\n\n```\nGreet by name.\n```"),
         outputs.clone(),
         "Review the code.".to_string(),
         ran_by(&["code"]),
@@ -146,7 +146,7 @@ fn a_cell_entered_again_is_sent_what_is_new_and_its_task_by_its_held_line() {
     let expected = message(&[
         format!("Kept: `code` {code}"),
         "# Plan".to_string(),
-        format!("## `opinions`, version {opinions}\n\nName the error."),
+        format!("## `opinions`, version {opinions}\n\n```\nName the error.\n```"),
         "As given before in this session.".to_string(),
         ran_by(&["opinions"]),
     ]);
@@ -206,7 +206,9 @@ fn a_datum_given_latest_is_sent_whole_where_the_session_lacks_it_and_its_held_li
     };
     assert_eq!(
         sent(&lacking),
-        Some(format!("## `request`, version {request}\n\nGreet the user by name."))
+        Some(format!(
+            "## `request`, version {request}\n\n```\nGreet the user by name.\n```"
+        ))
     );
     assert_eq!(
         sent(&holding),
@@ -245,12 +247,12 @@ fn what_changed_since_the_version_the_session_holds_is_sent_as_a_change_that_reb
     assert_eq!(entered.fills, fills);
     let text = &entered.text;
     let change = format!(
-        "## `code`, what changed from version {} to version {}\n\n{diff}",
+        "## `code`, what changed from version {} to version {}\n\n```\n{diff}\n```",
         first.0, code.0
     );
     assert!(text.contains(&change), "{text}");
     let notes = format!(
-        "## `notes`, version {}\n\nfirst\n\n## `notes`, version {}\n\nsecond\n\n",
+        "## `notes`, version {}\n\n```\nfirst\n```\n\n## `notes`, version {}\n\n```\nsecond\n```\n\n",
         notes[0].0, notes[1].0
     );
     assert!(text.contains(&notes), "{text}");
@@ -318,7 +320,7 @@ fn a_run_entered_for_the_results_of_its_calls_is_sent_them_once() {
     sim.done(call, "1");
     let round = sim.round().expect("the review is entered for the result");
     let entered = sim.enter(&round, false);
-    let results = "## Results\n\n### `query` on {\"sql\": \"select 1\"}\n\n1\n\nGo on.";
+    let results = "## Results\n\n### `query` on {\"sql\": \"select 1\"}\n\n```\n1\n```\n\nGo on.";
     assert!(entered.text.contains(results), "{}", entered.text);
     assert_eq!(entered.fills.last(), Some(&Fill::Results(vec![call])));
     // The code, which the run that asked dealt with nothing of, is new to the cell still, and held by the session.
@@ -596,7 +598,7 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     // The build worked from no version of the tree, and its session read the first: what changed since is the files the
     // carrier says, whatever their length.
     let files = changed(Seq(first), Seq(latest));
-    let change = format!("## `tree`, what changed from version {first} to version {latest}\n\n{files}");
+    let change = format!("## `tree`, what changed from version {first} to version {latest}\n\n```\n{files}\n```");
     assert!(entered.text.contains(&change), "{}", entered.text);
     let fill = Fill::Change {
         block: BlockId::from("tree"),
@@ -607,7 +609,8 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     // Where the session lacks every version, the latest is sent as any datum's.
     let anew = sim.enter(&round, true);
     assert!(
-        anew.text.contains(&format!("## `tree`, version {latest}\n\nc2 t2")),
+        anew.text
+            .contains(&format!("## `tree`, version {latest}\n\n```\nc2 t2\n```")),
         "{}",
         anew.text
     );
@@ -666,7 +669,7 @@ fn a_return_that_would_write_over_a_version_it_never_saw_is_sent_back_with_that_
     // version put into the round not being held by its session for that.
     let sent_back = format!(
         "## Sent back\n\n- `verdict` has version {over} since.\n\n## `verdict`, version {over}, with the value `yes`\n\n\
-         yes\n\nReturn again."
+         ```\nyes\n```\n\nReturn again."
     );
     assert!(entered.text.contains(&sent_back), "{}", entered.text);
     assert_eq!(entered.fills, [Fill::SentBack { round: 2 }, whole("verdict", over)]);
