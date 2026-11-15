@@ -364,6 +364,133 @@ pub(crate) fn tail(output: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    /// The variable that has the test binary, run again, play a process of the engine running a program, its group
+    /// named in the directory the variable gives.
+    const AN_ENGINE: &str = "WF_AGENTS_TEST_AN_ENGINE";
+
+    /// The file in that directory that names the program's group.
+    const NAMED: &str = "program.pgid";
+
+    // Played by the test binary run again, and only so: runs a program that does not end, and ignores TERM, as a process
+    // of the engine runs an agent's program, until it is killed.
+    #[tokio::test]
+    #[ignore = "run only by the test that kills it"]
+    async fn an_engine_running_a_program_until_it_is_killed() {
+        let Ok(dir) = std::env::var(AN_ENGINE) else {
+            return;
+        };
+        let file = Path::new(&dir).join(NAMED);
+        let mut command = Command::new("sh");
+        command.args(["-c", "trap '' TERM; sleep 120 & wait"]);
+        let _ = run(command, None, Some(&file), &mut Stop::never()).await;
+    }
+
+    // Played by the test binary run again, and only so: runs a program that does not end as a round of its own, as a
+    // process of the engine does, and ends by itself once the program's group is named, its runtime dropping the round
+    // as that of a process of the engine does whose loop has stopped.
+    #[tokio::test]
+    #[ignore = "run only by the test that waits for it to end"]
+    async fn an_engine_ending_by_itself_while_a_program_runs() {
+        let Ok(dir) = std::env::var(AN_ENGINE) else {
+            return;
+        };
+        let file = Path::new(&dir).join(NAMED);
+        let named = file.clone();
+        tokio::spawn(async move {
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 120 & wait"]);
+            let _ = run(command, None, Some(&named), &mut Stop::never()).await;
+        });
+        while group_named(&file).is_none() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    // However the process of the engine ends, a program it runs ends with it. Killed, as by `kill -9` or a crash, the
+    // process runs nothing as it ends, and the program's group is stopped all the same, what ignores TERM too, once the
+    // wait the stop gives it has passed. A few seconds alone, the group being killed after three; no other test kills
+    // an engine under its program.
+    #[tokio::test]
+    async fn a_program_ends_with_the_process_of_the_engine_that_runs_it_when_that_is_killed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = an_engine("an_engine_running_a_program_until_it_is_killed", dir.path());
+        let group = named_in(&dir.path().join(NAMED)).await;
+        engine.kill().expect("the engine is killed");
+        let _ = engine.wait();
+        assert!(
+            ends(group).await,
+            "the program outlived the process of the engine that ran it"
+        );
+    }
+
+    // Ending by itself, as when its loop or the server of its pages stops, the process of the engine drops the rounds
+    // it runs, and the program's group is stopped as it is when the process is killed. Under a second alone; no other
+    // test has an engine end by itself under its program.
+    #[tokio::test]
+    async fn a_program_ends_with_the_process_of_the_engine_that_runs_it_when_that_ends_by_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = an_engine("an_engine_ending_by_itself_while_a_program_runs", dir.path());
+        let group = named_in(&dir.path().join(NAMED)).await;
+        let began = std::time::Instant::now();
+        while engine.try_wait().expect("the engine's status").is_none() {
+            if began.elapsed() > Duration::from_secs(20) {
+                let _ = engine.kill();
+                let _ = engine.wait();
+                signal(group, "KILL").await;
+                panic!("the engine did not end by itself");
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            ends(group).await,
+            "the program outlived the process of the engine that ran it"
+        );
+    }
+
+    /// The test binary run again as a process of the engine, playing the test of this name, in the directory given.
+    fn an_engine(test: &str, dir: &Path) -> std::process::Child {
+        let exe = std::env::current_exe().expect("the test binary");
+        let test = format!("process::tests::{test}");
+        std::process::Command::new(exe)
+            .args(["--exact", &test, "--ignored", "--test-threads=1"])
+            .env(AN_ENGINE, dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the test binary runs again")
+    }
+
+    /// The group the file names, where it names one.
+    fn group_named(file: &Path) -> Option<u32> {
+        let text = std::fs::read_to_string(file).ok()?;
+        text.lines().next()?.trim().parse().ok()
+    }
+
+    /// The group of the program a process of the engine names in the file, once it has named it.
+    async fn named_in(file: &Path) -> u32 {
+        let began = std::time::Instant::now();
+        loop {
+            if let Some(group) = group_named(file) {
+                return group;
+            }
+            assert!(began.elapsed() < Duration::from_secs(20), "the engine ran no program");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// Whether the group ends within fifteen seconds; one that does not is killed.
+    async fn ends(group: u32) -> bool {
+        let began = std::time::Instant::now();
+        while alive(group).await {
+            if began.elapsed() > Duration::from_secs(15) {
+                signal(group, "KILL").await;
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        true
+    }
+
     #[tokio::test]
     async fn a_left_group_is_stopped_though_its_first_process_has_ended() {
         let dir = tempfile::tempdir().unwrap();
