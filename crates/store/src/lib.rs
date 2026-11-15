@@ -16,7 +16,9 @@
 //! (principle `nothing-passes-for-normal`). The schema is [`SCHEMA`], kept in SQLite. A database made with an earlier
 //! version of it is brought to this one as it is opened, by the migrations of `db/migrations/`, each in its turn and
 //! all of them in one transaction with the opening, so that a database is either opened at this version or left as it
-//! was. Before that it is copied whole, so that a migration that goes wrong loses nothing ([`before_migration`]).
+//! was. Before that it is copied whole, so that a migration that goes wrong loses nothing ([`before_migration`]). A
+//! migration that gives the rows kept before a value makes the table anew and carries each row across whole, with the
+//! value, in a step of the store after its SQL (decision `a-migration-carries-each-row-whole`).
 //!
 //! The store also keeps what is the installation's and no work's: the pause of everything, set and lifted, with who set
 //! it: the owner, or the engine as it started with works going on.
@@ -55,33 +57,76 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 /// any other is not opened.
 pub const SCHEMA_VERSION: u32 = 18;
 
+/// A step of the store after a migration's SQL.
+type Step = fn(&Connection) -> Result<(), Fault>;
+
+/// A migration: the SQL that brings a database one version further, replacing the version's one row last, and the step
+/// of the store that runs after it, where it has one.
+struct Migration {
+    sql: &'static str,
+    then: Option<Step>,
+}
+
+impl Migration {
+    const fn sql(sql: &'static str) -> Self {
+        Migration { sql, then: None }
+    }
+}
+
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
 /// what it does.
-const MIGRATIONS: &[&str] = &[
-    include_str!("../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
-    include_str!("../../../db/migrations/202611102304-give-items-a-level.sql"),
-    include_str!("../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
-    include_str!("../../../db/migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
-    include_str!("../../../db/migrations/202611111600-record-the-sessions-of-lines-and-the-context-of-rounds.sql"),
-    include_str!("../../../db/migrations/202611111830-keep-each-change-of-an-item-and-why-it-was-cancelled.sql"),
-    include_str!("../../../db/migrations/202611112000-say-who-paused-everything.sql"),
-    include_str!("../../../db/migrations/202611112100-record-backups.sql"),
-    include_str!(
+const MIGRATIONS: &[Migration] = &[
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611102304-give-items-a-level.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611111401-keep-the-owners-pause-of-everything.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611111600-record-the-sessions-of-lines-and-the-context-of-rounds.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611111830-keep-each-change-of-an-item-and-why-it-was-cancelled.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611112000-say-who-paused-everything.sql"
+    )),
+    Migration::sql(include_str!("../../../db/migrations/202611112100-record-backups.sql")),
+    Migration::sql(include_str!(
         "../../../db/migrations/202611131500-keep-what-a-return-dealt-with-what-reached-a-round-and-what-filled-it.sql"
-    ),
-    include_str!("../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"),
-    include_str!("../../../db/migrations/202611141700-give-items-a-project.sql"),
-    include_str!("../../../db/migrations/202611141900-keep-the-questions-put-to-the-owner-and-the-answers.sql"),
-    include_str!(
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611141700-give-items-a-project.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611141900-keep-the-questions-put-to-the-owner-and-the-answers.sql"
+    )),
+    Migration::sql(include_str!(
         "../../../db/migrations/202611142000-say-why-each-change-of-an-item-was-made-tag-items-and-reopen-them.sql"
-    ),
-    include_str!(
+    )),
+    Migration::sql(include_str!(
         "../../../db/migrations/202611142100-keep-what-the-calls-of-a-round-came-to-and-the-pings-of-sessions.sql"
-    ),
-    include_str!("../../../db/migrations/202611142300-keep-the-cell-an-entry-of-what-is-said-is-said-to.sql"),
-    include_str!("../../../db/migrations/202611151200-say-what-a-finished-run-waits-for-from-outside.sql"),
-    include_str!("../../../db/migrations/202611151600-say-whether-a-version-holds-anything.sql"),
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611142300-keep-the-cell-an-entry-of-what-is-said-is-said-to.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611151200-say-what-a-finished-run-waits-for-from-outside.sql"
+    )),
+    Migration {
+        sql: include_str!("../../../db/migrations/202611151600-say-whether-a-version-holds-anything.sql"),
+        then: Some(tables::fill_empty),
+    },
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -235,9 +280,7 @@ impl Store {
                 // Made with an earlier version: each migration from it on is run, in this transaction, each replacing
                 // the version's one row with its own.
                 Some(earlier @ 1..SCHEMA_VERSION) => {
-                    for migration in &MIGRATIONS[earlier as usize - 1..] {
-                        tx.execute_batch(migration)?;
-                    }
+                    migrate(&tx, earlier, SCHEMA_VERSION)?;
                 }
                 _ => {
                     return Err(Fault::Schema {
@@ -250,6 +293,23 @@ impl Store {
         tx.commit()?;
         Ok(Store { db })
     }
+}
+
+/// Brings a database of version `from` of the schema to version `to`, by the migrations between, each with its step.
+/// A test makes a database of an earlier version by it.
+pub fn migrate(db: &Connection, from: u32, to: u32) -> Result<(), Fault> {
+    let between = (from as usize)
+        .checked_sub(1)
+        .zip((to as usize).checked_sub(1))
+        .and_then(|(start, end)| MIGRATIONS.get(start..end))
+        .ok_or_else(|| Fault::Database(format!("there are no migrations from version {from} to version {to}")))?;
+    for migration in between {
+        db.execute_batch(migration.sql)?;
+        if let Some(then) = migration.then {
+            then(db)?;
+        }
+    }
+    Ok(())
 }
 
 /// The version of the schema a database says it was made with; none where it has no table of the version, as a new
