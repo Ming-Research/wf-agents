@@ -212,6 +212,7 @@ fn came(dealt_with: &[&str], writes: Vec<Write>, found: Vec<Unmet>, waits: bool)
             waits,
             questions: Vec::new(),
             read: Vec::new(),
+            skips: Vec::new(),
         }),
     }
 }
@@ -245,6 +246,7 @@ fn asks(calls: usize) -> Round {
             waits: false,
             questions: Vec::new(),
             read: Vec::new(),
+            skips: Vec::new(),
         }),
     }
 }

@@ -12,6 +12,11 @@ use super::*;
 /// A research that what people ask for and the owner's answers to it run, writing the plan; an implementation of the
 /// plan; and a merge that requires every question to be answered.
 fn asking() -> Compiled {
+    asking_when("")
+}
+
+/// The same flow, its research run only while its condition, these keys, holds; none where they are empty.
+fn asking_when(when: &str) -> Compiled {
     let flow = r#"
         name = "asking"
         order = ["research", "implement", "merge"]
@@ -45,6 +50,10 @@ fn asking() -> Compiled {
         inputs = ["request", "answered"]
         outputs = ["plan"]
     "#;
+    let research = match when {
+        "" => research.to_string(),
+        keys => format!("{research}when = {keys}\n"),
+    };
     let implement = r#"
         title = "Implement"
         kind = "agent"
@@ -64,10 +73,14 @@ fn asking() -> Compiled {
     "#;
     let source = Source {
         flow: flow.to_string(),
-        cells: [("research", research), ("implement", implement), ("merge", merge)]
-            .iter()
-            .map(|(id, text)| (id.to_string(), text.to_string()))
-            .collect(),
+        cells: [
+            ("research", research.as_str()),
+            ("implement", implement),
+            ("merge", merge),
+        ]
+        .iter()
+        .map(|(id, text)| (id.to_string(), text.to_string()))
+        .collect(),
         ..Default::default()
     };
     compile(&source, &has(&["answer", "asked"])).expect("the definition compiles")
@@ -579,4 +592,26 @@ fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record
     w.answers("which", version, 2);
     assert_eq!(entries(&w).len(), 4);
     assert_eq!(w.work.records.answers.len(), 3);
+}
+
+// A research that runs only while every question has the owner's answer, and asks one it waits for: taking the return
+// in, the engine writes `asked` as waiting, which leaves the research no longer applying while it waits, so that its
+// wait would hold nothing. The return is sent back naming `asked`, what the engine writes as it takes it in being
+// among what the walk judges (decision a-return-that-waits-keeps-its-cell). Well under a millisecond alone; no other
+// test has a cell's condition read what the engine writes for its own return.
+#[test]
+fn a_return_whose_question_has_the_engine_write_what_leaves_its_cell_is_sent_back() {
+    let mut w = W {
+        flow: asking_when("{ asked = \"answered\" }"),
+        work: Work::default(),
+        clock: START,
+    };
+    let (effects, _) = w.person_writes("request");
+    let (run, cell, ..) = round(&effects);
+    assert_eq!(cell, "research");
+    let effects = w.returns(run, plans(vec![asked("depth", true)]));
+    let (again, cell, number, given) = round(&effects);
+    assert_eq!((again, cell.as_str(), number), (run, "research", 2));
+    let skips = vec![Unmet::SkipsItsWait { block: "asked".into() }];
+    assert_eq!(given, Given::SentBack(skips));
 }
