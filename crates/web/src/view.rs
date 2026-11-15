@@ -439,10 +439,6 @@ pub enum What {
     MissingPlaceholder {
         placeholder: String,
     },
-    /// The block is kept as data of a kind the engine does not keep.
-    UnknownKept {
-        kept: String,
-    },
     /// The cell writes the work's questions, and no answer of the owner's runs it.
     AsksWithNoAnswer {
         block: String,
@@ -816,7 +812,6 @@ impl What {
             F::TriggerOnly { block } => What::TriggerOnly { block },
             F::NotLaidOut => What::NotLaidOut,
             F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
-            F::UnknownKept { kept } => What::UnknownKept { kept },
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
             F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
             F::TriggerNeverRuns {

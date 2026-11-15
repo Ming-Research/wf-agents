@@ -1,9 +1,0 @@
-# The questions the cells ask the owner, which the engine keeps as the work's questions, in a shape of their own.
-what = "The questions the cells ask the owner."
-shown = true
-kept = "questions"
-words = "`questions`: what you ask the owner, each with `waits`."
-
-[shape]
-type = "array"
-items = { type = "object", properties = { name = { type = "string" }, waits = { type = "boolean" } }, required = ["name", "waits"], additionalProperties = false }

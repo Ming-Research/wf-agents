@@ -546,6 +546,8 @@ pub struct Outputs {
     pub must_write: String,
     /// What stands in place of the list where the cell writes no block.
     pub none: String,
+    /// What follows the list, once, where a block of it is one the owner reads.
+    pub owner_reads: String,
 }
 
 /// A field of a return that is the engine's, which every agent cell has: `agents/return/fields/<name>.toml`. It is a

@@ -10,10 +10,11 @@ use decide::run::{Return, Told};
 use decide::{BlockId, CallId, Cell, CellId, Condition, TestKind, Write};
 use flow::{Compiled, Kind};
 
-/// The data of the engine's that people write: what the item asks, what the owner says to the work, and the answers.
+/// The data of the engine's that the owner's acts write: what the item asks, what the owner says to the work, and the
+/// record of the questions and the answers.
 pub const BACKGROUND: &str = "background";
 pub const DISCUSSION: &str = "discussion";
-pub const ANSWERS: &str = "answers";
+pub const Q_AND_A: &str = "q_and_a";
 
 /// The triggers of a cell's own that the owner fires: speaking to it, and answering one of its questions.
 const SPOKEN: &str = "on_spoken";

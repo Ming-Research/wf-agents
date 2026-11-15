@@ -22,7 +22,7 @@ use decide::{
 };
 
 use crate::model::{
-    ANSWERS, BACKGROUND, DEPENDENCIES, DISCUSSION, Event, MAIN, Model, START, TREE, Variant, ran, ran_back_on, ran_on,
+    BACKGROUND, DEPENDENCIES, DISCUSSION, Event, MAIN, Model, Q_AND_A, START, TREE, Variant, ran, ran_back_on, ran_on,
     reply_loop, show_key, skipped, waited_at_gate,
 };
 use crate::reading::{Reading, Reason, Writer};
@@ -763,7 +763,7 @@ impl Explorer<'_> {
                 match c.questions.get(call).cloned() {
                     Some(asker) => {
                         entered = Some(m.place(&asker));
-                        person(w, &ANSWERS.into(), &mut written);
+                        person(w, &Q_AND_A.into(), &mut written);
                         if let Some(block) = m.answered[m.place(&asker)].clone() {
                             person(w, &block, &mut written);
                         }
@@ -778,7 +778,7 @@ impl Explorer<'_> {
                 }
             }
             Event::OtherOption(cell) => {
-                person(w, &ANSWERS.into(), &mut written);
+                person(w, &Q_AND_A.into(), &mut written);
                 let block = m.answered[m.place(cell)].clone().expect("the cell is answered");
                 person(w, &block, &mut written);
             }

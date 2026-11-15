@@ -14,8 +14,8 @@ use super::*;
 fn grouped() -> Compiled {
     let flow = FLOW
         .replace(
-            r#"data = ["request", "discussion", "answers", "questions"]"#,
-            r#"data = ["request", "notes", "discussion", "answers", "questions"]"#,
+            r#"data = ["request", "discussion", "q_and_a"]"#,
+            r#"data = ["request", "notes", "discussion", "q_and_a"]"#,
         )
         .replace("[limits]", "[groups]\nbrief = [\"request\", \"notes\"]\n\n[limits]");
     let write = WRITE
@@ -24,8 +24,8 @@ fn grouped() -> Compiled {
             r#"triggered_by = ["on_brief", "on_spoken", "on_answer"]"#,
         )
         .replace(
-            r#"context = ["request", "discussion", "answers"]"#,
-            r#"context = ["request", "notes", "discussion", "answers"]"#,
+            r#"context = ["request", "discussion", "q_and_a"]"#,
+            r#"context = ["request", "notes", "discussion", "q_and_a"]"#,
         )
         .replace("[kinds]", "[kinds]\nnotes = \"latest\"");
     compiled(

@@ -81,14 +81,10 @@ pub const WORDS: &str = "words";
 
 /// The source of the block a new version of which is the owner answering a question of the cell it runs with another
 /// option than the one the work goes by, or one the cell waits for (design document `data-and-context`, 35, 36). The
-/// engine writes it as the owner answers.
+/// engine writes it as the owner answers; and the record of the work's questions and the owner's answers, which the
+/// trigger of an answer has its agent read ([`Trigger::records`]): a block of this source a cell writes holds the
+/// questions it asks, and the cells that write one are those that may ask.
 pub const ANSWER: &str = "answer";
-
-/// What the engine keeps the work's questions as, which a cell asks the owner, asks anew or withdraws in a block it
-/// writes (design document `data-and-context`, 26): each a version of its own under its name, not a version of the
-/// block. A block a cell writes that is kept so ([`Block::kept`]) is the work's questions, and the cells that write it
-/// are those that may ask.
-pub const QUESTIONS: &str = "questions";
 
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
 /// to a cell, and an answer ([`WORDS`], [`ANSWER`]). Such a block stops a round under way of a later cell
@@ -107,9 +103,6 @@ pub struct Has {
     /// The parts that the engine places in the system prompt of every line's session itself. A line names none of
     /// them, and no set of the flow's rules has the name of one.
     pub system: BTreeSet<String>,
-    /// What the engine keeps of what a cell writes in a block as data of its own, not as the block's versions: a block
-    /// that is kept so names one of them.
-    pub kept: BTreeSet<String>,
     /// The places the engine fills in a run with what happened: a trigger that says what happened names one of them.
     pub details: BTreeSet<String>,
 }
@@ -210,13 +203,19 @@ impl Trigger {
         self.blocks().iter().find(writes)
     }
 
-    /// Of the trigger of the owner's words, the records of what is said that its agent reads for it: each datum it
-    /// reads that the owner's words write ([`WORDS`]), but the block it stands on. The owner's words are written there
-    /// as the owner's entry, and the cell answers them there. None of another trigger.
-    pub fn said_in<'f>(&'f self, flow: &'f Compiled) -> impl Iterator<Item = &'f BlockId> + 'f {
-        let own = self.of_source(flow, WORDS);
-        let words = |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref()) == Some(WORDS);
-        (self.read.iter()).filter(move |b| own.is_some_and(|own| *b != own) && words(b))
+    /// Of the trigger of this source outside the work, the records its agent reads for it that the same source writes
+    /// entries of, but the block it stands on: of the owner's words ([`WORDS`]), the record of what is said, where the
+    /// owner's entries are written and the cell answers them; of an answer ([`ANSWER`]), the record of the work's
+    /// questions and the owner's answers. None of another trigger.
+    pub fn records<'f>(&'f self, flow: &'f Compiled, source: &'f str) -> impl Iterator<Item = &'f BlockId> + 'f {
+        let of = move |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
+        self.reads_of(of)
+    }
+
+    /// The same records, `of` saying whether the source writes a block.
+    fn reads_of<'f>(&'f self, of: impl Fn(&BlockId) -> bool + Copy + 'f) -> impl Iterator<Item = &'f BlockId> + 'f {
+        let own = self.blocks().iter().find(move |b| of(b));
+        (self.read.iter()).filter(move |b| own.is_some_and(|own| *b != own) && of(b))
     }
 }
 
@@ -279,9 +278,6 @@ pub struct Block {
     pub default: Option<String>,
     /// What the block is, in a sentence, where the definition says it.
     pub what: Option<String>,
-    /// What the engine keeps what a cell writes in the block as, where it keeps it as data of its own and not as the
-    /// block's versions, as [`QUESTIONS`].
-    pub kept: Option<String>,
     /// What a cell that writes the block is told of writing it, after the list of what it returns; none where its
     /// file says nothing.
     pub words: Option<String>,
@@ -445,13 +441,11 @@ pub enum FaultKind {
     /// A value of a file beside the flows that stands for each cell, each datum or each group does not hold the name
     /// that stands for it, `{cell}`, `{datum}` or `{group}`.
     MissingPlaceholder { placeholder: String },
-    /// The block is kept as data of a kind the engine does not keep.
-    UnknownKept { kept: String },
-    /// The cell writes the block, which holds the work's questions ([`QUESTIONS`]), and no block of the source
-    /// [`ANSWER`] runs it: the owner's answer to a question it asks would run no cell.
+    /// The cell writes the block, which holds the work's questions (one the source [`ANSWER`] writes), and no block of
+    /// that source runs it: the owner's answer to a question it asks would run no cell.
     AsksWithNoAnswer { block: String },
-    /// The cell writes the block, which holds the work's questions ([`QUESTIONS`]), and no block of the source
-    /// [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
+    /// The cell writes the block, which holds the work's questions (one the source [`ANSWER`] writes), and no block of
+    /// the source [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
     AsksAndCannotBeSpokenTo { block: String },
     /// A trigger of the cell stands on a block that each of its writers, cells only (no person or outside writes it),
     /// writes only where a block has a value that the cell's own condition rules out, and that block no cell can
@@ -594,6 +588,13 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
             (TestName(name.clone()), test)
         })
         .collect();
+    // A block a trigger of its source has its agent read, but the one it stands on, is a record that source adds
+    // entries to ([`Trigger::records`]).
+    let source_of = |b: &BlockId| flow_file.blocks.get(b.as_str()).and_then(|d| d.outside.as_deref());
+    let record = |name: &str, source: &str| {
+        let of = |b: &BlockId| source_of(b) == Some(source);
+        (specs.iter().flat_map(|s| &s.triggers)).any(|t| t.reads_of(of).any(|b| b.as_str() == name))
+    };
     let outsiders = (flow_file.blocks.iter())
         .filter(|(_, b)| b.people || b.outside.is_some())
         .map(|(name, b)| {
@@ -602,6 +603,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 note: b.note,
                 outside: b.outside.clone(),
                 interrupts: b.outside.as_deref().is_some_and(|source| TURNING.contains(&source)),
+                entries: b.outside.as_deref().is_some_and(|source| record(name, source)),
             };
             (BlockId(name.clone()), outsiders)
         })
@@ -1461,8 +1463,8 @@ impl<'a> Definition<'a> {
             || !uses.tests.is_empty()
     }
 
-    /// The faults of the declared blocks: values that make no choice, a source or a kind of data kept that the engine
-    /// does not have, a block with no writer, and one with no reader.
+    /// The faults of the declared blocks: values that make no choice, a source the engine does not have, a block with
+    /// no writer, and one with no reader.
     fn check_blocks(&self, has: &Has, faults: &mut Vec<Fault>) {
         for (name, block) in &self.flow.blocks {
             let at = |field: &str, what| self.places.fault("blocks", name, field, what);
@@ -1504,9 +1506,6 @@ impl<'a> Definition<'a> {
                 };
                 // Laid out one thing to a file, who writes a block from outside the cells is said by `from`.
                 faults.push(at(if self.places.laid_out { "from" } else { "outside" }, what));
-            }
-            if let Some(kept) = block.kept.as_ref().filter(|k| !has.kept.contains(*k)) {
-                faults.push(at("kept", FaultKind::UnknownKept { kept: kept.clone() }));
             }
             if !self.written(name) {
                 let what = FaultKind::NoWriter { block: name.clone() };
@@ -1770,7 +1769,7 @@ impl<'a> Definition<'a> {
         let (answered, spoken_to) = (run_by(ANSWER), run_by(WORDS));
         if !unread_triggers {
             for (i, block) in file.outputs.iter().enumerate() {
-                if self.flow.blocks.get(block).and_then(|b| b.kept.as_deref()) != Some(QUESTIONS) {
+                if self.flow.blocks.get(block).and_then(|b| b.outside.as_deref()) != Some(ANSWER) {
                     continue;
                 }
                 if !answered {
@@ -2255,7 +2254,6 @@ impl<'a> Definition<'a> {
                     values: declared.values.clone(),
                     default: declared.default.clone(),
                     what: declared.what.clone(),
-                    kept: declared.kept.clone(),
                     words: declared.words.clone(),
                     shape: declared.shape.clone().map(|shape| Shape(toml::Value::Table(shape))),
                     trigger: self.trigger_blocks.contains(name),

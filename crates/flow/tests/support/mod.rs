@@ -167,7 +167,6 @@ pub fn has() -> Has {
         acts: names(&["check", "merge"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "tree_rules"]),
-        kept: names(&["questions"]),
         details: names(&["files"]),
     }
 }

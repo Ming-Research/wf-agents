@@ -30,7 +30,6 @@ fn engineer() -> Compiled {
         ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
-        kept: names(&["questions"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -177,7 +176,7 @@ fn how_you_return_holds_each_fields_and_each_flow_tools_words() {
     let words: Vec<(&str, &str)> = (flow.blocks.iter())
         .filter_map(|(name, b)| b.words.as_deref().map(|w| (name.as_str(), w)))
         .collect();
-    assert!(words.iter().any(|(name, _)| *name == "questions"), "{words:?}");
+    assert!(words.iter().any(|(name, _)| *name == "q_and_a"), "{words:?}");
     for (name, words) in words {
         assert!(!told.contains(words.trim()), "{name}:\n{told}");
     }

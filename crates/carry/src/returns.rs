@@ -4,8 +4,9 @@
 //! return is put into the form's shape where it is not in it but means it, as the old engine read one, and then read:
 //! what it dealt with, by the names of the cell's triggers, each worked out to the block it stands on, a group's
 //! trigger to its group's name; each block it writes in `outputs`, a choice with its value and its line of why kept as
-//! its content, and the block the engine keeps as the work's questions ([`flow::QUESTIONS`]) read as its questions,
-//! which are kept with it and become data of their own once its run finishes; the tools it asks for, each request of a
+//! its content, and the record of the work's questions and the owner's answers, the block the engine's source of
+//! answers writes ([`flow::ANSWER`]), read as the questions it asks, which are kept with it and, once its run finishes,
+//! become data of their own and the record's entries; the tools it asks for, each request of a
 //! tool one call; what it says beside its work, its observations, which are kept with it; and why it says the work
 //! changes each file the project protects, which the engine's look at the work's branch takes as the round ends and
 //! asks the owner with, and which is not kept with the return ([`crate::protected`]). What only its reading can see
@@ -135,11 +136,19 @@ fn table_of(value: Option<Value>) -> Value {
     }
 }
 
-/// The blocks of the flow the engine keeps as the work's questions ([`flow::QUESTIONS`]), by name.
-fn questions_blocks(flow: &Compiled) -> Vec<&str> {
-    (flow.blocks.iter())
-        .filter(|(_, b)| b.kept.as_deref() == Some(flow::QUESTIONS))
-        .map(|(name, _)| name.as_str())
+/// Whether the block is a record of the work's questions and the owner's answers: one the engine's source of answers
+/// writes ([`flow::ANSWER`]). What a cell writes of one is the questions it asks.
+fn of_questions(flow: &Compiled, block: &BlockId) -> bool {
+    flow.blocks.get(block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER)
+}
+
+/// The blocks among the cell's outputs that hold the questions it asks, by name.
+fn questions_blocks<'f>(flow: &'f Compiled, cell: &CellSpec) -> Vec<&'f str> {
+    let place = flow.flow.place(&cell.id);
+    let outputs = place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]);
+    (outputs.iter())
+        .filter(|b| of_questions(flow, b))
+        .map(|b| b.as_str())
         .collect()
 }
 
@@ -212,7 +221,8 @@ fn normalised(structured: &Value, questions: &[&str]) -> Value {
 pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents) -> Result<Reading, String> {
     let unread = &words.sent_back.unread;
     let not_of_its_form = |e: serde_json::Error| fill(&unread.not_of_its_form, &[("error", &e.to_string())]);
-    let r: Return = serde_json::from_value(normalised(structured, &questions_blocks(flow))).map_err(not_of_its_form)?;
+    let asking = questions_blocks(flow, cell);
+    let r: Return = serde_json::from_value(normalised(structured, &asking)).map_err(not_of_its_form)?;
     let mut found = Vec::new();
     let mut came = Came {
         // A return that asks for tools and does no work deals with nothing.
@@ -271,7 +281,7 @@ fn answered(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec
         let Some(trigger) = (cell.triggers.iter()).find(|t| &t.name == name) else {
             continue;
         };
-        if trigger.of_source(flow, flow::WORDS).is_some() && !trigger.said_in(flow).any(words) {
+        if trigger.of_source(flow, flow::WORDS).is_some() && !trigger.records(flow, flow::WORDS).any(words) {
             found.push(Unmet::NotAnswered { name: name.clone() });
         }
     }
@@ -301,8 +311,8 @@ fn questions(asked: &[Question], words: &Agents, found: &mut Vec<Unmet>) {
 /// Each block the return writes, in the order the cell writes them, then any other in the order of its name: one the
 /// cell writes there, as a string or as a choice's value with its line of why, which is kept as its content. A block
 /// that is not among the cell's outputs, and one in a shape neither a block nor a choice has, is found. Beside them,
-/// what the return writes of a block the engine keeps as the work's questions, which is read as them, and is no
-/// version of the block.
+/// what the return writes of the record of the work's questions, which is read as the questions it asks: their entries
+/// are the engine's to write.
 fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) -> (Vec<Handed>, Vec<Value>) {
     let place = flow.flow.place(&cell.id);
     let outputs = place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]);
@@ -320,7 +330,7 @@ fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<U
             continue;
         }
         let declared = flow.blocks.get(&block);
-        if declared.is_some_and(|d| d.kept.as_deref() == Some(flow::QUESTIONS)) {
+        if of_questions(flow, &block) {
             asked.push(outcome.outputs[name].clone());
             continue;
         }

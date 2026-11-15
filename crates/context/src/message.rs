@@ -587,8 +587,9 @@ impl Build<'_> {
     }
 
     /// What the cell writes, with its task: its blocks, each on a line with its marks and its words, as `[outputs]` of
-    /// `return.toml` says, and after the list what the cell is told of writing each block whose file says it, each a
-    /// paragraph, in the order of the list; that it writes none, where it writes none.
+    /// `return.toml` says; after the list its `owner_reads`, once, where a block of it is one the owner reads; then
+    /// what the cell is told of writing each block whose file says it, each a paragraph, in the order of the list; that
+    /// it writes none, where it writes none.
     fn outputs(&self) -> Vec<Piece> {
         let told = &self.words.returns.outputs;
         let place = self.flow.flow.place(&self.cell.id);
@@ -627,10 +628,16 @@ impl Build<'_> {
         } else {
             lines.join("\n")
         };
+        let shown = (outputs.iter()).any(|block| self.flow.blocks.get(block).is_some_and(|b| b.readers.shown));
+        let reads = shown.then(|| told.owner_reads.trim().to_string());
         let words = (outputs.iter())
             .filter_map(|block| self.flow.blocks.get(block).and_then(|b| b.words.as_deref()))
             .map(|words| words.trim().to_string());
-        let parts: Vec<String> = [told.heading.clone(), list].into_iter().chain(words).collect();
+        let parts: Vec<String> = [told.heading.clone(), list]
+            .into_iter()
+            .chain(reads)
+            .chain(words)
+            .collect();
         written(&self.named(&parts.join("\n\n")))
     }
 

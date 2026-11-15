@@ -48,6 +48,7 @@ fn spec() -> Spec {
         told: Some(Seq(at)),
         latest: Some(Seq(at)),
         value: value.map(str::to_string),
+        added: false,
     };
     Spec {
         outputs: vec!["plan".into(), "verdict".into()],

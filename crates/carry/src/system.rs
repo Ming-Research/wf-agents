@@ -213,6 +213,7 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
         &told.shown,
         &told.must_write,
         &told.none,
+        &told.owner_reads,
     ];
     let words = outputs.into_iter().map(|text| flow::system::Said {
         source: format!("{returns}, [outputs]"),

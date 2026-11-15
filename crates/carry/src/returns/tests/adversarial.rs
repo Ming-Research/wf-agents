@@ -19,8 +19,8 @@ fn planned(content: &str) -> Result<Came, String> {
 #[test]
 fn a_null_unknown_field_in_a_question_still_fails() {
     for r in [
-        json!({"outcome": {"outputs": {"questions": [{"name": "q", "withdrawn": "x", "bogus": null}]}}}),
-        json!({"outcome": {"outputs": {"questions": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
+        json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "withdrawn": "x", "bogus": null}]}}}),
+        json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
             "options": [], "bogus": null}]}}}),
     ] {
         assert!(read(&r).is_err(), "{r} is taken");
@@ -39,7 +39,7 @@ fn a_null_unknown_field_in_a_kind_or_the_form_still_fails() {
 
 #[test]
 fn a_question_with_both_shapes_filled_fails() {
-    let r = json!({"outcome": {"outputs": {"questions": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
+    let r = json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
         "options": [], "withdrawn": "No longer."}]}}});
     assert!(read(&r).is_err());
 }

@@ -32,7 +32,8 @@ its writer says so: with each write the cell says whether the change matters to 
 with the version at which the meaning last changed. Prose a person writes always changes the meaning, and so does what
 the outside writes, unless whoever approved that write said it does not. A return that would write over a version of
 a block its round was never told of is sent back, the next round told of it, so a cell's word that a change does not
-matter is always said of what it saw. What a change that does not matter leaves undone is in the design of data and
+matter is always said of what it saw; an entry added to a record whose versions all stand, which a trigger of its
+source has its agent read, writes over nothing. What a change that does not matter leaves undone is in the design of data and
 context.
 Why: An agent never writes the same text twice, so judging prose by its text would run every later cell again after
 every rerun. A second agent to check the answer, at a round for every change, was turned down, and so was a count that

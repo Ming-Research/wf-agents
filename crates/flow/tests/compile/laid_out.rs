@@ -163,46 +163,25 @@ fn who_writes_a_block_from_outside_the_cells_is_said_by_from_the_owner_or_a_sour
     );
 }
 
+// The record of the questions and the answers is a datum the engine's source of answers writes, with the shape its
+// file gives what a cell writes of it.
 #[test]
-fn a_datum_kept_as_data_of_its_own_and_its_shape_are_as_its_file_says_them() {
+fn the_record_of_questions_and_answers_is_the_answers_source_s_and_its_shape_is_as_its_file_gives_it() {
     let source = edit(
         laid_out(),
         FLOW_FILE,
         "data = [\"request\"]",
-        "data = [\"request\", \"questions\"]",
+        "data = [\"request\", \"q_and_a\"]",
     );
-    // People write it here, so that no cell asks, which would need what runs a cell that asks.
-    let source = edit(
-        source,
-        "../data/questions.toml",
-        "shown = true",
-        "shown = true\nfrom = \"owner\"",
-    );
-    let compiled = compiled(&source);
-    let questions = &compiled.blocks[&BlockId::from("questions")];
-    assert_eq!(questions.kept.as_deref(), Some(flow::QUESTIONS));
-    let Some(flow::Shape(shape)) = &questions.shape else {
+    let mut has = crate::support::has();
+    has.sources.insert(flow::ANSWER.to_string());
+    let compiled = flow::compile(&source, &has).unwrap_or_else(|faults| panic!("{faults:#?}"));
+    let record = &compiled.blocks[&BlockId::from("q_and_a")];
+    assert_eq!(record.writers.outside.as_deref(), Some(flow::ANSWER));
+    let Some(flow::Shape(shape)) = &record.shape else {
         panic!("the questions have a shape of their own");
     };
     assert_eq!(shape["type"].as_str(), Some("array"));
-}
-
-#[test]
-fn a_datum_is_kept_as_data_of_its_own_only_as_what_the_engine_keeps() {
-    let source = edit(
-        laid_out(),
-        FLOW_FILE,
-        "data = [\"request\"]",
-        "data = [\"request\", \"discussion\"]",
-    );
-    let source = edit(
-        source,
-        "../data/discussion.toml",
-        "shown = true",
-        "shown = true\nkept = \"answers\"",
-    );
-    let what = UnknownKept { kept: "answers".into() };
-    assert_eq!(faults(&source), [at("../data/discussion.toml", "kept", what)]);
 }
 
 #[test]

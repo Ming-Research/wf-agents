@@ -284,17 +284,17 @@ fn compiled(on: On) -> Compiled {
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");
     }
-    // A build the owner's answer runs may ask the owner: the work's questions are among its outputs, and the owner's
-    // words run it as well, as they run every cell that may ask.
+    // A build the owner's answer runs may ask the owner: the record of the work's questions, which the engine's source
+    // of answers writes, is among its outputs, and the owner's words run it as well, as they run every cell that may ask.
     if let Some(build) = source
         .cells
         .get_mut("build")
         .filter(|build| build.contains("\"answered\"]"))
     {
         *build = (build.replace("\"answered\"]", "\"answered\", \"build_spoken_to\"]"))
-            .replace("outputs = [\"code\"]", "outputs = [\"code\", \"questions\"]");
+            .replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
         source.flow.push_str(
-            "\n[blocks.questions]\nkept = \"questions\"\nshown = true\n\n[blocks.questions.shape]\ntype = \"array\"\n\n\
+            "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n\n\
              [blocks.build_spoken_to]\noutside = \"words\"\n",
         );
     }
@@ -313,7 +313,6 @@ fn compiled(on: On) -> Compiled {
         // the tree.
         details: names(&["files"]),
         tools: names(&["query"]),
-        kept: names(&[flow::QUESTIONS]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the flow compiles")
@@ -398,7 +397,7 @@ case "$first" in
         if [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
             # It leaves all that ran it for after the answer.
             dealt=''
-            out='"questions":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
+            out='"q_and_a":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
         elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
             calls='"query":[{{"sql":"select the check"}}]'
         else

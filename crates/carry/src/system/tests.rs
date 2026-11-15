@@ -34,7 +34,6 @@ fn engineer() -> Compiled {
         ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
-        kept: names(&["questions"]),
         details: names(&["files"]),
         ..Default::default()
     };

@@ -368,7 +368,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                     .find(|s| s.run == run)
                     .map(|s| s.cell.clone());
                 if let Some(cell) = cell {
-                    asked::record(work, run, &cell, true, &came.engine);
+                    asked::record(flow, work, run, &cell, true, &came.engine);
                 }
                 let back = Back::Returned {
                     dealt_with,
@@ -823,7 +823,7 @@ fn finish(
     if !questions.is_empty()
         && let Some(cell) = cell
     {
-        asked::record(work, run, &cell, false, &questions);
+        asked::record(flow, work, run, &cell, false, &questions);
         asked::tell(flow, work);
     }
 }

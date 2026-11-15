@@ -265,7 +265,7 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
         }
         // The work's questions are a block it writes, which the engine keeps as questions of their own.
         if !questions.is_empty() {
-            outputs.insert("questions".into(), Value::Array(questions));
+            outputs.insert("q_and_a".into(), Value::Array(questions));
         }
         outcome.insert("outputs".into(), Value::Object(outputs));
         if !unchanged.is_empty() {

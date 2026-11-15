@@ -143,7 +143,6 @@ fn engineer() -> Compiled {
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.
         tools: names(&["query", "run_tests"]),
-        kept: names(&["questions"]),
         details: names(&["files"]),
         ..Default::default()
     };

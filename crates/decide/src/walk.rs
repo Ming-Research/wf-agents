@@ -326,6 +326,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
                 told: walk.told(r, block),
                 latest: latest.map(|v| v.at),
                 value: latest.and_then(|v| v.value).map(str::to_string),
+                added: flow.adds_entries(block),
             };
             (block.clone(), standing)
         })

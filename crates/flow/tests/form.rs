@@ -151,7 +151,6 @@ fn engineer() -> Compiled {
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),
-        kept: names(&[flow::QUESTIONS]),
         details: names(&["files"]),
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")
@@ -164,7 +163,7 @@ fn engineer() -> Compiled {
 fn the_engineer_s_lines_each_list_their_cells_blocks_and_only_those_that_write_questions_have_them() {
     let flow = engineer();
     let beside = agents::read(&repository_flows()).expect("the files beside the flows are read");
-    let questions = flow.blocks[&BlockId::from("questions")]
+    let questions = flow.blocks[&BlockId::from("q_and_a")]
         .shape
         .clone()
         .expect("the questions' shape")
@@ -176,9 +175,9 @@ fn the_engineer_s_lines_each_list_their_cells_blocks_and_only_those_that_write_q
         assert_eq!(listed(&form), blocks, "{line}");
         let outputs = &parsed(&form)["properties"]["outcome"]["properties"]["outputs"];
         assert_eq!(outputs["additionalProperties"], json!(false), "{line}");
-        let asks = blocks.iter().any(|b| b == "questions");
+        let asks = blocks.iter().any(|b| b == "q_and_a");
         assert_eq!(
-            outputs["properties"].get("questions"),
+            outputs["properties"].get("q_and_a"),
             asks.then_some(&questions),
             "{line}"
         );
@@ -198,7 +197,7 @@ fn the_engineer_s_lines_each_list_their_cells_blocks_and_only_those_that_write_q
         }
     }
     let asking: Vec<&str> = (flow.lines.keys().map(String::as_str))
-        .filter(|line| written_by(&flow, line).iter().any(|b| b == "questions"))
+        .filter(|line| written_by(&flow, line).iter().any(|b| b == "q_and_a"))
         .collect();
     let quiet: Vec<&str> = (flow.lines.keys().map(String::as_str))
         .filter(|line| !asking.contains(line))

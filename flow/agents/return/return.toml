@@ -35,7 +35,7 @@ A block the list marks "hand it in every time" you always hand in, as it stands,
 it in again with its value unchanged runs no cell again.'''
 fields = '''
 Fields that are not blocks of the work:'''
-owner_reads = "The owner reads {fields}: write them in `owner.language`, with technical terms in their English original."
+owner_reads = "The owner reads {fields}: write it in `owner.language`, with technical terms in their English original."
 # The fields the owner reads, in the order `owner_reads` names them.
 reads = ["protected_changes"]
 and = " and "
@@ -48,10 +48,10 @@ Each tool is a field of `tools` under the tool's name, holding a list of request
 together.'''
 
 # What a cell is told it writes, with its task, where the session lacks it: its blocks, each on a line, after the
-# heading, and after the list the words of each block it writes that has words of its own (`words` in the block's
-# file), each a paragraph, in the order of the list; `none` where it writes none. A line says after the block's name
-# each mark that holds: that it is a choice, `{values}` its values; that the owner reads it; that the cell hands it in
-# every time.
+# heading; after the list, `owner_reads`, once, where a block of the list is one the owner reads; then the words of
+# each block it writes that has words of its own (`words` in the block's file), each a paragraph, in the order of the
+# list; `none` where it writes none. A line says after the block's name each mark that holds: that it is a choice,
+# `{values}` its values; that the owner reads it; that the cell hands it in every time.
 [outputs]
 heading = "## What this cell returns"
 block = "- `{block}`{choice}{shown}{must_write}: {what}"
@@ -59,3 +59,4 @@ none = "This cell writes no block."
 choice = ", a choice, one of {values}"
 shown = " (the owner reads it)"
 must_write = " (hand it in every time)"
+owner_reads = "Write what the owner reads in `owner.language`, with technical terms in their English original."

@@ -115,9 +115,10 @@ pub const MERGED: &str = "merged";
 pub const START: &str = "start";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
-/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`], and the record
-/// of what is said, a block of [`flow::WORDS`] that no trigger stands on, gives in its `writes` each text the engine
-/// fills, so that none is written empty. A flow with any of these is not run.
+/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`], and each record
+/// a trigger of the owner's words or of an answer has its agent read, which that source writes entries of
+/// ([`flow::Trigger::records`]), gives in its `writes` each text the engine fills, so that none is written empty. A
+/// flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
@@ -127,17 +128,23 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
     ];
-    // The record of what is said, which the owner's words write and the cells write in their returns: the owner's
-    // entries and the cells' answers.
-    let record: (&str, &[&str]) = (flow::WORDS, &[engine::spoken::OWNER, engine::spoken::REPLY]);
+    // The records the sources of the owner's turning write entries of: of what is said, the owner's entries and the
+    // cells' answers; of the questions and the answers, each kind of entry.
+    let records: [(&str, &[&str]); 2] = [
+        (flow::WORDS, &[engine::spoken::OWNER, engine::spoken::REPLY]),
+        (flow::ANSWER, &engine::asked::ENTRIES),
+    ];
     let mut faults = Vec::new();
     for (name, block) in &flow.blocks {
         let found = needs
             .iter()
             .find(|(source, _)| block.writers.outside.as_deref() == Some(*source));
-        let stood_on = (flow.cells.iter().flat_map(|c| &c.triggers)).any(|t| t.blocks().contains(name));
-        let words = block.writers.outside.as_deref() == Some(flow::WORDS) && !stood_on;
-        let Some((source, keys)) = found.or(words.then_some(&record)) else {
+        let read = |source: &str| {
+            (flow.cells.iter().flat_map(|c| &c.triggers)).any(|t| t.records(flow, source).any(|b| b == name))
+        };
+        let record =
+            (records.iter()).find(|(source, _)| block.writers.outside.as_deref() == Some(*source) && read(source));
+        let Some((source, keys)) = found.or(record) else {
             continue;
         };
         let missing: Vec<&str> = keys

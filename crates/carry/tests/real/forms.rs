@@ -30,11 +30,11 @@ async fn every_call_of_a_line_is_given_the_form_of_that_line_as_the_files_beside
         "the build may ask for `query`: {engineer}"
     );
     assert!(
-        engineer.contains("\"questions\""),
+        engineer.contains("\"q_and_a\""),
         "the build may ask the owner: {engineer}"
     );
     assert!(
-        !reviewer.contains("\"questions\""),
+        !reviewer.contains("\"q_and_a\""),
         "the review may not ask the owner: {reviewer}"
     );
     assert_ne!(engineer, reviewer);

@@ -241,8 +241,6 @@ export type What =
   | { kind: 'notLaidOut' }
   /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
   | { kind: 'missingPlaceholder'; placeholder: string }
-  /// The block is kept as data of a kind the engine does not keep.
-  | { kind: 'unknownKept'; kept: string }
   /// The cell writes the work's questions, and no answer of the owner's runs it.
   | { kind: 'asksWithNoAnswer'; block: string }
   /// The cell writes the work's questions, and the owner's words do not run it.

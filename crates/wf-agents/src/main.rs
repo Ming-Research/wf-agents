@@ -672,10 +672,6 @@ const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 /// words beside the flows (`agents/tools/`), while the form of the return does not hold them yet.
 const TOOLS: [&str; 2] = ["query", "run_tests"];
 
-/// What the engine keeps of what a cell writes in a block as data of its own, not as the block's versions: `questions`,
-/// the questions put to the owner, each a version of its own under its name, which the owner answers.
-const KEPT: [&str; 1] = [flow::QUESTIONS];
-
 /// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
 /// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
 /// as a datum.
@@ -694,7 +690,6 @@ fn has(dir: &Path) -> Has {
         acts: names(&ACTS),
         tools: names(&TOOLS),
         system: system.into_iter().flatten().collect(),
-        kept: names(&KEPT),
         details: names(&DETAILS),
     }
 }
@@ -817,7 +812,6 @@ fn words(what: &FaultKind, field: &str) -> String {
             "the cell names triggered_by and context, which only a flow laid out one thing to a file has".to_string()
         }
         F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
-        F::UnknownKept { kept } => format!("the engine keeps nothing as \"{kept}\""),
         F::AsksWithNoAnswer { block } => {
             format!(
                 "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"

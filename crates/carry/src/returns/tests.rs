@@ -1,7 +1,8 @@
 //! The reading of a return, on a small flow laid out one thing to a file: an agent cell, `write`, run by what people
 //! ask for (`on_request`), by the owner speaking to it (`on_spoken`) and by the owner's answer to a question of its
 //! own (`on_answer`), which writes the plan, a choice `ok` it hands in every time, what the owner and the cells say
-//! (`discussion`) and the work's questions (`questions`), and may ask for one tool, `query`; and the merge after it,
+//! (`discussion`) and the questions it asks the owner (`q_and_a`, the record of the questions and the answers), and may
+//! ask for one tool, `query`; and the merge after it,
 //! which `ok` runs, so that the work does not end with a run of `write`. What is written beside the flows is in the
 //! words of the flow crate's tests.
 
@@ -18,7 +19,7 @@ use super::*;
 const FLOW: &str = r#"
 name = "returning"
 order = ["write", "merge"]
-data = ["request", "discussion", "answers", "questions"]
+data = ["request", "discussion", "q_and_a"]
 tools = ["query"]
 
 [limits]
@@ -34,14 +35,14 @@ effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
 triggered_by = ["on_request", "on_spoken", "on_answer"]
-context = ["request", "discussion", "answers"]
-outputs = ["plan", "ok", "discussion", "questions"]
+context = ["request", "discussion", "q_and_a"]
+outputs = ["plan", "ok", "discussion", "q_and_a"]
 must_write = ["ok"]
 
 [kinds]
 request = "latest"
 discussion = "all"
-answers = "all"
+q_and_a = "all"
 "#;
 
 const MERGE: &str = r#"
@@ -69,8 +70,8 @@ pub(crate) fn compiled(flow: &str, write: &str, more: &[(&str, &str)]) -> Compil
             "from = \"words\"\nshown = true\n\n[writes]\nowner = \"The owner:\\n\\n{words}\"\nreply = \"An agent:\\n\\n{reply}\"\n",
         ),
         (
-            "../data/questions.toml",
-            "shown = true\nkept = \"questions\"\n\n[shape]\ntype = \"array\"\n",
+            "../data/q_and_a.toml",
+            "from = \"answer\"\nshown = true\n\n[shape]\ntype = \"array\"\n",
         ),
         (
             "../triggers/of_a_datum/changed.toml",
@@ -80,10 +81,9 @@ pub(crate) fn compiled(flow: &str, write: &str, more: &[(&str, &str)]) -> Compil
             "../triggers/of_a_cell/on_spoken.toml",
             "block = \"{cell}_spoken_to\"\nfrom = \"words\"\nread = [\"discussion\"]\n",
         ),
-        ("../data/answers.toml", "from = \"owner\"\nshown = true\n"),
         (
             "../triggers/of_a_cell/on_answer.toml",
-            "block = \"{cell}_answered\"\nfrom = \"answer\"\nread = [\"answers\"]\n",
+            "block = \"{cell}_answered\"\nfrom = \"answer\"\nread = [\"q_and_a\"]\n",
         ),
     ];
     let source = flow::Source {
@@ -103,7 +103,6 @@ pub(crate) fn compiled(flow: &str, write: &str, more: &[(&str, &str)]) -> Compil
         sources: names(&["answer", "words"]),
         acts: names(&["merge"]),
         tools: names(&["query"]),
-        kept: names(&[flow::QUESTIONS]),
         ..Default::default()
     };
     flow::compile(&source, &has).unwrap_or_else(|faults| panic!("the small flow does not compile: {faults:#?}"))
@@ -232,26 +231,25 @@ fn an_answer_to_the_owner_is_a_block_handed_in_under_the_record_s_name() {
 // questions and the record of what is said as any other, and none of it is taken, no question kept nor answer written.
 #[test]
 fn a_block_that_is_not_among_the_cell_s_outputs_is_found_the_questions_and_the_record_alike() {
-    // The cell writes neither; people write the questions here, so that they are the flow's still, kept as the work's.
-    let questions = "from = \"owner\"\nshown = true\nkept = \"questions\"\n\n[shape]\ntype = \"array\"\n";
+    // The cell writes neither: both are still the flow's, written by their sources, and given to it.
     let narrow = compiled(
         FLOW,
         &WRITE.replace(
-            r#"outputs = ["plan", "ok", "discussion", "questions"]"#,
+            r#"outputs = ["plan", "ok", "discussion", "q_and_a"]"#,
             r#"outputs = ["plan", "ok"]"#,
         ),
-        &[("../data/questions.toml", questions)],
+        &[],
     );
     let mut r = work();
     r["outcome"]["outputs"]["discussion"] = json!("By first name.");
-    r["outcome"]["outputs"]["questions"] = json!([
+    r["outcome"]["outputs"]["q_and_a"] = json!([
         {"name": "which", "waits": true, "recommends": 1, "ask": "Which name?",
             "options": [{"does": "first name", "follows": "warmer"}]},
     ]);
     r["outcome"]["outputs"]["nowhere"] = json!("x");
     let came = came(&r, &narrow, cell(&narrow), &words()).expect("it is read").came;
     let not = |block: &str| Unmet::NotAnOutput { block: block.into() };
-    assert_eq!(came.found, [not("discussion"), not("nowhere"), not("questions")]);
+    assert_eq!(came.found, [not("discussion"), not("nowhere"), not("q_and_a")]);
     assert_eq!(came.writes, worked().writes);
     assert!(came.said.questions.is_empty(), "{:?}", came.said);
     // The cell that writes them takes them.
@@ -266,11 +264,11 @@ fn a_block_that_is_not_among_the_cell_s_outputs_is_found_the_questions_and_the_r
 fn the_work_s_questions_not_written_as_a_list_of_questions_are_not_of_the_form() {
     for questions in [json!("None."), json!({"name": "q"}), json!([{"name": "q"}])] {
         let mut r = work();
-        r["outcome"]["outputs"]["questions"] = questions.clone();
+        r["outcome"]["outputs"]["q_and_a"] = questions.clone();
         assert!(read(&r).is_err(), "{questions} is taken");
     }
     let mut r = work();
-    r["outcome"]["outputs"]["questions"] = json!([]);
+    r["outcome"]["outputs"]["q_and_a"] = json!([]);
     assert_eq!(read(&r), Ok(worked()), "none asked");
 }
 
@@ -278,7 +276,7 @@ fn the_work_s_questions_not_written_as_a_list_of_questions_are_not_of_the_form()
 fn what_a_return_says_beside_its_work_is_kept() {
     let mut r = work();
     r["outcome"]["observations"] = json!(["The greeting has no test."]);
-    r["outcome"]["outputs"]["questions"] = json!([
+    r["outcome"]["outputs"]["q_and_a"] = json!([
         {"name": "which_name", "waits": true, "recommends": 1, "ask": "Which name?",
             "options": [{"does": "first name", "follows": "warmer"}]},
         {"name": "old", "withdrawn": "Settled by the request."},
@@ -314,7 +312,7 @@ fn what_a_return_says_beside_its_work_is_kept() {
 #[test]
 fn a_question_is_kept_as_the_agent_wrote_it_and_asks_for_no_call_whether_or_not_it_waits() {
     let mut r = work();
-    r["outcome"]["outputs"]["questions"] = json!([
+    r["outcome"]["outputs"]["q_and_a"] = json!([
         {"name": "which_name", "waits": true, "recommends": 2, "ask": "Which name? {options}",
             "options": [{"does": "the first", "follows": "warmer {ask}"}, {"does": "the full", "follows": "formal"}]},
         {"name": "later", "waits": false, "recommends": 1, "ask": "Which colour?",
@@ -335,7 +333,7 @@ fn a_question_is_kept_as_the_agent_wrote_it_and_asks_for_no_call_whether_or_not_
 fn a_question_that_recommends_none_of_its_options_or_has_the_name_of_the_engine_s_own_is_found() {
     let mut r = work();
     let option = json!([{"does": "blue", "follows": "calm"}]);
-    r["outcome"]["outputs"]["questions"] = json!([
+    r["outcome"]["outputs"]["q_and_a"] = json!([
         {"name": "none", "waits": false, "recommends": 0, "ask": "Which?", "options": option},
         {"name": "past", "waits": false, "recommends": 2, "ask": "Which?", "options": option},
         {"name": "empty", "waits": true, "recommends": 1, "ask": "Which?", "options": []},
@@ -494,7 +492,7 @@ fn a_list_or_the_blocks_left_out_null_or_written_as_a_string_is_read() {
     // So are the work's questions, among the blocks.
     for questions in [json!(null), json!("[]")] {
         let mut r = work();
-        r["outcome"]["outputs"]["questions"] = questions;
+        r["outcome"]["outputs"]["q_and_a"] = questions;
         assert_eq!(read(&r), Ok(worked()));
     }
     let nothing = Came {
@@ -509,7 +507,7 @@ fn a_list_or_the_blocks_left_out_null_or_written_as_a_string_is_read() {
 
 #[test]
 fn a_null_of_the_other_shape_of_a_question_is_left_out() {
-    let r = json!({"outcome": {"outputs": {"questions": [
+    let r = json!({"outcome": {"outputs": {"q_and_a": [
         {"name": "q", "waits": false, "recommends": 1, "ask": "Which?", "options": [], "withdrawn": null},
         {"name": "p", "withdrawn": "No longer.", "waits": null, "ask": null},
     ]}}});
@@ -521,11 +519,11 @@ fn a_null_of_the_other_shape_of_a_question_is_left_out() {
 #[test]
 fn what_an_item_requires_is_never_made_up() {
     for r in [
-        json!({"outcome": {"outputs": {"questions": [{"name": "q", "waits": false, "recommends": 1, "options": []}]}}}),
-        json!({"outcome": {"outputs": {"questions": [{"name": "q", "waits": null, "recommends": 1, "ask": "Which?",
+        json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "options": []}]}}}),
+        json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": null, "recommends": 1, "ask": "Which?",
             "options": []}]}}}),
-        json!({"outcome": {"outputs": {"questions": [{"name": null, "withdrawn": "No longer."}]}}}),
-        json!({"outcome": {"outputs": {"questions": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
+        json!({"outcome": {"outputs": {"q_and_a": [{"name": null, "withdrawn": "No longer."}]}}}),
+        json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
             "options": [{"does": "this"}]}]}}}),
     ] {
         assert!(read(&r).is_err(), "{r} is taken");
@@ -539,11 +537,11 @@ fn a_return_in_its_form_is_read_as_it_was() {
         "meaning_unchanged": [],
         "observations": [],
         "protected_changes": {"AGENTS.md": "The guide must say it."},
-        "outputs": {"plan": "Greet.", "questions": []},
+        "outputs": {"plan": "Greet.", "q_and_a": []},
     }});
-    assert_eq!(normalised(&r, &["questions"]), r);
+    assert_eq!(normalised(&r, &["q_and_a"]), r);
     let tools = json!({"tools": {"query": [{"sql": "select 1"}]}});
-    assert_eq!(normalised(&tools, &["questions"]), tools);
+    assert_eq!(normalised(&tools, &["q_and_a"]), tools);
 }
 
 #[test]
@@ -555,7 +553,7 @@ fn a_return_not_of_its_form_is_not_read() {
         json!({"outcome": {"outputs": ["plan"]}}),
         json!({"tools": {"query": {"sql": "select 1"}}}),
         json!({"tools": []}),
-        json!({"outcome": {"questions": []}}),
+        json!({"outcome": {"q_and_a": []}}),
         json!({"outcome": {"reply": "Yes."}}),
         json!("does the work"),
     ] {

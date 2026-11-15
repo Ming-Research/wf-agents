@@ -147,7 +147,7 @@ pub(crate) fn said(
     let (trigger, own) = trigger(flow, spec).expect("the receiver is one the owner's words run");
     let mut put_in = Vec::new();
     let mut told = None;
-    for block in trigger.said_in(flow) {
+    for block in trigger.records(flow, flow::WORDS) {
         let record = &flow.blocks[block];
         let entry = fill(
             record.writes.get(OWNER).unwrap_or_default(),
@@ -229,7 +229,7 @@ pub fn carry(flow: &Compiled, work: &mut Work) -> bool {
             .filter(|words| !words.trim().is_empty())
             .cloned()
             .collect();
-        for block in trigger.said_in(flow) {
+        for block in trigger.records(flow, flow::WORDS) {
             let record = &flow.blocks[block];
             for words in &said {
                 let entry = fill(

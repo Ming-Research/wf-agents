@@ -42,7 +42,6 @@ cell = "D1"
 hands_in = [
     { block = "plan_owner", content = "Keep what each call took beside its result, as a round's is kept, and show both on the work's page." },
     { block = "plan_agent", content = "Give a call's result what it took; keep it in the store beside the result; sum rounds and calls into the run." },
-    { block = "questions", content = "None." },
     { block = "acceptance", content = "A call's cost shows on the work's page, is counted in the total, and outlives a restart." },
     { block = "tree_edits", content = "A decision that what a call took is kept with its result, in a table only added to." },
     { block = "edits_tree", value = "yes" },

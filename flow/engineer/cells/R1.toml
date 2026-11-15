@@ -30,12 +30,11 @@ triggered_by = [
 context = [
   "background",
   "discussion",
-  "answers",
   "tree_review",
   "plan_doubts",
   "plan_owner",
   "plan_agent",
-  "questions",
+  "q_and_a",
   "acceptance",
   "tree_edits",
   "tree",
@@ -45,7 +44,7 @@ outputs = [
   "found",
   "plan_owner",
   "plan_agent",
-  "questions",
+  "q_and_a",
   "acceptance",
   "tree_edits",
   "edits_tree",
@@ -60,7 +59,7 @@ must_write = ["deep_needed"]
 on_background = """See what changed from the version you last worked from, the whole of it where you worked from none, and bring the research and the plan up to date for it."""
 on_tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
 on_plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
-on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
+on_answer = """The owner has answered one of your questions in `q_and_a` with another option than yours, or one you wait for: bring the plan to it."""
 on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `discussion`."""
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
@@ -69,11 +68,10 @@ on_spoken = """The owner has said something to you in `discussion`: that comes f
 tree = "last_and_latest"
 background = "last_and_latest"
 discussion = "all"
-answers = "all"
 tree_review = "latest"
 plan_doubts = "latest"
 plan_owner = "latest"
 plan_agent = "latest"
-questions = "latest"
+q_and_a = "all"
 acceptance = "latest"
 tree_edits = "latest"

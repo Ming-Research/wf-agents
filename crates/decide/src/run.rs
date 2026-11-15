@@ -221,6 +221,9 @@ pub struct Standing {
     pub latest: Option<Seq>,
     /// The latest version's value, where the block is a choice.
     pub value: Option<String>,
+    /// A version written of it is an entry added to a record ([`crate::Flow::adds_entries`]): it replaces no version
+    /// before it, and so writes over none the round was not told of.
+    pub added: bool,
 }
 
 /// What the flow requires of what a cell's run returns.
@@ -312,7 +315,8 @@ pub enum Unmet {
     /// for the owner's answer: the cell would be entered again at once for the same.
     DealtWithNothing,
     /// The block got this version from another writer after the round was told of the one it writes over: the return
-    /// would write over what the round never saw. The next round is told of the version.
+    /// would write over what the round never saw. The next round is told of the version. An entry added to a record
+    /// writes over nothing.
     WrittenOver { block: BlockId, version: Seq },
     /// The block is a choice, written as changing nothing in meaning with another value than the one it has: a choice
     /// changes its meaning when its value does (decision `meaning-told-by-the-writer`).
@@ -576,6 +580,7 @@ fn unmet(
         if let Some(Standing {
             told,
             latest: Some(latest),
+            added: false,
             ..
         }) = standing
             && *told != Some(*latest)

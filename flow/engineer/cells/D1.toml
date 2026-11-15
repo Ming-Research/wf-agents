@@ -34,13 +34,12 @@ context = [
   "background",
   "found",
   "discussion",
-  "answers",
   "plan_review",
   "tree_review",
   "plan_doubts",
   "plan_owner",
   "plan_agent",
-  "questions",
+  "q_and_a",
   "acceptance",
   "tree_edits",
   "tree",
@@ -48,7 +47,7 @@ context = [
 outputs = [
   "plan_owner",
   "plan_agent",
-  "questions",
+  "q_and_a",
   "acceptance",
   "tree_edits",
   "edits_tree",
@@ -64,7 +63,7 @@ on_background = """See what changed from the version you last worked from, the w
 on_plan_review = """Take each point of `plan_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_review`."""
 on_tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
 on_plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
-on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
+on_answer = """The owner has answered one of your questions in `q_and_a` with another option than yours, or one you wait for: bring the plan to it."""
 on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `discussion`."""
 on_session = """Read the tree from the start: the session holds nothing of what you read before."""
 
@@ -75,12 +74,11 @@ tree = "last_and_latest"
 background = "last_and_latest"
 found = "latest"
 discussion = "all"
-answers = "all"
 plan_review = "latest"
 tree_review = "latest"
 plan_doubts = "latest"
 plan_owner = "latest"
 plan_agent = "latest"
-questions = "latest"
+q_and_a = "all"
 acceptance = "latest"
 tree_edits = "latest"
