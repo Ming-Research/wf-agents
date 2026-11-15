@@ -173,6 +173,33 @@ impl Source {
         Some(source)
     }
 
+    /// The flow's files, each by its path from the flow's directory and its text, as [`Source::of_files`] takes them:
+    /// what a version of the flow is kept as.
+    pub fn files(&self) -> BTreeMap<String, String> {
+        let mut files = self.files.clone();
+        files.insert(FLOW_FILE.to_string(), self.flow.clone());
+        for (id, text) in &self.cells {
+            let path = if self.laid_out {
+                format!("{CELLS_DIR}/{id}.toml")
+            } else {
+                format!("{id}.toml")
+            };
+            files.insert(path, text.clone());
+        }
+        for (name, text) in &self.rules {
+            files.insert(format!("{RULES_DIR}/{name}.md"), text.clone());
+        }
+        files
+    }
+
+    /// The digest that names this version of the flow: the SHA-1, in hexadecimal, of its files as JSON, by their paths
+    /// in order, so that two versions are told apart by any byte of any file and the same files always give the same
+    /// digest.
+    pub fn digest(&self) -> String {
+        let files = serde_json::to_string(&self.files()).unwrap_or_default();
+        sha1_smol::Sha1::from(files).digest().to_string()
+    }
+
     /// Keeps a file, by its path from the flow's directory, where it is one that a flow of its layout is made of.
     fn add(&mut self, path: &str, text: String) {
         let kept = if self.laid_out {
@@ -260,6 +287,9 @@ pub struct FlowFile {
     /// (`../triggers/of_a_group/`), which fires for a new version of any of them.
     #[serde(default)]
     pub groups: BTreeMap<String, Vec<String>>,
+    /// The table of earlier ids, as [`LaidOutFlowFile::earlier_ids`] writes it.
+    #[serde(default)]
+    pub earlier_ids: Vec<BTreeMap<String, String>>,
 }
 
 /// `flow.toml` of a flow laid out one thing to a file: what is the flow's as a whole. Its lines, blocks and named tests
@@ -287,6 +317,12 @@ pub struct LaidOutFlowFile {
     /// them.
     #[serde(default)]
     pub groups: BTreeMap<String, Vec<String>>,
+    /// The table of earlier ids (principle `cell-numbering`): each time cells were numbered anew, oldest first, each
+    /// cell whose id changed then by the id it took, with the id it had before; a cell taken out takes an id no cell
+    /// has. A run recorded at an earlier id reads through each renumbering after it as the cell it ran at. It is only
+    /// added to: a version of the flow that a work ran on is read through the renumberings after its own.
+    #[serde(default)]
+    pub earlier_ids: Vec<BTreeMap<String, String>>,
 }
 
 /// The limits as written. They are read as any whole number so that one that is not positive is a fault of the

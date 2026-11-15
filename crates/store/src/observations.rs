@@ -15,9 +15,9 @@ use std::collections::btree_map::Entry;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use decide::RunId;
+use decide::{CellId, RunId, Seq};
 use rusqlite::{Connection, OptionalExtension, params};
-use work::{Back, Time};
+use work::{Back, OnFlow, Time};
 
 use crate::{Fault, ItemNumber, SCHEMA_VERSION, WorkNumber};
 
@@ -36,7 +36,7 @@ pub struct Observation {
     /// The work's item, and its title as it stands.
     pub item: ItemNumber,
     pub title: String,
-    /// The cell the run was of.
+    /// The cell the run was of, as the version of its flow the work runs on names it.
     pub cell: String,
     pub run: RunId,
     /// The round of the run whose return carried it, the first being one.
@@ -59,6 +59,7 @@ struct Row {
     work: u64,
     item: u64,
     cell: String,
+    started: u64,
     run: u64,
     round: usize,
     n: usize,
@@ -105,7 +106,7 @@ impl Observations {
             "SELECT o.number, o.work, w.item, s.cell, o.run, o.round, o.n, b.back,
                  (SELECT m.time FROM moments m WHERE m.work = o.work AND m.place <= f.at
                   ORDER BY m.place DESC LIMIT 1),
-                 r.at
+                 r.at, s.at
              FROM observations o
              JOIN works w ON w.number = o.work
              JOIN started s ON s.work = o.work AND s.run = o.run
@@ -127,9 +128,29 @@ impl Observations {
                     back: row.get(7)?,
                     kept: row.get(8)?,
                     read: row.get(9)?,
+                    started: row.get(10)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        // The versions of its flow each work was put on, by which the cell of a run recorded before one is read.
+        let mut flows: BTreeMap<u64, Vec<OnFlow>> = BTreeMap::new();
+        let mut query = db.prepare("SELECT work, at, version, ids FROM on_flow ORDER BY work, at")?;
+        let kept = query.query_map([], |row| {
+            Ok((
+                row.get::<_, u64>(0)?,
+                Seq(row.get(1)?),
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        for row in kept {
+            let (work, at, version, ids) = row?;
+            let ids = serde_json::from_str(&ids).map_err(|e| Fault::Value {
+                table: "on_flow",
+                message: e.to_string(),
+            })?;
+            flows.entry(work).or_default().push(OnFlow { at, version, ids });
+        }
         // What came back is read once, however many observations it carries.
         let mut backs: BTreeMap<(u64, u64, usize), Vec<String>> = BTreeMap::new();
         let mut out = Vec::with_capacity(rows.len());
@@ -160,7 +181,12 @@ impl Observations {
                 work: WorkNumber(row.work),
                 item,
                 title: titles.get(&item).cloned().unwrap_or_default(),
-                cell: row.cell,
+                cell: (work::flows::read_cell(
+                    flows.get(&row.work).map(Vec::as_slice).unwrap_or_default(),
+                    Seq(row.started),
+                    &CellId(row.cell),
+                ))
+                .0,
                 run: RunId(row.run),
                 round: row.round,
                 kept: Time(kept),

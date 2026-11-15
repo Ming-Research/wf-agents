@@ -11,11 +11,13 @@ use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
 pub mod filled;
+pub mod flows;
 pub mod measured;
 pub mod observations;
 pub mod sessions;
 
 pub use filled::{Fill, FillFault, Filled};
+pub use flows::OnFlow;
 pub use measured::{Measured, Measures, Pinged};
 pub use observations::Observed;
 pub use sessions::{Ran, RanOn, Session, Why};
@@ -59,6 +61,9 @@ pub struct Work {
     pub why_cancelled: BTreeMap<Seq, String>,
     /// Why the work's item was reopened, by the place of each reopen, as whoever reopened it said.
     pub why_reopened: BTreeMap<Seq, String>,
+    /// Each version of its flow it was put on, in order (module [`flows`]): what it runs on is the latest. A work kept
+    /// before the versions were has none until the engine first starts with them.
+    pub flows: Vec<OnFlow>,
 }
 
 impl Work {
@@ -86,7 +91,8 @@ impl Work {
             .chain(self.filled.iter().map(|f| f.at))
             .chain(self.ran.iter().map(|r| r.at))
             .chain(self.measured.iter().map(|m| m.at))
-            .chain(self.pinged.iter().map(|p| p.at));
+            .chain(self.pinged.iter().map(|p| p.at))
+            .chain(self.flows.iter().map(|f| f.at));
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 

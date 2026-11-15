@@ -19,7 +19,10 @@
 //! was. Before that it is copied whole, so that a migration that goes wrong loses nothing ([`before_migration`]).
 //!
 //! The store also keeps what is the installation's and no work's: the pause of everything, set and lifted, with who set
-//! it: the owner, or the engine as it started with works going on.
+//! it: the owner, or the engine as it started with works going on; and each version of a flow a work ran on, once,
+//! by the digest of its files ([`FlowVersion`]), which the work's records name (principle `the-past-as-it-ran`). A work
+//! is loaded with each cell its records name read as the version it runs on names it: the records keep each cell as
+//! it was recorded, and say how it reads on each version after (`work::flows`).
 //!
 //! - `items`: the items and the works done for them.
 //! - `tables`: a work's entries, table by table.
@@ -35,6 +38,7 @@ mod items;
 mod observations;
 mod tables;
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use decide::{BlockId, CallId, Pauser, RunId, Seq};
@@ -53,7 +57,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 18;
+pub const SCHEMA_VERSION: u32 = 19;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
@@ -82,6 +86,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/202611142300-keep-the-cell-an-entry-of-what-is-said-is-said-to.sql"),
     include_str!("../../../db/migrations/202611151200-say-what-a-finished-run-waits-for-from-outside.sql"),
     include_str!("../../../db/migrations/202611151600-say-whether-a-version-holds-anything.sql"),
+    include_str!("../../../db/migrations/202611151700-keep-the-versions-of-the-flows-works-ran-on.sql"),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -93,6 +98,15 @@ const _: () = assert!(MIGRATIONS.len() as u32 + 1 == SCHEMA_VERSION);
 pub struct EverythingPaused {
     pub since: Time,
     pub by: Pauser,
+}
+
+/// A version of a flow, as it is kept: the digest of the files of its definition, which names it, the flow's name, and
+/// the text of each file by its path from the flow's directory, as the compiler reads them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlowVersion {
+    pub version: String,
+    pub name: String,
+    pub files: BTreeMap<String, String>,
 }
 
 /// The items and the works, kept in one SQLite database.
@@ -124,6 +138,10 @@ pub enum Fault {
     /// A value of this table could not be written as JSON, or what the table holds could not be read back as one;
     /// in the words of the reader or the writer.
     Value { table: &'static str, message: String },
+    /// The work given to be saved has an entry of this table at this place, which names a cell and which the store
+    /// does not hold yet, before a version of its flow it was put on and the store does not hold either: kept, it
+    /// would be kept as that version reads it and not as it was recorded. Nothing was saved.
+    ReadAsMoved { table: &'static str, at: Seq },
 }
 
 /// An entry of a work, as a table keys it.
@@ -160,8 +178,8 @@ pub trait Storage {
     /// Adds an item as it is to be added, at its level, of its project, depending on items which must all be in the
     /// store already, of any project, and carrying its tags, together with the work done for it on the flow of this
     /// name and what is kept of that work from its start, and gives their numbers. The item, the work and what is kept
-    /// of it are added in one transaction: all of them or none. Only the flow's name is kept: which version of the flow
-    /// the work runs on is not kept yet.
+    /// of it are added in one transaction: all of them or none. The version of the flow the work is added on is among
+    /// what is kept of it, and is one the store keeps already ([`Storage::keep_version`]).
     fn add(&mut self, item: &First, flow: &str, at: Time, first: &Work) -> Result<(ItemNumber, WorkNumber), Fault>;
 
     /// Keeps changes of items made together, at one time and for one reason, each after its item's earlier changes and
@@ -197,6 +215,13 @@ pub trait Storage {
 
     /// Keeps that everything was paused, or that pause lifted, by this pauser at this time.
     fn pause_everything(&mut self, paused: bool, by: Pauser, at: Time) -> Result<(), Fault>;
+
+    /// Keeps a version of a flow, where the store keeps none of its digest: a version is kept once, before a work is
+    /// saved on it.
+    fn keep_version(&mut self, version: &FlowVersion) -> Result<(), Fault>;
+
+    /// The version of a flow of this digest, where the store keeps it.
+    fn version(&self, version: &str) -> Result<Option<FlowVersion>, Fault>;
 }
 
 impl Store {
@@ -341,5 +366,37 @@ impl Storage for Store {
             rusqlite::params![paused, pauser, at.0],
         )?;
         Ok(())
+    }
+
+    fn keep_version(&mut self, version: &FlowVersion) -> Result<(), Fault> {
+        let files = serde_json::to_string(&version.files).map_err(|e| Fault::Value {
+            table: "flows",
+            message: e.to_string(),
+        })?;
+        (self.db).execute(
+            "INSERT OR IGNORE INTO flows (version, name, files) VALUES (?1, ?2, ?3)",
+            rusqlite::params![version.version, version.name, files],
+        )?;
+        Ok(())
+    }
+
+    fn version(&self, version: &str) -> Result<Option<FlowVersion>, Fault> {
+        let kept = (self.db)
+            .query_row("SELECT name, files FROM flows WHERE version = ?1", [version], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .optional()?;
+        let Some((name, files)) = kept else {
+            return Ok(None);
+        };
+        let files = serde_json::from_str(&files).map_err(|e| Fault::Value {
+            table: "flows",
+            message: e.to_string(),
+        })?;
+        Ok(Some(FlowVersion {
+            version: version.to_string(),
+            name,
+            files,
+        }))
     }
 }

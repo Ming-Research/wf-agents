@@ -62,6 +62,14 @@ impl Storage for Failing {
     fn pause_everything(&mut self, paused: bool, by: decide::Pauser, at: Time) -> Result<(), store::Fault> {
         self.store.pause_everything(paused, by, at)
     }
+
+    fn keep_version(&mut self, version: &store::FlowVersion) -> Result<(), store::Fault> {
+        self.store.keep_version(version)
+    }
+
+    fn version(&self, version: &str) -> Result<Option<store::FlowVersion>, store::Fault> {
+        self.store.version(version)
+    }
 }
 
 #[tokio::test(start_paused = true)]

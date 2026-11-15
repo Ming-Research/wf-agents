@@ -10,12 +10,20 @@ use decide::{
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::{Filled, Measured, Measures, Moment, Observed, Pinged, Ran, RanOn, Session, Spent, Time, Work};
+use work::{Filled, Measured, Measures, Moment, Observed, OnFlow, Pinged, Ran, RanOn, Session, Spent, Time, Work};
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
 
-/// Everything kept of the work.
+/// Everything kept of the work, each cell its records name read as the version of its flow it runs on names it
+/// (module `work::flows`).
 pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
+    let mut out = recorded(db, work)?;
+    work::flows::read(&mut out.records, &out.flows);
+    Ok(out)
+}
+
+/// Everything kept of the work, as it was recorded: each cell its records name by the id it had as it was recorded.
+fn recorded(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     let w = work.0;
     let mut out = Work::default();
     let r = &mut out.records;
@@ -473,14 +481,31 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
+    for (at, version, ids) in rows(
+        db,
+        "SELECT at, version, ids FROM on_flow WHERE work = ?1 ORDER BY at",
+        w,
+        |row| Ok((Seq(row.get(0)?), row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+    )? {
+        out.flows.push(OnFlow {
+            at,
+            version,
+            ids: parse("on_flow", &ids)?,
+        });
+    }
     Ok(out)
 }
 
 /// Keeps what the given work has that the store does not hold yet; or, where what the store holds is not where the
-/// given work begins, keeps nothing and says where. Everything is checked before anything is written.
+/// given work begins, keeps nothing and says where. Everything is checked before anything is written. What the store
+/// holds is compared as the given work reads it, through every version of its flow the given work was put on, a new
+/// one among them; an entry that names a cell is kept as it was recorded, and so is kept only where no version the
+/// work was put on came after it.
 pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<(), Fault> {
     let w = work.0;
-    let held = load(db, work)?;
+    let mut held = recorded(db, work)?;
+    let flows = grown("on_flow", &held.flows, &given.flows, |f| Entry::At(f.at))?;
+    work::flows::read(&mut held.records, &given.flows);
     let (h, g) = (&held.records, &given.records);
 
     let started = grown("started", &h.started, &g.started, |e| Entry::At(e.at))?;
@@ -532,6 +557,21 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     })?;
     let measured = grown("measured", &held.measured, &given.measured, |m| Entry::At(m.at))?;
     let pinged = grown("pinged", &held.pinged, &given.pinged, |p| Entry::At(p.at))?;
+    // A new entry that names a cell before a new version the work was put on reads as that version names the cell,
+    // which is not how it was recorded.
+    let naming = (started.iter().map(|s| ("started", s.at)))
+        .chain(questions.iter().map(|q| ("questions", q.at)))
+        .chain(let_go.iter().map(|l| ("let_go", l.at)))
+        .chain(
+            (written.iter())
+                .filter(|w| w.said_to.is_some())
+                .map(|w| ("written", w.at)),
+        );
+    for (table, at) in naming {
+        if flows.iter().any(|f| at < f.at) {
+            return Err(Fault::ReadAsMoved { table, at });
+        }
+    }
 
     // Each table after those its rows name.
     for s in started {
@@ -801,6 +841,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         db.execute(
             "INSERT INTO moments (work, place, time) VALUES (?1, ?2, ?3)",
             params![w, m.from.0, m.at.0],
+        )?;
+    }
+    for f in flows {
+        db.execute(
+            "INSERT INTO on_flow (work, at, version, ids) VALUES (?1, ?2, ?3, ?4)",
+            params![w, f.at.0, f.version, json("on_flow", &f.ids)?],
         )?;
     }
     Ok(())

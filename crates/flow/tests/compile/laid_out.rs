@@ -53,6 +53,10 @@ fn a_flow_laid_out_one_thing_to_a_file_compiles_to_what_its_twin_written_before_
         line.file = FLOW_FILE.to_string();
         line.system = std::mem::take(&mut line.rules);
     }
+    // Its files are other files, so it is compiled from another source and is another version of the flow.
+    assert_ne!(twin.version, before.version);
+    twin.source = before.source.clone();
+    twin.version = before.version.clone();
     assert_eq!(twin, before);
 }
 

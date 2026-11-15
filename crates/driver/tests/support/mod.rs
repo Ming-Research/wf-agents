@@ -306,6 +306,10 @@ pub enum Op {
     Everything,
     /// The keeping of the owner's pause of everything, set or lifted.
     PauseEverything,
+    /// The keeping of a version of a flow.
+    KeepVersion,
+    /// The read of a version of a flow.
+    Version,
 }
 
 /// Where the store of the tests fails.
@@ -441,6 +445,16 @@ impl Storage for Failing {
     fn pause_everything(&mut self, paused: bool, by: Pauser, at: Time) -> Result<(), store::Fault> {
         self.call(Op::PauseEverything)?;
         self.store.pause_everything(paused, by, at)
+    }
+
+    fn keep_version(&mut self, version: &store::FlowVersion) -> Result<(), store::Fault> {
+        self.call(Op::KeepVersion)?;
+        self.store.keep_version(version)
+    }
+
+    fn version(&self, version: &str) -> Result<Option<store::FlowVersion>, store::Fault> {
+        self.call(Op::Version)?;
+        self.store.version(version)
     }
 }
 

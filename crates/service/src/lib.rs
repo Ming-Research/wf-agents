@@ -82,8 +82,6 @@ const CHANGES: usize = 256;
 /// The loop: the driver, and what carries out what it gives to be done.
 pub struct Service {
     driver: Driver,
-    /// The flows the driver was given, by name, to be handed to the carriers.
-    flows: BTreeMap<String, Arc<Compiled>>,
     carriers: Carriers,
     clock: Arc<dyn Clock>,
     /// The way into the loop's own channel, which the carriers' replies are given. Held by the loop, so that the
@@ -275,16 +273,12 @@ impl Service {
         clock: Arc<dyn Clock>,
     ) -> Result<(Service, Inbox), Fault> {
         let now = clock.now().map_err(Fault::Clock)?;
-        let by_name = (flows.iter())
-            .map(|flow| (flow.name.clone(), Arc::new(flow.clone())))
-            .collect();
         let policy = carriers.agents.policy();
         let (driver, todos) = Driver::open(store, flows, carriers.slots, policy, now).map_err(Fault::Driver)?;
         let (to, inbox) = mpsc::unbounded_channel();
         let (changed, _) = broadcast::channel(CHANGES);
         let mut service = Service {
             driver,
-            flows: by_name,
             carriers,
             clock,
             to,
@@ -632,8 +626,9 @@ impl Service {
         };
         let work = todo.work;
         let kept = self.driver.work(work).ok_or_else(|| stray(Missing::Work))?;
-        let flow =
-            (self.flows.get(&kept.head.flow).cloned()).ok_or_else(|| stray(Missing::Flow(kept.head.flow.clone())))?;
+        // What is done for a work is done on the flow it runs on: the one installed, or, as it lets go of what it
+        // held, the version it ended on.
+        let flow = (self.driver.flow_of(work)).ok_or_else(|| stray(Missing::Flow(kept.head.flow.clone())))?;
         let records = &kept.work.records;
         let round = |run, cell: &CellId, number, given| -> Result<(Round, Kind), Fault> {
             let spec = cell_spec(&flow, cell).ok_or_else(|| stray(Missing::Cell(cell.clone())))?;

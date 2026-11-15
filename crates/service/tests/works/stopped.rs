@@ -71,6 +71,14 @@ impl Storage for Failing {
         }
         self.store.save(work, given)
     }
+
+    fn keep_version(&mut self, version: &store::FlowVersion) -> Result<(), store::Fault> {
+        self.store.keep_version(version)
+    }
+
+    fn version(&self, version: &str) -> Result<Option<store::FlowVersion>, store::Fault> {
+        self.store.version(version)
+    }
 }
 
 /// The loop on a store whose saves fail once `saves` holds a number, and the way to set it.

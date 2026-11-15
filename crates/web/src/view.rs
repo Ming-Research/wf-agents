@@ -579,6 +579,16 @@ pub enum What {
         block: String,
         cell: String,
     },
+    /// A renumbering of the table of earlier ids names no cell.
+    RenumberedNothing,
+    /// A renumbering of the table of earlier ids gives a cell its own id as the one it had before.
+    SameEarlierId {
+        id: String,
+    },
+    /// Two cells of one renumbering of the table of earlier ids had this id before it.
+    EarlierIdTwice {
+        id: String,
+    },
     /// The deciding code refused the cells as a flow, for this reason, at this cell.
     FlowRefused {
         reason: FlowRefusal,
@@ -864,6 +874,9 @@ impl What {
             F::TestNotWrittenBefore { test, block } => What::TestNotWrittenBefore { test, block },
             F::TestWrittenAfter { test, block, cell } => What::TestWrittenAfter { test, block, cell },
             F::StandingWrittenByTwo { test, block, cell } => What::StandingWrittenByTwo { test, block, cell },
+            F::RenumberedNothing => What::RenumberedNothing,
+            F::SameEarlierId { id } => What::SameEarlierId { id },
+            F::EarlierIdTwice { id } => What::EarlierIdTwice { id },
             F::Flow(fault) => {
                 let (reason, cell) = match fault {
                     FlowFault::Empty => (FlowRefusal::Empty, None),

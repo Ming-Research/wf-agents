@@ -297,6 +297,30 @@ fn driver_fault(fault: &driver::Fault) -> String {
             driver::DEPENDENCIES
         ),
         F::NoSuchFlow { work, flow } => format!("work {} runs on the flow {flow}, which was not given", work.0),
+        F::NoSuchVersion { work, version } => format!(
+            "work {} ran on the version {version} of its flow, which the store does not keep",
+            work.0
+        ),
+        F::VersionUnreadable {
+            work,
+            flow,
+            version,
+            faults,
+        } => {
+            let faults: Vec<String> = (faults.iter())
+                .map(|fault| format!("{} {}: {:?}", fault.file, fault.field, fault.what))
+                .collect();
+            format!(
+                "work {} ran on the version {version} of the flow {flow}, which does not compile now: {}",
+                work.0,
+                faults.join("; ")
+            )
+        }
+        F::EarlierIdsRewritten { work, flow, version } => format!(
+            "the flow {flow} does not begin its table of earlier ids with the table of the version {version} work {} \
+             ran on, and the table is only added to",
+            work.0
+        ),
         F::NotOneWork(item) => format!("the store holds item {} without exactly one work", item.0),
         F::Refused { work, refused } => format!(
             "what the driver itself gave the engine's loop for work {} was refused: {}",
@@ -337,6 +361,11 @@ pub fn store_fault_words(fault: &store::Fault) -> String {
             format!("the work given to be saved {how} {entry} in the table {table}, and nothing was saved")
         }
         F::Value { table, message } => format!("a value of the table {table} could not be read or written: {message}"),
+        F::ReadAsMoved { table, at } => format!(
+            "the work given to be saved has an entry of the table {table} at place {} before a version of its flow it \
+             was put on that is not kept yet, and nothing was saved",
+            at.0
+        ),
     }
 }
 

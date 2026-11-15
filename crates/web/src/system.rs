@@ -464,7 +464,10 @@ impl System {
                     if let Some(week) = week_of(&mut counted, ended) {
                         week.spent = week.spent.with(spent);
                     }
-                    let cell = by_cell.entry((kept.head.flow.clone(), run.cell.clone())).or_default();
+                    // Counted by the cell of the flow installed it ran at, where the work ended on another version.
+                    let named = (kept.ids.get(&decide::CellId::from(run.cell.as_str())))
+                        .map_or_else(|| run.cell.clone(), |id| id.to_string());
+                    let cell = by_cell.entry((kept.head.flow.clone(), named)).or_default();
                     *cell = cell.with(spent);
                     let act = (kept.flow.cells.iter())
                         .find(|spec| spec.id.as_str() == run.cell)
