@@ -211,3 +211,46 @@ fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is
         assert_eq!(w.round().1, next, "with tree_edits {edits:?}");
     }
 }
+
+#[test]
+fn a_write_to_the_record_of_what_is_said_holds_nothing_by_the_entry_kept_not_by_the_words_handed_in() {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    let (run, _) = w.round();
+    let names = w.told(run, "R1");
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let plan = [
+        ("deep_needed", Some("no")),
+        ("plan_owner", None),
+        ("plan_agent", None),
+        ("acceptance", None),
+        ("discussion", None),
+    ];
+    let mut came = w.read("R1", &names, &plan);
+    for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "discussion") {
+        h.content = " \n".to_string();
+    }
+    w.on(Event::Returned {
+        run,
+        came,
+        spent: Spent::default(),
+    });
+    let finished = (w.work.records.finished.iter())
+        .find(|f| f.run == run)
+        .expect("the run finished");
+    let at = finished.at;
+    let kept = w
+        .work
+        .contents
+        .get(&("discussion".into(), at))
+        .expect("the entry is kept");
+    assert!(
+        !kept.trim().is_empty(),
+        "the entry has the reply's words around the handed in ones: {kept:?}"
+    );
+    let write = (finished.writes.iter())
+        .find(|x| x.block.as_str() == "discussion")
+        .expect("written");
+    assert!(!write.empty, "the entry kept holds something");
+}
