@@ -18,7 +18,8 @@ export type Passage = { kind: 'text'; text: string; changed?: boolean };
 /// A part of the body: a passage, or a choice that waits for the owner where it stands in the text, which the owner
 /// may already have confirmed while others still wait. A choice a cell asked while working (`asks`) is answered to the
 /// call that waits for it, or to the version of the work's question of that name; until it is answered, the work waits
-/// for it at its cell (`stops` `work`), or goes on by the option it recommends (`later`).
+/// for it at its cell (`stops` `work`), or goes on by the option it recommends (`later`) until the merge waits for it
+/// (`merge`).
 export type Part =
   | Passage
   | {
@@ -30,7 +31,7 @@ export type Part =
       confirmed?: boolean;
       changed?: boolean;
       asks?: { cell: string; call: number } | { cell: string; question: string; version: number };
-      stops?: 'work' | 'later';
+      stops?: 'work' | 'merge' | 'later';
       /// What the owner wrote as the answer to a question with no options, which is answered in words.
       answer?: string;
     };

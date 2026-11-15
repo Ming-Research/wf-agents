@@ -61,6 +61,14 @@ const LIFTED: Failure[] = [
   'other',
 ];
 
+/// A work at the merge's check, which waits for the owner's answers to the questions that stand: a precondition only the
+/// engine's source of how they stand makes hold.
+const ANSWERS: Now = {
+  kind: 'waits',
+  at: 'merge',
+  on: [{ kind: 'precondition', test: 'asked', words: 'asked = answered', by: [{ kind: 'outside', source: 'asked' }] }],
+};
+
 /// A stalled work: no cell can write what it waits for.
 const STALLED: Now = {
   kind: 'stalled',
@@ -94,6 +102,7 @@ const OWNERS: [string, Now, string][] = [
     'answer-protected_files',
   ],
   ["the agents' command line, which cannot run", shared('cannotRun'), 'agents'],
+  ['a question that did not stop its cell, which the merge now waits for', ANSWERS, 'asked'],
 ];
 
 /// A review's verdict that holds the work, for the owner to rule on: the review said it is not content, and the owner,
@@ -148,27 +157,31 @@ const NOT_OWNERS: [string, Now][] = [
   ],
 ];
 
-/// The questions of the work's own that the work waits for the answer to, as its page gives them.
+/// A question of the work's own, unanswered, as its page gives it.
+const asked = (name: string, cell: string, waits: boolean): Question => ({
+  name,
+  cell,
+  version: 4,
+  engine: false,
+  waits,
+  withdrawn: null,
+  ask: `What of ${name}?`,
+  options: [{ does: 'Keep it', follows: 'Nothing changes' }],
+  recommends: waits ? null : 1,
+  answer: null,
+});
+
+/// The questions of the work's own it waits for the answer to, as its page gives them: each it waits for at its cell,
+/// and one it went on past while the merge waits for the owner's answers.
 const questionsOf = (now: Now): Question[] =>
   now.kind !== 'waits'
     ? []
     : now.on.flatMap((w): Question[] =>
-        w.kind !== 'answer'
-          ? []
-          : [
-              {
-                name: w.question,
-                cell: now.at,
-                version: 4,
-                engine: false,
-                waits: true,
-                withdrawn: null,
-                ask: `What of ${w.question}?`,
-                options: [{ does: 'Keep it', follows: 'Nothing changes' }],
-                recommends: null,
-                answer: null,
-              },
-            ],
+        w.kind === 'answer'
+          ? [asked(w.question, now.at, true)]
+          : w.kind === 'precondition' && w.by.some((m) => m.kind === 'outside' && m.source === 'asked')
+            ? [asked('measure', 'plan', false)]
+            : [],
       );
 
 function draw(

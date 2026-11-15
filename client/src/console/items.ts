@@ -11,7 +11,7 @@
 import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
 import { mocksShown } from '../mock-data';
 import { waitsOf } from '../works/waiting';
-import { outageDown } from '../works/words';
+import { outageDown, waitsForOwner } from '../works/words';
 import { itemOf } from './real';
 
 /// What the item is to deliver: not yet, delivered, or given up.
@@ -73,7 +73,7 @@ export function standingOf(i: Item | undefined): ItemStanding {
 /// the engine says the owner can make hold, none where the engine, a source outside the work or a cell gives it.
 export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'limit' || w.kind === 'calls') return 'owner';
-  if (w.kind === 'precondition') return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
+  if (w.kind === 'precondition') return waitsForOwner(w) ? 'owner' : null;
   if (w.kind === 'slot' || w.kind === 'outside') return null;
   if (w.kind === 'answer') return 'owner';
   // A wait every work shares is the owner's to end only where the command line cannot run.

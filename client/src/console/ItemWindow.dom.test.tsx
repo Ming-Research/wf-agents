@@ -10,6 +10,7 @@ import type { Act, Item, Now, Question, Speaking, WorkPage } from '../works-api'
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
+import { waitsOnOwner } from '../works/waiting';
 
 let root: Root | undefined;
 let container: HTMLElement;
@@ -232,11 +233,13 @@ describe('the panel of the item selected', () => {
     const sent: Sent = [];
     // The engine gives the words to another cell than the one the page read it would: the page says the engine's.
     const el = draw(12, answered(sent, { reached: 'R1' }), undefined, true);
-    // A button for each line that can ask the owner a question, and none for the review's line, which cannot.
-    expect(text(el, '.cw-to .switch-choice')).toEqual(['D1', 'Implement']);
-    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Implement']);
+    // A button for each line that can ask the owner a question, and none for the review's line, which cannot: its line
+    // and the cell the engine would give the words to, by its id, or the line alone where it has none.
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['D1', 'engineer · I1']);
+    expect(button(el, 'D1').title).toBe(SPEAKING[1].refused);
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['engineer · I1']);
     expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
-    act(() => button(el, 'Implement').click());
+    act(() => button(el, 'engineer · I1').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
     expect(button(el, 'Send').disabled).toBe(true);
     type(el.querySelector('textarea') as HTMLTextAreaElement, '  Keep it to one table  ');
@@ -277,8 +280,10 @@ describe('the panel of the item selected', () => {
     ];
     const i = itemOf(12);
     const el = draw(i, answered(sent, { reached: 'deep_research' }), pageOf(i, speaking));
-    expect(text(el, '.cw-to .switch-choice')).toEqual(['Deep research', 'Implement']);
-    act(() => button(el, 'Deep research').click());
+    // Every button where the engine names a cell carries both its line and that cell's id.
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['deep_research · deep_research', 'engineer · implement']);
+    expect([...el.querySelectorAll('.cw-to .switch-choice')].map((b) => b.getAttribute('title'))).toEqual([null, null]);
+    act(() => button(el, 'deep_research · deep_research').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Deep research']);
     type(el.querySelector('textarea') as HTMLTextAreaElement, 'Look at the second table');
     await act(async () => button(el, 'Send').click());
@@ -292,7 +297,7 @@ describe('the panel of the item selected', () => {
     const speaking: Speaking[] = [{ to: { kind: 'line', line: 'engineer' }, cell: 'research', refused: null }];
     const el = draw(1, answered(sent, { reached: 'R1' }), engineer(pageOf(itemOf(1), speaking)), true);
     await act(async () => button(el, 'Discuss').click());
-    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Initial research']);
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['engineer · R1']);
     expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
     // The discussion's box, not the one the question is answered in.
     type(discussion(el).querySelector('textarea') as HTMLTextAreaElement, 'Kept a day: say why not.');
@@ -486,9 +491,33 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(text(el, '.cw-done')).toEqual(['Your answer was sent.']);
   });
 
-  it('shows a question the work goes on past by the option it recommends, and sends its answer', async () => {
+  it('shows a question the merge waits for as holding the work, which waits for you, and sends its answer', async () => {
     const sent: Sent = [];
+    const answers = { kind: 'outside', source: 'asked' } as const;
+    const merge: Now = {
+      kind: 'waits',
+      at: 'merge',
+      on: [{ kind: 'precondition', test: 'asked', words: 'asked = answered', by: [answers] }],
+    };
+    expect(waitsOnOwner(merge)).toBe(true);
+    const old = question('old', { answer: { option: 1, at: 40, why: null } });
+    const el = drawAsking(merge, [question('measure'), old], answered(sent));
+    const [, workLine] = lines(el);
+    expect(workLine).toContain('Waiting for you until asked = answered');
+    // The card the address of the merge's wait opens, which says so; the one answered asks nothing.
+    expect(el.querySelectorAll('[data-wait="asked"]')).toHaveLength(1);
+    expect(text(el, '.cw-choice-stops')).toEqual(['The merge waits for this answer']);
+    expect(text(el, '.cw-choice-later')).toEqual([]);
+    pick(el, 0, 1);
+    await act(async () => button(el, 'Confirm (1/1)').click());
+    expect(sent).toEqual([[12, { kind: 'answer', question: 'measure', version: 30, option: 2, why: null }]]);
+  });
+
+  it('shows a question the work goes on past by the option it recommends, not counted while no merge waits on it, and sends its answer', async () => {
+    const sent: Sent = [];
+    expect(waitsOnOwner({ kind: 'next', cell: 'implement' })).toBe(false);
     const el = drawAsking({ kind: 'next', cell: 'implement' }, [question('later', { recommends: 2 })], answered(sent));
+    expect(el.querySelector('[data-wait]')?.getAttribute('data-wait')).toBe('answer-later');
     expect(text(el, '.cw-choice-q')).toEqual(['What of later?']);
     expect(text(el, '.cw-choice-stops')).toEqual([]);
     expect(text(el, '.cw-choice-later')).toEqual(['The work goes on by the recommended option until you answer']);

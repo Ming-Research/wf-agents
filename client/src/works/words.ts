@@ -165,13 +165,23 @@ export function personWords(person: Person): string {
   return `the ${person}`;
 }
 
+/// The engine's source of the datum that says whether every question of the work that stands has the owner's answer
+/// to its latest version: a precondition only it can make hold waits for the owner's answers, as the engine's own
+/// account of what rests for a person says.
+export const ASKED = 'asked';
+
+/// Whether what a work waits for is the owner's answers to the questions that stand: a precondition only the engine's
+/// source of how they stand can make hold, as the merge's check requires.
+export const waitsForAnswers = (waited: Waited): boolean =>
+  waited.kind === 'precondition' && waited.by.some((m) => m.kind === 'outside' && m.source === ASKED);
+
 /// Who can make a precondition hold.
 export function makerWords(maker: Maker): string {
   switch (maker.kind) {
     case 'owner':
       return 'the owner';
     case 'outside':
-      return `the outside (${maker.source})`;
+      return maker.source === ASKED ? "the owner's answers" : `the outside (${maker.source})`;
     case 'cell':
       return `cell ${maker.cell}`;
   }
@@ -263,7 +273,7 @@ export function waitsForOwner(waited: Waited): boolean {
     case 'call':
       return waited.who === 'owner' || waited.what.kind === 'atLimit';
     case 'precondition':
-      return waited.by.some((m) => m.kind === 'owner');
+      return waited.by.some((m) => m.kind === 'owner') || waitsForAnswers(waited);
     case 'limit':
     case 'calls':
       return true;

@@ -4,12 +4,12 @@
 // person.
 
 import type { Act, EngineAct, Item, Now } from '../works-api';
-import { failureWords, outageDown, waitsForOwner } from './words';
+import { failureWords, outageDown, waitsForAnswers, waitsForOwner } from './words';
 
 /// What kind of thing a work waits for from the owner.
 export type WaitKind =
   /// A question to the owner, which a cell asked or which is put as a call, or the engine's question of a change of a
-  /// protected file.
+  /// protected file; or the questions that stand unanswered, which the merge waits for.
   | 'question'
   /// A cell at its limit, which waits for the owner to let it go on.
   | 'limit'
@@ -24,6 +24,9 @@ export type WaitKind =
   /// The wait every work shares where the agents' command line cannot run, which only the owner can mend: a wait every
   /// work shares for any other cause is the engine's, which checks the outside itself and lifts it.
   | 'agents';
+
+/// What the merge's wait for the owner's answers is, in words.
+const ANSWERS_WAITED = 'the merge waits for your answers to the questions that stand';
 
 /// What the owner does on the card to let the work on: an act on the work, or on the engine as a whole.
 export type WaitAct = { on: 'work'; act: Act; label: string } | { on: 'engine'; act: EngineAct; label: string };
@@ -95,8 +98,12 @@ export function waitsOf(now: Now): Wait[] {
                 act: { on: 'work', act: { kind: 'letGo', cell: now.at }, label: 'Let it go on' },
               },
             ];
+          // The questions that stand unanswered, which a cell did not wait for but the merge does: their cards at the
+          // plan's end say so.
           case 'precondition':
-            return [{ key: 'precondition', kind: 'precondition', words: w.words, act: null }];
+            return waitsForAnswers(w)
+              ? [{ key: 'asked', kind: 'question', words: ANSWERS_WAITED, act: null }]
+              : [{ key: 'precondition', kind: 'precondition', words: w.words, act: null }];
           case 'agents': {
             const down = outageDown(w.outage);
             return [

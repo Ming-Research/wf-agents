@@ -121,6 +121,15 @@ describe('what waits for the owner in a work', () => {
     expect(n({ kind: 'everything', by: 'engine' })).toBe(1);
     expect(n(waiting(VERDICT))).toBe(1);
     expect(n(waiting(shared('cannotRun')))).toBe(1);
+    // The merge's wait for the owner's answers is the owner's; a wait for the items the work depends on is not.
+    const of = (source: string): Waited => ({
+      kind: 'precondition',
+      test: source,
+      words: source,
+      by: [{ kind: 'outside', source }],
+    });
+    expect(n(waiting(of('asked')))).toBe(1);
+    expect(n(waiting(of('dependencies')))).toBe(0);
     expect(n({ kind: 'everything', by: 'owner' })).toBe(0);
     expect(n(waiting(shared('usageLimit')))).toBe(0);
     expect(n(waiting(shared('offline')))).toBe(0);

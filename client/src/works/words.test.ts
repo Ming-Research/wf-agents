@@ -19,6 +19,7 @@ import {
   unmetWords,
   waitedWords,
   waitsForOwner,
+  ASKED,
 } from './words';
 
 const precondition: Waited = {
@@ -57,6 +58,15 @@ describe('what a work does now, in words', () => {
       'Waiting for you at merge: The owner approved the merge, which the owner can make hold; ' +
         'the owner to let the cell go on: its last 3 runs in a row were each a way round',
     );
+    expect(
+      nowWords({
+        kind: 'waits',
+        at: 'M1',
+        on: [
+          { kind: 'precondition', test: 'asked', words: 'asked = answered', by: [{ kind: 'outside', source: ASKED }] },
+        ],
+      }),
+    ).toBe("Waiting for you at M1: asked = answered, which the owner's answers can make hold");
     expect(nowWords({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] })).toBe(
       'Waits at plan for a free slot, which the engine gives in its order',
     );

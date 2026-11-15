@@ -53,7 +53,15 @@ import {
 import { StateLegend, Strip } from '../works/marks';
 import { type Wait, waitsOf } from '../works/waiting';
 import { LetGoAgain } from '../works/Boxes';
-import { CANCEL_DOES, CANCEL_WHY, callWords, letGoFailed, outageWords, stalledWords } from '../works/words';
+import {
+  CANCEL_DOES,
+  CANCEL_WHY,
+  callWords,
+  letGoFailed,
+  outageWords,
+  stalledWords,
+  waitsForAnswers,
+} from '../works/words';
 import { type ItemStanding, standingOf, whoGives } from './items';
 import { Markdown } from './markdown';
 import { markRead } from './mock';
@@ -152,8 +160,9 @@ function askedOf(now: Summary['now']): Choice[] {
 
 /// The questions put to the owner that stand, as the work's page gives them, each as a choice at the plan's end: what
 /// it asks, its options, the one it recommends, and the owner's answer to its latest version, which confirms it; until
-/// it is answered, the work waits for it at its cell, or goes on by the option it recommends.
-function questionsStanding(questions: Question[] | undefined): Choice[] {
+/// it is answered, the work waits for it at its cell, or goes on by the option it recommends until the merge waits for
+/// it (`merge`, where the work waits for the owner's answers).
+function questionsStanding(questions: Question[] | undefined, merge: boolean): Choice[] {
   return (questions ?? []).flatMap((q): Choice[] => {
     if (q.withdrawn !== null || q.ask === null) return [];
     const answered = q.answer !== null;
@@ -166,7 +175,7 @@ function questionsStanding(questions: Question[] | undefined): Choice[] {
         chosen: q.answer === null ? null : q.answer.option - 1,
         confirmed: answered,
         asks: { cell: q.cell, question: q.name, version: q.version },
-        stops: answered ? undefined : q.waits ? 'work' : 'later',
+        stops: answered ? undefined : q.waits ? 'work' : merge ? 'merge' : 'later',
       },
     ];
   });
@@ -177,9 +186,16 @@ const pickKey = (c: Choice): string =>
   c.asks === undefined ? '' : 'call' in c.asks ? `call ${c.asks.call}` : `${c.asks.question}@${c.asks.version}`;
 
 /// The key of the card of what a work waits for that a question's choice is (`Wait.key`): a question put as a call by
-/// its call, a question of the work's own by its name.
+/// its call, one the merge waits for as the merge's wait for the owner's answers, any other of the work's own by its
+/// name.
 const waitKeyOf = (c: Choice): string | undefined =>
-  c.asks === undefined ? undefined : 'call' in c.asks ? `q${c.asks.call}` : `answer-${c.asks.question}`;
+  c.asks === undefined
+    ? undefined
+    : 'call' in c.asks
+      ? `q${c.asks.call}`
+      : c.stops === 'merge'
+        ? 'asked'
+        : `answer-${c.asks.question}`;
 
 /// What the work waits for at a cell, in a few words for the status line.
 function lineWords(w: Waited, cell: string): string {
@@ -493,7 +509,8 @@ function ItemView({
   // options, by what its answer is sent to.
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [written, setWritten] = useState<Record<string, string>>({});
-  const questions = [...questionsStanding(read?.questions), ...askedOf(work.now)].map((c) =>
+  const merge = work.now.kind === 'waits' && work.now.on.some(waitsForAnswers);
+  const questions = [...questionsStanding(read?.questions, merge), ...askedOf(work.now)].map((c) =>
     c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null, answer: written[pickKey(c)] ?? '' },
   );
   // Those still to answer, which Confirm sends.
@@ -1015,6 +1032,7 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
         <Markdown text={p.question} />
       </div>
       {p.stops === 'work' && <p className="cw-choice-stops">The work waits for this answer</p>}
+      {p.stops === 'merge' && <p className="cw-choice-stops">The merge waits for this answer</p>}
       {p.stops === 'later' && (
         <p className="cw-choice-later">The work goes on by the recommended option until you answer</p>
       )}
@@ -1116,8 +1134,9 @@ function RulingBox({ ruling, page, act }: {
 /// The discussion: the messages written before, the owner's and the replies, and a box to write one. The owner picks
 /// the line it goes to, of the lines that can ask the owner a question, and what they send is said to that line, or,
 /// where the work waits on that line for the owner's answer to a question, about that question; the engine chooses the
-/// cell it reaches, which each button and the line under the box name as the engine says it, or say why no cell can
-/// take it, and then it is not sent.
+/// cell it reaches. Each button names its line and, where the engine has a cell to give the words to on it, that cell
+/// by its id, the same way on every button; where it has none, the line alone, with why in its title. The line under
+/// the box names the cell the words reach by its title, or says why no cell can take them, and then they are not sent.
 function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
@@ -1188,7 +1207,7 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
                 title={t.speaking?.cell === null ? t.speaking.refused ?? undefined : undefined}
                 onClick={() => setMessageTo(t.line)}
               >
-                {t.speaking?.cell == null ? t.line : titleOf(read, t.speaking.cell)}
+                {t.speaking?.cell == null ? t.line : `${t.line} · ${t.speaking.cell}`}
               </button>
             ))}
           </div>
