@@ -207,6 +207,45 @@ fn what_fills_a_place_is_not_filled_again_and_what_opens_no_place_is_kept() {
     );
 }
 
+// A full stop of the words right after a place is left out where what fills the place ends a sentence already, in
+// English or in Chinese, so that the sentence ends once; it stays after what does not, after a place left open, and
+// where a word follows it at once.
+// Words filled as pieces, as a message's and a system prompt's are, join alike. Well under a millisecond alone.
+#[test]
+fn a_full_stop_after_a_place_is_not_doubled_where_what_fills_it_ends_a_sentence() {
+    let words = "{a}.{b} Then {c}. Last {d}. Open {e}.";
+    for end in [".", "?", "!", "。", "？", "！"] {
+        let (a, c) = (format!("边界{end}"), format!("It holds{end}"));
+        let places = [
+            ("a", a.as_str()),
+            ("b", " Why: late."),
+            ("c", c.as_str()),
+            ("d", "none"),
+        ];
+        let filled = agents::fill(words, &places);
+        assert_eq!(
+            filled,
+            format!("边界{end} Why: late. Then It holds{end} Last none. Open {{e}}.")
+        );
+        assert_eq!(flow::system::as_written(&flow::system::fill(words, &places)), filled);
+    }
+    // Where the words after the place are the stop alone, what fills the next place says what follows it: a word keeps
+    // it, nothing or a space does not, and a place left open keeps it.
+    for (b, filled) in [("md", "x..md"), ("", "x."), (" More.", "x. More.")] {
+        let places = [("a", "x."), ("b", b)];
+        assert_eq!(agents::fill("{a}.{b}", &places), filled);
+        assert_eq!(
+            flow::system::as_written(&flow::system::fill("{a}.{b}", &places)),
+            filled
+        );
+    }
+    assert_eq!(agents::fill("{a}.{b}", &[("a", "x.")]), "x..{b}");
+    assert_eq!(
+        flow::system::as_written(&flow::system::fill("{a}.{b}", &[("a", "x.")])),
+        "x..{b}"
+    );
+}
+
 #[test]
 fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
     let dir = copy("unknown");
