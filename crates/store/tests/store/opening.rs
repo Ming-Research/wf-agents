@@ -221,7 +221,7 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 }
 
 /// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
-pub(crate) const MIGRATIONS: [&str; 14] = [
+pub(crate) const MIGRATIONS: [&str; 17] = [
     include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
     include_str!("../../../../db/migrations/202611102304-give-items-a-level.sql"),
     include_str!("../../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
@@ -242,6 +242,9 @@ pub(crate) const MIGRATIONS: [&str; 14] = [
     include_str!(
         "../../../../db/migrations/202611142100-keep-what-the-calls-of-a-round-came-to-and-the-pings-of-sessions.sql"
     ),
+    include_str!("../../../../db/migrations/202611142300-keep-the-cell-an-entry-of-what-is-said-is-said-to.sql"),
+    include_str!("../../../../db/migrations/202611151200-say-what-a-finished-run-waits-for-from-outside.sql"),
+    include_str!("../../../../db/migrations/202611151600-say-whether-a-version-holds-anything.sql"),
 ];
 
 #[test]
@@ -324,6 +327,50 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
         ]
     );
     assert!(migrated.iter().all(|o| o.read.is_none()));
+}
+
+#[test]
+fn a_file_of_version_17_is_migrated_and_its_writes_read_as_holding_something() {
+    // A work as one kept at version 17 holds it: a request a person wrote holding only whitespace, and the writer's
+    // text handed in empty.
+    let mut d = Driver::new();
+    d.on(Event::Wrote {
+        block: "request".into(),
+        by: Outsider::Person,
+        content: " \n".to_string(),
+        matters: true,
+        value: None,
+    });
+    d.end(Came::hands_in(vec![Handed {
+        block: "text".into(),
+        content: String::new(),
+        matters: true,
+        value: None,
+    }]));
+    let work = d.work;
+    let request = (work.records.written.iter()).find(|w| w.block.as_str() == "request");
+    assert!(request.is_some_and(|w| w.empty), "the request holds nothing");
+    assert!(work.records.finished[0].writes[0].empty, "the text holds nothing");
+    let (old, new) = kept_in(17, &work);
+    let store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    // A file of this version keeps what each says; in the migrated one each reads as holding something, as kept before.
+    assert_eq!(new.open().load(WorkNumber(1)), Ok(work.clone()));
+    let mut before = work;
+    for w in &mut before.records.written {
+        w.empty = false;
+    }
+    for f in &mut before.records.finished {
+        for w in &mut f.writes {
+            w.empty = false;
+        }
+    }
+    assert_eq!(store.load(WorkNumber(1)), Ok(before));
 }
 
 #[test]

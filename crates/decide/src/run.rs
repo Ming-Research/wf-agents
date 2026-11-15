@@ -16,10 +16,11 @@
 //! row and the next pauses the work ([`pausing`]). A return that could not be read is sent back, as any return that
 //! does not meet what the flow requires. A round the service's safety check flagged, and one the run guard stopped for a
 //! context its cell's history does not explain, is tried again in a new session of its line, and the second of the same
-//! kind in a row pauses the work. A cause every work shares (the account's usage limit, a command
-//! line that cannot run, no network) holds the agents' rounds of every work, which is no matter of one run's: the run
-//! only has its next round once they may begin again. Any other failure pauses the work as the round fails, so that the
-//! owner sees the cause first. Once the work is let on, the run has its next round, given what the failed round was
+//! kind in a row pauses the work. A cause outside every work, the same for all (the account's usage limit, a command
+//! line that cannot run, no network, a service that is down), holds the agents' rounds of every work, which is no
+//! matter of one run's: the run only has its next round once they may begin again, and so many failures of the run in
+//! a row for such a cause, each after the engine found the outside well, and the next pauses the work. Any other
+//! failure pauses the work as the round fails, so that the owner sees the cause first. Once the work is let on, the run has its next round, given what the failed round was
 //! given, and the failures counted in a row start anew. A round that failed, or a return that was sent back, deals with
 //! nothing.
 //!
@@ -48,8 +49,8 @@ pub struct Log {
     pub let_on: usize,
 }
 
-/// How many failures in passing in a row are tried again: the next one pauses the work, running again not having
-/// helped.
+/// How many failures in passing in a row are tried again, and as many for a cause outside every work: the next one
+/// pauses the work, running again not having helped.
 pub const PASSING: u32 = 8;
 
 /// How long the engine waits after the first failure in passing in a row before the round is tried again, in
@@ -71,8 +72,8 @@ pub fn wait(failed: u32) -> u64 {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Failure {
-    /// In passing: the service was overloaded, gave an error or took too long, or the command line crashed. The round
-    /// is tried again after a wait.
+    /// In passing, the round's own: the command line crashed after it reached the service, the service's answer to
+    /// it was cut off, or the model gave what could not be taken. The round is tried again after a wait.
     Passing,
     /// What the agent returned could not be read: the command line gave up on it, or it is not of the form of a
     /// return. It is sent back.
@@ -85,27 +86,35 @@ pub enum Failure {
     Guarded,
     /// The account's usage limit was reached: no agent round of any work begins until it resets.
     UsageLimit,
-    /// The agents' command line cannot run at all: its sign-in has expired, or the program is missing. Only the owner
-    /// can mend it: no agent round of any work begins, but one now and then that tries.
+    /// The agents' command line cannot run at all: it is not signed in, its sign-in was refused, or the program is
+    /// missing or ended before it began, having reached nothing. No agent round of any work begins until it runs.
     CannotRun,
     /// The network cannot be reached: no agent round of any work begins until it can be.
     Offline,
+    /// The agents' service did not serve the round: it failed, was overloaded, throttled the account's requests or did
+    /// not answer in time. No agent round of any work begins until it serves again.
+    Unavailable,
     /// The prompt is too long for the model: running it again cannot help, and the work is paused.
     PromptTooLong,
     /// The service has no model of the name the round's level gives: no round on it can run until the installation
     /// names another, so the work is paused, and so is every other work that runs a round on that model.
     NoModel,
-    /// A cause no kind tells apart that is no report of the agents' command line: the engine's own act failed, or
-    /// the round could not be carried out at all. The work is paused. Rounds that failed before kinds were told apart
-    /// read so, since each paused its work.
+    /// A cause no other kind holds: a request the service refused, an error the command line reported of no kind its
+    /// fields or its words tell, a refusal of the engine's act by its host or what only a person mends there, or a
+    /// round that could not be carried out at all. Running again meets it again, and the work is paused. Rounds that
+    /// failed before kinds were told apart read so, since each paused its work.
     #[default]
     Other,
 }
 
 impl Failure {
-    /// Whether every work shares the cause, so that it holds the agents' rounds of every work rather than one run.
+    /// Whether the cause is outside every work and the same for all, so that it holds the agents' rounds of every work
+    /// rather than one run.
     pub fn shared(self) -> bool {
-        matches!(self, Failure::UsageLimit | Failure::CannotRun | Failure::Offline)
+        matches!(
+            self,
+            Failure::UsageLimit | Failure::CannotRun | Failure::Offline | Failure::Unavailable
+        )
     }
 }
 
@@ -116,6 +125,9 @@ pub enum Pausing {
     Failed(Failure),
     /// The round failed in passing this many times in a row, and running it again has not helped.
     Passing { failed: u32 },
+    /// The round failed this many times in a row for a cause outside every work, each try begun once the engine found
+    /// the outside well: what the rounds meet is not what the engine's check finds.
+    Outside { failed: u32 },
     /// The round was flagged once more, in the new session its line was given for the time before.
     FlaggedAgain,
     /// The run guard stopped the round once more, in the new session its line was given for the time before.
@@ -149,6 +161,9 @@ pub enum Return {
         waits: bool,
         /// The questions it asks, asks anew or withdraws, in the order it wrote them.
         questions: Vec<Asking>,
+        /// The blocks of the work's branch the carrier read new as the round ended, as what the round committed: the
+        /// run writes each as it finishes, beside the blocks it writes itself.
+        read: Vec<BlockId>,
     },
     /// The round failed: nothing came back, for this kind of cause, said so.
     Failed {
@@ -192,10 +207,10 @@ pub struct Told {
     pub ran_by: Vec<BlockId>,
     /// Of each block the cell may write, the version the round was told of and the latest.
     pub outputs: BTreeMap<BlockId, Standing>,
-    /// Whether the round's cell still waits for the results of calls its runs asked for: the round was entered for the
-    /// owner turning to the cell meanwhile, answers and goes on waiting, and so is held to no block its cell must write
-    /// (design document `data-and-context`, 40, 42).
-    pub waits_for_calls: bool,
+    /// Whether the round's cell still waits for the results of calls its runs asked for, or for the answer to a question
+    /// of its asked before the run began: the round was entered for the owner turning to the cell meanwhile, answers
+    /// and goes on waiting, and so is held to no block its cell must write (design document `data-and-context`, 36).
+    pub waits: bool,
     /// Each question of the work, by its name, as the round's cell stands to it.
     pub questions: BTreeMap<String, Asked>,
 }
@@ -209,6 +224,9 @@ pub struct Standing {
     pub latest: Option<Seq>,
     /// The latest version's value, where the block is a choice.
     pub value: Option<String>,
+    /// A version written of it is an entry added to a record ([`crate::Flow::adds_entries`]): it replaces no version
+    /// before it, and so writes over none the round was not told of.
+    pub added: bool,
 }
 
 /// What the flow requires of what a cell's run returns.
@@ -221,7 +239,7 @@ pub struct Requires<'a> {
     pub groups: &'a BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks among those that every return that asks for no call includes, but one with a question that waits
     /// for the owner's answer, or one of a round whose cell still waits for the results of calls
-    /// ([`Told::waits_for_calls`]).
+    /// ([`Told::waits`]).
     pub must_write: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
@@ -229,6 +247,8 @@ pub struct Requires<'a> {
     pub returns: u32,
     /// What the round was told, and how the blocks it may write stand.
     pub told: &'a Told,
+    /// Of each block that runs the cell and that an act of the engine's after it writes, what runs that act again.
+    pub answered_by: &'a BTreeMap<BlockId, Answer>,
 }
 
 /// What a run does next.
@@ -300,7 +320,8 @@ pub enum Unmet {
     /// for the owner's answer: the cell would be entered again at once for the same.
     DealtWithNothing,
     /// The block got this version from another writer after the round was told of the one it writes over: the return
-    /// would write over what the round never saw. The next round is told of the version.
+    /// would write over what the round never saw. The next round is told of the version. An entry added to a record
+    /// writes over nothing.
     WrittenOver { block: BlockId, version: Seq },
     /// The block is a choice, written as changing nothing in meaning with another value than the one it has: a choice
     /// changes its meaning when its value does (decision `meaning-told-by-the-writer`).
@@ -323,8 +344,13 @@ pub enum Unmet {
     QuestionTwice { name: String },
     /// The question of this name recommends none of its options, or has none.
     NotAnOption { name: String },
-    /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it.
+    /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it. Returns
+    /// read before a cell could ask only where it writes the work's questions were sent back so; a question of a cell
+    /// that does not write them is now a block that is not among its outputs.
     NotAnswerable { name: String },
+    /// The return names as dealt with the owner's words, by this trigger, and writes no answer in the record of what is
+    /// said that the trigger has its agent read (design document `data-and-context`, 38).
+    NotAnswered { name: String },
     /// The work's branch, as the round left it, changes the file of this path, which the project protects, and neither
     /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking
     /// at the branch as the round ended.
@@ -333,6 +359,19 @@ pub enum Unmet {
     /// of the project's tests, which are all the cell's line changes: as the engine found it, looking at the branch as
     /// the round ended.
     NotATest { path: String },
+    /// The return deals with what an act of the engine's after its cell wrote, the block, and leaves new nothing that
+    /// runs that act, neither by what it hands in, the work's head it committed among it, nor by a question that
+    /// stands for the owner ([`Answer`]): the act reads no words, and would never run again.
+    Unanswered { block: BlockId },
+}
+
+/// What runs an act of the engine's again, of a block it wrote that runs a cell before it: the blocks that run the
+/// act, and whether the block of the questions' standing is among them, so that a question that stands runs it once
+/// it is answered. A return that deals with the block is held to leaving one of them new.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Answer {
+    pub runs: Vec<BlockId>,
+    pub question: bool,
 }
 
 /// What a pause of the run's work holds back of its rounds.
@@ -419,12 +458,32 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             found,
             waits,
             questions,
+            read,
         } => {
-            let unmet = unmet(dealt_with, writes, *calls, found, *waits, questions, requires);
+            let came = Came {
+                dealt_with,
+                writes,
+                calls: *calls,
+                found,
+                waits: *waits,
+                questions,
+                read,
+            };
+            let unmet = unmet(&came, requires);
             if unmet.is_empty() {
+                // What the round committed is the run's too, as the carrier read it of the branch.
+                let committed = (read.iter())
+                    .filter(|block| !writes.iter().any(|w| &w.block == *block))
+                    .map(|block| Write {
+                        block: block.clone(),
+                        meaning_unchanged: false,
+                        value: None,
+                        // What the carrier read of the branch, a commit, holds something.
+                        empty: false,
+                    });
                 return Step::Finish {
                     dealt_with: consumed(dealt_with, requires),
-                    writes: writes.clone(),
+                    writes: writes.iter().cloned().chain(committed).collect(),
                 };
             }
             unmet
@@ -479,11 +538,21 @@ fn passing_in_a_row(log: &Log) -> u32 {
     failures_in_a_row(log).filter(|f| *f == Failure::Passing).count() as u32
 }
 
+/// How many of the run's last rounds in a row failed for a cause outside every work ([`failures_in_a_row`]).
+fn outside_in_a_row(log: &Log) -> u32 {
+    failures_in_a_row(log).filter(|f| f.shared()).count() as u32
+}
+
 /// Why the engine pauses the work as the run's last round fails, if it does: the failure is of a kind running again
-/// cannot help; or it is in passing, and more of the run's last rounds in a row failed so than are tried again
-/// ([`PASSING`]); or the round was flagged, or the run guard stopped it, and another of the run's last rounds in a row
-/// failed so, whatever failed between them, the first having had its line's session begun anew. Any other failure the
-/// run takes up itself ([`next`]). The failures in a row start anew where the owner let the work on.
+/// cannot help; or it is in passing, or of a cause outside every work, and more of the run's last rounds in a row failed
+/// so than are tried again ([`PASSING`]); or the round was flagged, or the run guard stopped it, and another of the
+/// run's last rounds in a row failed so, whatever failed between them, the first having had its line's session begun
+/// anew. Any other failure the run takes up itself ([`next`]). The failures in a row start anew where the owner let the
+/// work on.
+///
+/// A round of the run begins after one that failed for a cause outside every work only once the engine has found the
+/// outside well, so that a row of them says the rounds meet what the engine's check does not find, as a limit of the
+/// model the rounds run on alone; each wrote its message into its session, and the row is bounded as one in passing is.
 pub fn pausing(log: &Log) -> Option<Pausing> {
     let mut row = failures_in_a_row(log);
     match row.next()? {
@@ -494,7 +563,11 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
         }
         Failure::Flagged => row.any(|f| f == Failure::Flagged).then_some(Pausing::FlaggedAgain),
         Failure::Guarded => row.any(|f| f == Failure::Guarded).then_some(Pausing::GuardedAgain),
-        Failure::Unread | Failure::UsageLimit | Failure::CannotRun | Failure::Offline => None,
+        Failure::UsageLimit | Failure::CannotRun | Failure::Offline | Failure::Unavailable => {
+            let failed = outside_in_a_row(log);
+            (failed > PASSING).then_some(Pausing::Outside { failed })
+        }
+        Failure::Unread => None,
     }
 }
 
@@ -504,16 +577,18 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
 /// whether it deals with nothing while something ran its round, asks for no call and has no question that waits for
 /// the owner's answer; then each block the cell must hand in and did not, in the order the cell lists them, where the
 /// return asks for no call, has no question that waits and its cell waits for no result, but one found written in a
-/// shape it does not take; then each question it writes that it may not, in the order it wrote them.
-fn unmet(
-    dealt_with: &[BlockId],
-    writes: &[Write],
-    calls: usize,
-    found: &[Unmet],
-    waits: bool,
-    questions: &[Asking],
-    requires: Requires,
-) -> Vec<Unmet> {
+/// shape it does not take; then each question it writes that it may not, in the order it wrote them; then each block an
+/// act wrote that it deals with and leaves unanswered, in the order it dealt with them.
+fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
+    let Came {
+        dealt_with,
+        writes,
+        calls,
+        found,
+        waits,
+        questions,
+        read,
+    } = *came;
     let told = requires.told;
     let mut unmet = found.to_vec();
     for (i, named) in dealt_with.iter().enumerate() {
@@ -549,6 +624,7 @@ fn unmet(
         if let Some(Standing {
             told,
             latest: Some(latest),
+            added: false,
             ..
         }) = standing
             && *told != Some(*latest)
@@ -576,7 +652,7 @@ fn unmet(
     let misshapen = |block: &BlockId| {
         (found.iter()).any(|u| matches!(u, Unmet::NoValue { block: b } | Unmet::NotAChoice { block: b } if b == block))
     };
-    if calls == 0 && !waits && !told.waits_for_calls {
+    if calls == 0 && !waits && !told.waits {
         for block in requires.must_write {
             if !writes.iter().any(|w| w.block == *block) && !misshapen(block) {
                 unmet.push(Unmet::NotHandedIn { block: block.clone() });
@@ -600,5 +676,37 @@ fn unmet(
             unmet.push(Unmet::NoSuchQuestion { name: name() });
         }
     }
+    // What an act of the engine's after the cell said to it is answered by what runs the act: what the return hands
+    // in, the work's head it committed among it, or a question that stands once the return is taken. The act reads no
+    // words, and a work answered with none would never run it again (decision an-act-is-answered-by-what-runs-it).
+    if calls == 0 && !told.waits {
+        let withdrawn = |name: &str| questions.iter().any(|q| q.withdrawn && q.name == name);
+        let stands = waits
+            || questions.iter().any(|q| !q.withdrawn)
+            || (told.questions.iter()).any(|(name, q)| q.stands && !withdrawn(name));
+        for block in consumed(dealt_with, requires) {
+            let Some(answer) = requires.answered_by.get(&block) else {
+                continue;
+            };
+            let written = (writes.iter().map(|w| &w.block))
+                .chain(read)
+                .any(|b| answer.runs.contains(b));
+            if !written && !(answer.question && stands) {
+                unmet.push(Unmet::Unanswered { block });
+            }
+        }
+    }
     unmet
+}
+
+/// What came back of a round as a return, as [`unmet`] reads it.
+#[derive(Clone, Copy)]
+struct Came<'r> {
+    dealt_with: &'r [BlockId],
+    writes: &'r [Write],
+    calls: usize,
+    found: &'r [Unmet],
+    waits: bool,
+    questions: &'r [Asking],
+    read: &'r [BlockId],
 }

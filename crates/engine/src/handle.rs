@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use decide::run::{self, Failure, Pausing, Requires, Step, Told, Unmet};
+use decide::run::{self, Answer, Failure, Pausing, Requires, Step, Told, Unmet};
 use decide::{
     Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, LetGo, Outsider, Pause, Pauser, PutIn,
     Returned, Room, Round, RunId, Seq, Started, Who, Write, Written, decide, decide_in, hold_in, told,
@@ -12,6 +12,7 @@ use flow::{Compiled, Kind};
 
 use crate::asked;
 use crate::event::{Effect, Event, Gate, Refused};
+use crate::spoken;
 use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Ran, Session, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
@@ -80,8 +81,8 @@ pub fn handle_then(
     let from = work.tick();
     let releasing = release(flow, work).is_some();
     let ended = matches!(decide(&flow.flow, &work.records), Decision::Ended(_));
-    take(flow, work, event)?;
     let mut effects = Vec::new();
+    take(flow, work, event, &mut effects)?;
     // What a round returned is taken as the round ends: where it meets everything the flow requires, the run finishes
     // here, before the walk, so that no cell before it comes between.
     if let Some(run) = returned
@@ -89,7 +90,8 @@ pub fn handle_then(
         && let Some(told) = told(&flow.flow, &work.records, run)
     {
         let choices = choices(flow);
-        if let Some(requires) = requires(flow, &choices, &told, work, run)
+        let answers = answers(flow, work, run);
+        if let Some(requires) = requires(flow, &choices, &answers, &told, work, run)
             && let Step::Finish { dealt_with, writes } = run::next(
                 &log(work, run, &told),
                 requires,
@@ -100,7 +102,7 @@ pub fn handle_then(
         }
     }
     for event in then(flow, work) {
-        take(flow, work, event)?;
+        take(flow, work, event, &mut effects)?;
     }
     let at = At { from, now, room, gate };
     advance(flow, work, at, &mut effects)?;
@@ -213,8 +215,9 @@ fn release(flow: &Compiled, work: &Work) -> Option<End> {
     quiet.then_some(end)
 }
 
-/// Adds what happened to the records, or refuses what cannot have happened to this work.
-fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
+/// Adds what happened to the records, with what is to be done outside for it alone, or refuses what cannot have
+/// happened to this work.
+fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect>) -> Result<(), Refused> {
     match event {
         Event::Look => {}
         Event::Wrote {
@@ -227,11 +230,9 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             let Some(declared) = flow.blocks.get(&block) else {
                 return Err(Refused::NoSuchBlock(block));
             };
-            // What stands for the questions and their answers the engine writes itself, as they are taken.
-            let engines = [asked::ASKED, flow::ANSWER];
             let theirs = match by {
                 Outsider::Person => declared.writers.people,
-                Outsider::Outside => (declared.writers.outside.as_deref()).is_some_and(|s| !engines.contains(&s)),
+                Outsider::Outside => outside_writes(declared),
             };
             if !theirs {
                 return Err(Refused::NotTheirs { block, by });
@@ -246,33 +247,44 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 _ => {}
             }
             let at = work.tick();
+            let empty = value.is_none() && content.trim().is_empty();
             work.contents.insert((block.clone(), at), content);
             work.records.written.push(Written {
                 block,
                 by,
                 matters,
                 value,
+                empty,
+                said_to: None,
                 at,
             });
         }
         Event::WroteForRound { run, block, content } => {
-            if began(work, run) == ended(work, run) || !open(work, run) {
+            if began(work, run) == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
             }
-            let wrote = Event::Wrote {
-                block: block.clone(),
-                by: Outsider::Outside,
-                content,
-                matters: true,
-                value: None,
+            // What the block says already is not written again: the round is told of the version that says it.
+            let version = match says_already(flow, work, &block, &content) {
+                Some(version) => version,
+                None => {
+                    let wrote = Event::Wrote {
+                        block: block.clone(),
+                        by: Outsider::Outside,
+                        content,
+                        matters: true,
+                        value: None,
+                    };
+                    take(flow, work, wrote, effects)?;
+                    (work.records.written.last())
+                        .map(|w| w.at)
+                        .expect("the version was written")
+                }
             };
-            take(flow, work, wrote)?;
-            let version = work
-                .records
-                .written
-                .last()
-                .map(|w| w.at)
-                .expect("the version was written");
+            // A run abandoned while its round is under way consumes nothing, and a round told of the version already
+            // is not told of it again.
+            if !open(work, run) || told_of(work, run, &block).is_some_and(|told| told >= version) {
+                return Ok(());
+            }
             let at = work.tick();
             work.records.put_in.push(PutIn {
                 run,
@@ -340,6 +352,16 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             if began(work, run) == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
             }
+            // What the carrier read of the branch is of the blocks a source outside the work writes, none a choice.
+            for read in &came.read {
+                let Some(declared) = flow.blocks.get(&read.block) else {
+                    return Err(Refused::NoSuchBlock(read.block.clone()));
+                };
+                if !outside_writes(declared) || declared.values.is_some() {
+                    let (block, by) = (read.block.clone(), Outsider::Outside);
+                    return Err(Refused::NotTheirs { block, by });
+                }
+            }
             // The round of a run that was abandoned has ended too, and what came back from it is dropped; what it
             // took is kept.
             let kept = open(work, run);
@@ -359,7 +381,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                     .find(|s| s.run == run)
                     .map(|s| s.cell.clone());
                 if let Some(cell) = cell {
-                    asked::record(work, run, &cell, true, &came.engine);
+                    asked::record(flow, work, run, &cell, true, &came.engine);
                 }
                 let back = Back::Returned {
                     dealt_with,
@@ -368,6 +390,8 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                     found: came.found,
                     said: came.said,
                     engine: came.engine,
+                    waits_for: came.waits_for,
+                    read: came.read,
                 };
                 work.back.insert((run, number), back);
                 asked::tell(flow, work);
@@ -435,6 +459,8 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             asked::answer(flow, work, question, version, option, why)?;
             asked::tell(flow, work);
         }
+        Event::Said { to, words } => spoken::said(flow, work, to, words, effects)?,
+        Event::SaidToRound { run, versions } => spoken::heard(flow, work, run, versions)?,
         Event::Anew { line, why } => {
             if !flow
                 .cells
@@ -649,10 +675,11 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
 /// a wait made or came to rest for the owner at a limit, and not when a round of it began or is held.
 fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<Effect>) -> bool {
     let choices = choices(flow);
+    let answers = answers(flow, work, run);
     let Some(told) = told(&flow.flow, &work.records, run) else {
         return false;
     };
-    let Some(requires) = requires(flow, &choices, &told, work, run) else {
+    let Some(requires) = requires(flow, &choices, &answers, &told, work, run) else {
         return false;
     };
     let Some(started) = work.records.started.iter().find(|s| s.run == run) else {
@@ -739,8 +766,9 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
 }
 
 /// Takes the run's return, which met everything the flow requires: the calls it asks for are made, and the run
-/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish, and
-/// then the questions it asks, asks anew or withdraws, each a version of its own of its cell. A return of the form
+/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish, of a
+/// record of what is said the cell's entry of it ([`spoken::entry`]), and then the questions it asks, asks anew or
+/// withdraws, each a version of its own of its cell. A return of the form
 /// before a return that asks ended its run made all its calls at once as it was taken, and its run rested at them,
 /// unless the owner's word at the limit of calls was asked for first: such a run finishes making none again, or all it
 /// asked for where it made none, and its cell is owed those it made. The run keeps, as it finishes, the observations
@@ -754,9 +782,20 @@ fn finish(
     effects: &mut Vec<Effect>,
 ) {
     let mut questions = Vec::new();
+    let mut waits = None;
+    let mut read = Vec::new();
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
-        Some(Back::Returned { handed, asks, said, .. }) => {
+        Some(Back::Returned {
+            handed,
+            asks,
+            said,
+            waits_for,
+            read: on_branch,
+            ..
+        }) => {
             questions = said.questions.clone();
+            waits = waits_for.clone();
+            read = on_branch.clone();
             (handed.clone(), asks.clone())
         }
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
@@ -781,13 +820,24 @@ fn finish(
     }
     let at = work.tick();
     for h in handed {
-        work.contents.insert((h.block, at), h.content);
+        let content = spoken::entry(flow, &h.block, h.content);
+        work.contents.insert((h.block, at), content);
     }
+    // What the round committed, as the carrier read it of the branch as the round ended, is among what the run writes
+    // where the deciding code took it, which it does where the block does not say it already (decision
+    // a-version-read-at-a-rounds-end-is-that-rounds).
+    for r in read.into_iter().filter(|r| writes.iter().any(|w| w.block == r.block)) {
+        work.contents.entry((r.block, at)).or_insert(r.content);
+    }
+    let cell = (work.records.started.iter())
+        .find(|s| s.run == run)
+        .map(|s| s.cell.clone());
     work.records.finished.push(Finished {
         run,
         at,
         writes,
         dealt_with: Some(dealt_with),
+        waits_for: waits,
     });
     let line = (work.records.started.iter().find(|s| s.run == run))
         .and_then(|s| flow.cells.iter().find(|c| c.id == s.cell))
@@ -795,11 +845,9 @@ fn finish(
     let observed = work::observations::kept(work, run, line);
     work.observed.extend(observed);
     if !questions.is_empty()
-        && let Some(cell) = (work.records.started.iter())
-            .find(|s| s.run == run)
-            .map(|s| s.cell.clone())
+        && let Some(cell) = cell
     {
-        asked::record(work, run, &cell, false, &questions);
+        asked::record(flow, work, run, &cell, false, &questions);
         asked::tell(flow, work);
     }
 }
@@ -825,6 +873,7 @@ pub(crate) fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
 pub(crate) fn requires<'a>(
     flow: &'a Compiled,
     choices: &'a BTreeMap<BlockId, Vec<String>>,
+    answered_by: &'a BTreeMap<BlockId, Answer>,
     told: &'a Told,
     work: &Work,
     run: RunId,
@@ -839,7 +888,30 @@ pub(crate) fn requires<'a>(
         choices,
         returns: spec.returns,
         told,
+        answered_by,
     })
+}
+
+/// Of each block that runs the run's cell and that an act of the engine's after the cell writes, what runs that act
+/// again, as the flow's graph says it: the blocks that run the act, and whether the block of the questions' standing is
+/// among them. None where the run's cell is not in the flow.
+pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<BlockId, Answer> {
+    let mut answers: BTreeMap<BlockId, Answer> = BTreeMap::new();
+    let started = work.records.started.iter().find(|s| s.run == run);
+    let Some(place) = started.and_then(|s| flow.flow.place(&s.cell)) else {
+        return answers;
+    };
+    let asked = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(asked::ASKED));
+    let cells = flow.flow.cells();
+    for block in &cells[place].runs_on {
+        let acts = (flow.cells.iter().zip(cells)).skip(place + 1);
+        for (_, act) in acts.filter(|(spec, act)| spec.kind == Kind::Engine && act.outputs.contains(block)) {
+            let answer = answers.entry(block.clone()).or_default();
+            answer.runs.extend(act.runs_on.iter().cloned());
+            answer.question |= asked.is_some_and(|(id, _)| act.runs_on.contains(id));
+        }
+    }
+    answers
 }
 
 /// The run so far, as the deciding code reads it. A return of the form before a return said what it dealt with reads
@@ -851,6 +923,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
                 block: h.block.clone(),
                 meaning_unchanged: !h.matters,
                 value: h.value.clone(),
+                empty: h.value.is_none() && h.content.trim().is_empty(),
             })
             .collect()
     };
@@ -861,6 +934,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             asks,
             found,
             said,
+            read,
             ..
         } => run::Return::Came {
             dealt_with: dealt_with.clone(),
@@ -874,6 +948,11 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
                     withdrawn: matches!(q, work::Question::Withdrawn { .. }),
                 })
                 .collect(),
+            // What the round committed, where the block does not say it already.
+            read: (read.iter())
+                .filter(|r| says_now(work, &r.block) != Some(r.content.as_str()))
+                .map(|r| r.block.clone())
+                .collect(),
         },
         Back::Asked(asks) => run::Return::Came {
             dealt_with: Vec::new(),
@@ -882,6 +961,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             found: Vec::new(),
             waits: false,
             questions: Vec::new(),
+            read: Vec::new(),
         },
         Back::HandedIn(handed) => run::Return::Came {
             dealt_with: told.ran_by.clone(),
@@ -890,6 +970,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             found: Vec::new(),
             waits: false,
             questions: Vec::new(),
+            read: Vec::new(),
         },
         Back::Failed { why, failure, .. } => run::Return::Failed {
             failure: *failure,
@@ -951,6 +1032,41 @@ fn abandoned(work: &Work, run: RunId) -> bool {
     work.records.abandoned.iter().any(|a| a.run == run)
 }
 
+/// Whether a source outside the work writes the block: what stands for the questions and their answers, and for the
+/// owner's words, the engine writes itself, as they are taken.
+fn outside_writes(declared: &flow::Block) -> bool {
+    let engines = [asked::ASKED, flow::ANSWER, flow::WORDS];
+    (declared.writers.outside.as_deref()).is_some_and(|s| !engines.contains(&s))
+}
+
+/// The latest version of the block, where the block is one a source outside the work writes and no choice, and the
+/// version says this content: written from outside, or by a run that handed in what its round read of the work's
+/// branch.
+fn says_already(flow: &Compiled, work: &Work, block: &BlockId, content: &str) -> Option<Seq> {
+    let declared = flow.blocks.get(block)?;
+    if !outside_writes(declared) || declared.values.is_some() {
+        return None;
+    }
+    let latest = decide::versions(&work.records).get(block)?.last()?.at;
+    (says_now(work, block) == Some(content)).then_some(latest)
+}
+
+/// What the latest version of the block says, where it has one.
+fn says_now<'a>(work: &'a Work, block: &BlockId) -> Option<&'a str> {
+    let latest = decide::versions(&work.records).get(block)?.last()?.at;
+    work.contents.get(&(block.clone(), latest)).map(String::as_str)
+}
+
+/// The latest version of the block the run's round was told of: the one it started from, or one put in to it since.
+fn told_of(work: &Work, run: RunId, block: &BlockId) -> Option<Seq> {
+    let records = &work.records;
+    let began = (records.started.iter().find(|s| s.run == run)).and_then(|s| s.basis.get(block).copied().flatten());
+    let put_in = (records.put_in.iter())
+        .filter(|p| p.run == run && &p.block == block)
+        .map(|p| p.version);
+    began.into_iter().chain(put_in).max()
+}
+
 /// Whether the run has neither finished nor been abandoned.
 fn open(work: &Work, run: RunId) -> bool {
     let r = &work.records;
@@ -992,6 +1108,10 @@ fn pausing_words(pausing: &Pausing, why: &str) -> String {
         Pausing::Passing { failed } => {
             format!("the round failed in passing {failed} times in a row, and running it again has not helped: {why}")
         }
+        Pausing::Outside { failed } => format!(
+            "the round failed {failed} times in a row for a cause outside every work, tried again each time the \
+             engine's check found the outside well: {why}"
+        ),
         Pausing::FlaggedAgain => {
             format!("the service's safety check flagged the round again, in the new session its line was given: {why}")
         }

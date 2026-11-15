@@ -587,14 +587,14 @@ impl Build<'_> {
     }
 
     /// What the cell writes, with its task: its blocks, each on a line with its marks and its words, as `[outputs]` of
-    /// `return.toml` says; that it writes none, where it writes none.
+    /// `return.toml` says; after the list its `owner_reads`, once, where a block of it is one the owner reads; then
+    /// what the cell is told of writing each block whose file says it, each a paragraph, in the order of the list; that
+    /// it writes none, where it writes none.
     fn outputs(&self) -> Vec<Piece> {
         let told = &self.words.returns.outputs;
         let place = self.flow.flow.place(&self.cell.id);
         let outputs = place.map_or(&[][..], |p| &self.flow.flow.cells()[p].outputs[..]);
-        // A block the cell writes through a field of the return is no block it writes as one.
-        let blocks = (outputs.iter()).filter(|b| self.flow.blocks.get(*b).is_none_or(|d| d.field.is_none()));
-        let lines: Vec<String> = blocks
+        let lines: Vec<String> = (outputs.iter())
             .map(|block| {
                 let declared = self.flow.blocks.get(block);
                 let values = declared.and_then(|b| b.values.as_ref());
@@ -628,7 +628,17 @@ impl Build<'_> {
         } else {
             lines.join("\n")
         };
-        written(&self.named(&[told.heading.clone(), list].join("\n\n")))
+        let shown = (outputs.iter()).any(|block| self.flow.blocks.get(block).is_some_and(|b| b.readers.shown));
+        let reads = shown.then(|| told.owner_reads.trim().to_string());
+        let words = (outputs.iter())
+            .filter_map(|block| self.flow.blocks.get(block).and_then(|b| b.words.as_deref()))
+            .map(|words| words.trim().to_string());
+        let parts: Vec<String> = [told.heading.clone(), list]
+            .into_iter()
+            .chain(reads)
+            .chain(words)
+            .collect();
+        written(&self.named(&parts.join("\n\n")))
     }
 
     /// What comes before the results of the calls, in the words of `results.toml`.
@@ -784,8 +794,10 @@ impl Build<'_> {
             Unmet::QuestionTwice { name } => (&f.question_twice, vec![("name", name.clone())]),
             Unmet::NotAnOption { name } => (&f.not_an_option, vec![("name", name.clone())]),
             Unmet::NotAnswerable { name } => (&f.not_answerable, vec![("name", name.clone())]),
+            Unmet::NotAnswered { name } => (&f.not_answered, vec![("name", name.clone())]),
             Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
             Unmet::NotATest { path } => (&f.not_a_test, vec![("path", path.clone())]),
+            Unmet::Unanswered { block } => (&f.unanswered, vec![("block", block.to_string())]),
         };
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))

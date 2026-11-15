@@ -22,17 +22,19 @@ fn engineer() -> Compiled {
     let source = flow::read(&root().join("engineer")).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&["answer", "asked", "dependencies", "main", "session", "start", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
-        fields: names(&[
-            "dealt_with",
-            "meaning_unchanged",
-            "observations",
-            "questions",
-            "reply",
-            "summary",
-        ]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -96,7 +98,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "# `AGENTS.md`\n\n# Working here\n\nThe guide.",
         "# `design/constitution.md`\n\n# The constitution",
         "# `design/README.md`\n\n# The design tree",
-        "How every agent works, whatever its cell",
+        "- Check each fact when you write it",
         "How an engineer works",
         "# How you work here",
         "## How you return",
@@ -173,19 +175,32 @@ fn a_line_that_changes_only_the_tests_of_a_project_that_names_none_is_refused_as
     }
 }
 
-// A session keeps the system prompt it began with: made and kept where it has none, and the kept one given whenever
-// it has one, whatever the files it was made of became since and however the round begins in it.
+// A session keeps the system prompt and the form it began with, each alike: made and kept where it has none, and the
+// kept one given whenever it has one, whatever it was made of became since and however the round begins in it.
 #[test]
-fn a_session_keeps_the_system_prompt_it_began_with() {
+fn a_session_keeps_the_system_prompt_and_the_form_it_began_with() {
     let dir = tempfile::tempdir().expect("a directory");
-    let at = kept_at(dir.path(), Uuid::nil());
     let made = |text: &'static str| move || Ok::<_, String>(text.to_string());
-    assert_eq!(of_session(&at, made("as it began")).unwrap(), "as it began");
-    assert_eq!(of_session(&at, made("changed since")).unwrap(), "as it began");
-    // Another session, under an id of its own, is made anew.
-    let other = kept_at(dir.path(), Uuid::max());
-    assert_eq!(of_session(&other, made("another")).unwrap(), "another");
-    assert_eq!(of_session(&at, made("changed again")).unwrap(), "as it began");
+    for what in [Begun::System, Begun::Form] {
+        let at = kept_at(dir.path(), Uuid::nil(), what);
+        assert_eq!(of_session(&at, made("as it began")).unwrap(), "as it began", "{what:?}");
+        assert_eq!(
+            of_session(&at, made("changed since")).unwrap(),
+            "as it began",
+            "{what:?}"
+        );
+        // Another session, under an id of its own, is made anew.
+        let other = kept_at(dir.path(), Uuid::max(), what);
+        assert_eq!(of_session(&other, made("another")).unwrap(), "another", "{what:?}");
+        assert_eq!(
+            of_session(&at, made("changed again")).unwrap(),
+            "as it began",
+            "{what:?}"
+        );
+    }
+    // Each is kept apart: the form the session began with is not its system prompt.
+    let form = kept_at(dir.path(), Uuid::nil(), Begun::Form);
+    assert_ne!(form, kept_at(dir.path(), Uuid::nil(), Begun::System));
 }
 
 // A session whose first round was cut off before the program began it is begun again under its id, and one the
@@ -205,7 +220,7 @@ fn a_session_cut_off_and_begun_again_keeps_its_prompt() {
         let read = |path: &str| read_within(&worktree, path);
         of_line(&beside, &filling, &flow, cell, "", read)
     };
-    let at = kept_at(&dir.path().join("data"), Uuid::nil());
+    let at = kept_at(&dir.path().join("data"), Uuid::nil(), Begun::System);
     // The first try begins the session, and is cut off before the program runs.
     let began = of_session(&at, make).unwrap();
     // The work changes its guide; the round is tried again, the session begun again under its id, then gone on in.

@@ -1,5 +1,3 @@
-How every agent works, whatever its cell
-
 - Check each fact when you write it: resolve with a tool every commit id, path, number and measurement you report as fact. Another agent's or a reviewer's report is only a lead.
 - Keep nothing in the command line's own memory.
 - Describe work in plain engineering wording, as in ordinary technical documentation: what was done and why. No adversarial metaphors or phrasing; a model's safety check may misread them and stop the work.

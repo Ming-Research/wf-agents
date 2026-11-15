@@ -51,7 +51,7 @@ checks = ["lint"]
 [ci.full]
 # Every job required to merge, run once before the merge.
 workflows = ["ci.yml"]
-runner = "github"
+runner = "14900k"
 too_long = "2h"
 
 # The paths that govern the project's agents, which the owner changes: where a work's change against main touches one,

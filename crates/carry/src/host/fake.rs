@@ -6,13 +6,13 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::{Asking, Branch, Host, Named, NotMerged, Verdict};
+use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::held::Stop;
 
 /// The host's answers, and what it was asked.
 pub(crate) struct Fake {
     main: Mutex<String>,
-    verdicts: Mutex<VecDeque<Result<Option<Verdict>, String>>>,
+    verdicts: Mutex<VecDeque<Result<Option<Verdict>, Failed>>>,
     /// Why letting go fails, where it does.
     ending: Mutex<Option<String>>,
     asked: Mutex<Vec<Asked>>,
@@ -65,7 +65,7 @@ impl Fake {
     }
 
     /// Gives this verdict when it is next asked for one.
-    pub(crate) fn judges(self, verdict: Result<Option<Verdict>, String>) -> Fake {
+    pub(crate) fn judges(self, verdict: Result<Option<Verdict>, Failed>) -> Fake {
         lock(&self.verdicts).push_back(verdict);
         self
     }
@@ -107,14 +107,15 @@ impl Host for Fake {
         &self,
         branch: &Branch<'_>,
         commit: &str,
+        _: &str,
         asking: Asking,
         _: &mut Stop,
-    ) -> Result<Option<Verdict>, String> {
+    ) -> Result<Option<Verdict>, Failed> {
         self.given(branch);
         lock(&self.askings).push(asking);
         lock(&self.asked).push(Asked::Verdict(commit.to_string()));
         let next = lock(&self.verdicts).pop_front();
-        next.unwrap_or_else(|| Err("the fake host has no verdict to give".to_string()))
+        next.unwrap_or_else(|| Err("the fake host has no verdict to give".into()))
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {

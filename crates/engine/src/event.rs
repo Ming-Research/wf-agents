@@ -5,6 +5,8 @@ use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 
 use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
 
+use crate::spoken::{NoOne, Telling, To};
+
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -21,7 +23,9 @@ pub enum Event {
     },
     /// The outside wrote a block while the round of this run was under way, as its carrier's own doing for that round,
     /// as taking main in is: the version is written and put into the round, so that the round is told of it and the
-    /// run consumes it.
+    /// run consumes it. Where the block's latest version says it already, as the watch of main may have written the
+    /// head a check reads, no version is written and that one is put in, unless the round was told of it already; a
+    /// run abandoned while its round is under way consumes nothing, and the version is only written.
     WroteForRound {
         run: RunId,
         block: BlockId,
@@ -55,6 +59,12 @@ pub enum Event {
     },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// The owner says these words to a line of the work's flow, or about a question of the work: to the cell the
+    /// engine chooses (crate module `spoken`).
+    Said { to: To, words: String },
+    /// What the owner said reached the round of this run that is under way, after a use of one of its program's own
+    /// tools: these versions, which the engine gave its carrier to tell the round ([`Effect::Tell`]), are put into it.
+    SaidToRound { run: RunId, versions: Vec<(BlockId, Seq)> },
     /// The owner answers this version of the question, taking this option, counted from one, for this reason where
     /// one is given (design document `data-and-context`, 34).
     Answer {
@@ -118,6 +128,13 @@ pub struct Came {
     /// of a path the project protects: no word of the agent's, and so no question the return is held to or let off for.
     /// It is recorded as the round's end is taken, whether or not the return is.
     pub engine: Vec<Question>,
+    /// A block a source outside the work writes, which runs the cell, a new version of which what the return writes
+    /// waits for, as the engine's own act says where what it found waits for that source; none of an agent's return.
+    pub waits_for: Option<BlockId>,
+    /// What the carrier read of the work's branch as the round ended, of the blocks a source outside the work writes
+    /// from it, where it differs from what each says: what the round committed, which the run writes as it finishes,
+    /// beside its own blocks; nothing of it is written where the return is sent back.
+    pub read: Vec<Handed>,
 }
 
 impl Came {
@@ -166,6 +183,11 @@ pub enum Effect {
     /// It is to be done until the call is said to have its result, which is then that it was withdrawn, or whatever
     /// came back before it could be.
     Withdraw { call: CallId },
+    /// What the owner said is to be told to the round of this run under way, after its next use of one of its
+    /// program's own tools ([`Telling`]). Once the round was given it, its carrier says so with its `versions`
+    /// ([`Event::SaidToRound`]); words that reached no round before it ended stay new to the cell, which runs again for
+    /// them. It is not given again after the engine stops.
+    Tell { run: RunId, telling: Box<Telling> },
     /// The round of this run that is under way is stopped: the run was abandoned, with its work cancelled or for a
     /// cell before it that the owner turned to. It is to be done until the round is said to have ended; what comes
     /// back from it is dropped.
@@ -254,4 +276,6 @@ pub enum Refused {
     NotAnOption { question: String, option: u64 },
     /// The work's item is not cancelled: there is no cancel to reopen.
     NotCancelled,
+    /// No cell can take the owner's words, for this reason: they go to no other.
+    NoOneSpokenTo(NoOne),
 }

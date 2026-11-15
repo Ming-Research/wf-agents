@@ -6,7 +6,9 @@
 //! The prompt is made as a session begins, the project's files read from the work's worktree, where the agent reads
 //! the project, and kept with the session in the data directory: every later round of the session is given the kept
 //! one ([`of_session`]), so that a change of the files by the work's own commits or by main taken in reaches a session
-//! only when it is reopened, as a new session. A file of the project is never read through a symbolic link
+//! only when it is reopened, as a new session. The form of return the program is given with every call is the system
+//! prompt sent another way, and is kept beside it by the same means ([`Begun`]): a flow installed since reaches a
+//! session only as a new one (principle one-form-of-return-for-a-session). A file of the project is never read through a symbolic link
 //! ([`read_within`]). The engine fills three places of the texts ([`Filling`]): `{your_line}`, what the line may do in
 //! the worktree ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
 //! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
@@ -30,18 +32,31 @@ use uuid::Uuid;
 use crate::git;
 use crate::settings::{Project, Settings};
 
-/// The directory in the data directory where the system prompt each session began with is kept.
+/// The directory in the data directory where what each session began with is kept.
 pub const SESSIONS: &str = "sessions";
 
-/// Where the system prompt the session began with is kept.
-pub(crate) fn kept_at(data: &Path, session: Uuid) -> PathBuf {
-    data.join(SESSIONS).join(format!("{session}.system.md"))
+/// What a session began with, which every call of it is given as it was made then: its system prompt, and the form of
+/// return.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Begun {
+    System,
+    Form,
 }
 
-/// The system prompt of a round's session, kept at `at`: the kept one where the session has one, however the round
-/// begins or goes on in it, so that a change of the files it is made of, by the work's own commits or by main taken
-/// in, never reaches a session under way; made by `make` and kept where it has none. A session begun again under its
-/// own id, as one that was cut off before it began or that the program lost, keeps the prompt it began with.
+/// Where what the session began with is kept: each in a file of its own beside the other.
+pub(crate) fn kept_at(data: &Path, session: Uuid, what: Begun) -> PathBuf {
+    let file = match what {
+        Begun::System => "system.md",
+        Begun::Form => "form.json",
+    };
+    data.join(SESSIONS).join(format!("{session}.{file}"))
+}
+
+/// What a round's session began with, kept at `at`, its system prompt or its form: the kept one where the session has
+/// one, however the round begins or goes on in it, so that a change of what it is made of, by the work's own commits,
+/// by main taken in or by a flow installed since, never reaches a session under way; made by `make` and kept where it
+/// has none. A session begun again under its own id, as one that was cut off before it began or that the program
+/// lost, keeps what it began with.
 pub(crate) fn of_session(at: &Path, make: impl FnOnce() -> Result<String, String>) -> Result<String, String> {
     let named = |e: std::io::Error| format!("{}: {e}", at.display());
     match std::fs::read_to_string(at) {
@@ -53,8 +68,10 @@ pub(crate) fn of_session(at: &Path, make: impl FnOnce() -> Result<String, String
     if let Some(dir) = at.parent() {
         std::fs::create_dir_all(dir).map_err(named)?;
     }
-    // Written whole or not at all, so that a stop in the middle leaves no prompt cut short.
-    let writing = at.with_extension("md.part");
+    // Written whole or not at all, so that a stop in the middle leaves nothing cut short.
+    let mut writing = at.as_os_str().to_owned();
+    writing.push(".part");
+    let writing = PathBuf::from(writing);
     std::fs::write(&writing, &made).map_err(named)?;
     std::fs::rename(&writing, at).map_err(named)?;
     Ok(made)
@@ -204,6 +221,7 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
         &told.shown,
         &told.must_write,
         &told.none,
+        &told.owner_reads,
     ];
     let words = outputs.into_iter().map(|text| flow::system::Said {
         source: format!("{returns}, [outputs]"),

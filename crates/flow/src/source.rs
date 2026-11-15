@@ -379,9 +379,10 @@ pub struct BlockFile {
     /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
     /// each cell that reads or writes it.
     pub what: Option<String>,
-    /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
-    /// under the block's name: a name of a field of the engine's.
-    pub field: Option<String>,
+    /// What a cell that writes the block is told of writing it, after the list of what it returns.
+    pub words: Option<String>,
+    /// The shape a return holds the block to, where it is neither a text nor a choice.
+    pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
     /// `{name}` in it a place the engine fills in a run.
     #[serde(default)]
@@ -411,9 +412,10 @@ pub struct LaidOutBlockFile {
     /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
     /// each cell that reads or writes it.
     pub what: Option<String>,
-    /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
-    /// under the block's name: a name of a field of the engine's.
-    pub field: Option<String>,
+    /// What a cell that writes the block is told of writing it, after the list of what it returns.
+    pub words: Option<String>,
+    /// The shape a return holds the block to, where it is neither a text nor a choice.
+    pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
     /// `{name}` in it a place the engine fills in a run. The words are the flow's, so the code holds none of them.
     #[serde(default)]
@@ -441,7 +443,8 @@ impl From<LaidOutBlockFile> for BlockFile {
             shown: block.shown,
             default: block.default,
             what: block.what,
-            field: block.field,
+            words: block.words,
+            shape: block.shape,
             writes: block.writes,
         }
     }
@@ -492,18 +495,19 @@ pub struct OfADatumFile {
     pub does: Option<String>,
 }
 
-/// A named test as written: a test of the values of blocks of the work itself.
+/// A named test as written: a test of the blocks of the work itself.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TestFile {
     /// The words shown for the test.
     pub says: String,
-    /// How the blocks it reads make it hold: `all`, `any`, `none` or `none_standing`; another is refused.
+    /// How the blocks it reads make it hold: `all`, `any`, `none`, `none_standing` or `any_content`; another is
+    /// refused.
     pub kind: TestKind,
-    /// The blocks it reads, each a choice.
+    /// The blocks it reads: each a choice, or, of a test of content, any block.
     pub reads: Vec<String>,
-    /// The value it looks for in each block it reads.
-    pub is: String,
+    /// The value it looks for in each block it reads; none of a test of content, which looks for no value.
+    pub is: Option<String>,
 }
 
 /// The file of one cell.
@@ -568,8 +572,8 @@ pub struct CellFile {
     /// The blocks among its outputs that every hand-in of the cell includes.
     #[serde(default)]
     pub must_write: Vec<String>,
-    /// The blocks among those that run it that say what the work is where the host of the project's repository shows
-    /// the work, as the body of its pull request; an engine cell's act reads them.
+    /// The blocks that say what the work is where the host of the project's repository shows the work, as the body of
+    /// its pull request, whether or not they run the cell; an engine cell's act reads them.
     #[serde(default)]
     pub describes: Vec<String>,
     /// The block whose first line names the work's merge where the host shows it, as the title of its pull request

@@ -1,13 +1,14 @@
 //! The agents' rounds, run with the `claude` command line: each round one run of the program, in the work's worktree,
-//! in the session of the cell's line, told its message on its standard input, with the form of return of its flow,
-//! made of the flow and the files beside the flows and so the same for every round of every cell of the flow
+//! in the session of the cell's line, told its message on its standard input, with the form of return of its line,
+//! made of the flow and the files beside the flows and so the same for every round of every cell of the line
 //! ([`flow::form`]), and the same system prompt for every round of a line ([`system`](crate::system)), made from the
 //! files beside the flows, which says what the line may run as its permissions give it to the program
-//! (`permissions`). The system prompt is made as a session begins and kept with it, so that every round of the session
-//! is given the one it began with, whatever the work's branch has changed since; a round whose system prompt cannot be
-//! made, as for a file of the project's that is not in the worktree, fails, saying why. What came back is read against
-//! the cell the round was entered for ([`returns`](crate::returns)). How many run at once is the engine's to bound: it
-//! gives at most as many rounds at once as the settings give slots, and holds the others back in its own order.
+//! (`permissions`). The system prompt and the form are made as a session begins and kept with it, alike, so that every
+//! round of the session is given those it began with, whatever the work's branch or the flow installed has changed
+//! since; a round whose system prompt or form cannot be made, as for a file of the project's that is not in the
+//! worktree, fails, saying why. What came back is read against the cell the round was entered for
+//! ([`returns`](crate::returns)). How many run at once is the engine's to bound: it gives at most as many rounds at
+//! once as the settings give slots, and holds the others back in its own order.
 //!
 //! A round is run with the project of its work's item ([`crate::projects`]): its declaration in place of the one beside
 //! the flows, the settings its texts name filled from it, and main's head as its host last gave it. A round of a work
@@ -47,8 +48,11 @@
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
 //! is told it; a round of the run given again, or another of its rounds given its task, is told what was kept, and
-//! nothing is taken in again for the run. The branch's design tree is looked at after that, and after the round's
-//! program ended ([`tree`]), where it may have changed.
+//! nothing is taken in again for the run. The branch's data, its design tree and the work's head, are read after that,
+//! in the round that took main in, and after the round's program ended, where they may have changed
+//! ([`branch`](crate::branch)): what is read as main is taken in is the outside's, put into the round; what is read as
+//! the round ends is what it committed, handed in with its return, where its line may change the work, and the
+//! outside's where it only reads.
 //!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, and at the
 //! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
@@ -56,22 +60,24 @@
 //!
 //! What each round was told and the program's stream are kept for reading, in `rounds/<work>/<run>-<round>` in the
 //! data directory: `.message.md` and `.stream.jsonl` for its first try, `.message.2.md` and `.stream.2.jsonl` for the
-//! next, and so on, the stream written as it comes; `.compacted` holds a byte for each compaction of the session
-//! during the round, and `.again.md`, while the program runs, what the hook gives again; `.words.json` what the owner
-//! said that waits for the hook, and `.delivered.1.json` and on what the hook gave. While the program runs, its
-//! process group is written in `.pgid` there; a group left named there by a process of the engine that ended is
-//! stopped before the round is run again, or before the round's stop ends it, so that a session has one program at a
-//! time and a stopped round's program does not run on.
+//! next, and so on, the stream written as it comes, and a message told again, as to a try after one cut off, kept as a
+//! second name of the file an earlier try of the round keeps it in, so that it is stored once; `.compacted` holds a
+//! byte for each compaction of the session during the round, and `.again.md`, while the program runs and never past
+//! the round's tries, what the hook gives again; `.words.json` what the owner said that waits for the hook, and
+//! `.delivered.1.json` and on what the hook gave. While the program runs, its process group is written in `.pgid`
+//! there; a group left named there by a process of the engine that ended is stopped before the round is run again, or
+//! before the round's stop ends it, so that a session has one program at a time and a stopped round's program does not
+//! run on.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::run::{Failure, Unmet};
-use decide::{Pauser, RunId};
+use decide::{BlockId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
-use service::{Clock, Doing, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Told};
+use service::{Clock, Doing, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::oneshot;
@@ -85,7 +91,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::{Project, Settings};
-use crate::{acts, failure, git, kept, protected, returns, session, system, tests_only, tools, tree};
+use crate::{acts, branch, failure, git, kept, protected, returns, session, system, tests_only, tools};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -112,6 +118,21 @@ struct Inner {
     /// A lock for each work, so that a keep-warm ping of a work never runs beside a round of it: a round waits for a
     /// ping of its work to end, and a ping that finds a round of its work under way is given up.
     in_work: std::sync::Mutex<BTreeMap<WorkNumber, Arc<tokio::sync::Mutex<()>>>>,
+    /// What the owner said to each round given and not yet ended that its hook is to give it, by the round; one
+    /// telling of a round, or its end, at a time, so that what waits for its hook is known.
+    said: std::sync::Mutex<Tellings>,
+}
+
+/// What the owner said to each round, by the round, each behind a lock of its own.
+type Tellings = BTreeMap<(WorkNumber, RunId, usize), Arc<tokio::sync::Mutex<Said>>>;
+
+/// What the owner said to a round, as its hook gave it: the versions of what waits in the round's file of words, and
+/// of what the hook gave; and whether the round's program has ended, which hears nothing more.
+#[derive(Default)]
+struct Said {
+    waiting: Vec<(BlockId, Seq)>,
+    given: Vec<(BlockId, Seq)>,
+    ended: bool,
 }
 
 /// What the rounds of the works of a project's items are run with.
@@ -177,6 +198,7 @@ impl Agents {
                 held: Held::new(),
                 clock,
                 in_work: std::sync::Mutex::new(BTreeMap::new()),
+                said: std::sync::Mutex::new(BTreeMap::new()),
             }),
         }
     }
@@ -190,9 +212,13 @@ impl Rounds for Agents {
         let Some(mut stop) = self.inner.held.hold(key, reply) else {
             return;
         };
+        (self.inner.said.lock().expect("the tellings' lock")).insert(key, Arc::default());
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let carried = inner.carry(&round, &teller, &mut stop).await;
+            // What the owner said that the round's hook gave it is said before the round's end, so that the round
+            // consumes it and its session is not given it again.
+            inner.heard(&round, &teller).await;
             match carried {
                 Ok(Carried::Came(came, spent)) => {
                     let Some(reply) = inner.held.take(key) else {
@@ -249,13 +275,18 @@ impl Rounds for Agents {
         }
     }
 
+    fn tell(&self, round: Round, told: Telling) {
+        let inner = self.inner.clone();
+        tokio::spawn(async move { inner.tell(&round, told).await });
+    }
+
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
         kept::told(&self.inner.data, work, run, round)
     }
 
     fn system(&self, work: WorkNumber, line: &str, number: u32) -> Result<Option<String>, String> {
         let session = session::session(self.inner.installation, work, line, number);
-        let at = system::kept_at(&self.inner.data, session);
+        let at = system::kept_at(&self.inner.data, session, system::Begun::System);
         match std::fs::read_to_string(&at) {
             Ok(system) => Ok(Some(system)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -300,8 +331,6 @@ impl Inner {
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         // The project of the work's item, whose repository and declaration the round is run with.
         let of = crate::projects::of(&self.projects, &round.item)?;
-        // The form of the flow, the same bytes for every round of every cell of it.
-        let form = flow::form::form(flow, &of.beside)?;
         let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
         let dir = git::worktree(&place)?;
         let main = if round.cell.takes_main {
@@ -316,10 +345,14 @@ impl Inner {
         } else {
             None
         };
-        // The branch may have a new design tree where it took main in.
-        let tree_dir = &of.project.tree;
-        let mut looking = tree::Looking::of(flow, work, tree_dir);
-        if let (Some(looking), Some(_)) = (&mut looking, &main) {
+        // The branch may have new data where the round took main in, which only the run's first round does: a later
+        // round of the run would find what an earlier one committed, which is that run's.
+        let read_with = branch::Reading {
+            tree: of.project.tree.clone(),
+            main: of.main.clone(),
+        };
+        let mut looking = branch::Looking::of(flow, work, read_with.clone());
+        if main.is_some() && round.number == 1 {
             looking.tell(&place, teller, true).await;
         }
         if let Some(parent) = base.parent() {
@@ -353,11 +386,18 @@ impl Inner {
             item: round.item.number.0,
             title: &round.item.title,
         };
-        // What changed in the design tree, which git compares: the files, from each earlier version to the latest.
-        let changes = tree::changes(flow, work, round.run, round.number, &dir, tree_dir).await?;
+        // What changed in the branch's data, which git compares, from each earlier version to the latest: the files of
+        // the design tree, and the command that shows what the work itself changed.
+        let changes = branch::changes(flow, work, round.run, round.number, &dir, &read_with).await?;
         // The task as the message sends it, each setting it names with its value beside it; and a result of the tool
-        // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole.
-        let results = tools::given(work, &of.beside);
+        // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole and
+        // a file in the temporary directory, which the program is let read, holding it whole for the agent.
+        let files = tools::files_dir(&std::env::temp_dir(), &git::tag(&self.installation), round.work);
+        if let Some(root) = files.parent() {
+            tools::sweep(root, std::time::SystemTime::now()).await;
+        }
+        tools::keep_wholes(work, &of.beside.tools, &files).await?;
+        let results = tools::given(work, &of.beside.tools, &files);
         let told = main.as_ref().and_then(CaughtUp::told);
         let carried = context::Carried {
             about,
@@ -376,11 +416,10 @@ impl Inner {
         };
         let again = format!("{}\n\n{}", of.beside.message.compacted, anew.text);
         write(&compacted.again, again.as_bytes()).await?;
+        // It is the hook's while the program runs, and is not kept past the round's tries, however they end.
+        let again = Removed(compacted.again.clone());
         // What the owner says to the round while it runs waits beside it, for the hook after the next use of a tool.
-        let words = Words {
-            waiting: base.with_extension("words.json"),
-            delivered: base.with_extension("delivered"),
-        };
+        let words = words(&base);
         let mut tried = false;
         // The session the program lost is begun again under its id, and that is recorded once for the round.
         let at = work::sessions::began_at(work, round.run, round.number);
@@ -398,7 +437,7 @@ impl Inner {
             teller.ran_on(n, on.clone());
             teller.filled(n, entered.fills.clone());
             let told = &entered.text;
-            write(&told_at, told.as_bytes()).await?;
+            keep_told(&base, n, &told_at, told).await?;
             // The system prompt is the one the session began with: made from the worktree as it begins, and kept.
             let made = || {
                 let read = |path: &str| system::read_within(&dir, path);
@@ -406,8 +445,12 @@ impl Inner {
                 let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths, tests);
                 system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read)
             };
-            let kept_at = system::kept_at(&self.data, session);
-            let system = system::of_session(&kept_at, made)?;
+            let kept_at = |what| system::kept_at(&self.data, session, what);
+            let system = system::of_session(&kept_at(system::Begun::System), made)?;
+            // The form of the line is the session's as well, made and kept as it begins, as the system prompt is.
+            let form = system::of_session(&kept_at(system::Begun::Form), || {
+                flow::form::form(flow, &of.beside, line)
+            })?;
             let before = self.before_messages(&on, &system, &form, &permissions);
             let command = self.command(
                 &dir,
@@ -450,8 +493,8 @@ impl Inner {
                         }
                     }
                 };
-                // A program that cannot be started printed no result: its words say whether it is missing, which holds
-                // every work, and any other cause is tried again as a failure in passing.
+                // A program that cannot be started printed no result and never began: it is the command line failing
+                // to run, which holds every work, whatever its words say of why.
                 let stdin = Some(cli::stdin(told));
                 process::streamed(command, stdin, Some(&group), stop, Some(halted), &mut each).await
             };
@@ -504,11 +547,16 @@ impl Inner {
             }
             break (status, stream, stderr, compactions);
         };
-        let _ = tokio::fs::remove_file(&compacted.again).await;
-        // What the round committed may have changed the design tree.
-        if let Some(looking) = &mut looking {
+        drop(again);
+        // What the round committed is handed in with its return, where its line may change the work; a change found at
+        // the end of a round that only reads is none of its own, and the outside's. A round that fails hands in nothing:
+        // what it committed is read at the end of the round that takes it up.
+        let committed = if round.cell.reads_only {
             looking.tell(&place, teller, false).await;
-        }
+            Vec::new()
+        } else {
+            looking.handed_in(&place).await
+        };
         let had_result = stream.has_result();
         let read = stream.read(begin, before).map(|mut read| {
             read.spent.compactions = compactions;
@@ -543,6 +591,7 @@ impl Inner {
         match returns::came(&read.structured, flow, &round.cell, &of.beside) {
             Ok(reading) => {
                 let mut came = reading.came;
+                came.read = committed;
                 let looked = self.protected(round, &place, of, reading.protected.as_ref()).await;
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
@@ -668,6 +717,68 @@ impl Inner {
     /// Where what the round was told and returned are kept, without the extension.
     fn kept(&self, round: &Round) -> PathBuf {
         kept::base(&self.data, round.work, round.run, round.number)
+    }
+
+    /// Puts what the owner said where the round's hook gives it to the round's session after its program's next use
+    /// of a tool, in the words of `said` in the message's file; and keeps which versions wait there, and which the
+    /// hook gave. Once the round's program has ended, nothing is put: the words stay new to the cell, which runs again
+    /// for them. What cannot be put is said on the standard error, and the words stay new to the cell all the same.
+    async fn tell(&self, round: &Round, told: Telling) {
+        let failed = |why: String| {
+            eprintln!(
+                "work {}: what the owner said was not handed to its round: {why}",
+                round.work.0
+            )
+        };
+        let said = match crate::projects::of(&self.projects, &round.item) {
+            Ok(of) => said(&of.beside, &told),
+            Err(why) => return failed(why),
+        };
+        let key = (round.work, round.run, round.number);
+        let Some(state) = (self.said.lock().expect("the tellings' lock")).get(&key).cloned() else {
+            return;
+        };
+        let mut state = state.lock().await;
+        if state.ended {
+            return;
+        }
+        match words(&self.kept(round)).put(&said).await {
+            Ok(took_back) => {
+                if !took_back {
+                    let given = std::mem::take(&mut state.waiting);
+                    state.given.extend(given);
+                }
+                state.waiting.extend(told.versions);
+            }
+            Err(why) => failed(why),
+        }
+    }
+
+    /// As the round's program has ended, takes back what waits for its hook, and says what the hook gave the round:
+    /// those versions are put into it. What waited and was never given stays new to the cell.
+    async fn heard(&self, round: &Round, teller: &Teller) {
+        let key = (round.work, round.run, round.number);
+        let Some(state) = (self.said.lock().expect("the tellings' lock")).remove(&key) else {
+            return;
+        };
+        let mut state = state.lock().await;
+        state.ended = true;
+        let mut given = std::mem::take(&mut state.given);
+        let waiting = std::mem::take(&mut state.waiting);
+        if waiting.is_empty() && given.is_empty() {
+            return;
+        }
+        match words(&self.kept(round)).take_back().await {
+            Ok(true) => {}
+            Ok(false) => given.extend(waiting),
+            Err(why) => eprintln!(
+                "work {}: what waits for the round's hook could not be read: {why}",
+                round.work.0
+            ),
+        }
+        if !given.is_empty() {
+            teller.said_to_round(given);
+        }
     }
 
     /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, or
@@ -846,9 +957,16 @@ impl Inner {
             .ok_or_else(no_round)?;
         let place = git::place(&self.data, &git::tag(&self.installation), ping.work);
         let dir = git::worktree(&place).map_err(failed)?;
-        let system = std::fs::read_to_string(system::kept_at(&self.data, session))
-            .map_err(|e| failed(fill(&said.no_system, &[("why", &e.to_string())])))?;
-        let form = flow::form::form(flow, &of.beside).map_err(failed)?;
+        // What the session began with, as its rounds are given it.
+        let began = |what| {
+            let at = system::kept_at(&self.data, session, what);
+            std::fs::read_to_string(&at).map_err(|e| {
+                let why = format!("{}: {e}", at.file_name().unwrap_or_default().to_string_lossy());
+                failed(fill(&said.no_system, &[("why", &why)]))
+            })
+        };
+        let system = began(system::Begun::System)?;
+        let form = began(system::Begun::Form)?;
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
         let permissions = Permissions::of(cell.reads_only, args, added);
         let base =
@@ -1025,6 +1143,45 @@ async fn attempt(base: &Path) -> (usize, PathBuf, PathBuf) {
     (n, kept::at(base, n).0, kept::stream_at(base, n))
 }
 
+/// Keeps what the try of this number of the round is told, at `at`: where an earlier try of the round was told the
+/// same, as a second name of the file that try keeps it in, so that a message given again is stored once and found
+/// as every try's is; otherwise, and where the file system cannot give a file a second name, in a file of its own.
+async fn keep_told(base: &Path, n: usize, at: &Path, told: &str) -> Result<(), String> {
+    for k in (1..n).rev() {
+        let earlier = kept::at(base, k).0;
+        let same = match tokio::fs::metadata(&earlier).await {
+            Ok(meta) if meta.len() == told.len() as u64 => {
+                (tokio::fs::read(&earlier).await).is_ok_and(|kept| kept == told.as_bytes())
+            }
+            _ => false,
+        };
+        if !same {
+            continue;
+        }
+        match tokio::fs::hard_link(&earlier, at).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                eprintln!(
+                    "{} is kept whole, as it could not be a second name of {}: {e}",
+                    at.display(),
+                    earlier.display()
+                );
+                break;
+            }
+        }
+    }
+    write(at, told.as_bytes()).await
+}
+
+/// A file that is removed as this is dropped, however the scope that holds it is left.
+struct Removed(PathBuf);
+
+impl Drop for Removed {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// The stream of a try as it comes: read, and each line kept that is kept with the round ([`cli::Stream::line`]),
 /// written to its file as it comes; the first fault of the writing is kept, and said once the try has ended.
 struct Keeping {
@@ -1114,6 +1271,35 @@ impl Keeping {
 }
 
 /// Writes the file, making its directory where there is none.
+/// Where what the owner says to the round of this base waits for its hook, and where the hook moves what it gave: the
+/// one place the round's command line is given and the telling puts the words.
+fn words(base: &Path) -> Words {
+    Words {
+        waiting: base.with_extension("words.json"),
+        delivered: base.with_extension("delivered"),
+    }
+}
+
+/// What the owner said to a round under way, as its session is given it: in the words of `said` in the message's
+/// file, with what the cell does for the trigger as the part of the triggers says it.
+fn said(beside: &Beside, told: &Telling) -> String {
+    let message = &beside.message;
+    let part = message.parts.iter().find(|p| p.part == flow::agents::Part::Triggers);
+    let does = match (&told.does, part.and_then(|p| p.does.as_deref())) {
+        (Some(does), Some(text)) => flow::agents::fill(text, &[("do", does.trim())]),
+        _ => String::new(),
+    };
+    let number = told.number.0.to_string();
+    let places = [
+        ("entry", told.entry.as_str()),
+        ("block", told.block.as_str()),
+        ("number", number.as_str()),
+        ("trigger", told.trigger.as_str()),
+        ("do", does.as_str()),
+    ];
+    flow::agents::fill(&message.said, &places)
+}
+
 async fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         tokio::fs::create_dir_all(dir)
@@ -1138,6 +1324,40 @@ mod tests {
             at: Seq(at),
             by,
             why: None,
+        }
+    }
+
+    // A message a later try of the round is told again is stored once, under a second name of the file an earlier try
+    // keeps it in, while each try is counted and read back with its message as before; one told otherwise is kept in
+    // a file of its own.
+    #[tokio::test]
+    async fn a_message_told_again_to_a_later_try_is_stored_once_and_each_try_reads_back_with_its_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let (work, run, number) = (WorkNumber(3), RunId(7), 2);
+        let base = kept::base(dir.path(), work, run, number);
+        std::fs::create_dir_all(base.parent().unwrap()).unwrap();
+        let told = [
+            "Do the task.\n",
+            "Do the task.\n",
+            "Only what changed.\n",
+            "Do the task.\n",
+        ];
+        for said in told {
+            let (n, at, _) = attempt(&base).await;
+            keep_told(&base, n, &at, said).await.unwrap();
+        }
+        assert_eq!(attempt(&base).await.0, 5, "each try is counted");
+        let read = kept::told(dir.path(), work, run, number).unwrap();
+        let messages: Vec<&str> = read.tries.iter().map(|t| t.message.as_str()).collect();
+        assert_eq!(messages, told);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let file = |n: usize| std::fs::metadata(kept::at(&base, n).0).unwrap();
+            assert_eq!(file(2).ino(), file(1).ino());
+            assert_eq!(file(4).ino(), file(1).ino());
+            assert_ne!(file(3).ino(), file(1).ino());
+            assert_eq!(file(1).nlink(), 3, "the message told three times is stored once");
         }
     }
 

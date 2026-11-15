@@ -23,7 +23,7 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
         "request=Greet the user, please.",
     ]);
     assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
-    let paused = format!("#1 \"Greet the user\" at level 1, W1 on trial: paused by the engine: {WHY}");
+    let paused = format!("#1 \"Greet the user\" at level 1, project script, W1 on trial: paused by the engine: {WHY}");
     engine.until(&["list"], |line| line == paused);
     let shown = engine.says(&["show", "1"]);
     assert!(
@@ -45,6 +45,6 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
 
     assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
     engine.until(&["list", "--all"], |line| {
-        line == "#1 \"Greet the user\" at level 1, W1 on trial: merged"
+        line == "#1 \"Greet the user\" at level 1, project script, W1 on trial: merged"
     });
 }

@@ -17,13 +17,15 @@
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
 //! - [`permissions`]: what the agents of a line may run, and what they are told of it.
 //! - [`failure`]: the kind of cause of a round that failed, told apart by the fields the command line names the
-//!   service's errors in and by the words of what it reported, and the look at the network while the agents' rounds
-//!   wait for it.
+//!   service's errors in and by the words of what it reported, and the looks at the network.
+//! - [`outside`]: the check of the outside the agents' rounds need, which the engine takes by itself while they wait
+//!   for it: the sign-in, the network and a short request.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `query` and `run_tests`.
-//! - [`tree`]: the design tree on a work's branch, as the data a source outside the work writes.
+//! - `branch`: what the engine reads of a work's branch as data of the work, in one step: [`tree`], the design tree on
+//!   it, and [`head`], the work's head, each the data of a source outside the work.
 //! - [`session`]: the sessions of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
 //! - [`account`]: the account the agents' program makes its calls under, a directory of its own signed in by hand.
@@ -31,15 +33,18 @@
 pub mod account;
 mod acts;
 mod agents;
+mod branch;
 pub mod catch_up;
 pub mod cli;
 mod cost;
 pub mod failure;
 pub mod git;
 pub mod guard;
+pub mod head;
 mod held;
 mod host;
 mod kept;
+pub mod outside;
 pub mod permissions;
 mod process;
 pub mod projects;
@@ -140,7 +145,8 @@ pub fn carry(
             Some(github) => {
                 let env = |name: &str| std::env::var(name).ok();
                 let ci = beside.project.ci.clone();
-                let host = host::GitHub::from_settings(github, &project, &data, installation, env, ci, tool.clone())
+                let said = (tool.clone(), Some(words.check.clone()));
+                let host = host::GitHub::from_settings(github, &project, &data, installation, env, ci, said)
                     .map_err(|why| format!("projects.{name}: {why}"))?;
                 let look = (host_look.get_or_insert_with(|| Arc::new(failure::LookAt(host::github::LOOK.to_string()))))
                     .clone();
@@ -165,6 +171,7 @@ pub fn carry(
         of.insert(name, agents::Of::new(&settings, project, beside, main));
     }
     let slots = settings.agents.slots;
+    let outside = outside::Check::of(&settings)?;
     let carriers = Carriers {
         slots,
         agents: Arc::new(Agents::new(settings, data.clone(), installation, of)),
@@ -176,7 +183,7 @@ pub fn carry(
             of: tools,
             said: beside.installation.no_project.clone(),
         }),
-        network: Arc::new(failure::Look),
+        outside: Arc::new(outside),
         host: host_look,
     };
     Ok((carriers, watches))
