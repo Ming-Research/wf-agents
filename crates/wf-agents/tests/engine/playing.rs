@@ -89,6 +89,24 @@ fn a_path_with_one_step_wrong_fails_the_play_naming_that_step() {
     );
 }
 
+// A round entry of the script that no round of a play that went as the script says took is named, where the script
+// holds it, and the play still passes: whether the entry is left over is the script's to say.
+#[test]
+fn a_round_entry_no_round_took_is_named_by_a_play_that_passes() {
+    let place = Place::new(&format!(
+        "{}\n[[flows.trial.rounds]]\ncell = \"review\"\nrun = 3\n",
+        trial_script()
+    ));
+    let out = play(&place.data(), &[trial()], &place.script());
+    let (printed, errors) = said(&out);
+    assert!(out.status.success(), "{printed}{errors}");
+    assert_eq!(
+        printed,
+        "items[0], W1: took its path\n\
+         flows.trial.rounds[5]: no round of the play took it, round 1 of the cell review's run 3\n"
+    );
+}
+
 // What `run` refuses of a script, `play` refuses in the same words: one function reads and checks what a script
 // carries out, and makes the engine for both.
 #[test]
@@ -187,9 +205,10 @@ fn scripts_beside(root: &Path) -> Vec<(PathBuf, Vec<PathBuf>)> {
 }
 
 // Every script kept beside the repository's flows, and beside the flows of the tests, is played by the command on the
-// flows it names, and each item's work takes its path: a change of a flow that a script's case no longer takes fails
-// at that change, naming the script, the item and the step. A second or so alone, the scripts' rounds taking none of
-// the clock's time; the only test that plays the scripts kept beside the flows.
+// flows it names, each item's work takes its path, and every round entry of the script is taken: a change of a flow
+// that a script's case no longer takes fails at that change, naming the script, the item and the step, and so does a
+// round the case no longer comes to. A second or so alone, the scripts' rounds taking none of the clock's time; the
+// only test that plays the scripts kept beside the flows.
 #[test]
 fn every_script_beside_the_flows_is_played_and_takes_its_paths() {
     let started = Instant::now();
@@ -206,6 +225,10 @@ fn every_script_beside_the_flows_is_played_and_takes_its_paths() {
             let out = play(&place.data(), &flows, &script);
             let (printed, errors) = said(&out);
             assert!(out.status.success(), "{}: {printed}{errors}", script.display());
+            let untaken: Vec<&str> = (printed.lines())
+                .filter(|line| line.contains(": no round of the play took it"))
+                .collect();
+            assert!(untaken.is_empty(), "{}: {}", script.display(), untaken.join("\n"));
             played += 1;
         }
     }

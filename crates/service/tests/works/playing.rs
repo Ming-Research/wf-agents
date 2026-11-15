@@ -227,6 +227,47 @@ async fn a_path_left_is_named_at_its_first_step_off_it() {
     );
 }
 
+// Where a play goes as its script says, each of the script's round entries that no round took is named, where the
+// script holds it and with the round it is for, one of a work's own among them; where it goes otherwise, none is, a
+// round not taken saying only where it stopped.
+#[tokio::test(start_paused = true)]
+async fn a_play_that_went_as_its_script_says_names_each_round_entry_no_round_took() {
+    let rounds = r#"
+        [[flows.trial.rounds]]
+        cell = "review"
+        run = 3
+        hands_in = [{ block = "verdict", value = "yes" }]
+
+        [[flows.trial.rounds]]
+        cell = "plan"
+        work = 1
+        run = 3
+        hands_in = [{ block = "plan" }]
+    "#;
+    let went = played(&script(&format!("{rounds}{}", item(ANSWER, MERGED))))
+        .await
+        .expect("the script is played");
+    assert!(went.took(), "{went}");
+    assert_eq!(
+        went.untaken,
+        vec![
+            "flows.trial.rounds[5]: no round of the play took it, round 1 of the cell review's run 3".to_string(),
+            "flows.trial.rounds[6]: no round of the play took it, round 1 of the cell plan's run 3 of work 1"
+                .to_string(),
+        ]
+    );
+    let wrong = MERGED.replacen(
+        r#"{ runs = "review" }, { runs = "build" }"#,
+        r#"{ runs = "review" }, { runs = "merge" }"#,
+        1,
+    );
+    let left = played(&script(&format!("{rounds}{}", item(ANSWER, &wrong))))
+        .await
+        .expect("the script is played");
+    assert!(!left.took());
+    assert_eq!(left.untaken, Vec::<String>::new(), "{left}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_play_starts_its_clock_at_the_time_the_script_names_as_its_start() {
     // The trial's script with a start a day after the tests' own: the work is added then, and not at the play's start.

@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use service::{Bounds, Clock, Played, SystemClock};
+use service::{Bounds, Clock, ItemPlayed, Played, SystemClock};
 use work::Time;
 
 use crate::running::{self, Read, With};
@@ -95,31 +95,40 @@ pub fn play(data: &Path, dirs: &[PathBuf], script: &Path) -> ExitCode {
     }
 }
 
-/// What came of the play, a line for each item, those that did not take their paths first, at most [`SHOWN`] of them,
-/// and what was left out with how to see it; and a line for what stopped the loop.
+/// What came of the play: a line for each item, those that did not go as the script says first, at most [`SHOWN`] of
+/// them, and what was left out with how to see it; a line for each round entry of the script that no round took, at
+/// most as many, and how many more; and a line for what stopped the loop.
 fn said(played: &Played, script: &Path, data: &Path) -> String {
-    let lines: Vec<String> = played.to_string().lines().map(str::to_string).collect();
-    let (items, fault): (Vec<String>, Vec<String>) = lines.into_iter().partition(|line| line.starts_with("items["));
-    let took = |line: &String| line.contains(": took its path") && !line.contains("; its act");
-    let (mut shown, left): (Vec<String>, Vec<String>) = items.into_iter().partition(|line| !took(line));
-    shown.extend(left);
+    let mut items: Vec<(usize, &ItemPlayed)> = played.items.iter().enumerate().collect();
+    items.sort_by_key(|(_, item)| item.took());
     let mut said = String::new();
-    for line in shown.iter().take(SHOWN) {
-        said.push_str(line);
+    for (k, item) in items.iter().take(SHOWN) {
+        said.push_str(&item.line(*k));
         said.push('\n');
     }
-    let more = shown.len().saturating_sub(SHOWN);
+    let more = items.len().saturating_sub(SHOWN);
     if more > 0 {
-        let untaken = (shown.iter().skip(SHOWN)).filter(|line| !took(line)).count();
+        let off = (items.iter().skip(SHOWN)).filter(|(_, item)| !item.took()).count();
         said.push_str(&format!(
-            "And {more} more items, {untaken} of which did not take their paths: `wf-agents run --script {} --data {}` \
+            "And {more} more items, {off} of which did not take their paths: `wf-agents run --script {} --data {}` \
              serves the store the play left, and `wf-agents list --all` lists them.\n",
             script.display(),
             data.display()
         ));
     }
-    for line in fault {
-        said.push_str(&line);
+    for untaken in played.untaken.iter().take(SHOWN) {
+        said.push_str(untaken);
+        said.push('\n');
+    }
+    let more = played.untaken.len().saturating_sub(SHOWN);
+    if more > 0 {
+        said.push_str(&format!(
+            "And {more} more round entries of {} that no round took.\n",
+            script.display()
+        ));
+    }
+    if let Some(stopped) = played.stopped() {
+        said.push_str(&stopped);
         said.push('\n');
     }
     said
@@ -129,11 +138,12 @@ fn said(played: &Played, script: &Path, data: &Path) -> String {
 mod tests {
     use super::*;
 
-    use service::{ItemPlayed, Judged};
+    use service::Judged;
     use store::WorkNumber;
 
-    // What a play prints is bounded: the items that did not take their paths come first, and those left out are counted
-    // with the commands that show them. Microseconds alone; the only test of the bound.
+    // What a play prints is bounded: the items that did not take their paths come first, those left out are counted
+    // with the commands that show them, and the round entries no round took follow. Microseconds alone; the only test
+    // of the bound.
     #[test]
     fn a_play_prints_at_most_its_bound_of_items_those_that_did_not_take_their_paths_first() {
         let item = |n: u64, judged: Judged| ItemPlayed {
@@ -150,14 +160,16 @@ mod tests {
         let mut items: Vec<ItemPlayed> = (1..=30).map(|n| item(n, Judged::Took)).collect();
         items[25] = item(26, left.clone());
         items[27] = item(28, left);
+        let untaken = "flows.trial.rounds[5]: no round of the play took it, round 1 of the cell review's run 3";
         let played = Played {
             items,
+            untaken: vec![untaken.to_string()],
             steps: 400,
             fault: None,
         };
         let said = said(&played, Path::new("cases.toml"), Path::new("store"));
         let lines: Vec<&str> = said.lines().collect();
-        assert_eq!(lines.len(), SHOWN + 1, "{said}");
+        assert_eq!(lines.len(), SHOWN + 2, "{said}");
         assert!(
             lines[0].starts_with("items[25], W26: left its path at step 3"),
             "{said}"
@@ -172,5 +184,6 @@ mod tests {
             "And 10 more items, 0 of which did not take their paths: `wf-agents run --script cases.toml --data store` \
              serves the store the play left, and `wf-agents list --all` lists them."
         );
+        assert_eq!(lines[SHOWN + 1], untaken);
     }
 }

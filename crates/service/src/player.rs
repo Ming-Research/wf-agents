@@ -78,6 +78,10 @@ pub struct Bounds {
 pub struct Played {
     /// Each item, in the script's order.
     pub items: Vec<ItemPlayed>,
+    /// Where every item went as the script says and nothing stopped the loop, each of the script's round entries that
+    /// no round of the play took, in words, as [`Script::untaken`] says it: in a play that went otherwise, a round not
+    /// taken says only where it stopped.
+    pub untaken: Vec<String>,
     /// How many things the loop took.
     pub steps: usize,
     /// What stopped the loop, where something did, in words.
@@ -97,30 +101,49 @@ pub struct ItemPlayed {
 }
 
 impl Played {
-    /// Whether the play went as its script says: every item's work took its path, every act was given and taken, and
-    /// nothing stopped the loop.
+    /// Whether the play went as its script says: every item went as it says, and nothing stopped the loop.
     pub fn took(&self) -> bool {
-        self.fault.is_none()
-            && (self.items.iter())
-                .all(|item| item.judged == Judged::Took && item.unreached.is_empty() && item.refused.is_empty())
+        self.fault.is_none() && self.items.iter().all(ItemPlayed::took)
+    }
+
+    /// What stopped the loop, in a line, where something did.
+    pub fn stopped(&self) -> Option<String> {
+        (self.fault.as_ref()).map(|fault| format!("The loop stopped: {fault}"))
     }
 }
 
-/// What came of the play, a line for each item and one for what stopped the loop.
+impl ItemPlayed {
+    /// Whether the item went as the script says: its work took its path, and every act of it was given and taken.
+    pub fn took(&self) -> bool {
+        self.judged == Judged::Took && self.unreached.is_empty() && self.refused.is_empty()
+    }
+
+    /// What came of the item, at this place among the script's items, in one line: how its work's records stand
+    /// against its path, and each act of it not given or refused.
+    pub fn line(&self, place: usize) -> String {
+        let mut line = format!("items[{place}], W{}: {}", self.work.0, self.judged);
+        for act in &self.unreached {
+            line.push_str(&format!("; its act {act} was not given: its state never came"));
+        }
+        for (act, why) in &self.refused {
+            line.push_str(&format!("; its act {act} was refused: {why}"));
+        }
+        line
+    }
+}
+
+/// What came of the play: a line for each item, one for each round entry no round took, and one for what stopped the
+/// loop.
 impl fmt::Display for Played {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (k, item) in self.items.iter().enumerate() {
-            write!(f, "items[{k}], W{}: {}", item.work.0, item.judged)?;
-            for act in &item.unreached {
-                write!(f, "; its act {act} was not given: its state never came")?;
-            }
-            for (act, why) in &item.refused {
-                write!(f, "; its act {act} was refused: {why}")?;
-            }
-            writeln!(f)?;
+            writeln!(f, "{}", item.line(k))?;
         }
-        if let Some(fault) = &self.fault {
-            writeln!(f, "The loop stopped: {fault}")?;
+        for untaken in &self.untaken {
+            writeln!(f, "{untaken}")?;
+        }
+        if let Some(stopped) = self.stopped() {
+            writeln!(f, "{stopped}")?;
         }
         Ok(())
     }
@@ -238,8 +261,14 @@ pub async fn play(
             unreached: (play.next[k]..item.acts.len()).map(|j| j + 1).collect(),
             refused: play.refused[k].clone(),
         })
-        .collect();
-    Ok(Played { items, steps, fault })
+        .collect::<Vec<_>>();
+    let untaken = Vec::new();
+    Ok(Played {
+        items,
+        untaken,
+        steps,
+        fault,
+    })
 }
 
 /// A play under way: the loop, and how far each item's acts have gone.
