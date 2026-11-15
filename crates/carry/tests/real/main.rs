@@ -297,9 +297,10 @@ fn compiled(on: On) -> Compiled {
         let line = "[lines.engineer]\n";
         assert!(source.flow.contains(line), "the trial flow has the engineer's line");
         source.flow = source.flow.replacen(line, "[lines.engineer]\ntests_only = true\n", 1);
-        source
-            .flow
-            .push_str(&format!("\n[blocks.head]\noutside = \"{}\"\n", carry::head::HEAD));
+        source.flow.push_str(&format!(
+            "\n[blocks.head]\noutside = \"{}\"\nshown = true\n",
+            carry::head::HEAD
+        ));
     }
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");
