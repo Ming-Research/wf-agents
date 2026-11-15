@@ -215,3 +215,47 @@ async fn nothing_is_run_again_where_more_than_tests_failed_or_nothing_can_run_th
     );
     assert_eq!(runs(&hub).len(), 1);
 }
+
+// A job of tests that did not pass and reported no failed test of its own, in the file named by it, failed for a step
+// before or beside its tests: the commit fails as the full workflows found it, and nothing is run again, though the
+// failed test of another job would pass again; and a step the job says failed, as its file says it, is said with the
+// job. Well under a second alone, a repository on disk and GitHub in memory; no other test holds a job to its own file.
+#[tokio::test]
+async fn a_job_red_with_no_failed_test_of_its_own_fails_the_commit_beside_a_test_that_would_pass_again() {
+    let file = |job: &str, xml: &str| (format!("{job}.xml"), xml.as_bytes().to_vec());
+    let tests = r#"<testsuites><testsuite name="carry"><testcase name="tools::tests::b"><failure/></testcase></testsuite></testsuites>"#;
+    let page = r#"<testsuites><testsuite name="src/page.test.ts"><testcase name="a page > shows the list"/></testsuite></testsuites>"#;
+    let step = r#"<testsuites><testsuite name="page"><error message="the step Build the page of the job failed"/></testsuite></testsuites>"#;
+    for (page, said) in [
+        (page, None),
+        (step, Some("page: the step Build the page of the job failed")),
+    ] {
+        let hub = Hub::new();
+        let head = hub.committed().await;
+        let jobs = vec![check("page", red()), check("test", red()), check("check", red())];
+        let files = vec![file("page", page), file("test", tests)];
+        hub.github()
+            .of_workflow("ci.yml", &head, jobs, Some(("test-results", files)));
+        hub.fast_on(&head, true, Outcome::Passed);
+        let verdict = hub.verdict(&head).await.unwrap().expect("judged");
+        assert_eq!((&verdict.held, verdict.observations.len()), (&None, 0), "{verdict:?}");
+        let failed = verdict.failed.expect("failed");
+        assert!(!failed.contains("run again"), "{failed}");
+        assert!(failed.contains("- page: failed (failure)"), "{failed}");
+        if let Some(said) = said {
+            assert!(failed.contains(said), "{failed}");
+        }
+        assert_eq!(runs(&hub).len(), 1, "only the full workflows ran");
+    }
+    // Where the job of the failed test is the one that did not pass, the test is run again.
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let jobs = vec![passed("page"), check("test", red()), check("check", red())];
+    let files = vec![file("page", page), file("test", tests)];
+    hub.github()
+        .of_workflow("ci.yml", &head, jobs, Some(("test-results", files)));
+    hub.fast_on(&head, true, Outcome::Passed);
+    let verdict = hub.verdict(&head).await.unwrap().expect("judged");
+    assert_eq!(verdict.failed, None, "{verdict:?}");
+    assert_eq!(runs(&hub).len(), 2, "the test was run again");
+}

@@ -83,8 +83,9 @@ impl Again {
 }
 
 /// The names of the tests the runs failed, each once, in the order the runs give them, where nothing but tests did
-/// not pass: each run's results were read, none has a unit not built, and each job that did not pass judged the code
-/// and found it wanting. None where anything else did not pass, or no test failed.
+/// not pass: each run's results were read, none has a unit not built, each job that did not pass judged the code and
+/// found it wanting, and each such job that reported results of its own reported a failed test of its own. None where
+/// anything else did not pass, as a job of tests red for a step before or beside them, or where no test failed.
 fn failed_alone(ran: &[Ran]) -> Option<Vec<String>> {
     let mut tests: Vec<String> = Vec::new();
     for one in ran {
@@ -92,7 +93,11 @@ fn failed_alone(ran: &[Ran]) -> Option<Vec<String>> {
         let judged = (one.jobs.iter())
             .filter(|j| red_job(j))
             .all(|j| matches!(j.outcome, Outcome::Failed(_)));
-        if !run.unbuilt.is_empty() || !judged {
+        // A job that ran tests and did not pass, and reported no failed test of its own, failed for something else.
+        let own = (one.jobs.iter())
+            .filter(|j| red_job(j) && run.reported.contains(&j.name))
+            .all(|j| (run.cases.iter()).any(|c| c.job == j.name && c.outcome == results::Outcome::Failed));
+        if !run.unbuilt.is_empty() || !judged || !own {
             return None;
         }
         for case in (run.cases.iter()).filter(|c| c.outcome == results::Outcome::Failed) {
