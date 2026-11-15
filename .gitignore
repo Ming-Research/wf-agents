@@ -1,3 +1,5 @@
 /target/
 # Backup copies, such as the one git mergetool keeps beside a merged file.
 *.orig
+# The architect's rules as architect/assemble.py puts them together, with the installation's settings.
+/architect/AGENTS.md
