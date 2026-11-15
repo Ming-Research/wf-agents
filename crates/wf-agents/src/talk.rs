@@ -1534,7 +1534,7 @@ fn now(now: &Now) -> String {
         Now::Paused {
             by: Pauser::Engine,
             why: Some(why),
-        } => format!("paused by the engine: {why}"),
+        } => format!("paused by the engine. {}", sentence(why)),
         Now::Paused {
             by: Pauser::Engine,
             why: None,
@@ -1583,7 +1583,15 @@ fn waited(waited: &Waited) -> String {
         Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),
         Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
-        Waited::Items { items } => format!("the items it depends on to merge: {}", numbers(items)),
+        // Where one was cancelled the work waits for it for good, which is said.
+        Waited::Items { items, cancelled } => match cancelled.is_empty() {
+            true => format!("the items it depends on to merge: {}", numbers(items)),
+            false => format!(
+                "the items it depends on to merge: {}, of which {} cancelled, so that it waits for good",
+                numbers(items),
+                numbers(cancelled)
+            ),
+        },
     }
 }
 
@@ -1996,7 +2004,7 @@ mod tests {
                         at: "merge".to_string(),
                         on: Vec::new(),
                         by: Vec::new(),
-                        why: "Nothing new runs `merge`, its last cell, and no cell can write what runs it.".to_string(),
+                        why: "Nothing new runs this last cell, and no cell can write what runs it.".to_string(),
                     }
                 },
                 cells: Vec::new(),
@@ -2107,8 +2115,24 @@ mod tests {
         };
         assert_eq!(
             heed(&line, 2 * hour),
-            "Item 2 \"item 2\", work 2: for 1h 00m, stalled at merge. Nothing new runs `merge`, its last cell, and no \
-             cell can write what runs it."
+            "Item 2 \"item 2\", work 2: for 1h 00m, stalled at merge. Nothing new runs this last cell, and no cell can \
+             write what runs it."
+        );
+    }
+
+    #[test]
+    fn a_work_waiting_for_an_item_that_was_cancelled_is_said_to_wait_for_good() {
+        let items = |cancelled: Vec<u64>| Waited::Items {
+            items: vec![5, 7],
+            cancelled,
+        };
+        assert_eq!(
+            waited(&items(Vec::new())),
+            "the items it depends on to merge: #5 and #7"
+        );
+        assert_eq!(
+            waited(&items(vec![7])),
+            "the items it depends on to merge: #5 and #7, of which #7 cancelled, so that it waits for good"
         );
     }
 
@@ -2146,14 +2170,14 @@ mod tests {
         assert_eq!(
             list(&some, &page(false)),
             "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge. Nothing \
-             new runs `merge`, its last cell, and no cell can write what runs it. It waits for good on #1, \
-             cancelled.\nAnd 1 item that ended, merged or cancelled: wf-agents list --tag page --all"
+             new runs this last cell, and no cell can write what runs it. It waits for good on #1, cancelled.\nAnd 1 \
+             item that ended, merged or cancelled: wf-agents list --tag page --all"
         );
         assert_eq!(
             list(&some, &page(true)),
             "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge. Nothing \
-             new runs `merge`, its last cell, and no cell can write what runs it. It waits for good on #1, \
-             cancelled.\n#3 \"item 3\" at level 1, project script, W3 on trial, tagged page: merged"
+             new runs this last cell, and no cell can write what runs it. It waits for good on #1, cancelled.\n#3 \
+             \"item 3\" at level 1, project script, W3 on trial, tagged page: merged"
         );
         let none = Listing {
             tag: Some("none".to_string()),

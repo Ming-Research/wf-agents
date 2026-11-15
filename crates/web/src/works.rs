@@ -449,8 +449,12 @@ pub enum Waited {
     /// time, waits for it, as the act says. The works of a project check and merge one at a time.
     Turn { holder: u64, since: u64 },
     /// The items the work's item depends on that have not merged, by their numbers: a precondition only they make
-    /// hold, as they merge.
-    Items { items: Vec<u64> },
+    /// hold, as they merge; and those of them that were cancelled, which never will, so that the work waits for good.
+    Items {
+        items: Vec<u64>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cancelled: Vec<u64>,
+    },
 }
 
 /// A person who can give what a work waits for.
@@ -1791,8 +1795,7 @@ impl Summary {
                 matches!(under, Under::Round { run: of, .. } if *of == run) && matches!(said, Along::Turn { .. })
             })
         };
-        let unmerged: Vec<u64> = (driver.unmerged(number).iter()).map(|item| item.0).collect();
-        let now = Now::of(kept, &view.decision, held, outages, along, &unmerged)?;
+        let now = Now::of(kept, &view.decision, held, outages, along, &driver.unmerged(number))?;
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
             Now::Waits { at, on } => (on.iter())
@@ -2012,7 +2015,7 @@ impl Now {
         held: Option<Holder>,
         outages: &Outages,
         along: &[(Under, &Along)],
-        unmerged: &[u64],
+        unmerged: &[driver::Unmerged],
     ) -> Result<Now, Broken> {
         let work = kept.work;
         // Held by the pause of everything, which holds while the driver says it holds the work.
@@ -2101,7 +2104,11 @@ impl Now {
                             },
                             // The work waits for those of the items its item depends on that have not merged.
                             waited if on_items(waited) => Waited::Items {
-                                items: unmerged.to_vec(),
+                                items: unmerged.iter().map(|on| on.item.0).collect(),
+                                cancelled: (unmerged.iter())
+                                    .filter(|on| on.cancelled)
+                                    .map(|on| on.item.0)
+                                    .collect(),
                             },
                             WaitedOf::Precondition { on, by } => {
                                 let CellKey { test, words } = key_of(&kept, on)?;
@@ -2148,7 +2155,7 @@ impl Now {
                         })
                     })
                     .collect::<Result<_, Broken>>()?;
-                let why = stalled_words(&kept.flow.waits.stalled, at.as_str(), &on, &by);
+                let why = stalled_words(&kept.flow.waits.stalled, &on, &by);
                 Now::Stalled {
                     at: at.to_string(),
                     on,
@@ -2169,9 +2176,10 @@ impl Now {
     }
 }
 
-/// Why a stalled work rests, in one sentence in these words: what the cell `at` waits for, `on`, and which cells could
-/// make it hold, or that nothing new runs the last cell; then why each of the cells, `by`, does not run.
-fn stalled_words(words: &flow::agents::StalledWords, at: &str, on: &[CellKey], by: &[Stalling]) -> String {
+/// Why a stalled work rests, in one sentence in these words: what the cell it stands at waits for, `on`, and which cells
+/// could make it hold, or that nothing new runs it, the last cell; then why each of the cells, `by`, does not run. The
+/// cell it stands at is said beside it by every reader, and the sentence does not name it.
+fn stalled_words(words: &flow::agents::StalledWords, on: &[CellKey], by: &[Stalling]) -> String {
     use flow::agents::fill;
     let name = |name: &str| fill(&words.name, &[("name", name)]);
     let keys = |keys: &[CellKey]| {
@@ -2189,13 +2197,13 @@ fn stalled_words(words: &flow::agents::StalledWords, at: &str, on: &[CellKey], b
     };
     let waits = match on.is_empty() {
         false => fill(&words.waits, &[("keys", &keys(on)), ("writers", &writers)]),
-        true => fill(&words.last, &[("at", &name(at)), ("writers", &writers)]),
+        true => fill(&words.last, &[("writers", &writers)]),
     };
     let unrun = (by.iter()).map(|stalling| {
         let why = match &stalling.why {
             Unrun::Skipped { on } => fill(&words.skipped, &[("keys", &keys(on))]),
             Unrun::NothingNew {} => words.nothing_new.clone(),
-            Unrun::Held {} => fill(&words.held, &[("at", &name(at))]),
+            Unrun::Held {} => words.held.clone(),
         };
         fill(&words.unrun, &[("cell", &name(&stalling.cell)), ("why", &why)])
     });
@@ -3245,17 +3253,13 @@ mod tests {
             why,
         };
         assert_eq!(
-            stalled_words(
-                words,
-                "M2",
-                &[key("checked = yes")],
-                &[stalling("M1", Unrun::NothingNew {})]
-            ),
+            stalled_words(words, &[key("checked = yes")], &[stalling("M1", Unrun::NothingNew {})]),
             "It waits for `checked = yes`, which only `M1` can make hold, and `M1` does not run, as nothing new runs it."
         );
+        // The cell it stands at, which every reader says beside it, it does not name.
         assert_eq!(
-            stalled_words(words, "merge", &[], &[]),
-            "Nothing new runs `merge`, its last cell, and no cell can write what runs it."
+            stalled_words(words, &[], &[]),
+            "Nothing new runs this last cell, and no cell can write what runs it."
         );
         let by = [
             stalling(
@@ -3267,9 +3271,9 @@ mod tests {
             stalling("check", Unrun::Held {}),
         ];
         assert_eq!(
-            stalled_words(words, "merge", &[key("ready"), key("done")], &by),
+            stalled_words(words, &[key("ready"), key("done")], &by),
             "It waits for `ready` and `done`, which only `review` or `check` can make hold, and `review` does not run, \
-             as it is skipped, `big = yes` not holding, and `check` does not run, as `merge` holds it."
+             as it is skipped, `big = yes` not holding, and `check` does not run, as the cell the work stands at holds it."
         );
     }
 }

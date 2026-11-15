@@ -157,7 +157,7 @@ impl Crossing {
             true => &words.again,
             false => &words.stopped,
         };
-        format!("{stopped} {measured}")
+        format!("{stopped}{}{measured}", words.then)
     }
 }
 
@@ -238,6 +238,7 @@ mod tests {
         let words = GuardWords {
             stopped: "Stopped.".to_string(),
             again: "Stopped again.".to_string(),
+            then: " / ".to_string(),
             growth: "grew {value} past {line}, {per} past {per_line}, from {from}; tools: {tools}".to_string(),
             jump: "jumped".to_string(),
             from: "{samples} rounds {scope}".to_string(),
@@ -257,7 +258,8 @@ mod tests {
             .map(|i| (format!("t{i}"), "Read".to_string(), format!("{{\"n\":{i}}}")))
             .collect();
         let said = stopped.words(&words, &tools, false);
-        assert!(said.starts_with("Stopped. grew 1600 past 1000, 800 past 100, from 19 rounds of its cell; tools: "));
+        // Its two sentences joined by the flow's word.
+        assert!(said.starts_with("Stopped. / grew 1600 past 1000, 800 past 100, from 19 rounds of its cell; tools: "));
         assert!(
             said.contains("Read {\"n\":2}") && !said.contains("Read {\"n\":1}"),
             "the last eight: {said}"
@@ -265,7 +267,7 @@ mod tests {
         assert!(stopped.words(&words, &[], false).ends_with("tools: none"));
         // Stopped again, it says so once, in place of the first sentence.
         let again = stopped.words(&words, &[], true);
-        assert!(again.starts_with("Stopped again. grew 1600"), "{again}");
+        assert!(again.starts_with("Stopped again. / grew 1600"), "{again}");
         assert_eq!(again.matches("Stopped").count(), 1, "{again}");
     }
 }

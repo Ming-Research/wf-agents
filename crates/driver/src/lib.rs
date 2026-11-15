@@ -254,6 +254,13 @@ pub struct Driver {
     along: BTreeMap<(WorkNumber, Under), Along>,
 }
 
+/// An item a work's item depends on that has not merged, and whether it was cancelled, so that it never will.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Unmerged {
+    pub item: ItemNumber,
+    pub cancelled: bool,
+}
+
 /// A stretch the pause of everything held: from when it was set and by whom, to when it was lifted; none while it holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Span {
@@ -1515,13 +1522,17 @@ impl Driver {
     }
 
     /// The items the work's item depends on whose works have not merged, in the order the item names them, as the
-    /// block of [`DEPENDENCIES`] says they are waited for; none where there is no such work.
-    pub fn unmerged(&self, number: WorkNumber) -> Vec<ItemNumber> {
+    /// block of [`DEPENDENCIES`] says they are waited for, each with whether it was cancelled, which the work then
+    /// waits for for good; none where there is no such work.
+    pub fn unmerged(&self, number: WorkNumber) -> Vec<Unmerged> {
         let Some(held) = self.works.get(&number) else {
             return Vec::new();
         };
         (self.waited_for(&held.item.depends_on).into_iter())
-            .map(|(on, _)| on)
+            .map(|(item, standing)| Unmerged {
+                item,
+                cancelled: standing == Standing::Ended(End::Cancelled),
+            })
             .collect()
     }
 

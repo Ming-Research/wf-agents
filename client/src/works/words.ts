@@ -289,9 +289,14 @@ export function waitedWords(waited: Waited): string {
     case 'turn':
       return `the project's turn to check and merge, which W${waited.holder} holds`;
     case 'items':
-      return itemsWords(waited.items);
+      return [itemsWords(waited.items), cancelledWords(waited.cancelled ?? [])].filter((x) => x !== '').join('; ');
   }
 }
+
+/// Of the items a work waits for, those that were cancelled, which never merge, so that it waits for good; nothing
+/// where none was.
+export const cancelledWords = (items: number[]): string =>
+  items.length === 0 ? '' : `it waits for good on ${itemsWords(items)}, cancelled`;
 
 /// Items by their numbers, as a line names them: `#5`, `#5 and #7`, `#5, #6 and #7`.
 export function itemsWords(items: number[]): string {
@@ -459,8 +464,10 @@ export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
   return [word, cell, why === null ? null : plain(why)].filter((x) => x !== null && x !== '').join(' · ');
 }
 
-/// The items an item depends on that have not merged, as its line in the console says them, in the state's own word.
-export const itemsWaited = (items: number[]): string => `${STATE.items}: ${itemsWords(items)}`;
+/// The items an item depends on that have not merged, as its line in the console says them, in the state's own word,
+/// and those of them that were cancelled, for which it waits for good.
+export const itemsWaited = (items: number[], cancelled: number[] = []): string =>
+  [`${STATE.items}: ${itemsWords(items)}`, cancelledWords(cancelled)].filter((x) => x !== '').join('; ');
 
 /// The tone of what a work does now, as its state takes it (`stateOf`).
 export const nowTone = (s: Pick<Summary, 'now' | 'cells' | 'waits'>): Tone => stateOf(s).tone;
@@ -600,7 +607,7 @@ export const isOpen = (state: RunState): boolean => state !== 'finished' && stat
 
 /// Who paused a work, and why, in a line.
 export function pauseWords(by: Pauser, why: string | null): string {
-  return by === 'engine' ? `the engine paused the work. ${plain(sentence(why ?? 'It gave no reason'))}` : 'the owner paused the work';
+  return by === 'engine' ? `The engine paused the work. ${plain(sentence(why ?? 'It gave no reason'))}` : 'The owner paused the work.';
 }
 
 /// How long a run took from its start: to its end, or until now while it is open.

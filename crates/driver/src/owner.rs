@@ -637,12 +637,13 @@ mod tests {
         };
         let run = of(&work, &at("write", vec![at_limit]));
         assert_eq!(keys(&run), [LIMIT]);
-        assert_eq!(run[0].why, "The run of write had 2 returns sent back, its limit.");
+        // Each said beside the cell, which it does not name.
+        assert_eq!(run[0].why, "The cell's run had 2 returns sent back, its limit.");
         assert_eq!(run[0].ends, Ends::GoOn { call: CallId(9) });
         let cell = of(&work, &at("write", vec![Waited::Limit { runs: 3 }]));
         assert_eq!(
             cell[0].why,
-            "write ran 3 times in a row for what a cell after it wrote, its limit."
+            "The cell ran 3 times in a row for what a cell after it wrote, its limit."
         );
         assert_eq!(cell[0].ends, Ends::LetGo { cell: "write".into() });
         let calls = of(&work, &at("write", vec![Waited::Calls { runs: 3 }]));

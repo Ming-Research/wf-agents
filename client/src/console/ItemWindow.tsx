@@ -634,12 +634,15 @@ function ItemLine({ item, waitsFor, goal, tier }: {
   tier: string | null;
 }) {
   const standing = standingOf(item);
+  // Of those it waits for, the ones that were cancelled, as the engine says it, which it waits for for good.
+  const now = item.work.now;
+  const cancelled = now.kind === 'waits' ? now.on.flatMap((w) => (w.kind === 'items' ? (w.cancelled ?? []) : [])) : [];
   return (
     <Line tone={standing} word={STANDING_WORDS[standing]}>
       {goal ? <span className="muted">Goal</span> : null}
       {tier !== null ? <span className="muted">Tier {tier}</span> : null}
       <span className="muted">Added {ago(item.added)} ago</span>
-      {waitsFor.length > 0 && <span className="muted">{itemsWaited(waitsFor)}</span>}
+      {waitsFor.length > 0 && <span className="muted">{itemsWaited(waitsFor, cancelled)}</span>}
     </Line>
   );
 }

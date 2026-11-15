@@ -90,7 +90,7 @@ pub struct Waits {
 pub struct StalledWords {
     /// The cell it stands at waits for `{keys}`, which `{writers}` can make hold.
     pub waits: String,
-    /// It stands at its last cell, `{at}`, which nothing new runs, and `{writers}` can write what runs it.
+    /// It stands at its last cell, which nothing new runs, and `{writers}` can write what runs it.
     pub last: String,
     /// The cells that write what it waits for, `{cells}`.
     pub only: String,
@@ -102,7 +102,7 @@ pub struct StalledWords {
     pub skipped: String,
     /// Nothing new runs it.
     pub nothing_new: String,
-    /// The cell the work waits at, `{at}`, holds it.
+    /// The cell the work stands at holds it.
     pub held: String,
     /// A key or a cell, `{name}`.
     pub name: String,
@@ -251,6 +251,8 @@ pub struct GuardWords {
     pub stopped: String,
     /// That it stopped the run's round again, in the new session its line was given, in place of `stopped`.
     pub again: String,
+    /// Between that and what it measured.
+    pub then: String,
     pub growth: String,
     pub jump: String,
     pub from: String,
