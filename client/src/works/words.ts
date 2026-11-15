@@ -604,6 +604,16 @@ export const RUN_WORDS: Record<RunState, string> = {
 /// Whether a run is open: neither finished nor abandoned.
 export const isOpen = (state: RunState): boolean => state !== 'finished' && state !== 'abandoned';
 
+/// What the pause of everything holds back, in a clause, said here once for every part of the page that says it:
+/// every round of every work but one for the owner's words or answers, which begins under it as under a work's own
+/// pause.
+export const EVERYTHING_HOLDS = "no work begins a round but for the owner's words or answers";
+
+/// What pausing everything does, as the switch of every work says before it is pressed.
+export const PAUSE_ALL =
+  `${EVERYTHING_HOLDS.charAt(0).toUpperCase()}${EVERYTHING_HOLDS.slice(1)}, ` +
+  'until every work is started again; a round under way finishes.';
+
 /// Who paused a work, and why, in a line.
 export function pauseWords(by: Pauser, why: string | null): string {
   return by === 'engine' ? `The engine paused the work. ${plain(sentence(why ?? 'It gave no reason'))}` : 'The owner paused the work.';
