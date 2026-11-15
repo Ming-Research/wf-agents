@@ -336,8 +336,8 @@ fn checking() -> Compiled {
 
 #[tokio::test(start_paused = true)]
 async fn a_check_given_again_after_main_moved_takes_in_the_main_it_is_given_again_with() {
-    // Main moves while the check's first round is under way, which fails in passing: its round given again takes in
-    // the main that moved, as the real check tells its round, and the check does not run again for it.
+    // The check's first round fails in passing, and main moves while the engine waits to try it again: the round given
+    // again takes in the main that moved, as the real check tells its round, and the check does not run again for it.
     let script = Script::read(
         r#"
         [[flows.checking.rounds]]
@@ -349,7 +349,7 @@ async fn a_check_given_again_after_main_moved_takes_in_the_main_it_is_given_agai
         title = "Greet"
         flow = "checking"
         writes = [{ block = "request", content = "Greet, please." }]
-        acts = [{ at = { under_way = "check", run = 1, round = 1 }, do = "main", content = "The head of main, moved." }]
+        acts = [{ at = { waits = "check", for = "retry" }, do = "main", content = "The head of main, moved." }]
         path = [
             { runs = "write" },
             { runs = "check" },
@@ -450,7 +450,7 @@ fn a_script_is_told_in_one_pass_everything_its_items_acts_and_paths_name_that_th
             { waits = "plan", for = "result" },
             { waits = "plan", for = "turn" },
             { let_on = false },
-            { runs = "plan", who = "owner" },
+            { runs = "plan", key = "ready" },
             {},
             { ends = "merged" },
         ]
@@ -492,7 +492,7 @@ fn a_script_is_told_in_one_pass_everything_its_items_acts_and_paths_name_that_th
              and so only a path's end",
             "items[0].path[5]: plan is no act of the engine, which alone waits for the turn",
             "items[0].path[6]: says let_on = false, which says nothing: give true",
-            "items[0].path[7]: says who of a step that says runs",
+            "items[0].path[7]: says key of a step that says runs",
             "items[0].path[8]: says nothing: a step says one of runs, under_way, sent_back, fails, waits, paused, \
              let_on, let_go, reopened, stalled, ends, everything",
             "items[1].title: a title says what the item is to deliver: give it words",
