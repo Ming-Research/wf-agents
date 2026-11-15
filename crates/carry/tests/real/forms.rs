@@ -50,6 +50,7 @@ async fn every_call_of_a_line_is_given_the_form_of_that_line_as_the_files_beside
 async fn every_call_of_a_session_is_given_the_form_and_the_system_prompt_it_began_with_after_the_flow_changed() {
     let mut real = Real::trial(Fake {
         question_first: true,
+        quiet_after_answer: true,
         ..Fake::default()
     });
     let work = real.add().await;

@@ -83,9 +83,21 @@ impl Inner {
     }
 }
 
+/// What the act that runs the tests writes as its round ends: of each entry it gives, its cell's block of the result,
+/// saying the tests passed; nothing of a round of any other cell.
+fn tested(round: &Round) -> Vec<(decide::BlockId, String)> {
+    if round.cell.act.as_deref() != Some(flow::RUNS_TESTS) {
+        return Vec::new();
+    }
+    (decide::asked_of(&round.flow.flow, &round.kept.records, &round.cell.id).into_iter())
+        .map(|entry| (entry.result, format!("The tests {} asked for passed.", entry.cell)))
+        .collect()
+}
+
 impl Rounds for Scripted {
     fn give(&self, round: Round, reply: RoundReply) {
         let planned = self.planned(&round);
+        let results = tested(&round);
         let key = (round.work, round.run, round.number);
         {
             let mut held = self.inner.held();
@@ -99,6 +111,10 @@ impl Rounds for Scripted {
             tokio::time::sleep(Duration::from_millis(planned.ms)).await;
             let reply = inner.held().rounds.get_mut(&key).and_then(Option::take);
             if let Some(reply) = reply {
+                let teller = reply.teller();
+                for (block, content) in results {
+                    teller.outside_wrote(block, content);
+                }
                 end(reply, planned);
             }
         });

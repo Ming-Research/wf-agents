@@ -64,6 +64,9 @@ pub struct Fake {
     /// the run entered for the answer, before it hands in; with `lose_session`, its last run is the one told the
     /// session is not found.
     pub question_first: bool,
+    /// Whether the build, with `question_first`, hands in at once in the run entered for the answer, asking for no
+    /// query.
+    pub quiet_after_answer: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
@@ -102,6 +105,7 @@ impl Default for Fake {
             crashes_first: false,
             lose_session: false,
             question_first: false,
+            quiet_after_answer: false,
             plan_sleeps: 0,
             context: None,
             compacts: false,
@@ -398,7 +402,7 @@ case "$first" in
             # It leaves all that ran it for after the answer.
             dealt=''
             out='"q_and_a":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
-        elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
+        elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ] && [ '{quiet}' = no ]; }}; then
             calls='"query":[{{"sql":"select the check"}}]'
         else
             if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then
@@ -462,6 +466,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         crash = yes(fake.crashes_first),
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),
+        quiet = yes(fake.quiet_after_answer),
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
         compacts = yes(fake.compacts),

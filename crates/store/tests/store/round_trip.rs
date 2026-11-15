@@ -90,7 +90,8 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     );
     // A run is abandoned only as its cell is skipped, a round is stopped, or the work is cancelled: here once.
     assert!(!r.abandoned.is_empty(), "no run abandoned: {:?}", r.abandoned);
-    assert_eq!(r.let_go.len(), 1);
+    // The owner let a cell go on, and the owner's word at the run's limit let its cell go on as well.
+    assert_eq!(r.let_go.len(), 2);
     // The last pause is the reopen's: a work reopened is paused until it is let on.
     assert_eq!(
         r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(),

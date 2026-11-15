@@ -318,7 +318,7 @@ fn the_engineer_s_form_is_made_of_the_files_beside_the_repository_s_flows() {
     let value = parsed(&form);
     assert_eq!(in_order(&form, "{", &value["properties"]), ["tools", "outcome"]);
     let tools = &value["properties"]["tools"]["properties"];
-    assert_eq!(in_order(&form, "\"tools\": {", tools), ["query", "run_tests"]);
+    assert_eq!(in_order(&form, "\"tools\": {", tools), ["query"]);
     let outcome = &value["properties"]["outcome"];
     assert_eq!(outcome["required"], json!(["dealt_with"]));
     assert_eq!(outcome["additionalProperties"], json!(false));

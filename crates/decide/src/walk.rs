@@ -1295,8 +1295,9 @@ impl<'a> Walk<'a> {
 
     /// The cell before the run's that the owner turned to and that is to run, with the block by which the owner turned
     /// to it, where there is one: the round under way of the run is then stopped. Of the cells before the run's that
-    /// apply, the first to which something that [interrupts](Flow::interrupts) is new, whose preconditions hold, that
-    /// is at no limit, that the pause lets run, and that has no run at rest of its own.
+    /// apply, the first to which something that [interrupts](Flow::interrupts) is new in a version no run of it has
+    /// seen, whose preconditions hold, that is at no limit, that the pause lets run, and that has no run at rest of its
+    /// own.
     fn stopping(&self, run: &RunView<'a>, room: Room) -> Option<(CellId, BlockId)> {
         let place = self.flow.place(&run.started.cell)?;
         let paused = paused(self.records) || room.paused;
@@ -1306,8 +1307,20 @@ impl<'a> Walk<'a> {
                 return None;
             }
             let (because, _) = self.entering(j);
+            // Only a version no run of the cell has seen is the owner turning to it now: one a run of it was told, and
+            // which a run given the result of what the cell waited for takes up with it, turns to it no more.
+            let seen = |block: &BlockId| {
+                (self.runs.values())
+                    .filter(|r| r.started.cell == cell.id && !r.abandoned)
+                    .filter_map(|r| self.told(r, block))
+                    .max()
+            };
             let block = because.iter().find_map(|cause| match cause {
-                Cause::Changed { block, .. } if self.flow.interrupts(block) => Some(block.clone()),
+                Cause::Changed { block, .. }
+                    if self.flow.interrupts(block) && self.current(block).is_some_and(|v| Some(v.at) > seen(block)) =>
+                {
+                    Some(block.clone())
+                }
                 _ => None,
             })?;
             let held = !self.unmet(j).is_empty()

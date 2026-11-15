@@ -223,7 +223,7 @@ fn the_place_of_the_words_of_run_tests_is_filled_from_the_acts_file() {
     let words = (flow.blocks.get(&"run_tests".into()))
         .and_then(|b| b.words.as_deref())
         .expect("the record has words");
-    assert!(words.contains("checks among {named_checks};"), "{words}");
+    assert!(words.contains("among {named_checks};"), "{words}");
     let ways: Vec<&str> = agents.acts.run_tests.places["named_checks"]
         .keys()
         .map(String::as_str)

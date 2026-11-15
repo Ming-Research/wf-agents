@@ -289,7 +289,7 @@ impl<A: Api> GitHub<A> {
                 .flat_map(|asking| {
                     (commits.iter()).map(move |commit| Request {
                         work,
-                        commit: *commit,
+                        commit,
                         asking: *asking,
                     })
                 })

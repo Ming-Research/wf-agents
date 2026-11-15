@@ -92,9 +92,13 @@ fn a_cell_entered_again_and_again_only_to_ask_for_calls_is_entered_each_time_for
     for _ in 0..10 {
         let call = w.asks("research", None);
         w.done(call);
+        // What ran it stays new, as the runs that only asked dealt with nothing of it.
         assert_eq!(
             reasons(&w.decide()),
-            ("research".into(), vec![("results".into(), false)])
+            (
+                "research".into(),
+                vec![("brief".into(), false), ("results".into(), false)]
+            )
         );
         w.start("research");
     }

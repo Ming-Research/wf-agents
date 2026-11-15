@@ -158,14 +158,17 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
                 "Design what the plan asks for.",
                 &["plan"]
             ),
-            // A task of several lines keeps its line breaks.
-            agent(
-                "answer",
-                "Answer comments",
-                "engineer",
-                "Answer the comments on the plan.\nSay what you changed for each.\n",
-                &["comments", "plan"],
-            ),
+            // A task of several lines keeps its line breaks; the cell gives its own count of times in a row.
+            CellSpec {
+                again: 5,
+                ..agent(
+                    "answer",
+                    "Answer comments",
+                    "engineer",
+                    "Answer the comments on the plan.\nSay what you changed for each.\n",
+                    &["comments", "plan"],
+                )
+            },
             engine("check", "Check with the latest main", "check", &["main", "design"]),
             engine("merge", "Merge", "merge", &["ci"]),
         ]

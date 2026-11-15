@@ -63,6 +63,27 @@ fn asks_for_tests(w: &mut World) -> Seq {
     w.finish_dealing("implement", &ran, &[("code", Matters), ("tests", Matters)])
 }
 
+// The owner's words the implementation was told before it asked for tests are no turning to it once the result comes:
+// the round that runs the tests, under way as the act writes the result, is not stopped, and the run given the result
+// takes the words up with it.
+#[test]
+fn a_result_written_while_its_tests_run_stops_nothing_for_words_the_cell_was_told() {
+    let mut w = testing();
+    w.outside_writes("implement_spoken");
+    w.start("implement");
+    w.finish_dealing("implement", &[], &[("tests", Matters)]);
+    assert_eq!(reasons(&w.decide()).0, "run tests");
+    let run = w.start("run tests");
+    w.outside_writes("implement_tested");
+    assert_eq!(
+        w.decide(),
+        Decision::Busy {
+            cell: "run tests".into(),
+            run
+        }
+    );
+}
+
 /// The tests run for what was asked, and give the implementation its result.
 fn tests_run(w: &mut World) {
     w.start("run tests");

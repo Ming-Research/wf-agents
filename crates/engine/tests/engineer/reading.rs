@@ -193,11 +193,14 @@ impl<'a> Reading<'a> {
     }
 
     /// Of each run of the cell that finished dealing with the block, the latest version of it the run was told of: the
-    /// one it began from, or one put in to it since.
+    /// one it began from, or one put in to it since. The result of what the cell asked for in a record is taken by
+    /// every run of it that finished told of it, naming it in no `dealt_with` (decision a-wait-holds-its-cell).
     pub fn dealt_with(&self, cell: &CellId, block: &BlockId) -> Vec<Seq> {
+        let result = self.flow.is_result(block);
         (self.finished.iter())
             .filter(|f| &self.started[&f.run].cell == cell)
             .filter(|f| match &f.dealt_with {
+                _ if result => true,
                 Some(named) => named.contains(block),
                 None => self.started[&f.run].basis.contains_key(block),
             })

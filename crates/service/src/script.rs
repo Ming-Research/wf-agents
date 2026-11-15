@@ -83,7 +83,9 @@
 //! when it has one: by default it has none, so that a script that says nothing of a judging cell has it content and
 //! does not send the work round until its limit; one the cell must write each time it writes all the same, so that the
 //! round is not sent back, and, where the block had a version as the run started, says the change does not matter, so
-//! that the work is not sent round for it either. A block handed in with no content or no value is given them the same
+//! that the work is not sent round for it either. Nor does it ask for tests in a record its cell asks in, which would
+//! leave the cell waiting: a script asks for them by handing the record in. The act that runs the tests writes, as its
+//! round ends, the result of each entry it gives, that the tests passed. A block handed in with no content or no value is given them the same
 //! way. The engine's own acts take no cost and no tokens. What a round returns depends on nothing but its flow, cell,
 //! run and round, and the versions its run started from, which its start recorded, so that a round given again after
 //! the process started again returns what it would have.
@@ -469,8 +471,10 @@ impl Script {
                     (readers.into_iter().flatten())
                         .any(|reader| matches!((flow.flow.place(reader), place), (Some(r), Some(p)) if r < p))
                 };
+                let asks = place.map_or(&[][..], |place| &flow.flow.cells()[place].asks[..]);
                 Came::hands_in(
                     (outputs.iter())
+                        .filter(|block| !asks.iter().any(|a| &a.record == *block))
                         .filter(|block| !back(block) || cell.must_write.contains(block))
                         .map(|block| Handed {
                             block: block.clone(),
