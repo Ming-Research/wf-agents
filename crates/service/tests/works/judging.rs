@@ -1,7 +1,7 @@
 //! The judge of a play, on records built by hand, of the trial flow and of a flow whose check may wait for main: each
 //! thing that happened given in turn to the engine's own keeping of the records (`engine::handle`), as the loop would
-//! give it. For each kind of step a path names, a path the records hold is taken, and one wrong at that step left there,
-//! the judge saying what the records hold there.
+//! give it. For each kind of step a path names, a path the records hold is taken, and one wrong at that step left
+//! there, the judge saying what the records hold there.
 
 use decide::run::Failure;
 use decide::{CallId, CellId, Decision, Outsider, Pauser, Room, Stalling, Unrun, Waited};
@@ -422,11 +422,14 @@ fn an_answer_where_the_records_hold_the_owners_word_at_a_limit_leaves_the_path()
             r#"{ waits = "review", for = "limit" }"#
         )
     );
-    // The owner lets the review go on: the engine's call at its limit has its word, and the run is given its next round.
+    // The owner lets the review go on: the engine's call at its limit has its word, and what the run's last round
+    // returned is sent back in its next.
     built.take(Event::LetGo {
         cell: CellId::from("review"),
     });
-    let let_go = format!("{limit}, {{ let_go = \"review\" }}, {{ under_way = \"review\", run = 1, round = 4 }}");
+    let let_go = format!(
+        "{limit}, {{ let_go = \"review\" }}, {{ sent_back = \"review\" }}, {{ under_way = \"review\", run = 1, round = 4 }}"
+    );
     assert_eq!(built.judged(&let_go), Judged::Took);
 }
 
@@ -725,8 +728,8 @@ fn a_stall_is_read_from_the_view_and_borne_out_by_the_records() {
     ));
 }
 
-/// A writer of a text and of whether it is ready, a gate that requires it ready, and a merge of the text and of what the
-/// gate noted, the engine's own cell.
+/// A writer of a text and of whether it is ready, a gate that requires it ready, and a merge of the text and of what
+/// the gate noted, the engine's own cell.
 fn gated() -> Compiled {
     let flow = r#"
         name = "gated"

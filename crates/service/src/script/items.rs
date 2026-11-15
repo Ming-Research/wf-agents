@@ -605,7 +605,7 @@ impl Does {
 /// asked for; an act's state that is no state of a work; an act that leaves out a key what it does needs, gives one it
 /// does not take, or names what its flow or the script does not have; and items whose main moves at the same place to
 /// heads that differ.
-pub(super) fn check(script: &Script, flows: &[Compiled], _words: &Agents) -> Vec<String> {
+pub(super) fn check(script: &Script, flows: &[Compiled], words: &Agents) -> Vec<String> {
     let mut faults = Vec::new();
     let items = &script.items;
     for (k, item) in items.iter().enumerate() {
@@ -626,7 +626,7 @@ pub(super) fn check(script: &Script, flows: &[Compiled], _words: &Agents) -> Vec
             faults.push(format!("{at}.flow: no flow is named {}", item.flow));
             continue;
         };
-        let names = Names { flow, script };
+        let names = Names { flow, script, words };
         for (j, write) in item.writes.iter().enumerate() {
             let written = names.written(&write.block, write.value.as_deref());
             faults.extend(written.into_iter().map(|fault| format!("{at}.writes[{j}]: {fault}")));
@@ -710,6 +710,7 @@ pub(super) fn check(script: &Script, flows: &[Compiled], _words: &Agents) -> Vec
 struct Names<'a> {
     flow: &'a Compiled,
     script: &'a Script,
+    words: &'a Agents,
 }
 
 impl Names<'_> {
@@ -754,7 +755,7 @@ impl Names<'_> {
             QuestionScript::Withdrawn(withdrawn) => withdrawn.name == question,
         };
         let asked = (rounds.iter()).any(|round| round.questions.iter().flatten().any(named));
-        let engine = rounds.iter().any(|round| round.engine.is_some());
+        let engine = self.words.asks.protected.name == question && rounds.iter().any(|round| round.engine.is_some());
         (!asked && !engine).then(|| format!("no round of the script asks a question named {question}"))
     }
 
@@ -788,6 +789,9 @@ impl Names<'_> {
             }
             Wait::Outside(Some(block)) if self.flow.flow.writers(block).next().is_none() => {
                 faults.push(format!("no cell writes {block}, which a run waits for the outside by"));
+            }
+            Wait::Outside(Some(block)) if !read_by(&self.flow.flow, i, block) => {
+                faults.push(format!("no precondition of {cell} reads {block}"));
             }
             Wait::Slot if !self.flow.flow.cells()[i].slot => {
                 faults.push(format!("{cell} takes no slot, as an act of the engine's takes none"));
@@ -848,4 +852,13 @@ impl Names<'_> {
         }
         faults
     }
+}
+
+/// Whether a key of the preconditions of the cell at place `i` reads the block: a key of its value, or a named test
+/// that reads it.
+fn read_by(flow: &decide::Flow, i: usize, block: &BlockId) -> bool {
+    (flow.cells()[i].requires.iter()).any(|key| match key {
+        Condition::Is { block: read, .. } => read == block,
+        Condition::Test(test) => flow.tests().get(test).is_some_and(|test| test.reads.contains(block)),
+    })
 }

@@ -4,14 +4,14 @@
 //! the records hold there.
 //!
 //! The records hold, in the order of their places, each step of a path but a few waits: a run of a cell started; a
-//! round that failed, with its kind; a return sent back, which the run's next round is given; a call a run rests at,
-//! for a tool, the engine's wait before a round is tried again, or the owner's word on the engine's own call at a run's
-//! limit; a question that waits for the owner's answer; the work paused and let on, by whom; a cell let go at its
-//! limit; a cancel, a reopen, and the merge's finished run. A wait on a precondition, for the outside or at a cell's
-//! limit of a sender has no entry: it is read where the work came to rest after a thing that happened to it, with
-//! nothing of it under way and no call or question waited for, at the cell the reading finds it stands at. There a key
-//! of the cell's preconditions that does not hold is a wait for the outside where only cells write the blocks keeping
-//! it and the latest run of each said that what it wrote waits for a source outside the work (decision
+//! round that failed, with its kind; a return sent back, where the run's next round begins, given why; a call a run
+//! rests at, for a tool, the engine's wait before a round is tried again, or the owner's word on the engine's own call
+//! at a run's limit; a question that waits for the owner's answer; the work paused and let on, by whom; a cell let go
+//! at its limit; a cancel, a reopen, and the merge's finished run. A wait on a precondition, for the outside or at a
+//! cell's limit of a sender has no entry: it is read where the work came to rest after a thing that happened to it,
+//! with nothing of it under way and no call or question waited for, at the cell the reading finds it stands at. There a
+//! key of the cell's preconditions that does not hold is a wait for the outside where only cells write the blocks
+//! keeping it and the latest run of each said that what it wrote waits for a source outside the work (decision
 //! what-a-run-wrote-may-wait-for-the-outside), a precondition where a person or a source outside the work writes one of
 //! them, and else a stall, which the engine's view shows; with every key holding, the cell waits at its limit where it
 //! would run once more for what a sender wrote that sent it back as often as the flow's `again` lets one since its
@@ -364,6 +364,8 @@ pub fn seen(flow: &Compiled, work: &Work, added: Added) -> Vec<Seen> {
         push(s.at, Step::Runs(s.cell.clone()), true);
         let mut ended: Vec<Seq> = (r.returned.iter().filter(|e| e.run == s.run)).map(|e| e.at).collect();
         ended.sort();
+        let mut began: Vec<Seq> = (r.rounds.iter().filter(|e| e.run == s.run)).map(|e| e.at).collect();
+        began.sort();
         for (n, at) in (1..).zip(ended) {
             match work.back.get(&(s.run, n)) {
                 Some(Back::Failed { failure, .. }) => push(
@@ -374,8 +376,12 @@ pub fn seen(flow: &Compiled, work: &Work, added: Added) -> Vec<Seen> {
                     },
                     true,
                 ),
+                // A return is known sent back where the run's next round begins, given why: no step comes before what
+                // the records already held.
                 Some(_) if matches!(work.given.get(&(s.run, n + 1)), Some(Given::SentBack(_))) => {
-                    push(at, Step::SentBack(s.cell.clone()), true);
+                    if let Some(next) = began.get(n) {
+                        push(*next, Step::SentBack(s.cell.clone()), true);
+                    }
                 }
                 _ => {}
             }

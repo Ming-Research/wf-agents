@@ -422,7 +422,7 @@ impl<'a> Reading<'a> {
         let as_looked_for = |block: &BlockId| match (test.kind, test.is.as_deref()) {
             (TestKind::AnyContent, _) => self.current(block).is_some_and(|latest| !latest.empty),
             (TestKind::NoneStanding, Some(is)) => self.refusing(flow, block, is, i),
-            (_, Some(is)) => self.current(block).and_then(|latest| latest.value.as_deref()) == Some(is),
+            (_, Some(is)) => says(block).as_deref() == Some(is),
             (_, None) => false,
         };
         let mut reads = test.reads.iter();
