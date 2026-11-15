@@ -594,7 +594,8 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
         if returned && *ended >= top && last.as_ref().is_none_or(|(at, _)| at < ended) {
             last = Some((*ended, taken));
         }
-        let since = lost.is_none_or(|lost| *ended > lost);
+        let _ = lost;
+        let since = *from > top;
         if reached(*r, *k) && since && wrote_last.is_none_or(|(at, _)| at < *ended) {
             let read = matches!(
                 back,

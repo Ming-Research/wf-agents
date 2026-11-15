@@ -300,7 +300,8 @@ impl Rounds for Agents {
             tokio::spawn(async move {
                 process::stop_left(&group, &dir).await;
                 let teller = reply.teller();
-                let spent = inner.left_spent(&round, (!here).then_some(&teller)).await;
+                let _ = here;
+                let spent = inner.left_spent(&round, Some(&teller)).await;
                 reply.ended(Came::hands_in(Vec::new()), spent);
             });
         }
