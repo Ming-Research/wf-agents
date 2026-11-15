@@ -16,6 +16,8 @@ export const WIDTH_KEYS = {
   /// The history of a work: its column of times and words, and each cell's column.
   steps: 'wf-agents.steps-width',
   historyCells: 'wf-agents.history-cell-widths',
+  /// The flow view's window, the console's (`Drawer`), which keeps its own width under its own key.
+  flowWindow: 'wf-agents.flow-window-width',
 } as const;
 
 function read(key: string): string | null {

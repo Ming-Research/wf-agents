@@ -17,10 +17,33 @@ fn engineer() -> Compiled {
     let source = flow::read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&[DEPENDENCIES, "main", "session", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "words",
+            DEPENDENCIES,
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+        ]),
         acts: names(&["start", "check", "merge"]),
+        // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
+        // place the engine fills with what changed of the tree.
+        tools: names(&["query", "run_tests"]),
+        details: names(&["files"]),
+        ..Default::default()
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")
+}
+
+/// The key the first cell of the deliver flow and of the engineer's waits on: the items the item depends on merged.
+fn merged() -> decide::Condition {
+    decide::Condition::Is {
+        block: DEPENDENCIES.into(),
+        value: MERGED.to_string(),
+    }
 }
 
 /// The driver with the flows of the tests, the deliver flow and the engineer's.
@@ -35,7 +58,7 @@ fn waits_to_be_delivered() -> Decision {
     Decision::Wait {
         at: "V1".into(),
         on: vec![Waited::Precondition {
-            test: "all_delivered".into(),
+            on: merged(),
             by: vec![dependencies()],
         }],
     }
@@ -97,7 +120,7 @@ fn an_engineers_item_that_depends_on_a_deliverable_starts_only_once_the_delivera
     let waits_to_start = Decision::Wait {
         at: "S1".into(),
         on: vec![Waited::Precondition {
-            test: "may_start".into(),
+            on: merged(),
             // The engineer's item waits for the items it depends on to merge, not for the owner.
             by: vec![dependencies()],
         }],

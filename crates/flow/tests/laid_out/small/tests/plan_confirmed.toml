@@ -1,0 +1,4 @@
+says = "The owner confirmed the plan"
+kind = "all"
+reads = ["confirmed"]
+is = "yes"

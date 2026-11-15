@@ -1,15 +1,43 @@
 ### decision normalise-shape-only
-A return that is not in the form's shape but means the form is put into the shape before it is read; its content is never changed, and a field the form requires is never made up. `matters` left out fails the return; it is not taken as a hand-in that does not matter.
-Why: Reading slips strictly paused works for nothing the agent meant to say (principle converging-fixes). A default of "did not matter" was once what a left-out `matters` meant, and it silently kept the cells that read the block from running again (principle nothing-passes-for-normal). The raw return is kept whole beside the reading (principle the-past-as-it-ran).
+A return that is not in the form's shape but means the form is put into the shape before it is read; its content is never changed, and a field the form requires of an item is never made up.
+Why: Reading slips strictly paused works for nothing the agent meant to say (principle converging-fixes). The raw return is kept whole beside the reading (principle the-past-as-it-ran).
 
 ### decision left-out-list-is-empty-list
-A list the return leaves out or writes as null is an empty list, so a return of `{}` hands in nothing; a field of an item is a statement of its own and is never taken as empty.
-Why: Leaving out a list says what an empty list says, and the form lets a round hand in or ask for nothing. A field of an item taken as absent would be made up. This looks inconsistent and is deliberate (principle every-field-has-a-reader).
+A list the return leaves out or writes as null is an empty list, and so are the blocks it writes, so a return of `{}` does the cell's work and deals with nothing; a field of an item is a statement of its own and is never taken as empty.
+Why: Leaving out a list says what an empty list says, and what such a return lacks is then sent back as any return's is, saying what. A field of an item taken as absent would be made up. This looks inconsistent and is deliberate (principle every-field-has-a-reader).
 
 ### decision closing-brackets-after-a-string-form
 Where the whole form, or the one object that wraps it, comes as a string holding JSON, the object is taken when only whitespace and closing brackets follow it.
 Why: Models write the form with a closing bracket too many, which makes the string unparseable though nothing is missing; any other text after it may be content, so it is not taken. Repairing text that does not parse at all is a different step, in the handling of failed rounds, and is not this one.
 
-### decision one-form-for-every-return
-Every round of every cell hands in in one form, which is given to the agents' program with what all rounds share.
-Why: With a form of its own for each cell, going from one cell to the next within a session would lose the cache (principle cache-order).
+### decision a-return-given-up-on-is-read-from-the-stream
+Where the command line gives up on a return, having refused every attempt at it, its last attempt, rebuilt from the pieces of it that the program's stream carries, is read as any return is.
+Why: The command line checks a return against the form more strictly than the engine reads one (decision normalise-shape-only), so it gives up on returns the engine takes, such as a list written as a string, with the agent's work done. Its result holds no text of an attempt it refused, and an attempt cut off, which is no JSON, is in the stream only in pieces: that is why each message comes in pieces and those of the attempts are kept with the round.
+
+### decision one-form-for-a-line
+Every round of every cell of a line is given one form of return, made of the engine's fields, the blocks the line's cells write, each in `outputs` under its name in its own shape, and the tools the flow names; the engine checks each return against the cell it was entered for once it is read.
+Why: The form is the same on every call of a session (principle one-form-of-return-for-a-session). One form for the whole flow, which could list no block, was turned down: the blocks written through fields of their own, the work's questions among them, were then in every cell's form and words, so that cells that may not ask were told they may.
+
+### decision every-block-is-written-in-outputs
+Every block a cell writes, the record of the questions and the answers and the record of what is said among them, is handed in under `outputs` by its name, and one that is not among the cell's outputs is sent back; a cell may ask the owner where the record of the questions is among its outputs. The engine tells the two records apart by what their files declare, the source that writes each (`answer`, `words`) and the trigger of that source that has its agent read it, never by a name.
+Why: Written through fields of the return of their own, the two were in the form and the words of every cell, and whether a cell might ask was judged by whether an answer ran it, apart from how every other block is judged: a rule that held only with exceptions (Article 6; principle engine-knows-no-cell).
+
+### decision what-only-the-reading-sees-is-kept-with-the-return
+What is wrong with a return that only its reading against the cell, or the engine's look at the work's branch as the round ends, can see is found then and kept with what came back: a return of both kinds, whatever each holds; a name in `dealt_with` that is none of the cell's triggers; a tool the cell may not ask for; a name in `meaning_unchanged` the return does not write; a block in `outputs` that is not among the cell's outputs, or in a shape no block has, which is then said wrong for its shape alone and not as missing too; the owner's words named as dealt with, and no answer to them written in the record of what is said; a question that recommends none of its options or has the name of the question the engine itself asks; and a file the project protects that the branch changes and of which nothing says why. The run's check names these first, with everything else wrong with the return, in one send-back.
+Why: The run's check reads the records alone, so that a run is decided again from them the same (principle state-from-records), and a name the cell does not have cannot be put into their terms, which are blocks. Sending such a return back from the reading, as a return that could not be read, was turned down: a return with something wrong of both kinds would be sent back twice (principle report-all-at-once).
+
+### decision a-group-s-trigger-is-dealt-with-by-its-name
+A return names a trigger on a group of blocks as dealt with by the trigger's name, which the reading keeps as the group's name; the run's check takes it where any of the group's blocks ran the round, and the run then deals with each of them that did, as one trigger.
+Why: Which of the group's blocks ran the round is in the records, which the reading does not see. Turning the name into all of the group's blocks as it is read was turned down: the check would refuse those that did not run the round, or the run would consume what was never new to it. Naming the blocks themselves names no trigger, and the agent is told the trigger alone ran its round.
+
+### decision a-return-hands-in-what-its-cell-must-every-time
+A block the cell must write is required of every return that asks for no call, one that deals with only part of what ran it included; only a return with a question of its agent's that waits for the owner's answer, and a round entered for the owner while its cell waits for the results of calls, may leave it out.
+Why: Handed in as it stands, with its value unchanged, such a block runs no cell, so asking it of a partial return costs a line, and the words on returning tell the agent to hand it in always; a question that waits stops the work at the cell, and its answer may change the block. Asking it only of a return that dealt with everything that ran it was turned down for those words; a judgment, with no case behind it.
+
+### decision what-the-engine-asks-is-beside-the-return
+What the engine itself asks the owner as a round ends, such as whether a change of a protected path stays, comes with the round's end beside the agent's return and is recorded as a question of the round's cell as that end is taken, whether or not the return is: it lets the return off none of the blocks its cell must write, and holds it to nothing but why each file of such a change is needed (decision a-protected-change-is-asked-with-the-work-s-reason-for-each-file). What answers an act after the cell is the rule of decision an-act-is-answered-by-what-runs-it.
+Why: It is about the work's branch as the round left it, which a return sent back does not change; and it is no choice of the agent's to stop for the owner, so letting the return off its must-writes for it would take a return the agent did not finish. Holding it apart from the questions that answer an act was turned down: that rule asks only whether something runs the act again, and the owner's answer does, whoever asked.
+
+### decision an-act-is-answered-by-what-runs-it
+A return that deals with a block an act of the engine's after its cell wrote leaves new a block that runs that act: one it hands in, or the work's head it committed among them; or, where the questions' standing runs the act, a question of the work stands as the return is taken, whoever asked it, since its answer runs the act. A return that leaves none is sent back. The engine finds the act, what runs it and the questions' standing in the flow's graph, by the blocks the act writes and the source of the datum, never by a cell's or a block's name.
+Why: An act reads no words, so an answer in words never reaches it, and a work answered so rests at the act's last record with nothing to run it again. Holding the cell to a block of its own answer was turned down: the act ran on what that block said, not on what was committed.

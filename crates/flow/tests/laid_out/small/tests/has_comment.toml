@@ -1,0 +1,4 @@
+says = "The item has a comment"
+kind = "any"
+reads = ["commented"]
+is = "yes"

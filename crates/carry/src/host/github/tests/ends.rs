@@ -1,20 +1,15 @@
-//! What the GitHub host does around a work's pull request, its checks and its end: the pull request is a draft whose
-//! title and body say what the work wrote of itself and follow it, made ready as it merges; a check red on main as
-//! well holds no work, and one that failed before on the same commit is run again and told apart where it then
-//! passes; main red stops merges; and a work that ended without merging has its pull request closed.
+//! What the GitHub host does around a work's pull request, its check and its end: the pull request is a draft named as
+//! the work's merge is, whose body says what the work wrote of itself, both following the work, made ready as it
+//! merges; a failure read is read as it is, and a work that ended without merging has its pull request closed.
 
+use super::super::api::{Check, Outcome};
 use super::*;
-use crate::host::Named;
 
 /// A check of a GitHub Actions job, at its own link.
 fn job(name: &str, id: u64, outcome: Outcome) -> Check {
     Check {
-        name: name.to_string(),
-        outcome,
         url: Some(format!("https://github.example/actions/runs/1/job/{id}")),
-        summary: None,
-        job: Some(id),
-        earlier: Vec::new(),
+        ..check(name, outcome)
     }
 }
 
@@ -27,16 +22,11 @@ fn about<'a>(place: &'a Place, about: &'a str) -> Branch<'a> {
     Branch { about, ..branch(place) }
 }
 
-/// The head of main on GitHub.
-fn main_of(hub: &Hub) -> String {
-    run(&hub.github().bare, &["rev-parse", "main"])
-}
-
 #[tokio::test]
 async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follows_it() {
     let hub = Hub::new();
     let head = hub.committed().await;
-    hub.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+    hub.green(&head);
     hub.verdict(&head).await.unwrap().unwrap();
     let pulls = hub.github().pull_requests();
     assert_eq!(pulls.len(), 1);
@@ -57,7 +47,7 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     let place = hub.place();
     let branch = about(&place, "Greets the user by name, and by title where one is known.");
     hub.host
-        .verdict(&branch, &head, &mut Stop::never())
+        .verdict(&branch, &head, &hub.main_on_github(), hub.round(), &mut Stop::never())
         .await
         .unwrap()
         .unwrap();
@@ -69,11 +59,84 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     );
 }
 
+/// The work's branch, its merge named so.
+fn named<'a>(place: &'a Place, title: &'a str) -> Branch<'a> {
+    Branch { title, ..branch(place) }
+}
+
+#[tokio::test]
+async fn the_pull_request_is_named_as_the_works_merge_is_and_follows_it_to_the_commit_its_merge_makes() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.green(&checked);
+    // Checked before the work wrote the name of its merge, then after.
+    for name in ["Work 1", "Greet the user by name"] {
+        assert_eq!(titled(&hub, &checked, name).await, name);
+    }
+    // Named anew after its check, it merges by the name it has now.
+    let place = hub.place();
+    let name = "Greet the user by name, and by title where one is known";
+    (hub.host.merge(&named(&place, name), Some(&checked)).await).expect("it merges");
+    assert_eq!(hub.github().pull_requests()[0].title, name);
+    assert_eq!(
+        run(&hub.github().bare, &["log", "-1", "--format=%s", "main"]),
+        format!("{name} (#1)"),
+        "the squash is named as the merge is"
+    );
+    let titles: Vec<String> = (hub.github().asked().into_iter())
+        .filter_map(|asked| match asked {
+            Asked::Open { title, .. } | Asked::Edit { title, .. } | Asked::Merge { title, .. } => Some(title),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Work 1".to_string(),
+            "Greet the user by name".to_string(),
+            name.to_string(),
+            format!("{name} (#1)"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn the_name_of_a_merge_is_published_with_no_mention_reference_or_closing_word_and_cut_to_a_bound() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.green(&checked);
+    let z = '\u{200B}';
+    assert_eq!(
+        titled(&hub, &checked, "Fixes #12 for @octocat").await,
+        format!("F{z}ixes #{z}12 for @{z}octocat")
+    );
+    let title = titled(&hub, &checked, &"word ".repeat(100)).await;
+    assert_eq!(title.chars().count(), 200, "{title}");
+    assert!(title.ends_with('…'), "{title}");
+}
+
+/// The title of the work's pull request once the work, its merge named so, is checked at the commit.
+async fn titled(hub: &Hub, commit: &str, name: &str) -> String {
+    let place = hub.place();
+    (hub.host
+        .verdict(
+            &named(&place, name),
+            commit,
+            &hub.main_on_github(),
+            hub.round(),
+            &mut Stop::never(),
+        )
+        .await)
+        .unwrap()
+        .unwrap();
+    hub.github().pull_requests()[0].title.clone()
+}
+
 #[tokio::test]
 async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word_or_path_of_this_machine() {
     let hub = Hub::new();
     let head = hub.committed().await;
-    hub.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+    hub.green(&head);
     let data = hub.repo.data.display().to_string();
     let repo = hub.repo.project.repo.display().to_string();
     let wrote = format!(
@@ -82,7 +145,13 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
     );
     let place = hub.place();
     hub.host
-        .verdict(&about(&place, &wrote), &head, &mut Stop::never())
+        .verdict(
+            &about(&place, &wrote),
+            &head,
+            &hub.main_on_github(),
+            hub.round(),
+            &mut Stop::never(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -109,7 +178,13 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
     // A long text is cut, saying so.
     let long = "word ".repeat(10_000);
     hub.host
-        .verdict(&about(&place, &long), &head, &mut Stop::never())
+        .verdict(
+            &about(&place, &long),
+            &head,
+            &hub.main_on_github(),
+            hub.round(),
+            &mut Stop::never(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -122,8 +197,7 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
 async fn the_draft_is_made_ready_as_it_merges() {
     let hub = Hub::new();
     let checked = hub.committed().await;
-    hub.github()
-        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
+    hub.green(&checked);
     hub.verdict(&checked).await.unwrap().unwrap();
     hub.merge(&checked).await.expect("it merges");
     let asked: Vec<Asked> = (hub.github().asked().into_iter())
@@ -137,141 +211,37 @@ async fn the_draft_is_made_ready_as_it_merges() {
 }
 
 #[tokio::test]
-async fn a_check_red_on_main_as_well_holds_the_work_saying_so_with_what_its_log_says() {
+async fn a_failure_is_said_as_it_is_each_time_the_commit_is_judged() {
     let hub = Hub::new();
     let head = hub.committed().await;
-    let main = main_of(&hub);
-    hub.github()
-        .checks(&head, vec![vec![passed("lint"), job("test", 7, red())]]);
-    hub.github()
-        .checks(&main, vec![vec![passed("lint"), job("test", 3, red())]]);
-    hub.github().log(7, "error: the greeting is wrong\n");
-    let verdict = hub.verdict(&head).await.unwrap().unwrap();
-    let failed = verdict.failed.expect("a check red on the commit holds the work");
-    assert!(
-        failed.contains("test (failure) https://github.example/actions/runs/1/job/7"),
-        "{failed}"
-    );
-    let also = format!(
-        "It is also red on main at {main} (https://github.example/actions/runs/1/job/3); whether the change adds a \
-         failure of its own is not known."
-    );
-    assert!(failed.contains(&also), "{failed}");
-    assert!(failed.contains("the greeting is wrong"), "its log is kept: {failed}");
-    assert!(!failed.contains("not the change's"), "{failed}");
-}
-
-#[tokio::test]
-async fn a_failure_read_before_is_read_as_it_is_again() {
-    let hub = Hub::new();
-    let head = hub.committed().await;
-    hub.github()
-        .checks(&head, vec![vec![passed("lint"), job("test", 7, red())]]);
+    let jobs = vec![passed("lint"), job("test", 7, red())];
+    hub.github().fast(&head, jobs, Some(("test-results", fast::junit())));
     let first = hub.verdict(&head).await.unwrap().unwrap();
+    assert!(first.failed.is_some());
     let again = hub.verdict(&head).await.unwrap().unwrap();
-    assert_eq!(again, first, "a failed run is a failed check, each time it is read");
-    let said = format!("{again:?}");
-    assert!(
-        !said.contains("now and then") && !said.contains("not the change's"),
-        "{said}"
+    // Each judging has runs of its own, whose numbers alone differ.
+    let same = |text: Option<String>| {
+        text.map(|t| {
+            let parts: Vec<&str> = t.split("actions/runs/").collect();
+            let unnumbered = (parts[1..].iter()).map(|part| part.trim_start_matches(|c: char| c.is_ascii_digit()));
+            [parts[0].to_string()]
+                .into_iter()
+                .chain(unnumbered.map(|rest| format!("actions/runs/N{rest}")))
+                .collect::<String>()
+        })
+    };
+    assert_eq!(
+        same(again.failed),
+        same(first.failed),
+        "a failed run is a failed check, each time it is judged"
     );
-}
-
-#[tokio::test]
-async fn every_run_of_a_check_on_the_commit_is_said_as_it_is() {
-    let hub = Hub::new();
-    let head = hub.committed().await;
-    // A person ran the red check again on GitHub, and its new run passed.
-    let mut test = job("test", 8, Outcome::Passed);
-    test.earlier = vec!["failure https://github.example/actions/runs/1/job/7".to_string()];
-    hub.github().checks(&head, vec![vec![passed("lint"), test]]);
-    let verdict = hub.verdict(&head).await.unwrap().unwrap();
-    assert_eq!(verdict.failed, None, "the latest run counts");
-    let said = "test: its latest run on this commit passed (https://github.example/actions/runs/1/job/8); its earlier \
-                runs on it: failure https://github.example/actions/runs/1/job/7.";
-    assert_eq!(verdict.notes, [said]);
-    let place = hub.place();
-    let told = (hub
-        .host
-        .check(&branch(&place), &Named::default(), &mut Stop::never())
-        .await)
-        .unwrap()
-        .unwrap();
-    assert!(told.contains(said), "{told}");
-}
-
-#[tokio::test]
-async fn an_agents_check_holds_a_check_red_on_main_as_well_as_the_check_before_the_merge_does() {
-    let hub = Hub::new();
-    let head = hub.committed().await;
-    let main = main_of(&hub);
-    hub.github()
-        .checks(&head, vec![vec![job("lint", 5, red()), passed("test")]]);
-    hub.github()
-        .checks(&main, vec![vec![job("lint", 2, red()), passed("test")]]);
-    let place = hub.place();
-    let told = (hub
-        .host
-        .check(&branch(&place), &Named::default(), &mut Stop::never())
-        .await)
-        .unwrap()
-        .unwrap();
-    assert!(told.contains("did not pass"), "{told}");
-    assert!(told.contains(&format!("It is also red on main at {main}")), "{told}");
-}
-
-#[tokio::test]
-async fn a_checked_commit_whose_latest_run_of_a_named_check_failed_does_not_merge_whatever_main_is() {
-    let hub = Hub::new();
-    let checked = hub.committed().await;
-    hub.github()
-        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
-    hub.verdict(&checked).await.unwrap().unwrap();
-    // Run again on GitHub after the check, the commit's test failed; main is green.
-    hub.github()
-        .checks(&checked, vec![vec![passed("lint"), job("test", 9, red())]]);
-    let refused = hub.merge(&checked).await.expect_err("refused");
-    assert!(
-        refused.contains(&format!("test failed on {checked}")) && refused.contains("job/9"),
-        "{refused}"
-    );
-    assert!(!hub.github().asked().iter().any(|a| matches!(a, Asked::Merge { .. })));
-}
-
-#[tokio::test]
-async fn no_work_merges_onto_a_main_whose_ci_is_red() {
-    let hub = Hub::new();
-    let checked = hub.committed().await;
-    hub.github()
-        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
-    hub.verdict(&checked).await.unwrap().unwrap();
-    let main = main_of(&hub);
-    // A named check red on main stops the merge though another is not done; one that is not named counts for nothing.
-    let checks = vec![
-        check("lint", Outcome::Pending),
-        job("test", 3, red()),
-        job("coverage", 2, red()),
-    ];
-    hub.github().checks(&main, vec![checks]);
-    let refused = hub.merge(&checked).await.expect_err("refused");
-    assert!(
-        refused.starts_with(&format!(
-            "main is red at {main}: test https://github.example/actions/runs/1/job/3. "
-        )),
-        "{refused}"
-    );
-    assert!(refused.contains("once it is green again, let the work on"), "{refused}");
-    assert!(!hub.github().asked().iter().any(|a| matches!(a, Asked::Merge { .. })));
-    // Green again, it merges.
-    hub.github().checks(&main, vec![vec![passed("lint"), passed("test")]]);
-    hub.merge(&checked).await.expect("it merges");
 }
 
 #[tokio::test]
 async fn a_work_that_ended_without_merging_has_its_pull_request_closed_saying_so_once() {
     let hub = Hub::new();
     let head = hub.committed().await;
-    hub.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+    hub.green(&head);
     hub.verdict(&head).await.unwrap().unwrap();
     let place = hub.place();
     hub.host.end(&branch(&place), false).await.expect("it closes");
@@ -293,6 +263,30 @@ async fn a_work_that_ended_without_merging_has_its_pull_request_closed_saying_so
         head,
         "the branch stays"
     );
+}
+
+#[tokio::test]
+async fn a_reopened_work_has_the_pull_request_its_cancel_closed_opened_again_once_however_often_it_starts() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.green(&head);
+    hub.verdict(&head).await.unwrap().unwrap();
+    let place = hub.place();
+    // Nothing was closed: nothing is opened.
+    hub.host.reopen(&branch(&place)).await.expect("nothing to open");
+    hub.host.end(&branch(&place), false).await.expect("it closes");
+    hub.host.reopen(&branch(&place)).await.expect("it opens again");
+    assert_eq!(hub.github().pull_requests()[0].state, State::Open);
+    // Asked again, as at a start given again, the open one is left as it is.
+    hub.host.reopen(&branch(&place)).await.expect("nothing to open");
+    let reopened: Vec<Asked> = (hub.github().asked().into_iter())
+        .filter(|a| matches!(a, Asked::Reopen(_)))
+        .collect();
+    assert_eq!(reopened, [Asked::Reopen(1)]);
+    // One merged is never opened again.
+    hub.github().merged_by_a_person(1, &head);
+    hub.host.reopen(&branch(&place)).await.expect("nothing to open");
+    assert_eq!(hub.github().pull_requests()[0].state, State::Merged);
 }
 
 #[tokio::test]

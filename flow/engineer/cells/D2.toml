@@ -1,0 +1,45 @@
+# Why this cell exists: a plan, once written, is thought through again by its writer, in the same session: asked so, a
+# writer most often finds a better way (the old flow's cell that asked it, on the line that wrote the design, found one
+# 40 times in 52).
+title = "Is there a better way"
+kind = "agent"
+line = "deep_researcher"
+effort = "xhigh"
+task = { file = "tasks/better_way.md" }
+when = { deep_needed = "yes" }
+triggered_by = ["on_plan", "on_spoken", "on_answer"]
+context = [
+  "background",
+  "discussion",
+  "plan_owner",
+  "plan_agent",
+  "acceptance",
+  "q_and_a",
+  "tree_edits",
+  "tree",
+]
+outputs = [
+  "plan_owner",
+  "plan_agent",
+  "q_and_a",
+  "acceptance",
+  "tree_edits",
+  "discussion",
+]
+
+# Each version of the plan is thought through once; one it wrote itself runs it not again.
+[do]
+on_plan = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
+on_answer = """The owner has answered one of your questions in `q_and_a` with another option than yours, or one you wait for: bring the plan to it."""
+on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `discussion`."""
+
+[kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
+background = "latest"
+discussion = "all"
+plan_owner = "last_and_latest"
+plan_agent = "last_and_latest"
+acceptance = "last_and_latest"
+q_and_a = "all"
+tree_edits = "last_and_latest"

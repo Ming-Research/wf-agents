@@ -30,8 +30,9 @@ import {
   sessionWords,
 } from './words';
 
-/// What the owner chose on the chart: a step by its place among the steps, a cell, or nothing.
-export type Chosen = { step: number } | { cell: string } | null;
+/// What the owner chose: on the chart, a step by its place among the steps or a cell; in the view's line, what the work
+/// used; or nothing.
+export type Chosen = { step: number } | { cell: string } | { usage: true } | null;
 
 /// The width of the column of times and words at first, and the least and most it is dragged to.
 const STEPS = { first: 260, min: 160, max: 520 };
@@ -40,9 +41,7 @@ const STEPS = { first: 260, min: 160, max: 520 };
 /// condition does.
 function spotOf(mark: RowMark): Spot {
   return {
-    mark: { ...NO_MARK, read: mark === 'read', condition: mark === 'condition' },
-    added: NO_MARK,
-    removed: NO_MARK,
+    mark: { ...NO_MARK, runs: mark === 'read', given: mark === 'read', condition: mark === 'condition' },
     line: 'none',
     back: 'none',
     backTo: false,
@@ -75,8 +74,12 @@ export function stepWords(step: Step, flow?: Flow): string {
       return 'the owner let the work on';
     case 'cancelled':
       return 'the owner cancelled the work';
+    case 'reopened':
+      return 'the work was reopened';
     case 'session':
-      return `the line ${step.line} began a session: ${sessionWords(step.why)}`;
+      return step.why.kind === 'compacted'
+        ? `the session of the line ${step.line} was compacted: ${sessionWords(step.why)}`
+        : `the line ${step.line} began a session: ${sessionWords(step.why)}`;
   }
 }
 

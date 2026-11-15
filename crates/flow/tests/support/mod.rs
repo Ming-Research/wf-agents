@@ -1,8 +1,10 @@
-//! A small valid flow, written as its files would be, for the tests of the compile to break one place at a time.
+//! A small valid flow, written as its files would be, for the tests of the compile to break one place at a time; and
+//! its twin laid out one thing to a file, in `tests/laid_out/`.
 
 use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
-use flow::{Compiled, FLOW_FILE, Fault, FaultKind, Has, Source};
+use flow::{CELLS_DIR, Compiled, FLOW_FILE, Fault, FaultKind, Has, Source};
 
 const FLOW: &str = r#"
 name = "small"
@@ -97,7 +99,7 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Design what the plan asks for."
-when = { block = "needs_design", is = "yes" }
+when = { needs_design = "yes" }
 inputs = ["plan"]
 outputs = ["design"]
 "#;
@@ -113,7 +115,7 @@ Answer the comments on the plan.
 Say what you changed for each.
 """
 when = { test = "has_comment" }
-requires = ["plan_confirmed"]
+requires = { test = "plan_confirmed" }
 inputs = ["comments", "plan"]
 outputs = ["reply"]
 limit = 5
@@ -133,7 +135,7 @@ const MERGE: &str = r#"
 title = "Merge"
 kind = "engine"
 act = "merge"
-requires = ["may_merge"]
+requires = { test = "may_merge" }
 inputs = ["ci"]
 "#;
 
@@ -156,11 +158,16 @@ pub fn valid() -> Source {
     source
 }
 
-/// What the engine has: the source outside a work and the acts the small flow names.
+/// What the engine has: the source outside a work and the acts the small flow names, two tools, two parts of a line's
+/// system prompt that it fills in itself, what it keeps the work's questions as, and one place it fills with what
+/// happened.
 pub fn has() -> Has {
     Has {
         sources: names(&["main"]),
         acts: names(&["check", "merge"]),
+        tools: names(&["query", "run_tests"]),
+        system: names(&["guide", "tree_rules"]),
+        details: names(&["files"]),
     }
 }
 
@@ -169,13 +176,30 @@ pub fn names(names: &[&str]) -> BTreeSet<String> {
     names.iter().map(|n| n.to_string()).collect()
 }
 
-/// The text of a file of the source, by the file's name.
+/// The directory of the small flow laid out one thing to a file, beside what it shares with any flow.
+pub fn laid_out_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/laid_out/small")
+}
+
+/// The small flow laid out one thing to a file: the twin of [`valid`], its cells naming their triggers and context.
+pub fn laid_out() -> Source {
+    flow::read(&laid_out_dir()).expect("the small flow laid out one thing to a file is read")
+}
+
+/// The text of a file of the source, by its path from the flow's directory.
 fn text<'a>(source: &'a mut Source, file: &str) -> &'a mut String {
     if file == FLOW_FILE {
         return &mut source.flow;
     }
-    let id = file.strip_suffix(".toml").expect("a file of a flow ends in .toml");
-    source.cells.entry(id.to_string()).or_default()
+    let cell = if source.laid_out {
+        file.strip_prefix(&format!("{CELLS_DIR}/"))
+    } else {
+        Some(file)
+    };
+    match cell.and_then(|name| name.strip_suffix(".toml")) {
+        Some(id) => source.cells.entry(id.to_string()).or_default(),
+        None => source.files.entry(file.to_string()).or_default(),
+    }
 }
 
 /// The flow with `from` replaced by `to` in one file; `from` must be there.

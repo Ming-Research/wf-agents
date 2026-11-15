@@ -1,0 +1,21 @@
+[package]
+name = "context"
+description = "The context manager, and the message a cell's agent is sent as the engine enters the cell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+decide = { path = "../decide" }
+flow = { path = "../flow" }
+serde.workspace = true
+work = { path = "../work" }
+
+[dev-dependencies]
+# The tests take works through the engine's own loop, so that their records are those a work has.
+engine = { path = "../engine" }
+
+[lints]
+workspace = true

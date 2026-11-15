@@ -35,7 +35,7 @@ fn a_field_no_file_knows_is_a_fault() {
     assert!(message.contains("colour"), "{message}");
     let source = edit(valid(), FLOW_FILE, "calls = 40", "calls = 40\nhours = 8");
     unreadable(&source, FLOW_FILE);
-    let source = edit(valid(), FLOW_FILE, "[blocks.plan]", "[blocks.plan]\nshape = \"prose\"");
+    let source = edit(valid(), FLOW_FILE, "[blocks.plan]", "[blocks.plan]\nlook = \"prose\"");
     unreadable(&source, FLOW_FILE);
     let source = edit(
         valid(),
@@ -44,7 +44,7 @@ fn a_field_no_file_knows_is_a_fault() {
         "[lines.engineer]\nmodel = \"big\"",
     );
     unreadable(&source, FLOW_FILE);
-    let source = edit(valid(), "answer.toml", "{ test = ", "{ block = \"ci\", test = ");
+    let source = edit(valid(), "answer.toml", "task = ", "colour = \"red\"\ntask = ");
     unreadable(&source, "answer.toml");
 }
 

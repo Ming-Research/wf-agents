@@ -1,6 +1,7 @@
 //! A view of a work as it is now, rule by rule: each test builds a small work through the shared helper and says
 //! what the view shows, from the documentation of `decide::view` and the words of the design (current, meaning, what
-//! a record knows, skipped, at rest), never from its code. The tests are kept in modules by subject.
+//! a cell consumed, what is new to it, skipped, at rest), never from its code. The tests are kept in modules by
+//! subject.
 
 // The view's tests use only part of the helper the walk's tests share.
 #[allow(dead_code)]
@@ -32,19 +33,19 @@ fn cell_of(w: &World, id: &str) -> CellView {
         .expect("the cell is in the view")
 }
 
-/// The view of one input of one cell.
+/// The view of one block that runs one cell.
 fn input_of(w: &World, id: &str, block: &str) -> InputView {
-    (cell_of(w, id).inputs.into_iter())
+    (cell_of(w, id).runs_on.into_iter())
         .find(|i| i.block.as_str() == block)
-        .expect("the cell reads the block")
+        .expect("the block runs the cell")
 }
 
-fn input(block: &str, current: Option<Seq>, known: Option<Seq>, changed: bool) -> InputView {
+fn input(block: &str, current: Option<Seq>, consumed: Option<Seq>, new: bool) -> InputView {
     InputView {
         block: block.into(),
         current,
-        known,
-        changed,
+        consumed,
+        new,
     }
 }
 
@@ -59,10 +60,10 @@ fn version(at: Seq, by: Writer, meaning: Seq, value: Option<&str>) -> VersionVie
 
 /// A cell that runs only when the block's current value is this one.
 fn when(block: &str, value: &str, mut c: Cell) -> Cell {
-    c.applies = Some(Condition::Is {
+    c.applies = vec![Condition::Is {
         block: block.into(),
         value: value.into(),
-    });
+    }];
     c
 }
 

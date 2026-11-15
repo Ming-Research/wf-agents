@@ -1,0 +1,4 @@
+# What the engine's act `start` writes into the block its cell writes, once it has made the work's branch from the head
+# of main, and its worktree. Filled in a run: `{branch}` the work's branch, `{worktree}` the worktree's directory,
+# `{from}` the commit of main it started from, `{main}` the main branch's name.
+text = "The work is done on the branch {branch} in the worktree {worktree}, which started from the commit {from} of {main}."

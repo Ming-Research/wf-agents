@@ -32,12 +32,13 @@ fn passing(n: usize) -> Vec<Round> {
 #[test]
 fn a_run_whose_round_failed_has_that_round_again() {
     assert_eq!(step(vec![failed()], &spec()), Step::Retry);
-    assert_eq!(step(vec![asked_done(1, 2), failed()], &spec()), Step::Retry);
+    assert_eq!(step(vec![wanting(), failed()], &spec()), Step::Retry);
     for kind in [
         Failure::Flagged,
         Failure::UsageLimit,
         Failure::CannotRun,
         Failure::Offline,
+        Failure::Unavailable,
         Failure::PromptTooLong,
     ] {
         assert_eq!(step(vec![failed_as(kind)], &spec()), Step::Retry, "{kind:?}");
@@ -51,15 +52,15 @@ fn a_run_whose_round_failed_is_held_while_its_work_is_paused() {
 
 #[test]
 fn failed_rounds_count_against_no_limit() {
-    // However many rounds failed, none was a return sent back nor made a call.
-    let s = limited(1, 2);
+    // However many rounds failed, none was a return sent back.
+    let s = limited(1);
     let failures = || vec![failed(), failed(), failed(), failed()];
     assert_eq!(step([failures(), vec![failed()]].concat(), &s), Step::Retry);
     assert_eq!(
         step([failures(), vec![wanting()]].concat(), &s),
         send_back(wanting_unmet())
     );
-    assert_eq!(step([failures(), vec![asks(2)]].concat(), &s), Step::Make);
+    assert_eq!(step([failures(), vec![asks(2)]].concat(), &s), finish_asking());
     let between = vec![wanting(), failed(), failed(), wanting()];
     assert_eq!(step(between, &s), returns_limit(1));
 }
@@ -115,7 +116,7 @@ fn a_failure_in_passing_counts_only_those_in_a_row_since_the_work_was_let_on() {
         ms: FIRST_WAIT,
     };
     // A round that did not fail ends the row.
-    let after_a_return = [passing(3), vec![asked_done(9, 1), failed_as(Failure::Passing)]].concat();
+    let after_a_return = [passing(3), vec![wanting(), failed_as(Failure::Passing)]].concat();
     assert_eq!(step(after_a_return, &s), first);
     // A failure of another kind between is in the row, and counts nothing.
     let other_between = [
@@ -159,7 +160,7 @@ fn so_many_failures_in_passing_in_a_row_pause_the_work_and_the_round_waits_no_mo
 
 #[test]
 fn what_could_not_be_read_is_sent_back_and_counts_as_a_return_sent_back() {
-    let s = limited(1, 3);
+    let s = limited(1);
     let unread = || failed_as(Failure::Unread);
     let unmet = vec![Unmet::Unreadable {
         why: "it failed".to_string(),
@@ -190,8 +191,23 @@ fn a_flagged_round_is_tried_again_once_and_flagged_again_pauses_the_work() {
     .concat();
     assert_eq!(pausing(&let_on(between, 0)), Some(Pausing::FlaggedAgain));
     // A round that came back between, or the work let on between, starts anew.
-    assert_eq!(pausing(&let_on(vec![flagged(), asked_done(1, 1), flagged()], 0)), None);
+    assert_eq!(pausing(&let_on(vec![flagged(), wanting(), flagged()], 0)), None);
     assert_eq!(pausing(&let_on(vec![flagged(), flagged()], 1)), None);
+}
+
+#[test]
+fn a_round_the_run_guard_stopped_is_tried_again_once_and_stopped_again_pauses_the_work() {
+    let s = spec();
+    let guarded = || failed_as(Failure::Guarded);
+    assert_eq!(pausing(&let_on(vec![guarded()], 0)), None);
+    assert_eq!(step(vec![guarded()], &s), Step::Retry);
+    assert_eq!(
+        pausing(&let_on(vec![guarded(), guarded()], 0)),
+        Some(Pausing::GuardedAgain)
+    );
+    // A flag between is another cause, which does not count as the guard stopping it again.
+    assert_eq!(pausing(&let_on(vec![guarded(), failed_as(Failure::Flagged)], 0)), None);
+    assert_eq!(pausing(&let_on(vec![guarded(), guarded()], 1)), None, "let on between");
 }
 
 #[test]
@@ -199,12 +215,53 @@ fn a_failure_running_again_cannot_help_pauses_the_work_and_one_every_work_shares
     for kind in [Failure::PromptTooLong, Failure::Other] {
         assert_eq!(pausing(&let_on(vec![failed_as(kind)], 0)), Some(Pausing::Failed(kind)));
     }
-    for kind in [Failure::UsageLimit, Failure::CannotRun, Failure::Offline] {
+    for kind in [
+        Failure::UsageLimit,
+        Failure::CannotRun,
+        Failure::Offline,
+        Failure::Unavailable,
+    ] {
         assert!(kind.shared(), "{kind:?}");
         assert_eq!(pausing(&let_on(vec![failed_as(kind)], 0)), None, "{kind:?}");
     }
     assert!(!Failure::Passing.shared() && !Failure::Flagged.shared() && !Failure::Other.shared());
     // A log whose last round did not fail pauses nothing.
-    assert_eq!(pausing(&let_on(vec![asked_done(1, 1)], 0)), None);
+    assert_eq!(pausing(&let_on(vec![wanting()], 0)), None);
     assert_eq!(pausing(&let_on(vec![], 0)), None);
+}
+
+// A round after one that failed for a cause outside every work begins only once the engine found the outside well: so
+// many of them in a row say the rounds meet what the check does not find, and the next pauses the work. Kinds of such
+// causes count together, a failure in passing between does not break the row, and the work let on starts it anew.
+#[test]
+fn so_many_failures_in_a_row_for_a_cause_outside_every_work_pause_the_work() {
+    let s = spec();
+    let outside = |n: usize| -> Vec<Round> {
+        let kinds = [
+            Failure::Unavailable,
+            Failure::UsageLimit,
+            Failure::CannotRun,
+            Failure::Offline,
+        ];
+        (0..n).map(|i| failed_as(kinds[i % kinds.len()])).collect()
+    };
+    let within = outside(PASSING as usize);
+    assert_eq!(pausing(&let_on(within.clone(), 0)), None);
+    assert_eq!(step(within.clone(), &s), Step::Retry);
+    let past = outside(PASSING as usize + 1);
+    assert_eq!(
+        pausing(&let_on(past.clone(), 0)),
+        Some(Pausing::Outside { failed: PASSING + 1 })
+    );
+    let between = [outside(PASSING as usize), passing(1), outside(1)].concat();
+    assert_eq!(
+        pausing(&let_on(between, 0)),
+        Some(Pausing::Outside { failed: PASSING + 1 })
+    );
+    let ended = past.len();
+    let again = [past.clone(), outside(1)].concat();
+    assert_eq!(pausing(&let_on(again, ended)), None, "let on between");
+    // A round that came back between starts the row anew.
+    let back = [outside(PASSING as usize), vec![wanting()], outside(1)].concat();
+    assert_eq!(pausing(&let_on(back, 0)), None);
 }

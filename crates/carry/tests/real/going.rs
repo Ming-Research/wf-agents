@@ -3,7 +3,7 @@
 use service::Act;
 use work::Spent;
 
-use crate::{Fake, On, Real, ended, git_in};
+use crate::{Fake, NAMED, On, Real, ended, git_in};
 
 #[tokio::test]
 async fn a_work_goes_to_its_merge_with_the_command_line() {
@@ -15,11 +15,7 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
 
     let calls = real.calls();
     assert_eq!(calls.len(), 3, "one call for each agent's round");
-    assert!(
-        calls[0].stdin.starts_with("# Plan (cell `plan`), round 1\n"),
-        "{}",
-        calls[0].stdin
-    );
+    assert!(calls[0].stdin.starts_with("# Plan\n"), "{}", calls[0].stdin);
     let worktree = real.place(work).dir;
     assert!(
         calls.iter().all(|call| call.dir == worktree),
@@ -39,7 +35,7 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
     assert_eq!(told, calls[0].stdin);
     assert!(
         real.data
-            .join(format!("rounds/1/{}-1.result.json", plan_run.0))
+            .join(format!("rounds/1/{}-1.stream.jsonl", plan_run.0))
             .is_file()
     );
     assert!(
@@ -60,13 +56,25 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
     assert_eq!(spent[1].usd_micros, 0);
     assert_eq!(spent[2].usd_micros, 10_000);
 
-    // The build's commit is merged into main.
+    // The build's commit is merged into main, by a merge named by the work's number: the flow has no block that
+    // names it.
     let log = git_in(&real.repo, &["log", "main", "--format=%s"]);
     assert!(log.lines().any(|line| line == "Build the greeting"), "{log}");
-    assert!(
-        log.lines().next().is_some_and(|line| line.starts_with("Merge work-1-")),
-        "{log}"
-    );
+    assert_eq!(log.lines().next(), Some("Work 1"), "{log}");
+}
+
+#[tokio::test]
+async fn a_work_merges_by_the_name_its_build_wrote_and_its_items_title_reaches_no_commit() {
+    let mut real = Real::open(On::Acts, Fake::default(), None, "true");
+    // The item's title is in the owner's language, the repository in its own.
+    real.title = "向用户问好".to_string();
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    assert_eq!(real.finished(work), ["start", "build", "check", "merge"]);
+    assert_eq!(git_in(&real.repo, &["log", "-1", "--format=%s", "main"]), NAMED);
+    let every = git_in(&real.repo, &["log", "--all", "--format=%B"]);
+    assert!(!every.contains(&real.title), "{every}");
 }
 
 #[tokio::test]

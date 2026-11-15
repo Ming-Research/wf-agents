@@ -14,8 +14,34 @@ fn trial() -> Compiled {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial/flow");
     let source = flow::read(&dir).unwrap();
     let has = flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
+        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).unwrap()
+}
+
+/// The engineer's flow as the repository defines it, compiled against what the engine has.
+fn engineer() -> Compiled {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+    let source = flow::read(&dir).unwrap();
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = flow::Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge"]),
+        tools: names(&["query", "run_tests"]),
+        details: names(&["files"]),
+        ..Default::default()
     };
     flow::compile(&source, &has).unwrap()
 }
@@ -90,6 +116,90 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
 }
 
 #[test]
+fn the_engineers_script_fits_the_engineers_flow() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/scripts/engineer.toml");
+    let text = std::fs::read_to_string(path).unwrap();
+    assert_eq!(Script::read(&text).unwrap().check(&[engineer()]), Vec::<String>::new());
+}
+
+#[test]
+fn a_script_is_told_a_commit_no_source_outside_the_work_writes_and_one_no_round_of_the_cells_work_makes() {
+    let script = Script::read(
+        r#"
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        hands_in = []
+        commits = [{ block = "code", content = "4b8e2d1" }, { block = "hed", content = "4b8e2d1" }]
+
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        run = 2
+        asks = [{ tool = "check" }]
+        commits = [{ block = "head", content = "4b8e2d1" }]
+
+        [[flows.engineer.rounds]]
+        cell = "M1"
+        commits = [{ block = "head", content = "4b8e2d1" }]
+        "#,
+    )
+    .unwrap();
+    assert_eq!(
+        script.check(&[engineer()]),
+        [
+            "flows.engineer.rounds[0].commits[0]: no source outside the work writes code",
+            "flows.engineer.rounds[0].commits[1]: the flow engineer has no block hed",
+            "flows.engineer.rounds[1]: only a round that does the cell's work commits",
+            "flows.engineer.rounds[2]: an act of the engine commits nothing",
+        ]
+    );
+}
+
+#[test]
+fn a_round_hands_in_beside_its_blocks_what_its_entry_says_it_committed() {
+    let flow = engineer();
+    let script = Script::read(
+        r#"
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        hands_in = [{ block = "code", content = "The fix." }]
+        commits = [{ block = "head", content = "4b8e2d1" }]
+        "#,
+    )
+    .unwrap();
+    let came = Came {
+        read: vec![handed("head", "4b8e2d1", None)],
+        ..Came::hands_in(vec![handed("code", "The fix.", None)])
+    };
+    assert_eq!(
+        script.round(&flow, cell(&flow, "I1"), 1, 1, &BTreeMap::new()).ends,
+        Ends::Came(came)
+    );
+}
+
+#[test]
+fn a_round_the_script_says_nothing_of_commits_where_it_hands_in_what_an_act_describes_the_work_by() {
+    let flow = engineer();
+    let Ends::Came(implemented) = Script::default()
+        .round(&flow, cell(&flow, "I1"), 2, 1, &BTreeMap::new())
+        .ends
+    else {
+        panic!("the round hands in");
+    };
+    let head = "The head as I1 committed it in its run 2, round 1.";
+    assert_eq!(implemented.read, [handed("head", head, None)]);
+    // The review only reads, and the research hands in no code.
+    for of in ["T1", "R1"] {
+        let Ends::Came(came) = Script::default()
+            .round(&flow, cell(&flow, of), 1, 1, &BTreeMap::new())
+            .ends
+        else {
+            panic!("the round hands in");
+        };
+        assert!(came.read.is_empty(), "{of}: {:?}", came.read);
+    }
+}
+
+#[test]
 fn a_script_with_a_field_it_does_not_know_is_not_read() {
     assert!(Script::read("[took]\nseconds = 3\n").is_err());
     assert!(
@@ -105,7 +215,7 @@ fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads
     let verdict = "The verdict as review wrote it in its run 2, round 3.";
     assert_eq!(
         planned.ends,
-        Ends::Came(Came::HandsIn(vec![handed("verdict", verdict, Some("yes"))]))
+        Ends::Came(Came::hands_in(vec![handed("verdict", verdict, Some("yes"))]))
     );
     assert_eq!(planned.ms, ROUND_MS);
     assert_eq!(
@@ -131,8 +241,9 @@ fn trial_reviewing_every_time() -> Compiled {
         1,
     );
     let has = flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
+        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
+        ..Default::default()
     };
     flow::compile(&source, &has).unwrap()
 }
@@ -146,7 +257,7 @@ fn a_round_the_script_says_nothing_of_hands_in_too_every_block_its_cell_must_wri
         Script::default()
             .round(&flow, cell(&flow, "review"), 1, 1, &BTreeMap::new())
             .ends,
-        Ends::Came(Came::HandsIn(vec![
+        Ends::Came(Came::hands_in(vec![
             handed("opinions", &words("opinions", 1), None),
             handed("verdict", &words("verdict", 1), Some("yes")),
         ]))
@@ -158,7 +269,7 @@ fn a_round_the_script_says_nothing_of_hands_in_too_every_block_its_cell_must_wri
     ]);
     assert_eq!(
         Script::default().round(&flow, cell(&flow, "review"), 2, 1, &basis).ends,
-        Ends::Came(Came::HandsIn(vec![
+        Ends::Came(Came::hands_in(vec![
             Handed {
                 matters: false,
                 ..handed("opinions", &words("opinions", 2), None)
@@ -220,11 +331,10 @@ fn an_unscripted_trial_whose_review_must_write_its_opinions_reaches_the_merge() 
 fn a_choice_is_handed_in_at_the_value_the_script_names_for_it() {
     let flow = trial();
     let script = Script::read("[flows.trial.values]\nverdict = \"no\"\n").unwrap();
-    let Ends::Came(Came::HandsIn(blocks)) = script.round(&flow, cell(&flow, "review"), 1, 1, &BTreeMap::new()).ends
-    else {
+    let Ends::Came(came) = script.round(&flow, cell(&flow, "review"), 1, 1, &BTreeMap::new()).ends else {
         panic!("the round hands in");
     };
-    assert_eq!(blocks[0].value.as_deref(), Some("no"));
+    assert_eq!(came.writes[0].value.as_deref(), Some("no"));
 }
 
 #[test]
@@ -252,7 +362,7 @@ fn a_round_takes_what_its_entry_says_and_else_what_the_script_says() {
     assert_eq!(planned.spent.usd_micros, 40);
     assert_eq!(
         planned.ends,
-        Ends::Came(Came::HandsIn(vec![Handed {
+        Ends::Came(Came::hands_in(vec![Handed {
             matters: false,
             ..handed("code", "The code as build wrote it in its run 2, round 1.", None)
         }]))
@@ -275,7 +385,7 @@ fn a_round_asks_for_what_its_entry_says() {
     .unwrap();
     assert_eq!(
         script.round(&flow, cell(&flow, "plan"), 1, 1, &BTreeMap::new()).ends,
-        Ends::Came(Came::Asks(vec![
+        Ends::Came(Came::asks(vec![
             Ask::Person {
                 who: decide::Who::Owner,
                 question: "Which name?".to_string()
@@ -314,7 +424,7 @@ fn a_round_fails_where_its_entry_says_and_takes_what_it_says() {
     // in.
     assert!(matches!(
         script.round(&flow, cell(&flow, "plan"), 1, 2, &BTreeMap::new()).ends,
-        Ends::Came(Came::HandsIn(_))
+        Ends::Came(Came { ref asks, .. }) if asks.is_empty()
     ));
 }
 

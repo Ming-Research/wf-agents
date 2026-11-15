@@ -1,11 +1,13 @@
-//! The histories' own reading of a work's records as they were at a place, written from the design tree and
-//! not from the walk: the versions of each block with their meaning, the current value of each, whether a cell's
-//! condition holds, and each cell's record. The properties are judged by this reading, never by what the deciding code
-//! works out, so that a fault of the walk's reading is not repeated in the judging.
+//! The histories' own reading of a work's records as they were at a place, written from the design tree and not from
+//! the walk: the versions of each block with their meaning, the current value of each, whether a cell's condition
+//! holds, each cell's record, and what is new to it. The properties are judged by this reading, never by what the
+//! deciding code works out, so that a fault of the walk's reading is not repeated in the judging.
 
 use std::collections::BTreeMap;
 
-use decide::{BlockId, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started, TestKind, TestName};
+use decide::{
+    BlockId, CellId, Condition, Finished, Flow, Outsider, PutIn, Records, RunId, Seq, Started, TestKind, TestName,
+};
 
 /// Who wrote a version of a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,6 +27,8 @@ pub struct Version {
     /// The version at which what the block says last changed: this one, or an earlier one.
     pub meaning: Seq,
     pub value: Option<String>,
+    /// Whether it holds nothing.
+    pub empty: bool,
 }
 
 impl Version {
@@ -41,6 +45,8 @@ pub struct Reading<'a> {
     started: BTreeMap<RunId, &'a Started>,
     /// The runs that finished before the place, in the order they finished.
     finished: Vec<&'a Finished>,
+    /// The versions put in to rounds before the place.
+    put_in: Vec<&'a PutIn>,
 }
 
 impl<'a> Reading<'a> {
@@ -64,6 +70,7 @@ impl<'a> Reading<'a> {
             by: Writer,
             matters: bool,
             value: Option<String>,
+            empty: bool,
         }
         let mut entries: Vec<Entry> = Vec::new();
         for w in records.written.iter().filter(|w| counts(w.at)) {
@@ -76,6 +83,7 @@ impl<'a> Reading<'a> {
                 },
                 matters: w.matters,
                 value: w.value.clone(),
+                empty: w.empty,
             });
         }
         for f in &finished {
@@ -84,8 +92,9 @@ impl<'a> Reading<'a> {
                     at: f.at,
                     block: &w.block,
                     by: Writer::Run(f.run),
-                    matters: w.matters,
+                    matters: !w.meaning_unchanged,
                     value: w.value.clone(),
+                    empty: w.empty,
                 });
             }
         }
@@ -118,6 +127,7 @@ impl<'a> Reading<'a> {
                 by: e.by,
                 meaning,
                 value: e.value,
+                empty: e.empty,
             });
         }
         Self {
@@ -125,6 +135,7 @@ impl<'a> Reading<'a> {
             versions,
             started,
             finished,
+            put_in: records.put_in.iter().filter(|p| counts(p.at)).collect(),
         }
     }
 
@@ -143,15 +154,12 @@ impl<'a> Reading<'a> {
         self.current(block).and_then(|v| v.value.as_deref())
     }
 
-    /// The meaning of the version of the block written at this place.
-    pub fn meaning_of(&self, block: &BlockId, version: Option<Seq>) -> Option<Seq> {
-        let at = version?;
-        self.of(block).iter().find(|v| v.at == at).map(|v| v.meaning)
-    }
-
-    /// The meaning the block has now.
-    pub fn meaning_now(&self, block: &BlockId) -> Option<Seq> {
-        self.current(block).map(|v| v.meaning)
+    /// The block's value now: its current version's, or, where it was never written, its default.
+    pub fn value_now(&self, block: &BlockId) -> Option<&str> {
+        match self.current(block) {
+            Some(v) => v.value.as_deref(),
+            None => self.flow.default_of(block),
+        }
     }
 
     /// The run's start.
@@ -174,31 +182,69 @@ impl<'a> Reading<'a> {
             .copied()
     }
 
+    /// The versions of the block new to the cell (design document `data-and-context`, 6, 9, 10): after the latest
+    /// version a run of the cell was told of and dealt with, changing what the block says, and not written by the
+    /// cell itself.
+    pub fn new_to(&self, cell: &CellId, block: &BlockId) -> Vec<&Version> {
+        let consumed = self.dealt_with(cell, block).into_iter().max();
+        (self.of(block).iter())
+            .filter(|v| Some(v.at) > consumed && v.changed_meaning() && self.cell_of(v) != Some(cell))
+            .collect()
+    }
+
+    /// Of each run of the cell that finished dealing with the block, the latest version of it the run was told of: the
+    /// one it began from, or one put in to it since.
+    pub fn dealt_with(&self, cell: &CellId, block: &BlockId) -> Vec<Seq> {
+        (self.finished.iter())
+            .filter(|f| &self.started[&f.run].cell == cell)
+            .filter(|f| match &f.dealt_with {
+                Some(named) => named.contains(block),
+                None => self.started[&f.run].basis.contains_key(block),
+            })
+            .filter_map(|f| {
+                let began = self.started[&f.run].basis.get(block).copied().flatten();
+                let put_in = (self.put_in.iter())
+                    .filter(|p| p.run == f.run && &p.block == block)
+                    .map(|p| p.version);
+                began.into_iter().chain(put_in).max()
+            })
+            .collect()
+    }
+
     /// The runs that finished, in the order they finished.
     pub fn finished(&self) -> &[&'a Finished] {
         &self.finished
     }
 
-    /// Whether the condition of the cell at this place holds now: with none it always does.
+    /// Whether the condition of the cell at this place holds now: every key of it; with none it always does.
     pub fn applies(&self, i: usize) -> bool {
-        match &self.flow.cells()[i].applies {
-            None => true,
-            Some(Condition::Is { block, value }) => self.value(block) == Some(value.as_str()),
-            Some(Condition::Test(name)) => self.holds(name),
+        self.flow.cells()[i].applies.iter().all(|key| self.key_holds(key))
+    }
+
+    /// Whether one key of a condition or of preconditions holds now: its named test, or the block's value now.
+    pub fn key_holds(&self, key: &Condition) -> bool {
+        match key {
+            Condition::Is { block, value } => self.value_now(block) == Some(value.as_str()),
+            Condition::Test(name) => self.holds(name),
         }
     }
 
-    /// Whether the named test holds now, by the values of the blocks it reads.
+    /// Whether the named test holds now, by the values of the blocks it reads, or, of a test of content, by whether
+    /// one holds anything.
     pub fn holds(&self, name: &TestName) -> bool {
         let test = &self.flow.tests()[name];
-        let mut has = (test.reads.iter()).map(|block| {
-            self.current(block).is_some_and(|v| {
-                v.value.as_deref() == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v))
-            })
+        let Some(is) = test.is.as_deref() else {
+            // A block never written holds nothing.
+            return (test.reads.iter()).any(|block| self.current(block).is_some_and(|v| !v.empty));
+        };
+        // A block never written has its default, which no cell wrote and so stands.
+        let mut has = (test.reads.iter()).map(|block| match self.current(block) {
+            Some(v) => v.value.as_deref() == Some(is) && (test.kind != TestKind::NoneStanding || self.stands(v)),
+            None => self.flow.default_of(block) == Some(is),
         });
         match test.kind {
             TestKind::All => has.all(|h| h),
-            TestKind::Any => has.any(|h| h),
+            TestKind::Any | TestKind::AnyContent => has.any(|h| h),
             TestKind::None | TestKind::NoneStanding => !has.any(|h| h),
         }
     }

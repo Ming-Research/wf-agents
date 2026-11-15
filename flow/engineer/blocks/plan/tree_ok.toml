@@ -1,0 +1,4 @@
+what = "yes when nothing in the plan must change for the design tree; no otherwise."
+values = ["yes", "no"]
+from = "owner"
+shown = true

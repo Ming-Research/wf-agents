@@ -19,7 +19,19 @@ fn ran_with(call: &Call) -> (&str, Option<&str>) {
 
 /// What the try of this number of this round of the cell's last run ran on, as the work's records say.
 fn kept(real: &Real, work: WorkNumber, cell: &str, round: usize, try_: usize) -> RanOn {
-    let run = real.run_of(work, cell);
+    kept_of(real, work, real.run_of(work, cell), round, try_)
+}
+
+/// The runs of the cell, in the order they started.
+fn runs_of(real: &Real, work: WorkNumber, cell: &str) -> Vec<decide::RunId> {
+    (real.work(work).records.started.iter())
+        .filter(|s| s.cell.as_str() == cell)
+        .map(|s| s.run)
+        .collect()
+}
+
+/// What the try of this number of this round of the run ran on, as the work's records say.
+fn kept_of(real: &Real, work: WorkNumber, run: decide::RunId, round: usize, try_: usize) -> RanOn {
     let kept = real.work(work);
     let tries: Vec<&RanOn> = (kept.ran.iter())
         .filter(|r| r.run == run && r.round == round)
@@ -91,9 +103,10 @@ async fn a_round_tried_again_keeps_what_each_try_ran_on() {
     let work = real.add().await;
     real.act(work, Act::Resume);
     real.until(|real| ended(&real.decision(work))).await;
-    // The build's second round was refused its session and tried again: each try kept what it ran on.
-    assert_eq!(kept(&real, work, "build", 2, 1), on("1", "claude-haiku-5-5"));
-    assert_eq!(kept(&real, work, "build", 2, 2), on("1", "claude-haiku-5-5"));
+    // The build, entered again for the check's result, was refused its session and tried again: each try kept what it
+    // ran on.
+    assert_eq!(kept(&real, work, "build", 1, 1), on("1", "claude-haiku-5-5"));
+    assert_eq!(kept(&real, work, "build", 1, 2), on("1", "claude-haiku-5-5"));
 }
 
 #[tokio::test]
@@ -105,27 +118,34 @@ async fn a_try_keeps_what_it_ran_on_after_the_settings_give_its_level_another_mo
     let mut real = Real::trial(fake);
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| real.owners_call(work).is_some()).await;
-    // The settings change while the build waits for the owner: level 1 runs on another model from now on.
+    real.until(|real| real.waited_question(work).is_some()).await;
+    // The settings change while the build waits for the owner's answer: level 1 runs on another model from now on.
     let level = real.settings.agents.levels.get_mut("1").expect("level 1");
     level.model = "claude-opus-5-5".to_string();
     real.restart();
-    let call = real.owners_call(work).expect("the build asks the owner");
-    let result = "By their first name.".to_string();
-    real.act(work, Act::Answer { call, result });
+    let waits = |real: &Real| {
+        let decision = real.decision(work);
+        let on_the_owner = |on: &[decide::Waited]| on.iter().any(|w| matches!(w, decide::Waited::Answer { .. }));
+        matches!(&decision, decide::Decision::Wait { at, on } if at.as_str() == "build" && on_the_owner(on))
+    };
+    // The engine started again holds the work at the build for the owner's answer to the question asked before it
+    // stopped.
+    assert!(waits(&real), "{:?}", real.decision(work));
+    real.answer(work, "By their first name.");
     real.until(|real| ended(&real.decision(work))).await;
     assert_eq!(
         kept(&real, work, "plan", 1, 1),
         on("1", "claude-haiku-5-5"),
         "as it ran"
     );
+    let builds = runs_of(&real, work, "build");
     assert_eq!(
-        kept(&real, work, "build", 1, 1),
+        kept_of(&real, work, builds[0], 1, 1),
         on("1", "claude-haiku-5-5"),
         "as it ran"
     );
     assert_eq!(
-        kept(&real, work, "build", 2, 1),
+        kept_of(&real, work, builds[1], 1, 1),
         on("1", "claude-opus-5-5"),
         "on the settings it ran on"
     );

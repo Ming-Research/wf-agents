@@ -31,8 +31,8 @@ fn the_first_version_of_a_block_has_a_meaning_of_its_own_whatever_its_writer_say
     ]);
     w.person_writes("background");
     w.run("research", &[]);
-    assert_eq!(w.decide(), runs("implement", vec![NO_RECORD], &[("plan", None)]));
-    w.run("implement", &[]);
+    // No plan has a version, so nothing runs the implementation.
+    assert_eq!(w.decide(), resting());
     w.person_writes("background");
     let plan = w.run("research", &[("plan", DoesNotMatter)]);
     assert_eq!(
@@ -87,14 +87,15 @@ fn a_write_said_not_to_matter_by_a_run_that_did_not_see_what_it_wrote_over_is_no
 fn of_two_cells_that_write_one_block_the_latest_write_is_current_whoever_wrote_it() {
     let cells = vec![
         cell("first", &["x"], &["plan"]),
-        cell("second", &[], &["plan"]),
+        cell("second", &["y"], &["plan"]),
         cell("reader", &["plan"], &[]),
     ];
     let mut w = World::with_gate(cells);
     let x1 = w.person_writes("x");
+    w.person_writes("y");
     w.run("first", &[("plan", Matters)]);
     let p2 = w.run("second", &[("plan", Matters)]);
-    assert_eq!(w.decide(), runs("reader", vec![NO_RECORD], &[("plan", Some(p2))]));
+    assert_eq!(w.decide(), runs("reader", first(&["plan"]), &[("plan", Some(p2))]));
     w.run("reader", &[]);
     let x2 = w.person_writes("x");
     assert_eq!(
@@ -116,7 +117,7 @@ fn of_two_cells_that_write_one_block_the_latest_write_is_current_whoever_wrote_i
 fn a_choice_rewritten_without_a_value_has_changed_its_meaning_whatever_its_writer_says() {
     let cells = vec![
         cell("ask", &["topic"], &["choice"]),
-        when("choice", "yes", cell("extra", &[], &[])),
+        when("choice", "yes", cell("extra", &["topic"], &[])),
         cell("use", &["choice"], &[]),
     ];
     let mut w = World::with_gate(cells);

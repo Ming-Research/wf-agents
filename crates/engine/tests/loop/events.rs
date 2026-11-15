@@ -12,6 +12,8 @@ fn a_persons_write_is_kept_with_its_content_and_the_first_cell_is_given_its_task
         by: Outsider::Person,
         matters: true,
         value: None,
+        said_to: None,
+        empty: false,
         at,
     };
     assert_eq!(w.work.records.written, vec![written]);
@@ -19,7 +21,7 @@ fn a_persons_write_is_kept_with_its_content_and_the_first_cell_is_given_its_task
     assert_eq!(w.work.contents, content);
     let run = w.work.records.started[0].run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("request", None, false)],
         &[
             ("request", Some(at)),
             ("opinions", None),
@@ -41,6 +43,8 @@ fn a_write_from_outside_is_kept_as_the_outside_wrote_it() {
         by: Outsider::Outside,
         matters: false,
         value: None,
+        said_to: None,
+        empty: false,
         at,
     };
     assert_eq!(w.work.records.written, vec![written]);
@@ -60,15 +64,20 @@ fn a_return_that_meets_everything_finishes_the_run_keeps_each_block_under_the_fi
         at,
         writes: vec![decide::Write {
             block: "text".into(),
-            matters: true,
+            meaning_unchanged: false,
+            empty: false,
             value: None,
         }],
+        // A return that only hands in says nothing of what it dealt with: it dealt with everything that ran its round,
+        // which the engine records.
+        dealt_with: Some(vec!["request".into()]),
+        waits_for: None,
     };
     assert_eq!(w.work.records.finished, vec![finished]);
     assert_eq!(w.work.contents.get(&("text".into(), at)), Some(&"the text".to_string()));
     let judge = w.work.records.started[1].run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("text", None, false)],
         &[("text", Some(at)), ("opinions", None), ("verdict", None)],
     );
     assert_eq!(effects, vec![round_effect(judge, "judge", 1, Given::Task)]);
@@ -88,16 +97,16 @@ fn a_return_that_does_not_meet_what_is_required_is_sent_back_to_the_same_run_wit
 }
 
 #[test]
-fn a_return_asking_for_nothing_is_sent_back_as_asking_nothing() {
+fn a_return_that_deals_with_nothing_and_asks_for_nothing_is_sent_back() {
     let (mut w, write, _) = W::requested();
-    let effects = w.returns(write, Came::Asks(vec![]));
+    let effects = w.returns(write, Came::asks(vec![]));
     assert_eq!(
         effects,
         vec![round_effect(
             write,
             "write",
             2,
-            Given::SentBack(vec![Unmet::AsksNothing])
+            Given::SentBack(vec![Unmet::DealtWithNothing])
         )]
     );
 }
@@ -118,7 +127,7 @@ fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recor
         vec!["judge"]
     );
     assert_eq!(r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(), vec![true, false]);
-    assert!(r.cancelled.is_some());
+    assert!(r.cancelled().is_some());
 }
 
 #[test]
@@ -136,7 +145,7 @@ fn a_paused_work_is_given_nothing_and_when_let_on_is_given_its_next_round() {
     let effects = w.on(Event::Resumed);
     let run = w.work.records.started[0].run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("request", None, false)],
         &[
             ("request", Some(request)),
             ("opinions", None),
@@ -165,7 +174,7 @@ fn an_engine_cell_goes_through_the_same_mechanism() {
     let verdict = w.last_finished();
     let merge = w.work.records.started[2].run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("text", None, false), changed("verdict", None, false)],
         &[("text", Some(text)), ("verdict", Some(verdict)), ("merged", None)],
     );
     assert_eq!(effects, vec![round_effect(merge, "merge", 1, Given::Task)]);
@@ -193,4 +202,47 @@ fn a_write_from_outside_said_not_to_matter_runs_nothing() {
     let (again, ..) = round(&first);
     w.returns(again, hands_in(&[]));
     assert_eq!(w.on(wrote("main", Outsider::Outside, false, None)), vec![]);
+}
+
+/// What the outside says of main for the writer's round, as a carrier does for what it read of main itself.
+fn main_for(run: RunId, content: &str) -> Event {
+    Event::WroteForRound {
+        run,
+        block: "main".into(),
+        content: content.to_string(),
+    }
+}
+
+// What the outside says for a round where the block says it already, as the check says the head of main it takes in
+// after the watch of main wrote that head, is no new version: the round is told of the version that says it, once,
+// and its run consumes it, so that its cell is not run again for it.
+#[test]
+fn a_write_for_a_round_of_what_the_block_says_already_puts_that_version_in_and_writes_nothing() {
+    let (mut w, write, _) = W::requested();
+    let (_, moved) = w.on_and_place(wrote("main", Outsider::Outside, true, None));
+    let written = w.work.records.written.len();
+    w.on(main_for(write, "main, as written by Outside"));
+    w.on(main_for(write, "main, as written by Outside"));
+    assert_eq!(w.work.records.written.len(), written, "nothing is written again");
+    let put: Vec<(RunId, &str, Seq)> = (w.work.records.put_in.iter())
+        .map(|p| (p.run, p.block.as_str(), p.version))
+        .collect();
+    assert_eq!(put, [(write, "main", moved)]);
+    let (_, cell, ..) = round(&w.returns(write, hands_in(&[("text", None)])));
+    assert_eq!(cell, "judge", "the writer consumed main as it was told of it");
+}
+
+// A run abandoned while its round is under way consumes nothing: what the outside says for its round is the outside's
+// word all the same, written and put into no round.
+#[test]
+fn a_write_for_the_round_of_a_run_abandoned_is_written_and_put_in_nowhere() {
+    let (mut w, write, _) = W::requested();
+    w.on(Event::Cancelled { why: None });
+    w.on(main_for(write, "Main is at c0ffee."));
+    let main = w.last_written();
+    assert_eq!(
+        w.work.contents.get(&("main".into(), main)),
+        Some(&"Main is at c0ffee.".to_string())
+    );
+    assert_eq!(w.work.records.put_in, Vec::new());
 }

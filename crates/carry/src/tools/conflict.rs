@@ -1,6 +1,6 @@
-//! What the agents' tool `check` answers at once, pushing nothing and waiting for no verdict, where the last commit of
+//! What the agents' tool `run_tests` answers at once, pushing nothing and waiting for no verdict, where the last commit of
 //! the work's branch does not merge into main's head as the host last gave it: GitHub starts no CI for a pull request
-//! in conflict, so a check pushed then would wait for a CI that never starts, and the work could not merge anyway.
+//! in conflict, so tests run then would wait for a CI that never starts, and the work could not merge anyway.
 
 use crate::git::{self, Place};
 use crate::settings::Project;
@@ -33,13 +33,14 @@ pub(super) async fn found(project: &Project, place: &Place, main: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
+    use decide::CallId;
     use store::WorkNumber;
 
-    use super::super::{Answer, CHECK, answer};
+    use super::super::{Answer, Call, RUN_TESTS, Told, answer};
     use crate::git::tests::{Repo, commit, run};
     use crate::held::Stop;
-    use crate::host::Branch;
     use crate::host::fake::{Asked, Fake, NO_TOOLS};
+    use crate::host::{Branch, Named};
 
     const WORK: WorkNumber = WorkNumber(1);
 
@@ -70,7 +71,16 @@ mod tests {
             about: "",
             place: &place,
         };
-        match answer(&host, &repo.project, &branch, CHECK, input, &mut Stop::never()).await {
+        let told = Told {
+            unread: None,
+            tools: &[],
+        };
+        let call = Call {
+            id: CallId(1),
+            name: RUN_TESTS,
+            input,
+        };
+        match answer(&host, &repo.project, &branch, &told, &call, &mut Stop::never()).await {
             Answer::Result(said) => (said, host.asked()),
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
@@ -94,7 +104,7 @@ mod tests {
     #[tokio::test]
     async fn a_branch_in_conflict_asks_for_no_fast_run_of_the_tests_it_names() {
         let (repo, main) = moved("greeting.txt").await;
-        let (said, asked) = checked_with(&repo, "test: greets the user\ncheck: lint").await;
+        let (said, asked) = checked_with(&repo, r#"{"tests": ["greets the user"], "checks": ["lint"]}"#).await;
         assert!(
             said.starts_with(&format!(
                 "The work's branch does not merge into main at {main} without a conflict"
@@ -109,7 +119,7 @@ mod tests {
         let (repo, _) = moved("other.txt").await;
         let (said, asked) = checked(&repo).await;
         assert_eq!(said, format!("The check could not be run: {NO_TOOLS}"));
-        assert_eq!(asked, [Asked::Check]);
+        assert_eq!(asked, [Asked::RunTests(Named::default())]);
     }
 
     #[tokio::test]
@@ -126,6 +136,6 @@ mod tests {
         assert!(!merging.status.success(), "the merge meets the conflict");
         run(&dir, &["rev-parse", "--verify", "MERGE_HEAD"]);
         let (_, asked) = checked(&repo).await;
-        assert_eq!(asked, [Asked::Check]);
+        assert_eq!(asked, [Asked::RunTests(Named::default())]);
     }
 }

@@ -22,14 +22,14 @@ async fn an_answer_to_a_tools_call_is_refused() {
             |d| matches!(d, Decision::Wait { at, .. } if at.as_str() == "build"),
         )
         .await;
-    let answer = Act::Answer {
-        call: CallId(4),
+    let answer = Act::Result {
+        call: CallId(5),
         result: "It passed.".to_string(),
     };
-    assert_eq!(trial.act(work, answer), Err(Refusal::NotAPersonsCall(CallId(4))));
+    assert_eq!(trial.act(work, answer), Err(Refusal::NotAPersonsCall(CallId(5))));
     // The tool's own result is taken.
     trial.step().await.unwrap();
-    assert_eq!(trial.work(work).results[&CallId(4)], "Every check passed.");
+    assert_eq!(trial.work(work).results[&CallId(5)], "Every check passed.");
 }
 
 #[tokio::test(start_paused = true)]
@@ -58,7 +58,9 @@ async fn an_item_on_a_flow_there_is_none_of_is_refused() {
     let item = NewItem {
         title: "Greet the user".to_string(),
         level: "1".to_string(),
+        project: "trial".to_string(),
         depends_on: Vec::new(),
+        tags: Vec::new(),
         flow: "other".to_string(),
         writes: vec![FirstWrite {
             block: "request".into(),

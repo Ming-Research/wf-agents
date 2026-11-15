@@ -18,18 +18,22 @@ struct Failing {
 impl Storage for Failing {
     fn add(
         &mut self,
-        title: &str,
-        level: &str,
-        depends_on: &[ItemNumber],
+        item: &store::First,
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
-        self.store.add(title, level, depends_on, flow, at, first)
+        self.store.add(item, flow, at, first)
     }
 
-    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), store::Fault> {
-        self.store.change(item, change, at)
+    fn change(
+        &mut self,
+        at: Time,
+        why: Option<&str>,
+        changes: &[(ItemNumber, ItemChange)],
+        works: &[(WorkNumber, &Work)],
+    ) -> Result<(), store::Fault> {
+        self.store.change(at, why, changes, works)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
@@ -72,6 +76,7 @@ async fn an_act_the_engine_stopped_before_keeping_says_it_was_not_kept() {
     let item = json!({
         "title": "Greet the user",
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Please.", "value": null }],
     });

@@ -4,7 +4,7 @@ effort = "high"
 line = "engineer"
 task = "Answer the comments on the plan."
 when = { test = "has_comment" }
-requires = ["plan_confirmed"]
+requires = { test = "plan_confirmed" }
 inputs = ["comments", "plan"]
 outputs = ["reply"]
 limit = 5

@@ -62,6 +62,8 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
         "Greet the user",
         "--flow",
         "trial",
+        "--project",
+        "script",
         "--write",
         "request=Please.",
     ]);
@@ -77,18 +79,18 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
     assert_eq!(
         engine.says(&["list"]),
         format!(
-            "{held}; 0 of 2 slots taken.\nItem 1 \"Greet the user\" at level 1, work 1 on trial: waits at plan for the \
-             owner to answer call 2: \"Should the greeting name the user?\"\n"
+            "{held}; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: waits at plan for the owner to \
+             answer call 2: \"Should the greeting name the user?\"\n"
         )
     );
     // `wait` says first that the engine waits for the owner.
     let said = engine.says(&["wait", "--for", "0"]);
     assert!(said.starts_with(&format!("{held}, for ")), "{said}");
     // The answer is taken, and the plan's next round waits for the owner to let everything on.
-    engine.says(&["answer", "1", "2", "Yes."]);
+    engine.says(&["result", "1", "2", "Yes."]);
     engine.until(&["list"], |line| line.ends_with("held back by the pause of everything"));
     assert!(engine.says(&["resume", "--all"]).starts_with("Works go on; "));
-    engine.until(&["list"], |line| line.ends_with(": merged"));
+    engine.until(&["list", "--all"], |line| line.ends_with(": merged"));
 }
 
 #[test]
@@ -101,6 +103,8 @@ fn a_second_engine_on_a_data_directory_one_drives_does_not_start() {
         "Greet the user",
         "--flow",
         "trial",
+        "--project",
+        "script",
         "--write",
         "request=Please.",
     ]);
@@ -121,7 +125,7 @@ fn a_second_engine_on_a_data_directory_one_drives_does_not_start() {
     // The first goes on as it was.
     assert_eq!(
         engine.says(&["list"]),
-        "Works go on; 0 of 2 slots taken.\nItem 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
+        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused\n"
     );
 }
 

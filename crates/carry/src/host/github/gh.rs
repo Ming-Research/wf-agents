@@ -15,6 +15,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use super::api::{Api, Check, File, Outcome, Pull, Run, State};
+use crate::host::Failed;
 
 /// GitHub's REST API, through `gh`, in one repository.
 #[derive(Clone)]
@@ -42,11 +43,13 @@ impl std::fmt::Debug for Gh {
     }
 }
 
-/// What GitHub answered: the status, and the body.
+/// What GitHub answered: the status, and the body; and whether its headers say it limits the requests it takes, none
+/// remaining of them or a time given to try again after.
 #[derive(Debug, PartialEq, Eq)]
 struct Answer {
     status: u16,
     body: String,
+    limited: bool,
 }
 
 impl Gh {
@@ -168,24 +171,24 @@ impl Gh {
     }
 
     /// Asks GitHub, and gives the body of an answer whose status is one of `ok`; or GitHub's words for why not.
-    async fn want(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<String, String> {
+    async fn want(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<String, Failed> {
         let answer = self.ask(method, path, body).await?;
         if ok.contains(&answer.status) {
             Ok(answer.body)
         } else {
-            Err(refusal(&answer))
+            Err(refused(&answer))
         }
     }
 
     /// As [`Gh::want`], the body read as JSON.
-    async fn json(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<Value, String> {
+    async fn json(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<Value, Failed> {
         let body = self.want(method, path, body, ok).await?;
-        serde_json::from_str(&body).map_err(|e| format!("GitHub's answer to {method} {path} is not JSON: {e}"))
+        serde_json::from_str(&body).map_err(|e| format!("GitHub's answer to {method} {path} is not JSON: {e}").into())
     }
 }
 
 impl Api for Gh {
-    async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, String> {
+    async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, Failed> {
         let owner = self.repository.split('/').next().unwrap_or_default();
         let path = format!(
             "repos/{}/pulls?head={owner}:{branch}&state=all&per_page=100",
@@ -195,79 +198,33 @@ impl Api for Gh {
         let pulls = listed
             .as_array()
             .ok_or("GitHub's list of pull requests is not a list")?;
-        pulls.iter().map(pull).collect()
+        Ok(pulls.iter().map(pull).collect::<Result<_, String>>()?)
     }
 
-    async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, String> {
+    async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, Failed> {
         let (method, path, asked) = opening(&self.repository, branch, base, title, body);
-        pull(&self.json(method, &path, Some(asked), &[201]).await?)
+        Ok(pull(&self.json(method, &path, Some(asked), &[201]).await?)?)
     }
 
-    async fn checks(&self, commit: &str) -> Result<Vec<Check>, String> {
-        let mut runs = Vec::new();
-        for page in 1.. {
-            let path = format!(
-                "repos/{}/commits/{commit}/check-runs?per_page=100&page={page}",
-                self.repository
-            );
-            let listed = self.json("GET", &path, None, &[200]).await?;
-            let total = listed["total_count"].as_u64().unwrap_or_default();
-            let these = listed["check_runs"].as_array().cloned().unwrap_or_default();
-            let last = these.is_empty();
-            runs.extend(these);
-            if last || runs.len() as u64 >= total {
-                break;
-            }
-        }
-        let path = format!("repos/{}/commits/{commit}/status?per_page=100", self.repository);
-        let status = self.json("GET", &path, None, &[200]).await?;
-        let statuses = status["statuses"].as_array().cloned().unwrap_or_default();
-        Ok(checks(&runs, &statuses))
-    }
-
-    async fn log(&self, job: u64) -> Result<String, String> {
-        let path = format!("repos/{}/actions/jobs/{job}/logs", self.repository);
-        // A log holds the escapes that colour its text, which `gh` otherwise refuses to print, giving the status and
-        // no body: the engine reads them as data and takes them out itself.
-        let answer = self.ask_with("GET", &path, None, &["--allow-escape-sequences"]).await?;
-        if answer.status == 200 {
-            Ok(answer.body)
-        } else {
-            Err(refusal(&answer))
-        }
-    }
-
-    async fn merge(&self, number: u64, head: &str, method: &str) -> Result<String, String> {
-        let path = format!("repos/{}/pulls/{number}/merge", self.repository);
-        let asked = json!({ "sha": head, "merge_method": method });
-        let merged = self.json("PUT", &path, Some(asked), &[200]).await?;
+    async fn merge(&self, number: u64, head: &str, method: &str, title: &str) -> Result<String, Failed> {
+        let (put, path, asked) = merging(&self.repository, number, head, method, title);
+        let merged = self.json(put, &path, Some(asked), &[200]).await?;
         (merged["sha"].as_str())
             .map(str::to_string)
-            .ok_or_else(|| "GitHub's answer to the merge names no commit".to_string())
+            .ok_or_else(|| "GitHub's answer to the merge names no commit".into())
     }
 
-    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, String> {
+    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, Failed> {
         let path = format!(
             "repos/{}/actions/workflows/{workflow}/runs?branch={branch}&event=workflow_dispatch&per_page=50",
             self.repository
         );
         let listed = self.json("GET", &path, None, &[200]).await?;
         let runs = listed["workflow_runs"].as_array().cloned().unwrap_or_default();
-        Ok((runs.iter())
-            .filter_map(|run| {
-                let status = run["status"].as_str();
-                Some(Run {
-                    id: run["id"].as_u64()?,
-                    title: run["display_title"].as_str().unwrap_or_default().to_string(),
-                    started: matches!(status, Some("in_progress" | "completed")),
-                    completed: status == Some("completed"),
-                    url: run["html_url"].as_str().unwrap_or_default().to_string(),
-                })
-            })
-            .collect())
+        Ok(runs.iter().filter_map(run).collect())
     }
 
-    async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), String> {
+    async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), Failed> {
         let path = format!("repos/{}/actions/workflows/{workflow}/dispatches", self.repository);
         let inputs: serde_json::Map<String, Value> = (inputs.iter())
             .map(|(name, value)| (name.clone(), Value::String(value.clone())))
@@ -276,14 +233,20 @@ impl Api for Gh {
         self.want("POST", &path, Some(asked), &[200, 204]).await.map(|_| ())
     }
 
-    async fn jobs(&self, run: u64) -> Result<Vec<Check>, String> {
+    async fn cancel(&self, run: u64) -> Result<(), Failed> {
+        let path = format!("repos/{}/actions/runs/{run}/cancel", self.repository);
+        // A run that has completed already is answered 409, "Cannot cancel a workflow run that is completed".
+        self.want("POST", &path, None, &[202, 409]).await.map(|_| ())
+    }
+
+    async fn jobs(&self, run: u64) -> Result<Vec<Check>, Failed> {
         let path = format!("repos/{}/actions/runs/{run}/jobs?per_page=100", self.repository);
         let listed = self.json("GET", &path, None, &[200]).await?;
         let jobs = listed["jobs"].as_array().cloned().unwrap_or_default();
         Ok(jobs.iter().filter_map(job).collect())
     }
 
-    async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, String> {
+    async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, Failed> {
         let dir = std::env::temp_dir().join(format!("wf-agents-artifact-{}", uuid::Uuid::new_v4().simple()));
         let (run, dir_text) = (run.to_string(), dir.to_string_lossy().into_owned());
         let args = [
@@ -308,38 +271,49 @@ impl Api for Gh {
         Ok((!files.is_empty()).then_some(files))
     }
 
-    async fn delete(&self, branch: &str) -> Result<(), String> {
+    async fn delete(&self, branch: &str) -> Result<(), Failed> {
         let path = format!("repos/{}/git/refs/heads/{branch}", self.repository);
         // A branch that is not there is answered 422, "Reference does not exist".
         self.want("DELETE", &path, None, &[204, 404, 422]).await.map(|_| ())
     }
 
-    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), String> {
+    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), Failed> {
         let (method, path, asked) = editing(&self.repository, number, title, body);
         self.want(method, &path, Some(asked), &[200]).await.map(|_| ())
     }
 
-    async fn ready(&self, node: &str) -> Result<(), String> {
+    async fn ready(&self, node: &str) -> Result<(), Failed> {
         let (method, path, asked) = readying(node);
         let answer = self.json(method, &path, Some(asked), &[200]).await?;
         // GraphQL says what it refused with a status of 200.
         match answer["errors"].as_array() {
             Some(errors) if !errors.is_empty() => {
                 let words: Vec<&str> = errors.iter().filter_map(|e| e["message"].as_str()).collect();
-                Err(format!(
+                Err(Failed::refused(format!(
                     "GitHub did not make the pull request ready: {}",
                     words.join("; ")
-                ))
+                )))
             }
             _ => Ok(()),
         }
     }
 
-    async fn close(&self, number: u64, comment: &str) -> Result<(), String> {
+    async fn close(&self, number: u64, comment: &str) -> Result<(), Failed> {
         let [(method, path, said), (closing, at, closed)] = closing(&self.repository, number, comment);
         self.want(method, &path, Some(said), &[201]).await?;
         self.want(closing, &at, Some(closed), &[200]).await.map(|_| ())
     }
+
+    async fn reopen(&self, number: u64) -> Result<(), Failed> {
+        let (method, path, asked) = reopening(&self.repository, number);
+        self.want(method, &path, Some(asked), &[200]).await.map(|_| ())
+    }
+}
+
+/// The request that opens the closed pull request again.
+pub(crate) fn reopening(repository: &str, number: u64) -> Request {
+    let path = format!("repos/{repository}/pulls/{number}");
+    ("PATCH", path, json!({ "state": "open" }))
 }
 
 /// A request of GitHub's API: its method, its path and its body.
@@ -350,6 +324,14 @@ pub(crate) fn opening(repository: &str, branch: &str, base: &str, title: &str, b
     let path = format!("repos/{repository}/pulls");
     let asked = json!({ "title": title, "body": body, "head": branch, "base": base, "draft": true });
     ("POST", path, asked)
+}
+
+/// The request that merges the pull request by the method, provided its head is the commit, the commit the merge makes
+/// titled so: given no title, GitHub would take one of its own, a commit's of the branch among them.
+pub(crate) fn merging(repository: &str, number: u64, head: &str, method: &str, title: &str) -> Request {
+    let path = format!("repos/{repository}/pulls/{number}/merge");
+    let asked = json!({ "sha": head, "merge_method": method, "commit_title": title });
+    ("PUT", path, asked)
 }
 
 /// The request that gives the pull request this title and body.
@@ -409,11 +391,29 @@ pub(crate) fn environment(
 /// What `gh api --include` printed, read as GitHub's answer: the status line, the headers, an empty line, the body.
 fn included(out: &str) -> Option<Answer> {
     let (head, body) = (out.split_once("\r\n\r\n")).or_else(|| out.split_once("\n\n"))?;
-    let status = head.lines().next()?.split_whitespace().nth(1)?.parse().ok()?;
+    let mut lines = head.lines();
+    let status = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
+    let limited = lines.filter_map(|line| line.split_once(':')).any(|(name, value)| {
+        let (name, value) = (name.trim().to_ascii_lowercase(), value.trim());
+        name == "retry-after" || (name == "x-ratelimit-remaining" && value == "0")
+    });
     Some(Answer {
         status,
         body: body.to_string(),
+        limited,
     })
+}
+
+/// GitHub's refusal, of the kind its status tells: a fault of GitHub's own (5xx) or its limit on the requests it takes
+/// (429, or another refusal whose headers say it limits them) passes by itself; any other is a refusal no wait mends,
+/// whatever its words.
+fn refused(answer: &Answer) -> Failed {
+    let why = refusal(answer);
+    if answer.status >= 500 || answer.status == 429 || answer.limited {
+        Failed::passing(why)
+    } else {
+        Failed::refused(why)
+    }
 }
 
 /// GitHub's words for why it did not do what it was asked, with the status.
@@ -465,98 +465,92 @@ fn pull(value: &Value) -> Result<Pull, String> {
     })
 }
 
-/// The checks of a commit, from its check runs and its commit statuses as GitHub's REST API gives them. Of each name
-/// among the check runs, the latest run counts, so that a check run again, as a person may on GitHub, is judged by
-/// its new run; GitHub gives each status's latest itself.
-pub(crate) fn checks(runs: &[Value], statuses: &[Value]) -> Vec<Check> {
-    let mut latest: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
-    for run in runs {
-        let Some(name) = run["name"].as_str() else {
-            continue;
-        };
-        let newer = latest
-            .get(name)
-            .is_none_or(|kept| run["id"].as_u64() > kept["id"].as_u64());
-        if newer {
-            latest.insert(name, run);
-        }
-    }
-    let mut checks: Vec<Check> = (latest.into_iter())
-        .map(|(name, kept)| {
-            let mut check = check_run(name, kept);
-            // The earlier runs of the same check, said as they are, oldest first.
-            let mut earlier: Vec<&Value> = (runs.iter())
-                .filter(|run| run["name"].as_str() == Some(name) && run["id"].as_u64() != kept["id"].as_u64())
-                .collect();
-            earlier.sort_by_key(|run| run["id"].as_u64());
-            check.earlier = (earlier.into_iter())
-                .map(|run| {
-                    let how = (run["conclusion"].as_str())
-                        .or_else(|| run["status"].as_str())
-                        .unwrap_or("unknown");
-                    let at = (run["html_url"].as_str()).or_else(|| run["details_url"].as_str());
-                    at.map_or(how.to_string(), |at| format!("{how} {at}"))
-                })
-                .collect();
-            check
-        })
-        .collect();
-    checks.extend(statuses.iter().filter_map(status));
-    checks
+/// A run of a workflow, as GitHub's REST API lists it; none for one with no number.
+fn run(run: &Value) -> Option<Run> {
+    let status = run["status"].as_str();
+    let completed = status == Some("completed");
+    Some(Run {
+        id: run["id"].as_u64()?,
+        title: run["display_title"].as_str().unwrap_or_default().to_string(),
+        started: matches!(status, Some("in_progress" | "completed")),
+        completed,
+        cancelled: completed && run["conclusion"].as_str() == Some("cancelled"),
+        url: run["html_url"].as_str().unwrap_or_default().to_string(),
+    })
 }
 
-/// A check run as a check.
-fn check_run(name: &str, run: &Value) -> Check {
-    let outcome = match (run["status"].as_str(), run["conclusion"].as_str()) {
-        (Some("completed"), Some("success" | "neutral" | "skipped")) => Outcome::Passed,
-        // A job stopped at its time limit, or cancelled, judged the code as far as it ran: its log says what ran and
-        // what was still running, which a check asked again on the same commit would not run again to say.
-        (Some("completed"), Some(how @ ("failure" | "timed_out" | "cancelled"))) => {
-            match (how, lasted(&run["started_at"], &run["completed_at"])) {
-                ("failure", _) | (_, None) => Outcome::Failed(how.to_string()),
-                (_, Some(lasted)) => Outcome::Failed(format!("{how} after {lasted}")),
-            }
-        }
-        (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
-        (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
-        _ => Outcome::Pending,
-    };
-    let said: Vec<&str> = [&run["output"]["title"], &run["output"]["summary"]]
-        .into_iter()
-        .filter_map(Value::as_str)
-        .filter(|s| !s.trim().is_empty())
-        .collect();
-    let actions = run["app"]["slug"].as_str() == Some("github-actions");
-    Check {
-        name: name.to_string(),
-        outcome,
-        url: (run["html_url"].as_str())
-            .or_else(|| run["details_url"].as_str())
-            .map(str::to_string),
-        summary: (!said.is_empty()).then(|| said.join("\n")),
-        job: if actions { run["id"].as_u64() } else { None },
-        earlier: Vec::new(),
-    }
-}
-
-/// A job of a run as a check; none for a job that did not run, its condition false.
+/// A job of a run as a check; none for a job that has no name. A job that did not run is a check that was skipped.
 fn job(job: &Value) -> Option<Check> {
     let outcome = match (job["status"].as_str(), job["conclusion"].as_str()) {
-        (Some("completed"), Some("skipped")) => return None,
+        (Some("completed"), Some("skipped")) => Outcome::Skipped,
         (Some("completed"), Some("success" | "neutral")) => Outcome::Passed,
         (Some("completed"), Some(how @ ("failure" | "timed_out"))) => Outcome::Failed(how.to_string()),
         (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
         (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
         _ => Outcome::Pending,
     };
+    // Only a job that ran to a conclusion has a time to give; one cancelled or not complete did not finish.
+    let took = match outcome {
+        Outcome::Passed | Outcome::Failed(_) => job["started_at"]
+            .as_str()
+            .zip(job["completed_at"].as_str())
+            .and_then(|(from, to)| seconds_between(from, to)),
+        _ => None,
+    };
     Some(Check {
         name: job["name"].as_str()?.to_string(),
         outcome,
         url: job["html_url"].as_str().map(str::to_string),
-        summary: None,
-        job: job["id"].as_u64(),
-        earlier: Vec::new(),
+        took,
     })
+}
+
+/// The whole seconds from one timestamp to a later one, each in the form GitHub gives, `YYYY-MM-DDTHH:MM:SSZ` in UTC;
+/// none where either is in another form or the second is before the first.
+fn seconds_between(from: &str, to: &str) -> Option<u64> {
+    u64::try_from(epoch(to)? - epoch(from)?).ok()
+}
+
+/// The seconds from 1970-01-01T00:00:00Z to a timestamp in the form GitHub gives, `YYYY-MM-DDTHH:MM:SSZ`; none for a
+/// timestamp in any other form or of a day that does not exist.
+fn epoch(stamp: &str) -> Option<i64> {
+    let bytes = stamp.as_bytes();
+    let shaped = bytes.len() == 20
+        && [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':'), (19, b'Z')]
+            .iter()
+            .all(|&(at, sign)| bytes[at] == sign);
+    if !shaped {
+        return None;
+    }
+    let number = |from: usize, to: usize| -> Option<i64> {
+        let digits = stamp.get(from..to)?;
+        digits
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| digits.parse().ok())
+            .flatten()
+    };
+    let (year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
+    let (hour, minute, second) = (number(11, 13)?, number(14, 16)?, number(17, 19)?);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if !(1..=days_in_month).contains(&day) || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    // Days from the civil date to 1970-01-01, counting the year from March so that a leap day ends it.
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    Some(days * 86_400 + hour * 3600 + minute * 60 + second)
 }
 
 /// Every file under a directory, each as its path under it with `/` between its parts, after `prefix`, and its bytes.
@@ -574,63 +568,6 @@ fn files_under(dir: &Path, prefix: &str) -> Result<Vec<File>, String> {
         }
     }
     Ok(out)
-}
-
-/// How long a check ran, in words, from the times GitHub gives as `2026-11-11T07:48:56Z`; none where it gives none.
-fn lasted(started: &Value, completed: &Value) -> Option<String> {
-    let seconds = seconds_of(completed.as_str()?)? - seconds_of(started.as_str()?)?;
-    let (minutes, seconds) = (seconds / 60, seconds % 60);
-    let unit = |n: i64, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
-    Some(match (minutes, seconds) {
-        (0, s) => unit(s, "second"),
-        (m, 0) => unit(m, "minute"),
-        (m, s) => format!("{} and {}", unit(m, "minute"), unit(s, "second")),
-    })
-}
-
-/// The seconds since 1970 of a time as GitHub writes one, in UTC: `2026-11-11T07:48:56Z`, fractions of a second left
-/// out; none for anything else.
-fn seconds_of(time: &str) -> Option<i64> {
-    let time = time.strip_suffix('Z')?;
-    let (date, clock) = time.split_once('T')?;
-    let clock = clock.split('.').next()?;
-    let numbers = |text: &str, sep: char| -> Option<Vec<i64>> { text.split(sep).map(|n| n.parse().ok()).collect() };
-    let (d, c) = (numbers(date, '-')?, numbers(clock, ':')?);
-    let [year, month, day] = <[i64; 3]>::try_from(d).ok()?;
-    let [hour, minute, second] = <[i64; 3]>::try_from(c).ok()?;
-    // Days from the civil date, by the proleptic Gregorian calendar.
-    let (y, m) = if month <= 2 {
-        (year - 1, month + 9)
-    } else {
-        (year, month - 3)
-    };
-    let era = y.div_euclid(400);
-    let of_era = y - era * 400;
-    let of_year = (153 * m + 2) / 5 + day - 1;
-    let of_cycle = of_era * 365 + of_era / 4 - of_era / 100 + of_year;
-    let days = era * 146_097 + of_cycle - 719_468;
-    Some(days * 86_400 + hour * 3600 + minute * 60 + second)
-}
-
-/// A commit status as a check.
-fn status(status: &Value) -> Option<Check> {
-    let name = status["context"].as_str()?;
-    let outcome = match status["state"].as_str()? {
-        "success" => Outcome::Passed,
-        "pending" => Outcome::Pending,
-        "failure" => Outcome::Failed("failure".to_string()),
-        other => Outcome::Broken(other.to_string()),
-    };
-    Some(Check {
-        name: name.to_string(),
-        outcome,
-        url: status["target_url"].as_str().map(str::to_string),
-        summary: (status["description"].as_str())
-            .filter(|s| !s.trim().is_empty())
-            .map(str::to_string),
-        job: None,
-        earlier: Vec::new(),
-    })
 }
 
 mod release;

@@ -1,9 +1,0 @@
-﻿2026-10-30T14:48:06.1442095Z ##[group]Run echo "lint and test: $RESULTS"
-2026-10-30T14:48:06.1442908Z [36;1mecho "lint and test: $RESULTS"[0m
-2026-10-30T14:48:06.1443760Z [36;1mfor r in $RESULTS; do [ "$r" = success ] || exit 1; done[0m
-2026-10-30T14:48:06.2148774Z shell: /usr/bin/bash -e {0}
-2026-10-30T14:48:06.2149568Z env:
-2026-10-30T14:48:06.2149933Z   RESULTS: success failure
-2026-10-30T14:48:06.2150458Z ##[endgroup]
-2026-10-30T14:48:06.2289987Z lint and test: success failure
-2026-10-30T14:48:06.2302360Z ##[error]Process completed with exit code 1.

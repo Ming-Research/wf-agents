@@ -1,0 +1,3 @@
+# What the implementation says to the cell it judges. Only the implementation writes it, so that no one writes over what
+# it said. What is said to the plan's writer is one block, which runs whichever cell writes the plan.
+what = "What the implementation says to the plan's writer, in English: where and why the plan does not hold."

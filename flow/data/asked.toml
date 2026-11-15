@@ -1,0 +1,15 @@
+# Whether the owner has answered every question of the work that stands: the engine writes it as a question is asked,
+# asked anew or withdrawn and as the owner answers, so that a cell that requires `answered` waits while one stands
+# unanswered. Before any question is asked it is `answered`.
+what = "Whether every question of the work that stands has the owner's answer: `answered` once each has, or none stands; `waiting` while one has not."
+values = ["waiting", "answered"]
+default = "answered"
+from = "asked"
+shown = true
+
+# What the engine writes with each value: `{questions}` the names of the questions without an answer, with `between`
+# between two.
+[writes]
+answered = "Every question of the work has the owner's answer."
+waiting = "Waits for the owner's answer to {questions}."
+between = ", "

@@ -1,0 +1,5 @@
+# The engine writes a version where `design/` on the work's branch differs from the last one; a cell is given it as any
+# datum it lacks, so a session that read the tree is told, as its next cell enters, which files changed since. It runs
+# no cell: a changed tree is read where the line goes on, not by running a reading again.
+what = "The design tree as the work's branch has it: the commit and its tree; between two versions, the files of `design/` that changed."
+from = "tree"

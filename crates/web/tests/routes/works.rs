@@ -30,7 +30,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
     let not_yet = |cell: &str| json!({ "cell": cell, "state": "notYet", "finished": 0, "record": null, "open": null });
     let input =
         |block: &str, current: Value| json!({ "block": block, "current": current, "known": null, "changed": false });
-    let no_record = json!([{ "kind": "noRecord" }]);
+    // The request is new to the plan, whose run that asked dealt with nothing.
+    let for_the_request = json!([{ "kind": "changed", "block": "request", "was": null, "behind": false }]);
     let flow = get_json(&running.router, "/api/v1/flow").await["flow"].clone();
     assert_eq!(
         get_json(&running.router, "/api/v1/works/1").await,
@@ -47,12 +48,14 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "on": [{ "kind": "call", "call": 2, "who": "owner", "what": question() }],
                 },
                 "cells": [
-                    { "cell": "plan", "state": "resting", "finished": 0, "record": null, "open": 1 },
+                    { "cell": "plan", "state": "again", "finished": 1, "record": 1, "open": null },
                     not_yet("build"),
                     not_yet("review"),
                     not_yet("merge"),
                 ],
                 "spent": spent(1),
+                // No ping of its sessions was sent.
+                "pinged": { "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
                 "last": asked,
                 // Its first round began as it was resumed, and an agent has run the whole of its time since.
                 "from": resumed,
@@ -61,20 +64,30 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             },
             "title": "Greet the user",
             "level": "2",
+            "tags": [],
             "history": {
-                "first": { "title": "Greet the user", "level": "2", "dependsOn": [] },
+                "first": { "title": "Greet the user", "level": "2", "dependsOn": [], "tags": [] },
                 "changes": [],
             },
+            "project": "trial",
             "flow": flow,
             "cells": [
-                { "cell": "plan", "needs": no_record, "inputs": [input("request", json!(3))] },
+                {
+                    "cell": "plan",
+                    "needs": for_the_request,
+                    "inputs": [{ "block": "request", "current": 3, "known": null, "changed": true }],
+                },
                 {
                     "cell": "build",
-                    "needs": no_record,
-                    "inputs": [input("plan", Value::Null), input("opinions", Value::Null)],
+                    "needs": [],
+                    "inputs": [
+                        input("plan", Value::Null),
+                        input("opinions", Value::Null),
+                        input("answered", Value::Null),
+                    ],
                 },
-                { "cell": "review", "needs": no_record, "inputs": [input("code", Value::Null)] },
-                { "cell": "merge", "needs": no_record, "inputs": [input("code", Value::Null)] },
+                { "cell": "review", "needs": [], "inputs": [input("code", Value::Null)] },
+                { "cell": "merge", "needs": [], "inputs": [input("code", Value::Null)] },
             ],
             "blocks": [
                 {
@@ -85,6 +98,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "by": { "kind": "outside" },
                         "meaning": 2,
                         "value": "merged",
+                        "saidTo": null,
                         "chars": 42,
                     }],
                 },
@@ -96,6 +110,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "by": { "kind": "person" },
                         "meaning": 3,
                         "value": null,
+                        "saidTo": null,
                         "chars": 23,
                     }],
                 },
@@ -129,7 +144,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "cell": "plan",
                     "at": 5,
                     "time": resumed,
-                    "because": no_record,
+                    "because": for_the_request,
                     "basis": [{ "block": "plan", "version": null }, { "block": "request", "version": 3 }],
                     "rounds": [{
                         "number": 1,
@@ -140,10 +155,35 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "spent": spent(1),
                         "context": null,
                         "compactions": 0,
+                        // The engineer's first session, which the records count as none; the script records no
+                        // try.
+                        "session": { "line": "engineer", "number": 0 },
+                        "tries": [],
+                        "missed": null,
+                        "estimated": false,
+                        // The engine's loop runs with no policy, which a line is worked out by: nothing is judged.
+                        "judged": { "cost": null, "time": null },
                     }],
-                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null }],
-                    "end": null,
+                    // A question is no call of a tool, whose time alone is judged.
+                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null, "time": null }],
+                    // A return that asks ends its run, having dealt with nothing.
+                    "end": { "kind": "finished", "at": 9, "time": asked, "writes": [] },
                     "spent": spent(1),
+                },
+            ],
+            // The plan's question is a call of the earlier form: no question of the work's own is asked.
+            "questions": [],
+            // The owner's words run no cell of the trial flow.
+            "speaking": [
+                {
+                    "to": { "kind": "line", "line": "engineer" },
+                    "cell": null,
+                    "refused": "the owner's words run no cell of the line engineer",
+                },
+                {
+                    "to": { "kind": "line", "line": "reviewer" },
+                    "cell": null,
+                    "refused": "the owner's words run no cell of the line reviewer",
                 },
             ],
         })
@@ -168,22 +208,22 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
         json!({ "call": 2, "what": question(), "result": null })
     );
 
-    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
     );
     let answered = json!({ "call": 2, "what": question(), "result": "Yes, by name." });
     assert_eq!(get_json(router, "/api/v1/works/1/calls/2").await, answered);
-    // The plan's second round is given the answer, and hands in the plan a second and a half later.
+    // The plan, entered again as its second run, is given the answer, and hands in the plan a second and a half later.
     pass(1600).await;
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/1/rounds/2").await,
+        get_json(router, "/api/v1/works/1/runs/3/rounds/1").await,
         json!({
-            "run": 1,
-            "number": 2,
+            "run": 3,
+            "number": 1,
             "results": [answered],
-            "handed": [{ "block": "plan", "content": "The plan as plan wrote it in its run 1, round 2." }],
+            "handed": [{ "block": "plan", "content": "The plan as plan wrote it in its run 2, round 1." }],
         })
     );
 }

@@ -1,7 +1,0 @@
-title = "Check before the merge"
-kind = "engine"
-act = "check"
-requires = ["settled"]
-inputs = ["code", "tests", "main", "answers_check", "opinions_check"]
-outputs = ["checked", "check_on_implement"]
-describes = ["code"]

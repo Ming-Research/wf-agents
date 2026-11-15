@@ -31,11 +31,11 @@ pub struct CellView {
     pub record: Option<RunId>,
     /// The cell's run that has neither finished nor been abandoned.
     pub open: Option<OpenRun>,
-    /// Why the cell would run were the walk to reach it with nothing holding it; empty where its record knows the
-    /// current meaning of every block it reads. It is given also for a cell that is skipped or that waits.
+    /// What is new to the cell: why it would run were the walk to reach it with nothing holding it, the results of
+    /// its calls aside. It is given also for a cell that is skipped or that waits.
     pub needs: Vec<Cause>,
-    /// The blocks the cell reads, in the order it lists them.
-    pub inputs: Vec<InputView>,
+    /// The blocks that run the cell, in the order it lists them.
+    pub runs_on: Vec<InputView>,
 }
 
 /// A run that has neither finished nor been abandoned.
@@ -46,18 +46,16 @@ pub struct OpenRun {
     pub under_way: bool,
 }
 
-/// A block a cell reads, as the cell's record knows it and as it is now.
+/// A block that runs a cell, as the cell consumed it and as it is now.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InputView {
     pub block: BlockId,
-    /// The block's current version; `None` where it has none.
+    /// The block's latest version; `None` where it has none.
     pub current: Option<Seq>,
-    /// The version the cell's record knows: the one its run started from, or the one it wrote itself. `None` where
-    /// the cell has no record, or the block had no version then.
-    pub known: Option<Seq>,
-    /// Whether the block now has another meaning than the one the cell's record knows; never where the cell has no
-    /// record.
-    pub changed: bool,
+    /// The version the cell consumed; `None` where it consumed none.
+    pub consumed: Option<Seq>,
+    /// Whether the block is new to the cell.
+    pub new: bool,
 }
 
 /// A version of a block.
@@ -98,15 +96,15 @@ pub fn view_in(flow: &Flow, records: &Records, room: Room) -> View {
                     run: r.started.run,
                     under_way: r.under_way(),
                 });
-            let inputs = (cell.inputs.iter())
-                .map(|block| {
-                    let known = record.and_then(|r| walk.known(r, block));
-                    InputView {
-                        block: block.clone(),
-                        current: walk.current(block).map(|v| v.at),
-                        known,
-                        changed: record.is_some() && walk.meaning_of(block, known) != walk.meaning_now(block),
-                    }
+            let needs = walk.needs(i);
+            let runs_on = (cell.runs_on.iter())
+                .map(|block| InputView {
+                    block: block.clone(),
+                    current: walk.current(block).map(|v| v.at),
+                    consumed: walk.consumed(&cell.id, block),
+                    new: needs
+                        .iter()
+                        .any(|c| matches!(c, Cause::Changed { block: b, .. } if b == block)),
                 })
                 .collect();
             CellView {
@@ -114,8 +112,8 @@ pub fn view_in(flow: &Flow, records: &Records, room: Room) -> View {
                 applies: walk.applies(i),
                 record: record.map(|r| r.started.run),
                 open,
-                needs: walk.needs(i),
-                inputs,
+                needs,
+                runs_on,
             }
         })
         .collect();

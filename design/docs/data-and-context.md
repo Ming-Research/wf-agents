@@ -16,6 +16,7 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
 
 2. A new version comes from outside or from a cell. From outside: a person writes, the branch the works merge into
    moves, the design tree changes, a session is reopened. From a cell: what it hands in when a round of it ends.
+   The code a round commits is handed in by that round, read from the branch as it ends.
 
 3. A file's version is its content. It has a new version whenever its content changed, whoever changed it and
    wherever: on the branch the works merge into, or in the work itself.

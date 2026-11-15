@@ -1,8 +1,10 @@
 //! The loop with the real carriers, in a git repository made for each test, with a fake of the `claude` command line:
-//! a shell script that keeps what it was given and prints a result that hands in the outputs of the cell its message
-//! names. The flows are the trial flow (`crates/service/tests/trial/flow`), whose agents ask and judge, `flow` here,
-//! which has the acts of an engineer's work, and the deliver flow as the repository defines it (`flow/deliver`), whose
-//! one cell is the act that delivers a deliverable item.
+//! a shell script that keeps what it was given and prints a return, in the form it is given, that deals with what its
+//! message says ran it and writes the outputs of the cell its message names. The flows are the trial flow
+//! (`crates/service/tests/trial/flow`), whose agents ask and judge, `flow` here, which has the acts of an engineer's
+//! work, and the deliver flow as the repository defines it (`flow/deliver`), whose one cell is the act that delivers a
+//! deliverable item; the build of each may ask for the tool `query`, which the tests answer themselves, and may ask the
+//! owner a question it waits for. What is written beside the flows is this repository's (`flow/`).
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
@@ -10,12 +12,17 @@ mod budget;
 mod catching_up;
 mod delivering;
 mod failing;
+mod forms;
 mod going;
 mod left;
 mod levels;
 mod permissions;
+mod projects;
+mod protected;
+mod query;
 mod sessions;
 mod stopping;
+mod tree;
 
 use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
@@ -24,13 +31,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use carry::git::{self, Place};
-use carry::settings::{Agents, Items, Level, Project};
+use carry::settings::{Agents, Items, Level, Owner, PermissionsAdded, Project};
 use carry::{Settings, session};
 use decide::{CallId, Decision, Pauser, RunId, Who};
 use driver::{FirstWrite, NewItem};
 use engine::Event;
 use flow::{Compiled, Has};
-use service::{Act, Inbox, Message, Round, RoundReply, Rounds, Service, SystemClock};
+use service::{Act, CallReply, Inbox, Message, Round, RoundReply, Rounds, Service, SystemClock, ToolCall, Tools};
 use store::{ItemNumber, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::Work;
@@ -47,11 +54,15 @@ pub struct Fake {
     /// Whether its first call prints a result that is an error, as when it ran out of retries of its structured
     /// return, the session having cost eighty cents by then, and exits with 1.
     pub error_first: bool,
-    /// Whether the build asks for the check in its first round, and its second round, going on in the session, is
-    /// told the first time that the session is not found.
+    /// Whether its first call crashes after one call to Opus 5.5, of 100 tokens sent, 1,000 read from the cache and 10
+    /// back, printing no result, and exits with 1.
+    pub crashes_first: bool,
+    /// Whether the build asks for the query of the check in its first run, and its run entered for the result, going
+    /// on in the session, is told the first time that the session is not found.
     pub lose_session: bool,
-    /// Whether the build asks the owner a question in its first round, and for the check in its second, before it
-    /// hands in; with `lose_session`, its last round is the one told the session is not found.
+    /// Whether the build asks the owner in its first run a question it waits for, and for the query of the check in
+    /// the run entered for the answer, before it hands in; with `lose_session`, its last run is the one told the
+    /// session is not found.
     pub question_first: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
@@ -63,6 +74,22 @@ pub struct Fake {
     pub compacts: bool,
     /// Whether the plan, run again, hands in what it wrote before, saying it changes nothing of what it means.
     pub plan_again_unchanged: bool,
+    /// Whether its first call prints a stream in which it refused every attempt at the return, the last writing the
+    /// plan's hand-ins as a string, gave up on the return, and exits with 1.
+    pub refuses_first: bool,
+    /// Whether the plan adds a line to the project's guide in the worktree, as a work's own change of it would.
+    pub plan_edits_guide: bool,
+    /// Whether the build commits a file of the design tree.
+    pub design: bool,
+    /// Whether the build, once, commits a line to the project's guide, which the project protects, saying why only in
+    /// a round told its return was sent back for it.
+    pub build_changes_guide: bool,
+    /// Whether the build, once, commits a file of the design tree to main.
+    pub moves_main: bool,
+    /// The context each call ends with, in tokens, by the call's number, the first being one: each call then says, as
+    /// its stream begins, that it took its message in, and that its one call to the model was sent this; a call past
+    /// the last given ends with the last. None given, the calls say neither.
+    pub contexts: &'static [u64],
 }
 
 impl Default for Fake {
@@ -72,14 +99,74 @@ impl Default for Fake {
             fail_first: false,
             flag_first: false,
             error_first: false,
+            crashes_first: false,
             lose_session: false,
             question_first: false,
             plan_sleeps: 0,
             context: None,
             compacts: false,
             plan_again_unchanged: false,
+            refuses_first: false,
+            plan_edits_guide: false,
+            design: false,
+            build_changes_guide: false,
+            moves_main: false,
+            contexts: &[],
         }
     }
+}
+
+/// The name the fake's build gives the work's merge, where its flow has a block for it, as it hands in its code.
+pub const NAMED: &str = "Greet the user by name";
+
+/// What the command line says of a return it gave up on, as it says it, the last refusal at its end.
+pub const GAVE_UP: &str = "Failed to provide valid structured output after 3 attempts — last StructuredOutput error: \
+                           Output does not match required schema: /outcome: must be object";
+
+/// The stream of a call that refused every attempt at the return and gave up on it, the plan's work written as a
+/// string in the last, in the order the command line writes it: each attempt as its message's first block, in two
+/// pieces, the whole message, the block's end, the refusal as a plain string, the message's end; the result, and the
+/// command line's `task_summary` after it.
+fn refused_stream() -> String {
+    use serde_json::json;
+    let event = |event: serde_json::Value| {
+        json!({ "type": "stream_event", "event": event, "parent_tool_use_id": null }).to_string()
+    };
+    let attempt = |id: &str, input: &str| {
+        let block = json!({ "type": "tool_use", "id": id, "name": "StructuredOutput", "input": {} });
+        let (one, two) = input.split_at(input.len() / 2);
+        let piece = |piece: &str| {
+            let delta = json!({ "type": "input_json_delta", "partial_json": piece });
+            event(json!({ "type": "content_block_delta", "index": 0, "delta": delta }))
+        };
+        let whole = serde_json::from_str::<serde_json::Value>(input).unwrap_or(json!({}));
+        let used = json!({ "type": "tool_use", "id": id, "name": "StructuredOutput", "input": whole });
+        let message = json!({ "role": "assistant", "content": [used] });
+        let result = json!({ "type": "tool_result", "is_error": true, "tool_use_id": id,
+            "content": "Output does not match required schema: /outcome: must be object" });
+        vec![
+            event(json!({ "type": "message_start", "message": {} })),
+            event(json!({ "type": "content_block_start", "index": 0, "content_block": block })),
+            piece(one),
+            piece(two),
+            json!({ "type": "assistant", "message": message, "parent_tool_use_id": null }).to_string(),
+            event(json!({ "type": "content_block_stop", "index": 0 })),
+            json!({ "type": "user", "parent_tool_use_id": null, "message": { "role": "user", "content": [result] } })
+                .to_string(),
+            event(json!({ "type": "message_delta", "delta": {}, "usage": {} })),
+            event(json!({ "type": "message_stop" })),
+        ]
+    };
+    let plan = json!({ "dealt_with": ["request"], "outputs": { "plan": "Greet by name." } }).to_string();
+    let mut lines = vec![json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string()];
+    lines.extend(attempt("so-1", r#"{"outcome": "{\"dealt_with\": [], "#));
+    lines.extend(attempt("so-2", &json!({ "outcome": plan }).to_string()));
+    let gave_up = json!({ "type": "result", "subtype": "error_max_structured_output_retries", "is_error": true,
+        "result": null, "errors": [GAVE_UP], "total_cost_usd": 0.4,
+        "usage": { "input_tokens": 1000, "output_tokens": 300 } });
+    lines.push(gave_up.to_string());
+    lines.push(json!({ "type": "system", "subtype": "task_summary", "detail": null }).to_string());
+    lines.join("\n") + "\n"
 }
 
 /// Which flow a test runs on.
@@ -105,6 +192,41 @@ pub struct Call {
     pub overlapped: bool,
 }
 
+impl Call {
+    /// Whether it was given the message of the cell of this title: its heading is a line of it.
+    pub fn of(&self, title: &str) -> bool {
+        let heading = format!("# {title}");
+        self.stdin.lines().any(|line| line == heading)
+    }
+}
+
+/// The tools of the real carriers, but `query`, which the tests answer at once, with the rows of what it was asked.
+struct Queries {
+    real: Arc<dyn Tools>,
+}
+
+/// What the tests' `query` answers at once.
+pub fn rows(input: &str) -> String {
+    format!("The rows of {input}.")
+}
+
+impl Tools for Queries {
+    fn call(&self, call: ToolCall, reply: CallReply) {
+        if call.name != "query" {
+            return self.real.call(call, reply);
+        }
+        let result = rows(&call.input);
+        reply.done(result);
+    }
+
+    fn withdraw(&self, call: ToolCall, reply: CallReply) {
+        // A query answered at once has its one result already.
+        if call.name != "query" {
+            self.real.withdraw(call, reply);
+        }
+    }
+}
+
 /// The loop with the real carriers over a store in the data directory.
 pub struct Real {
     _dir: tempfile::TempDir,
@@ -112,7 +234,7 @@ pub struct Real {
     pub repo: PathBuf,
     /// Where the fake keeps what it was given.
     calls: PathBuf,
-    settings: Settings,
+    pub settings: Settings,
     flow: Compiled,
     service: Service,
     inbox: Inbox,
@@ -121,6 +243,10 @@ pub struct Real {
     pub holds: usize,
     /// The level the items added from now on are given.
     pub level: String,
+    /// The project the items added from now on belong to.
+    pub project: String,
+    /// The title the items added from now on are given.
+    pub title: String,
 }
 
 /// Runs git in the directory, which must pass, and gives its output.
@@ -139,7 +265,14 @@ pub fn git_in(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim_end().to_string()
 }
 
-/// The flow, compiled with what the real carriers have.
+/// What is written beside the flows of this repository: what the acts write, what the agents are told, and what the
+/// form of a return and their system prompts are made of.
+pub fn beside() -> flow::agents::Agents {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    flow::agents::read(&root).expect("what is written beside the flows is read")
+}
+
+/// The flow, compiled with what the real carriers have, its build, where it has one, asking for `query`.
 fn compiled(on: On) -> Compiled {
     let dir = match on {
         On::Trial => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
@@ -147,18 +280,52 @@ fn compiled(on: On) -> Compiled {
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
         On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
-    let source = flow::read(&dir).expect("the flow is read");
+    let mut source = flow::read(&dir).expect("the flow is read");
+    if let Some(build) = source.cells.get_mut("build") {
+        *build = format!("tools = [\"query\"]\n{build}");
+    }
+    // A build the owner's answer runs may ask the owner: the record of the work's questions, which the engine's source
+    // of answers writes, is among its outputs, and the owner's words run it as well, as they run every cell that may ask.
+    if let Some(build) = source
+        .cells
+        .get_mut("build")
+        .filter(|build| build.contains("\"answered\"]"))
+    {
+        *build = (build.replace("\"answered\"]", "\"answered\", \"build_spoken_to\"]"))
+            .replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
+        source.flow.push_str(
+            "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n\n\
+             [blocks.build_spoken_to]\noutside = \"words\"\n",
+        );
+    }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&[driver::DEPENDENCIES, driver::SESSION]),
+        sources: names(&[
+            driver::DEPENDENCIES,
+            driver::SESSION,
+            carry::tree::TREE,
+            flow::ANSWER,
+            flow::WORDS,
+            "main",
+        ]),
         acts: names(&["start", "check", "merge", "deliver"]),
+        // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
+        // the tree.
+        details: names(&["files"]),
+        tools: names(&["query"]),
+        ..Default::default()
     };
     flow::compile(&source, &has).expect("the flow compiles")
 }
 
-/// Writes the fake command line into the directory, keeping what it is given in `calls`.
+/// Writes the fake command line into the directory, keeping what it is given in `calls`. It is given its message as
+/// one line of JSON, and reads from it the message's first line, its heading, and what its last part says ran the
+/// round, which its return names as dealt with; it prints its result as a stream of one line, or, where it refuses its
+/// first return, the stream of [`refused_stream`].
 fn fake(dir: &Path, calls: &Path, fake: &Fake) -> PathBuf {
     let yes = |on: bool| if on { "yes" } else { "no" };
+    let refused = dir.join("refused.jsonl");
+    std::fs::write(&refused, refused_stream()).expect("the refused stream is written");
     let script = format!(
         r#"#!/bin/sh
 log='{calls}'
@@ -168,14 +335,27 @@ for pid in "$log"/*.pid; do
 done
 echo $$ > "$log/$n.pid"
 printf '%s\n' "$@" > "$log/$n.args"
+prev=''
+for arg in "$@"; do
+    [ "$prev" = --json-schema ] && printf '%s' "$arg" > "$log/$n.schema"
+    prev=$arg
+done
 cat > "$log/$n.stdin"
 pwd > "$log/$n.pwd"
 if [ '{compacts}' = yes ]; then
-    hook=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 | sed 's/.*"command":"\([^"]*\)".*/\1/')
+    hook=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 | sed 's/.*"SessionStart".*"command":"\([^"]*\)".*/\1/')
     sh -c "$hook" > "$log/$n.again"
 fi
+if [ '{refuses}' = yes ] && [ "$n" = 1 ]; then
+    cat '{refused}'
+    exit 1
+fi
 if [ '{error}' = yes ] && [ "$n" = 1 ]; then
-    printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
+    printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["{gave_up}"],"total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
+    exit 1
+fi
+if [ '{crash}' = yes ] && [ "$n" = 1 ]; then
+    printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
     exit 1
 fi
 if [ '{flag}' = yes ] && [ "$n" = 1 ]; then
@@ -186,50 +366,116 @@ if [ '{fail}' = yes ] && [ "$n" = 1 ]; then
     echo 'Prompt is too long: the fake fails its first call.' >&2
     exit 1
 fi
-first=$(head -n 1 "$log/$n.stdin")
-asks='[]'
+text=$(awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin")
+first=$(printf '%s\n' "$text" | grep -m 1 -E '(^|"text":")# (Plan|Build|Review)$' | sed 's/^.*# //')
+dealt=$(printf '%s\n' "$text" | sed -n '/^## Why you are run$/,$p' | sed -n 's/^- `\([^`]*\)`.*$/"\1"/p' | paste -sd, -)
+calls=''
 out=''
+unchanged=''
+protected=''
 case "$first" in
-    *'cell `plan`'*)
+    Plan)
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
             touch "$log/slept"
             sleep '{sleeps}'
         fi
-        matters=true
         if [ '{unchanged}' = yes ] && [ -f "$log/planned" ]; then
-            matters=false
+            unchanged='"plan"'
         fi
         touch "$log/planned"
-        out="{{\"block\":\"plan\",\"content\":\"Greet by name.\",\"matters\":$matters}}" ;;
-    *'cell `build`'*)
-        round=${{first##*, round }}
-        if [ "$round" = 1 ] && [ '{question}' = yes ]; then
-            asks='[{{"question":"Which name?"}}]'
-        elif {{ [ "$round" = 1 ] && [ '{lose}' = yes ]; }} || {{ [ "$round" = 2 ] && [ '{question}' = yes ]; }}; then
-            asks='[{{"tool":"check","input":""}}]'
+        if [ '{edits_guide}' = yes ]; then
+            printf 'A line the work added.\n' >> '{guide}'
+        fi
+        out='"plan":"Greet by name."' ;;
+    Build)
+        results=no
+        grep -q 'The results of what you asked for' "$log/$n.stdin" && results=yes
+        checked=no
+        grep -q 'select the check' "$log/$n.stdin" && checked=yes
+        answered=no
+        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `answered`' && answered=yes
+        if [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
+            # It leaves all that ran it for after the answer.
+            dealt=''
+            out='"q_and_a":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
+        elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
+            calls='"query":[{{"sql":"select the check"}}]'
         else
             if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then
                 touch "$log/lost"
                 echo 'No conversation found with session ID: 00000000-0000-5000-8000-000000000001' >&2
                 exit 1
             fi
-            git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
-            out='{{"block":"code","content":"A greeting.","matters":true}}'
+            if [ '{design}' = yes ]; then
+                mkdir -p design
+                echo built > design/built.md
+                git add design/built.md
+            fi
+            if [ '{moves}' = yes ] && [ ! -f "$log/moved" ]; then
+                touch "$log/moved"
+                r=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+                mkdir -p "$r/design"
+                printf 'Good day.\n' > "$r/design/main.md"
+                git -C "$r" add design/main.md
+                git -C "$r" -c user.name=Tester -c user.email=tester@example.com commit -q -m 'Main moved'
+            fi
+            if [ '{changes_guide}' = yes ] && [ ! -f "$log/guided" ]; then
+                touch "$log/guided"
+                printf 'A line the build added.\n' >> '{guide}'
+                git add '{guide}'
+            fi
+            if [ '{changes_guide}' = yes ] && grep -q 'is a file the project protects' "$log/$n.stdin"; then
+                protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
+            fi
+            echo "$n" >> built.txt
+            git add built.txt
+            git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Build the greeting'
+            head=$(git rev-parse HEAD)
+            out="\"code\":\"A greeting, in commit $head.\""
+            # Where the cell writes the name of the work's merge, it names it.
+            if printf '%s\n' "$text" | grep -q '^- `title`'; then
+                out="$out,\"title\":\"{name}\""
+            fi
         fi ;;
-    *'cell `review`'*) out='{{"block":"verdict","content":"Fine.","value":"yes","matters":true}}' ;;
+    Review) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
-printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20{iterations}}},"structured_output":{{"hands_in":[%s],"asks":%s}}}}\n' "$out" "$asks"
+if [ -n "$calls" ]; then
+    structured="{{\"tools\":{{$calls}}}}"
+else
+    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],$protected\"outputs\":{{$out}}}}}}"
+fi
+contexts='{contexts}'
+iterations='{iterations}'
+if [ -n "$contexts" ]; then
+    ctx=$(printf '%s\n' $contexts | sed -n "${{n}}p")
+    [ -z "$ctx" ] && ctx=$(printf '%s\n' $contexts | tail -n 1)
+    printf '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}\n'
+    printf '{{"type":"stream_event","event":{{"type":"message_start","message":{{"usage":{{"input_tokens":%s,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}},"parent_tool_use_id":null}}\n' "$ctx"
+    iterations=",\"iterations\":[{{\"input_tokens\":$ctx,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}]"
+fi
+printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$iterations" "$structured"
 "#,
         calls = calls.display(),
         fail = yes(fake.fail_first),
         flag = yes(fake.flag_first),
         error = yes(fake.error_first),
+        crash = yes(fake.crashes_first),
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
         compacts = yes(fake.compacts),
         unchanged = yes(fake.plan_again_unchanged),
+        refuses = yes(fake.refuses_first),
+        edits_guide = yes(fake.plan_edits_guide),
+        guide = PROJECT_FILES[0].0,
+        design = yes(fake.design),
+        changes_guide = yes(fake.build_changes_guide),
+        moves = yes(fake.moves_main),
+        gave_up = GAVE_UP,
+        name = NAMED,
+        refused = refused.display(),
+        contexts = (fake.contexts.iter().map(u64::to_string).collect::<Vec<_>>()).join(" "),
         iterations = fake.context.map_or_else(String::new, |context| {
             format!(r#","iterations":[{{"input_tokens":{context},"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}]"#)
         }),
@@ -252,15 +498,66 @@ impl Rounds for Deaf {
     fn stop(&self, _: Round, _: RoundReply) {}
 }
 
-/// The loop with the real carriers of the settings, on an empty store or the one in the data directory; with agents
-/// whose stops are dropped where `deaf`.
+/// The loop with the real carriers of the settings, on an empty store or the one in the data directory, the calls of
+/// `query` answered by the tests; with agents whose stops are dropped where `deaf`.
 fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Service, Inbox) {
-    let mut carriers = carry::carriers(settings.clone(), data).expect("the carriers are made");
+    let mut carriers = carry::carriers(settings.clone(), data, beside()).expect("the carriers are made");
     if deaf {
         carriers.agents = Arc::new(Deaf(carriers.agents));
     }
+    carriers.tools = Arc::new(Queries { real: carriers.tools });
     let store = Store::open(data.join("store.sqlite")).expect("the store opens");
     Service::open(Box::new(store), vec![flow.clone()], carriers, Arc::new(SystemClock)).expect("the loop opens")
+}
+
+/// The project the tests' items belong to where a test names none.
+pub const PROJECT: &str = "test";
+
+/// Makes a project's repository at `repo`, on its main branch, with a greeting, the project's files and its declaration:
+/// the one beside this repository's flows.
+pub fn made_repository(repo: &Path) {
+    std::fs::create_dir_all(repo).unwrap();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    git_in(repo, &["config", "user.name", "Tester"]);
+    git_in(repo, &["config", "user.email", "tester@example.com"]);
+    git_in(repo, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(repo.join("greeting.txt"), "Hello.\n").unwrap();
+    // The project's files every line's system prompt holds, where its declaration names them.
+    std::fs::create_dir_all(repo.join("design")).unwrap();
+    for (path, text) in PROJECT_FILES {
+        std::fs::write(repo.join(path), text).unwrap();
+    }
+    let declaration = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../")
+        .join(flow::agents::DECLARATION);
+    std::fs::create_dir_all(repo.join("flow")).unwrap();
+    std::fs::copy(declaration, repo.join(flow::agents::DECLARATION)).expect("the declaration is copied");
+    git_in(repo, &["add", "."]);
+    git_in(repo, &["commit", "-q", "-m", "Greet"]);
+    std::fs::write(repo.join("design/readme.md"), "The tree.\n").unwrap();
+    git_in(repo, &["add", "design/readme.md"]);
+    git_in(repo, &["commit", "-q", "-m", "Design"]);
+}
+
+/// The project's guide, constitution and tree rules, by their paths in the test repository, which `project.toml`
+/// beside the repository's flows names, with their texts.
+pub const PROJECT_FILES: [(&str, &str); 3] = [
+    ("AGENTS.md", "# The test project\n\nWhat its agents need to know.\n"),
+    ("design/constitution.md", "# Its constitution\n"),
+    ("design/README.md", "# The rules of its tree\n"),
+];
+
+/// A project in the repository at `repo`, on its local repository, with this check.
+fn project(repo: &Path, check: &str) -> Project {
+    Project {
+        repo: repo.to_path_buf(),
+        main: "main".to_string(),
+        check: check.to_string(),
+        allowed_config: Vec::new(),
+        github: None,
+        commits: Default::default(),
+        tree: "design/".to_string(),
+    }
 }
 
 impl Real {
@@ -270,24 +567,16 @@ impl Real {
         let dir = tempfile::tempdir().expect("a directory");
         let root = std::fs::canonicalize(dir.path()).expect("the directory is there");
         let (repo, data, calls) = (root.join("repo"), root.join("data"), root.join("calls"));
-        for made in [&repo, &data, &calls] {
+        for made in [&data, &calls] {
             std::fs::create_dir_all(made).unwrap();
         }
-        git_in(&repo, &["init", "-q", "-b", "main"]);
-        git_in(&repo, &["config", "user.name", "Tester"]);
-        git_in(&repo, &["config", "user.email", "tester@example.com"]);
-        git_in(&repo, &["config", "commit.gpgsign", "false"]);
-        std::fs::write(repo.join("greeting.txt"), "Hello.\n").unwrap();
-        git_in(&repo, &["add", "greeting.txt"]);
-        git_in(&repo, &["commit", "-q", "-m", "Greet"]);
+        made_repository(&repo);
         let command = fake(&root, &calls, &answers);
         let settings = Settings {
-            project: Project {
-                repo: repo.clone(),
-                main: "main".to_string(),
-                check: check.to_string(),
-                allowed_config: Vec::new(),
+            owner: Owner {
+                language: "Chinese".to_string(),
             },
+            projects: [(PROJECT.to_string(), project(&repo, check))].into(),
             agents: Agents {
                 command: command.display().to_string(),
                 levels: [("1", "claude-haiku-5-5"), ("2", "claude-sonnet-5-5")]
@@ -304,17 +593,23 @@ impl Real {
                 env: Vec::new(),
                 setting_sources: "user".to_string(),
                 config_dir: None,
-                permissions: Default::default(),
-                owner_language: "Chinese".to_string(),
+                // The lock command of a project on Cargo.
+                permissions: PermissionsAdded {
+                    locks: vec!["cargo update".to_string()],
+                    ..Default::default()
+                },
+                subagents: Default::default(),
                 work_budget_usd: budget,
             },
             items: Items {
                 default_level: "1".to_string(),
                 highest_level: None,
+                title_max: 20,
             },
-            github: None,
             backup: None,
             sessions: Default::default(),
+            history: Default::default(),
+            query: Default::default(),
         };
         let flow = compiled(on);
         let (service, inbox) = open(&settings, &data, &flow, false);
@@ -330,7 +625,20 @@ impl Real {
             failures: 0,
             holds: 0,
             level: "1".to_string(),
+            project: PROJECT.to_string(),
+            title: "Greet the user".to_string(),
         }
+    }
+
+    /// Adds a project of this name to the installation, in a repository of its own beside the first, whose check is
+    /// the first's, and starts the loop again with it; gives the repository.
+    pub fn add_project(&mut self, name: &str) -> PathBuf {
+        let repo = self.repo.with_file_name(name);
+        made_repository(&repo);
+        let check = self.settings.projects[PROJECT].check.clone();
+        self.settings.projects.insert(name.to_string(), project(&repo, &check));
+        self.restart();
+        repo
     }
 
     /// The trial flow, with the fake answering as given, no budget and a check that passes.
@@ -370,12 +678,43 @@ impl Real {
         answer.try_recv().expect("answered").expect("the pause is lifted");
     }
 
-    /// The owner's call the work's run waits for, where there is one.
+    /// The question the work waits for the owner's answer to, by its name, with the version to answer, where there is
+    /// one, as its records keep it.
+    pub fn waited_question(&self, work: WorkNumber) -> Option<(String, decide::Seq)> {
+        let records = self.work(work).records;
+        (decide::questions::questions(&records).into_iter())
+            .find(|(_, q)| q.holds())
+            .map(|(name, q)| (name.to_string(), q.latest.at))
+    }
+
+    /// The owner answers the question the work waits for with its first option, saying why.
+    pub fn answer(&mut self, work: WorkNumber, why: &str) {
+        let (question, version) = self.waited_question(work).expect("the work waits for an answer");
+        let act = Act::Answer {
+            question,
+            version,
+            option: 1,
+            why: Some(why.to_string()),
+        };
+        self.act(work, act);
+    }
+
+    /// The owner's call the work waits for, where there is one, as its records keep it.
     pub fn owners_call(&self, work: WorkNumber) -> Option<CallId> {
         let records = self.work(work).records;
         (records.called.iter())
             .find(|c| c.on == Some(Who::Owner) && !records.done.iter().any(|d| d.call == c.call))
             .map(|c| c.call)
+    }
+
+    /// The form of return the fake was given on its call of this number, as `--json-schema`.
+    pub fn form_given(&self, n: usize) -> String {
+        std::fs::read_to_string(self.calls.join(format!("{n}.schema"))).expect("the form given is kept")
+    }
+
+    /// The form of return of the line, as what is beside the flows makes it.
+    pub fn form(&self, line: &str) -> String {
+        flow::form::form(&self.flow, &beside(), line).expect("the form is made")
     }
 
     /// The work's place, as the installation names it.
@@ -399,9 +738,11 @@ impl Real {
             value: None,
         });
         let item = NewItem {
-            title: "Greet the user".to_string(),
+            title: self.title.clone(),
             level: self.level.clone(),
+            project: self.project.clone(),
             depends_on: depends_on.to_vec(),
+            tags: Vec::new(),
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
         };
@@ -413,12 +754,23 @@ impl Real {
         let starts = (self.flow.cells.iter()).any(|cell| cell.act.as_deref() == Some("start"));
         let agents = (self.flow.cells.iter()).any(|cell| cell.kind == flow::Kind::Agent);
         if !starts && agents {
-            let project = self.settings.project.clone();
+            let project = self.settings.projects[&self.project].clone();
             git::start(&project, &self.place(work), &project.main)
                 .await
                 .expect("the work's place is made");
         }
         work
+    }
+
+    /// A source outside the works says this now of the project the items are added to, as the watch of main says
+    /// main's head.
+    pub fn outside(&mut self, source: &str, content: &str) {
+        let message = Message::Outside {
+            project: self.project.clone(),
+            source: source.to_string(),
+            content: content.to_string(),
+        };
+        self.service.take(message).expect("the loop takes it");
     }
 
     /// Does what the owner does to the work, which the loop takes.
@@ -430,13 +782,22 @@ impl Real {
         answer.try_recv().expect("answered").expect("the act is taken");
     }
 
-    /// Takes what comes until `wanted` holds of the loop; fails where nothing comes for a minute before.
+    /// Takes what comes until `wanted` holds of the loop; fails where nothing comes for half a minute, or it does not
+    /// hold within 40 seconds, saying how each work stands, before the harness gives the test up.
     pub async fn until(&mut self, wanted: impl Fn(&Real) -> bool) {
+        let began = Instant::now();
+        let mut taken = 0;
         while !wanted(self) {
-            let message = tokio::time::timeout(Duration::from_secs(60), self.inbox.recv())
-                .await
-                .expect("something comes within a minute")
-                .expect("the loop's channel is open");
+            let message = match tokio::time::timeout(Duration::from_secs(30), self.inbox.recv()).await {
+                Ok(message) => message.expect("the loop's channel is open"),
+                Err(_) => panic!("nothing came within half a minute:\n{}", self.standing()),
+            };
+            taken += 1;
+            assert!(
+                began.elapsed() < Duration::from_secs(40),
+                "it does not come within 40 seconds, {taken} things taken:\n{}",
+                self.standing()
+            );
             match &message {
                 Message::Happened {
                     event: Event::Failed { .. },
@@ -464,6 +825,22 @@ impl Real {
     /// What the work does next.
     pub fn decision(&self, work: WorkNumber) -> Decision {
         self.service.driver().view(work).expect("the work").decision
+    }
+
+    /// How each work stands, for a test that fails: what it does next, and what came back of each of its rounds.
+    fn standing(&self) -> String {
+        let driver = self.service.driver();
+        (driver.works())
+            .map(|kept| {
+                let number = kept.head.number;
+                let decision = driver.view(number).map(|view| view.decision);
+                let back: Vec<String> = (kept.work.back.iter())
+                    .map(|(round, back)| format!("{round:?}: {back:?}"))
+                    .collect();
+                format!("work {}: {decision:?}\n{}", number.0, back.join("\n"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Everything kept of the work.
@@ -518,9 +895,16 @@ impl Real {
         (1..)
             .map_while(|n| {
                 let args = read(n, "args").ok()?;
+                // The message, from the one user message of the stream-json input the fake was given; nothing where
+                // the fake was stopped before it had read it.
+                let stdin = read(n, "stdin").unwrap_or_default();
+                let given = serde_json::from_str::<serde_json::Value>(&stdin).ok();
+                let text = given
+                    .as_ref()
+                    .and_then(|given| given["message"]["content"][0]["text"].as_str());
                 Some(Call {
                     args: args.lines().map(str::to_string).collect(),
-                    stdin: read(n, "stdin").unwrap_or_default(),
+                    stdin: text.unwrap_or_default().to_string(),
                     dir: PathBuf::from(read(n, "pwd").unwrap_or_default().trim_end()),
                     overlapped: self.calls.join(format!("{n}.overlap")).exists(),
                 })

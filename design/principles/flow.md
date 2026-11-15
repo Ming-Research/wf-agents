@@ -18,6 +18,10 @@ Why: The prompt cache matches only the leading bytes of a request, so only an id
 The system prompt of a line's session holds only what every cell of the line is given alike and what is the same in every session of the line. Everything else is sent in a message as its cell is entered.
 Why: The agent's program takes a session's system prompt once, as the session begins, and keeps it; one given again when the session is taken up is ignored. So what is put there reaches every cell of the line and can be neither changed nor added to until the session is reopened. And two sessions share it in the cache only where it is the same to the byte: a difference anywhere in it loses all of it.
 
+### principle one-form-of-return-for-a-session
+The form of a return given to the agent's program is the same on every call of a session, which is a line's: it holds the engine's fields, the tools the flow names, and the blocks the cells of the line write, each in its own shape. It is never made for one cell: where a cell needs a shape the form does not give, the cell is told that shape in its message, and the engine checks it as it reads the return. Each cell is told which blocks are its own with its task, and the engine sends back a return that writes a block that is not its cell's.
+Why: The agent's program puts the form with the tools at the very front of every request, before the system prompt and the session's messages, and does not keep it with the session as it keeps the system prompt; so a form that differs from the call before leaves nothing of the session in the cache (principle cache-order). Measured in one session, a call with the form of the call before read 77,555 tokens from the cache and wrote 248, and the call whose form differed read none and wrote 38,961.
+
 ### principle yes-no-forks
 Where an agent decides which way the work goes, the fork is one yes/no question asked by the cell right before it, answered by the facts, never by caution, and the way on depends on that answer alone. Being unable to go on is not a fork: the work comes back to the same cell.
 Why: A label kept for later routing compresses information, so judging by it later distorts, and it hides steps no one sees. "When unsure, take the heavier path" makes works that do not need it pay for it.
@@ -25,6 +29,10 @@ Why: A label kept for later routing compresses information, so judging by it lat
 ### principle locate-and-price-the-fix
 Before something is added to the flow, the problem is placed, every work or only some kind of work, and a cell that serves every work never asks any work for an answer only some works have. A mistake is stopped first by rewriting a sentence of the cell's input; a question (an answer from every work), or a check, a second pair of eyes or a cell (a round of every work), is added only where the input cannot stop it or agents get it wrong even when told, and what it stops is worth that cost.
 Why: Things added where a problem showed up each looked reasonable alone, and together caused most of the flow's problems. Models follow only part of what they are told, so some mistakes need a guard; but a guard costs every work, and as models improve it is worth less. Making small things big or big things small, or stopping agents from doing what they could, is worse than a bug in the flow. (From the flow's audits; not measured.)
+
+### principle a-flow-serves-every-kind-of-work
+A flow is designed for every kind of work its works bring, never around one of them: the engineer's flow serves a defect, a capability not there yet, a change of design, a measurement and a cleanup alike, and no cell's words take one kind for the work, nor give a step only one kind can take as every work's first.
+Why: Words written for one kind send every other kind down a path that does not fit it. The engineer's research was told to reproduce a defect first; an item that adds a capability had no defect, the words had nothing for its first step, and read literally they would stop it to ask the owner (the trials of 2026-11-14). The like cases of a defect and how to keep its kind from coming back were struck from the engineer's words before, for the same reason.
 
 ### principle focused-judgment-alone
 A judgment that needs research and focus, such as whether something is a design defect, is asked as a step of its own, not as a side question in another task, and not every time; agents elsewhere may still make it.
@@ -93,6 +101,13 @@ short, and is opened only where it is not understood.
 Why: Otherwise the owner reads the whole story again each time; a question written well can be decided with nobody's
 help.
 
+### principle who-asks-can-be-spoken-to
+A cell that may ask the owner a question can be spoken to by the owner; a cell that asks nothing is not spoken to.
+Why: Once asked, the owner may need to ask back about the question's background, and only the cell that asked knows why
+it asked: said to another cell, the words reach one that does not know the question. A cell that asks nothing has
+nothing of its own the owner needs to take up with it: what the owner wants of a review goes through the cell that
+answers the review, which fixes the point or has the owner rule on it.
+
 ### principle named-paths-wait-for-the-owner
 A change that touches a path the project's configuration names for the owner, such as a specification or the
 principles of its design, waits at the merge for the owner's yes, and a later change to those paths asks again. The
@@ -108,3 +123,9 @@ guide. The guide points to them as well, for the agents that work outside the fl
 Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an
 agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the
 guide.
+
+### principle an-agent-knows-only-its-task
+An agent works from its task and the data it is given, and knows nothing of the flow around it: not the cell it runs
+as, not the other cells, not who reads what it writes. A cell's words name no other cell.
+Why: Carrying what one cell writes to the next is the flow's work (principle mechanical-engine). Words that tell an
+agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.

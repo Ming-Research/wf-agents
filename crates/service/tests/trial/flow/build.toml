@@ -3,5 +3,5 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Build what the plan says."
-inputs = ["plan", "opinions"]
+inputs = ["plan", "opinions", "answered"]
 outputs = ["code"]

@@ -11,7 +11,7 @@ fn test(kind: TestKind, reads: &[&str], is: &str) -> Test {
     Test {
         kind,
         reads: reads.iter().map(|b| (*b).into()).collect(),
-        is: is.to_string(),
+        is: Some(is.to_string()),
     }
 }
 
@@ -22,8 +22,9 @@ fn tests(named: &[(&str, Test)]) -> BTreeMap<TestName, Test> {
 /// Whether the test `t`, of this kind over `a` and `b` for yes, holds once people wrote these values in this order:
 /// the cell it holds back runs, or the work waits before it for the owner.
 fn holds(kind: TestKind, writes: &[(&str, &str)]) -> bool {
-    let cells = vec![requiring("t", cell("c", &[], &[])), Cell::new("merge")];
+    let cells = vec![requiring("t", cell("c", &["brief"], &[])), Cell::new("merge")];
     let mut w = World::with_tests(cells, tests(&[("t", test(kind, &["a", "b"], "yes"))]));
+    w.person_writes("brief");
     for (block, value) in writes {
         w.person_sets(block, value);
     }
@@ -76,6 +77,51 @@ fn a_test_of_what_stands_holds_as_one_that_no_block_has_the_value_where_people_w
     assert!(standing(&[("a", "yes"), ("a", "no")]));
 }
 
+/// A planner writing a plan and its edits of the tree from a brief; a reviewer of the edits, run while they hold
+/// anything, by a test of content; and the merge, run by the plan.
+fn edited() -> World {
+    let cells = vec![
+        cell("planner", &["brief"], &["plan", "edits"]),
+        on_test("edits_held", cell("reviewer", &["plan", "edits"], &["review"])),
+        cell("merge", &["plan"], &[]),
+    ];
+    let content = Test {
+        kind: TestKind::AnyContent,
+        reads: vec!["edits".into()],
+        is: None,
+    };
+    World::with_tests(cells, tests(&[("edits_held", content)]))
+}
+
+/// The cell the walk runs next.
+fn next(w: &World) -> String {
+    reasons(&w.decide()).0
+}
+
+#[test]
+fn a_test_of_content_holds_while_a_block_it_reads_holds_anything_one_never_written_holding_nothing() {
+    // No edits written: the reviewer is skipped, and the merge runs for the plan.
+    let mut w = edited();
+    w.person_writes("brief");
+    w.run("planner", &[("plan", Matters)]);
+    assert_eq!(next(&w), "merge");
+    // Edits that hold something run the reviewer.
+    let mut w = edited();
+    w.person_writes("brief");
+    w.run("planner", &[("plan", Matters), ("edits", Matters)]);
+    assert_eq!(next(&w), "reviewer");
+    w.run("reviewer", &[("review", Matters)]);
+    assert_eq!(next(&w), "merge");
+    // Written again holding nothing, they run it no more, though the plan is new to it.
+    w.person_writes("brief");
+    w.run("planner", &[("plan", Matters), ("edits", Nothing)]);
+    assert_eq!(next(&w), "merge");
+    // And holding something again, they do.
+    w.person_writes("brief");
+    w.run("planner", &[("plan", Matters), ("edits", Matters)]);
+    assert_eq!(next(&w), "reviewer");
+}
+
 /// An asker writing whether a judge runs, from a brief; the judge, run only when asked to, writing a verdict; and the
 /// merge, which waits while the verdict stands at no. The judge's condition is on the asker's choice, or a named test
 /// of it where `by_test`.
@@ -89,13 +135,18 @@ fn judged(by_test: bool) -> World {
     let cells = vec![
         cell("asker", &["brief"], &["ask", "code"]),
         judge,
-        requiring("unrefused", Cell::new("merge")),
+        requiring("unrefused", cell("merge", &["code"], &[])),
     ];
     let named = tests(&[
         ("asked", test(TestKind::Any, &["ask"], "yes")),
         ("unrefused", test(TestKind::NoneStanding, &["verdict"], "no")),
     ]);
     World::with_tests(cells, named)
+}
+
+/// The merge runs for the code, of this version, that is new to it.
+fn merging(code: Seq) -> Decision {
+    runs("merge", first(&["code"]), &[("code", Some(code))])
 }
 
 fn refused() -> Decision {
@@ -110,13 +161,13 @@ fn a_judges_no_holds_the_merge_while_the_judge_is_not_skipped_and_nothing_once_i
     for by_test in [false, true] {
         let mut w = judged(by_test);
         w.person_writes("brief");
-        w.run("asker", &[("ask", Value("yes")), ("code", Matters)]);
+        let code = w.run("asker", &[("ask", Value("yes")), ("code", Matters)]);
         w.run("judge", &[("verdict", Value("no"))]);
         assert_eq!(w.decide(), refused(), "by test: {by_test}");
         // The asker, run again for a new brief, no longer asks for the judge: its no stands no more.
         w.person_writes("brief");
         w.run("asker", &[("ask", Value("no"))]);
-        assert_eq!(w.decide(), runs("merge", vec![NO_RECORD], &[]), "by test: {by_test}");
+        assert_eq!(w.decide(), merging(code), "by test: {by_test}");
     }
 }
 
@@ -138,19 +189,19 @@ fn a_judge_that_applies_again_with_nothing_new_to_judge_has_its_old_no_stand_aga
 fn what_a_person_wrote_stands_whatever_the_cell() {
     let mut w = judged(false);
     w.person_writes("brief");
-    w.run("asker", &[("ask", Value("no")), ("code", Matters)]);
+    let code = w.run("asker", &[("ask", Value("no")), ("code", Matters)]);
     // The judge is skipped, and the owner's no stands.
     w.person_sets("verdict", "no");
     assert_eq!(w.decide(), refused());
     w.person_sets("verdict", "yes");
-    assert_eq!(w.decide(), runs("merge", vec![NO_RECORD], &[]));
+    assert_eq!(w.decide(), merging(code));
     // Over a judge's no, the owner's yes lets the work go on while the judge runs.
     let mut w = judged(false);
     w.person_writes("brief");
-    w.run("asker", &[("ask", Value("yes")), ("code", Matters)]);
+    let code = w.run("asker", &[("ask", Value("yes")), ("code", Matters)]);
     w.run("judge", &[("verdict", Value("no"))]);
     w.person_sets("verdict", "yes");
-    assert_eq!(w.decide(), runs("merge", vec![NO_RECORD], &[]));
+    assert_eq!(w.decide(), merging(code));
 }
 
 #[test]
@@ -209,7 +260,7 @@ fn two_judges() -> World {
             "yes",
             cell("deep", &["code", "answer"], &["deep_verdict", "opinions"]),
         ),
-        requiring("approved", Cell::new("merge")),
+        requiring("approved", cell("merge", &["code"], &[])),
     ];
     let named = tests(&[(
         "approved",
@@ -226,17 +277,17 @@ fn the_second_judges_no_holds_nothing_once_the_first_finds_it_no_longer_needed()
     w.run("judge", &[("verdict", Value("yes")), ("deeper", Value("yes"))]);
     w.run("deep", &[("deep_verdict", Value("no")), ("opinions", Matters)]);
     // The writer fixes what the second judge found; the first judge looks again and needs the second no more.
-    w.run("write", &[("code", Matters), ("answer", Matters)]);
+    let code = w.run("write", &[("code", Matters), ("answer", Matters)]);
     w.run("judge", &[("verdict", Value("yes")), ("deeper", Value("no"))]);
     // The second judge is skipped, its no stands no more, and the work reaches the merge without the owner.
-    assert_eq!(w.decide(), runs("merge", vec![NO_RECORD], &[]));
+    assert_eq!(w.decide(), merging(code));
 }
 
 #[test]
 fn a_judge_that_still_says_no_with_nothing_new_to_say_holds_the_merge_for_the_owner() {
     let mut w = two_judges();
     w.person_writes("brief");
-    w.run("write", &[("code", Matters)]);
+    let code = w.run("write", &[("code", Matters)]);
     w.run(
         "judge",
         &[("verdict", Value("no")), ("deeper", Value("no")), ("opinions", Matters)],
@@ -253,7 +304,7 @@ fn a_judge_that_still_says_no_with_nothing_new_to_say_holds_the_merge_for_the_ow
     assert_eq!(w.decide(), approved);
     // The owner writes the judge's verdict as yes, and the work goes on.
     w.person_sets("verdict", "yes");
-    assert_eq!(w.decide(), runs("merge", vec![NO_RECORD], &[]));
+    assert_eq!(w.decide(), merging(code));
 }
 
 /// Whether a test of this kind over `ask` for yes holds before the cell that waits on it, once the cell that wrote
@@ -262,8 +313,8 @@ fn a_judge_that_still_says_no_with_nothing_new_to_say_holds_the_merge_for_the_ow
 fn after_the_writer_is_skipped(kind: TestKind) -> bool {
     let cells = vec![
         cell("asker", &["brief"], &["more"]),
-        when("more", "yes", cell("writer", &[], &["ask"])),
-        requiring("t", cell("c", &[], &[])),
+        when("more", "yes", cell("writer", &["brief"], &["ask"])),
+        requiring("t", cell("c", &["brief"], &[])),
         Cell::new("merge"),
     ];
     let mut w = World::with_tests(cells, tests(&[("t", test(kind, &["ask"], "yes"))]));
@@ -286,4 +337,43 @@ fn for_every_kind_but_what_stands_what_a_cell_skipped_now_wrote_still_counts() {
     assert!(!after_the_writer_is_skipped(TestKind::None));
     // Only a test of what stands leaves out the skipped writer's yes.
     assert!(after_the_writer_is_skipped(TestKind::NoneStanding));
+}
+
+/// A cell that decides which of two cells is in charge of the research, its condition a test of the choice it alone
+/// writes (design document `data-and-context`, 44): it applies while the choice is not yes, unwritten counting as
+/// not yes; the deep research applies once it is.
+fn in_charge() -> World {
+    let cells = vec![
+        on_test("in_charge", cell("research", &["brief"], &["deep", "plan"])),
+        when("deep", "yes", cell("deep_research", &["brief"], &["plan"])),
+        cell("merge", &["plan"], &[]),
+    ];
+    World::with_tests(cells, tests(&[("in_charge", test(TestKind::None, &["deep"], "yes"))]))
+}
+
+/// The cell the walk runs next.
+fn running(w: &World) -> String {
+    match w.decide() {
+        Decision::Run { cell, .. } => cell.to_string(),
+        other => panic!("the walk decides {other:?}"),
+    }
+}
+
+#[test]
+fn a_cell_whose_condition_reads_its_own_choice_runs_until_it_hands_the_work_to_another() {
+    let mut w = in_charge();
+    w.person_writes("brief");
+    assert_eq!(running(&w), "research");
+    w.run("research", &[("deep", Value("no")), ("plan", Matters)]);
+    assert_eq!(running(&w), "merge");
+
+    let mut w = in_charge();
+    w.person_writes("brief");
+    w.run("research", &[("deep", Value("yes"))]);
+    assert_eq!(running(&w), "deep_research");
+    w.run("deep_research", &[("plan", Matters)]);
+    assert_eq!(running(&w), "merge");
+    // A new brief runs the deep research, which is in charge now; the cell that handed it over no longer applies.
+    w.person_writes("brief");
+    assert_eq!(running(&w), "deep_research");
 }

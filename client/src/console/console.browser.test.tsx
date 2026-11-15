@@ -51,16 +51,19 @@ const drew = async () => {
   await frame();
 };
 
-/// Waits until the columns stand still: three frames in a row in which nothing moved.
+/// Waits until the columns stand still: three frames in a row in which nothing moved, which they reach within a second
+/// of frames of what moved them. The bound is in frames, which the scene moves by, not in time, which a busy machine
+/// stretches.
 async function settle(scene: SnapScene) {
   let was = JSON.stringify(scene.place());
   let still = 0;
-  for (let k = 0; k < 400 && still < 3; k += 1) {
+  for (let k = 0; k < 60 && still < 3; k += 1) {
     await frame();
     const now = JSON.stringify(scene.place());
     still = now === was ? still + 1 : 0;
     was = now;
   }
+  expect(still, 'the columns still moved 60 frames on').toBe(3);
 }
 
 describe('the tree in columns', () => {
@@ -457,6 +460,24 @@ describe('the console page', () => {
   });
 });
 
+describe('the console page, opened at an item the address names', () => {
+  it('selects the item once the tree shows it, and brings the panel out with it', async () => {
+    const container = document.createElement('div');
+    container.style.cssText = 'position: fixed; inset: 0; display: flex';
+    document.body.append(container);
+    delete (window as { consoleScene?: SnapScene }).consoleScene;
+    const root = createRoot(container);
+    root.render(<ConsolePage source={fixtureSource()} named={12} />);
+    try {
+      await expect.poll(() => container.querySelector('.drawer-title')?.textContent ?? null).toBe('Show the cost of a work');
+      expect(container.querySelector('aside.cw')?.classList.contains('cw-open')).toBe(true);
+    } finally {
+      root.unmount();
+      container.remove();
+    }
+  });
+});
+
 describe('the console page, when a work cannot be read', () => {
   it('says so in the panel, and reads it again when the stream opens again', async () => {
     const source = fixtureSource();
@@ -486,8 +507,8 @@ describe('the console page, when a work cannot be read', () => {
     await expect.poll(said).toBe('The page could not read the work: /api/v1/works/12 answered 500');
     fails = false;
     (reopened as (() => void) | null)?.();
-    // The made-up flow has no block that is the owner's words to one cell of the engineer's, so no box is offered.
-    await expect.poll(said).toBe('People write no block of this flow');
+    // The made-up flow has none of the engineer's cells the box offers, so no box is offered.
+    await expect.poll(said).toBe("No cell of this flow takes the owner's words");
     root.unmount();
     container.remove();
   });

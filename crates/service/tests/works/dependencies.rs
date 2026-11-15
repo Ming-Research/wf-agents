@@ -1,6 +1,6 @@
 //! An item that depends on another: its work waits before the plan until the other has merged.
 
-use decide::{Decision, End, Maker, TestName, Waited};
+use decide::{Condition, Decision, End, Maker, TestName, Waited};
 use service::Act;
 
 use crate::Trial;
@@ -17,7 +17,7 @@ async fn a_second_item_waits_for_the_first_to_merge() {
         Decision::Wait {
             at: "plan".into(),
             on: vec![Waited::Precondition {
-                test: TestName("ready".to_string()),
+                on: Condition::Test(TestName("ready".to_string())),
                 by: vec![Maker::Outside {
                     source: "dependencies".to_string()
                 }],

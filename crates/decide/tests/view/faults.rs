@@ -24,9 +24,12 @@ fn the_view_of_records_naming_a_run_that_never_started_does_not_panic() {
         at,
         writes: vec![decide::Write {
             block: "plan".into(),
-            matters: true,
+            meaning_unchanged: false,
+            empty: false,
             value: None,
         }],
+        dealt_with: None,
+        waits_for: None,
     });
     let v = seen(&w);
     assert_eq!(v.decision, Decision::Fault(decide::RecordFault::UnknownRun(RunId(99))));

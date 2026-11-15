@@ -1,9 +1,11 @@
 //! What the GitHub host asks of GitHub, apart from what `git` pushes and fetches: the pull requests of a branch and
-//! their text, the checks of a commit, a check's log, the merge and the closing of a pull request, and a workflow run by
+//! their text, the merge and the closing of a pull request, and a workflow run by
 //! hand with its runs, their jobs and what they uploaded. [`Gh`](super::gh::Gh) asks GitHub with the
 //! `gh` command line; the tests ask a fake.
 
 use std::future::Future;
+
+use crate::host::Failed;
 
 /// A pull request, as far as the host reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,20 +37,16 @@ pub enum State {
     Merged,
 }
 
-/// One check of a commit: a check run, or a commit status, by its name.
+/// One job of a run of a workflow, by its name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Check {
     pub name: String,
     pub outcome: Outcome,
     /// Where a person sees it, where it says.
     pub url: Option<String>,
-    /// What it said of itself, its title and summary, where it said anything.
-    pub summary: Option<String>,
-    /// The job whose log GitHub keeps, for a check that is a job of GitHub Actions.
-    pub job: Option<u64>,
-    /// The earlier runs of the check on the same commit, oldest first, each as GitHub says how it ended and where a
-    /// person sees it.
-    pub earlier: Vec<String>,
+    /// How long it took, in whole seconds, from its start to its end as GitHub records them; only for a job that ran to
+    /// a conclusion of passed or failed, and none where GitHub gives no usable start or end.
+    pub took: Option<u64>,
 }
 
 /// What came of a check.
@@ -56,7 +54,9 @@ pub struct Check {
 pub enum Outcome {
     /// It is not complete.
     Pending,
-    /// It passed, or had nothing to do.
+    /// It did not run: its condition was false, or a job it needs did not succeed.
+    Skipped,
+    /// It passed.
     Passed,
     /// It judged the code and found it wanting, with GitHub's word for how.
     Failed(String),
@@ -75,6 +75,8 @@ pub struct Run {
     pub started: bool,
     /// Whether it has completed.
     pub completed: bool,
+    /// Whether it completed cancelled, having judged nothing.
+    pub cancelled: bool,
     /// Where a person sees it.
     pub url: String,
 }
@@ -83,10 +85,11 @@ pub struct Run {
 pub type File = (String, Vec<u8>);
 
 /// What the GitHub host asks of GitHub, in the repository it is given. An `Err` is GitHub's refusal or failure, in
-/// words that say which.
+/// words that say which, of the kind the status of GitHub's answer tells: a fault of GitHub's or its limit on requests
+/// passes, any other refusal does not; none where GitHub gave no answer.
 pub trait Api: Send + Sync + 'static {
     /// The pull requests whose head is this branch of the repository, open or not.
-    fn pulls(&self, branch: &str) -> impl Future<Output = Result<Vec<Pull>, String>> + Send;
+    fn pulls(&self, branch: &str) -> impl Future<Output = Result<Vec<Pull>, Failed>> + Send;
 
     /// Opens a pull request of the branch into the base, with this title and body, as a draft.
     fn open(
@@ -95,23 +98,23 @@ pub trait Api: Send + Sync + 'static {
         base: &str,
         title: &str,
         body: &str,
-    ) -> impl Future<Output = Result<Pull, String>> + Send;
+    ) -> impl Future<Output = Result<Pull, Failed>> + Send;
 
-    /// The checks of the commit, the latest run of each.
-    fn checks(&self, commit: &str) -> impl Future<Output = Result<Vec<Check>, String>> + Send;
-
-    /// The log of the job of GitHub Actions.
-    fn log(&self, job: u64) -> impl Future<Output = Result<String, String>> + Send;
-
-    /// Merges the pull request by the method (`squash`, `merge` or `rebase`), provided its head is the commit; gives
-    /// the commit the merge made.
-    fn merge(&self, number: u64, head: &str, method: &str) -> impl Future<Output = Result<String, String>> + Send;
+    /// Merges the pull request by the method (`squash`, `merge` or `rebase`), provided its head is the commit, the
+    /// commit the merge makes titled so; gives the commit the merge made.
+    fn merge(
+        &self,
+        number: u64,
+        head: &str,
+        method: &str,
+        title: &str,
+    ) -> impl Future<Output = Result<String, Failed>> + Send;
 
     /// Deletes the branch of the repository; a branch that is not there is no fault.
-    fn delete(&self, branch: &str) -> impl Future<Output = Result<(), String>> + Send;
+    fn delete(&self, branch: &str) -> impl Future<Output = Result<(), Failed>> + Send;
 
     /// The latest runs by hand of the workflow asked for on the branch.
-    fn runs(&self, workflow: &str, branch: &str) -> impl Future<Output = Result<Vec<Run>, String>> + Send;
+    fn runs(&self, workflow: &str, branch: &str) -> impl Future<Output = Result<Vec<Run>, Failed>> + Send;
 
     /// Runs the workflow by hand on the branch, with these inputs.
     fn dispatch(
@@ -119,20 +122,26 @@ pub trait Api: Send + Sync + 'static {
         workflow: &str,
         branch: &str,
         inputs: &[(String, String)],
-    ) -> impl Future<Output = Result<(), String>> + Send;
+    ) -> impl Future<Output = Result<(), Failed>> + Send;
+
+    /// Cancels the run, where it is not complete; one complete already is left as it is.
+    fn cancel(&self, run: u64) -> impl Future<Output = Result<(), Failed>> + Send;
 
     /// The jobs of the run, each as a check.
-    fn jobs(&self, run: u64) -> impl Future<Output = Result<Vec<Check>, String>> + Send;
+    fn jobs(&self, run: u64) -> impl Future<Output = Result<Vec<Check>, Failed>> + Send;
 
     /// The files of the artifact of this name that the run uploaded; none where it uploaded none so named.
-    fn artifact(&self, run: u64, name: &str) -> impl Future<Output = Result<Option<Vec<File>>, String>> + Send;
+    fn artifact(&self, run: u64, name: &str) -> impl Future<Output = Result<Option<Vec<File>>, Failed>> + Send;
 
     /// Gives the pull request this title and body.
-    fn edit(&self, number: u64, title: &str, body: &str) -> impl Future<Output = Result<(), String>> + Send;
+    fn edit(&self, number: u64, title: &str, body: &str) -> impl Future<Output = Result<(), Failed>> + Send;
 
     /// Makes the draft pull request of this id ready to be reviewed and merged.
-    fn ready(&self, node: &str) -> impl Future<Output = Result<(), String>> + Send;
+    fn ready(&self, node: &str) -> impl Future<Output = Result<(), Failed>> + Send;
 
     /// Closes the pull request, saying this on it first.
-    fn close(&self, number: u64, comment: &str) -> impl Future<Output = Result<(), String>> + Send;
+    fn close(&self, number: u64, comment: &str) -> impl Future<Output = Result<(), Failed>> + Send;
+
+    /// Opens the closed pull request again.
+    fn reopen(&self, number: u64) -> impl Future<Output = Result<(), Failed>> + Send;
 }

@@ -1,0 +1,14 @@
+# The blocks the cell writes, each a field under its name. The form of a line lists each block a cell of the line
+# writes, in the order of the walk, each in its own shape: a choice its value, one of its values, and a line of why; a
+# block whose file declares a shape of its own, that shape; any other block its whole new version, a text. The cell is
+# told its own with its task (`../return.toml`, `[outputs]`), and the engine sends back a block that is not among them.
+told = "alone"
+words = '''
+Each block you write is a field of `outputs` under the block's name. A block that is a choice holds `value`, one of
+its values, and `why`, a line of why in `owner.language`; any other holds the block's whole new version. Write only the
+blocks listed under "What this cell returns", and only where one no longer stands as it is.'''
+
+# The shape of `outputs`, which the form gives the blocks of the line under `properties`.
+[shape]
+type = "object"
+additionalProperties = false

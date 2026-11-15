@@ -1,0 +1,6 @@
+# An engine cell that main moving runs, carried out by the engine's act `check`.
+title = "Check with the latest main"
+kind = "engine"
+act = "check"
+triggered_by = ["on_main", "on_design"]
+outputs = ["ci"]

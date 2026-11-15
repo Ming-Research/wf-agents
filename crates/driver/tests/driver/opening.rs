@@ -56,7 +56,7 @@ fn a_block_the_driver_writes_that_is_no_choice_of_waiting_and_merged_is_refused(
             "#
         );
         let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the text.\"\n\
-                     requires = [\"ready\"]\noutputs = [\"text\"]\n";
+                     requires = { test = \"ready\" }\noutputs = [\"text\"]\n";
         let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";
         let odd = compiled(&flow, &[("write", write), ("merge", merge)]);
         let db = Db::new();
@@ -116,19 +116,18 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     // A work resting at a call.
     let (_, b) = h.add(new_item("b", &[], "judged"));
     h.let_on(b);
-    let todos = h.returns(b, Came::Asks(vec![tool("search")]));
+    let todos = h.returns(b, Came::asks(vec![tool("search")]));
     assert_eq!(todos.len(), 1);
     // A cancelled work whose round is still to be stopped.
     let (_, c) = h.add(new_item("c", &[], "short"));
     h.let_on(c);
     h.on(c, Event::Cancelled { why: None });
-    // A work whose call, asked of a person, is to be withdrawn: a person wrote what its run started from; its cell
-    // runs again.
+    // A work whose cell waits for a person's answer to its call, though a person wrote what runs it since.
     let (_, d) = h.add(new_item("d", &[], "plain"));
     h.let_on(d);
-    h.returns(d, Came::Asks(vec![question(Who::Owner)]));
+    h.returns(d, Came::asks(vec![question(Who::Owner)]));
     h.on(d, wrote("request", Outsider::Person, None));
-    // A paused work, and a merged one.
+    // A work never let on, and a merged one.
     let (_, e) = h.add(new_item("e", &[], "short"));
     let (_, f) = h.add(new_item("f", &[], "plain"));
     h.let_on(f);
@@ -143,12 +142,14 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
                 Effect::Stop { .. } => "stop",
                 Effect::Withdraw { .. } => "withdraw",
                 Effect::Release { .. } => "release",
+                Effect::Ping { .. } => "ping",
+                Effect::Tell { .. } => "tell",
             };
             (t.work, kind)
         })
         .collect();
     // The merged work's release is answered as it merges.
-    let mut expected = vec![(a, "round"), (b, "call"), (c, "stop"), (d, "round"), (d, "withdraw")];
+    let mut expected = vec![(a, "round"), (b, "call"), (c, "stop"), (d, "call")];
     expected.sort();
     let mut got = kinds.clone();
     got.sort();
@@ -169,7 +170,8 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     assert_eq!(rows.len(), 1, "the driver paused everything once: {rows:?}");
     rows.clear();
     assert_eq!(after, before, "opened again, the driver holds otherwise");
-    assert_eq!(h.decision(e), Decision::Paused);
+    // Never started by the owner, it has nothing new to run its first cell.
+    assert!(matches!(h.decision(e), Decision::Stalled { .. }), "{:?}", h.decision(e));
     assert_eq!(h.decision(f), Decision::Ended(End::Merged));
 }
 
@@ -241,9 +243,15 @@ fn with_blocks(blocks: &str, tests: &str, requires: &str, outputs: &str) -> flow
         {tests}
         "#
     );
+    // The named test it waits on, where it waits on one.
+    let requires = if requires.is_empty() {
+        String::new()
+    } else {
+        format!("requires = {{ test = {requires} }}\n")
+    };
     let write = format!(
         "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the text.\"\n\
-         requires = [{requires}]\ninputs = [\"deps\"]\noutputs = [{outputs}]\n"
+         {requires}inputs = [\"deps\"]\noutputs = [{outputs}]\n"
     );
     let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";
     compiled(&flow, &[("write", write.as_str()), ("merge", merge)])
@@ -371,4 +379,88 @@ fn a_work_at_fault_with_a_round_under_way_is_given_that_round_again_as_the_drive
     let todos = h.reopen();
     assert!(matches!(h.decision(wa), Decision::Fault(_)));
     assert_eq!(todos, given);
+}
+
+/// The engineer's flow as the repository defines it, compiled against what the engine has for it, as `wf-agents`
+/// compiles it.
+fn engineer() -> flow::Compiled {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let beside = flow::agents::read(&root).expect("the files beside the flows are read");
+    let source = flow::read(&root.join("engineer")).expect("the engineer's flow is read");
+    let names = |names: &[&str]| {
+        (names.iter())
+            .map(|n| n.to_string())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let has = flow::Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge"]),
+        tools: names(&["query", "run_tests"]),
+        system: flow::system::reserved(&beside).into_iter().collect(),
+        details: names(&["files"]),
+    };
+    flow::compile(&source, &has).expect("the engineer's flow compiles")
+}
+
+#[test]
+fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_record_once_as_the_driver_opens() {
+    let db = Db::new();
+    let (mut driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
+    let (_, work, _) =
+        (driver.add(Time(START), new_item("Greet the user", &[], "engineer"))).expect("the item is added");
+    drop(driver);
+    // As the console wrote the owner's words before the record held them: into R1's block of them, as a person's, and
+    // the same words into R2's.
+    let mut store = db.open();
+    let mut kept = store.load(work).expect("the work loads");
+    for block in ["r1_spoken_to", "r2_spoken_to"] {
+        let at = kept.tick();
+        let block = decide::BlockId::from(block);
+        kept.contents
+            .insert((block.clone(), at), "Keep it to one table.".to_string());
+        kept.records.written.push(decide::Written {
+            block,
+            by: Outsider::Person,
+            matters: true,
+            value: None,
+            said_to: None,
+            empty: false,
+            at,
+        });
+    }
+    store.save(work, &kept).expect("the work is saved");
+    drop(store);
+    let carried = |db: &Db| {
+        let w = db.open().load(work).expect("the work loads");
+        (w.records.written.iter())
+            .filter(|x| x.block.as_str() == "discussion" && x.by == Outsider::Outside)
+            .map(|x| {
+                let to = x.said_to.as_ref().map(|c| c.as_str().to_string());
+                (to, w.contents[&(x.block.clone(), x.at)].clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(carried(&db), Vec::<(Option<String>, String)>::new());
+    let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
+    drop(driver);
+    let entry = "The owner:\n\nKeep it to one table.".to_string();
+    let each = vec![(Some("R1".to_string()), entry.clone()), (Some("R2".to_string()), entry)];
+    assert_eq!(
+        carried(&db),
+        each,
+        "the words are the owner's entries said to R1 and to R2"
+    );
+    let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens again");
+    drop(driver);
+    assert_eq!(carried(&db), each, "they are carried once");
 }

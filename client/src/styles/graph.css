@@ -1,0 +1,435 @@
+/* The flowchart: the cells as boxes on the card in a pan-and-zoom view on the ground, the lines between them under
+   them: the main path thick in the text's colour, the arrows a write runs thin in the muted colour, a way back thin in
+   the way back's purple, an arrow from what the outside writes dashed, the arrow under the pointer in the accent; the
+   cell chosen on the accent's tint, the cells that write what it is given edged in the accent, and what it is given
+   beside it; the map of the whole chart over its top left corner. */
+
+.graph {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ground);
+}
+
+.graph[hidden] {
+  display: none;
+}
+
+/* The view that moves: the plain arrow over the chart, and the grabbing hand only while a drag moves it. */
+.viewer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: default;
+  touch-action: none;
+  background: var(--ground);
+}
+
+.viewer.dragging,
+.viewer.dragging * {
+  cursor: grabbing;
+}
+
+.viewer-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.graph-sheet {
+  position: relative;
+  user-select: none;
+}
+
+/* The arrows, under the nodes; only the wide line along each arrow takes the pointer. */
+.graph-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.graph-edge {
+  fill: none;
+  stroke: var(--chart-data);
+  stroke-width: var(--chart-line);
+}
+
+.graph-edge-main {
+  stroke: var(--text);
+  stroke-width: var(--chart-main);
+}
+
+.graph-edge-back {
+  stroke: var(--violet);
+}
+
+.graph-edge-outside {
+  stroke-dasharray: var(--chart-dash);
+}
+
+.graph-edge.pointed {
+  stroke: var(--accent);
+}
+
+.graph-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: var(--chart-hit);
+  pointer-events: stroke;
+}
+
+.graph-head path {
+  fill: var(--chart-data);
+}
+
+.graph-head-main path {
+  fill: var(--text);
+}
+
+.graph-head-back path {
+  fill: var(--violet);
+}
+
+.graph-head-pointed path,
+.graph-head-pointed-main path {
+  fill: var(--accent);
+}
+
+/* An arrow's label: the names of the triggers it stands for, on the ground, so that it reads over what passes under. */
+.graph-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ground);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-small);
+  line-height: var(--chart-node-line);
+  white-space: nowrap;
+}
+
+.graph-label.main {
+  color: var(--text);
+}
+
+.graph-label.back {
+  color: var(--violet);
+}
+
+.graph-label.pointed {
+  color: var(--accent-text);
+}
+
+.graph-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.graph-name:hover,
+.graph-name[aria-pressed='true'] {
+  color: var(--accent-text);
+}
+
+/* The nodes, each at the place and the size its layout gives. */
+.graph-node {
+  position: absolute;
+  margin: 0;
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+  transition: background-color var(--hover-time);
+}
+
+button.graph-node {
+  cursor: pointer;
+}
+
+button.graph-node:hover {
+  background-image: linear-gradient(var(--step), var(--step));
+}
+
+/* A cell: its id and its line on its first row, its title under them. */
+/* A cell stands out from what is drawn round it: edged thicker, in the text's colour, over the muted arrows; the
+   condition boxes dashed on the faint line, the tags with no edge. */
+.graph-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: var(--space-8) var(--space-12);
+  border: var(--chart-cell-edge) solid var(--text);
+}
+
+.graph-cell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  height: var(--tag);
+  margin-bottom: var(--space-2);
+}
+
+.graph-badge {
+  display: inline-flex;
+  align-items: center;
+  height: var(--tag);
+  padding: 0 var(--space-4);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-label);
+  white-space: nowrap;
+}
+
+.graph-badge.line-name {
+  color: var(--accent-text);
+}
+
+.graph-cell-title {
+  display: block;
+  font-weight: var(--weight-strong);
+  line-height: var(--chart-node-line);
+  white-space: nowrap;
+}
+
+/* The cell chosen, on the accent's tint and edged in the accent; the cells that write what it is given, edged in it. */
+.graph-cell.chosen {
+  border-color: var(--accent);
+  background-color: var(--accent-tint);
+}
+
+.graph-cell.lit {
+  border-color: var(--accent);
+}
+
+/* The way into a cell: each key of its `when`, then of its `requires` after the matrix's square; edged dashed in the
+   muted colour, so that it reads as a box, lighter than a cell's solid edge in the text's colour. */
+.graph-way-in {
+  border-style: dashed;
+  border-color: var(--muted);
+  background: var(--ground);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-4) 0;
+}
+
+.graph-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--chart-node-line);
+  padding: 0 var(--space-8);
+  border: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: var(--size-small);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.graph-row:hover {
+  background: var(--step);
+}
+
+.graph-row[aria-pressed='true'] {
+  background: var(--accent-tint);
+}
+
+.graph-row .glyphs,
+.graph-row .glyph {
+  flex: none;
+}
+
+/* A fork of the main path: the block it decides on, its values on its branches, the branch's value before what the
+   branch carries, in the text's colour. */
+.graph-branch {
+  color: var(--text);
+  font-weight: var(--weight-strong);
+  white-space: pre;
+}
+
+/* A tag of what the outside writes: its signs and its name. */
+.graph-tag {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-8);
+  font-family: var(--mono);
+  font-size: var(--size-small);
+  white-space: nowrap;
+}
+
+.graph-tag[aria-pressed='true'] {
+  border-color: var(--accent);
+  background-color: var(--accent-tint);
+}
+
+.graph-sign {
+  display: inline-flex;
+}
+
+/* What the chosen cell is given, beside it: each block with the kind it is given in. */
+.graph-context {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  border: var(--hairline) solid var(--accent);
+  background: var(--card);
+}
+
+.graph-context-tag {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--chart-node-line);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--corner);
+  background: none;
+  font-family: var(--mono);
+  font-size: var(--size-small);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.graph-context-tag:hover {
+  background: var(--step);
+}
+
+.graph-context-tag .glyphs {
+  flex: none;
+}
+
+/* The map over the chart's top left corner, while some of the chart is out of view, and the zoom under it. Hidden, it
+   keeps its size, which places the zoom. */
+.graph-map {
+  position: absolute;
+  top: var(--space-8);
+  left: var(--space-8);
+  z-index: 3;
+  visibility: hidden;
+  border: var(--hairline) solid var(--line);
+  background: var(--card);
+  cursor: pointer;
+}
+
+.graph-map[data-on] {
+  visibility: visible;
+}
+
+.graph-map svg {
+  display: block;
+}
+
+.graph-map-shape {
+  fill: var(--card);
+  stroke: var(--muted);
+  stroke-width: var(--hairline);
+}
+
+.graph-map-engine,
+.graph-map-way-in {
+  fill: var(--line);
+}
+
+.graph-map-frame {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: var(--hairline);
+  cursor: grab;
+}
+
+.graph-map[data-dragging] .graph-map-frame {
+  cursor: grabbing;
+}
+
+.graph-zoom {
+  position: absolute;
+  left: var(--space-8);
+  z-index: 3;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-label);
+}
+
+/* The legend's samples of the flowchart's lines, and the switch of the arrows a write runs before it. */
+.legend-arrow {
+  display: inline-block;
+  width: var(--space-12);
+  height: var(--chart-line);
+  background: var(--chart-data);
+}
+
+.legend-arrow.main {
+  height: var(--chart-main);
+  background: var(--text);
+}
+
+.legend-arrow.back {
+  background: var(--violet);
+}
+
+.legend-arrow.outside {
+  height: 0;
+  border-top: var(--chart-line) dashed var(--chart-data);
+  background: none;
+}
+
+.view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--muted);
+  font-size: var(--size-small);
+  cursor: pointer;
+}
+
+.view-toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.legend-node {
+  display: inline-block;
+  width: var(--space-12);
+  height: var(--space-8);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--card);
+}
+
+.legend-node.lit {
+  border-color: var(--accent);
+}
+
+/* The flowchart's place in the flow view, beside the panel. */
+.graph-place {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.graph-place[hidden] {
+  display: none;
+}
+
+.graph-place > .graph {
+  position: absolute;
+  inset: 0;
+}

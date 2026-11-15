@@ -4,7 +4,8 @@ use super::*;
 
 #[test]
 fn a_run_is_busy_only_while_a_round_is_under_way_and_at_rest_goes_on_when_the_walk_reaches_it() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[]), cell("b", &[], &[])]);
+    let mut w = World::with_gate(vec![cell("a", &["brief"], &[]), cell("b", &["brief"], &[])]);
+    let brief = w.person_writes("brief");
     let run = w.start("a");
     assert_eq!(w.decide(), busy("a", run));
     w.returns("a");
@@ -12,11 +13,11 @@ fn a_run_is_busy_only_while_a_round_is_under_way_and_at_rest_goes_on_when_the_wa
     w.go_on("a");
     assert_eq!(w.decide(), busy("a", run));
     w.finish("a", &[]);
-    assert_eq!(w.decide(), runs("b", vec![NO_RECORD], &[]));
+    assert_eq!(w.decide(), runs("b", first(&["brief"]), &[("brief", Some(brief))]));
 }
 
 #[test]
-fn a_cell_before_a_run_at_rest_runs_first_and_the_run_then_goes_on_if_nothing_it_started_from_changed() {
+fn a_cell_before_a_run_at_rest_runs_first_and_the_run_then_goes_on() {
     let (mut w, _, _) = reviewed();
     let p2 = w.person_writes("plan");
     let code = w.run("implement", &[("code", Matters)]);
@@ -32,9 +33,19 @@ fn a_cell_before_a_run_at_rest_runs_first_and_the_run_then_goes_on_if_nothing_it
             &[("plan", Some(p3)), ("opinions", None), ("code", Some(code))]
         )
     );
-    // The new plan changes nothing in the code: the review goes on where it was.
-    w.run("implement", &[]);
+    // Its run goes on where it was, whatever came since: what it was not told of stays new to it.
+    let code2 = w.run("implement", &[("code", Matters)]);
     assert_eq!(w.decide(), go_on("review", review));
+    w.go_on("review");
+    w.finish("review", &[]);
+    assert_eq!(
+        w.decide(),
+        runs(
+            "review",
+            vec![changed("code", Some(code), false)],
+            &[("code", Some(code2)), ("opinions", None)]
+        )
+    );
 }
 
 #[test]
@@ -59,7 +70,8 @@ fn a_cell_after_a_run_at_rest_does_not_run_while_the_run_is_open() {
 
 #[test]
 fn a_run_at_rest_at_a_call_for_a_person_waits_for_that_person_and_goes_on_with_the_result() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[])]);
+    let mut w = World::with_gate(vec![cell("a", &["brief"], &[])]);
+    w.person_writes("brief");
     let run = w.start("a");
     let call = w.calls("a", Some(Who::Architect));
     let on = Some(Who::Architect);
@@ -70,7 +82,8 @@ fn a_run_at_rest_at_a_call_for_a_person_waits_for_that_person_and_goes_on_with_t
 
 #[test]
 fn a_run_at_rest_at_a_call_the_engine_makes_waits_on_nobody_and_goes_on_when_the_call_is_done() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[])]);
+    let mut w = World::with_gate(vec![cell("a", &["brief"], &[])]);
+    w.person_writes("brief");
     let run = w.start("a");
     let call = w.calls("a", None);
     assert_eq!(w.decide(), wait("a", vec![Waited::Call { call, on: None }]));
@@ -95,21 +108,23 @@ fn an_answered_call_does_not_make_its_run_go_on_while_a_round_of_another_run_is_
 
 #[test]
 fn a_paused_work_whose_next_step_is_to_run_a_cell_is_paused_and_resuming_runs_it() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[]), cell("b", &[], &[])]);
+    let mut w = World::with_gate(vec![cell("a", &["brief"], &[]), cell("b", &["brief"], &[])]);
+    let brief = w.person_writes("brief");
     w.pause();
     assert_eq!(w.decide(), Decision::Paused);
     w.resume();
-    assert_eq!(w.decide(), runs("a", vec![NO_RECORD], &[]));
+    assert_eq!(w.decide(), runs("a", first(&["brief"]), &[("brief", Some(brief))]));
     w.run("a", &[]);
     w.pause();
     assert_eq!(w.decide(), Decision::Paused);
     w.resume();
-    assert_eq!(w.decide(), runs("b", vec![NO_RECORD], &[]));
+    assert_eq!(w.decide(), runs("b", first(&["brief"]), &[("brief", Some(brief))]));
 }
 
 #[test]
 fn a_pause_holds_back_no_decision_about_a_run_that_has_started() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[]), cell("b", &[], &[])]);
+    let mut w = World::with_gate(vec![cell("a", &["brief"], &[]), cell("b", &["brief"], &[])]);
+    w.person_writes("brief");
     let run = w.start("a");
     w.pause();
     assert_eq!(w.decide(), busy("a", run));
@@ -119,17 +134,15 @@ fn a_pause_holds_back_no_decision_about_a_run_that_has_started() {
 }
 
 #[test]
-fn a_paused_work_with_a_stale_run_at_rest_abandons_it() {
+fn a_paused_work_goes_on_with_a_run_at_rest_whatever_came_since_it_started() {
     let (mut w, ..) = planned();
     w.person_writes("background");
     let research = w.start("research");
     w.returns("research");
     w.person_writes("background");
     w.pause();
-    assert_eq!(w.decide(), abandon("research", research, outdated("background")));
-    w.abandon();
-    // The research would run again, and the pause holds it back.
-    assert_eq!(w.decide(), Decision::Paused);
+    // No run is abandoned for what came since it started: the new background stays new to the research.
+    assert_eq!(w.decide(), go_on("research", research));
 }
 
 #[test]

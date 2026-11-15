@@ -1,10 +1,10 @@
 //! The sessions of a work's lines, as its records say them.
 //!
 //! A line's rounds run in one session of the agents' program, its first, until something makes the line begin a new
-//! one; each such beginning is an entry of the work, [`Session`], with why it began. A session the program lost is
-//! begun again under the same id; every other new session has an id of its own, so that a round finds its session by
-//! counting the line's new sessions recorded before its first try began ([`start`], [`of_round`]), and needs nothing
-//! stored but the records.
+//! one, or something makes its session hold only a summary: each is an entry of the work, [`Session`], with why. A
+//! session the program lost is begun again under the same id, and a compacted one goes on under it; every other new
+//! session has an id of its own, so that a round finds its session by counting the line's new sessions recorded before
+//! its first try began ([`start`], [`of_round`]), and needs nothing stored but the records.
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Spent, Work};
 
-/// A new session of a line of the work, as it is recorded: the line's rounds that begin after it run in it.
+/// A line's session reopened, as it is recorded: a new session the line's rounds that begin after it run in, or the
+/// session compacted, which they go on in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     /// The place of the entry in the order of what happened to the work.
@@ -49,10 +50,11 @@ pub struct RanOn {
     pub account: Option<String>,
 }
 
-/// Why a line began a new session.
+/// Why a line's session was reopened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Why {
-    /// The context of the line's session, as its last round ended, was past the installation's limit, in tokens.
+    /// The context of the line's session, as its last round ended, was past the limit of its line, in tokens: the line
+    /// its rounds' history gives, never more than the installation's limit.
     Limit { context: u64, limit: u64 },
     /// The line's rounds run on another model than the one its session was begun on, whose prompt cache holds
     /// nothing of it.
@@ -64,30 +66,70 @@ pub enum Why {
     /// The service's safety check flagged the line's last round, which is tried again in a session that does not give
     /// the check the same context.
     Flagged,
+    /// The run guard stopped the line's last round, its context having grown past what its cell's history explains:
+    /// it is tried again in a session that does not give it the same context.
+    Guarded,
+    /// The line's last round failed for a prompt too long for the model: a session that holds it would be too long
+    /// for every round after it, so the round is given again, once the work is let on, in a session that does not.
+    TooLong,
     /// The agents' program had no session under the line's id: the round that found it begins one under that id.
     Lost,
+    /// The agents' program compacted the line's session during a round: the session goes on under its id, holding a
+    /// summary where it held what the line had read.
+    Compacted,
 }
 
 impl Why {
     /// Whether the session begins under an id of its own: every new session but one begun again under the id of the
-    /// one the program lost.
+    /// one the program lost, and a session compacted, which the program goes on in under its id.
     pub fn own_id(&self) -> bool {
-        !matches!(self, Why::Lost)
+        !matches!(self, Why::Lost | Why::Compacted)
     }
 
-    /// Why, in words, for whoever reads it: an agent reading a block that says the session is new, or the owner.
-    pub fn words(&self, line: &str) -> String {
-        let why = match self {
-            Why::Limit { context, limit } => {
-                format!("its context was {context} tokens as its last round ended, past the limit of {limit}")
-            }
-            Why::Model { was } => format!("its rounds now run on another model than {was}, which it was begun on"),
-            Why::Account { .. } => "its rounds now run under another account than it was begun under".to_string(),
-            Why::Owner => "the owner asked for one".to_string(),
-            Why::Flagged => "the service's safety check flagged its last round".to_string(),
-            Why::Lost => "the agents' program no longer had the session it was in".to_string(),
+    /// The names of its kinds, each the name of the words of it where the flow says what the engine writes of a new
+    /// session: [`Why::named`] gives a kind's name from here, by [`Why::kind`].
+    pub const KINDS: [&'static str; 9] = [
+        "limit",
+        "model",
+        "account",
+        "owner",
+        "flagged",
+        "guarded",
+        "too_long",
+        "lost",
+        "compacted",
+    ];
+
+    /// Its kind's place among [`Why::KINDS`]. The match names every kind, so that a kind added to `Why` is given a
+    /// name there before the engine builds.
+    fn kind(&self) -> usize {
+        match self {
+            Why::Limit { .. } => 0,
+            Why::Model { .. } => 1,
+            Why::Account { .. } => 2,
+            Why::Owner => 3,
+            Why::Flagged => 4,
+            Why::Guarded => 5,
+            Why::TooLong => 6,
+            Why::Lost => 7,
+            Why::Compacted => 8,
+        }
+    }
+
+    /// Its kind, by its name among [`Why::KINDS`], and the places the words of it fill in a run, each with its value.
+    pub fn named(&self) -> (&'static str, Vec<(&'static str, String)>) {
+        let places = match self {
+            Why::Limit { context, limit } => vec![("context", context.to_string()), ("limit", limit.to_string())],
+            Why::Model { was } => vec![("was", was.clone())],
+            Why::Account { .. }
+            | Why::Owner
+            | Why::Flagged
+            | Why::Guarded
+            | Why::TooLong
+            | Why::Lost
+            | Why::Compacted => Vec::new(),
         };
-        format!("A new session of the line `{line}`: {why}.")
+        (Self::KINDS[self.kind()], places)
     }
 }
 
@@ -130,48 +172,30 @@ fn spent(s: &Spent) -> bool {
     s.input_tokens + s.cached_tokens + s.output_tokens > 0
 }
 
+/// Whether the round of this number of the run put its message into its session: it reached the model, or its last
+/// try's program said, as its stream began, that it had taken the message in, which it writes into the session before
+/// it calls the service (decision `the-engine-checks-the-outside-itself`). What a round failed of says nothing of this: a crash
+/// may come before the program read its input or after. A round that says neither is taken to have put nothing
+/// there: a message given again where the session holds it costs tokens, while one referred to where the session
+/// lacks it leaves the agent without it.
+pub fn wrote_into(work: &Work, run: RunId, number: usize) -> bool {
+    if work.spent.get(&(run, number)).is_some_and(spent) {
+        return true;
+    }
+    crate::measured::of_round(&work.measured, run, number).is_some_and(|m| m.received)
+}
+
 /// Of the round of this number of the run, on the line whose runs `on_line` tells: which of the line's sessions it runs
 /// in, and whether it begins that session, which it does where no round of the line that took its session before it,
-/// from the same session, spent tokens, as a round that never reached the model has not.
+/// from the same session, put its message into it ([`wrote_into`]).
 pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: RunId, number: usize) -> (u32, bool) {
     let at = start(work, run, number);
     let session = number_at(work, line, at);
-    let went_on = (work.spent.iter())
-        .filter(|((r, _), s)| on_line(*r) && spent(s))
-        .map(|((r, n), _)| start(work, *r, *n))
+    let went_on = (work.spent.keys().chain(work.back.keys()))
+        .filter(|(r, n)| on_line(*r) && wrote_into(work, *r, *n))
+        .map(|(r, n)| start(work, *r, *n))
         .any(|b| b < at && number_at(work, line, b) == session);
     (session, !went_on)
-}
-
-/// Whether the session the round runs in holds none of its run's earlier rounds: the run has earlier rounds, and none
-/// of them ran in this session and reached the model. The session never saw what the run was doing, so the round is
-/// told its task and what each earlier round of the run was given, as a round that begins a session is, even where it
-/// goes on in a session another cell's round began; once a round of the run has been told so in the session, the
-/// session holds the run. A session the program lost and a round began again under its id holds nothing from before:
-/// an earlier round of the run holds it only where it reached it after the line's latest loss of it before the round,
-/// as the round that found it lost did in its try after that.
-pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
-    let at = start(work, run, number);
-    let session = number_at(work, line, at);
-    let lost = (of_line(work, line))
-        .filter(|s| s.why == Why::Lost && s.at < at && number_at(work, line, s.at) == session)
-        .map(|s| s.at)
-        .last();
-    let held = (1..number).any(|earlier| {
-        let here = number_at(work, line, start(work, run, earlier)) == session;
-        let since = lost.is_none_or(|lost| last_try(work, run, earlier) > lost);
-        here && since && work.spent.get(&(run, earlier)).is_some_and(spent)
-    });
-    number > 1 && !held
-}
-
-/// Where the round of this number of the run last reached its session: where its last try began, as its record says,
-/// or, where none is recorded, where the round began.
-fn last_try(work: &Work, run: RunId, number: usize) -> Seq {
-    let last = (work.ran.iter().rev()).find(|r| r.run == run && r.round == number);
-    (last.map(|r| r.at))
-        .or_else(|| began_at(work, run, number))
-        .unwrap_or_else(|| work.tick())
 }
 
 /// What the line's session of this number was begun on: what the first try of its first round recorded ran on; none
@@ -193,6 +217,23 @@ mod tests {
     use decide::{Returned, Round};
 
     use super::*;
+
+    #[test]
+    fn each_kind_of_a_new_session_has_a_name_of_its_own_among_the_kinds() {
+        let every = [
+            Why::Limit { context: 2, limit: 1 },
+            Why::Model { was: "m".to_string() },
+            Why::Account { was: None },
+            Why::Owner,
+            Why::Flagged,
+            Why::Guarded,
+            Why::TooLong,
+            Why::Lost,
+            Why::Compacted,
+        ];
+        let names: Vec<&str> = every.iter().map(|w| w.named().0).collect();
+        assert_eq!(names, Why::KINDS);
+    }
 
     /// A work whose one run has rounds begun at these places, each ended after it with these tokens, and these
     /// sessions recorded.
@@ -276,37 +317,9 @@ mod tests {
     }
 
     #[test]
-    fn a_round_whose_run_ran_in_another_session_before_is_told_what_the_run_was_doing() {
-        let limit = Why::Limit { context: 9, limit: 5 };
-        let w = work(&[(1, 10), (3, 10), (6, 10), (8, 10)], &[(5, limit)]);
-        assert!(!moved(&w, "engineer", RunId(1), 1), "a run's first round");
-        assert!(
-            !moved(&w, "engineer", RunId(1), 2),
-            "in the same session as the round before"
-        );
-        assert!(
-            moved(&w, "engineer", RunId(1), 3),
-            "the round before ran in the session before"
-        );
-        assert!(
-            !moved(&w, "engineer", RunId(1), 4),
-            "the round before was told the run in this session"
-        );
-        // The run's round 2 found the session lost as its first try began, and began it again under its id in its
-        // second try, told the run.
-        let mut lost = work(&[(1, 10), (3, 10), (8, 10)], &[(5, Why::Lost)]);
-        lost.records.returned[1].at = Seq(7);
-        lost.ran.extend([4, 6].map(|at| ran(at, RunId(1), 2)));
-        assert!(
-            !moved(&lost, "engineer", RunId(1), 3),
-            "a session begun again under its id is the same"
-        );
-    }
-
-    #[test]
-    fn a_round_whose_session_another_run_found_lost_since_the_run_was_told_in_it_is_told_again() {
-        // Run 1 moves to session 1 at its round 2 and is told its run there; while it waits, run 2 of the line finds
-        // session 1 lost as its first try begins, and begins it again under its id in its second try.
+    fn a_round_goes_on_in_a_session_another_run_found_lost_and_began_again_under_its_id() {
+        // Run 1 moves to session 1 at its round 2; while it waits, run 2 of the line finds session 1 lost as its first
+        // try begins, and begins it again under its id in its second try.
         let (one, two) = (RunId(1), RunId(2));
         let mut w = Work::default();
         for (at, run) in [(1, one), (5, one), (9, two), (15, one)] {
@@ -330,23 +343,10 @@ mod tests {
             why,
         };
         w.sessions.extend([session(4, Why::Owner), session(11, Why::Lost)]);
-        assert!(
-            moved(&w, "engineer", one, 3),
-            "the session begun again holds run 2's round and nothing of run 1"
-        );
-        assert!(
-            !moved(&w, "engineer", two, 2),
-            "the round that found it lost told it its run"
-        );
         assert_eq!(
             of_round(&w, "engineer", |_| true, one, 3),
             (1, false),
             "it goes on in that session"
-        );
-        w.sessions.pop();
-        assert!(
-            !moved(&w, "engineer", one, 3),
-            "not lost, the session holds run 1's round 2"
         );
     }
 
@@ -374,5 +374,11 @@ mod tests {
         assert_eq!(began(0), Some("a"));
         assert_eq!(began(1), Some("b"), "the first try of the session's first round");
         assert_eq!(began(2), None, "a session none of whose rounds began");
+    }
+
+    #[test]
+    fn a_session_compacted_goes_on_under_its_id() {
+        let w = work(&[(1, 10), (3, 10), (6, 10), (8, 10)], &[(5, Why::Compacted)]);
+        assert_eq!(of(&w, 3), (0, false));
     }
 }

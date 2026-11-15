@@ -1,12 +1,13 @@
 //! GitHub for the tests of the GitHub host: a bare repository on disk that the host pushes to and fetches from, and
-//! in memory the pull requests, the checks each commit is given, poll by poll, the jobs' logs, the merges and the
+//! in memory the pull requests, the jobs and results each commit's runs by hand are given, the merges and the
 //! closings. It keeps what it was asked.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use super::api::{Api, Check, File, Pull, Run, State};
+use crate::host::Failed;
 
 /// GitHub, as far as the host reaches it.
 pub(crate) struct Fake {
@@ -19,9 +20,6 @@ pub(crate) struct Fake {
 struct Kept {
     /// The pull requests, each with its branch.
     pulls: Vec<(String, Pull)>,
-    /// What each commit's checks are at each ask: the first, then the next, the last staying.
-    checks: BTreeMap<String, VecDeque<Vec<Check>>>,
-    logs: BTreeMap<u64, String>,
     /// Why a merge is refused, where it is.
     refuses: Option<String>,
     /// How many of the next lists of pull requests leave out those opened already, as a list read just before another
@@ -31,6 +29,9 @@ struct Kept {
     runs: Vec<Dispatched>,
     /// What a run by hand on each commit gives: its jobs, and the artifact it uploads with its name.
     fast: BTreeMap<String, ByHand>,
+    /// What a run by hand of a workflow on a commit gives, by the workflow and the commit, in place of what the commit's
+    /// runs give.
+    of_workflow: BTreeMap<(String, String), ByHand>,
     /// Why a run by hand is refused, where every one is.
     refuses_dispatch: Option<String>,
     /// Whether another request runs the workflow on the same branch and commit right after each one asked here, as
@@ -38,11 +39,21 @@ struct Kept {
     another_call: bool,
     /// Whether the runs by hand stay queued, as with no runner online.
     queued: bool,
+    /// Whether the runs by hand start and go on until they are finished or cancelled, as a run that takes minutes.
+    going: bool,
     asked: Vec<Asked>,
 }
 
 /// What a run by hand gives: its jobs, and the artifact it uploads, with its name, where it uploads one.
 type ByHand = (Vec<Check>, Option<(String, Vec<File>)>);
+
+impl Kept {
+    /// What the run by hand gives: what its workflow on its commit is given, or else what its commit is.
+    fn given(&self, run: &Dispatched) -> Option<&ByHand> {
+        let key = (run.workflow.clone(), run.commit.clone());
+        self.of_workflow.get(&key).or_else(|| self.fast.get(&run.commit))
+    }
+}
 
 /// A run by hand: of which workflow, asked for on which branch, of which commit (its input `commit`), and whether
 /// another request than the host's asked for it.
@@ -66,12 +77,11 @@ pub(crate) enum Asked {
         base: String,
         title: String,
     },
-    Checks(String),
-    Log(u64),
     Merge {
         number: u64,
         head: String,
         method: String,
+        title: String,
     },
     Delete(String),
     Dispatch {
@@ -89,6 +99,8 @@ pub(crate) enum Asked {
         number: u64,
         comment: String,
     },
+    Reopen(u64),
+    Cancel(u64),
 }
 
 impl Fake {
@@ -104,15 +116,24 @@ impl Fake {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Gives the commit these checks, one list at each ask, the last staying.
-    pub(crate) fn checks(&self, commit: &str, polls: Vec<Vec<Check>>) {
-        self.kept().checks.insert(commit.to_string(), polls.into());
-    }
-
     /// Gives a run by hand on the commit these jobs, and this artifact where one is given.
     pub(crate) fn fast(&self, commit: &str, jobs: Vec<Check>, artifact: Option<(&str, Vec<File>)>) {
         let artifact = artifact.map(|(name, files)| (name.to_string(), files));
         self.kept().fast.insert(commit.to_string(), (jobs, artifact));
+    }
+
+    /// Gives a run by hand of the workflow on the commit these jobs, and this artifact where one is given, whatever the
+    /// commit's other runs give.
+    pub(crate) fn of_workflow(
+        &self,
+        workflow: &str,
+        commit: &str,
+        jobs: Vec<Check>,
+        artifact: Option<(&str, Vec<File>)>,
+    ) {
+        let artifact = artifact.map(|(name, files)| (name.to_string(), files));
+        let key = (workflow.to_string(), commit.to_string());
+        self.kept().of_workflow.insert(key, (jobs, artifact));
     }
 
     /// Refuses every run by hand, with these words.
@@ -125,14 +146,30 @@ impl Fake {
         self.kept().queued = true;
     }
 
+    /// Has every run by hand asked for from now on start and go on until it is finished or cancelled.
+    pub(crate) fn runs_go_on(&self) {
+        self.kept().going = true;
+    }
+
+    /// Completes every run by hand that is under way, as it ends with the jobs and results its commit is given.
+    pub(crate) fn finish_runs(&self) {
+        for asked in &mut self.kept().runs {
+            asked.run.completed = true;
+        }
+    }
+
+    /// Cancels every run by hand that is under way, as a person may: it completes cancelled, with nothing uploaded and
+    /// its jobs cancelled.
+    pub(crate) fn cancel_runs(&self) {
+        for asked in (self.kept().runs.iter_mut()).filter(|d| !d.run.completed) {
+            asked.run.completed = true;
+            asked.run.cancelled = true;
+        }
+    }
+
     /// Has another request run the workflow on the same branch and commit right after each one the host asks for.
     pub(crate) fn another_call_after_each(&self) {
         self.kept().another_call = true;
-    }
-
-    /// Keeps this log for the job.
-    pub(crate) fn log(&self, job: u64, log: &str) {
-        self.kept().logs.insert(job, log.to_string());
     }
 
     /// The pull requests, in the order they were opened.
@@ -216,8 +253,21 @@ impl Fake {
     }
 }
 
-/// Squashes the commit onto main in the bare repository, as GitHub's squash merge does, and gives the new head.
-fn squash(bare: &std::path::Path, head: &str) -> Result<String, String> {
+/// What GitHub answers in these words, which begin with its status, `HTTP 422: ...`, as its refusals are said: of the
+/// kind its status tells, as the host reads GitHub's own answers, a fault of GitHub's or its limit on requests passing.
+fn answered(why: &str) -> Failed {
+    let status: Option<u16> = (why.strip_prefix("HTTP "))
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|digits| digits.parse().ok());
+    match status {
+        Some(status) if status >= 500 || status == 429 => Failed::passing(why),
+        _ => Failed::refused(why),
+    }
+}
+
+/// Squashes the commit onto main in the bare repository, as GitHub's squash merge does, by a commit of this title, and
+/// gives the new head.
+fn squash(bare: &std::path::Path, head: &str, title: &str) -> Result<String, String> {
     let git = |args: &[&str]| -> Result<String, String> {
         let output = std::process::Command::new("git")
             .arg("-C")
@@ -235,20 +285,13 @@ fn squash(bare: &std::path::Path, head: &str) -> Result<String, String> {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     };
     let main = git(&["rev-parse", "refs/heads/main"])?;
-    let squashed = git(&[
-        "commit-tree",
-        &format!("{head}^{{tree}}"),
-        "-p",
-        &main,
-        "-m",
-        "Squashed",
-    ])?;
+    let squashed = git(&["commit-tree", &format!("{head}^{{tree}}"), "-p", &main, "-m", title])?;
     git(&["update-ref", "refs/heads/main", &squashed])?;
     Ok(squashed)
 }
 
 impl Api for Fake {
-    async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, String> {
+    async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Pulls(branch.to_string()));
         if kept.hidden > 0 {
@@ -259,14 +302,16 @@ impl Api for Fake {
         Ok(self.of(branch))
     }
 
-    async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, String> {
-        let head = self.head(branch).ok_or("HTTP 422: the head branch is not on GitHub")?;
+    async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, Failed> {
+        let head = self
+            .head(branch)
+            .ok_or_else(|| answered("HTTP 422: the head branch is not on GitHub"))?;
         let mut kept = self.kept();
         // As GitHub, which opens no second pull request of a branch into the same base.
         if (kept.pulls.iter()).any(|(of, p)| of == branch && p.state == State::Open && p.base == base) {
-            return Err(format!(
+            return Err(answered(&format!(
                 "HTTP 422: Validation Failed; A pull request already exists for {branch}."
-            ));
+            )));
         }
         kept.asked.push(Asked::Open {
             branch: branch.to_string(),
@@ -290,65 +335,40 @@ impl Api for Fake {
         Ok(pull)
     }
 
-    async fn checks(&self, commit: &str) -> Result<Vec<Check>, String> {
-        // As GitHub, which answers so of a commit it has not been given.
-        let known = (std::process::Command::new("git").arg("-C").arg(&self.bare))
-            .args(["cat-file", "-e", &format!("{commit}^{{commit}}")])
-            .output()
-            .is_ok_and(|o| o.status.success());
-        let mut kept = self.kept();
-        kept.asked.push(Asked::Checks(commit.to_string()));
-        if !known {
-            return Err(format!("HTTP 422: No commit found for SHA: {commit}"));
-        }
-        let Some(polls) = kept.checks.get_mut(commit) else {
-            return Ok(Vec::new());
-        };
-        let now = if polls.len() > 1 {
-            polls.pop_front()
-        } else {
-            polls.front().cloned()
-        };
-        Ok(now.unwrap_or_default())
-    }
-
-    async fn log(&self, job: u64) -> Result<String, String> {
-        let mut kept = self.kept();
-        kept.asked.push(Asked::Log(job));
-        (kept.logs.get(&job).cloned()).ok_or_else(|| "HTTP 410: the log has expired".to_string())
-    }
-
-    async fn merge(&self, number: u64, head: &str, method: &str) -> Result<String, String> {
+    async fn merge(&self, number: u64, head: &str, method: &str, title: &str) -> Result<String, Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Merge {
             number,
             head: head.to_string(),
             method: method.to_string(),
+            title: title.to_string(),
         });
         if let Some(why) = &kept.refuses {
-            return Err(why.clone());
+            return Err(answered(why));
         }
         let (_, pull) = (kept.pulls.iter_mut())
             .find(|(_, p)| p.number == number)
-            .ok_or("HTTP 404: Not Found")?;
+            .ok_or_else(|| answered("HTTP 404: Not Found"))?;
         if pull.draft {
-            return Err("HTTP 405: Pull Request is still a draft".to_string());
+            return Err(answered("HTTP 405: Pull Request is still a draft"));
         }
         if pull.head != head {
-            return Err("HTTP 409: Head branch was modified. Review and try the merge again.".to_string());
+            return Err(answered(
+                "HTTP 409: Head branch was modified. Review and try the merge again.",
+            ));
         }
-        let merged = squash(&self.bare, head)?;
+        let merged = squash(&self.bare, head, title)?;
         pull.state = State::Merged;
         pull.merge_commit = Some(merged.clone());
         Ok(merged)
     }
 
-    async fn delete(&self, branch: &str) -> Result<(), String> {
+    async fn delete(&self, branch: &str) -> Result<(), Failed> {
         self.kept().asked.push(Asked::Delete(branch.to_string()));
         Ok(())
     }
 
-    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, String> {
+    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, Failed> {
         let kept = self.kept();
         Ok((kept.runs.iter().rev())
             .filter(|d| d.workflow == workflow && d.branch == branch)
@@ -356,7 +376,7 @@ impl Api for Fake {
             .collect())
     }
 
-    async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), String> {
+    async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), Failed> {
         let input = |name: &str| (inputs.iter()).find(|(n, _)| n == name).map(|(_, v)| v.clone());
         let mut kept = self.kept();
         kept.asked.push(Asked::Dispatch {
@@ -365,20 +385,21 @@ impl Api for Fake {
             inputs: inputs.to_vec(),
         });
         if let Some(why) = &kept.refuses_dispatch {
-            return Err(why.clone());
+            return Err(answered(why));
         }
         drop(kept);
-        self.head(branch).ok_or("HTTP 422: No ref found for the branch")?;
-        let commit = input("commit").ok_or("HTTP 422: Required input 'commit' not provided")?;
+        self.head(branch)
+            .ok_or_else(|| answered("HTTP 422: No ref found for the branch"))?;
+        let commit = input("commit").ok_or_else(|| answered("HTTP 422: Required input 'commit' not provided"))?;
         let call = input("call").unwrap_or_default();
         let mut kept = self.kept();
         let mut made = vec![(call, false)];
         if kept.another_call {
             made.push(("another".to_string(), true));
         }
+        let (ran, going) = (!kept.queued, kept.going);
         for (call, another) in made {
             let id = 1000 + kept.runs.len() as u64;
-            let ran = !kept.queued;
             kept.runs.push(Dispatched {
                 workflow: workflow.to_string(),
                 branch: branch.to_string(),
@@ -388,7 +409,8 @@ impl Api for Fake {
                     id,
                     title: format!("fast {call}"),
                     started: ran,
-                    completed: ran,
+                    completed: ran && !going,
+                    cancelled: false,
                     url: format!("https://github.example/actions/runs/{id}"),
                 },
             });
@@ -396,32 +418,41 @@ impl Api for Fake {
         Ok(())
     }
 
-    async fn jobs(&self, run: u64) -> Result<Vec<Check>, String> {
+    async fn cancel(&self, run: u64) -> Result<(), Failed> {
+        let mut kept = self.kept();
+        kept.asked.push(Asked::Cancel(run));
+        for asked in (kept.runs.iter_mut()).filter(|d| d.run.id == run && !d.run.completed) {
+            asked.run.completed = true;
+            asked.run.cancelled = true;
+        }
+        Ok(())
+    }
+
+    async fn jobs(&self, run: u64) -> Result<Vec<Check>, Failed> {
         let kept = self.kept();
         let Some(asked) = kept.runs.iter().find(|d| d.run.id == run) else {
             return Ok(Vec::new());
         };
-        if asked.another {
+        if asked.another || asked.run.cancelled {
+            let how = if asked.another { ANOTHER_CALLS } else { "cancelled" };
             return Ok(vec![Check {
                 name: "test".to_string(),
-                outcome: super::Outcome::Broken(ANOTHER_CALLS.to_string()),
+                outcome: super::api::Outcome::Broken(how.to_string()),
                 url: None,
-                summary: None,
-                job: None,
-                earlier: Vec::new(),
+                took: None,
             }]);
         }
-        Ok((kept.fast.get(&asked.commit)).map_or_else(Vec::new, |(jobs, _)| jobs.clone()))
+        Ok((kept.given(asked)).map_or_else(Vec::new, |(jobs, _)| jobs.clone()))
     }
 
-    async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, String> {
+    async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, Failed> {
         let kept = self.kept();
-        let asked = (kept.runs.iter()).find(|d| d.run.id == run && !d.another);
-        let artifact = asked.and_then(|d| kept.fast.get(&d.commit).and_then(|(_, a)| a.clone()));
+        let asked = (kept.runs.iter()).find(|d| d.run.id == run && !d.another && !d.run.cancelled);
+        let artifact = asked.and_then(|d| kept.given(d).and_then(|(_, a)| a.clone()));
         Ok(artifact.filter(|(n, _)| n == name).map(|(_, files)| files))
     }
 
-    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), String> {
+    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Edit {
             number,
@@ -430,13 +461,13 @@ impl Api for Fake {
         });
         let (_, pull) = (kept.pulls.iter_mut())
             .find(|(_, p)| p.number == number)
-            .ok_or("HTTP 404: Not Found")?;
+            .ok_or_else(|| answered("HTTP 404: Not Found"))?;
         pull.title = title.to_string();
         pull.body = body.to_string();
         Ok(())
     }
 
-    async fn ready(&self, node: &str) -> Result<(), String> {
+    async fn ready(&self, node: &str) -> Result<(), Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Ready(node.to_string()));
         let (_, pull) = (kept.pulls.iter_mut())
@@ -446,7 +477,7 @@ impl Api for Fake {
         Ok(())
     }
 
-    async fn close(&self, number: u64, comment: &str) -> Result<(), String> {
+    async fn close(&self, number: u64, comment: &str) -> Result<(), Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Close {
             number,
@@ -454,8 +485,23 @@ impl Api for Fake {
         });
         let (_, pull) = (kept.pulls.iter_mut())
             .find(|(_, p)| p.number == number)
-            .ok_or("HTTP 404: Not Found")?;
+            .ok_or_else(|| answered("HTTP 404: Not Found"))?;
         pull.state = State::Closed;
+        Ok(())
+    }
+
+    async fn reopen(&self, number: u64) -> Result<(), Failed> {
+        let mut kept = self.kept();
+        kept.asked.push(Asked::Reopen(number));
+        let (_, pull) = (kept.pulls.iter_mut())
+            .find(|(_, p)| p.number == number)
+            .ok_or_else(|| answered("HTTP 404: Not Found"))?;
+        if pull.state != State::Closed {
+            return Err(answered(
+                "HTTP 422: Unprocessable Entity: the pull request is not closed",
+            ));
+        }
+        pull.state = State::Open;
         Ok(())
     }
 }
