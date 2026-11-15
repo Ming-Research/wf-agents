@@ -253,10 +253,6 @@ const NEVER: &[(&str, &str)] = &[
          bound.",
     ),
     (
-        "D4 ran back on on_plan, written by a cell after it",
-        "As for D3: D2's plan reaches D4 with I1's opinion in acceptance, unless D2 hands in no plan, past the bound.",
-    ),
-    (
         "M1 ran on on_asked",
         "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \
          check's own question runs the check again, and the work merges on it, is the engine's test of a work taken \

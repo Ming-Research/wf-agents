@@ -162,6 +162,8 @@ struct Roles {
     judges: Vec<(usize, BlockId)>,
     /// Each choice a precondition of kind `all` reads, with the value it looks for.
     passing: BTreeMap<BlockId, String>,
+    /// Each block a test of content reads.
+    contents: BTreeSet<BlockId>,
 }
 
 impl Roles {
@@ -199,12 +201,17 @@ impl Roles {
                 Condition::Test(_) => {}
             }
         }
+        let contents = (tests.values())
+            .filter(|t| t.kind == TestKind::AnyContent)
+            .flat_map(|t| t.reads.iter().cloned())
+            .collect();
         Self {
             last: cells.len() - 1,
             check,
             refusals,
             judges,
             passing,
+            contents,
         }
     }
 
@@ -567,7 +574,12 @@ impl Random {
                 }
             } else if d.rng.chance(80) {
                 let matters = d.rng.chance(70);
-                handed_in.push(handed(b, cell, matters, None));
+                let mut h = handed(b, cell, matters, None);
+                // A block a test of content reads is at times handed in holding nothing.
+                if self.roles.contents.contains(b) && d.rng.chance(30) {
+                    h.content = String::new();
+                }
+                handed_in.push(h);
             }
         }
         handed_in

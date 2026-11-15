@@ -330,7 +330,7 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
 }
 
 #[test]
-fn a_file_of_version_17_is_migrated_and_its_writes_say_whether_they_hold_anything_as_their_content_does() {
+fn a_file_of_version_17_is_migrated_and_its_writes_read_as_holding_something() {
     // A work as one kept at version 17 holds it: a request a person wrote holding only whitespace, and the writer's
     // text handed in empty.
     let mut d = Driver::new();
@@ -359,10 +359,18 @@ fn a_file_of_version_17_is_migrated_and_its_writes_say_whether_they_hold_anythin
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    // A file of this version keeps what each says, and in the migrated one each is read from what its version holds,
-    // as the engine read it.
+    // A file of this version keeps what each says; in the migrated one each reads as holding something, as kept before.
     assert_eq!(new.open().load(WorkNumber(1)), Ok(work.clone()));
-    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    let mut before = work;
+    for w in &mut before.records.written {
+        w.empty = false;
+    }
+    for f in &mut before.records.finished {
+        for w in &mut f.writes {
+            w.empty = false;
+        }
+    }
+    assert_eq!(store.load(WorkNumber(1)), Ok(before));
 }
 
 #[test]

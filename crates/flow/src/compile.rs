@@ -1561,12 +1561,14 @@ impl<'a> Definition<'a> {
             if declared.reads.is_empty() {
                 faults.push(at("reads", FaultKind::ReadsEmpty { test: test.clone() }));
             }
-            match (declared.kind == TestKind::AnyContent, &declared.is) {
+            let content = declared.kind == TestKind::AnyContent;
+            match (content, &declared.is) {
                 (false, None) => faults.push(at("is", FaultKind::TestNamesNoValue { test: test.clone() })),
                 (true, Some(_)) => faults.push(at("is", FaultKind::ContentTestNamesValue { test: test.clone() })),
                 _ => {}
             }
-            let is = declared.is.as_deref();
+            // A test of content reads its blocks for content, a value it names besides being its fault alone.
+            let is = declared.is.as_deref().filter(|_| !content);
             for (field, what) in check_list(&declared.reads, "reads", |block| self.check_read(block, is)) {
                 faults.push(at(&field, what));
             }
