@@ -604,7 +604,7 @@ mod tests {
 
     // What the engine showed of a work is shown again only while what it rests on is the same: once the driver holds
     // the work at fault, its records as they were, it is worked out anew, so that a play does not judge a work at fault
-    // by what it showed before. Microseconds alone; the only test of the play's keeping of a view.
+    // by what it showed before. Milliseconds alone; the only test of the play's keeping of a view.
     #[test]
     fn a_view_kept_is_worked_out_anew_once_the_driver_holds_its_work_at_fault() {
         let showing = Showing {

@@ -434,7 +434,8 @@ fn an_answer_where_the_records_hold_the_owners_word_at_a_limit_leaves_the_path()
 }
 
 // A work never let on stands paused as it was added, which is the item's start and no step its records hold: a held
-// item's path may say so, and only while the pause it was added with stands.
+// item's path may say so, and only while the pause it was added with stands. Milliseconds alone; no other test judges a
+// held item's path that ends at that pause.
 #[test]
 fn a_held_items_path_may_end_paused_as_it_was_added() {
     let mut built = Built::held("merged", true);

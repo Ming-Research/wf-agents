@@ -1390,6 +1390,7 @@ async fn what_the_engine_asks_as_a_round_ends_is_named_as_the_words_beside_the_f
 
 // A round says what it dealt with of what ran its run, blocks or groups, and the block a source outside the work
 // writes whose next version what it wrote waits for, as an explored return says them; its return then says the same.
+// Milliseconds alone; no other test reads either key of a round into its return.
 #[test]
 fn a_round_says_what_it_dealt_with_and_what_what_it_wrote_waits_for() {
     let flow = engineer();
@@ -1418,7 +1419,7 @@ fn a_round_says_what_it_dealt_with_and_what_what_it_wrote_waits_for() {
 }
 
 // What a round dealt with names blocks or groups of the flow, and what it waits for a block a source outside the work
-// writes; a round that fails says neither.
+// writes; a round that fails says neither. Milliseconds alone; no other test checks either key against the flow.
 #[test]
 fn what_a_round_dealt_with_and_waits_for_is_checked_against_the_flow() {
     let script = Script::read(

@@ -3,10 +3,11 @@
 //! with what its handling makes of it, a cause that holds every work holding another work of its store too; the work
 //! paused by the owner while a round is under way and while it waits; the engine's own question of a change of a
 //! protected path, at each agent's cell of a line that may change the work; the check waiting for the project's turn,
-//! which another work holds; never let on; every slot taken, a work waiting for one; the pause of everything, with a
-//! work it holds; and the work cancelled from each kind of state the others stand at. Each is made from a case the
-//! exploration gave, the nearest it kept of a round under way at the cell, its state's end taken off and the rule's put
-//! on. Each rule names no cell, block or trigger: it reads them of the flow and of the cases.
+//! which another work holds; never let on; every slot taken, a work waiting for one; the pause of everything while a
+//! round is under way, with a work it holds and one cancelled while it holds; and the work cancelled from each kind of
+//! state the others stand at. Each is made from a case the exploration gave, the nearest it kept of a round under way
+//! at the cell, its state's end taken off and the rule's put on. Each rule names no cell, block or trigger: it reads
+//! them of the flow and of the cases.
 
 use decide::run::Failure;
 use decide::{CellId, End, Pauser};
@@ -17,6 +18,20 @@ use service::script::{CHECK, EngineAsked, EngineQuestion, RoundScript, WayScript
 use work::Question;
 
 use super::cases::{Case, LONG, Store, failure_name, general, kind_of};
+
+/// Why no case rests at the engine's wait before a round failed in passing is tried again: the clock answers the wait,
+/// whatever holds the work, at most `decide::run::LONGEST_WAIT` after the round that failed, and a store is served on
+/// the real clock, after the times of its build.
+pub const RETRY_PASSES: &str = "the engine's wait before a round is tried again is answered by the clock, whatever \
+                                holds the work, within five minutes of the round that failed: served after its \
+                                build, the store has it answered as it opens, the round tried again then waiting for \
+                                the hold";
+
+/// Why no case holds another work of its store paused as a round finds no model its level runs on: the engine pauses
+/// every other work that runs a round on that model, which only the levels name, and a script runs without them.
+pub const NO_MODEL_HOLDS: &str = "a script runs without the levels, which name the model a work's rounds run on: the \
+                                  engine pauses another work as a round finds no model only where its rounds run on \
+                                  that model";
 
 /// Every kind of failure of a round, in the order the engine tells them apart.
 const FAILURES: [Failure; 11] = [
@@ -39,8 +54,13 @@ pub const YEAR: u64 = 365 * 86_400_000;
 
 /// How long the first round of a work that another's failure, or the pause of everything, holds takes, in
 /// milliseconds: long enough that the other's round has failed, or everything was paused, before its next round would
-/// begin.
+/// begin. As long the round of the work cancelled while everything is paused takes, which ends in the pause.
 const LATER: u64 = 5_000;
+
+/// How long the first round of the work that pauses everything takes, in milliseconds: longer than a round of the
+/// build, so that the round of the work cancelled while everything is paused has begun before the pause, which holds
+/// every round from beginning; and short of [`LATER`].
+const PAUSES_AFTER: u64 = 2_000;
 
 /// A file of a change under the protected paths, as the engine's own question names it: made up, as the content of
 /// every block is.
@@ -75,24 +95,26 @@ pub fn ruled(flow: &Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case>, Vec
                 cell: cell.clone(),
                 on: Wait::Retry,
             };
-            not.push((
-                format!("{retry} resting there"),
-                "the engine's wait before a round is tried again lasts as its backoff says, and passes as the store is \
-                 played and as it is served"
-                    .to_string(),
-            ));
+            not.push((format!("{retry} resting there"), RETRY_PASSES.to_string()));
             for failure in FAILURES {
                 ruled.push(failed(base, failure));
                 if failure.shared() {
                     ruled.push(held_by(base, Store::Failed(failure), Wait::Shared));
                 }
             }
+            not.push((
+                format!(
+                    "{} of a work another holds there, in the store {}",
+                    Step::Paused(Pauser::Engine),
+                    Store::Failed(Failure::NoModel).dir()
+                ),
+                NO_MODEL_HOLDS.to_string(),
+            ));
             ruled.push(paused_under_way(base));
             ruled.push(slot_taken(base));
             ruled.push(slot_waited(base));
-            // The work that pauses everything is cancelled right after: an act waits for no state of the pause
-            // of everything, and another work's round would begin after the pause, which holds it.
-            ruled.push(cancel(&everything(base)));
+            ruled.push(cancelled_in_pause(base));
+            ruled.push(everything(base));
             ruled.push(held_by(base, Store::Everything, Wait::Shared));
         }
     }
@@ -163,13 +185,15 @@ pub fn cancels(cases: &[Case]) -> (Vec<Case>, Vec<(String, String)>) {
         }
         kinds.push(kind.clone());
         match &case.end {
-            // An act waits for neither what every work shares nor the turn (module `service::script::items`).
+            // The records keep neither the wait every work shares nor the turn: by them the work's run waits to begin
+            // a round, or its check's round is under way (design document `testing`, 18).
             Step::Waits {
                 on: Wait::Shared | Wait::Turn,
                 ..
             } => not.push((
                 format!("{{ ends = \"cancelled\" }} from {}", case.state),
-                "an act waits for no such state: what every work shares and the turn are the engine's own".to_string(),
+                "the records keep no such wait, so a cancel there shows nothing a cancel at the same cell does not"
+                    .to_string(),
             )),
             _ => cancelled.push(cancel(case)),
         }
@@ -337,10 +361,28 @@ fn slot_waited(base: &Case) -> Case {
     c
 }
 
-/// The base pausing everything while its round is under way, in a store of its own.
+/// A work of the store of the pause of everything whose round, begun before the pause, fails in it for a cause that
+/// pauses the work, which is then cancelled, while everything is paused: the pause holds every round from beginning,
+/// so only a round that ends in it brings a work to a state a cancel can wait for there.
+fn cancelled_in_pause(base: &Case) -> Case {
+    let mut c = failed(base, Failure::Other);
+    if let Some(fails) = c.rounds.last_mut() {
+        fails.took.ms = Some(LATER);
+    }
+    c.store = Store::Everything;
+    c.state = named(&c.end, &format!("while {}", Step::Everything(Pauser::Owner)));
+    cancel(&c)
+}
+
+/// The base pausing everything while its round is under way, which goes on in the pause, in a store of its own; its
+/// first round takes long enough that the round of the work cancelled while everything is paused has begun.
 fn everything(base: &Case) -> Case {
     let (cell, run, round) = base.under_way.clone().expect("a round under way");
     let mut c = base.clone();
+    let before = c.rounds.len().saturating_sub(1);
+    if let Some(first) = c.rounds[..before].first_mut() {
+        first.took.ms = Some(PAUSES_AFTER);
+    }
     let at = Step::UnderWay {
         cell,
         run: Some(run),

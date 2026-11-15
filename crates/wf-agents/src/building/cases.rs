@@ -36,7 +36,7 @@ use service::Shown;
 use service::judge::{self, Added};
 use service::script::items::{ActScript, Does, Step, Wait};
 use service::script::{
-    AskedScript, CHECK, HandIn, MERGE, QuestionScript, ReadScript, RoundScript, ToolAsk, WayScript, WithdrawnScript,
+    AskedScript, CHECK, HandIn, QuestionScript, ReadScript, RoundScript, ToolAsk, WayScript, WithdrawnScript,
 };
 use work::{Ask, Call, Question};
 
@@ -47,6 +47,12 @@ pub const LONG: u64 = 2 * 86_400_000;
 /// The time the work is added at in the replay of a path, in milliseconds; what it says of the path does not rest on
 /// it.
 const ADDED: u64 = 1_000_000;
+
+/// Why a path that writes the tree or the head by a commit no round made, while no round reads the branch, gives no
+/// case where its replay goes otherwise: the engine writes them only as a round that reads the branch reads them.
+pub const MOVED: &str = "its path writes the work's tree or head by a commit no round made while no round reads the \
+                         branch, which the engine never does: it writes them only as a round that reads the branch \
+                         reads them, and read so by the next check, the cells before it do not run as the path ran";
 
 /// The head of main as a build's works start, which the act that moves main as their first states come writes.
 pub const MAIN_AT_START: &str = "The head of main as the works start.";
@@ -311,11 +317,19 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
     let mut asked: BTreeMap<CallId, (usize, usize)> = BTreeMap::new();
     // Of each call on the owner at a run's limit, the run's cell.
     let mut limits: BTreeMap<CallId, CellId> = BTreeMap::new();
+    // The replay goes as the exploration went until it keeps such a write for the next check, and differs from it by
+    // that write alone after: where it is refused or goes otherwise after, it is for that.
+    let moved = |why: String, moved: bool| match moved {
+        true => MOVED.to_string(),
+        false => why,
+    };
     for g in &given[first..] {
-        let g = &replay.translated(g, &path.work.records)?;
+        let g = &replay
+            .translated(g, &path.work.records)
+            .map_err(|why| moved(why, replay.moved))?;
         if own.front() == Some(g) {
             own.pop_front();
-            let effects = replay.give(g.clone())?;
+            let effects = (replay.give(g.clone())).map_err(|why| moved(why, replay.moved))?;
             follow(&effects, &mut own);
             continue;
         }
@@ -347,6 +361,7 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
                 Some(s) if s == explore::model::TREE || s == explore::model::HEAD => {
                     // A commit no round made is read by the next round that reads the branch.
                     replay.pending.push((block.clone(), content.clone()));
+                    replay.moved = true;
                     continue;
                 }
                 Some(s) => {
@@ -422,7 +437,7 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
             }
             other => return Err(format!("its path gives the loop what a script cannot: {other:?}")),
         }
-        let effects = replay.give(g.clone())?;
+        let effects = (replay.give(g.clone())).map_err(|why| moved(why, replay.moved))?;
         let mut j = 0;
         for effect in &effects {
             if let Effect::Call { call, run, what } = effect {
@@ -452,10 +467,11 @@ pub fn case_of(model: &Model, state: &str, path: &explore::Path, words: &Agents)
     let decision = decide::decide(&flow.flow, &replay.work.records);
     let reached = state_of(flow, &replay.work, &decision);
     if reached.as_deref() != Some(state) {
-        return Err(format!(
+        let why = format!(
             "as a play adds its item, its path ends at {}",
             reached.unwrap_or_else(|| "nothing the engine shows".to_string())
-        ));
+        );
+        return Err(moved(why, replay.moved));
     }
     let end = replay.at()?;
     let added = Added {
@@ -671,6 +687,9 @@ struct Replay<'m> {
     /// What each round of an act read of the branch as it began, by its cell, its run's place among the cell's and its
     /// own among the run's, for its entry.
     reads: BTreeMap<(CellId, usize, usize), Vec<ReadScript>>,
+    /// Whether the path wrote the tree or the head by a commit no round made, which the replay reads only as the check
+    /// reads the branch.
+    moved: bool,
 }
 
 impl<'m> Replay<'m> {
@@ -684,6 +703,7 @@ impl<'m> Replay<'m> {
             clock: ADDED,
             pending: Vec::new(),
             reads: BTreeMap::new(),
+            moved: false,
         };
         let mut first = vec![Given::Paused {
             by: Pauser::Owner,
@@ -757,10 +777,9 @@ impl<'m> Replay<'m> {
         Ok(effects)
     }
 
-    /// What a script's acts read of the branch as these rounds begin, each written as a script's act writes it: the
-    /// check, main as it takes it in (`service::taken_in`), and the tree and the head a commit no round made wrote
-    /// since, for its round; the merge, those from outside. What each read is kept for its round's entry, where a
-    /// commit no round made is among it.
+    /// What a script's check reads of the branch as its rounds begin, each written as a script's check writes it, for
+    /// its round: main as it takes it in (`service::taken_in`), and the tree and the head a commit no round made wrote
+    /// since. What it read is kept for the round's entry, where a commit no round made is among it.
     fn reading(&mut self, effects: &[Effect]) -> Result<Vec<Effect>, String> {
         let mut more = Vec::new();
         for effect in effects {
@@ -771,26 +790,18 @@ impl<'m> Replay<'m> {
                 continue;
             };
             let (_, nth, _) = self.round_now(cell, *run);
-            let reads: Vec<(BlockId, String, bool)> = match spec.act.as_deref() {
-                Some(CHECK) => {
-                    let taken = service::taken_in(self.flow, &self.work, spec, nth, *number);
-                    let mut reads: Vec<(BlockId, String, bool)> =
-                        taken.into_iter().map(|r| (r.block, r.content, r.for_round)).collect();
-                    reads.extend(self.pending.drain(..).map(|(block, content)| (block, content, true)));
-                    reads
-                }
-                Some(MERGE) => (self.pending.drain(..))
-                    .map(|(block, content)| (block, content, false))
-                    .collect(),
-                _ => Vec::new(),
-            };
-            // The entry says what the round read only where a commit no round made is among it: else the script's
-            // check takes main in by itself, as it is replayed here.
-            let committed = match spec.act.as_deref() {
-                Some(CHECK) => reads.len() > 1,
-                _ => !reads.is_empty(),
-            };
-            if committed {
+            if spec.act.as_deref() != Some(CHECK) {
+                continue;
+            }
+            let taken = service::taken_in(self.flow, &self.work, spec, nth, *number);
+            let committed: Vec<(BlockId, String)> = self.pending.drain(..).collect();
+            let mut reads: Vec<(BlockId, String, bool)> =
+                taken.into_iter().map(|r| (r.block, r.content, r.for_round)).collect();
+            // The entry says what the round read only where it reads what a commit no round made wrote: else the
+            // script's check takes main in by itself, as it is replayed here.
+            let says = !committed.is_empty();
+            reads.extend(committed.into_iter().map(|(block, content)| (block, content, true)));
+            if says {
                 let said = (reads.iter())
                     .map(|(block, content, for_round)| ReadScript {
                         block: block.to_string(),

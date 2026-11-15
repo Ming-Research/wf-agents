@@ -423,8 +423,29 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
     let mut items: Vec<ItemScript> = Vec::new();
     let mut shown: Vec<(usize, String, String, String)> = Vec::new();
     let mut rounds: BTreeMap<String, Vec<service::script::RoundScript>> = BTreeMap::new();
+    // The rounds that wait for the turn, which its serving script says too: a round left under way is given again as
+    // the store is served, and says again where it stands.
+    let mut turns: BTreeMap<String, Vec<service::script::RoundScript>> = BTreeMap::new();
     let mut holding = 0;
-    for case in m.cases {
+    // Each case given an item, with its place; a case whose check waits for the turn last, so that the work that holds
+    // the turn is placed before it.
+    let mut placed: Vec<(&Case, usize)> = Vec::new();
+    let mut cases: Vec<&Case> = m.cases.iter().collect();
+    cases.sort_by_key(|c| c.turn);
+    for case in cases {
+        // The turn is held by another work of the store whose check or merge is under way.
+        let holder = (placed.iter())
+            .find(|(c, _)| !c.turn && checks_or_merges(&flows, c))
+            .map(|(_, place)| *place);
+        if case.turn && holder.is_none() {
+            list.push(Listed {
+                kind: case.kind.clone(),
+                state: case.state.clone(),
+                flow: case.flow.clone(),
+                made: Err("no other work of its store has its check or merge under way, to hold the turn".to_string()),
+            });
+            continue;
+        }
         let Some(k) = pool.take(&case.flow, case.unmerged) else {
             list.push(Listed {
                 kind: case.kind.clone(),
@@ -453,13 +474,17 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         items.push(item(m, &pool.items[k], case, depends_on));
         let place = items.len();
         shown.push((place, case.kind.clone(), case.state.clone(), case.flow.clone()));
+        placed.push((case, place));
         let last = case.rounds.len().saturating_sub(1);
         for (n, round) in case.rounds.iter().enumerate() {
             let mut round = round.clone();
             round.work = Some(place as u64);
-            // The turn its check waits for is another work's: the first's, or the second's where it is the first.
             if case.turn && n == last {
-                round.turn = Some(if place == 1 { 2 } else { 1 });
+                round.turn = holder.map(|holder| holder as u64);
+                let mut served = service::script::RoundScript::of(&round.cell, round.run, round.round);
+                served.work = round.work;
+                served.turn = round.turn;
+                turns.entry(case.flow.clone()).or_default().push(served);
             }
             rounds.entry(case.flow.clone()).or_default().push(round);
         }
@@ -561,7 +586,15 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         },
         tools,
         outside,
-        flows: BTreeMap::new(),
+        flows: (turns.into_iter())
+            .map(|(flow, rounds)| {
+                let script = FlowScript {
+                    values: BTreeMap::new(),
+                    rounds,
+                };
+                (flow, script)
+            })
+            .collect(),
         items: Vec::new(),
     };
     let serving_text = toml::to_string(&serving).map_err(|e| format!("{}: its serving script: {e}", m.store.dir()))?;
@@ -620,6 +653,20 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         reached_all,
         steps: played.steps,
     })
+}
+
+/// Whether the case's round left under way is of a check or a merge: its work holds the project's turn to check and
+/// merge.
+fn checks_or_merges(flows: &[Compiled], case: &Case) -> bool {
+    let Some((cell, ..)) = &case.under_way else {
+        return false;
+    };
+    let act = (flows.iter())
+        .filter(|f| f.name == case.flow)
+        .flat_map(|f| &f.cells)
+        .find(|c| c.id == *cell)
+        .and_then(|c| c.act.as_deref());
+    matches!(act, Some(service::script::CHECK | service::script::MERGE))
 }
 
 /// What the check of the agents' outside finds in a store of a failure that holds every work: the failure, standing,
@@ -833,8 +880,9 @@ mod tests {
     }
 
     // The build names no cell, block or trigger: the engineer's flow with every one of them renamed alike gives the
-    // same states, their paths, acts and rounds the same, their names following. Ten to twenty seconds alone in CI,
-    // at the bound the exploration's own renaming property explores at.
+    // same states, their paths, acts and rounds the same, their names following. Eight to eighteen seconds alone in
+    // CI, at the bound the exploration's own renaming property explores at, on whose ways a name written into the code
+    // shows already (that property's judgment); no other test holds the build to naming none.
     #[test]
     fn the_flow_renamed_gives_the_same_states_its_names_following() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");

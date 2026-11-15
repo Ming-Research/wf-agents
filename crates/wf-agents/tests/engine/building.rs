@@ -42,7 +42,7 @@ const KINDS: &[(&str, usize)] = &[
     ("paused by the owner", 2),
     ("stalled", 1),
     ("never let on", 6),
-    ("everything paused", 1),
+    ("everything paused", 2),
     ("fails passing", 1),
     ("fails unread", 1),
     ("fails flagged", 1),
@@ -59,17 +59,18 @@ const KINDS: &[(&str, usize)] = &[
 /// Why a state is not brought about, each a reason the build gives: every state its list says it did not make gives
 /// one of these.
 const NOT_MADE: &[&str] = &[
-    "an act waits for no such state",
-    "the engine's wait before a round is tried again",
+    "the records keep no such wait",
+    "the engine's wait before a round is tried again is answered by the clock",
+    "a script runs without the levels",
     "no case of the exploration waits for an answer",
     "the flow has no agent's cell",
-    // The engineer's merge after a commit no round made moved the work's head, which the review reads: read by the
-    // check, as the real carriers read it, the review does not run on it, and no other way of that state is taken.
-    "played as a play adds its item, it ran S1 R0 R1, where the exploration ran S1 R0 R1 T1 M1 M2",
+    // The engineer's merge after a commit no round made moves the work's head, which the review reads, while no round
+    // reads the branch: read by the check, the review does not run on it, and no other way of that state is taken.
+    "by a commit no round made while no round reads the branch",
 ];
 
 /// How many states the build does not bring about, each for one of those reasons.
-const UNMADE: usize = 6;
+const UNMADE: usize = 7;
 
 /// An items file of the installation's data, made up: enough items of each flow, every fifth depending on the one
 /// before it.
