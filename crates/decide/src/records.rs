@@ -183,6 +183,11 @@ pub struct Finished {
     /// flow changes.
     #[serde(default)]
     pub dealt_with: Option<Vec<BlockId>>,
+    /// A block a source outside the work writes, which runs the run's cell, a new version of which what the run wrote
+    /// waits for: until one comes, the work waits for that source where it waits for what the cell writes. None where
+    /// what the run wrote waits for nothing, as of every run but the engine's own act that says so.
+    #[serde(default)]
+    pub waits_for: Option<BlockId>,
 }
 
 /// A block a run wrote as it finished.

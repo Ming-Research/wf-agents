@@ -93,3 +93,41 @@ fn the_owners_answer_alone_to_the_checks_question_leads_to_the_merge() {
     w.hands_in("M2", &[("merged", None)], Vec::new());
     assert_eq!(w.decision(), Decision::Ended(End::Merged));
 }
+
+// A check held because what fails also fails on main says that what it wrote waits for main: the work waits for main,
+// with the check's run and its choice, and not for the owner; main moving runs the check again.
+#[test]
+fn a_check_held_for_main_has_the_work_wait_for_main_until_main_moves() {
+    let mut w = W::reviewed();
+    let (run, cell) = w.round();
+    assert_eq!(cell, "M1");
+    let held = engine::Handed {
+        block: "checked".into(),
+        content: "It did not pass, and what fails also fails on main.".to_string(),
+        matters: true,
+        value: Some("no".to_string()),
+    };
+    let came = engine::Came {
+        waits_for: Some("main".into()),
+        ..engine::Came::hands_in(vec![held])
+    };
+    w.on(Event::Returned {
+        run,
+        came,
+        spent: engine::Spent::default(),
+    });
+    let outside = Waited::Outside {
+        source: "main".to_string(),
+        run,
+        block: "checked".into(),
+    };
+    assert_eq!(
+        w.decision(),
+        Decision::Wait {
+            at: "M2".into(),
+            on: vec![outside]
+        }
+    );
+    w.on(wrote("main", Outsider::Outside, None));
+    assert_eq!(w.round().1, "M1");
+}

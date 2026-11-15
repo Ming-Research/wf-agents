@@ -157,10 +157,14 @@ impl From<Failed> for NotMerged {
 }
 
 /// What a host found of a commit.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Verdict {
-    /// What failed, in words the work's implementing agent can act on; none where everything passed.
+    /// What failed, in words the work's implementing agent can act on; none where everything passed, or where what
+    /// failed fails on the head of main as well ([`Verdict::held`]).
     pub failed: Option<String>,
+    /// What failed on the commit and fails on the head of main it was checked against as well, in words: the commit
+    /// neither passes nor fails by its own change, and waits for main to pass it. None where nothing does.
+    pub held: Option<String>,
     /// What judged the commit, as words that follow "checked by", where the host says it; with none, the check is told
     /// by what it was checked against alone.
     pub by: Option<String>,
@@ -168,6 +172,9 @@ pub struct Verdict {
     /// more than once on the commit, with each run's result; and the jobs of the runs that are not said as what failed,
     /// each with how it ended and its wall time.
     pub notes: Vec<String>,
+    /// What the host found beyond the work, each a text worth an item of its own: a test that failed on the commit and
+    /// passed when it was run on it again.
+    pub observations: Vec<String>,
 }
 
 /// Where the project's repository is hosted. A failure of the host itself (it cannot be reached, it refuses, it does
@@ -178,13 +185,17 @@ pub trait Host: Send + Sync + 'static {
     fn main(&self) -> impl Future<Output = Result<String, String>> + Send;
 
     /// The verdict on the commit, the head of the work's branch, which is committed and merges into main without a
-    /// conflict, as the round of the check that asks finds it; none where it was told to stop. A failure fails it,
-    /// whatever else passes, and nothing is run again. Checks that could not be run fail the round, with the kind of
-    /// the cause where the host tells it ([`Failed`]).
+    /// conflict and holds the head of main `main`, as the round of the check that asks finds it; none where it was told
+    /// to stop. A failure fails it, whatever else passes, but where the host runs tests by name and only tests failed:
+    /// those are run on the commit again, a test that passes there no longer failing it and being observed, and what
+    /// fails again is run on `main`, a commit whose every such test fails there too being held
+    /// ([`Verdict::held`]). Checks that could not be run fail the round, with the kind of the cause where the host
+    /// tells it ([`Failed`]).
     fn verdict(
         &self,
         branch: &Branch<'_>,
         commit: &str,
+        main: &str,
         asking: Asking,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<Verdict>, Failed>> + Send;
@@ -263,10 +274,11 @@ impl<H: Host> Host for Arc<H> {
         &self,
         branch: &Branch<'_>,
         commit: &str,
+        main: &str,
         asking: Asking,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
-        (**self).verdict(branch, commit, asking, stop).await
+        (**self).verdict(branch, commit, main, asking, stop).await
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {

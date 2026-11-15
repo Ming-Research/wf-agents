@@ -428,6 +428,7 @@ pub(crate) mod tests {
             found: Vec::new(),
             said: Default::default(),
             engine: vec![question],
+            waits_for: None,
         };
         work.back.insert((run, 1), back);
         work

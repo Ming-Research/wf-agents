@@ -377,6 +377,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                     found: came.found,
                     said: came.said,
                     engine: came.engine,
+                    waits_for: came.waits_for,
                 };
                 work.back.insert((run, number), back);
                 asked::tell(flow, work);
@@ -766,9 +767,17 @@ fn finish(
     effects: &mut Vec<Effect>,
 ) {
     let mut questions = Vec::new();
+    let mut waits = None;
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
-        Some(Back::Returned { handed, asks, said, .. }) => {
+        Some(Back::Returned {
+            handed,
+            asks,
+            said,
+            waits_for,
+            ..
+        }) => {
             questions = said.questions.clone();
+            waits = waits_for.clone();
             (handed.clone(), asks.clone())
         }
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
@@ -804,6 +813,7 @@ fn finish(
         at,
         writes,
         dealt_with: Some(dealt_with),
+        waits_for: waits,
     });
     let line = (work.records.started.iter().find(|s| s.run == run))
         .and_then(|s| flow.cells.iter().find(|c| c.id == s.cell))

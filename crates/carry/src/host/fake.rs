@@ -107,6 +107,7 @@ impl Host for Fake {
         &self,
         branch: &Branch<'_>,
         commit: &str,
+        _: &str,
         asking: Asking,
         _: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {

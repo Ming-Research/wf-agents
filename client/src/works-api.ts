@@ -119,7 +119,10 @@ export type Waited =
   /// The wait every work shares: the cell's agent's round does not begin until it is over.
   | { kind: 'agents'; outage: Outage }
   /// The owner's answer to the latest version of this question, which the cell asked and waits for.
-  | { kind: 'answer'; question: string };
+  | { kind: 'answer'; question: string }
+  /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
+  /// wrote, `why` in its own words, waits for that source before the cell runs again.
+  | { kind: 'outside'; source: string; cell: string; why: string };
 
 /// What a work does now.
 export type Now =

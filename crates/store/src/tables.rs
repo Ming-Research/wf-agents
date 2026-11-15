@@ -114,11 +114,18 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     }
     let finished = rows(
         db,
-        "SELECT at, run, dealt_with FROM finished WHERE work = ?1 ORDER BY at",
+        "SELECT at, run, dealt_with, waits_for FROM finished WHERE work = ?1 ORDER BY at",
         w,
-        |row| Ok((Seq(row.get(0)?), RunId(row.get(1)?), row.get::<_, Option<String>>(2)?)),
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                RunId(row.get(1)?),
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        },
     )?;
-    for (at, run, dealt_with) in finished {
+    for (at, run, dealt_with, waits_for) in finished {
         let writes = writes.remove(&run).unwrap_or_default();
         let dealt_with = dealt_with.map(|names| parse("finished", &names)).transpose()?;
         r.finished.push(Finished {
@@ -126,6 +133,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             at,
             writes,
             dealt_with,
+            waits_for: waits_for.map(BlockId),
         });
     }
 
@@ -563,9 +571,10 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     }
     for f in finished {
         let dealt_with = f.dealt_with.as_ref().map(|names| json("finished", names)).transpose()?;
+        let waits_for = f.waits_for.as_ref().map(|block| block.0.as_str());
         db.execute(
-            "INSERT INTO finished (work, at, run, dealt_with) VALUES (?1, ?2, ?3, ?4)",
-            params![w, f.at.0, f.run.0, dealt_with],
+            "INSERT INTO finished (work, at, run, dealt_with, waits_for) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![w, f.at.0, f.run.0, dealt_with, waits_for],
         )?;
         for (n, write) in (1..).zip(&f.writes) {
             db.execute(

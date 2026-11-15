@@ -57,6 +57,61 @@ fn an_implementation_that_hands_in_nothing_stalls_the_work_at_the_merge() {
     );
 }
 
+/// The research to the merge, the check run by main as well, which a source outside the work writes.
+fn checked_on_main() -> World {
+    let (merge, named) = waiting_for("checked", "checked", cell("merge", &["checked"], &[]));
+    let cells = vec![
+        cell("research", &["background"], &["deep", "plan"]),
+        when("deep", "no", cell("implement", &["plan"], &["code"])),
+        cell("check", &["code", "main"], &["checked"]),
+        merge,
+    ];
+    let mut w = World::with_tests(cells, BTreeMap::from([named]));
+    w.written_by_cells("checked");
+    w.person_writes("background");
+    w.written_outside("main", "main");
+    w
+}
+
+// A check whose run says that what it wrote waits for main, as one where what fails also fails on main, holds the
+// work for main, not for the owner: the work waits for that source, with the run and what it wrote, until main has a
+// new version, which runs the check again. Run so, a check that says nothing of it stalls the work as before.
+#[test]
+fn a_check_that_waits_for_main_has_the_work_wait_for_main_until_main_moves() {
+    let mut w = checked_on_main();
+    w.outside_writes("main");
+    w.run("research", &[("deep", Value("no")), ("plan", Matters)]);
+    w.run("implement", &[("code", Matters)]);
+    let at = w.run_waiting_for("check", &[("checked", Value("no"))], "main");
+    let run = (w.records.finished.iter())
+        .find(|f| f.at == at)
+        .expect("the check finished")
+        .run;
+    assert_eq!(
+        w.decide(),
+        wait(
+            "merge",
+            vec![Waited::Outside {
+                source: "main".to_string(),
+                run,
+                block: "checked".into(),
+            }]
+        )
+    );
+    w.outside_writes("main");
+    assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "check"));
+
+    let mut w = checked_on_main();
+    w.outside_writes("main");
+    w.run("research", &[("deep", Value("no")), ("plan", Matters)]);
+    w.run("implement", &[("code", Matters)]);
+    w.run("check", &[("checked", Value("no"))]);
+    assert_eq!(
+        w.decide(),
+        stalled("merge", &["checked"], &[("check", Unrun::NothingNew)])
+    );
+}
+
 #[test]
 fn a_cell_that_writes_what_the_work_waits_for_and_is_skipped_says_which_key_of_its_condition_does_not_hold() {
     let (merge, named) = waiting_for("ok", "ok", cell("merge", &["ok"], &[]));
