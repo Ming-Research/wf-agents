@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cellNowWords } from '../works/marks';
 import type { Act, Item, Speaking, WorkPage } from '../works-api';
+import type { Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
 
@@ -21,6 +22,15 @@ afterEach(() => {
 });
 
 const ITEMS = fixtureItems();
+
+/// The engineer's flow where the research's cell and the deep research's may write the work's questions, as the
+/// definition says by `questions` among their outputs, and the review's cells may not.
+const ASKING: Flow = {
+  ...FLOW,
+  cells: FLOW.cells.map((c) =>
+    c.id === 'research' || c.id === 'deep_research' ? { ...c, outputs: [...c.outputs, 'questions'] } : c,
+  ),
+};
 const itemOf = (n: number) => ITEMS.items.find((i) => i.number === n) as Item;
 const pageOf = (i: Item, speaking: Speaking[] = SPEAKING): PageState => ({
   page: {
@@ -29,7 +39,7 @@ const pageOf = (i: Item, speaking: Speaking[] = SPEAKING): PageState => ({
     level: i.level,
     project: i.project,
     history: i.history,
-    flow: FLOW,
+    flow: ASKING,
     cells: [],
     blocks: [],
     steps: [],
@@ -199,12 +209,11 @@ describe('the panel of the item selected', () => {
     const sent: Sent = [];
     // The engine gives the words to another cell than the one the page read it would: the page says the engine's.
     const el = draw(12, answered(sent, { reached: 'R1' }), undefined, true);
-    expect(text(el, '.cw-to .switch-choice')).toEqual(['Research', 'Deep research', 'Implementation']);
-    // Before the work has come to the implementation, a message goes to the research's line, which the engine says
-    // has reached the implementation.
-    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Research']);
+    // A button for each line that can ask the owner a question, and none for the review's line, which cannot.
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['Implement', 'D1']);
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Implement']);
     expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
-    act(() => button(el, 'Implementation').click());
+    act(() => button(el, 'Implement').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
     expect(button(el, 'Send').disabled).toBe(true);
     type(el.querySelector('textarea') as HTMLTextAreaElement, '  Keep it to one table  ');
@@ -232,8 +241,27 @@ describe('the panel of the item selected', () => {
     await act(async () => button(el, 'Send').click());
     expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'question', name: 'one_table' }, words: 'Why two tables?' }]]);
     // To another line, they are said to that line, which the engine says no cell of can take them.
-    act(() => button(el, 'Deep research').click());
+    act(() => button(el, 'D1').click());
     expect(text(el, '.write-readers')).toEqual([`No cell takes the words: ${SPEAKING[1].refused}`]);
+  });
+
+  it('shows a button for each line that can ask the owner a question and none for one that cannot, and says words to the line of the button chosen', async () => {
+    const sent: Sent = [];
+    const speaking: Speaking[] = [
+      { to: { kind: 'line', line: 'engineer' }, cell: 'implement', refused: null },
+      { to: { kind: 'line', line: 'deep_research' }, cell: 'deep_research', refused: null },
+      { to: { kind: 'line', line: 'review' }, cell: 'review', refused: null },
+    ];
+    const i = itemOf(12);
+    const el = draw(i, answered(sent, { reached: 'deep_research' }), pageOf(i, speaking));
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['Implement', 'Deep research']);
+    act(() => button(el, 'Deep research').click());
+    expect(text(el, '.write-readers')).toEqual(['Goes to Deep research']);
+    type(el.querySelector('textarea') as HTMLTextAreaElement, 'Look at the second table');
+    await act(async () => button(el, 'Send').click());
+    expect(sent).toEqual([
+      [12, { kind: 'say', to: { kind: 'line', line: 'deep_research' }, words: 'Look at the second table' }],
+    ]);
   });
 
   it('takes a question a cell asked by a call to the discussion, quoted, to the line of the cell that asked it', async () => {
@@ -241,7 +269,7 @@ describe('the panel of the item selected', () => {
     const speaking: Speaking[] = [{ to: { kind: 'line', line: 'engineer' }, cell: 'research', refused: null }];
     const el = draw(1, answered(sent, { reached: 'R1' }), engineer(pageOf(itemOf(1), speaking)), true);
     await act(async () => button(el, 'Discuss').click());
-    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Research']);
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Initial research']);
     expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
     // The discussion's box, not the one the question is answered in.
     type(discussion(el).querySelector('textarea') as HTMLTextAreaElement, 'Kept a day: say why not.');
