@@ -772,14 +772,18 @@ impl<'m> Replay<'m> {
         runs.sort();
         let mut ours: Vec<(decide::Seq, RunId)> = self.work.records.started.iter().map(|s| (s.at, s.run)).collect();
         ours.sort();
+        let cells = |records: &Records| {
+            let mut started: Vec<&decide::Started> = records.started.iter().collect();
+            started.sort_by_key(|s| s.at);
+            started.iter().map(|s| s.cell.as_str()).collect::<Vec<_>>().join(" ")
+        };
         let run = |run: RunId| {
             let k = runs.iter().position(|(_, r)| *r == run);
             k.and_then(|k| ours.get(k)).map(|(_, r)| *r).ok_or_else(|| {
                 format!(
-                    "its path gives the run {} of the exploration a round, which played as a play adds its item has \
-                     not started: it started {:?}, standing at {:?}",
-                    run.0,
-                    (ours.iter()).map(|(_, r)| r.0).collect::<Vec<_>>(),
+                    "played as a play adds its item, it ran {}, where the exploration ran {}, and stands at {:?}",
+                    cells(&self.work.records),
+                    cells(explored),
                     decide::decide(&self.flow.flow, &self.work.records)
                 )
             })

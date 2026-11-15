@@ -93,7 +93,7 @@ pub fn ruled(flow: &flow::Compiled, words: &Agents, cases: &[Case]) -> (Vec<Case
     let changing = (flow.cells.iter()).filter(|c| c.kind == Kind::Agent && !c.reads_only);
     for cell in changing {
         match under_way_at(&cell.id) {
-            Some(base) => match engine_question(base, words) {
+            Some(base) => match engine_question(base, cases, words) {
                 Some(case) => ruled.push(case),
                 None => not.push((
                     format!("{ENGINE_QUESTION} at {}", cell.id),
@@ -293,8 +293,9 @@ fn everything(base: &Case) -> Case {
 }
 
 /// The base's round under way ending with the engine's own question of a change of a protected path, worded as the
-/// engine words it, which the work waits for; none where the words beside the flows make none.
-fn engine_question(base: &Case, words: &Agents) -> Option<Case> {
+/// engine words it, which the work waits for, the round handing in what that round of the cell hands in on another way
+/// the exploration kept, where one does, and else nothing; none where the words beside the flows make no question.
+fn engine_question(base: &Case, cases: &[Case], words: &Agents) -> Option<Case> {
     let (cell, run, round) = base.under_way.clone()?;
     let (status, path, diff) = PROTECTED;
     let asked = carry::question_of_change(&words.asks.protected, &[(status, path.to_string(), diff.to_string())])?;
@@ -332,8 +333,22 @@ fn engine_question(base: &Case, words: &Agents) -> Option<Case> {
     r.insert("cell".to_string(), text(cell.as_str()));
     r.insert("run".to_string(), Value::Integer(run as i64));
     r.insert("round".to_string(), Value::Integer(round as i64));
-    // A return that leaves its cell waiting owes nothing else: it hands in nothing, so that the cell stays as it was.
-    r.insert("hands_in".to_string(), Value::Array(Vec::new()));
+    let same = |t: &Table| {
+        t.get("cell").and_then(Value::as_str) == Some(cell.as_str())
+            && t.get("run").and_then(Value::as_integer) == Some(run as i64)
+            && t.get("round").and_then(Value::as_integer) == Some(round as i64)
+            && t.contains_key("hands_in")
+            && !t.contains_key("questions")
+    };
+    let done = (cases.iter()).flat_map(|c| &c.rounds).find(|t| same(t));
+    for key in ["hands_in", "dealt_with", "reads"] {
+        if let Some(value) = done.and_then(|t| t.get(key)) {
+            r.insert(key.to_string(), value.clone());
+        }
+    }
+    if !r.contains_key("hands_in") {
+        r.insert("hands_in".to_string(), Value::Array(Vec::new()));
+    }
     r.insert("engine".to_string(), Value::Array(vec![Value::Table(question)]));
     c.rounds.push(r);
     let end = Step::Waits {

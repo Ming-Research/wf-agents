@@ -135,28 +135,32 @@ and the scripts that stand in for agents are built; what is not is said at the e
     program from outside, through its commands and its interface, was turned down: an act at a round under way then
     rested on how soon the driver saw the round, and the build took as long as its rounds.
 
-18. The states are taken from the flow's definition and the engine's own kinds, never from what was seen: under way at
-    each cell; waiting, at each cell that can, for each thing it can wait for (an answer, a call's result, the engine's
-    own question, an item it depends on); at each limit; paused by the owner, by the engine for each kind of failure,
-    and by the pause of everything; stalled; merged by each way through the flow, and cancelled at each point; never
-    let on; and the installation's own states, such as the wait for a service and every slot taken. A change that adds
-    a state the page can show adds it to the build in the same work.
+18. The states are taken from the flow's definition and the engine's own kinds, never from what was seen, naming no
+    cell, so that a cell added brings its states: under way at each cell; waiting, at each cell that can, for each thing
+    it can wait for (an answer, a call's result, the engine's own question, an item it depends on); at each limit;
+    paused by the owner, by the engine for each kind of failure, and by the pause of everything; stalled; merged by each
+    way back and each branch of the flow, and cancelled from each kind of state: the owner goes down the list by hand
+    (19), and a work merged by two ways back, or cancelled at another cell of the same kind, shows nothing one of them
+    does not (a judgment); never let on; and the installation's own states, such as the wait for a service and every
+    slot taken. A change that adds a state the page can show adds it to the build in the same work.
 
-19. The build checks that each work reached its state, and writes the list of the states, each with the item that
-    shows it, and each it could not bring about with why (principle nothing-passes-for-normal). The owner goes down the
-    list on the test page in a browser, opening each state by its item. Each start serves a fresh copy of the store, so
-    that what the owner does there is gone at the next, and a round left under way lasts hours, so that it stays under
-    way.
+19. The build is `wf-agents play --states`, given the flows and the items of the installation's data (principle
+    harness-only). It checks that each work reached its state, and writes the list of the states, each with the item
+    that shows it, and each it could not bring about with why (principle nothing-passes-for-normal), and beside each
+    store its serving script and how it is served. The owner goes down the list on the test page in a browser, opening
+    each state by its item. Each start serves a fresh copy of the store, so that what the owner does there is gone at
+    the next, and a round left under way lasts hours, so that it stays under way.
 
 20. The page's own made-up data, which it can show in place of the engine's, are for designing a view before the engine
     gives what it shows. They agree with themselves and not with the engine, so no change of the page is approved on
     them.
 
-21. Not built: the build kept in the repository beside the program it drives, as 18 needs, the items it fills the store
-    with given from the installation's data (principle harness-only); and the states a script cannot bring about:
-    sessions kept warm and what a round wrote to the cache, which a few works whose agents play parts (12) can show; the
-    settings and the levels, which a script runs without; the copies of the store; and times spread as a real
-    installation's are, which needs the build to run on a clock of its own (principle outside-behind-interfaces).
+21. Not built: times spread as a real installation's are, which needs the build's clock placed so that the page reads
+    them as of now; a state whose way there writes the work's tree or head by a commit no round made, which a script
+    writes only as the round that reads the branch does; the check's red and conflicting returns in the words the real
+    check gives them; and what a script cannot bring about: sessions kept warm and what a round wrote to the cache,
+    which a few works whose agents play parts (12) can show; the settings and the levels, which a script runs without;
+    and the copies of the store, which a script keeps none of.
 
 ## A trial on the real installation
 
