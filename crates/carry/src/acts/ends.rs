@@ -511,9 +511,45 @@ async fn a_head_moved_since_the_check_fails_the_merge_in_passing_and_is_written_
     assert_eq!(written_from_outside(&mut told), Vec::new());
 }
 
+/// The round as [`merging`] gives it, its head at the commit, where the work's latest check, a run before it, passed
+/// that commit, writing in its choice what the check writes there.
+fn merging_checked(checked: &str) -> Round {
+    let mut round = merging(checked);
+    let mut kept = (*round.kept).clone();
+    let check = (round.flow.cells.iter()).find(|cell| cell.act.as_deref() == Some("check"));
+    let run = RunId(4);
+    let at = kept.tick();
+    kept.records.started.push(decide::Started {
+        run,
+        cell: check.expect("the flow has a check").id.clone(),
+        at,
+        because: Vec::new(),
+        basis: std::collections::BTreeMap::new(),
+    });
+    let words = super::words().check;
+    let at = kept.tick();
+    kept.records.finished.push(Finished {
+        run,
+        at,
+        writes: vec![decide::Write {
+            block: "passed".into(),
+            meaning_unchanged: false,
+            value: Some(words.values.passed.clone()),
+            empty: false,
+        }],
+        dealt_with: None,
+        waits_for: None,
+    });
+    let said = fill(&words.first, &[("commit", checked)]);
+    kept.contents.insert(("passed".into(), at), said);
+    round.kept = Arc::new(kept);
+    round
+}
+
 // A merge that cannot read the work's branch fails its round with what the read found, as the check does, and asks the
-// host nothing: going on, it took a head nobody read for one that had not moved. Well under a second alone: a
-// repository on disk and the fake host; no other test holds the merge to a read that fails.
+// host nothing, though the work's latest check passed the commit: going on, it took a head nobody read for one that had
+// not moved, and merged. Well under a second alone: a repository on disk and the fake host; no other test holds the
+// merge to a read that fails.
 #[tokio::test]
 async fn a_merge_that_cannot_read_the_works_branch_fails_its_round_as_the_check_does() {
     let repo = Repo::new("true");
@@ -521,12 +557,19 @@ async fn a_merge_that_cannot_read_the_works_branch_fails_its_round_as_the_check_
     let place = repo.place(WORK);
     let checked = run(&repo.project.repo, &["rev-parse", &place.reference()]);
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let round = merging_checked(&checked);
+    let passing = passed(&round.flow, &round.kept, &super::words().check);
+    assert_eq!(
+        passing,
+        Ok(Some(checked.clone())),
+        "the work's latest check passed the commit"
+    );
     // The branch is gone, as where a person deleted it.
     run(&repo.project.repo, &["update-ref", "-d", &place.reference()]);
     let acts = acts(&repo, Fake::new(&main));
     let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(5), to).teller();
-    let merged = acts.inner.act(&merging(&checked), &teller, &mut Stop::never()).await;
+    let merged = acts.inner.act(&round, &teller, &mut Stop::never()).await;
     let Err(failed) = merged else {
         panic!("the merge went on over a branch it could not read");
     };
