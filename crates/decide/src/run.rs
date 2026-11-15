@@ -542,7 +542,8 @@ pub fn taken_writes(writes: &[Write], read: &[BlockId], told: &Told, agent: bool
             value: None,
             // What the carrier read of the branch, a commit, holds something.
             empty: false,
-        });
+        })
+        .collect::<Vec<Write>>();
     written.into_iter().chain(committed).collect()
 }
 
