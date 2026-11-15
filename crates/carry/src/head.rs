@@ -154,10 +154,11 @@ pub(crate) async fn base(dir: &Path, main: &str, was: &str, now: &str) -> Result
 }
 
 /// The command that shows what the work itself changed from its head `was` to its head `now`, without main's code: the
-/// diff from its [`base`] to `now`, the whole change against main where the two cannot be compared so.
+/// diff from its [`base`] to `now`, the whole change against main where the two cannot be compared so. It is given as a
+/// change is, set apart in a fence, so it is the command bare.
 pub(crate) async fn between(dir: &Path, main: &str, was: &str, now: &str) -> Result<String, String> {
     let base = base(dir, main, was, now).await?;
-    Ok(format!("`git diff {} {now}`", base.taken_from()))
+    Ok(format!("git diff {} {now}", base.taken_from()))
 }
 
 #[cfg(test)]
