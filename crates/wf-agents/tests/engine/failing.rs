@@ -3,7 +3,7 @@
 
 use crate::{Engine, Place, SCRIPT};
 
-const WHY: &str = "the agent's program could not start";
+const WHY: &str = "The agent's program could not start";
 
 #[test]
 fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
@@ -23,11 +23,14 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
         "request=Greet the user, please.",
     ]);
     assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
-    let paused = format!("#1 \"Greet the user\" at level 1, project script, W1 on trial: paused by the engine: {WHY}");
+    // The engine's pause and its reason, each a sentence.
+    let paused = format!("#1 \"Greet the user\" at level 1, project script, W1 on trial: paused by the engine. {WHY}.");
     engine.until(&["list"], |line| line == paused);
     let shown = engine.says(&["show", "1"]);
     assert!(
-        shown.contains(&format!("\nNow: paused by the engine: {WHY}.\nPaused: yes.\n")),
+        shown.contains(&format!(
+            "\nNow: paused by the engine. {WHY}.\nPaused: by the engine.\n"
+        )),
         "{shown}"
     );
     assert!(

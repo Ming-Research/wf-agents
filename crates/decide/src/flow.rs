@@ -71,6 +71,9 @@ pub struct Outsiders {
     pub note: bool,
     /// The source outside the work that writes it, where one does.
     pub outside: Option<String>,
+    /// What that source writes of it changes only as the owner acts, as the record of the questions changes only as the
+    /// owner answers them: the owner, and not the source, makes a precondition that reads it hold.
+    pub by_owner: bool,
     /// A new version of it is the owner turning to the cells it runs: the owner's words to a cell, or an answer that
     /// takes another option than the one the work goes by (design document `data-and-context`, 35, 39). It stops a
     /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls, and is

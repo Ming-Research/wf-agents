@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Block, Cause, Item, Now, Run, Step, Summary, Version, Writer } from '../works-api';
+import type { Block, Cause, Item, Now, Pauser, Run, Step, Summary, Version, Writer } from '../works-api';
 import { FLOW, fixtureWork } from './fixtures';
 import { stepWords } from './History';
 import { orderWorks, placeSteps } from './placing';
@@ -98,8 +98,9 @@ describe('the rows and columns of a history', () => {
   });
 });
 
-/// A work in brief that does this now.
-function summary(number: number, now: Now, last: number | null, paused = false): Summary {
+/// A work in brief that does this now, paused by whom where it is, waiting on the owner for what the engine's list
+/// says, here a thing of this key.
+function summary(number: number, now: Now, last: number | null, paused: Pauser | null = null, waits: string[] = []): Summary {
   return {
     number,
     item: number,
@@ -107,6 +108,7 @@ function summary(number: number, now: Now, last: number | null, paused = false):
     added: 0,
     paused,
     now,
+    waits: waits.map((key) => ({ key, why: `${key}.`, ends: { kind: 'resume' } })),
     cells: [],
     spent: { usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 },
     last,
@@ -114,18 +116,26 @@ function summary(number: number, now: Now, last: number | null, paused = false):
 }
 
 describe('the list of works', () => {
-  it("puts what waits for the owner first, then a fault or the engine's pause, then what goes on, then what the owner paused, then what ended", () => {
+  it('puts what waits for the owner first, then a fault or a stall, then what goes on, then what the owner paused, then what ended', () => {
     const works = [
       summary(1, { kind: 'merged' }, 900),
       summary(2, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 500),
       summary(3, { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'x', input: '' } }] }, 800),
-      summary(4, { kind: 'waits', at: 'merge', on: [{ kind: 'limit', by: 'review', runs: 3 }] }, 100),
-      summary(5, { kind: 'paused', by: 'owner', why: null }, 950, true),
+      summary(4, { kind: 'waits', at: 'merge', on: [{ kind: 'limit', by: 'review', runs: 3 }] }, 100, null, ['limit']),
+      summary(5, { kind: 'paused', by: 'owner', why: null }, 950, 'owner'),
       summary(6, { kind: 'fault', words: 'x' }, 10),
-      summary(7, { kind: 'waits', at: 'plan', on: [{ kind: 'precondition', test: 't', words: 'w', by: [{ kind: 'owner' }] }] }, 200),
+      summary(7, { kind: 'waits', at: 'plan', on: [{ kind: 'precondition', test: 't', words: 'w', by: [{ kind: 'owner' }] }] }, 200, null, ['write-t']),
       summary(8, { kind: 'cancelled' }, 990),
-      summary(9, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 600, true),
-      summary(10, { kind: 'paused', by: 'engine', why: 'A round failed.' }, 20, true),
+      summary(9, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 600, 'owner'),
+      // The engine's pause and its pause of everything as it started again wait for the owner, as the engine's list
+      // says; the owner's pause of everything does not.
+      summary(10, { kind: 'paused', by: 'engine', why: 'A round failed.' }, 300, 'engine', ['pause']),
+      summary(11, { kind: 'everything', by: 'engine' }, 250, null, ['held']),
+      summary(12, { kind: 'everything', by: 'owner' }, 700),
+      // A work held for main to move goes with what goes on by itself, not with what waits for the owner.
+      summary(13, { kind: 'waits', at: 'M2', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'w' }] }, 1000),
+      // A stalled work comes with a fault.
+      summary(14, { kind: 'stalled', at: 'M2', on: [], by: [], why: 'Nothing new runs `M2`.' }, 5),
     ];
     const items: Item[] = works.map((w) => ({
       number: w.number,
@@ -137,6 +147,6 @@ describe('the list of works', () => {
       history: { first: { title: `${w.number}`, level: '2', dependsOn: [] }, changes: [] },
       work: w,
     }));
-    expect(orderWorks(items).map((w) => w.work.number)).toEqual([7, 4, 10, 6, 3, 2, 5, 9, 8, 1]);
+    expect(orderWorks(items).map((w) => w.work.number)).toEqual([10, 11, 7, 4, 6, 14, 13, 3, 2, 5, 12, 9, 8, 1]);
   });
 });

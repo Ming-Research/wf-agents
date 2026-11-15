@@ -1,0 +1,61 @@
+# What the engine says to the owner of why a work waits on them, a sentence for each thing it waits for, which the
+# page shows on the card the owner acts on and in the browser's notifications, and `wf-agents wait` says; why the
+# engine paused a work, which the pause keeps and its card says; and why a stalled work rests. Read with each flow. A
+# name or a value in backticks is shown as one.
+
+# Why the engine paused a work, each a sentence of its own before `{why}`, what carried the round out, or the act that
+# lets go of what the work held, said as it said it: `too_long` where the prompt is too long for the model; `passing`
+# where the round failed in passing `{failed}` times in a row; `outside` where it failed `{failed}` times in a row for a
+# cause outside every work; `flagged_again` where the service's safety check flagged it again, in the new session its
+# line was given; `let_go` where letting go of what an ended work held failed. Any other cause is said by what carried
+# the round out alone.
+[paused]
+too_long = "Running the round again cannot help. {why}"
+passing = "The round failed in passing {failed} times in a row, and running it again has not helped. {why}"
+outside = "The round failed {failed} times in a row for a cause outside every work, tried again each time the engine's check found the outside well. {why}"
+flagged_again = "The service's safety check flagged the round again, in the new session its line was given. {why}"
+let_go = "Letting go of what the work held failed. {why}"
+
+# Why a work waits on the owner, by what it waits for, each said beside the cell the work waits at, which none names;
+# a question put to the owner is said by what it asks. Filled in a run: `{cell}` the cell by its id, given to each;
+# `limit`, one of the cell's senders that sent it back as often as the flow's `again` lets one since its counts last
+# started anew, `{by}` the sender, `sender` with `{cell}` a cell after it for what it wrote, or `engine` for the
+# returns the engine sent back, and `{times}` how often, the limit, said where no plural follows it; `made`, a run
+# kept from before at its limit of `{made}` calls made, which no run reaches now; `ruling`, a block the owner may
+# write, `{block}`, keeping the cell's `requires` key `{key}` from holding; `answer`, why a cell's precondition waits
+# for a question that stands without the owner's answer, said on its card alone, under what it asks; `paused`, the
+# engine's pause, `{why}` its reason, and `no_reason` where it gave none; `held`, the pause of every work the engine
+# set as it started again; `agents`, the agents' command line that cannot run, `{why}` what its check or its round
+# found, and `mend`, what the owner does about it, which the page has no control for.
+[owner]
+limit = "{by} has sent the cell back as often as a sender may since its counts last started anew, its limit of {times}."
+sender = "`{cell}`"
+engine = "The engine"
+made = "The cell's run made {made} calls, its limit."
+ruling = "`{key}` does not hold, as `{block}` says, and the cell requires it."
+answer = "The merge waits for this answer."
+paused = "The engine paused the work. {why}"
+no_reason = "The engine paused the work and gave no reason."
+held = "The engine paused every work as it started again."
+agents = "The agents' command line cannot run. {why}"
+mend = "Sign it in again or install it; the engine lets the work go on once its check finds it runs."
+
+# Why a stalled work rests, which no one waits on, made of these in a sentence, said beside the cell it stands at,
+# which none names: `waits` where that cell waits for its `requires` keys `{keys}`, or `last` where it is the last cell,
+# which nothing new runs; `{writers}` the cells that write what it waits for, `only` with `{cells}` them, or `none`;
+# then for each, `unrun` with `{cell}` it and `{why}` one of `skipped`, with `{keys}` the keys of its `when` that keep
+# it from running, `nothing_new`, or `held`, where the cell the work stands at holds it. A key or a cell is said as
+# `name`, `{name}` it; keys are joined by `and`, cells by `or`, and the parts by `then`.
+[stalled]
+waits = "It waits for {keys}, which {writers} can make hold"
+last = "Nothing new runs this last cell, and {writers} can write what runs it"
+only = "only {cells}"
+none = "no cell"
+unrun = "{cell} does not run, as {why}"
+skipped = "it is skipped, {keys} not holding"
+nothing_new = "nothing new runs it"
+held = "the cell the work stands at holds it"
+name = "`{name}`"
+and = " and "
+or = " or "
+then = ", and "

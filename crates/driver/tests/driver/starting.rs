@@ -6,7 +6,7 @@
 //! driver pauses nothing.
 
 use decide::Holder;
-use driver::NewItem;
+use driver::{NewItem, Span};
 use engine::Work;
 
 use super::*;
@@ -160,6 +160,46 @@ fn the_owners_pause_set_over_the_drivers_own_is_the_owners() {
         1,
         "the merge is carried out once it is lifted"
     );
+}
+
+#[test]
+fn every_stretch_the_pause_of_everything_held_is_kept_by_whom_and_read_back_whole_as_the_driver_opens_again() {
+    let mut h = H::new();
+    h.add_let_on(new_item("going", &[], "plain"));
+    // Opened again on a work going on, the driver pauses everything itself.
+    h.reopen();
+    let held = Time(h.clock);
+    h.now();
+    // The owner's pause set over it ends the driver's stretch and begins the owner's, which they lift.
+    h.pause_everything(true);
+    let theirs = Time(h.clock);
+    h.pause_everything(false);
+    let lifted = Time(h.clock);
+    let mut spans = vec![
+        Span {
+            from: held,
+            until: Some(theirs),
+            by: Pauser::Engine,
+        },
+        Span {
+            from: theirs,
+            until: Some(lifted),
+            by: Pauser::Owner,
+        },
+    ];
+    assert_eq!(h.d().everything_spans(), spans.as_slice());
+    // Opened again, it reads them back from the store as they were, and holds a stretch of its own from then.
+    h.now();
+    h.reopen();
+    spans.push(Span {
+        from: Time(h.clock),
+        until: None,
+        by: Pauser::Engine,
+    });
+    assert_eq!(h.d().everything_spans(), spans.as_slice());
+    // Opened again under its own pause, it keeps that stretch as it is.
+    h.reopen();
+    assert_eq!(h.d().everything_spans(), spans.as_slice());
 }
 
 #[test]

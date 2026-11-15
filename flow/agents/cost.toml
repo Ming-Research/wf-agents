@@ -1,17 +1,35 @@
-# What the engine says as it guards what the agents' rounds cost and keeps their sessions' prompt caches: to a session
-# it keeps warm, and to the owner, of a round it stopped and of a work it paused.
+# What the engine says as it runs the agents' program, guards what its rounds cost and keeps their sessions' prompt
+# caches: to a session it keeps warm, and to the owner, of a run of the program that failed, of a round it stopped and
+# of a work it paused.
 
-# Why the run guard stopped a round, as the round's failure says it: `growth` where its context grew past the line of
-# its history both in all and for each call, `jump` where its first prompt rose past the session's last by more than
-# the line both in all and for each character of the message it was given; `again`, with `{stopped}` one of those,
-# where it stopped the run's round before too, in the new session its line was given. Filled in a run: `{value}` and
-# `{line}` the first measure and its line, `{per}` and `{per_line}` the second; `{from}` how many values gave the lines
-# and of what, in `from` below, `{scope}` one of `[guard.scope]`; `{tools}` the last tools the round used, each as
-# `tool`, `between` between two, and `no_tools` where it used none.
+# Why a run of the agents' program, a round's, a keep-warm ping's or the check of the outside's, failed where it ended
+# with no result to read: `exited` where it exited with the code `{code}`, `signal` where the signal `{signal}` ended
+# it; `{command}` the command line, and `{said}` the end of what it said.
+[program]
+exited = "{command} exited with code {code}: {said}"
+signal = "{command} was ended by signal {signal}: {said}"
+
+# What the engine's check of the outside of the agents' rounds found down, where it says it itself, a sentence each:
+# `signed_out` where the command line, `{command}`, says it is not signed in; `offline` where the network does not reach
+# the agents' service.
+[check]
+signed_out = "It is not signed in, as `{command} auth status` says."
+offline = "The network does not reach the agents' service."
+
+# Why the run guard stopped a round, as the round's failure says it, in sentences: `stopped` that it stopped the round,
+# or `again` where it stopped the run's round before too, in the new session its line was given; then, after `then`,
+# what it measured, `growth` where its context grew past the line of its history both in all and for each call,
+# `jump` where its first prompt rose past the session's last by more than the line both in all and for each character
+# of the message it was given. Filled in a run: `{value}` and `{line}` the first measure and its line, `{per}` and
+# `{per_line}` the second; `{from}` how many values gave the lines and of what, in `from` below, `{scope}` one of
+# `[guard.scope]`; `{tools}` the last tools the round used, each as `tool`, `between` between two, and `no_tools` where
+# it used none.
 [guard]
-growth = "the run guard stopped the round: its context grew by {value} tokens, past the line of {line}, and by {per} a call, past the line of {per_line}, lines that {from} give; its last tools: {tools}"
-jump = "the run guard stopped the round: its first prompt rose over its session's last by {value} tokens, past the line of {line}, and by {per} for each character of its message, past the line of {per_line}, lines that {from} give; its last tools: {tools}"
-again = "the run guard stopped the round again, in the new session its line was given: {stopped}"
+stopped = "The run guard stopped the round."
+again = "The run guard stopped the round again, in the new session its line was given."
+then = " "
+growth = "Its context grew by {value} tokens, past the line of {line}, and by {per} a call, past the line of {per_line}, lines that {from} give. Its last tools: {tools}."
+jump = "Its first prompt rose over its session's last by {value} tokens, past the line of {line}, and by {per} for each character of its message, past the line of {per_line}, lines that {from} give. Its last tools: {tools}."
 from = "{samples} rounds {scope}"
 tool = "{tool} {on}"
 between = "; "
@@ -24,25 +42,29 @@ works = "of the flow's other works"
 line = "of its line"
 
 # Why the engine paused a work whose spend or time, since it started or was last let on after the engine paused it,
-# is past the line the flow's other works give, or one of whose cells asked for tools or tests more times in a row
-# before it handed in its work than the history of such rows gives. Filled in a run: `{work}` the work's number,
-# `{value}` its spend in dollars, its time in minutes or the times in a row, `{line}` the line, `{works}` how many works
-# gave it, `{since}` the words below of since when; of the asking, `{cell}` the cell, and `{from}` how many rows gave
-# the line and of what, `{scope}` one of `[guard.scope]`; `between` between two reasons it waits for.
+# is past the line the flow's other works give, `spent` and `time`; whose spend is over the budget the settings give,
+# `budget`; or whose cell asked for tools or tests more times in a row before it handed in its work than the history
+# of such rows gives, `asking`; each a sentence, said beside its work, which names no work, and names its cell where
+# nothing beside it does, as the pause stands beside no cell. Filled in a run: `{value}` its spend in dollars, its
+# time in minutes or the times in a row, `{line}` the line, `{works}` how many works gave it, `{since}` the words
+# below of since when, `{budget}` the budget in dollars; of the asking, `{cell}` the cell that asked, and `{from}` how
+# many rows gave the line and of what, in `asked_from`, `{scope}` one of `[guard.scope]`; `between` between two
+# reasons it waits for, or a reason and why its round failed.
 [work]
-spent = "work W{work} has spent ${value} since {since}, past the line of ${line} that {works} other works of its flow give"
-time = "work W{work} has taken {value} minutes in its rounds since {since}, past the line of {line} that {works} other works of its flow give"
-asking = "work W{work}: its cell {cell} has asked for tools or tests {value} times in a row before handing in its work, past the line of {line} that {from} give"
+spent = "It has spent ${value} since {since}, past the line of ${line} that {works} other works of its flow give."
+time = "It has taken {value} minutes in its rounds since {since}, past the line of {line} that {works} other works of its flow give."
+budget = "It has spent ${value}, over its budget of ${budget}."
+asking = "`{cell}` has asked for tools or tests {value} times in a row before handing in its work, past the line of {line} that {from} give."
 asked_from = "{samples} such rows {scope}"
 started = "it started"
 let_on = "it was last let on"
-between = "; and "
+between = " "
 
 # What a keep-warm ping sends a session whose line waits, so that the prompt cache does not let the session go: the
 # whole message, `message`, whose answer is not read. Why one failed, kept with the ping: `under_way`, a round of its
 # work being under way; `no_round`, with `{line}`, no round of the line having run; `no_system`, with `{why}`, the
 # session's system prompt not being kept; `stopped`, with `{minutes}`, its not ending while the cache kept the session;
-# `exited`, with `{command}`, `{status}` and the end of what it said, `{said}`.
+# and where its program ended with no result, as `[program]` says.
 [ping]
 message = """# Keep-warm ping
 
@@ -51,4 +73,3 @@ under_way = "a round of the work is under way"
 no_round = "no round of the line `{line}` ran"
 no_system = "the session's system prompt is not kept: {why}"
 stopped = "the ping did not end within {minutes} minutes, while the cache kept the session, and was stopped"
-exited = "{command} exited with {status}: {said}"

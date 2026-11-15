@@ -52,13 +52,15 @@ export function conditionWords(keys: Condition[]): string {
   return keys.map(keyWords).join(', ');
 }
 
-/// Who writes a block besides cells, by the block's own keys: `people`, `note`, `outside` with its source.
+/// Who writes a block besides cells, by the block's own keys: `people`, `note`, `outside` with its source, and
+/// `changed_by` with whoever changes what that source writes.
 export function writersBesideCells(block: Block): string[] {
-  const { people, note, outside } = block.writtenBy;
+  const { people, note, outside, changedBy } = block.writtenBy;
   return [
     ...(people ? ['people'] : []),
     ...(note ? ['note'] : []),
     ...(outside !== null ? [`outside ${outside}`] : []),
+    ...(changedBy !== undefined ? [`changed_by ${changedBy}`] : []),
   ];
 }
 
@@ -135,6 +137,8 @@ export function faultWords(fault: Fault): string {
       return "A block is named test, which a cell's when takes for a named test.";
     case 'emptyCondition':
       return "A cell's when or requires has no keys: it says nothing that must hold.";
+    case 'changedByWithoutSource':
+      return `${w.block} says who changes what its source writes, but no source outside the work writes it.`;
     case 'noteNotByPeople':
       return `${w.block} is a note, but people do not write it.`;
     case 'noteIsAChoice':

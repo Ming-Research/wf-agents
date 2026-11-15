@@ -206,6 +206,22 @@ button {
   white-space: nowrap;
 }
 
+/* A view's line of two rows, as the flow's: its name, its facts and its switches; under them, its legend alone. Each
+   row stays a row of its own: the facts are cut first, and the legend wraps, where it must, within its row. */
+.view-lines {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+.view-row {
+  display: flex;
+  align-items: center;
+  gap: 0 var(--space-12);
+  min-width: 0;
+  min-height: var(--control);
+}
+
 .view-name {
   font-weight: var(--weight-strong);
 }
@@ -321,15 +337,17 @@ textarea:disabled {
   transition: background-color var(--hover-time);
 }
 
-.switch-choice:hover {
+.switch-choice:not([aria-pressed='true']):hover {
   background: var(--step);
 }
 
-/* The choice taken: on the accent's tint, in its text, ringed in it. */
+/* The choice taken: on the accent's tint, in its text, ringed in it. Pressing it does nothing, so it shows no hover and
+   no hand: only the other choices look as if they can be pressed. */
 .switch-choice[aria-pressed='true'] {
   background: var(--accent-tint);
   color: var(--accent-text);
   box-shadow: 0 0 0 var(--hairline) var(--accent);
+  cursor: default;
 }
 
 /* A tag: a few words or a count of a state, filled in its colour, as the console's count tags on a card. */
@@ -845,7 +863,9 @@ textarea:disabled {
 }
 
 /* Where a work's time went: one block for each stretch of a model or of the tools, and one for each stretch nothing
-   ran in, on a muted ground; the console's item window and a work's usage draw it alike. */
+   ran in, on a muted ground; the console's item window and a work's usage draw it alike. A stretch nothing ran in
+   takes, in the console's, the colour of what the work waited for: the owner's red, a pause's muted grey, and the
+   light grey of nothing running for the items it depends on as for anything else. */
 .us-track {
   position: relative;
   height: var(--space-8);
@@ -868,6 +888,15 @@ textarea:disabled {
   background: var(--track-tool);
 }
 
-.us-gap {
+.us-gap,
+.us-items {
   background: var(--track-gap);
+}
+
+.us-owner {
+  background: var(--red);
+}
+
+.us-paused {
+  background: var(--muted);
 }
