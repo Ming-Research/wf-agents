@@ -12,6 +12,8 @@ decide = { path = "../decide" }
 driver = { path = "../driver" }
 engine = { path = "../engine" }
 flow = { path = "../flow" }
+# The reading of a work's records that the judge of a play reads them by, apart from the deciding code.
+reading = { path = "../reading" }
 serde.workspace = true
 store = { path = "../store" }
 tokio = { version = "1.53.1", features = ["rt", "sync", "time"] }

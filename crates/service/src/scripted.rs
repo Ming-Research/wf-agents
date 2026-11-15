@@ -141,25 +141,25 @@ fn says_now<'a>(kept: &'a Work, block: &BlockId) -> Option<&'a str> {
 }
 
 /// What the act that checks the work reads by itself for its round, the nth run of its cell: main as the work's block
-/// of main holds it, which it takes in and writes nothing of, as the real check takes the latest main in; or, where
-/// that block holds no version, one made up for the round. Nothing of another act's round, or of an agent's.
+/// of main holds it now, which the round is told it takes in, as the real check tells its round the latest main it
+/// takes in (decision the-check-tells-its-round-the-main-it-takes-in), so that a main written since its run began runs
+/// it no more; the version is put into the round, and none is written. Or, where that block holds no version, one
+/// made up for the round. Nothing of another act's round, or of an agent's.
 fn taken_in(round: &Round, nth: usize) -> Option<Read> {
     if round.cell.act.as_deref() != Some(CHECK) {
         return None;
     }
     let (block, _) = (round.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(MAIN))?;
-    if decide::versions(&round.kept.records)
-        .get(block)
-        .is_some_and(|v| !v.is_empty())
-    {
-        return None;
-    }
-    Some(Read {
-        block: block.clone(),
-        content: format!(
+    let content = match says_now(&round.kept, block) {
+        Some(latest) => latest.to_string(),
+        None => format!(
             "The main as {} took it in in its run {nth}, round {}.",
             round.cell.id, round.number
         ),
+    };
+    Some(Read {
+        block: block.clone(),
+        content,
         for_round: true,
     })
 }

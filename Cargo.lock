@@ -302,6 +302,7 @@ name = "explore"
 version = "0.1.0"
 dependencies = [
  "decide",
+ "driver",
  "engine",
  "flow",
  "reading",
@@ -804,6 +805,7 @@ dependencies = [
  "driver",
  "engine",
  "flow",
+ "reading",
  "serde",
  "store",
  "tempfile",
