@@ -57,8 +57,8 @@ fn testing() -> World {
     w
 }
 
-/// The implementation asks for tests, saying no in `gives`, a choice of the cells' alone where `cells_alone`, and of
-/// people as well otherwise; the cell that runs the tests runs only while it is yes.
+/// The implementation asks for tests, saying no in `gives`, a choice of the cells' alone where `cells_alone`, and that a
+/// source outside the work writes as well otherwise; the cell that runs the tests runs only while it is yes.
 fn gated(cells_alone: bool) -> World {
     let mut run_tests = when("gives", "yes", run_tests());
     run_tests.outputs = vec!["implement_tested".into()];
@@ -79,6 +79,8 @@ fn gated(cells_alone: bool) -> World {
     w.written_by_cells("tests");
     if cells_alone {
         w.written_by_cells("gives");
+    } else {
+        w.written_outside("gives", "main");
     }
     w.person_writes("background");
     w.start("implement");
@@ -92,10 +94,11 @@ fn gated(cells_alone: bool) -> World {
 // A wait for the result of what a cell asked for in a record, which only the cell the record runs gives, is stalled
 // where that cell does not run and no person or source outside the work can make it run: here its condition, on a
 // choice only the asking cell writes, does not hold, and the asking cell's wait holds every cell after it (decision
-// a-work-no-cell-can-move-is-stalled). Where people write the choice, the owner can make it run, and the work waits.
+// a-work-no-cell-can-move-is-stalled). Where a source outside the work writes the choice as well, it can make the cell
+// run, and the work waits.
 // Well under a millisecond alone; no other test holds a wait for a result no cell will give.
 #[test]
-fn a_wait_for_a_result_no_cell_will_give_is_stalled_and_one_a_person_can_bring_waits() {
+fn a_wait_for_a_result_no_cell_will_give_is_stalled_and_one_the_outside_can_bring_waits() {
     let stalled = gated(true).decide();
     assert!(
         matches!(&stalled, Decision::Stalled { at, .. } if at.as_str() == "implement"),
@@ -215,7 +218,8 @@ fn while_a_cell_waits_for_its_tests_no_later_cell_runs_but_the_one_that_runs_the
         reasons(&w.decide()),
         ("run tests".into(), vec![("tests".into(), false)])
     );
-    // With no cell to give the result, the work waits at the implementation for it.
+    // With no cell to give the result, and nothing that can make one give it, the work is stalled at the
+    // implementation (decision a-work-no-cell-can-move-is-stalled).
     let mut held = testing();
     asks_for_tests(&mut held);
     let mut gated = held.flow.cells().to_vec();
@@ -225,16 +229,15 @@ fn while_a_cell_waits_for_its_tests_no_later_cell_runs_but_the_one_that_runs_the
         value: "yes".into(),
     }];
     held.install(gated);
+    let never = Unrun::Skipped {
+        on: vec![Condition::Is {
+            block: "never".into(),
+            value: "yes".into(),
+        }],
+    };
     assert_eq!(
         held.decide(),
-        wait(
-            "implement",
-            vec![Waited::Result {
-                record: "tests".into(),
-                result: "implement_tested".into(),
-                by: vec!["run tests".into()],
-            }]
-        )
+        stalled_for("implement", &[], &["implement_tested"], &[("run tests", never)])
     );
 }
 
