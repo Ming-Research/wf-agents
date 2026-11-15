@@ -43,28 +43,49 @@ pub struct Items {
     pub outage: Option<Outage>,
 }
 
-/// A wait every work shares: a round of an agent failed for a cause that is no one work's, and no agent's round of any
-/// work begins while it stands.
+/// A wait every work shares: a round of an agent failed for a cause outside every work, and no agent's round of any
+/// work begins while it holds; the engine checks the outside by itself meanwhile.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Outage {
     /// The service whose rounds it holds: the agents', or the host's the acts reach.
     pub service: Service,
-    /// The kind of the cause: the usage limit, a command line that cannot run, or no network.
+    /// The kind of the cause the latest round that failed so met: the usage limit, a command line that cannot run, no
+    /// network, or a service that does not serve.
     pub failure: Failure,
-    /// Why the round failed, as what carried it out said.
+    /// Why that round failed, as what carried it out said.
     pub why: String,
-    /// The round that failed so, the latest that did: of this work, this run, this number.
+    /// That round: of this work, this run, this number.
     pub work: u64,
     pub run: u64,
     pub round: usize,
-    /// When it ended.
+    /// Since when what the rounds need is down: when the first round that failed so in the wait ended.
     pub since: u64,
-    /// When the agents' rounds may begin again.
+    /// The latest check of the outside in the wait, where one was taken.
+    pub checked: Option<Checked>,
+    /// When the rounds it holds may begin again.
     pub until: Until,
-    /// Whether it holds rounds now: once its time has come, it stands only until a round that began after it comes
-    /// back, and holds nothing meanwhile.
+    /// Whether it holds rounds now: once a check found the outside well, it stands only until a round that began after
+    /// the latest that failed so comes back, and holds nothing meanwhile.
     pub holds: bool,
+}
+
+/// The latest check of the outside of the agents' rounds in a wait: when, how many were taken in the wait, and what it
+/// found.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Checked {
+    pub at: u64,
+    pub taken: u32,
+    pub found: Found,
+}
+
+/// What a check of the outside found: everything well, or what is down, as a failed round's kind of cause, and why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Found {
+    Well,
+    Down { failure: Failure, why: String },
 }
 
 /// A service the works reach, each with its wait.
@@ -81,15 +102,13 @@ pub enum Service {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Until {
-    /// At this time, every work's: as the usage limit resets.
-    At { at: u64 },
-    /// One round, of whichever work comes to one first, tries at this time; where `look`, the network is looked at
-    /// every half minute from then, and the round tries once a look reaches it.
-    Trial { at: u64, look: bool },
-    /// Every round, once a look at the host, taken every half minute from this time, reaches it.
+    /// Once a check of the outside of the agents' rounds, which the engine takes at this time, finds it well: at a
+    /// usage limit whose reset was said, at the reset.
+    Checked { at: u64 },
+    /// Now: the check taken at this time found the outside well, and every work goes on.
+    Well { at: u64 },
+    /// Every act, once a look at the host, taken every half minute from this time, reaches it.
     Looked { at: u64 },
-    /// Once the round that tries now has ended, or the service has answered it.
-    Tried,
 }
 
 /// The kind of cause of a round that failed, as what carried it out told it apart.
@@ -111,6 +130,8 @@ pub enum Failure {
     CannotRun,
     /// The network cannot be reached.
     Offline,
+    /// The agents' service is down, overloaded, throttling the account's requests or not answering in time.
+    Unavailable,
     /// The prompt is too long for the model.
     PromptTooLong,
     /// The service has no model of the name the round's level gives.
@@ -1508,10 +1529,10 @@ pub struct Refusal {
 pub struct Broken(pub String);
 
 impl Items {
-    /// Every item the driver holds, each with its work, as they stand at this time.
-    pub fn of(driver: &Driver, now: Time) -> Result<Items, Broken> {
+    /// Every item the driver holds, each with its work, as they stand now.
+    pub fn of(driver: &Driver) -> Result<Items, Broken> {
         let mut items = Vec::new();
-        let outages = Outages::of(driver, now);
+        let outages = Outages::of(driver);
         let outage = outages.agents.clone();
         for kept in driver.works() {
             let view = viewed(driver, kept.head.number)?;
@@ -2017,7 +2038,7 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view, driver.held(number), &Outages::of(driver, now))?,
+            summary: Summary::of(kept, &view, driver.held(number), &Outages::of(driver))?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             project: kept.item.project.clone(),
@@ -2593,9 +2614,9 @@ pub struct Outages {
 }
 
 impl Outages {
-    /// The waits as the driver works them out at this time, each saying whether it holds its rounds now.
-    pub(crate) fn of(driver: &Driver, now: Time) -> Outages {
-        let gate = driver.gate(now);
+    /// The waits as the driver works them out, each saying whether it holds its rounds now.
+    pub(crate) fn of(driver: &Driver) -> Outages {
+        let gate = driver.gate();
         let (agents, host) = (gate.holds_agents(), gate.holds_acts());
         Outages {
             agents: driver.outage().map(|outage| Outage::of(&outage, agents)),
@@ -2617,11 +2638,21 @@ impl Outage {
             run: outage.run.0,
             round: outage.round,
             since: outage.since.0,
+            checked: (outage.checked.as_ref()).map(|checked| Checked {
+                at: checked.at.0,
+                taken: checked.taken,
+                found: match &checked.found {
+                    driver::Found::Well => Found::Well,
+                    driver::Found::Down { failure, why, .. } => Found::Down {
+                        failure: Failure::of(*failure),
+                        why: why.clone(),
+                    },
+                },
+            }),
             until: match outage.until() {
-                UntilOf::At(at) => Until::At { at: at.0 },
-                UntilOf::Trial { at, look } => Until::Trial { at: at.0, look },
+                UntilOf::Checked { at } => Until::Checked { at: at.0 },
+                UntilOf::Well { at } => Until::Well { at: at.0 },
                 UntilOf::Looked { at } => Until::Looked { at: at.0 },
-                UntilOf::Tried => Until::Tried,
             },
             holds,
         }
@@ -2638,6 +2669,7 @@ impl Failure {
             FailureOf::UsageLimit => Failure::UsageLimit,
             FailureOf::CannotRun => Failure::CannotRun,
             FailureOf::Offline => Failure::Offline,
+            FailureOf::Unavailable => Failure::Unavailable,
             FailureOf::PromptTooLong => Failure::PromptTooLong,
             FailureOf::NoModel => Failure::NoModel,
             FailureOf::Other => Failure::Other,

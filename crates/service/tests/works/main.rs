@@ -128,6 +128,8 @@ pub struct Trial {
     pub steps: usize,
     /// The keep-warm pings handed out and not yet answered, where the agents' sessions are kept warm.
     pings: Option<Pings>,
+    /// The check of the outside of the agents' rounds, where it is not the script's, which always finds it well.
+    outside: Option<Arc<dyn service::Outside>>,
 }
 
 /// The keep-warm pings handed out and not yet answered, each with its reply.
@@ -144,24 +146,31 @@ impl Trial {
 
     /// The loop with this script, on an empty store.
     pub fn with(script: Script) -> Trial {
-        Trial::opened(script, None)
+        Trial::opened(script, None, None)
+    }
+
+    /// The loop with this script, on an empty store, the outside of the agents' rounds checked by this.
+    pub fn with_outside(script: Script, outside: Arc<dyn service::Outside>) -> Trial {
+        Trial::opened(script, None, Some(outside))
     }
 
     /// The loop with the trial's script, on an empty store, whose agents' rounds run in sessions kept warm: every round
     /// runs on one model, and a line that waits has its session pinged 55 minutes after its last call, at most twice
     /// in a wait.
     pub fn warm() -> Trial {
-        Trial::opened(trial_script(), Some(Pings::default()))
+        Trial::opened(trial_script(), Some(Pings::default()), None)
     }
 
-    /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand.
-    fn opened(script: Script, pings: Option<Pings>) -> Trial {
+    /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand, and
+    /// the outside checked by `outside` where one is given.
+    fn opened(script: Script, pings: Option<Pings>, outside: Option<Arc<dyn service::Outside>>) -> Trial {
         let dir = tempfile::tempdir().expect("a directory for the store");
         let path = dir.path().join("store.sqlite");
         let clock = Arc::new(TokioClock::new(START));
         let handed = Arc::new(Mutex::new(BTreeSet::new()));
         let paused = Told::default();
-        let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), pings.as_ref());
+        let carried = (pings.as_ref(), outside.as_ref());
+        let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), carried);
         let trial = Trial {
             _dir: dir,
             path,
@@ -174,6 +183,7 @@ impl Trial {
             answered: BTreeMap::new(),
             steps: 0,
             pings,
+            outside,
         };
         trial.check();
         trial
@@ -213,7 +223,8 @@ impl Trial {
             pings.lock().expect("the pings").clear();
         }
         let recorded = (&self.handed, &self.paused);
-        let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, self.pings.as_ref());
+        let carried = (self.pings.as_ref(), self.outside.as_ref());
+        let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, carried);
         self.service = service;
         self.inbox = inbox;
         self.check();
@@ -472,13 +483,14 @@ fn carried(driver: &driver::Driver, todo: &Todo) -> Option<Unit> {
 
 /// Opens the loop on the store at this path, with carriers following the script that record in `handed` what they
 /// are given and in `paused` what they are told of each work's pause, and keep the agents' sessions warm where `pings`
-/// holds the pings in hand.
+/// holds the pings in hand; the outside of the agents' rounds is checked by `outside` where one is given, and else is
+/// always well.
 fn open(
     path: &Path,
     script: &Script,
     clock: &Arc<TokioClock>,
     (handed, paused): (&Arc<Mutex<BTreeSet<Unit>>>, &Told),
-    pings: Option<&Pings>,
+    (pings, outside): (Option<&Pings>, Option<&Arc<dyn service::Outside>>),
 ) -> (Service, Inbox) {
     let store = Store::open(path).expect("the store opens");
     let recording = Arc::new(Recording {
@@ -498,7 +510,7 @@ fn open(
         agents,
         acts: recording.clone(),
         tools: recording.clone(),
-        network: Arc::new(recording.scripted.clone()),
+        outside: (outside.cloned()).unwrap_or_else(|| Arc::new(recording.scripted.clone())),
         host: Some(Arc::new(recording.scripted.clone())),
         slots: SLOTS,
     };

@@ -48,12 +48,12 @@
 //! while one is free: each call gives away what came free before it returns. A work is added paused, and goes on once
 //! the owner lets it on, so that whoever plans orders what runs.
 //!
-//! What happens to one work also reaches every other where a round of an agent failed for a cause every work shares,
+//! What happens to one work also reaches every other where a round of an agent failed for a cause outside every work,
 //! such as the account's usage limit: no agent's round of any work begins while that wait stands ([`outage`]). It is
 //! worked out from the records of every work, and given to the engine's loop for each work as a [`Gate`]; once it
-//! changes, every work is looked at again. When it is over by itself, at a time, is the driver's to say
-//! ([`Driver::wake`]) and its caller's, which reads the clock, to tell it ([`Driver::tick`]), with what a look at the
-//! network found where the driver asks for one.
+//! changes, every work is looked at again. When the outside is to be checked, and the acts' host looked at, is the
+//! driver's to say ([`Driver::wake`]) and its caller's, which reads the clock and reaches the outside, to tell it with
+//! what the check or the look found ([`Driver::tick`]).
 //!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
@@ -95,7 +95,7 @@ use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 use flow::agents::fill;
-pub use outage::{Outage, Service, Until};
+pub use outage::{Checked, Found, Outage, Service, Until};
 use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
 
@@ -166,8 +166,9 @@ pub struct Driver {
     fault: Option<Fault>,
     /// When a line begins a new session; with none, only what others record of sessions is followed.
     policy: Option<Policy>,
-    /// The latest look at the network, while the agents' rounds wait for it: when, and whether it was reached.
-    looked: Option<(Time, bool)>,
+    /// The checks of the outside taken while the agents' rounds wait for it, with when the wait they were taken in
+    /// began ([`Outage::since`]): checks of a wait that ended are of no other.
+    checked: Option<(Time, Checked)>,
     /// The latest look at the acts' host, while the acts' rounds wait for it: when, and whether it was reached.
     looked_at_host: Option<(Time, bool)>,
     /// When the driver was last told the time it asked for: a wake at or before it has been acted on. Lost in a stop,
@@ -181,13 +182,12 @@ pub struct Driver {
     pinging: BTreeSet<(WorkNumber, String)>,
 }
 
-/// When the driver is to be told the time again: the rounds a wait holds may begin then, or, where `look`, the
-/// network to the agents' service is to be looked at then, and where `look_at_host`, the network to the acts' host;
-/// what each look found is told with the time.
+/// When the driver is to be told the time again: where `check`, the outside of the agents' rounds is to be checked
+/// then, and where `look_at_host`, the network to the acts' host looked at; what each found is told with the time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Wake {
     pub at: Time,
-    pub look: bool,
+    pub check: bool,
     pub look_at_host: bool,
 }
 
@@ -377,7 +377,7 @@ impl Driver {
             paused,
             fault: None,
             policy,
-            looked: None,
+            checked: None,
             looked_at_host: None,
             ticked: None,
             answered: BTreeSet::new(),
@@ -438,10 +438,7 @@ impl Driver {
             .collect();
         for (number, write) in wanted {
             for event in write.into_iter().chain([Event::Look]) {
-                let (room, gate) = (
-                    driver.room(Some(number), driver.trial(now)),
-                    driver.gate_of(now, number),
-                );
+                let (room, gate) = (driver.room(Some(number), false), driver.gate_of(number));
                 let limits = driver.limits(number);
                 let Driver {
                     store, works, policy, ..
@@ -518,7 +515,7 @@ impl Driver {
             paused: true,
             slot: false,
         };
-        let gate = self.gate(now);
+        let gate = self.gate();
         for event in first {
             effects.extend(handle_held(&flow, &mut work, now, event, taking, gate).map_err(Failed::Refused)?);
         }
@@ -611,7 +608,7 @@ impl Driver {
                     why: why.unwrap_or_default().to_string(),
                 },
             };
-            let (room, gate) = (self.room(Some(work), true), self.gate_of(now, work));
+            let (room, gate) = (self.room(Some(work), true), self.gate_of(work));
             let limits = self.limits(work);
             let held = works.entry(work).or_insert_with(|| self.works[&work].clone());
             let (item, policy) = (&held.item, self.policy.as_ref());
@@ -727,8 +724,8 @@ impl Driver {
             self.pinging.remove(&(work, line.clone()));
         }
         let gate = match begins_a_wait {
-            Some(held) => self.gate_of(now, work).and(held),
-            None => self.gate_of(now, work),
+            Some(held) => self.gate_of(work).and(held),
+            None => self.gate_of(work),
         };
         let limits = self.limits(work);
         let Some(held) = self.works.get_mut(&work) else {
@@ -924,20 +921,34 @@ impl Driver {
     }
 
     /// The wait every work shares for the agents' service, if one stands: worked out from the records of every work
-    /// and the rounds the service answered while under way ([`outage`]).
+    /// and the rounds the service answered while under way ([`outage`]), with the checks of the outside taken in it.
     pub fn outage(&self) -> Option<Outage> {
         self.outage_of(Service::Agents)
     }
 
-    /// The wait every work shares for the acts' host, if one stands: worked out from the records of every work.
+    /// The wait every work shares for the acts' host, if one stands: worked out from the records of every work, with
+    /// when a look at the host last reached it.
     pub fn host_outage(&self) -> Option<Outage> {
         self.outage_of(Service::Host)
     }
 
-    /// The wait of the service every work shares, if one stands.
+    /// The wait of the service every work shares, if one stands, with what the outside said of it since it began.
     fn outage_of(&self, service: Service) -> Option<Outage> {
         let works = (self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work));
-        outage::outage(service, works, &self.answered)
+        let mut outage = outage::outage(service, works, &self.answered)?;
+        match service {
+            Service::Agents => {
+                outage.checked = (self.checked.clone())
+                    .filter(|(of, _)| *of == outage.since)
+                    .map(|(_, checked)| checked);
+            }
+            Service::Host => {
+                outage.reached = (self.looked_at_host)
+                    .filter(|(at, reached)| *reached && *at >= outage.met)
+                    .map(|(at, _)| at);
+            }
+        }
+        Some(outage)
     }
 
     /// The waits of every service, as they stand.
@@ -946,8 +957,8 @@ impl Driver {
     }
 
     /// Takes, at the time the caller's clock gives, that the agents' service answered the round under way of the run:
-    /// where a wait every work shares lets that round try, it is over, and every work is looked at again; what is to
-    /// be done is given. A round no longer under way is passed over.
+    /// where the round began after the latest that failed for a cause outside every work, the wait is over, and every
+    /// work is looked at again; what is to be done is given. A round no longer under way is passed over.
     pub fn answered(&mut self, now: Time, work: WorkNumber, run: decide::RunId) -> Result<Vec<Todo>, Fault> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
@@ -975,19 +986,19 @@ impl Driver {
         }
     }
 
-    /// When the driver is to be told the time again, where the wait every work shares is over then by itself, or the
-    /// network is to be looked at; none where nothing waits for a time. A wake whose time has come is given until the
-    /// driver is told that time, and none at or before the time it was last told: the works were looked at then, and
-    /// what still waits waits for a round to end.
+    /// When the driver is to be told the time again, where the outside of the agents' rounds is to be checked, the
+    /// acts' host looked at, or a session kept warm; none where nothing waits for a time. A wake whose time has come is
+    /// given until the driver is told that time, and none at or before the time it was last told: the works were
+    /// looked at then, and what still waits waits for a round to end.
     pub fn wake(&self) -> Option<Wake> {
         let ticked = self.ticked;
         self.next_wake().filter(|wake| ticked.is_none_or(|at| wake.at > at))
     }
 
     /// When the driver is to be told the time next, as the waits every work shares say, whether or not it has come:
-    /// the earliest of each wait's and of the next keep-warm ping's, with each look that is due then.
+    /// the earliest of each wait's and of the next keep-warm ping's, with each check and look that is due then.
     fn next_wake(&self) -> Option<Wake> {
-        let agents = self.outage().and_then(|outage| wake_of(&outage, self.looked));
+        let agents = self.outage().and_then(|outage| wake_of(&outage, None));
         let host = self
             .host_outage()
             .and_then(|outage| wake_of(&outage, self.looked_at_host));
@@ -1002,20 +1013,22 @@ impl Driver {
             .min()?;
         Some(Wake {
             at,
-            look: agents.is_some_and(|(a, look)| look && a == at),
+            check: agents.is_some_and(|(a, _)| a == at),
             look_at_host: host.is_some_and(|(h, look)| look && h == at),
         })
     }
 
-    /// Takes the time, at which the driver asked to be told it ([`Driver::wake`]), and, where it asked for a look at
-    /// the network to the agents' service or to the acts' host, whether the look reached it: every work is looked at
-    /// again, and what is to be done is given.
-    pub fn tick(&mut self, now: Time, reached: Option<bool>, host_reached: Option<bool>) -> Result<Vec<Todo>, Fault> {
+    /// Takes the time, at which the driver asked to be told it ([`Driver::wake`]), and, where it asked for a check of
+    /// the outside of the agents' rounds, what the check found, and for a look at the acts' host, whether the look
+    /// reached it: every work is looked at again, and what is to be done is given. A check taken while no wait of the
+    /// agents' rounds stands is of none, and is passed over.
+    pub fn tick(&mut self, now: Time, found: Option<Found>, host_reached: Option<bool>) -> Result<Vec<Todo>, Fault> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
         }
-        if let Some(reached) = reached {
-            self.looked = Some((now, reached));
+        if let (Some(found), Some(outage)) = (found, self.outage()) {
+            let taken = outage.checked.map_or(0, |checked| checked.taken) + 1;
+            self.checked = Some((outage.since, Checked { taken, at: now, found }));
         }
         if let Some(reached) = host_reached {
             self.looked_at_host = Some((now, reached));
@@ -1037,7 +1050,7 @@ impl Driver {
     /// holds the agents' rounds, whose pings would fail as they do, nor while the engine holds everything as it
     /// opened, until the owner has seen how things stand ([`warm`]).
     fn pings(&mut self, now: Time) -> Vec<Todo> {
-        let Some(policy) = (self.policy.as_ref()).filter(|_| !self.gate(now).holds_agents() && self.warming()) else {
+        let Some(policy) = (self.policy.as_ref()).filter(|_| !self.gate().holds_agents() && self.warming()) else {
             return Vec::new();
         };
         let mut todos = Vec::new();
@@ -1102,36 +1115,34 @@ impl Driver {
     /// The gate a work is stepped with: the wait every work shares, and while a keep-warm ping of the work is under
     /// way, every round of it, so that its next round begins once the ping has ended, after whatever the ping did to
     /// its sessions, and is filled as they then stand.
-    pub fn gate_of(&self, now: Time, work: WorkNumber) -> Gate {
+    pub fn gate_of(&self, work: WorkNumber) -> Gate {
         match self.pinging.iter().any(|(w, _)| *w == work) {
             true => Gate::Every,
-            false => self.gate(now),
+            false => self.gate(),
         }
     }
 
     /// Whether a wait every work shares holds rounds now.
-    pub fn holds(&self, now: Time) -> bool {
-        self.gate(now) != Gate::Open
+    pub fn holds(&self) -> bool {
+        self.gate() != Gate::Open
     }
 
-    /// Which rounds may begin now, as the waits every work shares say: the agents' wait holds the agents' rounds, and
-    /// the acts' wait the acts'.
-    pub fn gate(&self, now: Time) -> Gate {
-        let reached = |looked: Option<(Time, bool)>| looked.filter(|(_, reached)| *reached).map(|(at, _)| at);
+    /// Which rounds may begin now, as the waits every work shares say: the agents' wait holds the agents' rounds until
+    /// a check of the outside finds it well, and the acts' wait the acts' until a look at their host reaches it.
+    pub fn gate(&self) -> Gate {
         let agents = match self.outage() {
-            Some(outage) if outage.holds(now, reached(self.looked)) => Gate::Agents,
+            Some(outage) if outage.holds() => Gate::Agents,
             _ => Gate::Open,
         };
         let acts = match self.host_outage() {
-            Some(outage) if outage.holds(now, reached(self.looked_at_host)) => Gate::Acts,
+            Some(outage) if outage.holds() => Gate::Acts,
             _ => Gate::Open,
         };
         agents.and(acts)
     }
 
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and
-    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at; but of
-    /// a wait that lets one round try, the first work to begin one takes it ([`Driver::trial`]).
+    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at.
     fn look(&mut self, now: Time) -> Result<Vec<Todo>, Fault> {
         let mut todos = Vec::new();
         let numbers: Vec<WorkNumber> = (self.works.iter())
@@ -1139,19 +1150,9 @@ impl Driver {
             .map(|(number, _)| *number)
             .collect();
         for number in numbers {
-            let trial = self.trial(now);
-            self.step_one(now, number, Event::Look, trial, &mut todos)?;
+            self.step_one(now, number, Event::Look, false, &mut todos)?;
         }
         Ok(todos)
-    }
-
-    /// Whether the wait every work shares lets one round try now and none has taken it: the first work looked at that
-    /// begins a round takes it, with a slot where its round takes one and one is free, so that a work that needs none,
-    /// or comes after, does not take it in that work's stead.
-    fn trial(&self, now: Time) -> bool {
-        self.outage()
-            .is_some_and(|outage| matches!(outage.until(), Until::Trial { .. }))
-            && !matches!(self.gate(now), Gate::Agents | Gate::Every)
     }
 
     /// Gives one thing that happened to a work that has not ended to the engine's loop, with the gate as it is now, in
@@ -1164,7 +1165,7 @@ impl Driver {
         slot: bool,
         todos: &mut Vec<Todo>,
     ) -> Result<(), Fault> {
-        let (room, gate) = (self.room(Some(number), slot), self.gate_of(now, number));
+        let (room, gate) = (self.room(Some(number), slot), self.gate_of(number));
         let limits = self.limits(number);
         let Some(held) = self
             .works
@@ -1208,7 +1209,7 @@ impl Driver {
         let mut todos = Vec::new();
         let (mut failed, mut written) = (None, false);
         let room = self.room(None, false);
-        let gates: BTreeMap<WorkNumber, Gate> = (self.works.keys()).map(|n| (*n, self.gate_of(now, *n))).collect();
+        let gates: BTreeMap<WorkNumber, Gate> = (self.works.keys()).map(|n| (*n, self.gate_of(*n))).collect();
         let limits: BTreeMap<WorkNumber, Limits> = (self.works.keys()).map(|n| (*n, self.limits(*n))).collect();
         for (number, held) in &mut self.works {
             let gate = gates.get(number).copied().unwrap_or_default();
@@ -1404,7 +1405,7 @@ impl Driver {
                 break;
             };
             looked.insert(number);
-            let (room, gate) = (self.room(Some(number), true), self.gate_of(now, number));
+            let (room, gate) = (self.room(Some(number), true), self.gate_of(number));
             let limits = self.limits(number);
             let Some(held) = self.works.get_mut(&number) else {
                 break;
@@ -1578,21 +1579,17 @@ fn start(flow: &Compiled, work: &Work) -> Option<Event> {
     })
 }
 
-/// When the driver is to be told the time for a wait, as its kind says, with whether a look is then due: none where
-/// the wait waits for a round to end. Where it waits for a look, the next is half a minute after the last since it
-/// began.
+/// When the driver is to be told the time for a wait, as its kind says, with whether a look at the acts' host is then
+/// due: the next check of the outside of the agents' rounds, none once one found it well; the next look at the acts'
+/// host, half a minute after the last since the latest act that failed so.
 fn wake_of(outage: &Outage, looked: Option<(Time, bool)>) -> Option<(Time, bool)> {
-    let next_look = |at: Time| {
-        let from = outage.last.unwrap_or(outage.since);
-        match looked {
-            Some((looked, _)) if looked >= from => Time(looked.0.saturating_add(outage::PROBE)),
-            _ => at,
-        }
-    };
     match outage.until() {
-        Until::At(at) | Until::Trial { at, look: false } => Some((at, false)),
-        Until::Tried => None,
-        Until::Trial { at, look: true } | Until::Looked { at } => Some((next_look(at), true)),
+        Until::Checked { at } => Some((at, false)),
+        Until::Well { .. } => None,
+        Until::Looked { at } => match looked {
+            Some((looked, _)) if looked >= outage.met => Some((Time(looked.0.saturating_add(outage::PROBE)), true)),
+            _ => Some((at, true)),
+        },
     }
 }
 
