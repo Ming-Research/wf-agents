@@ -255,7 +255,7 @@ fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_und
     sim.returns(&round, came, 0);
     assert_eq!(
         last_entry(&sim),
-        "An agent, to the owner:\n\nThe item gives none: the first name it is."
+        "An agent:\n\nThe item gives none: the first name it is."
     );
     assert_eq!(sim.round(), None, "the work waits for the answer at R2 again");
 }
@@ -320,7 +320,7 @@ fn words_a_round_under_way_was_told_are_consumed_by_its_return() {
         ..Came::default()
     };
     sim.returns(&round, came, 0);
-    assert_eq!(last_entry(&sim), "An agent, to the owner:\n\nKept short.");
+    assert_eq!(last_entry(&sim), "An agent:\n\nKept short.");
     let next = sim.round().expect("a round is given");
     assert_ne!(
         next.cell.as_str(),

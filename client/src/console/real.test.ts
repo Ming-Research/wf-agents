@@ -45,7 +45,7 @@ const SPOKEN: Flow = {
         [
           'reply',
           [
-            { piece: 'text', text: 'An agent, to the owner:\n\n' },
+            { piece: 'text', text: 'An agent:\n\n' },
             { piece: 'slot', name: 'reply' },
           ],
         ],
@@ -70,7 +70,7 @@ describe('the messages of a work, read from the record of what is said', () => {
     const item = fixtureItems().items[0];
     const contents: Record<string, string> = {
       'discussion@5': 'The owner:\n\n> Greet them.\n\nBy the first name.',
-      'discussion@9': 'An agent, to the owner:\n\nDone.',
+      'discussion@9': 'An agent:\n\nDone.',
     };
     const page: WorkPage = {
       summary: item.work,

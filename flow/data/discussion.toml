@@ -11,4 +11,4 @@ field = "reply"
 # cell's answer, with `{reply}` what its return gives in `reply`.
 [writes]
 owner = "The owner:\n\n{words}"
-reply = "An agent, to the owner:\n\n{reply}"
+reply = "An agent:\n\n{reply}"
