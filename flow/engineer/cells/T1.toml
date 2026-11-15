@@ -24,7 +24,7 @@ Leave out preferences: the engineer fixes nearly all a review raises, so a wrong
 With `review_ok` yes write no opinion. Having said yes to `needs_testing`, keep it while the part of the change that
 made you say so is still there.
 '''
-triggered_by = ["on_change", "on_reply_review", "on_spoken"]
+triggered_by = ["on_change", "on_reply_review"]
 context = [
   "code",
   "title",
@@ -43,7 +43,7 @@ context = [
   "review",
   "tree",
 ]
-outputs = ["review", "review_ok", "needs_testing", "discussion"]
+outputs = ["review", "review_ok", "needs_testing"]
 must_write = ["review_ok", "needs_testing"]
 
 # What the cell does when each trigger fires; a trigger with none is the task's alone.
