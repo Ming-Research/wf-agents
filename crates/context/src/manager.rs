@@ -117,7 +117,7 @@ pub fn enter(
     let own = |v: &VersionView| matches!(v.by, Writer::Run(r) if of_cell(&records, r, cell));
     let mut situation = Situation {
         // What the last return handed in was told the round after it, which a round cut off since was.
-        after_hand_in: !held.taken.is_empty(),
+        after_hand_in: !held.taken.is_empty() && !held.cut_off,
         after_cut_off: held.cut_off,
         ..Situation::default()
     };
@@ -525,7 +525,10 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
     // its message into the session, since it last held nothing but where it was compacted, had nothing it returned
     // taken. A return that could not be read is sent back, and says why itself.
     let mut last: Option<(Seq, Vec<(BlockId, Seq)>)> = None;
-    let lost: Option<Seq> = None;
+    let lost = (of_line(work, line))
+        .filter(|s| s.why == Why::Lost && s.at < began && number_at(work, line, s.at) == session)
+        .map(|s| s.at)
+        .max();
     let mut wrote_last: Option<(Seq, bool)> = None;
     for (r, k, from, ended) in &rounds {
         let into = |p: &&decide::PutIn| p.run == *r && p.at > *from && p.at < *ended && p.at > top;
@@ -557,7 +560,7 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
                     ..
                 })
             );
-            wrote_last = Some((*ended, back.is_some() && !returned));
+            wrote_last = Some((*ended, !returned && !read));
         }
     }
     held.taken = last.map(|(_, taken)| taken).unwrap_or_default();

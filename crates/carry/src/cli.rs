@@ -521,7 +521,7 @@ impl Stream {
                     let (fresh, read) = (tokens("input_tokens"), tokens("cache_read_input_tokens"));
                     self.own.take(fresh, read, tokens("cache_creation_input_tokens"));
                 }
-                return self.attempts.event(&v);
+                return self.attempts.event(&v) || own;
             }
             Some("result") => self.result = Some(v),
             Some("user") if v["parent_tool_use_id"].is_null() => self.refusals.extend(refusals(&v)),
