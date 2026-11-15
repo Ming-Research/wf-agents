@@ -28,11 +28,12 @@
 //!   choice the asking cell alone writes says yes, so that a wait may be for a result no cell will give (decision
 //!   a-work-no-cell-can-move-is-stalled); and in half of these the asking cell has the precondition "ready" too, so
 //!   that it may wait for the owner while no cell will give its result (property `RESULT_WAITS`). In half of all the
-//!   histories that ask, the owner's words run the asking cell too, so that a round entered for them while it waits may
-//!   rest at a call, its run going on before the cell that gives results begins. In about a quarter of the histories
-//!   with no judge, drawn apart, a check stands before the merge, run by the brief and by main, which the outside alone
-//!   writes there, writing a choice only it writes, which the merge waits on at yes; a run of it that says no says in
-//!   half of them that what it wrote waits for main to move (property `OUTSIDE`).
+//!   histories that ask, the owner's words run the asking cell too, and the owner speaks to it at three of ten steps of
+//!   people while the cell that gives its result has a round under way, so that a round entered for the words while it
+//!   waits may rest at a call, its run going on before the cell that gives results begins again. In about a quarter of
+//!   the histories with no judge, drawn apart, a check stands before the merge, run by the brief and by main, which the
+//!   outside alone writes there, writing a choice only it writes, which the merge waits on at yes; a run of it that
+//!   says no says in half of them that what it wrote waits for main to move (property `OUTSIDE`).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -335,6 +336,9 @@ struct History {
     looked_at: (usize, usize),
     /// Where the history is steered so that the asking cell's entry is taken up again: how far it went.
     taking_up: Option<TakingUp>,
+    /// Where the owner's words run the asking cell: the cell, and what draws whether the owner speaks to it while the
+    /// cell that gives its result has a round under way.
+    speaking: Option<(CellId, Rng)>,
 }
 
 /// How far the steering went that has the cell that gives results take an asking cell's entry up again: the asking
@@ -367,6 +371,7 @@ impl History {
         // order.
         let mut asking = Rng::new(seed ^ 0x7E57_ED00_A5C1_0000);
         let mut taking_up = None;
+        let mut speaking = None;
         let mut gated = false;
         let result = asking.chance(35).then(|| {
             let i = asking.below(cells.len());
@@ -416,8 +421,11 @@ impl History {
             // In half of all of them the owner's words run the asking cell too, so that a round entered for them while
             // it waits may rest at a call, its run going on before the cell that gives results begins (property
             // `RESULT_WAITS`).
-            if asking.chance(50) && !cells[i].runs_on.contains(&SPOKEN.into()) {
-                cells[i].runs_on.push(SPOKEN.into());
+            if asking.chance(50) {
+                if !cells[i].runs_on.contains(&SPOKEN.into()) {
+                    cells[i].runs_on.push(SPOKEN.into());
+                }
+                speaking = Some((cells[i].id.clone(), Rng::new(seed ^ 0x5BEA_C000_0000_0A5C)));
             }
             result
         });
@@ -502,6 +510,7 @@ impl History {
             moments: Vec::new(),
             looked_at: (0, 0),
             taking_up,
+            speaking,
         }
     }
 
@@ -514,6 +523,7 @@ impl History {
     fn step(&mut self, people: bool) -> bool {
         if people {
             self.take_up();
+            self.speak_to_the_waiting();
         }
         if people && self.rng.chance(16) {
             self.person_acts(None, &[]);
@@ -660,17 +670,21 @@ impl History {
     /// of each run that started or finished since the last step.
     fn check(&mut self, decision: &Decision) {
         let r = &self.w.records;
-        let under_way = (r.started.iter())
+        let under_way: Vec<RunId> = (r.started.iter())
             .filter(|s| {
                 let began = r.rounds.iter().filter(|x| x.run == s.run).count();
                 let ended = r.returned.iter().filter(|x| x.run == s.run).count();
                 began > ended
             })
-            .count();
-        assert!(under_way <= 1, "{under_way} runs have a round under way");
-        if under_way == 1 {
+            .map(|s| s.run)
+            .collect();
+        assert!(under_way.len() <= 1, "{} runs have a round under way", under_way.len());
+        // A cancelled work has ended once each of its runs is abandoned, the round of one being stopped as well.
+        let stopping = (under_way.iter()).all(|run| r.abandoned.iter().any(|a| a.run == *run));
+        if !under_way.is_empty() {
             assert!(
-                matches!(decision, Decision::Busy { .. } | Decision::Abandon { .. }),
+                matches!(decision, Decision::Busy { .. } | Decision::Abandon { .. })
+                    || (stopping && matches!(decision, Decision::Ended(End::Cancelled))),
                 "a round is under way and the walk decides {decision:?}"
             );
         }
@@ -1162,6 +1176,30 @@ impl History {
                 }
             }
         }
+    }
+
+    /// Where the owner's words run the asking cell, the owner speaks to it now and then while the cell that gives its
+    /// result has a round under way: the round is stopped, the asking cell is entered for the words, and a round of it
+    /// may rest at a call, its run going on before the cell that gives results begins again (property `RESULT_WAITS`).
+    fn speak_to_the_waiting(&mut self) {
+        let r = &self.w.records;
+        let giving = (r.started.iter()).any(|s| {
+            let began = r.rounds.iter().filter(|x| x.run == s.run).count();
+            let ended = r.returned.iter().filter(|x| x.run == s.run).count();
+            s.cell.as_str() == GIVER && began > ended && !r.abandoned.iter().any(|a| a.run == s.run)
+        });
+        let Some((asker, rng)) = self.speaking.as_mut() else {
+            return;
+        };
+        if !giving || !rng.chance(30) {
+            return;
+        }
+        let asker = asker.clone();
+        self.note(format!(
+            "the owner speaks to {asker} while the cell that gives its result runs: the outside writes {SPOKEN}"
+        ));
+        self.person_writes_now();
+        self.w.outside_writes(SPOKEN);
     }
 
     fn toggle_pause(&mut self) {
