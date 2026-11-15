@@ -189,6 +189,24 @@ describe('the words of the page', () => {
         what: { kind: 'defaultNotAValue', block: 'deep_needed', default: 'maybe' },
       }),
     ).toBe('deep_needed counts as maybe before it is written, which is not one of its values.');
+    expect(
+      faultWords({
+        file: 'cells/T2.toml',
+        field: 'triggered_by[3]',
+        what: {
+          kind: 'triggerNeverRuns',
+          trigger: 'on_tested',
+          block: 't2_tested',
+          needs: 'needs_testing is yes',
+          writers: [
+            ['T3', 'needs_testing is no'],
+            ['M1', 'checked is yes'],
+          ],
+        },
+      }),
+    ).toBe(
+      'The trigger on_tested stands on t2_tested, but the cell runs only where needs_testing is yes, and each writer of t2_tested runs only where it cannot: T3 (needs_testing is no); M1 (checked is yes); the trigger can never run the cell.',
+    );
     expect(faultWords({ file: 'blocks/test.toml', field: '', what: { kind: 'blockNamedTest' } })).toBe(
       "A block is named test, which a cell's when takes for a named test.",
     );

@@ -269,10 +269,11 @@ pub const ENVIRONMENT: [(&str, &str); 3] = [
 
 /// The environment a round's command line is given, in place of the engine's own: of the engine's variables, those
 /// [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`]; the variables the
-/// project's declaration names, `declared`; and the directory of settings, the installation's where the settings name
-/// one.
+/// project's declaration names, `declared`; and the directory of settings and sign-in of the account it runs under,
+/// where it runs under one of the installation's.
 pub fn environment(
     agents: &Agents,
+    account: Option<&str>,
     engine: impl IntoIterator<Item = (String, String)>,
     declared: &BTreeMap<String, String>,
 ) -> Vec<(String, String)> {
@@ -282,8 +283,8 @@ pub fn environment(
     env.sort();
     env.extend(ENVIRONMENT.map(|(name, value)| (name.to_string(), value.to_string())));
     env.extend(declared.iter().map(|(name, value)| (name.clone(), value.clone())));
-    if let Some(dir) = &agents.config_dir {
-        env.push((crate::account::VARIABLE.to_string(), dir.to_string_lossy().into_owned()));
+    if let Some(dir) = account {
+        env.push((crate::account::VARIABLE.to_string(), dir.to_string()));
     }
     env
 }
@@ -865,7 +866,7 @@ mod tests {
             args: vec!["--strict-mcp-config".to_string()],
             env: Vec::new(),
             setting_sources: "user".to_string(),
-            config_dir: None,
+            accounts: Vec::new(),
             permissions: Default::default(),
             subagents: Default::default(),
             work_budget_usd: None,
@@ -1475,7 +1476,7 @@ mod tests {
         .map(|(n, v)| (n.to_string(), v.to_string()));
         let none = BTreeMap::new();
         assert_eq!(
-            environment(&agents(), engine.clone(), &none),
+            environment(&agents(), None, engine.clone(), &none),
             [
                 ("HOME", "/home/someone"),
                 ("LC_ALL", "C"),
@@ -1488,16 +1489,19 @@ mod tests {
         );
         let mut configured = agents();
         configured.env = vec!["ANTHROPIC_API_KEY".to_string()];
-        configured.config_dir = Some(PathBuf::from("config"));
-        let named: Vec<String> = (environment(&configured, engine.clone(), &none).into_iter())
-            .map(|(name, _)| name)
-            .collect();
-        assert!(named.contains(&"ANTHROPIC_API_KEY".to_string()));
-        assert!(named.contains(&"CLAUDE_CONFIG_DIR".to_string()));
-        assert!(!named.contains(&"SECRET_TOKEN".to_string()));
+        let under = environment(&configured, Some("/data/claude-second"), engine.clone(), &none);
+        let named: Vec<&str> = under.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(named.contains(&"ANTHROPIC_API_KEY"));
+        assert!(!named.contains(&"SECRET_TOKEN"));
+        // The account it runs under is the one it is given, the directory as written.
+        let dir = under
+            .iter()
+            .find(|(name, _)| name == "CLAUDE_CONFIG_DIR")
+            .map(|(_, dir)| dir.as_str());
+        assert_eq!(dir, Some("/data/claude-second"));
         // What the project's declaration names for its toolchain comes after the carrier's own.
         let declared = BTreeMap::from([("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())]);
-        let given = environment(&agents(), engine, &declared);
+        let given = environment(&agents(), None, engine, &declared);
         assert_eq!(
             given.last(),
             Some(&("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string()))

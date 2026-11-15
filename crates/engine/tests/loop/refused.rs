@@ -99,6 +99,33 @@ fn a_return_of_a_run_with_no_round_under_way_is_refused() {
     );
 }
 
+// What a carrier says it read of the branch is of the blocks a source outside the work writes: a read of one only
+// people write is refused, and the work is left as it was. Well under a millisecond alone; no other test holds what a
+// return may say it read.
+#[test]
+fn a_return_that_read_a_block_no_source_outside_writes_is_refused() {
+    let (mut w, write, _) = W::requested();
+    let mut came = hands_in(&[("text", None)]);
+    came.read = vec![Handed {
+        block: "request".into(),
+        content: "Read of the branch.".to_string(),
+        matters: true,
+        value: None,
+    }];
+    let not = Refused::NotTheirs {
+        block: "request".into(),
+        by: Outsider::Outside,
+    };
+    assert_eq!(
+        w.refused(Event::Returned {
+            run: write,
+            came,
+            spent: Spent::default(),
+        }),
+        not
+    );
+}
+
 #[test]
 fn a_return_of_a_run_that_finished_is_refused() {
     let (mut w, write, _) = W::requested();

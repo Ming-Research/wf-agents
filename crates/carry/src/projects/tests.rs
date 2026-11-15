@@ -31,6 +31,10 @@ impl Rounds for Reached {
         self.note("give", &round.item);
     }
 
+    fn paused(&self, work: WorkNumber, paused: bool) {
+        self.0.lock().unwrap().push(format!("paused W{} {paused}", work.0));
+    }
+
     fn stop(&self, round: Round, _: RoundReply) {
         self.note("stop", &round.item);
     }
@@ -103,6 +107,7 @@ fn round(item: Item) -> Round {
         item,
         kept: Arc::new(Work::default()),
         lines: Default::default(),
+        account: None,
     }
 }
 
@@ -139,6 +144,23 @@ fn said_down(mut from: mpsc::UnboundedReceiver<Message>) -> Vec<Event> {
         }
     }
     events
+}
+
+// A work paused or let on is told to the carriers of every project, which hold no item to tell the work's project by.
+// Well under a millisecond alone; no other test holds a pause to the carriers.
+#[test]
+fn a_pause_of_a_work_is_told_to_the_carriers_of_every_project() {
+    let (one, two) = (Arc::new(Reached::default()), Arc::new(Reached::default()));
+    let rounds = |reached: &Arc<Reached>| -> Arc<dyn Rounds> { reached.clone() };
+    let all: ByProject<dyn Rounds> = ByProject {
+        of: [("one".to_string(), rounds(&one)), ("two".to_string(), rounds(&two))].into(),
+        said: said(),
+    };
+    all.paused(WORK, true);
+    all.paused(WORK, false);
+    for reached in [one, two] {
+        assert_eq!(*reached.0.lock().unwrap(), ["paused W4 true", "paused W4 false"]);
+    }
 }
 
 // What the loop gives the works of a project's items reaches that project's carriers, and nothing of a work whose item

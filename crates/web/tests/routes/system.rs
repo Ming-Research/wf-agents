@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use serde_json::{Value, json};
 use store::Store;
 
-use crate::{START, get_json, greeted, named, pass, post, refused, running_scripted, trial_script};
+use crate::{START, get_json, greeted, named, pass, post, refused, running_carried, running_scripted, trial_script};
 
 const DAY: u64 = 24 * 60 * 60 * 1000;
 
@@ -149,6 +149,126 @@ async fn a_round_that_failed_is_given_with_its_cause() {
     assert_eq!(system["weeks"][0]["failed"], 1);
 }
 
+/// The script's agents, with a policy for the loop as the real carriers give it: a line of history is worked out from
+/// two values at least; and every round's first try says that it runs on [`opus`] and what its calls measured, as a
+/// real carrier's does, which a round of history needs. The plan's round of the fourth work begins its script ten
+/// seconds late, and so takes far longer than every plan's before it.
+struct Judging(std::sync::Arc<dyn service::Rounds>);
+
+impl service::Rounds for Judging {
+    fn give(&self, round: service::Round, reply: service::RoundReply) {
+        let teller = reply.teller();
+        teller.ran_on(1, opus());
+        let measures = work::Measures {
+            calls: 3,
+            added: 100,
+            ..work::Measures::default()
+        };
+        teller.measured(1, measures);
+        if round.work == store::WorkNumber(4) && round.cell.id.as_str() == "plan" {
+            let agents = self.0.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                agents.give(round, reply);
+            });
+            return;
+        }
+        self.0.give(round, reply);
+    }
+
+    fn stop(&self, round: service::Round, reply: service::RoundReply) {
+        self.0.stop(round, reply);
+    }
+
+    fn policy(&self) -> Option<driver::Policy> {
+        Some(driver::Policy {
+            samples: 2,
+            limit: 1_000_000,
+            on: Box::new(|_, _| Some(opus())),
+            accounts: Vec::new(),
+            account: None,
+            short_limit_ms: 5 * 60 * 60 * 1000,
+            warm: None,
+        })
+    }
+}
+
+// Through the loop with the policy its carriers give, as the engine's program runs it, each round is judged against the
+// line of the history that had ended as it began, and the work's page gives it: a round with no line has nothing
+// judged, one within its line is judged and not past it, and one past it is said past and listed by the system's view,
+// alone. Well under a second alone, the loop on paused time over a store on disk; no other test judges a round through
+// the loop.
+#[tokio::test(start_paused = true)]
+async fn the_loop_judges_a_round_by_the_line_of_its_history_and_nothing_where_it_has_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut script = trial_script();
+    let plan = &mut script.flows.get_mut("trial").unwrap().rounds[0];
+    (plan.hands_in, plan.questions) = (None, None);
+    let mut carriers = service::Scripted::new(script, crate::words()).carriers();
+    carriers.agents = std::sync::Arc::new(Judging(carriers.agents));
+    let running = running_carried(Box::new(store), dir, carriers);
+    let router = &running.router;
+    // Four works one after the other, each merged before the next is added.
+    for work in 1..=4 {
+        let item = json!({
+            "title": "Greet the user",
+            "dependsOn": [],
+            "project": "trial",
+            "flow": "trial",
+            "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
+        });
+        assert_eq!(post(router, "/api/v1/items", &item).await.0, StatusCode::OK);
+        let acts = format!("/api/v1/works/{work}/acts");
+        let resumed = post(router, &acts, &json!({ "kind": "resume" })).await;
+        assert_eq!(resumed, (StatusCode::NO_CONTENT, Value::Null));
+        pass(60_000).await;
+        let page = get_json(router, &format!("/api/v1/works/{work}")).await;
+        assert_eq!(page["summary"]["now"], json!({ "kind": "merged" }), "work {work}");
+    }
+    // The plan's first round of a work, as its page gives it.
+    let plan = |page: &Value| {
+        let steps = page["steps"].as_array().expect("steps");
+        let run = (steps.iter())
+            .find(|s| s["kind"] == "run" && s["cell"] == "plan")
+            .expect("the plan ran");
+        run["rounds"][0]["judged"].clone()
+    };
+    let first = get_json(router, "/api/v1/works/1").await;
+    assert_eq!(
+        plan(&first),
+        json!({ "cost": null, "time": null }),
+        "no round had ended"
+    );
+    let third = get_json(router, "/api/v1/works/3").await;
+    let judged = plan(&third);
+    for of in ["cost", "time"] {
+        let judged = &judged[of];
+        assert_eq!(judged["past"], json!(false), "{of}: {judged}");
+        assert_eq!(
+            (&judged["line"]["samples"], &judged["line"]["scope"]),
+            (&json!(2), &json!("cell")),
+            "{of}: {judged}"
+        );
+        assert!(judged["value"].as_u64().is_some_and(|v| v > 0), "{of}: {judged}");
+    }
+    // The fourth work's plan took far longer: its time is past its line, and its cost, the same as every plan's, is not.
+    let fourth = get_json(router, "/api/v1/works/4").await;
+    let judged = plan(&fourth);
+    let past = |of: &str| judged[of]["past"].clone();
+    assert_eq!((past("time"), past("cost")), (json!(true), json!(false)), "{judged}");
+    let system = get_json(router, "/api/v1/system").await;
+    let listed = system["past"].as_array().expect("what went past");
+    assert_eq!(listed.len(), 1, "{system}");
+    assert_eq!(
+        (&listed[0]["kind"], &listed[0]["work"], &listed[0]["cell"]),
+        (&json!("round"), &json!(4), &json!("plan")),
+        "{system}"
+    );
+    assert_eq!(listed[0]["judged"], judged, "{system}");
+    assert_eq!(system["underWay"], json!([]), "{system}");
+}
+
 /// What every agent's round runs on, in the history below.
 fn opus() -> work::RanOn {
     work::RanOn {
@@ -253,6 +373,9 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
         samples: 2,
         limit: 1_000_000,
         on: Box::new(|_, _| Some(opus())),
+        accounts: Vec::new(),
+        account: None,
+        short_limit_ms: 5 * 60 * 60 * 1000,
         warm: None,
     };
     let (mut driver, _) =

@@ -742,7 +742,7 @@ impl Real {
                 args: Vec::new(),
                 env: Vec::new(),
                 setting_sources: "user".to_string(),
-                config_dir: None,
+                accounts: Vec::new(),
                 // The lock command of a project on Cargo.
                 permissions: PermissionsAdded {
                     locks: vec!["cargo update".to_string()],
