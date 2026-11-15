@@ -1,9 +1,9 @@
 //! The system prompt of a line's session, made from the files beside the flows: the parts `agents/session.toml` names,
 //! in the order it names them. A file of the project that `project.toml` names, headed as `session.toml` says, its text
-//! set apart in a fence ([`fenced`]); the sets of rules for the agents that the line takes; a text of the engine's own words; and how a cell returns, made from
-//! `agents/return/` with the words of each field and of each tool the flow names. It is the same for every cell of a
-//! line, whose sets of rules are the line's, and holds only what the line shares (principle
-//! the-system-prompt-holds-what-a-line-shares).
+//! set apart in a fence ([`fenced`]); the sets of rules for the agents that the line takes; a text of the engine's own
+//! words; and how a cell returns, made from `agents/return/` with the words of each field and of each tool the flow
+//! names. It is the same for every cell of a line, whose sets of rules are the line's, and holds only what the line
+//! shares (principle the-system-prompt-holds-what-a-line-shares).
 //!
 //! The engine gives it to a session as the session begins, and the owner's page shows it, both from [`parts`], so
 //! that the page shows what is sent. Nothing here holds a word that is sent: only which part comes from which file, and
@@ -171,9 +171,9 @@ pub fn made(
                     for text in [
                         &line.reads_only,
                         &line.writes,
-                        &line.locks.replace("{commands}", ""),
+                        &crate::agents::fill(&line.locks, &[("commands", "")]),
                         &line.or,
-                        &line.tests_only.replace("{paths}", ""),
+                        &crate::agents::fill(&line.tests_only, &[("paths", "")]),
                     ] {
                         texts.push(Said {
                             source: source.clone(),
@@ -255,7 +255,7 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<String>) {
     let ret = agents.source(RETURN_FILE);
     let field = |name: &str| agents.source(&format!("{AGENTS_DIR}/return/fields/{name}.toml"));
     let tool = |name: &str| agents.source(&format!("{AGENTS_DIR}/tools/{name}.toml"));
-    let item = |words: &str| told.item.replace("{text}", words.trim_end());
+    let item = |words: &str| crate::agents::fill(&told.item, &[("text", words.trim_end())]);
     let mut said: Vec<Said> = Vec::new();
     // A paragraph after a blank line, an item of a list after a line's end, the words told with those of `outputs`
     // after a space.
@@ -311,7 +311,7 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<String>) {
         put(
             ret.clone(),
             "\n\n",
-            &told.owner_reads.replace("{fields}", &and(&reads, &told.and)),
+            &crate::agents::fill(&told.owner_reads, &[("fields", &and(&reads, &told.and))]),
         );
     }
     let mut wrong = Vec::new();
@@ -600,28 +600,29 @@ pub fn fill(text: &str, known: &[(&str, &str)]) -> Vec<Piece> {
 /// Pieces with the places these give filled, each by its name, and the others left places, what follows a place filled
 /// following it as [`crate::agents::after`] says; what fills a place is not looked into again.
 pub fn filled(pieces: Vec<Piece>, known: &[(&str, &str)]) -> Vec<Piece> {
+    let value = |piece: &Piece| match piece {
+        Piece::Slot { name } => known.iter().find(|(k, _)| *k == name.as_str()).map(|(_, v)| *v),
+        Piece::Text { .. } => None,
+    };
     let mut out = Vec::with_capacity(pieces.len());
-    // What filled the place just before, where one was filled.
-    let mut value: Option<&str> = None;
-    for piece in pieces {
-        match piece {
-            Piece::Slot { name } => match known.iter().find(|(k, _)| *k == name) {
-                Some((_, filling)) => {
-                    out.push(Piece::Text {
-                        text: filling.to_string(),
-                    });
-                    value = Some(*filling);
-                    continue;
-                }
-                None => out.push(Piece::Slot { name }),
-            },
-            Piece::Text { text } => out.push(Piece::Text {
-                text: value
-                    .map_or(text.as_str(), |value| crate::agents::after(value, &text))
-                    .to_string(),
+    for (at, piece) in pieces.iter().enumerate() {
+        let before = at.checked_sub(1).and_then(|b| value(&pieces[b]));
+        match (piece, value(piece), before) {
+            (_, Some(filling), _) => out.push(Piece::Text {
+                text: filling.to_string(),
             }),
+            (Piece::Text { text }, None, Some(before)) => {
+                // What follows the words: the next place's filling, or the place as written where nothing fills it.
+                let then = pieces.get(at + 1).map(|next| match next {
+                    Piece::Slot { name } => value(next).map_or_else(|| format!("{{{name}}}"), str::to_string),
+                    Piece::Text { text } => text.clone(),
+                });
+                out.push(Piece::Text {
+                    text: crate::agents::after(before, text, then.as_deref()).to_string(),
+                });
+            }
+            (piece, None, _) => out.push(piece.clone()),
         }
-        value = None;
     }
     join(out)
 }

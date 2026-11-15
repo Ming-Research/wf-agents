@@ -8,28 +8,29 @@ pub use flow::system::{Piece, as_written, fenced, fill, filled, join, with_slots
 /// Pieces with each place of this name replaced by these pieces, which are not looked into again; what follows the
 /// place follows them as a place filled with them would be followed ([`flow::agents::after`]).
 pub fn put(pieces: Vec<Piece>, name: &str, with: &[Piece]) -> Vec<Piece> {
+    let put_here = |piece: &Piece| matches!(piece, Piece::Slot { name: n } if n == name);
+    // What a place put here ends with, where the pieces put end in a text.
+    let ends = match with.last() {
+        Some(Piece::Text { text }) => Some(text.as_str()),
+        _ => None,
+    };
     let mut out: Vec<Piece> = Vec::new();
-    // What the place just before was filled with ends in this text, where it was filled with one.
-    let mut ends: Option<String> = None;
-    for piece in pieces {
-        match piece {
-            Piece::Slot { name: n } if n == name => {
-                out.extend(with.iter().cloned());
-                ends = match with.last() {
-                    Some(Piece::Text { text }) => Some(text.clone()),
-                    _ => None,
-                };
-                continue;
+    for (at, piece) in pieces.iter().enumerate() {
+        let before = at.checked_sub(1).is_some_and(|b| put_here(&pieces[b]));
+        match (piece, ends) {
+            _ if put_here(piece) => out.extend(with.iter().cloned()),
+            (Piece::Text { text }, Some(value)) if before => {
+                // What follows the words: the next place, as written, or what this puts there.
+                let then = pieces.get(at + 1).map(|next| match next {
+                    Piece::Slot { .. } if put_here(next) => as_written(with),
+                    next => as_written(std::slice::from_ref(next)),
+                });
+                out.push(Piece::Text {
+                    text: flow::agents::after(value, text, then.as_deref()).to_string(),
+                });
             }
-            Piece::Text { text } => out.push(Piece::Text {
-                text: ends
-                    .as_deref()
-                    .map_or(text.as_str(), |value| flow::agents::after(value, &text))
-                    .to_string(),
-            }),
-            piece => out.push(piece),
+            (piece, _) => out.push(piece.clone()),
         }
-        ends = None;
     }
     join(out)
 }
@@ -44,6 +45,25 @@ mod tests {
 
     fn slot(name: &str) -> Piece {
         Piece::Slot { name: name.into() }
+    }
+
+    // Pieces put in a place are followed as a place filled with them is: a stop after them is left out where they end a
+    // sentence and nothing or a space follows it, and stays where a place left open does.
+    #[test]
+    fn what_follows_pieces_put_in_a_place_follows_them_as_a_filled_place() {
+        assert_eq!(
+            as_written(&put(with_slots("{d}. Next"), "d", &[text("Done.")])),
+            "Done. Next"
+        );
+        assert_eq!(as_written(&put(with_slots("{d}."), "d", &[text("Done?")])), "Done?");
+        assert_eq!(
+            as_written(&put(with_slots("{d}.{e}"), "d", &[text("Done.")])),
+            "Done..{e}"
+        );
+        assert_eq!(
+            as_written(&put(with_slots("{d}. Next"), "d", &[text("Done")])),
+            "Done. Next"
+        );
     }
 
     #[test]

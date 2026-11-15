@@ -305,7 +305,7 @@ mod tests {
         let head = crate::git::tests::run(&repo.place(WORK).dir, &["rev-parse", "HEAD"]);
         assert_eq!(
             said_on(&local(&repo), &repo, &Named::default()).await,
-            format!("On the commit {head}:\nThe check `echo all is well` passed. What it said:\nall is well\n")
+            format!("On the commit {head}:\nThe check `echo all is well` passed. What it said:\n```\nall is well\n```")
         );
         let failing = Repo::new("echo it broke; exit 2");
         git::start(&failing.project, &failing.place(WORK), "main")
@@ -314,7 +314,19 @@ mod tests {
         let said = said_on(&local(&failing), &failing, &Named::default()).await;
         let (_, said) = said.split_once('\n').expect("the commit first");
         assert!(said.starts_with("The check `echo it broke; exit 2` failed ("), "{said}");
-        assert!(said.ends_with("it broke\n"), "{said}");
+        assert!(said.ends_with("```\nit broke\n```"), "{said}");
+    }
+
+    // What the check said is set apart from the words around it, whatever it holds: a heading or a fence of its own
+    // stands within a fence longer than any of its own, and comes back whole. Well under a second alone; the check's
+    // output on GitHub is held to the same by the tests of its host.
+    #[tokio::test]
+    async fn what_the_check_said_is_set_apart_whatever_it_holds() {
+        let repo = Repo::new("printf '# A heading of its own\\n```\\nits fence\\n```\\n'");
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let said = said_on(&local(&repo), &repo, &Named::default()).await;
+        let given = "What it said:\n````\n# A heading of its own\n```\nits fence\n```\n````";
+        assert!(said.ends_with(given), "{said}");
     }
 
     #[tokio::test]
@@ -323,7 +335,7 @@ mod tests {
         git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
         let said = said_on(&local(&repo), &repo, &Named::default()).await;
         assert!(
-            said.contains("\n1\n2\n3\n") && said.ends_with("\n2999\n3000\n"),
+            said.contains("\n1\n2\n3\n") && said.ends_with("\n2999\n3000\n```"),
             "{said}"
         );
     }

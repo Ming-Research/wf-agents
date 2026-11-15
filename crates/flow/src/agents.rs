@@ -1315,18 +1315,26 @@ pub fn sentence(text: &str) -> String {
     }
 }
 
-/// The words that follow a place, as they follow what fills it: where they begin with a full stop that ends a
-/// sentence, and what fills the place ends a sentence already, in English or in Chinese, without that stop, so that
-/// the sentence ends once. A stop that a word follows at once, as a file's extension, ends no sentence and stays.
-/// Every filling of the engine's words joins a place and what follows it so.
-pub fn after<'a>(value: &str, words: &'a str) -> &'a str {
-    match words.strip_prefix('.') {
-        Some(rest)
-            if value.trim_end().ends_with(SENTENCE_ENDS) && rest.chars().next().is_none_or(char::is_whitespace) =>
-        {
-            rest
-        }
-        _ => words,
+/// The words that follow a place, as they follow what fills it: where they begin with a full stop and what fills the
+/// place ends a sentence already, in English or in Chinese, without that stop, so that the sentence ends once. The stop
+/// stays where a word follows it at once, as a file's extension does: in the words, or, where the words are the stop
+/// alone, at the start of `then`, what follows them (what fills the place after them, or that place as written where
+/// nothing fills it); `then` is none where nothing does. Every filling of the engine's words joins a place and what
+/// follows it so.
+pub fn after<'a>(value: &str, words: &'a str, then: Option<&str>) -> &'a str {
+    let Some(rest) = words.strip_prefix('.') else {
+        return words;
+    };
+    let follows = if rest.is_empty() {
+        then.unwrap_or_default()
+    } else {
+        rest
+    };
+    let no_word = follows.chars().next().is_none_or(char::is_whitespace);
+    if value.trim_end().ends_with(SENTENCE_ENDS) && no_word {
+        rest
+    } else {
+        words
     }
 }
 
@@ -1334,22 +1342,30 @@ pub fn after<'a>(value: &str, words: &'a str) -> &'a str {
 /// a place is sent as it is: a place in it is not filled again. What follows a place filled follows it as [`after`]
 /// says.
 pub fn fill(text: &str, slots: &[(&str, &str)]) -> String {
-    let mut out = String::with_capacity(text.len());
-    // What filled the place just before, where one was filled.
-    let mut filled: Option<&str> = None;
-    for piece in pieces(text) {
-        match piece {
-            Piece::Text(text) => out.push_str(filled.map_or(text, |value| after(value, text))),
-            Piece::Place(name) => match slots.iter().find(|(n, _)| *n == name) {
-                Some((_, value)) => {
-                    out.push_str(value);
-                    filled = Some(*value);
-                    continue;
-                }
-                None => out.push_str(&format!("{{{name}}}")),
+    let pieces = pieces(text);
+    // Each piece as it is sent, before any stop is left out.
+    let sent: Vec<(String, bool)> = (pieces.iter())
+        .map(|piece| match piece {
+            Piece::Text(text) => (text.to_string(), false),
+            Piece::Place(name) => match slots.iter().find(|(n, _)| n == name) {
+                Some((_, value)) => (value.to_string(), true),
+                None => (format!("{{{name}}}"), false),
             },
+        })
+        .collect();
+    let mut out = String::with_capacity(text.len());
+    for (at, (text, _)) in sent.iter().enumerate() {
+        let filled = at
+            .checked_sub(1)
+            .and_then(|before| sent.get(before))
+            .filter(|(_, filled)| *filled);
+        match (filled, &pieces[at]) {
+            (Some((value, _)), Piece::Text(_)) => {
+                let then = sent.get(at + 1).map(|(next, _)| next.as_str());
+                out.push_str(after(value, text, then));
+            }
+            _ => out.push_str(text),
         }
-        filled = None;
     }
     out
 }
