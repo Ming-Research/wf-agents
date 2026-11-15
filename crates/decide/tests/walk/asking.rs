@@ -84,6 +84,26 @@ fn a_result_written_while_its_tests_run_stops_nothing_for_words_the_cell_was_tol
     );
 }
 
+// A cell that waits holds the work: the owner's words to a cell after it stop no round of the cell that gives the
+// result, since the cell they turn to does not run until the wait is over.
+#[test]
+fn words_to_a_cell_after_a_waiting_one_stop_no_round_of_what_ends_the_wait() {
+    let mut w = testing();
+    w.person_writes("background");
+    w.start("research");
+    w.finish_dealing("research", &[], &[("tests", Matters)]);
+    assert_eq!(reasons(&w.decide()).0, "run tests");
+    let run = w.start("run tests");
+    w.outside_writes("implement_spoken");
+    assert_eq!(
+        w.decide(),
+        Decision::Busy {
+            cell: "run tests".into(),
+            run
+        }
+    );
+}
+
 /// The tests run for what was asked, and give the implementation its result.
 fn tests_run(w: &mut World) {
     w.start("run tests");

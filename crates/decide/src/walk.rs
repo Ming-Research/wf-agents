@@ -1297,16 +1297,21 @@ impl<'a> Walk<'a> {
     /// to it, where there is one: the round under way of the run is then stopped. Of the cells before the run's that
     /// apply, the first to which something that [interrupts](Flow::interrupts) is new in a version no run of it has
     /// seen, whose preconditions hold, that is at no limit, that the pause lets run, and that has no run at rest of its
-    /// own.
+    /// own; none after a cell that waits (decision a-wait-holds-its-cell).
     fn stopping(&self, run: &RunView<'a>, room: Room) -> Option<(CellId, BlockId)> {
         let place = self.flow.place(&run.started.cell)?;
         let paused = paused(self.records) || room.paused;
-        (0..place).filter(|&j| self.applies(j)).find_map(|j| {
+        for j in (0..place).filter(|&j| self.applies(j)) {
             let cell = &self.flow.cells()[j];
             if self.runs.values().any(|r| r.open() && r.started.cell == cell.id) {
+                continue;
+            }
+            let (because, on) = self.entering(j);
+            // A cell that waits holds the work: no cell after it runs, whoever the owner turns to there, but the one
+            // whose round is under way gives what it waits for.
+            if because.is_empty() && !on.is_empty() {
                 return None;
             }
-            let (because, _) = self.entering(j);
             // Only a version no run of the cell has seen is the owner turning to it now: one a run of it was told, and
             // which a run given the result of what the cell waited for takes up with it, turns to it no more.
             let seen = |block: &BlockId| {
@@ -1315,19 +1320,24 @@ impl<'a> Walk<'a> {
                     .filter_map(|r| self.told(r, block))
                     .max()
             };
-            let block = because.iter().find_map(|cause| match cause {
+            let Some(block) = because.iter().find_map(|cause| match cause {
                 Cause::Changed { block, .. }
                     if self.flow.interrupts(block) && self.current(block).is_some_and(|v| Some(v.at) > seen(block)) =>
                 {
                     Some(block.clone())
                 }
                 _ => None,
-            })?;
+            }) else {
+                continue;
+            };
             let held = !self.unmet(j).is_empty()
                 || self.at_limit(cell, &because).is_some()
                 || (paused && !self.for_a_note(j, &because, None));
-            (!held).then(|| (cell.id.clone(), block))
-        })
+            if !held {
+                return Some((cell.id.clone(), block));
+            }
+        }
+        None
     }
 
     /// Whether one of these reasons of a run of the cell at this place, which starts at `before` (now where `None`), is
