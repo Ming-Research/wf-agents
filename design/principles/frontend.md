@@ -102,10 +102,14 @@ Why: The owner reads the page in English, and one catalogue makes the name of ea
 shows it.
 
 ### principle one-count-of-what-waits
-What waits on the owner is defined once: a question that holds a work, a cell at its limit, a change of a protected
-file, a pause the engine made, the works held after the engine started again, a review's verdict that holds the work,
-for the owner to rule on, and the agents' command line when it cannot run until the owner signs it in or installs it.
-The count, each item's mark, the cards inside the item where the owner acts on each, and the browser's notifications,
-which open the item at its card, are all read from that definition; nothing else counts or notifies.
+What waits on the owner is defined once, in the engine, which gives for each work each thing it waits on the owner
+for, with its key, its reason in a sentence and what the owner does that ends it: a question that holds a work, a
+cell at its limit, a change of a protected file, a pause the engine made, the works held after the engine started
+again, a review's verdict that holds the work, for the owner to rule on, and the agents' command line when it cannot
+run until the owner signs it in or installs it. The count, each item's mark, the cards inside the item where the owner
+acts on each, the browser's notifications, which open the item at its card, the stretches of a work's bar it waited
+on the owner and what `wf-agents wait` says rests for a person all read that one list; nothing else counts or
+notifies, and none of them works out a list of its own.
 Why: Counts with different meanings did not agree, and nobody trusted them; a count with nothing to act on inside the
-item leaves the owner searching for what it counts.
+item leaves the owner searching for what it counts. Three copies of the definition, the page's, the planner's and the
+bar's, disagreed on the command line, the works held after a restart and a stalled work.
