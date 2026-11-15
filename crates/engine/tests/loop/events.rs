@@ -232,6 +232,51 @@ fn a_write_for_a_round_of_what_the_block_says_already_puts_that_version_in_and_w
     assert_eq!(cell, "judge", "the writer consumed main as it was told of it");
 }
 
+/// The outside's write of main saying this, as the watch of main writes the head it reads.
+fn main_moved(content: &str) -> Event {
+    Event::Wrote {
+        block: "main".into(),
+        by: Outsider::Outside,
+        content: content.to_string(),
+        matters: true,
+        value: None,
+    }
+}
+
+/// What the latest version of the block says.
+fn says(w: &W, block: &str) -> String {
+    let block: BlockId = block.into();
+    let at = decide::versions(&w.work.records)[&block].last().expect("a version").at;
+    w.work.contents[&(block, at)].clone()
+}
+
+// What a round read reaches the loop its own way: main moved after the check read it, and the watch's write of the
+// newer head came first. What the round read is no newer than a version it never knew, written since it began: it is
+// not written over it, so that main does not go back; the version that says it is put in, as what the round took in,
+// and a read no version says puts in nothing.
+#[test]
+fn a_rounds_read_that_comes_after_a_version_it_never_knew_is_not_written_over_it() {
+    let (mut w, write, _) = W::requested();
+    let (_, older) = w.on_and_place(main_moved("Main is at a."));
+    w.on(main_moved("Main is at b."));
+    let written = w.work.records.written.len();
+    w.on(main_for(write, "Main is at a."));
+    assert_eq!(w.work.records.written.len(), written, "the older main is written again");
+    assert_eq!(says(&w, "main"), "Main is at b.");
+    let put: Vec<(RunId, &str, Seq)> = (w.work.records.put_in.iter())
+        .map(|p| (p.run, p.block.as_str(), p.version))
+        .collect();
+    assert_eq!(put, [(write, "main", older)]);
+    w.on(main_for(write, "Main is at z."));
+    assert_eq!(
+        w.work.records.written.len(),
+        written,
+        "a read no version says is written"
+    );
+    assert_eq!(says(&w, "main"), "Main is at b.");
+    assert_eq!(w.work.records.put_in.len(), 1);
+}
+
 // A run abandoned while its round is under way consumes nothing: what the outside says for its round is the outside's
 // word all the same, written and put into no round.
 #[test]
