@@ -362,13 +362,15 @@ pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
 /// each block that keeps the condition from holding that the engine wrote anew as it took the return in, as the
 /// questions' standing. None where the cell has no condition, does not apply before, still applies after, or then waits
 /// for nothing, or where the run never started. The records after (`after`, the take-in) are asked for only where the
-/// take-in can leave the cell: it writes a block the condition can turn on, or such a block is one a source outside the
-/// work writes, as the engine may as it takes the return in.
+/// take-in can leave the cell, by writing a block the condition can turn on, the return's or one a source outside the
+/// work writes as the engine may as it takes the return in; and where the cell can then still wait: the return asks a
+/// question that waits (`waits`) or writes an entry of a record its cell asks in, or the cell holds by a question of its
+/// own or waits for the result of an entry as the records stand.
 pub fn skipping(
     flow: &Flow,
     before: &Records,
     run: RunId,
-    writes: &[Write],
+    (writes, waits): (&[Write], bool),
     after: impl FnOnce() -> Records,
 ) -> Vec<BlockId> {
     let Some(i) = (before.started.iter())
@@ -412,11 +414,16 @@ pub fn skipping(
     if !was.applies(i) {
         return Vec::new();
     }
+    let cell = &cells[i].id;
+    let own =
+        |walk: &Walk<'_>| (walk.questions.values()).any(|q| &q.latest.cell == cell && !q.latest.engine && q.holds());
+    let entry = writes.iter().any(|w| cells[i].asks.iter().any(|a| a.record == w.block));
+    if !waits && !entry && !own(&was) && was.pending(i).is_empty() {
+        return Vec::new();
+    }
     let after = after();
     let is = Walk::new(flow, &after);
-    let cell = &cells[i].id;
-    let holds = (is.questions.values()).any(|q| &q.latest.cell == cell && !q.latest.engine && q.holds());
-    if is.applies(i) || !(holds || !is.pending(i).is_empty()) {
+    if is.applies(i) || !(own(&is) || !is.pending(i).is_empty()) {
         return Vec::new();
     }
     let mut keeping: Vec<&BlockId> = Vec::new();

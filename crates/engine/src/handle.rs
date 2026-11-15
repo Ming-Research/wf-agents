@@ -974,7 +974,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
     let last = began(work, run);
     let place = (work.records.started.iter().find(|s| s.run == run)).and_then(|s| flow.flow.place(&s.cell));
     let judged = place.is_some_and(|i| flow.cells[i].kind == Kind::Agent && !flow.flow.cells()[i].applies.is_empty());
-    let skips = |i: usize, writes: &[Write], read: &[BlockId]| {
+    let skips = |i: usize, (writes, waits): (&[Write], bool), read: &[BlockId]| {
         if i + 1 != last || !judged {
             return Vec::new();
         }
@@ -984,7 +984,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             finish(flow, &mut taken, run, Vec::new(), writes, &mut Vec::new());
             taken.records
         };
-        decide::skipping(&flow.flow, &work.records, run, writes, taken)
+        decide::skipping(&flow.flow, &work.records, run, (writes, waits), taken)
     };
     let returned = |i: usize, b: &Back| match b {
         Back::Returned {
@@ -1004,7 +1004,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
                 .collect();
             run::Return::Came {
                 dealt_with: dealt_with.clone(),
-                skips: skips(i, &writes, &read),
+                skips: skips(i, (&writes, said.waits()), &read),
                 writes,
                 calls: asks.len(),
                 found: found.clone(),
@@ -1032,7 +1032,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             let writes = writes(handed);
             run::Return::Came {
                 dealt_with: told.ran_by.clone(),
-                skips: skips(i, &writes, &[]),
+                skips: skips(i, (&writes, false), &[]),
                 writes,
                 calls: 0,
                 found: Vec::new(),

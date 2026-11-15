@@ -224,7 +224,8 @@ fn skips_taken(w: &World, run: RunId, writes: &[Write], questions: &[Asking], en
         }
         after
     };
-    (decide::skipping(&w.flow, &w.records, run, writes, after).into_iter())
+    let waits = questions.iter().any(|q| q.waits && !q.withdrawn);
+    (decide::skipping(&w.flow, &w.records, run, (writes, waits), after).into_iter())
         .map(|b| b.0)
         .collect()
 }

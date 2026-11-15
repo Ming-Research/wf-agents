@@ -705,7 +705,7 @@ impl History {
                         // leave its own cell no longer applying while the cell still waits, its run finished with its
                         // writes, which is all the histories' engine writes as it takes a return in.
                         skips: match i + 1 == last {
-                            true => decide::skipping(&self.w.flow, r, run, writes, || {
+                            true => decide::skipping(&self.w.flow, r, run, (writes, false), || {
                                 let mut after = r.clone();
                                 after.finished.push(Finished {
                                     run,
