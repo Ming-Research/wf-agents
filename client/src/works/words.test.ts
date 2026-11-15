@@ -97,6 +97,11 @@ describe('what a work does now, in words', () => {
     expect(all.map(waitsForOwner)).toEqual([true, false, true, true, true, false, true, false, true]);
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool] })).toBe('quiet');
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool, question] })).toBe('owner');
+    // A check held because what fails also fails on main waits for main, and not for the owner.
+    const main: Waited = { kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' };
+    expect(waitedWords(main)).toBe('main to move, before M1 runs again: What fails also fails on main.');
+    expect(waitsForOwner(main)).toBe(false);
+    expect(nowTone({ kind: 'waits', at: 'M2', on: [main] })).toBe('quiet');
   });
 
   it("gives the engine's pause the tone of what failed, and the owner's a quiet one", () => {
@@ -120,7 +125,8 @@ describe('how a run stands', () => {
     session: null,
     tries: [],
     missed: null,
-      estimated: false,
+    estimated: false,
+    judged: { cost: null, time: null },
   });
 
   it('says a run whose last round failed failed, neither under way nor at rest, and open', () => {
@@ -157,7 +163,7 @@ describe('why a run ran, in words', () => {
   });
 
   it('says a call of an abandoned run with no result was withdrawn with it', () => {
-    const row = { call: 4, what: { kind: 'tool', name: 'shell', input: 'ls' } as const, made: 0, done: null, chars: null };
+    const row = { call: 4, what: { kind: 'tool', name: 'shell', input: 'ls' } as const, made: 0, done: null, chars: null, time: null };
     expect(callState(row)).toBe(`made ${clock(0)}, no result yet`);
     expect(callState(row, true)).toBe(`made ${clock(0)}, withdrawn with its run`);
     expect(callState({ ...row, done: 12_000, chars: 3 }, true)).toBe(`made ${clock(0)}, done in 12s`);
@@ -186,6 +192,9 @@ describe('why a run ran, in words', () => {
     );
     expect(unmetWords({ kind: 'unexplained', path: 'AGENTS.md' })).toBe(
       'it left AGENTS.md, a file the project protects, changed, and said not why',
+    );
+    expect(unmetWords({ kind: 'unanswered', block: 'check' })).toBe(
+      'it dealt with check, and committed nothing and asked nothing',
     );
   });
 });

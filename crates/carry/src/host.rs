@@ -22,6 +22,7 @@ pub(crate) mod fake;
 use std::future::Future;
 use std::sync::Arc;
 
+use decide::run::Failure;
 use decide::{CallId, RunId};
 use store::WorkNumber;
 
@@ -66,6 +67,66 @@ impl Asking {
     }
 }
 
+/// Why the host did not do what it was asked, with the kind of its cause where the host's answer, or what the host
+/// found, tells it: a fault of the host that passes by itself, or a refusal no wait mends. Where nothing tells it, as
+/// where a command gave no answer, the act's words are read for the network's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failed {
+    pub why: String,
+    pub kind: Option<Failure>,
+}
+
+impl Failed {
+    /// A failure that passes by itself: what failed is tried again after a wait.
+    pub fn passing(why: impl Into<String>) -> Failed {
+        Failed {
+            why: why.into(),
+            kind: Some(Failure::Passing),
+        }
+    }
+
+    /// A refusal that no wait mends, as a person's doing or what the configuration says: the work waits, with why, for
+    /// the owner.
+    pub fn refused(why: impl Into<String>) -> Failed {
+        Failed {
+            why: why.into(),
+            kind: Some(Failure::Other),
+        }
+    }
+
+    /// The same failure, of the same kind, in the words these make of its own.
+    pub fn said(self, words: impl FnOnce(String) -> String) -> Failed {
+        Failed {
+            why: words(self.why),
+            kind: self.kind,
+        }
+    }
+}
+
+impl From<String> for Failed {
+    fn from(why: String) -> Self {
+        Failed { why, kind: None }
+    }
+}
+
+impl From<&str> for Failed {
+    fn from(why: &str) -> Self {
+        why.to_string().into()
+    }
+}
+
+impl From<Failed> for String {
+    fn from(failed: Failed) -> Self {
+        failed.why
+    }
+}
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)
+    }
+}
+
 /// Why a work's branch was not merged.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NotMerged {
@@ -73,26 +134,47 @@ pub enum NotMerged {
     /// what nothing checked. The check is to be taken again on main's new head.
     Moved { main: String, checked: String },
     /// Anything else, as git or the host said it.
-    Failed(String),
+    Failed(Failed),
+}
+
+impl NotMerged {
+    /// Not merged for a refusal no wait mends ([`Failed::refused`]).
+    pub fn refused(why: String) -> NotMerged {
+        NotMerged::Failed(Failed::refused(why))
+    }
 }
 
 impl From<String> for NotMerged {
     fn from(why: String) -> Self {
-        NotMerged::Failed(why)
+        NotMerged::Failed(why.into())
+    }
+}
+
+impl From<Failed> for NotMerged {
+    fn from(failed: Failed) -> Self {
+        NotMerged::Failed(failed)
     }
 }
 
 /// What a host found of a commit.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Verdict {
-    /// What failed, in words the work's implementing agent can act on; none where everything passed.
+    /// What failed, in words the work's implementing agent can act on; none where everything passed, or where what
+    /// failed fails on the head of main as well ([`Verdict::held`]).
     pub failed: Option<String>,
+    /// What failed on the commit and fails on the head of main it was checked against as well, in words: the commit
+    /// neither passes nor fails by its own change, and waits for main to pass it. None where nothing does.
+    pub held: Option<String>,
     /// What judged the commit, as words that follow "checked by", where the host says it; with none, the check is told
     /// by what it was checked against alone.
     pub by: Option<String>,
     /// What the host says of the checks beside the verdict, each in words and with no judgment of its own: a check run
-    /// more than once on the commit, with each run's result.
+    /// more than once on the commit, with each run's result; and the jobs of the runs that are not said as what failed,
+    /// each with how it ended and its wall time.
     pub notes: Vec<String>,
+    /// What the host found beyond the work, each a text worth an item of its own: a test that failed on the commit and
+    /// passed when it was run on it again.
+    pub observations: Vec<String>,
 }
 
 /// Where the project's repository is hosted. A failure of the host itself (it cannot be reached, it refuses, it does
@@ -103,15 +185,20 @@ pub trait Host: Send + Sync + 'static {
     fn main(&self) -> impl Future<Output = Result<String, String>> + Send;
 
     /// The verdict on the commit, the head of the work's branch, which is committed and merges into main without a
-    /// conflict, as the round of the check that asks finds it; none where it was told to stop. A failure fails it,
-    /// whatever else passes, and nothing is run again.
+    /// conflict and holds the head of main `main`, as the round of the check that asks finds it; none where it was told
+    /// to stop. A failure fails it, whatever else passes, but where the host runs tests by name and only tests failed:
+    /// those are run on the commit again, a test that passes there no longer failing it and being observed, and what
+    /// fails again is run on `main`, a commit whose every such test fails there too being held
+    /// ([`Verdict::held`]). Checks that could not be run fail the round, with the kind of the cause where the host
+    /// tells it ([`Failed`]).
     fn verdict(
         &self,
         branch: &Branch<'_>,
         commit: &str,
+        main: &str,
         asking: Asking,
         stop: &mut Stop,
-    ) -> impl Future<Output = Result<Option<Verdict>, String>> + Send;
+    ) -> impl Future<Output = Result<Option<Verdict>, Failed>> + Send;
 
     /// Merges the work's branch into main, by a commit named by the branch's title, and gives the commit the merge made
     /// main's head with. Where `checked` names the commit the check passed, only that commit is merged, and only onto
@@ -187,10 +274,11 @@ impl<H: Host> Host for Arc<H> {
         &self,
         branch: &Branch<'_>,
         commit: &str,
+        main: &str,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<Verdict>, String> {
-        (**self).verdict(branch, commit, asking, stop).await
+    ) -> Result<Option<Verdict>, Failed> {
+        (**self).verdict(branch, commit, main, asking, stop).await
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {

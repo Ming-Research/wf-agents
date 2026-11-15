@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited, Who};
-use driver::{Asked, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
+use driver::{Asked, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, Found, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
@@ -975,6 +975,7 @@ impl H {
                 }
                 Effect::Stop { .. } | Effect::Withdraw { .. } => self.undone.insert(key(todo)),
                 Effect::Ping { .. } => panic!("opened again, the driver gives a ping, which only the time gives"),
+                Effect::Tell { .. } => panic!("words told to a round are given again as the driver opens: {todo:?}"),
             };
             assert!(
                 self.kept_as_pending(todo),
@@ -1041,6 +1042,8 @@ impl H {
     fn given(&mut self, todos: &[Todo]) {
         for todo in todos {
             match &todo.effect {
+                // Words told to a round are handed to it, and no one answers them: nothing is kept of them.
+                Effect::Tell { .. } => continue,
                 Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => {
                     let once = self.once(todo);
                     assert!(self.ever.insert(once), "given twice: {todo:?}");
@@ -1273,7 +1276,7 @@ impl H {
         // leaves every run of it so.
         let agents = |cell: &decide::CellId| {
             let kind = (flow.cells.iter()).find(|spec| spec.id == *cell).map(|spec| spec.kind);
-            match self.d().gate_of(Time(self.clock), number) {
+            match self.d().gate_of(number) {
                 engine::Gate::Open => false,
                 engine::Gate::Agents => kind == Some(flow::Kind::Agent),
                 engine::Gate::Acts => kind == Some(flow::Kind::Engine),
@@ -1392,17 +1395,21 @@ impl H {
         todos
     }
 
-    /// The driver is told the time it asks to be told next, where it asks for one, each look it asks for reaching what
-    /// it looks at; gives what is to be done.
+    /// The driver is told the time it asks to be told next, where it asks for one, each check it asks for finding the
+    /// outside well and each look reaching what it looks at; gives what is to be done.
     pub fn wake_up(&mut self) -> Option<Vec<Todo>> {
         let wake = self.d().wake()?;
-        Some(self.ticked(wake.at, wake.look.then_some(true), wake.look_at_host.then_some(true)))
+        Some(self.ticked(
+            wake.at,
+            wake.check.then_some(Found::Well),
+            wake.look_at_host.then_some(true),
+        ))
     }
 
-    /// The driver is told the time, which the harness's clock takes on to, and what a look at the network found,
-    /// where one was taken; gives what is to be done.
-    pub fn tick(&mut self, at: Time, reached: Option<bool>) -> Vec<Todo> {
-        self.ticked(at, reached, None)
+    /// The driver is told the time, which the harness's clock takes on to, and what a check of the outside of the
+    /// agents' rounds found, where one was taken; gives what is to be done.
+    pub fn tick(&mut self, at: Time, found: Option<Found>) -> Vec<Todo> {
+        self.ticked(at, found, None)
     }
 
     /// The driver is told the time it asked for, a look at the acts' host having found it reached or not.
@@ -1410,10 +1417,10 @@ impl H {
         self.ticked(at, None, Some(reached))
     }
 
-    /// The driver is told the time, with what each look found.
-    fn ticked(&mut self, at: Time, reached: Option<bool>, host_reached: Option<bool>) -> Vec<Todo> {
+    /// The driver is told the time, with what each check and look found.
+    fn ticked(&mut self, at: Time, found: Option<Found>, host_reached: Option<bool>) -> Vec<Todo> {
         self.clock = self.clock.max(at.0);
-        let todos = (self.dm().tick(at, reached, host_reached)).expect("the driver takes the time");
+        let todos = (self.dm().tick(at, found, host_reached)).expect("the driver takes the time");
         self.given(&todos);
         if self.checking {
             self.check();

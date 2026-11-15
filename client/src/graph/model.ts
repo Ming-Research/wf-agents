@@ -216,10 +216,13 @@ export function mainPath(flow: Flow): MainPath {
   };
   const holds = (known: Known, key: Condition): Holds => {
     if (key.on === 'block') return is(known, key.block, key.value);
-    const each = key.test.reads.map((b) => is(known, b, key.test.is));
+    const { kind, reads, is: value } = key.test;
+    // A test of content looks for no value: what a block holds, the definition does not say.
+    if (value === null) return 'either';
+    const each = reads.map((b) => is(known, b, value));
     const all = (h: Holds) => each.every((x) => x === h);
-    if (key.test.kind === 'all') return each.includes('no') ? 'no' : all('yes') ? 'yes' : 'either';
-    if (key.test.kind === 'any') return each.includes('yes') ? 'yes' : all('no') ? 'no' : 'either';
+    if (kind === 'all') return each.includes('no') ? 'no' : all('yes') ? 'yes' : 'either';
+    if (kind === 'any') return each.includes('yes') ? 'yes' : all('no') ? 'no' : 'either';
     return each.includes('yes') ? 'no' : all('no') ? 'yes' : 'either';
   };
   // A branch's knowledge once it is known that a key holds, or does not.
@@ -230,6 +233,7 @@ export function mainPath(flow: Flow): MainPath {
   const assume = (known: Known, key: Condition, held: boolean): Known => {
     if (key.on === 'block') return narrowed(known, key.block, (v) => (v === key.value) === held);
     const { kind, reads, is: value } = key.test;
+    if (value === null) return known;
     if (held && kind === 'all') return reads.reduce((k, b) => narrowed(k, b, (v) => v === value), known);
     if (held !== (kind === 'any')) return reads.reduce((k, b) => narrowed(k, b, (v) => v !== value), known);
     return known;

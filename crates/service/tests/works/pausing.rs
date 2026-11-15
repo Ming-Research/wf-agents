@@ -1,4 +1,5 @@
-//! A pause holds back what would begin a round, and nothing else (decision `stops-from-outside-are-no-cells`).
+//! A pause holds back what would begin a round, and a check's taking of the project's turn to check and merge, for
+//! which the carriers are told of each work's pause; nothing else (decision `stops-from-outside-are-no-cells`).
 
 use decide::Decision;
 use service::Act;
@@ -47,4 +48,27 @@ async fn a_paused_work_begins_no_run() {
     assert_eq!(trial.finished(work), ["plan"]);
     assert_eq!(trial.decision(work), Decision::Paused);
     assert!(trial.step().await.is_none());
+}
+
+// The carriers are told whether a pause holds each work back, its own or the owner's of everything, as it changes and
+// of every work as the loop opens, before any round is given: what a carrier holds a round back for itself, as the acts
+// a check for the turn to check and merge, a pause holds back too.
+#[tokio::test(start_paused = true)]
+async fn the_carriers_are_told_of_each_works_pause_as_it_changes_and_as_the_loop_opens() {
+    let mut trial = Trial::open();
+    let (_, work) = trial.add("Greet the user", &[]);
+    assert_eq!(trial.told_paused(work), Some(true), "a work is added paused");
+    trial.act(work, Act::Resume).unwrap();
+    assert_eq!(trial.told_paused(work), Some(false));
+    trial.everything(true);
+    assert_eq!(trial.told_paused(work), Some(true), "the pause of everything holds it");
+    trial.everything(false);
+    assert_eq!(trial.told_paused(work), Some(false));
+    trial.act(work, Act::Pause).unwrap();
+    trial.restart();
+    assert_eq!(
+        trial.told_paused(work),
+        Some(true),
+        "the carriers of the loop opened again are told"
+    );
 }

@@ -212,6 +212,8 @@ export function failureWords(failure: Failure): string {
       return "the agents' command line cannot run";
     case 'offline':
       return 'the network cannot be reached';
+    case 'unavailable':
+      return "the agents' service is down, overloaded or not answering";
     case 'promptTooLong':
       return 'the prompt is too long for the model';
     case 'noModel':
@@ -221,23 +223,32 @@ export function failureWords(failure: Failure): string {
   }
 }
 
-/// A wait every work shares, in a line: its cause, when it is over, and the round that met it.
+/// What is down in a wait every work shares: as the latest check of the outside found it while the wait holds, or else
+/// as the round that met it did.
+export function outageDown(outage: Outage): { failure: Failure; why: string } {
+  const found = outage.checked?.found;
+  return outage.holds && found?.kind === 'down' ? found : { failure: outage.failure, why: outage.why };
+}
+
+/// A wait every work shares, in a line: what is down and since when, what the engine does next, and the round that
+/// met it.
 export function outageWords(outage: Outage): string {
   const until = outage.until;
   const when =
-    until.kind === 'at'
-      ? `until ${clock(until.at)}`
-      : until.kind === 'tried'
-        ? 'one round tries now'
-        : until.kind === 'looked'
-          ? `once the host is reached, looked at from ${clock(until.at)}`
-          : until.look
-            ? `one round tries once the network is reached, looked at from ${clock(until.at)}`
-            : `one round tries at ${clock(until.at)}`;
-  const mend = outage.failure === 'cannotRun' ? ': sign the command line in again or install it' : '';
+    until.kind === 'checked'
+      ? `the engine checks the outside itself at ${clock(until.at)}, touching no work's session`
+      : until.kind === 'well'
+        ? `the engine's check at ${clock(until.at)} found it well, and every work goes on`
+        : `once the host is reached, looked at from ${clock(until.at)}`;
+  const down = outageDown(outage);
+  const mend = down.failure === 'cannotRun' ? ': sign the command line in again or install it' : '';
   const held =
     outage.service === 'host' ? "no act of the engine's of any work begins" : "no agent's round of any work begins";
-  return `${failureWords(outage.failure)}${mend}; ${held}, ${when} (work ${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
+  const checked =
+    outage.checked && outage.holds && outage.checked.found.kind === 'down'
+      ? `; the check at ${clock(outage.checked.at)} found: ${outage.checked.found.why}`
+      : '';
+  return `${failureWords(down.failure)}${mend}, since ${clock(outage.since)}; ${held}, ${when}${checked} (work ${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
 }
 
 /// What a round asked for.
@@ -258,9 +269,11 @@ export function waitsForOwner(waited: Waited): boolean {
     case 'slot':
       return false;
     case 'agents':
-      return waited.outage.failure === 'cannotRun';
+      return outageDown(waited.outage).failure === 'cannotRun';
     case 'answer':
       return true;
+    case 'outside':
+      return false;
   }
 }
 
@@ -292,6 +305,8 @@ export function waitedWords(waited: Waited): string {
       return `the agents' rounds to begin again: ${outageWords(waited.outage)}`;
     case 'answer':
       return `the owner's answer to the question ${waited.question}`;
+    case 'outside':
+      return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
   }
 }
 
@@ -435,8 +450,12 @@ export function unmetWords(unmet: Unmet): string {
       return `its question ${unmet.name} recommends none of its options`;
     case 'notAnswerable':
       return `it asked the question ${unmet.name}, and no answer runs its cell`;
+    case 'notAnswered':
+      return `it dealt with the owner's words by ${unmet.name}, and gave no reply`;
     case 'unexplained':
       return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
+    case 'unanswered':
+      return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
   }
 }
 

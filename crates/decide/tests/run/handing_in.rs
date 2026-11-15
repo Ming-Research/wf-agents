@@ -39,9 +39,9 @@ fn a_return_with_every_block_the_cell_must_hand_in_finishes_the_run() {
 }
 
 #[test]
-fn a_round_entered_for_the_owner_while_its_cell_waits_for_calls_is_held_to_no_block_its_cell_must_write() {
+fn a_round_entered_for_the_owner_while_its_cell_waits_is_held_to_no_block_its_cell_must_write() {
     let mut s = must_write(&["verdict", "plan"]);
-    s.told.waits_for_calls = true;
+    s.told.waits = true;
     assert_eq!(step(vec![handed_in(vec![])], &s), finish(vec![]));
     // What it hands in is still checked.
     let unmet = vec![Unmet::NoValue {
@@ -202,7 +202,7 @@ fn a_group_s_trigger_none_of_whose_blocks_ran_the_round_is_said_not_to_have_run_
 }
 
 #[test]
-fn a_return_that_writes_over_a_version_its_round_was_not_told_of_is_sent_back_naming_the_version() {
+fn a_return_that_writes_over_a_version_its_round_was_not_told_of_is_sent_back_and_one_that_adds_an_entry_is_not() {
     let mut s = spec();
     s.told.outputs.get_mut(&BlockId::from("plan")).expect("the plan").latest = Some(Seq(9));
     let unmet = vec![Unmet::WrittenOver {
@@ -215,12 +215,20 @@ fn a_return_that_writes_over_a_version_its_round_was_not_told_of_is_sent_back_na
         step(vec![handed_in(vec![valued("verdict", "no")])], &s),
         finish(vec![valued("verdict", "no")])
     );
+    // Of a record entries are added to, a version another added since replaces nothing, and the return's entry is
+    // taken beside it.
+    s.told.outputs.get_mut(&BlockId::from("plan")).expect("the plan").added = true;
+    assert_eq!(
+        step(vec![handed_in(vec![prose("plan")])], &s),
+        finish(vec![prose("plan")])
+    );
 }
 
 #[test]
 fn a_choice_handed_in_as_changing_nothing_in_meaning_with_another_value_is_sent_back() {
     let unchanged = |value: &str| Write {
         meaning_unchanged: true,
+        empty: false,
         ..valued("verdict", value)
     };
     let unmet = vec![Unmet::ChoiceChanged {

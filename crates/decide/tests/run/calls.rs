@@ -24,6 +24,7 @@ fn a_return_that_asks_for_calls_and_deals_with_something_or_writes_a_block_is_se
             found: vec![],
             waits: false,
             questions: Vec::new(),
+            read: Vec::new(),
         }),
     };
     assert_eq!(step(vec![dealing], &spec()), send_back(vec![Unmet::AsksAndWorks]));
@@ -35,6 +36,7 @@ fn a_return_that_asks_for_calls_and_deals_with_something_or_writes_a_block_is_se
             found: vec![],
             waits: false,
             questions: Vec::new(),
+            read: Vec::new(),
         }),
     };
     assert_eq!(step(vec![writing], &spec()), send_back(vec![Unmet::AsksAndWorks]));
@@ -66,6 +68,7 @@ fn a_return_found_of_both_kinds_as_it_was_read_is_said_so_once() {
             found: vec![Unmet::AsksAndWorks],
             waits: false,
             questions: Vec::new(),
+            read: Vec::new(),
         }),
     };
     assert_eq!(step(vec![both], &spec()), send_back(vec![Unmet::AsksAndWorks]));

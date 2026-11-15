@@ -14,20 +14,20 @@ pub(super) fn named(tests: &[&str], checks: &[&str]) -> Named {
     }
 }
 
-/// The JUnit a run uploads: `tools::tests::a` passed, `tools::tests::b` failed, saying why.
+/// The JUnit a run uploads, in the file of the job `test`: `tools::tests::a` passed, `tools::tests::b` failed, saying why.
 pub(super) fn junit() -> Vec<(String, Vec<u8>)> {
     let xml = r#"<testsuites><testsuite name="carry">
   <testcase name="tools::tests::a" time="0.12"/>
   <testcase name="tools::tests::b" time="0.3"><failure message="assertion failed">thread 'tools::tests::b' panicked at crates/carry/src/tools.rs:9:5:
 assertion failed: said.is_empty()</failure></testcase>
 </testsuite></testsuites>"#;
-    vec![("junit.xml".to_string(), xml.as_bytes().to_vec())]
+    vec![("test.xml".to_string(), xml.as_bytes().to_vec())]
 }
 
-/// The JUnit of a run in which the one test it holds passed.
+/// The JUnit of a run in which the one test it holds passed, in the file of the job `test`.
 pub(super) fn junit_green() -> Vec<(String, Vec<u8>)> {
     let xml = r#"<testsuites><testsuite name="carry"><testcase name="tools::tests::a" time="0.12"/></testsuite></testsuites>"#;
-    vec![("junit.xml".to_string(), xml.as_bytes().to_vec())]
+    vec![("test.xml".to_string(), xml.as_bytes().to_vec())]
 }
 
 pub(super) fn job(name: &str, outcome: Outcome, _: u64) -> Check {
@@ -123,8 +123,8 @@ async fn the_tests_named_run_by_the_fast_workflow_and_each_is_said_with_its_resu
         "{said}"
     );
     for line in [
-        "The tests:\n- tools::tests::a: passed in 0.12 s\n",
-        "- tools::tests::b: failed in 0.3 s\n  What it said:\n```\nthread 'tools::tests::b' panicked at \
+        "The tests that passed:\n- tools::tests::a: passed in 0.12 s",
+        "The tests that did not pass:\n- tools::tests::b: failed in 0.3 s\n  What it said:\n```\nthread 'tools::tests::b' panicked at \
          crates/carry/src/tools.rs:9:5:\nassertion failed: said.is_empty()\n```",
         "- a_name_of_no_test: not run: no test of the run has this name",
     ] {
@@ -169,7 +169,7 @@ async fn a_check_named_runs_beside_the_tests_and_a_red_one_is_said_failed_with_n
     let said = hub.named_check(&named(&[], &["lint"])).await.unwrap().expect("run");
     assert!(said.contains("): 0 of the 1 checks passed."), "{said}");
     assert!(
-        said.ends_with("The checks:\n- lint: failed (failure) https://github.example/checks/lint"),
+        said.ends_with("The jobs:\n- lint: failed (failure) in 60 s https://github.example/checks/lint"),
         "{said}"
     );
     let asked = match hub.dispatched_as_said().as_slice() {
@@ -210,7 +210,7 @@ async fn a_run_that_uploads_no_junit_is_said_so_and_its_log_is_not_read() {
         "{said}"
     );
     assert!(
-        said.ends_with("The checks:\n- test: failed (failure) https://github.example/checks/test"),
+        said.ends_with("The jobs:\n- test: failed (failure) in 60 s https://github.example/checks/test"),
         "a job that failed with nothing to say why is said failed: {said}"
     );
 }
@@ -219,7 +219,11 @@ async fn a_run_that_uploads_no_junit_is_said_so_and_its_log_is_not_read() {
 async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_test_and_check_is_said() {
     let hub = Hub::new();
     let head = hub.committed().await;
-    let jobs = vec![passed("lint"), job("test", Outcome::Failed("failure".into()), 5)];
+    let lint = Check {
+        took: Some(192),
+        ..passed("lint")
+    };
+    let jobs = vec![lint, job("test", Outcome::Failed("failure".into()), 5)];
     hub.github().fast(&head, jobs, Some(("test-results", junit())));
     let said = hub.named_check(&Named::default()).await.unwrap().expect("run");
     assert!(
@@ -234,11 +238,13 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
     let a = said.find("- tools::tests::a: passed in 0.12 s").expect("a");
     assert!(b < a, "{said}");
     assert!(said.contains("assertion failed: said.is_empty()"), "{said}");
+    // What did not pass and the jobs come before what passed, which a result cut short loses first.
+    let jobs = "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 \
+                s https://github.example/checks/test";
+    let at = said.find(jobs).expect("the jobs");
+    assert!(b < at && at < a, "{said}");
     assert!(
-        said.ends_with(
-            "The checks:\n- lint: passed https://github.example/checks/lint\n- test: failed (failure) \
-             https://github.example/checks/test"
-        ),
+        said.ends_with("The tests that passed:\n- tools::tests::a: passed in 0.12 s"),
         "{said}"
     );
     assert_eq!(
@@ -248,6 +254,78 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
             branch: "main".to_string(),
             inputs: full_inputs(&head),
         }]
+    );
+}
+
+// A job says how it ended and, where it ran to a conclusion, its wall time; one that did not run, did not finish or was
+// cancelled says so in place of a time, and a job that did not run is no check that came to anything.
+#[tokio::test]
+async fn each_job_is_said_with_how_it_ended_and_its_wall_time_or_why_it_has_none() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let jobs = vec![
+        Check {
+            took: Some(192),
+            ..passed("lint")
+        },
+        check("page", Outcome::Broken("cancelled".into())),
+        check("docs", Outcome::Skipped),
+        check("deploy", Outcome::Pending),
+        Check {
+            took: None,
+            ..passed("test")
+        },
+    ];
+    hub.github().fast(&head, jobs, Some(("test-results", junit_green())));
+    let said = hub.named_check(&Named::default()).await.unwrap().expect("run");
+    assert!(said.contains("; 2 of the 4 checks passed."), "{said}");
+    assert!(
+        said.contains(
+            "The jobs:\n\
+             - lint: passed in 192 s https://github.example/checks/lint\n\
+             - page: ended without judging the code (cancelled) https://github.example/checks/page\n\
+             - docs: did not run https://github.example/checks/docs\n\
+             - deploy: not complete https://github.example/checks/deploy\n\
+             - test: passed (GitHub gives no time for it) https://github.example/checks/test"
+        ),
+        "{said}"
+    );
+}
+
+// The fast workflow's run says every job it ran, the one named and the one that did not run alike.
+#[tokio::test]
+async fn the_fast_workflows_run_says_every_job_of_it_and_a_check_named_that_it_has_none_of() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let jobs = vec![
+        Check {
+            took: Some(95),
+            ..passed("test")
+        },
+        check("lint", Outcome::Skipped),
+    ];
+    hub.github().fast(&head, jobs, Some(("test-results", junit_green())));
+    let said = hub
+        .named_check(&named(&["tools::tests::a"], &[]))
+        .await
+        .unwrap()
+        .expect("run");
+    assert!(
+        said.contains(
+            "The jobs:\n- test: passed in 95 s https://github.example/checks/test\n\
+             - lint: did not run https://github.example/checks/lint"
+        ),
+        "{said}"
+    );
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().fast(&head, vec![passed("test")], None);
+    let said = hub.named_check(&named(&[], &["lint"])).await.unwrap().expect("run");
+    assert!(
+        said.ends_with(
+            "- test: passed in 60 s https://github.example/checks/test\n- lint: the run has no job of that name"
+        ),
+        "{said}"
     );
 }
 
@@ -336,10 +414,42 @@ async fn a_run_no_runner_took_is_given_up_as_never_started() {
         )),
         "{why}"
     );
-    assert!(why.ends_with("(https://github.example/actions/runs/1000)"), "{why}");
+    assert!(
+        why.ends_with("(https://github.example/actions/runs/1000), and the engine cancelled it"),
+        "{why}"
+    );
     assert!(
         began.elapsed() < Duration::from_secs(2),
         "the timeout was not waited for"
+    );
+    assert!(
+        hub.github().asked().contains(&Asked::Cancel(1000)),
+        "the run is cancelled"
+    );
+}
+
+// A run not complete in the time a run may take is cancelled, and said as what it found: each job, the one not
+// complete said so, and no test's result known.
+#[tokio::test]
+async fn a_run_past_its_time_is_cancelled_and_said_with_its_jobs_not_complete() {
+    let hub = Hub::new().with(|config| config.timeout = Duration::from_secs(1));
+    let head = hub.committed().await;
+    hub.github().runs_go_on();
+    let jobs = vec![check("lint", Outcome::Pending)];
+    hub.github().fast(&head, jobs, Some(("test-results", junit())));
+    let said = hub
+        .named_check(&named(&["a"], &["lint"]))
+        .await
+        .expect("said")
+        .expect("run");
+    assert!(
+        said.contains("the run did not complete within 1 second, the time it may take, and the engine cancelled it"),
+        "{said}"
+    );
+    assert!(said.contains("- lint: not complete"), "{said}");
+    assert!(
+        hub.github().asked().contains(&Asked::Cancel(1000)),
+        "the run is cancelled"
     );
 }
 

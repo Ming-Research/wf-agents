@@ -8,3 +8,11 @@ two rows of a work at one place. There is no general store of events beside them
 Why: The deciding code is given a work's records as they were at a moment, and tables only added to give that with no
 copy kept. A general store of events would be a mechanism with no second use (principles state-from-records,
 generalise-at-the-second-use).
+
+### decision a-message-told-again-is-kept-under-a-second-name
+What a later try of a round is told, where an earlier try of the round was told the same, is kept as a second name of
+the file that try keeps it in, and no file of what a round was told is written over.
+Why: Principle stored-content-is-kept-small: a try given again, as after one cut off, may be told what the try before it
+was, whole. A small file of its own saying which try it repeats was turned down: every reader of the round, the count of
+its tries among them, would have to follow it, where a second name is read as any file is, and rounds kept before read
+as they did.

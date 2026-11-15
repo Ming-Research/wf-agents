@@ -22,7 +22,6 @@
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
-use decide::run::Failure;
 use flow::Compiled;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -111,13 +110,13 @@ impl Words {
 
     /// Puts what is said where the hook reads it, as the hook is to print it: what the program adds to the session
     /// after a use of a tool. What waits there still is taken back first and given before it, so that one file holds
-    /// everything said: a rename either takes it back whole or finds that the hook has moved it. One writer puts at a
-    /// time.
-    pub async fn put(&self, said: &str) -> std::result::Result<(), String> {
+    /// everything said: a rename either takes it back whole or finds that the hook has moved it. Gives whether it took
+    /// back what waited there, the hook not having given it. One writer puts at a time.
+    pub async fn put(&self, said: &str) -> std::result::Result<bool, String> {
         let named = |path: &Path, e: std::io::Error| format!("{}: {e}", path.display());
         let taking = self.waiting.with_extension("json.taking");
         let mut context = String::new();
-        match tokio::fs::rename(&self.waiting, &taking).await {
+        let took_back = match tokio::fs::rename(&self.waiting, &taking).await {
             Ok(()) => {
                 let bytes = tokio::fs::read(&taking).await.map_err(|e| named(&taking, e))?;
                 let waited: Value = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", taking.display()))?;
@@ -126,10 +125,11 @@ impl Words {
                     context.push_str("\n\n");
                 }
                 tokio::fs::remove_file(&taking).await.map_err(|e| named(&taking, e))?;
+                true
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
             Err(e) => return Err(named(&self.waiting, e)),
-        }
+        };
         context.push_str(said);
         let output = json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": context } });
         // Written whole beside it and renamed into place, so that the hook never moves a file half written.
@@ -139,7 +139,22 @@ impl Words {
             .map_err(|e| named(&part, e))?;
         tokio::fs::rename(&part, &self.waiting)
             .await
-            .map_err(|e| named(&self.waiting, e))
+            .map_err(|e| named(&self.waiting, e))?;
+        Ok(took_back)
+    }
+
+    /// Takes back what waits for the hook, once the program has ended and its hook runs no more: gives whether
+    /// something waited there, which the hook never gave.
+    pub async fn take_back(&self) -> std::result::Result<bool, String> {
+        let taking = self.waiting.with_extension("json.taking");
+        match tokio::fs::rename(&self.waiting, &taking).await {
+            Ok(()) => tokio::fs::remove_file(&taking)
+                .await
+                .map(|()| true)
+                .map_err(|e| format!("{}: {e}", taking.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!("{}: {e}", self.waiting.display())),
+        }
     }
 }
 
@@ -625,7 +640,7 @@ impl Stream {
         };
         // The command line gave up on the return, having refused every attempt at it: the last is read as any return
         // is, by the engine's own reading, which sends it back where it cannot be read.
-        if failure::kind(&why) == Failure::Unread
+        if failure::gave_up(&why, &fields)
             && let Some((id, raw)) = self.attempts.last()
         {
             return match serde_json::from_str::<Value>(&raw) {
@@ -802,6 +817,8 @@ fn spent(result: &Result, begin: Begin, before: u64) -> Spent {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+
+    use decide::run::Failure;
 
     use super::*;
 
@@ -1017,7 +1034,11 @@ mod tests {
             "the attempt itself is not quoted: {}",
             no.why
         );
-        assert_eq!(failure::kind(&no.why), Failure::Unread, "it is sent back");
+        assert_eq!(
+            failure::of(&no.why, &no.said, no.spent.as_ref()),
+            Failure::Unread,
+            "it is sent back"
+        );
         assert_eq!(no.spent.map(|s| s.usd_micros), Some(400_000));
         // Given up on with no attempt in the stream, the result's own words say why, without the quote.
         let no = read(gave_up(&said).as_bytes(), Begin::New, 0).expect_err("nothing to take");
@@ -1353,6 +1374,26 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(left.len(), 2, "nothing else is left: {left:?}");
+    }
+
+    #[tokio::test]
+    async fn what_waits_for_the_hook_is_told_apart_from_what_the_hook_gave() {
+        let dir = tempfile::tempdir().unwrap();
+        let words = Words {
+            waiting: dir.path().join("1-1.words.json"),
+            delivered: dir.path().join("1-1.delivered"),
+        };
+        assert_eq!(words.put("First.").await, Ok(false), "nothing waited");
+        assert_eq!(
+            words.put("Second.").await,
+            Ok(true),
+            "the first waited, the hook not having given it"
+        );
+        assert_ne!(after(&words, "Bash", dir.path()), "");
+        assert_eq!(words.put("Third.").await, Ok(false), "the hook gave the first two");
+        assert_eq!(words.take_back().await, Ok(true), "the third waited");
+        assert!(!words.waiting.exists(), "taken back, for no hook to give");
+        assert_eq!(words.take_back().await, Ok(false), "nothing waits");
     }
 
     #[test]

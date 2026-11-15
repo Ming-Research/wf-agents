@@ -49,9 +49,11 @@ fn every_kind() -> Records {
             writes: vec![Write {
                 block: "q".into(),
                 meaning_unchanged: true,
+                empty: false,
                 value: None,
             }],
             dealt_with: Some(vec!["p".into(), "words".into()]),
+            waits_for: None,
         }],
         abandoned: vec![Abandoned { run: b, at: Seq(14) }],
         put_in: vec![PutIn {
@@ -66,6 +68,8 @@ fn every_kind() -> Records {
                 by: Outsider::Person,
                 matters: true,
                 value: None,
+                said_to: None,
+                empty: false,
                 at: Seq(1),
             },
             Written {
@@ -73,6 +77,8 @@ fn every_kind() -> Records {
                 by: Outsider::Person,
                 matters: true,
                 value: None,
+                said_to: None,
+                empty: false,
                 at: Seq(8),
             },
             Written {
@@ -80,6 +86,8 @@ fn every_kind() -> Records {
                 by: Outsider::Outside,
                 matters: true,
                 value: None,
+                said_to: None,
+                empty: false,
                 at: Seq(12),
             },
         ],

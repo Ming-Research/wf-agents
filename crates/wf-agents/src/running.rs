@@ -493,9 +493,9 @@ fn start_faults(settings: &carry::Settings, beside: &flow::agents::Agents, flows
     faults
 }
 
-/// What is written beside the flows, read from the directory that holds them, with the form of return of each flow
-/// that compiled made of it; or why it cannot be: the flows are not all in one directory, what is beside them cannot be
-/// read, or a flow's form cannot be made of it. Every flow is beside the one directory: what every flow shares is
+/// What is written beside the flows, read from the directory that holds them, with the form of return of each line of
+/// each flow that compiled made of it; or why it cannot be: the flows are not all in one directory, what is beside them
+/// cannot be read, or a line's form cannot be made of it. Every flow is beside the one directory: what every flow shares is
 /// written once, beside them all (principle one-thing-one-place).
 fn beside(dirs: &[PathBuf], flows: &[Compiled]) -> Result<flow::agents::Agents, String> {
     let holder = |dir: &PathBuf| {
@@ -520,7 +520,9 @@ fn beside(dirs: &[PathBuf], flows: &[Compiled]) -> Result<flow::agents::Agents, 
     };
     let beside = flow::agents::read(root)?;
     for compiled in flows {
-        flow::form::form(compiled, &beside)?;
+        for line in compiled.lines.keys() {
+            flow::form::form(compiled, &beside, line)?;
+        }
     }
     Ok(beside)
 }

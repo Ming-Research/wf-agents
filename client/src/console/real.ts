@@ -4,17 +4,22 @@
 //
 // From the engine, with the mocks off:
 // - The body, from the work's blocks, the current version of each: Background is `background`; Plan is `plan_owner`,
-//   and under it `questions`; there is no Problem. For an item of the `deliver` flow, Plan is `delivered`.
-// - The messages: each version of a block people write as a note to one cell (one people write, with no fixed
-//   values, that one cell reads) is the owner's, to that cell; each version of a block whose name begins `reply_` is
-//   the reply of the cell that wrote it, to the owner. In the order of their times.
+//   and under it each entry of the record of the questions and the answers (a block the engine's source of answers
+//   writes that a trigger of an answer has its agent read); there is no Problem. For an item of the `deliver` flow,
+//   Plan is `delivered`.
+// - The messages: of the record of what is said (a block the engine's source of the owner's words writes that a
+//   trigger of the owner's words has its agent read, which the cells write in their returns), each of the owner's entries is the owner's, to the cell the
+//   version is said to, and each a cell wrote is its reply, to the owner, its cell the run's that wrote it; each with
+//   the words alone, read back out of the entry by the record's `owner` or `reply` text; of a flow before that record,
+//   each version of a block people write as a note to one cell (one people write, with no fixed values, that one cell
+//   reads) is the owner's, to that cell. In the order of their times.
 // - A question a cell asked the owner: its sentence alone, answered in words, since the engine gives no options.
 // - A ruling: for each precondition the work waits for, each block its test reads that people write whose current
 //   version keeps the test from holding, with that version's writer and content (`readRulings`).
 // Nothing, with the mocks off: an item's unseen mark, unread messages, open questions, tier and verdicts; a work's tier.
 
 import { mocksShown } from '../mock-data';
-import type { Test } from '../api';
+import type { Block, Flow, SentPiece, Test } from '../api';
 import type { Item, Version, VersionPage, WorkPage, Writer } from '../works-api';
 import { askedMock, bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
 import type { Body, Choice, Message, Part } from './window';
@@ -64,6 +69,45 @@ function contentOf(load: LoadVersion, work: number, block: string, at: number): 
 const versionsOf = (page: WorkPage, block: string): Version[] =>
   (page.blocks.find((b) => b.name === block)?.versions ?? []).filter((v) => v.chars > 0).sort((a, b) => a.at - b.at);
 
+/// The source outside the work that writes the record of what is said and each cell's block of the owner's words.
+const WORDS = 'words';
+
+/// The source outside the work that writes the record of the questions and the answers and each cell's block of an
+/// answer.
+const ANSWER = 'answer';
+
+/// The record a source of the engine's adds entries to: a block of the source that a trigger of the same source has
+/// its agent read, other than the block the trigger stands on, as the engine finds it.
+export function recordOf(flow: Flow, source: string): Block | undefined {
+  const of = (name: string) => flow.blocks.find((b) => b.name === name)?.writtenBy.outside ?? null;
+  const read = flow.cells.flatMap((c) =>
+    c.triggers.flatMap((t) => {
+      const own = [t.block, ...t.group];
+      return own.some((b) => of(b) === source) ? t.read.filter((b) => !own.includes(b) && of(b) === source) : [];
+    }),
+  );
+  return flow.blocks.find((b) => read.includes(b.name));
+}
+
+/// The record of the work's questions and the owner's answers, which a cell that may ask the owner writes.
+export const questionsOf = (flow: Flow): Block | undefined => recordOf(flow, ANSWER);
+
+/// What fills each place of an entry of the record, by the place's name, as the engine wrote the entry from one of the
+/// record's texts, `owner` or `reply`: the words between the text's own, the last place taking the rest; none where the
+/// entry does not read so.
+function placesOf(entry: string, text: SentPiece[] | undefined): Map<string, string> | null {
+  if (text === undefined) return null;
+  const last = text.map((p) => p.piece).lastIndexOf('slot');
+  const escaped = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = text
+    .map((p, i) => (p.piece === 'text' ? escaped(p.text) : i === last ? '([\\s\\S]*)' : '([\\s\\S]*?)'))
+    .join('');
+  const found = new RegExp(`^${pattern}$`).exec(entry);
+  if (found === null) return null;
+  const names = text.flatMap((p) => (p.piece === 'slot' ? [p.name] : []));
+  return new Map(names.map((name, i): [string, string] => [name, found[i + 1]]));
+}
+
 /// A message as the owner's box writes it: the passage it quotes, each line after `> `, a blank line, and the words.
 function quoted(content: string): { quote: string | null; text: string } {
   const found = /^((?:>[^\n]*(?:\n|$))+)\n*([\s\S]*)$/.exec(content);
@@ -86,27 +130,38 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     const text = await contentOf(load, work, block, last.at);
     return text.trim() === '' ? [] : [{ kind: 'text', text }];
   };
+  // Each entry of a record, as a passage, in the order written.
+  const passages = async (block: Block | undefined): Promise<Part[]> => {
+    if (block === undefined) return [];
+    const texts = await Promise.all(versionsOf(page, block.name).map((v) => contentOf(load, work, block.name, v.at)));
+    return texts.filter((text) => text.trim() !== '').map((text): Part => ({ kind: 'text', text }));
+  };
   const deliver = page.summary.flow === 'deliver' || page.flow.name === 'deliver';
   const [background, plan, questions] = await Promise.all([
     current('background'),
     current(deliver ? 'delivered' : 'plan_owner'),
-    deliver ? Promise.resolve([]) : current('questions'),
+    deliver ? Promise.resolve([]) : passages(questionsOf(page.flow)),
   ]);
-  // The owner's notes, each to the one cell that reads it, and the cells' replies, each from the cell that writes it.
+  // The owner's notes of a flow before the record, each to the one cell that reads it.
   const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && b.readBy.cells.length === 1);
-  const replies = page.flow.blocks.filter((b) => b.name.startsWith('reply_'));
+  // The record of what is said.
+  const record = recordOf(page.flow, WORDS);
+  const text = (name: string) => record?.writes?.find(([n]) => n === name)?.[1];
+  const entries = record === undefined ? [] : versionsOf(page, record.name).map((v) => ({ v, block: record.name }));
   const said = await Promise.all([
+    ...entries.map(async ({ v, block }): Promise<Message & { place: number }> => {
+      const entry = await contentOf(load, work, block, v.at);
+      if (v.by.kind === 'run') {
+        const words = placesOf(entry, text('reply'))?.get('reply') ?? entry;
+        return { who: v.by.cell, at: v.time, to: ['owner'], quote: null, text: words, place: v.at };
+      }
+      const { quote, text: words } = quoted(placesOf(entry, text('owner'))?.get('words') ?? entry);
+      return { who: 'owner', at: v.time, to: v.saidTo === null ? [] : [v.saidTo], quote, text: words, place: v.at };
+    }),
     ...notes.flatMap((b) =>
       versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
         const { quote, text } = quoted(await contentOf(load, work, b.name, v.at));
         return { who: 'owner', at: v.time, to: [b.readBy.cells[0]], quote, text, place: v.at };
-      }),
-    ),
-    ...replies.flatMap((b) =>
-      versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
-        const who = v.by.kind === 'run' ? v.by.cell : (b.writtenBy.cells[0] ?? b.name);
-        const text = await contentOf(load, work, b.name, v.at);
-        return { who, at: v.time, to: ['owner'], quote: null, text, place: v.at };
       }),
     ),
   ]);
@@ -141,9 +196,12 @@ export interface Ruling {
 
 /// Whether a version of a block keeps a test that reads it from holding: for a test that holds when every one or at
 /// least one block has its value, when the version has another; for one that holds when none has it, when the version
-/// has it, and for `noneStanding` only as written by a person, the outside or a cell that is not skipped now.
+/// has it, and for `noneStanding` only as written by a person, the outside or a cell that is not skipped now; for a
+/// test of content, when the version holds nothing.
 function keeps(test: Test, v: Version, skipped: Set<string>): boolean {
   switch (test.kind) {
+    case 'anyContent':
+      return v.chars === 0;
     case 'all':
     case 'any':
       return v.value !== test.is;
@@ -154,9 +212,11 @@ function keeps(test: Test, v: Version, skipped: Set<string>): boolean {
   }
 }
 
-/// The value of a block that makes a test that reads it hold: the test's own where it looks for one, and where it
-/// looks for none, the block's only other value; none where that is not plain.
+/// The value of a block that makes a test that reads it hold: the test's own where it holds when a block has it, and
+/// where it holds when none has it, the block's only other value; none where that is not plain, as of a test of
+/// content, which looks for no value.
 function holding(test: Test, values: string[] | null): string | null {
+  if (test.is === null) return null;
   if (test.kind === 'all' || test.kind === 'any') return values?.includes(test.is) === true ? test.is : null;
   const others = (values ?? []).filter((v) => v !== test.is);
   return others.length === 1 ? others[0] : null;

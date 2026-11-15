@@ -8,9 +8,8 @@ use super::*;
 /// A check of a GitHub Actions job, at its own link.
 fn job(name: &str, id: u64, outcome: Outcome) -> Check {
     Check {
-        name: name.to_string(),
-        outcome,
         url: Some(format!("https://github.example/actions/runs/1/job/{id}")),
+        ..check(name, outcome)
     }
 }
 
@@ -48,7 +47,7 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     let place = hub.place();
     let branch = about(&place, "Greets the user by name, and by title where one is known.");
     hub.host
-        .verdict(&branch, &head, hub.round(), &mut Stop::never())
+        .verdict(&branch, &head, &hub.main_on_github(), hub.round(), &mut Stop::never())
         .await
         .unwrap()
         .unwrap();
@@ -120,7 +119,13 @@ async fn the_name_of_a_merge_is_published_with_no_mention_reference_or_closing_w
 async fn titled(hub: &Hub, commit: &str, name: &str) -> String {
     let place = hub.place();
     (hub.host
-        .verdict(&named(&place, name), commit, hub.round(), &mut Stop::never())
+        .verdict(
+            &named(&place, name),
+            commit,
+            &hub.main_on_github(),
+            hub.round(),
+            &mut Stop::never(),
+        )
         .await)
         .unwrap()
         .unwrap();
@@ -140,7 +145,13 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
     );
     let place = hub.place();
     hub.host
-        .verdict(&about(&place, &wrote), &head, hub.round(), &mut Stop::never())
+        .verdict(
+            &about(&place, &wrote),
+            &head,
+            &hub.main_on_github(),
+            hub.round(),
+            &mut Stop::never(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -167,7 +178,13 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
     // A long text is cut, saying so.
     let long = "word ".repeat(10_000);
     hub.host
-        .verdict(&about(&place, &long), &head, hub.round(), &mut Stop::never())
+        .verdict(
+            &about(&place, &long),
+            &head,
+            &hub.main_on_github(),
+            hub.round(),
+            &mut Stop::never(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -202,8 +219,17 @@ async fn a_failure_is_said_as_it_is_each_time_the_commit_is_judged() {
     let first = hub.verdict(&head).await.unwrap().unwrap();
     assert!(first.failed.is_some());
     let again = hub.verdict(&head).await.unwrap().unwrap();
-    // Each judging is a run of its own, whose number alone differs.
-    let same = |text: Option<String>| text.map(|t| t.replace("runs/1001", "runs/1000"));
+    // Each judging has runs of its own, whose numbers alone differ.
+    let same = |text: Option<String>| {
+        text.map(|t| {
+            let parts: Vec<&str> = t.split("actions/runs/").collect();
+            let unnumbered = (parts[1..].iter()).map(|part| part.trim_start_matches(|c: char| c.is_ascii_digit()));
+            [parts[0].to_string()]
+                .into_iter()
+                .chain(unnumbered.map(|rest| format!("actions/runs/N{rest}")))
+                .collect::<String>()
+        })
+    };
     assert_eq!(
         same(again.failed),
         same(first.failed),

@@ -62,7 +62,7 @@ describe('the rows and columns of a history', () => {
   });
 
   it('marks each cell whose write a way round ran for, draws none where no writer is found, and keeps a run of a cell gone', () => {
-    const version = (at: number, by: Writer): Version => ({ at, time: 0, by, meaning: at, value: null, chars: 0 });
+    const version = (at: number, by: Writer): Version => ({ at, time: 0, by, meaning: at, value: null, saidTo: null, chars: 0 });
     const blocks: Block[] = [
       { name: 'x', versions: [version(5, { kind: 'run', run: 1, cell: 'review' })] },
       { name: 'y', versions: [version(6, { kind: 'run', run: 2, cell: 'check' })] },
