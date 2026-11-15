@@ -57,6 +57,59 @@ fn testing() -> World {
     w
 }
 
+/// The implementation asks for tests, saying no in `gives`, a choice of the cells' alone where `cells_alone`, and of
+/// people as well otherwise; the cell that runs the tests runs only while it is yes.
+fn gated(cells_alone: bool) -> World {
+    let mut run_tests = when("gives", "yes", run_tests());
+    run_tests.outputs = vec!["implement_tested".into()];
+    let cells = vec![
+        asking(
+            "tests",
+            "implement_tested",
+            cell(
+                "implement",
+                &["background", "implement_tested"],
+                &["code", "tests", "gives"],
+            ),
+        ),
+        run_tests,
+    ];
+    let mut w = World::with_gate(cells);
+    w.written_by_cells("implement_tested");
+    w.written_by_cells("tests");
+    if cells_alone {
+        w.written_by_cells("gives");
+    }
+    w.person_writes("background");
+    w.start("implement");
+    let ran = w.ran_by("implement");
+    let ran: Vec<&str> = ran.iter().map(String::as_str).collect();
+    let writes = [("code", Matters), ("tests", Matters), ("gives", Value("no"))];
+    w.finish_dealing("implement", &ran, &writes);
+    w
+}
+
+// A wait for the result of what a cell asked for in a record, which only the cell the record runs gives, is stalled
+// where that cell does not run and no person or source outside the work can make it run: here its condition, on a
+// choice only the asking cell writes, does not hold, and the asking cell's wait holds every cell after it (decision
+// a-work-no-cell-can-move-is-stalled). Where people write the choice, the owner can make it run, and the work waits.
+// Well under a millisecond alone; no other test holds a wait for a result no cell will give.
+#[test]
+fn a_wait_for_a_result_no_cell_will_give_is_stalled_and_one_a_person_can_bring_waits() {
+    let stalled = gated(true).decide();
+    assert!(
+        matches!(&stalled, Decision::Stalled { at, .. } if at.as_str() == "implement"),
+        "{stalled:?}"
+    );
+    let waits = gated(false).decide();
+    let result = Waited::Result {
+        record: "tests".into(),
+        result: "implement_tested".into(),
+        by: vec!["run tests".into()],
+    };
+    assert_eq!(waits, wait("implement", vec![result]));
+}
+
 /// The implementation writes code and asks for tests, as one return dealing with all that ran it.
 fn asks_for_tests(w: &mut World) -> Seq {
     w.start("implement");
