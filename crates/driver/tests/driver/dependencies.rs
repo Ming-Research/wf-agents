@@ -335,9 +335,9 @@ fn a_cancelled_dependency_is_named_beside_one_still_going() {
     );
     assert_eq!(h.let_on(wc), vec![]);
     assert_eq!(h.decision(wc), waits_for_dependencies("draft"));
-    // Both are waited for, in the order the item names them, the cancelled one said so.
+    // Both are waited for, in the order the item keeps them, as its block says them, the cancelled one said so.
     let unmerged = |item, cancelled| Unmerged { item, cancelled };
-    assert_eq!(h.d().unmerged(wc), [unmerged(b, false), unmerged(a, true)]);
+    assert_eq!(h.d().unmerged(wc), [unmerged(a, true), unmerged(b, false)]);
 }
 
 #[test]
