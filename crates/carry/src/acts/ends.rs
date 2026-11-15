@@ -244,9 +244,10 @@ fn the_merge_is_named_by_the_first_line_of_the_latest_name_the_work_wrote_and_el
 }
 
 // The host is given the name of the work's merge, the line the work wrote for it or, where it wrote none, the work's
-// number, and never the title of its item, which is in the owner's language.
+// number, and never the title of its item, which is in the owner's language. Its verdict is asked for by the round of
+// the check, which it finds what it ran for again by after the engine started again.
 #[tokio::test]
-async fn the_host_is_given_the_name_of_the_works_merge_and_never_its_items_title() {
+async fn the_host_is_asked_by_the_checks_round_and_given_the_name_of_the_works_merge_never_its_items_title() {
     let owners = "向用户问好";
     let repo = Repo::new("true");
     started(&repo).await;
@@ -265,15 +266,15 @@ async fn the_host_is_given_the_name_of_the_works_merge_and_never_its_items_title
         work: WORK,
         flow: flow.clone(),
         cell: check.expect("the flow has a check").clone(),
-        run: RunId(1),
-        number: 1,
+        run: RunId(4),
+        number: 2,
         given: work::Given::Task,
         item: item(owners),
         kept: Arc::new(written(&[("code", code.as_str()), ("title", "Greet the user by name")])),
         lines: Default::default(),
     };
     let (to, _told) = tokio::sync::mpsc::unbounded_channel();
-    let teller = RoundReply::new(WORK, RunId(1), to).teller();
+    let teller = RoundReply::new(WORK, RunId(4), to).teller();
     let checked = acts.inner.act(&round, &teller, &mut Stop::never()).await;
     assert!(
         matches!(checked, Ok(Done::HandsIn(..))),
@@ -285,6 +286,7 @@ async fn the_host_is_given_the_name_of_the_works_merge_and_never_its_items_title
     };
     acts.inner.release(&ended).await.expect("it lets go");
     assert_eq!(acts.inner.host.titles(), ["Greet the user by name", "Work 1"]);
+    assert_eq!(acts.inner.host.askings(), [Asking::Round(RunId(4), 2)]);
 }
 
 #[test]

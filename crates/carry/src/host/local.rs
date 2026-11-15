@@ -6,7 +6,7 @@ use std::path::Path;
 
 use flow::agents::{LocalWords, Tool, fill};
 
-use super::{Branch, Host, Named, NotMerged, Verdict};
+use super::{Asking, Branch, Host, Named, NotMerged, Verdict};
 use crate::git;
 use crate::held::Stop;
 use crate::process::{self, Ran};
@@ -76,7 +76,13 @@ impl Host for Local {
         git::git(&self.project.repo, &["rev-parse", "--verify", &self.kept_main()]).await
     }
 
-    async fn verdict(&self, branch: &Branch<'_>, _: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+    async fn verdict(
+        &self,
+        branch: &Branch<'_>,
+        _: &str,
+        _: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<Verdict>, String> {
         let dir = git::worktree(branch.place)?;
         let check = &self.project.check;
         let failed = match process::run(process::shell(check, &dir, &self.env), None, None, stop).await? {
@@ -102,7 +108,13 @@ impl Host for Local {
         kept_main(&self.project.main)
     }
 
-    async fn run_tests(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
+    async fn run_tests(
+        &self,
+        branch: &Branch<'_>,
+        named: &Named,
+        _: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<String>, String> {
         let words = self.words()?;
         let ran = match git::worktree(branch.place) {
             Ok(dir) => self.run(&dir, stop).await,
