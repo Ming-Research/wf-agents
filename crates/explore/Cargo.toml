@@ -1,0 +1,18 @@
+[package]
+name = "explore"
+description = "Every way a work on a flow can go within a bound, driven by the engine's own loop, its properties judged by the records read apart from the deciding code"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+decide = { path = "../decide" }
+engine = { path = "../engine" }
+flow = { path = "../flow" }
+reading = { path = "../reading" }
+work = { path = "../work" }
+
+[lints]
+workspace = true

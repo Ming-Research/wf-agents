@@ -298,6 +298,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "explore"
+version = "0.1.0"
+dependencies = [
+ "decide",
+ "engine",
+ "flow",
+ "reading",
+ "work",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -337,7 +348,7 @@ name = "flow"
 version = "0.1.0"
 dependencies = [
  "decide",
- "reading",
+ "explore",
  "serde",
  "serde_json",
  "toml",

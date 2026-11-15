@@ -1,22 +1,21 @@
-//! The engineer's flow as the repository defines it (`flow/engineer`), explored: every way a work on it can go within a
-//! bound, the walk being the deciding code's own (`decide::decide`), a return taken or sent back as the engine's check
-//! of a return says (`decide::run::next`), and the properties the flow must keep checked at each decision by the
-//! histories' own reading of the records (crate `reading`), never by the walk's (design document `testing`, 5). The
-//! work's records are kept by the helper the deciding code's tests share (`tests/support`).
+//! The flows as the repository defines them (`flow/engineer`, `flow/deliver`), explored by the crate `explore`: every
+//! way a work on one can go within a bound, the work driven by the engine's own loop, which keeps its records, and the
+//! properties the flow must keep checked as each run starts and at each stop by the records read as the design tree
+//! says (crate `reading`), never by the walk's (design document `testing`, 5).
 //!
-//! What happens next, at each state: the engine does what the walk says (starts a run, takes a return, goes on with a
-//! run, abandons one); a round under way returns; the outside writes. What a round returns (`model::Variant`): the
+//! What happens next, at each state: a round under way returns, and the loop takes it; or the outside writes. What a
+//! round returns (`model::Variant`): the
 //! return of a cell content with its work; or, spending one of the path's two, every other set of values of the choices
 //! it writes, its choices alone, its content with its opinions for the cells before it (all, or each alone), a judge's
-//! refusal with its reasons, its content with a question that waits for the owner (with the content's choices, or with
-//! choices that skip the cell itself), an entry asking for tests and nothing else, of the check's act a red check or a
+//! refusal with its reasons, of a cell that may ask the owner its content with a question that waits for the owner (with
+//! the content's choices, or with choices that skip the cell itself) or one it goes on past, an entry asking for tests and nothing else, of the check's act a red check or a
 //! merge conflict, and on a path that spent nothing a return that is sent back. The act that runs the tests hands in
 //! the result of each entry it gives as its round ends. An agent's round that deals with what an act after its cell
 //! wrote commits, moving the work's head as it ends, as does a round of such a cell that asks for tests. A return that
 //! sends work round (opinions, a refusal, a send-back, a red check) may be given at every round of its cell from then
 //! on, for the same one spent: the flow's limits must stop it. What the outside writes, spending one: the owner speaks
-//! to a cell, changes the background, answers a question or takes another option for one, lets a cell go on at its
-//! limit; main moves, a line begins a new session, the tree changes, a commit no round made moves the work's head. It
+//! to a line, changes the background, answers a question as it recommends or takes another option, lets a cell go on at
+//! its limit or gives its word at a run's limit; main moves, a line begins a new session, the tree changes, a commit no round made moves the work's head. It
 //! writes while the work waits or is stalled, on a path that spent at most one before; while a round is under way, the
 //! owner speaks to its cell on such a path, and on a path that spent nothing the background or what runs the cell from
 //! outside is written too. The owner answers a question the work waits on whatever the path spent. Past a write from
@@ -24,29 +23,22 @@
 //! which the engine pauses for the owner, saying why, is a stop for the owner as a wait for the owner is.
 //!
 //! Two states that would go on alike are one (`explore::Explorer::key`), and one reached having spent no more is kept.
-//! A path of more than 200 decisions with nothing written from outside, or that comes back to a state it was in, breaks
+//! A path of more than 200 things given the loop with nothing written from outside, or that comes back to a state it was in, breaks
 //! property 4.
 //!
 //! What it costs: a few thousand states, each a few decisions of the walk, in a few seconds; the test prints the
 //! numbers. The search runs once, in one test that checks every property on what it found and names each that fails,
 //! with every breach of it.
 
-#[allow(dead_code)]
-#[path = "../../../decide/tests/support/mod.rs"]
-mod support;
-
-mod explore;
-mod model;
-
 use std::path::Path;
 
 use decide::{BlockId, CellId};
+use explore::model::{Model, ran, ran_on, reply_loop};
 use explore::{
     A_QUESTION_WAITED, Bounds, Explored, GAVE_RESULTS, MAIN_WHILE_THE_CHECK_WAITS, Property, RAN_FOR_A_WAIT,
-    WAITED_FOR_THE_OWNER, explore,
+    WAITED_FOR_THE_OWNER, explore, replay,
 };
 use flow::{Compiled, Has, compile, read};
-use model::{Model, ran, ran_on, reply_loop};
 
 /// The bound of the exploration.
 const BOUNDS: Bounds = Bounds {
@@ -58,14 +50,7 @@ const BOUNDS: Bounds = Bounds {
 
 /// The breaches the flow's own definition makes, each by its property and its name, with why it is the flow's and not
 /// the engine's. Each is reported; none is mended here, since the flow changes only with the owner.
-const KNOWN: &[(Property, &str, &str)] = &[(
-    Property::Gates,
-    "M1 ran while a question of R1 waited for the owner, R1 being skipped",
-    "R1 asks a question that waits and, in the same return, says deep_needed = yes. The work waits for an \
-         answer only at a cell that applies, and R1 no longer does: the deep research, the implementation, the \
-         check and the merge go on, the question unanswered. The flow's check has no gate on the questions put to \
-         the owner.",
-)];
+const KNOWN: &[(Property, &str, &str)] = &[];
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
@@ -250,6 +235,9 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
     if !coverage.is_empty() {
         failed.push(format!("8. coverage:\n  {}", coverage.join("\n  ")));
     }
+    // No property passes by being checked on nothing; the engineer's flow reaches no stall (`NEVER`).
+    failed.extend(unchecked(&e, &[Property::Shown]));
+    failed.extend(replays(&m, &e, &rare()));
     let is_known = |p: &Property, n: &String| KNOWN.iter().any(|(kp, kn, _)| kp == p && kn == n);
     let mut known = String::new();
     for ((_, name), b) in e.breaches.iter().filter(|((p, n), _)| is_known(p, n)) {
@@ -293,6 +281,11 @@ fn the_deliver_flow_keeps_every_property_on_every_path_explored() {
             failed.push(format!("property {name}:\n{}", breaches.join("\n")));
         }
     }
+    // The deliver flow has no condition, no group and no stall, so those properties are checked on nothing in it.
+    failed.extend(unchecked(
+        &e,
+        &[Property::Contradicting, Property::Groups, Property::Shown],
+    ));
     let way = [
         ran(&CellId::from("V1")),
         "the work waited at V1 on dependencies = merged".to_string(),
@@ -303,4 +296,37 @@ fn the_deliver_flow_keeps_every_property_on_every_path_explored() {
     }
     eprintln!("{}\n\n{}", stats(&e), report(&e));
     assert!(failed.is_empty(), "{}\n\n{}", stats(&e), failed.join("\n\n"));
+}
+
+/// Each property but those given that was checked on no case, and each of those given that was checked on some.
+fn unchecked(e: &Explored, none: &[Property]) -> Vec<String> {
+    let mut wrong = Vec::new();
+    for (property, name) in PROPERTIES.iter().filter(|(p, _)| *p != Property::Engine) {
+        let checked = e.checked.get(property).copied().unwrap_or(0);
+        if none.contains(property) && checked > 0 {
+            wrong.push(format!(
+                "property {name} was checked on {checked} cases, where it has none"
+            ));
+        } else if !none.contains(property) && checked == 0 {
+            wrong.push(format!("property {name} was checked on no case"));
+        }
+    }
+    wrong
+}
+
+/// Each of these items whose nearest path, given again to the engine's loop for a new work, does not give the records
+/// the exploration had when it reached it.
+fn replays(m: &Model, e: &Explored, items: &[String]) -> Vec<String> {
+    let mut wrong = Vec::new();
+    for item in items {
+        let Some(path) = e.paths.get(item) else {
+            continue;
+        };
+        match replay(m, &path.given) {
+            Ok(work) if work.records == path.records => {}
+            Ok(_) => wrong.push(format!("the path to {item}, given again, gives other records")),
+            Err(why) => wrong.push(format!("the path to {item}, given again, is refused: {why:?}")),
+        }
+    }
+    wrong
 }
