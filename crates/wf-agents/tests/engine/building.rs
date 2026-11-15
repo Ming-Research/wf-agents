@@ -27,7 +27,6 @@ const KINDS: &[&str] = &[
     "under way",
     "waits for an answer",
     "waits for a tool",
-    "waits for a result",
     "waits for a precondition",
     "waits for an item it depends on",
     "waits for the owner at a limit",
