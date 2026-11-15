@@ -10,7 +10,7 @@ use std::path::Path;
 use context::Stands;
 use decide::{BlockId, CellId, Outsider};
 use engine::spoken::{self, NoOne, To};
-use engine::{Came, Effect, Event, Handed};
+use engine::{Ask, Came, Effect, Event, Fill, Handed};
 use flow::{Compiled, Has};
 use support::Sim;
 use work::{Question, Said, Way};
@@ -180,6 +180,18 @@ fn record_given(text: &str) -> Vec<&str> {
         rest = &from[end..];
     }
     given
+}
+
+/// Each version of `q_and_a` these fill into a session, in order.
+fn record_filled(fills: &[Fill]) -> Vec<decide::Seq> {
+    (fills.iter())
+        .filter_map(|f| match f {
+            Fill::Whole { block, version } | Fill::Change { block, version, .. } if block.as_str() == "q_and_a" => {
+                Some(*version)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Whether the text names any cell of the flow by its id.
@@ -519,10 +531,12 @@ fn naming() -> Question {
 }
 
 // Each question a cell asks and each answer of the owner's is an entry of the record of questions and answers, a
-// version of it the engine writes, which runs no cell; the answer runs the asking cell and no other; and every cell that
-// takes the record is given it whole, so that it reads the work's questions and an answer comes with its question.
+// version of it the engine writes, which runs no cell; the answer runs the asking cell and no other; and every session
+// of a cell that takes the record holds it whole, so that it reads the work's questions and an answer comes with its
+// question: the asking cell's holds the entry of its question as what its return handed in, and is given the answer
+// alone; another is given both.
 #[test]
-fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_answer_runs_the_asking_cell_alone() {
+fn each_question_and_each_answer_is_an_entry_of_the_record_held_whole_and_the_answer_runs_the_asking_cell_alone() {
     let (mut sim, round) = until("R2");
     tried(&mut sim, &round);
     let came = Came {
@@ -582,17 +596,31 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
         let (q, a) = (text.find(question.as_str()), text.find(answer.as_str()));
         q.is_some() && a.is_some() && q < a
     };
+    // R2's session holds the question its own return asked, as the entry the engine kept it as, which the message says
+    // after that return: R2 is given the answer alone.
     let entered = sim.enter(&round, sim.begins(&round));
-    assert!(given_with_its_question(&entered.text), "{}", entered.text);
+    let kept = format!("`q_and_a`, version {}", entries[0].0);
+    let first = entered.text.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with("What your last return handed in is kept as: ") && first.contains(&kept),
+        "{}",
+        entered.text
+    );
+    assert!(!entered.text.contains(question.as_str()), "{}", entered.text);
+    assert!(entered.text.contains(answer.as_str()), "{}", entered.text);
+    assert_eq!(record_filled(&entered.fills), [entries[1]], "{}", entered.text);
     sim.tries(&round, 1, entered.fills);
     sim.hands_in(&round, &[]);
-    // The code review, of a line of its own, takes the record too: it reads the question, and the answer with it.
+    // The code review, of a line of its own, takes the record too: it reads the question, and the answer with it. The
+    // implementation, after R2 on its line, holds both.
     let round = loop {
         let round = sim.round().expect("a round is given");
         if round.cell.as_str() == "T1" {
             break round;
         }
         assert_eq!(round.cell.as_str(), "I1", "only the implementation comes between");
+        let entered = sim.enter(&round, sim.begins(&round));
+        assert!(record_filled(&entered.fills).is_empty(), "{}", entered.text);
         tried(&mut sim, &round);
         sim.hands_in(&round, &[("code", "abc", None)]);
     };
@@ -657,4 +685,69 @@ fn a_cell_that_returns_what_the_owner_reads_is_told_its_language_once_with_the_l
     assert_eq!(entered.text.matches(&told).count(), 1, "{}", entered.text);
     let list = entered.text.find("## What this cell returns").expect("the list");
     assert!(entered.text[list..].contains(&told), "{}", entered.text);
+}
+
+// A datum a cell is given that has no version yet is said to have none, once a session, so that its agent can tell it
+// from one the cell is not given, as the design tree's review could not of the questions and answers (works 3 and 4):
+// entered first in a session of its own, it is told so of each datum no one wrote; its next round in that session is
+// not told again; a session that holds nothing is told again.
+#[test]
+fn a_datum_with_no_version_is_said_to_have_none_once_a_session() {
+    let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
+    let mut sim = Sim::of(engineer(), beside);
+    sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
+    sim.writes("background", "Greet the user by name.");
+    // The plan changes the tree, so that the design tree's review is entered after the research's plan.
+    let round = loop {
+        let round = sim.round().expect("a round is given");
+        let blocks: &[(&str, &str, Option<&str>)] = match sim.cell(&round).id.as_str() {
+            "S1" => &[("place", "the branch and its worktree", None)],
+            "R0" | "R2" => &[],
+            "R1" => &[
+                ("deep_needed", "", Some("no")),
+                ("plan_owner", "Greet by name.", None),
+                ("plan_agent", "Add the name to the greeting.", None),
+                ("acceptance", "The greeting names the user.", None),
+                ("tree_edits", "Add a decision on the greeting.", None),
+            ],
+            "D4" => break round,
+            other => panic!("{other} is entered before the design tree's review"),
+        };
+        tried(&mut sim, &round);
+        sim.hands_in(&round, blocks);
+    };
+    let cell = sim.cell(&round).clone();
+    let unwritten: Vec<String> = (cell.given.iter())
+        .map(|g| g.block.to_string())
+        .filter(|block| sim.versions(block).is_empty())
+        .collect();
+    assert!(unwritten.iter().any(|b| b == "q_and_a"), "{unwritten:?}");
+    let named = |entered: &context::Entered, block: &str| {
+        (entered.sent.iter())
+            .filter(|s| s.block.as_deref() == Some(block))
+            .count()
+    };
+    let entered = sim.enter(&round, sim.begins(&round));
+    for block in &unwritten {
+        assert_eq!(named(&entered, block), 1, "{block}:\n{}", entered.text);
+    }
+    // It asks for a tool, and is entered again for the result in the same session.
+    sim.tries(&round, 1, entered.fills);
+    let ask = Ask::Tool {
+        name: "query".to_string(),
+        input: "{\"sql\": \"select 1\"}".to_string(),
+    };
+    sim.returns(&round, Came::asks(vec![ask]), 0);
+    let call = *sim.calls().first().expect("the tool is called");
+    sim.done(call, "the rows");
+    let again = sim.round().expect("the review is entered again for the result");
+    assert_eq!(again.run, round.run);
+    let entered = sim.enter(&again, sim.begins(&again));
+    for block in &unwritten {
+        assert_eq!(named(&entered, block), 0, "{block}:\n{}", entered.text);
+    }
+    let anew = sim.enter(&again, true);
+    for block in &unwritten {
+        assert_eq!(named(&anew, block), 1, "{block}:\n{}", anew.text);
+    }
 }
