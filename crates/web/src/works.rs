@@ -1976,12 +1976,11 @@ fn waited(kept: Kept<'_>, records: &Records, then: driver::owner::Shared<'_>) ->
     if !driver::owner::waits(&kept, records, &decision, held, then).is_empty() {
         return 'o';
     }
-    let items = |waited: &WaitedOf| on_items(waited);
     match decision {
         Decision::Paused => 'p',
         Decision::Stalled { .. } | Decision::Run { .. } | Decision::GoOn { .. } if paused => 'p',
         _ if held.is_some() => 'p',
-        Decision::Wait { on, .. } if on.iter().any(items) => 'w',
+        Decision::Wait { on, .. } if on.iter().any(on_items) => 'w',
         _ => '.',
     }
 }

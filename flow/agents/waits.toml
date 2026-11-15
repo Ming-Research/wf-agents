@@ -22,10 +22,9 @@ let_go = "Letting go of what the work held failed. {why}"
 # `made`, its run at its limit of `{sent_back}` returns sent back or of `{made}` calls made; `ruling`, a block the owner
 # may write, `{block}`, keeping the cell's `requires` key `{key}` from holding; `answer`, a question that stands without
 # the owner's answer, which the cell's precondition waits for, said on its card under what it asks; `paused`, the
-# engine's pause, `{why}` its reason, and `no_reason`
-# where it gave none; `held`, the pause of every work the engine set as it started again; `agents`, the agents' command
-# line that cannot run, `{why}` what its check or its round found, and `mend`, what the owner does about it, which the
-# page has no control for.
+# engine's pause, `{why}` its reason, and `no_reason` where it gave none; `held`, the pause of every work the engine set
+# as it started again; `agents`, the agents' command line that cannot run, `{why}` what its check or its round found,
+# and `mend`, what the owner does about it, which the page has no control for.
 [owner]
 limit = "{cell} ran {runs} times in a row for what a cell after it wrote, its limit."
 calls = "{cell} ran {runs} times in a row asking for calls and dealing with nothing, its limit."
