@@ -18,6 +18,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 
+import { pickAccent, PRESETS, tones, turning } from '../accent';
 import { fixtureSource } from './fixtures';
 import { ConsolePage } from './index';
 import type { Shown } from './items';
@@ -350,6 +351,34 @@ describe('the tree in columns', () => {
     expect(themed()).toMatchObject({ page: '#f6f7f9', card: '#ffffff', ink: '#1f2937', running: '#8b5cf6', halted: '#e5484d' });
     document.documentElement.setAttribute('data-theme', 'dark');
     expect(themed()).toMatchObject({ page: '#17191e', card: '#1f2127', ink: '#c8ccd4', running: '#a78bfa' });
+  });
+
+  it('turns its purples to an accent picked, as the tokens turn theirs, and keeps its red, in light and in dark', () => {
+    const blue = PRESETS[0].colour;
+    const turn = turning(blue);
+    const t = tones(blue);
+    try {
+      expect(pickAccent(blue)).toBeNull();
+      expect(themed()).toMatchObject({
+        chosen: t.light.accent,
+        running: t.light.accent,
+        model: t.light.accent,
+        unseen: turn('#8b5cf6', 'read'),
+        accent: turn('#8b5cf6', 'read'),
+        over: turn('#a78bfa', 'read'),
+        branch: turn('#c7cdfd', 'read'),
+        mapBar: turn('#aab6fd', 'read'),
+        hoverRibbon: turn('#e4dcfd', 'tint'),
+        chosenRibbon: turn('#e2d7fd', 'tint'),
+        page: '#f6f7f9',
+        halted: '#e5484d',
+      });
+      expect(themed().over).not.toBe('#a78bfa');
+      document.documentElement.setAttribute('data-theme', 'dark');
+      expect(themed()).toMatchObject({ chosen: t.dark.accent, running: t.dark.accent, over: turn('#a78bfa', 'read'), halted: '#ff6b70' });
+    } finally {
+      pickAccent(null);
+    }
   });
 });
 

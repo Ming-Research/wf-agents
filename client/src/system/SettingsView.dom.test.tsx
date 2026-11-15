@@ -3,8 +3,9 @@ import '../dom-setup';
 
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ownName, pickAccent, PRESETS, startAccent, type Theme, TONES, tones, VIOLET } from '../accent';
 import type { AccountChoice, SettingsChange, SettingsPage, SystemSource } from './api';
 import { SystemSourceContext } from './api';
 import { fixtureAccounts, fixtureSettings, fixtureSystem } from './fixtures';
@@ -15,7 +16,11 @@ afterEach(() => {
   for (const u of unmounts) u();
   unmounts = [];
   document.body.innerHTML = '';
+  vi.restoreAllMocks();
+  pickAccent(null);
   localStorage.clear();
+  document.documentElement.removeAttribute('style');
+  startAccent();
 });
 
 interface SettingsSource {
@@ -234,5 +239,172 @@ describe('the Settings view', () => {
     const name = page.querySelector('#account-name') as HTMLInputElement;
     type(name, 'fourth');
     expect(page.querySelector('code.command')?.textContent).toBe('CLAUDE_CONFIG_DIR=/data/agents/claude-fourth claude');
+  });
+});
+
+/// The tones the root has of the accent, each by its name, or none where it has none set.
+function onRoot(): Record<string, string> {
+  const style = document.documentElement.style;
+  return Object.fromEntries(
+    (['light', 'dark'] as Theme[]).flatMap((theme) =>
+      Object.keys(TONES[theme])
+        .map((tone) => [ownName(theme, tone), style.getPropertyValue(ownName(theme, tone))])
+        .filter(([, v]) => v !== ''),
+    ),
+  );
+}
+
+/// The tones a colour gives, as the root is to have them.
+function given(colour: string): Record<string, string> {
+  const t = tones(colour);
+  return Object.fromEntries(
+    (['light', 'dark'] as Theme[]).flatMap((theme) =>
+      Object.keys(TONES[theme]).map((tone) => [ownName(theme, tone), t[theme][tone]]),
+    ),
+  );
+}
+
+const choices = (root: ParentNode) =>
+  [...root.querySelectorAll('[aria-label="The accent, kept in this browser"] button')] as HTMLButtonElement[];
+const choice = (root: ParentNode, name: string) => choices(root).find((b) => b.textContent === name) as HTMLButtonElement;
+const pressed = (root: ParentNode) => choices(root).filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
+const ownBox = (root: ParentNode) => root.querySelector('input.accent-box') as HTMLInputElement;
+const alerts = (root: ParentNode) =>
+  [...root.querySelectorAll('.accent-pick ~ [role="alert"]')].map((a) => a.textContent?.replace(/\s+/g, ' '));
+
+/// Picks a colour in the browser's picker: each step of a drag sends `input`, and closing the picker `change`.
+function pickOwn(root: ParentNode, colour: string, close = true) {
+  const box = ownBox(root);
+  act(() => {
+    box.value = colour;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    if (close) box.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+describe("the Settings view's accent", () => {
+  it("stands last, whatever became of reading the file, in the page's own violet at first, with nothing set on the root", async () => {
+    const page = draw(settingsSource().source);
+    await settle();
+    const parts = [...page.querySelectorAll('.panel-part-label')].map((h) => h.textContent);
+    expect(parts.at(-1)).toBe('Accent');
+    expect(choices(page).map((b) => b.textContent)).toEqual(['Blue', 'Indigo', 'Violet', 'Purple']);
+    expect(pressed(page)).toEqual(['Violet']);
+    expect(ownBox(page).value).toBe(VIOLET);
+    expect(onRoot()).toEqual({});
+
+    const s = settingsSource();
+    s.source.loadSettings = async () => {
+      throw new Error('the engine is not running');
+    };
+    const unread = draw(s.source);
+    await settle();
+    expect(unread.querySelector('.message')?.textContent).toBe('The page could not read the settings: the engine is not running');
+    expect(pressed(unread)).toEqual(['Violet']);
+  });
+
+  it('draws the page in a preset as it is pressed, outside what Save writes, keeps it, and has it again as the page starts anew', async () => {
+    const page = draw(settingsSource().source);
+    await settle();
+    const blue = PRESETS[0];
+    act(() => choice(page, 'Blue').click());
+    expect(onRoot()).toEqual(given(blue.colour));
+    expect(onRoot()['--own-accent']).toBe(blue.colour);
+    expect(pressed(page)).toEqual(['Blue']);
+    expect(ownBox(page).value).toBe(blue.colour);
+    expect(localStorage.getItem('wf-agents.accent')).toBe(blue.colour);
+    expect(save(page).disabled).toBe(true);
+    expect(save(page).title).toBe('Nothing is changed yet');
+
+    // The page started anew: the root as the browser loads it, the accent read from what this browser keeps.
+    for (const u of unmounts) u();
+    unmounts = [];
+    document.documentElement.removeAttribute('style');
+    startAccent();
+    expect(onRoot()).toEqual(given(blue.colour));
+    const again = draw(settingsSource().source);
+    await settle();
+    expect(pressed(again)).toEqual(['Blue']);
+
+    act(() => choice(again, 'Violet').click());
+    expect(onRoot()).toEqual({});
+    expect(localStorage.getItem('wf-agents.accent')).toBeNull();
+    expect(pressed(again)).toEqual(['Violet']);
+  });
+
+  it("takes a colour of the owner's own as the picker closes, and leaves one near a meaning untaken, saying why once", async () => {
+    const page = draw(settingsSource().source);
+    await settle();
+    // A step of a drag in the picker takes nothing yet.
+    pickOwn(page, '#1e3a8a', false);
+    expect(onRoot()).toEqual({});
+    pickOwn(page, '#1e3a8a');
+    expect(onRoot()).toEqual(given('#1e3a8a'));
+    expect(pressed(page)).toEqual([]);
+    expect(page.querySelector('.accent-own')?.classList.contains('accent-own-taken')).toBe(true);
+    expect(localStorage.getItem('wf-agents.accent')).toBe('#1e3a8a');
+    expect(alerts(page)).toEqual([]);
+
+    pickOwn(page, '#ec4899');
+    expect(onRoot()).toEqual(given('#1e3a8a'));
+    expect(localStorage.getItem('wf-agents.accent')).toBe('#1e3a8a');
+    expect(ownBox(page).value).toBe('#1e3a8a');
+    expect(alerts(page)).toEqual([
+      '#ec4899 is too near the red of a problem, which keeps its meaning: the accent stays as it was, and takes a colour from blue to magenta.',
+    ]);
+    pickOwn(page, '#808080');
+    expect(alerts(page)).toEqual([
+      '#808080 is too grey to stand apart from the muted words and a pause: the accent stays as it was, and takes a colour from blue to magenta.',
+    ]);
+
+    act(() => choice(page, 'Indigo').click());
+    expect(alerts(page)).toEqual([]);
+    expect(pressed(page)).toEqual(['Indigo']);
+    expect(page.querySelector('.accent-own')?.classList.contains('accent-own-taken')).toBe(false);
+    // The violet picked as one's own is the page's own: nothing set, nothing kept.
+    pickOwn(page, VIOLET.toUpperCase());
+    expect(onRoot()).toEqual({});
+    expect(pressed(page)).toEqual(['Violet']);
+    expect(localStorage.getItem('wf-agents.accent')).toBeNull();
+  });
+
+  it('takes a kept value that is not a colour as none, and says of a kept colour refused now why the page is in its violet', async () => {
+    localStorage.setItem('wf-agents.accent', 'blue');
+    startAccent();
+    expect(onRoot()).toEqual({});
+    const page = draw(settingsSource().source);
+    await settle();
+    expect(pressed(page)).toEqual(['Violet']);
+    expect(alerts(page)).toEqual([]);
+    for (const u of unmounts) u();
+    unmounts = [];
+
+    localStorage.setItem('wf-agents.accent', '#e5484d');
+    startAccent();
+    expect(onRoot()).toEqual({});
+    const refused = draw(settingsSource().source);
+    await settle();
+    expect(pressed(refused)).toEqual(['Violet']);
+    expect(alerts(refused)).toEqual([
+      'The colour kept in this browser is refused now: #e5484d is too near the red of a problem, which keeps its meaning. The page is drawn in its own violet until another is picked.',
+    ]);
+    act(() => choice(refused, 'Purple').click());
+    expect(alerts(refused)).toEqual([]);
+  });
+
+  it('draws the page in a colour picked where the browser keeps nothing, and throws nothing', async () => {
+    for (const name of ['getItem', 'setItem', 'removeItem'] as const) {
+      vi.spyOn(Storage.prototype, name).mockImplementation(() => {
+        throw new Error('the browser keeps nothing here');
+      });
+    }
+    startAccent();
+    const page = draw(settingsSource().source);
+    await settle();
+    act(() => choice(page, 'Purple').click());
+    expect(onRoot()).toEqual(given(PRESETS[3].colour));
+    expect(pressed(page)).toEqual(['Purple']);
+    vi.restoreAllMocks();
+    expect(localStorage.getItem('wf-agents.accent')).toBeNull();
   });
 });
