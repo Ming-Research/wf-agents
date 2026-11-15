@@ -1,6 +1,5 @@
 //! A work in memory, for the tests of the walk. It keeps the records as an engine would, only adding to them, and
-//! takes from each decision exactly what the decision gives: why a run starts and what it starts from. The
-//! exploration of the repository's own flow (crate `flow`, `tests/explored`) keeps its works with it too.
+//! takes from each decision exactly what the decision gives: why a run starts and what it starts from.
 
 use std::collections::BTreeMap;
 
