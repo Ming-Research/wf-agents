@@ -30,6 +30,7 @@
 //! numbers. The search runs once, in one test that checks every property on what it found and names each that fails,
 //! with every breach of it.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use decide::{BlockId, CellId};
@@ -38,7 +39,7 @@ use explore::{
     A_QUESTION_WAITED, Bounds, Explored, GAVE_RESULTS, MAIN_WHILE_THE_CHECK_WAITS, Property, RAN_FOR_A_WAIT,
     WAITED_FOR_THE_OWNER, explore, replay,
 };
-use flow::{Compiled, Has, compile, read};
+use flow::{Compiled, Has, Source, compile, read};
 
 /// The bound of the exploration.
 const BOUNDS: Bounds = Bounds {
@@ -82,8 +83,17 @@ fn deliver() -> Compiled {
 
 /// A flow of the repository's, by its directory's name, compiled against what the engine has.
 fn defined(name: &str) -> Compiled {
+    compiled(&source(name))
+}
+
+/// The source of a flow of the repository's, by its directory's name.
+fn source(name: &str) -> Source {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow").join(name);
-    let source = read(&dir).expect("the flow is read");
+    read(&dir).expect("the flow is read")
+}
+
+/// The flow of this source, compiled against what the engine has.
+fn compiled(source: &Source) -> Compiled {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
         sources: names(&[
@@ -102,7 +112,7 @@ fn defined(name: &str) -> Compiled {
         details: names(&["files"]),
         ..Default::default()
     };
-    compile(&source, &has).expect("the flow compiles")
+    compile(source, &has).expect("the flow compiles")
 }
 
 fn stats(e: &Explored) -> String {
@@ -256,6 +266,12 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
     // No property passes by being checked on nothing; the engineer's flow reaches no stall (`NEVER`).
     failed.extend(unchecked(&e, &[Property::Shown]));
     failed.extend(replays(&m, &e, &rare()));
+    // The exploration names no cell, block or trigger: the flow with every one of them renamed alike goes every way
+    // the flow does, its names following.
+    let (names, renamed) = renamed(&source("engineer"));
+    let rm = Model::new(compiled(&renamed));
+    let re = explore(&rm, BOUNDS);
+    failed.extend(alike(&m, &e, &re, &names));
     let is_known = |p: &Property, n: &String| KNOWN.iter().any(|(kp, kn, _)| kp == p && kn == n);
     let mut known = String::new();
     for ((_, name), b) in e.breaches.iter().filter(|((p, n), _)| is_known(p, n)) {
@@ -344,6 +360,163 @@ fn replays(m: &Model, e: &Explored, items: &[String]) -> Vec<String> {
             Ok(work) if work.records == path.records => {}
             Ok(_) => wrong.push(format!("the path to {item}, given again, gives other records")),
             Err(why) => wrong.push(format!("the path to {item}, given again, is refused: {why:?}")),
+        }
+    }
+    wrong
+}
+
+/// The source with every cell, block and trigger of the flow given another name, and the names given, each by the one
+/// it replaces: a block's trigger of a new version (`on_` and its name) follows the block's.
+fn renamed(source: &Source) -> (BTreeMap<String, String>, Source) {
+    let mut names = BTreeMap::new();
+    // One prefix for every name, after `on_` for a trigger's, keeps every set of names in the order it had, so that the
+    // exploration, which goes through them in that order, goes the same way.
+    let new = |name: &str| match name.strip_prefix("on_") {
+        Some(rest) => format!("on_x_{rest}"),
+        None => format!("x_{name}"),
+    };
+    for cell in source.cells.keys() {
+        names.insert(cell.clone(), new(cell));
+    }
+    for path in source.files.keys() {
+        let stem = (Path::new(path).file_stem())
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if path.starts_with("blocks/") || path.starts_with("../data/") {
+            names.insert(stem.to_string(), new(stem));
+            names.insert(format!("on_{stem}"), format!("on_{}", new(stem)));
+        } else if path.starts_with("../triggers/") && !path.ends_with("/changed.toml") {
+            names.insert(stem.to_string(), new(stem));
+        }
+    }
+    let file = |path: &String| {
+        let stem = (Path::new(path).file_stem())
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        match names.get(stem) {
+            Some(new) if path.ends_with(&format!("/{stem}.toml")) => {
+                format!("{}/{new}.toml", &path[..path.len() - stem.len() - "/.toml".len()])
+            }
+            _ => path.clone(),
+        }
+    };
+    let renamed = Source {
+        laid_out: source.laid_out,
+        flow: rename_text(&source.flow, &names),
+        cells: (source.cells.iter())
+            .map(|(id, text)| (names[id].clone(), rename_text(text, &names)))
+            .collect(),
+        rules: source.rules.clone(),
+        files: (source.files.iter())
+            .map(|(path, text)| (file(path), rename_text(text, &names)))
+            .collect(),
+    };
+    (names, renamed)
+}
+
+/// The text with each word the names give renamed, but where the word names no cell, block or trigger: a source or an
+/// act (`outside`, `from`, `act`), a place a text fills (`{name}`), a value of a choice (a list of `values`, or what a
+/// key of a block is set to), or a key of what a block's words say for each of its values (a table of `writes`).
+fn rename_text(text: &str, names: &BTreeMap<String, String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut writes = false;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') && !trimmed.starts_with("[\"") {
+            writes = trimmed.trim_end().ends_with("writes]");
+        }
+        if trimmed.starts_with("values") {
+            out.push_str(line);
+            continue;
+        }
+        let chars: Vec<char> = line.chars().collect();
+        let word_char = |c: char| c.is_ascii_alphanumeric() || c == '_';
+        let mut i = 0;
+        while i < chars.len() {
+            if !word_char(chars[i]) {
+                out.push(chars[i]);
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < chars.len() && word_char(chars[i]) {
+                i += 1;
+            }
+            let word: String = chars[start..i].iter().collect();
+            let before: String = chars[..start].iter().collect();
+            let after: String = chars[i..].iter().collect();
+            let key_of_writes = writes && before.trim().is_empty() && after.trim_start().starts_with('=');
+            let value_of_a_block = (before.strip_suffix("= \"").map(str::trim_end)).is_some_and(|key| {
+                let at = key.rfind(|c: char| !word_char(c)).map_or(0, |at| at + 1);
+                names.contains_key(&key[at..])
+            });
+            let kept = before.ends_with('{')
+                || ["outside = \"", "from = \"", "act = \""]
+                    .iter()
+                    .any(|k| before.ends_with(k))
+                || key_of_writes
+                || value_of_a_block;
+            match names.get(&word) {
+                Some(new) if !kept => out.push_str(new),
+                _ => out.push_str(&word),
+            }
+        }
+    }
+    out
+}
+
+/// What differs between the exploration of the flow and that of the flow renamed: the states kept and the runs, how
+/// often each property was checked and breached, how often each item was reached, and, by each cell's and each of its
+/// triggers' names in each, how often each ran.
+fn alike(m: &Model, e: &Explored, renamed: &Explored, names: &BTreeMap<String, String>) -> Vec<String> {
+    let mut wrong = Vec::new();
+    let (s, r) = (&e.stats, &renamed.stats);
+    if (s.states, s.runs) != (r.states, r.runs) {
+        wrong.push(format!(
+            "renamed, it kept {} states and {} runs, against {} and {}",
+            r.states, r.runs, s.states, s.runs
+        ));
+    }
+    if e.checked != renamed.checked {
+        wrong.push(format!(
+            "renamed, its properties were checked {:?}, against {:?}",
+            renamed.checked, e.checked
+        ));
+    }
+    let breached = |x: &Explored| {
+        let mut by: BTreeMap<Property, usize> = BTreeMap::new();
+        for (p, _) in x.breaches.keys() {
+            *by.entry(*p).or_default() += 1;
+        }
+        by
+    };
+    if breached(e) != breached(renamed) {
+        wrong.push(format!(
+            "renamed, its breaches were {:?}, against {:?}",
+            breached(renamed),
+            breached(e)
+        ));
+    }
+    let counts = |x: &Explored| {
+        let mut counts: Vec<u64> = x.reached.values().copied().collect();
+        counts.sort_unstable();
+        counts
+    };
+    if counts(e) != counts(renamed) {
+        wrong.push("renamed, its items were reached other numbers of times".to_string());
+    }
+    let named = |name: &str| names.get(name).cloned().unwrap_or_else(|| name.to_string());
+    for (i, cell) in m.cells().iter().enumerate() {
+        let new = CellId::from(named(cell.id.as_str()).as_str());
+        let mut items = vec![(ran(&cell.id), ran(&new))];
+        for trigger in m.triggers[i].values() {
+            items.push((ran_on(&cell.id, trigger), ran_on(&new, &named(trigger))));
+        }
+        for (was, is) in items {
+            let (a, b) = (e.reached.get(&was), renamed.reached.get(&is));
+            if a != b {
+                wrong.push(format!("{was} was reached {a:?} times, and renamed, {is} {b:?}"));
+            }
         }
     }
     wrong
