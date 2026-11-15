@@ -18,6 +18,9 @@ people = true
 
 [blocks.code]
 
+[blocks.title]
+what = "The name of the work's merge."
+
 [blocks.failures]
 
 [blocks.passed]

@@ -18,6 +18,7 @@ mod left;
 mod levels;
 mod permissions;
 mod projects;
+mod protected;
 mod query;
 mod sessions;
 mod stopping;
@@ -80,6 +81,9 @@ pub struct Fake {
     pub plan_edits_guide: bool,
     /// Whether the build commits a file of the design tree.
     pub design: bool,
+    /// Whether the build, once, commits a line to the project's guide, which the project protects, saying why only in
+    /// a round told its return was sent back for it.
+    pub build_changes_guide: bool,
     /// Whether the build, once, commits a file of the design tree to main.
     pub moves_main: bool,
     /// The context each call ends with, in tokens, by the call's number, the first being one: each call then says, as
@@ -105,11 +109,15 @@ impl Default for Fake {
             refuses_first: false,
             plan_edits_guide: false,
             design: false,
+            build_changes_guide: false,
             moves_main: false,
             contexts: &[],
         }
     }
 }
+
+/// The name the fake's build gives the work's merge, where its flow has a block for it, as it hands in its code.
+pub const NAMED: &str = "Greet the user by name";
 
 /// What the command line says of a return it gave up on, as it says it, the last refusal at its end.
 pub const GAVE_UP: &str = "Failed to provide valid structured output after 3 attempts — last StructuredOutput error: \
@@ -237,6 +245,8 @@ pub struct Real {
     pub level: String,
     /// The project the items added from now on belong to.
     pub project: String,
+    /// The title the items added from now on are given.
+    pub title: String,
 }
 
 /// Runs git in the directory, which must pass, and gives its output.
@@ -348,6 +358,7 @@ calls=''
 out=''
 unchanged=''
 asked=''
+protected=''
 case "$first" in
     Plan)
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
@@ -394,18 +405,30 @@ case "$first" in
                 git -C "$r" add design/main.md
                 git -C "$r" -c user.name=Tester -c user.email=tester@example.com commit -q -m 'Main moved'
             fi
+            if [ '{changes_guide}' = yes ] && [ ! -f "$log/guided" ]; then
+                touch "$log/guided"
+                printf 'A line the build added.\n' >> '{guide}'
+                git add '{guide}'
+            fi
+            if [ '{changes_guide}' = yes ] && grep -q 'is a file the project protects' "$log/$n.stdin"; then
+                protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
+            fi
             echo "$n" >> built.txt
             git add built.txt
             git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Build the greeting'
             head=$(git rev-parse HEAD)
             out="\"code\":\"A greeting, in commit $head.\""
+            # Where the cell writes the name of the work's merge, it names it.
+            if printf '%s\n' "$text" | grep -q '^- `title`'; then
+                out="$out,\"title\":\"{name}\""
+            fi
         fi ;;
     Review) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
 if [ -n "$calls" ]; then
     structured="{{\"calls\":{{$calls}}}}"
 else
-    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],\"questions\":[$asked],\"outputs\":{{$out}}}}}}"
+    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],\"questions\":[$asked],$protected\"outputs\":{{$out}}}}}}"
 fi
 contexts='{contexts}'
 iterations='{iterations}'
@@ -433,8 +456,10 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         edits_guide = yes(fake.plan_edits_guide),
         guide = PROJECT_FILES[0].0,
         design = yes(fake.design),
+        changes_guide = yes(fake.build_changes_guide),
         moves = yes(fake.moves_main),
         gave_up = GAVE_UP,
+        name = NAMED,
         refused = refused.display(),
         contexts = (fake.contexts.iter().map(u64::to_string).collect::<Vec<_>>()).join(" "),
         iterations = fake.context.map_or_else(String::new, |context| {
@@ -565,6 +590,7 @@ impl Real {
             items: Items {
                 default_level: "1".to_string(),
                 highest_level: None,
+                title_max: 40,
             },
             backup: None,
             sessions: Default::default(),
@@ -586,6 +612,7 @@ impl Real {
             holds: 0,
             level: "1".to_string(),
             project: PROJECT.to_string(),
+            title: "Greet the user".to_string(),
         }
     }
 
@@ -697,7 +724,7 @@ impl Real {
             value: None,
         });
         let item = NewItem {
-            title: "Greet the user".to_string(),
+            title: self.title.clone(),
             level: self.level.clone(),
             project: self.project.clone(),
             depends_on: depends_on.to_vec(),

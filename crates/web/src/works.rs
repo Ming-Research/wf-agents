@@ -891,6 +891,8 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
+    /// The work's branch changes this file the project protects, and nothing says why.
+    Unexplained { path: String },
 }
 
 /// What came back at the end of a round.
@@ -1070,7 +1072,7 @@ pub struct ItemChanges {
     deny_unknown_fields
 )]
 pub enum ChangeAsked {
-    /// The item is given this title, which its merge will be named by.
+    /// The item is given this title, in the owner's language; its merge is named by a line its work writes.
     Title { item: u64, title: String },
     /// The item is put at this level, among those the settings name and at most the highest an item may be at.
     Level { item: u64, level: String },
@@ -1117,8 +1119,17 @@ impl ChangeAsked {
         use store::ItemChange as C;
         let item = ItemNumber(self.item());
         let asked = match self {
-            ChangeAsked::Title { title, .. } => Asked::Item(C::Title(title)),
-            ChangeAsked::Level { level, .. } => Asked::Item(C::Level(levels.of_item(Some(&level))?)),
+            ChangeAsked::Title { title, .. } => {
+                levels
+                    .title_fits(&title)
+                    .map_err(|why| format!("the item's title: {why}"))?;
+                Asked::Item(C::Title(title))
+            }
+            ChangeAsked::Level { level, .. } => Asked::Item(C::Level(
+                levels
+                    .of_item(Some(&level))
+                    .map_err(|why| format!("the item's level: {why}"))?,
+            )),
             ChangeAsked::DependsOn { on, .. } => Asked::Item(C::DependsOn(ItemNumber(on))),
             ChangeAsked::NoLongerDependsOn { on, .. } => Asked::Item(C::NoLongerDependsOn(ItemNumber(on))),
             ChangeAsked::Tag { tag, .. } => Asked::Item(C::Tagged(tag)),
@@ -2088,6 +2099,9 @@ impl NewItem {
     /// The item as the driver adds it, at the level it asks for or else at the default of these levels, of the project
     /// it asks for among these; or why it cannot be, in words.
     pub fn taken(self, levels: &Levels, projects: &Projects) -> Result<driver::NewItem, String> {
+        levels
+            .title_fits(&self.title)
+            .map_err(|why| format!("The item's title: {why}"))?;
         let level = levels
             .of_item(self.level.as_deref())
             .map_err(|why| format!("The item's level: {why}"))?;
@@ -2262,6 +2276,7 @@ impl Unmet {
             UnmetOf::QuestionTwice { name } => Unmet::QuestionTwice { name: name.clone() },
             UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
+            UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
         }
     }
 }

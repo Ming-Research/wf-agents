@@ -95,9 +95,15 @@ pub trait Api: Send + Sync + 'static {
         body: &str,
     ) -> impl Future<Output = Result<Pull, String>> + Send;
 
-    /// Merges the pull request by the method (`squash`, `merge` or `rebase`), provided its head is the commit; gives
-    /// the commit the merge made.
-    fn merge(&self, number: u64, head: &str, method: &str) -> impl Future<Output = Result<String, String>> + Send;
+    /// Merges the pull request by the method (`squash`, `merge` or `rebase`), provided its head is the commit, the
+    /// commit the merge makes titled so; gives the commit the merge made.
+    fn merge(
+        &self,
+        number: u64,
+        head: &str,
+        method: &str,
+        title: &str,
+    ) -> impl Future<Output = Result<String, String>> + Send;
 
     /// Deletes the branch of the repository; a branch that is not there is no fault.
     fn delete(&self, branch: &str) -> impl Future<Output = Result<(), String>> + Send;

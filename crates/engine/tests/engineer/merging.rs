@@ -21,6 +21,7 @@ fn protected() -> Question {
         ask: "Whether this work's change to files that govern the agents may merge.".to_string(),
         options: vec![way("Let it merge"), way("Take it back")],
         about: Some("AGENTS.md".to_string()),
+        reasons: Default::default(),
     }
 }
 

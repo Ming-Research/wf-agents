@@ -203,10 +203,9 @@ impl Api for Gh {
         pull(&self.json(method, &path, Some(asked), &[201]).await?)
     }
 
-    async fn merge(&self, number: u64, head: &str, method: &str) -> Result<String, String> {
-        let path = format!("repos/{}/pulls/{number}/merge", self.repository);
-        let asked = json!({ "sha": head, "merge_method": method });
-        let merged = self.json("PUT", &path, Some(asked), &[200]).await?;
+    async fn merge(&self, number: u64, head: &str, method: &str, title: &str) -> Result<String, String> {
+        let (put, path, asked) = merging(&self.repository, number, head, method, title);
+        let merged = self.json(put, &path, Some(asked), &[200]).await?;
         (merged["sha"].as_str())
             .map(str::to_string)
             .ok_or_else(|| "GitHub's answer to the merge names no commit".to_string())
@@ -327,6 +326,14 @@ pub(crate) fn opening(repository: &str, branch: &str, base: &str, title: &str, b
     let path = format!("repos/{repository}/pulls");
     let asked = json!({ "title": title, "body": body, "head": branch, "base": base, "draft": true });
     ("POST", path, asked)
+}
+
+/// The request that merges the pull request by the method, provided its head is the commit, the commit the merge makes
+/// titled so: given no title, GitHub would take one of its own, a commit's of the branch among them.
+pub(crate) fn merging(repository: &str, number: u64, head: &str, method: &str, title: &str) -> Request {
+    let path = format!("repos/{repository}/pulls/{number}/merge");
+    let asked = json!({ "sha": head, "merge_method": method, "commit_title": title });
+    ("PUT", path, asked)
 }
 
 /// The request that gives the pull request this title and body.

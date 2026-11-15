@@ -268,13 +268,16 @@ pub fn running_carried(
     }
 }
 
-/// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at.
+/// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at; and a title
+/// is 40 wide at most.
 pub fn levels() -> service::Levels {
     let levels = [("1", "Easy work"), ("2", "Ordinary work"), ("3", "Hard work")].map(|(name, desc)| service::Level {
         name: name.to_string(),
         desc: desc.to_string(),
     });
-    service::Levels::new(levels, "2", Some("2")).expect("the levels are made")
+    service::Levels::new(levels, "2", Some("2"))
+        .expect("the levels are made")
+        .with_title_max(40)
 }
 
 /// The projects an item is added to: `trial`, and `other`.

@@ -1,6 +1,7 @@
 # How a datum is put into a session of the tests, by its kind.
 choice = ", with the value `{value}`"
 held = "## `{block}`, version {number}, in this session already; last worked from {last_number}"
+held_new = "## `{block}`, version {number}, in this session already"
 
 [latest]
 text = "## `{block}`, version {number}{choice}\n\n{content}"

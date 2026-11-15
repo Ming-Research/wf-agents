@@ -424,6 +424,10 @@ pub struct YourLine {
     /// with, each between backticks, joined by commas, and the last by `or`.
     pub locks: String,
     pub or: String,
+    /// Of a line that writes, where the project protects paths, after the rest: `{paths}` those paths, each between
+    /// backticks, joined by commas, and the last by `and`.
+    pub protected: String,
+    pub and: String,
 }
 
 /// A set of rules for the agents as [`RULES_FILE`] names it, by its name.
@@ -461,10 +465,11 @@ pub struct Asks {
 }
 
 /// The question the engine asks where a work's own change touches a path the project protects ([`Protected`]): asked
-/// again under its name where that change is another, or was answered with another option than `merges`, withdrawn
-/// once the work touches none. It waits, and recommends none of its options. `ask` is what it asks, `{files}` the files
-/// the change touches, each as `file` says with `{path}` its path and `{change}` how it changes (`added`, `changed` or
-/// `deleted`), one to a line, and `{diff}` the change itself.
+/// again under its name where that change is another, or the work gives another reason for it, or it was answered with
+/// another option than `merges`; withdrawn once the work touches none. It waits, and recommends none of its
+/// options. `ask` is what it asks, `{files}` the files the change touches, each as `file` says, a blank line between
+/// two: `{path}` its path, `{change}` how it changes (`added`, `changed` or `deleted`), `{why}` why the work says the
+/// change is needed, or `no_reason` where it says nothing, and `{diff}` the file's change itself.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AskProtected {
@@ -474,6 +479,8 @@ pub struct AskProtected {
     pub added: String,
     pub changed: String,
     pub deleted: String,
+    /// What stands for why, of a file the work changes and says nothing of.
+    pub no_reason: String,
     pub options: Vec<AskOption>,
     /// The number of the option, counted from 1, by which the owner lets the change merge: the check before the merge
     /// passes a change under the protected paths only where its question was answered so.
@@ -654,6 +661,8 @@ pub struct SentBackFaults {
     pub question_twice: String,
     pub not_an_option: String,
     pub not_answerable: String,
+    /// `{path}` a file the project protects that the work changes, and of which it says not why.
+    pub unexplained: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -918,8 +927,10 @@ impl Only {
 pub struct Given {
     /// What a text says of a datum that is a choice.
     pub choice: String,
-    /// What stands in place of a datum's content where the session holds its latest version already.
+    /// What stands in place of a datum's content where the session holds its latest version already: `held` where the
+    /// cell worked from an earlier version, `held_new` where it never worked from it.
     pub held: String,
+    pub held_new: String,
     pub latest: GivenKind,
     pub last_and_latest: GivenKind,
     pub all: GivenKind,
@@ -974,6 +985,8 @@ pub struct Commits {
     pub check: String,
     /// The merge of the work's branch into main.
     pub merge: String,
+    /// The name of a work's merge, where the work has written none.
+    pub unnamed: String,
 }
 
 /// What the engine's acts write into the blocks their cells write: `agents/acts/<act>.toml`.

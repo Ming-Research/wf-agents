@@ -35,8 +35,12 @@ The check fails, before the host is asked, a commit that changes nothing against
 Why: Its CI would pass and the merge would land nothing, the work merged with no change made, and nobody would see it; the flow's gate on the review's yes keeps such a branch from the check, and this holds whatever the flow's gates are.
 
 ### decision the-pull-request-says-what-the-work-wrote
-A work's pull request is a draft until just before its merge; its body is what the work wrote in the blocks the flow's check names, published with no mention, reference, closing word or path of this machine left to act, cut to a bound, and written over at each check, a person's edit included; the check before the merge and the agents' check work it out alike.
+A work's pull request is a draft until just before its merge; its body is what the work wrote in the blocks the flow's check names, published with no mention, reference, closing word or path of this machine left to act, cut to a bound, and written over at each check and before the merge, a person's edit included; the check before the merge and the agents' check work it out alike.
 Why: Anyone on GitHub sees what the change is and that it is not yet to be reviewed, and an agent's text on a public repository must notify, close and reveal nothing. Worked out otherwise by either check, the two would rewrite each other's body each time.
+
+### decision a-merge-is-named-by-its-works-line
+A work's merge, its pull request and the commit it makes, is named by the first line of the latest version of the block the flow's merge names (`named_by`), which the cell that writes the code writes in the repository's language; until it is written, by the words of the engine's commits for a work with no name, made from the work's number. The host is given nothing of the item; on GitHub the name is published as the body is, with nothing left to act, and brought up to date at each check and before the merge, which titles its commit so.
+Why: An item's title is in the owner's language and the repository in English: named by the title, the pull requests and the history of main took the owner's language. A name fixed as the pull request opens lost, since it opens before the code is written and what the change does can change after.
 
 ### decision letting-go-at-the-end
 Once a work has ended and nothing of it is under way, the engine takes away its worktrees, uncommitted changes included on purpose, and closes its pull request into main where it did not merge; the work's own branch stays, and nothing that is a symbolic link is followed. What cannot be let go is the engine's pause of the ended work, saying why, tried again once the owner lets it on.

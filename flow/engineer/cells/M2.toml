@@ -4,3 +4,4 @@ act = "merge"
 requires = { checked = "yes" }
 triggered_by = ["on_checked"]
 outputs = ["merged"]
+named_by = "title"

@@ -165,7 +165,7 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
 }
 
 #[test]
-fn the_requests_that_open_edit_ready_and_close_a_pull_request_are_as_githubs_api_takes_them() {
+fn the_requests_that_open_edit_ready_merge_and_close_a_pull_request_are_as_githubs_api_takes_them() {
     let (method, path, body) = opening("o/r", "work-1-x", "main", "Greet the user", "It greets.");
     assert_eq!((method, path.as_str()), ("POST", "repos/o/r/pulls"));
     assert_eq!(
@@ -182,6 +182,12 @@ fn the_requests_that_open_edit_ready_and_close_a_pull_request_are_as_githubs_api
     assert!(
         query.contains("markPullRequestReadyForReview(input: {pullRequestId: $id})"),
         "{query}"
+    );
+    let (method, path, body) = merging("o/r", 12, "c0ffee", "squash", "Greet the user by name (#12)");
+    assert_eq!((method, path.as_str()), ("PUT", "repos/o/r/pulls/12/merge"));
+    assert_eq!(
+        body,
+        json!({ "sha": "c0ffee", "merge_method": "squash", "commit_title": "Greet the user by name (#12)" })
     );
     let [(said, at, comment), (close, pull, closed)] = closing("o/r", 12, "Its work ended without merging.");
     assert_eq!((said, at.as_str()), ("POST", "repos/o/r/issues/12/comments"));

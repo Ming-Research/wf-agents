@@ -561,6 +561,10 @@ pub struct Items {
     /// The highest level an item may be at, by its name among the levels: an item above it is refused as it is added,
     /// and no line runs above it; with none, the top level.
     pub highest_level: Option<String>,
+    /// The widest an item's title may be, as `service::title_width` counts it: spaces are not counted, a character of
+    /// East Asian wide or full width counts 2 and any other 1. A title is held to it when it is made or changed; a
+    /// title already there is not counted again. There is no default: the installation names the width.
+    pub title_max: u32,
 }
 
 /// What the settings are told where they name `github.runs_on_before_branches`, which the engine no longer reads.
@@ -794,14 +798,18 @@ impl Settings {
             name: name.clone(),
             desc: level.desc.clone(),
         });
-        Levels::new(levels, &items.default_level, items.highest_level.as_deref()).map_err(|fault| match fault {
-            LevelsFault::None => "agents.levels: there is at least one level".to_string(),
-            LevelsFault::NoSuchDefault(name) => format!("items.default_level: there is no level {name:?}"),
-            LevelsFault::NoSuchHighest(name) => format!("items.highest_level: there is no level {name:?}"),
-            LevelsFault::DefaultAboveHighest { default, highest } => {
-                format!("items.default_level: {default:?} is above {highest:?}, the highest level an item may be at")
-            }
-        })
+        let made = Levels::new(levels, &items.default_level, items.highest_level.as_deref());
+        made.map(|levels| levels.with_title_max(items.title_max as usize))
+            .map_err(|fault| match fault {
+                LevelsFault::None => "agents.levels: there is at least one level".to_string(),
+                LevelsFault::NoSuchDefault(name) => format!("items.default_level: there is no level {name:?}"),
+                LevelsFault::NoSuchHighest(name) => format!("items.highest_level: there is no level {name:?}"),
+                LevelsFault::DefaultAboveHighest { default, highest } => {
+                    format!(
+                        "items.default_level: {default:?} is above {highest:?}, the highest level an item may be at"
+                    )
+                }
+            })
     }
 
     /// What a round of this cell, for an item at this level, runs on: the level of its item, or above it as far as the
@@ -1037,6 +1045,7 @@ mod tests {
             act: None,
             must_write: Vec::new(),
             describes: Vec::new(),
+            named_by: None,
             runs_on: Vec::new(),
             given: Vec::new(),
             tools: Vec::new(),
@@ -1070,6 +1079,21 @@ mod tests {
             .ran_on(Some("7"), &cell(0, None))
             .expect_err("there is no level 7");
         assert!(gone.contains("7 is no level"), "{gone}");
+    }
+
+    #[test]
+    fn the_width_of_a_title_is_the_settings_and_has_no_default() {
+        let levels = Settings::read(SAMPLE).unwrap().levels().unwrap();
+        assert_eq!(levels.title_fits(&"a".repeat(40)), Ok(()));
+        assert_eq!(levels.title_fits(&"\u{4e2d}".repeat(20)), Ok(()));
+        let why = levels.title_fits(&"a".repeat(41)).unwrap_err();
+        assert!(
+            why.starts_with("the title is 41 wide and a title is 40 wide at most"),
+            "{why}"
+        );
+        let without = SAMPLE.replace("title_max = 40\n", "");
+        let refused = Settings::read(&without).expect_err("refused");
+        assert!(refused.contains("title_max"), "{refused}");
     }
 
     #[test]

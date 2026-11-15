@@ -1,6 +1,6 @@
-//! What the GitHub host does around a work's pull request, its check and its end: the pull request is a draft whose
-//! title and body say what the work wrote of itself and follow it, made ready as it merges; a failure read is read as it
-//! is, and a work that ended without merging has its pull request closed.
+//! What the GitHub host does around a work's pull request, its check and its end: the pull request is a draft named as
+//! the work's merge is, whose body says what the work wrote of itself, both following the work, made ready as it
+//! merges; a failure read is read as it is, and a work that ended without merging has its pull request closed.
 
 use super::super::api::{Check, Outcome};
 use super::*;
@@ -57,6 +57,71 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
         body.contains("```text\nGreets the user by name, and by title"),
         "{body}"
     );
+}
+
+/// The work's branch, its merge named so.
+fn named<'a>(place: &'a Place, title: &'a str) -> Branch<'a> {
+    Branch { title, ..branch(place) }
+}
+
+#[tokio::test]
+async fn the_pull_request_is_named_as_the_works_merge_is_and_follows_it_to_the_commit_its_merge_makes() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.green(&checked);
+    // Checked before the work wrote the name of its merge, then after.
+    for name in ["Work 1", "Greet the user by name"] {
+        assert_eq!(titled(&hub, &checked, name).await, name);
+    }
+    // Named anew after its check, it merges by the name it has now.
+    let place = hub.place();
+    let name = "Greet the user by name, and by title where one is known";
+    (hub.host.merge(&named(&place, name), Some(&checked)).await).expect("it merges");
+    assert_eq!(hub.github().pull_requests()[0].title, name);
+    assert_eq!(
+        run(&hub.github().bare, &["log", "-1", "--format=%s", "main"]),
+        format!("{name} (#1)"),
+        "the squash is named as the merge is"
+    );
+    let titles: Vec<String> = (hub.github().asked().into_iter())
+        .filter_map(|asked| match asked {
+            Asked::Open { title, .. } | Asked::Edit { title, .. } | Asked::Merge { title, .. } => Some(title),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Work 1".to_string(),
+            "Greet the user by name".to_string(),
+            name.to_string(),
+            format!("{name} (#1)"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn the_name_of_a_merge_is_published_with_no_mention_reference_or_closing_word_and_cut_to_a_bound() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.green(&checked);
+    let z = '\u{200B}';
+    assert_eq!(
+        titled(&hub, &checked, "Fixes #12 for @octocat").await,
+        format!("F{z}ixes #{z}12 for @{z}octocat")
+    );
+    let title = titled(&hub, &checked, &"word ".repeat(100)).await;
+    assert_eq!(title.chars().count(), 200, "{title}");
+    assert!(title.ends_with('…'), "{title}");
+}
+
+/// The title of the work's pull request once the work, its merge named so, is checked at the commit.
+async fn titled(hub: &Hub, commit: &str, name: &str) -> String {
+    let place = hub.place();
+    (hub.host.verdict(&named(&place, name), commit, &mut Stop::never()).await)
+        .unwrap()
+        .unwrap();
+    hub.github().pull_requests()[0].title.clone()
 }
 
 #[tokio::test]

@@ -67,6 +67,7 @@ pub(crate) enum Asked {
         number: u64,
         head: String,
         method: String,
+        title: String,
     },
     Delete(String),
     Dispatch {
@@ -202,8 +203,9 @@ impl Fake {
     }
 }
 
-/// Squashes the commit onto main in the bare repository, as GitHub's squash merge does, and gives the new head.
-fn squash(bare: &std::path::Path, head: &str) -> Result<String, String> {
+/// Squashes the commit onto main in the bare repository, as GitHub's squash merge does, by a commit of this title, and
+/// gives the new head.
+fn squash(bare: &std::path::Path, head: &str, title: &str) -> Result<String, String> {
     let git = |args: &[&str]| -> Result<String, String> {
         let output = std::process::Command::new("git")
             .arg("-C")
@@ -221,14 +223,7 @@ fn squash(bare: &std::path::Path, head: &str) -> Result<String, String> {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     };
     let main = git(&["rev-parse", "refs/heads/main"])?;
-    let squashed = git(&[
-        "commit-tree",
-        &format!("{head}^{{tree}}"),
-        "-p",
-        &main,
-        "-m",
-        "Squashed",
-    ])?;
+    let squashed = git(&["commit-tree", &format!("{head}^{{tree}}"), "-p", &main, "-m", title])?;
     git(&["update-ref", "refs/heads/main", &squashed])?;
     Ok(squashed)
 }
@@ -276,12 +271,13 @@ impl Api for Fake {
         Ok(pull)
     }
 
-    async fn merge(&self, number: u64, head: &str, method: &str) -> Result<String, String> {
+    async fn merge(&self, number: u64, head: &str, method: &str, title: &str) -> Result<String, String> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Merge {
             number,
             head: head.to_string(),
             method: method.to_string(),
+            title: title.to_string(),
         });
         if let Some(why) = &kept.refuses {
             return Err(why.clone());
@@ -295,7 +291,7 @@ impl Api for Fake {
         if pull.head != head {
             return Err("HTTP 409: Head branch was modified. Review and try the merge again.".to_string());
         }
-        let merged = squash(&self.bare, head)?;
+        let merged = squash(&self.bare, head, title)?;
         pull.state = State::Merged;
         pull.merge_commit = Some(merged.clone());
         Ok(merged)

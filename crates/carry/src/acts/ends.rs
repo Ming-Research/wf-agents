@@ -9,6 +9,7 @@ use work::Time;
 
 use super::*;
 use crate::git::tests::{Repo, TAG, commit, run};
+use crate::host::Verdict;
 use crate::host::fake::{Asked, Fake};
 
 const WORK: WorkNumber = WorkNumber(1);
@@ -24,6 +25,18 @@ fn acts(repo: &Repo, host: Fake) -> Acts<Fake> {
     )
 }
 
+/// The work's item, of this title.
+fn item(title: &str) -> Item {
+    let first = First {
+        title: title.to_string(),
+        level: None,
+        project: None,
+        depends_on: Vec::new(),
+        tags: Vec::new(),
+    };
+    Item::new(ItemNumber(1), Time(0), first, Vec::new())
+}
+
 /// The work, which ended so, as its release is given.
 fn release(end: End) -> Release {
     let flow = Arc::new(acts_flow());
@@ -31,18 +44,7 @@ fn release(end: End) -> Release {
         work: WORK,
         end,
         flow,
-        item: Item::new(
-            ItemNumber(1),
-            Time(0),
-            First {
-                title: "Greet the user".to_string(),
-                level: None,
-                project: None,
-                depends_on: Vec::new(),
-                tags: Vec::new(),
-            },
-            Vec::new(),
-        ),
+        item: item("Greet the user"),
         kept: Arc::new(Work::default()),
     }
 }
@@ -219,6 +221,70 @@ fn the_work_says_of_itself_the_latest_of_each_block_the_cell_names_in_its_order(
 fn the_work_says_of_itself_what_the_flows_check_names_for_the_acts_and_the_tools_alike() {
     let work = written(&[("code", "Greets the user by name."), ("request", "Greet them.")]);
     assert_eq!(about(&acts_flow(), &work), "Greets the user by name.");
+}
+
+#[test]
+fn the_merge_is_named_by_the_first_line_of_the_latest_name_the_work_wrote_and_else_by_its_number() {
+    let commits = super::writes().commits;
+    let flow = acts_flow();
+    let named = |flow: &Compiled, work: &Work| name(flow, work, WORK, &commits);
+    assert_eq!(named(&flow, &Work::default()), "Work 1");
+    assert_eq!(named(&flow, &written(&[("code", "Greets the user.")])), "Work 1");
+    let work = written(&[
+        ("title", "Greet the user"),
+        ("title", "\n  Greet the user by name  \nIt greets them."),
+    ]);
+    assert_eq!(named(&flow, &work), "Greet the user by name");
+    // A flow whose merge is named by no block names it by the work's number, whatever the work wrote.
+    let mut unnamed = flow.clone();
+    for cell in &mut unnamed.cells {
+        cell.named_by = None;
+    }
+    assert_eq!(named(&unnamed, &work), "Work 1");
+}
+
+// The host is given the name of the work's merge, the line the work wrote for it or, where it wrote none, the work's
+// number, and never the title of its item, which is in the owner's language.
+#[tokio::test]
+async fn the_host_is_given_the_name_of_the_works_merge_and_never_its_items_title() {
+    let owners = "向用户问好";
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+    let passes = Verdict {
+        failed: None,
+        by: None,
+        notes: Vec::new(),
+    };
+    let acts = acts(&repo, Fake::new(&main).judges(Ok(Some(passes))));
+    let flow = Arc::new(acts_flow());
+    let check = (flow.cells.iter()).find(|cell| cell.act.as_deref() == Some("check"));
+    let code = format!("Greets the user, in commit {head}.");
+    let round = Round {
+        work: WORK,
+        flow: flow.clone(),
+        cell: check.expect("the flow has a check").clone(),
+        run: RunId(1),
+        number: 1,
+        given: work::Given::Task,
+        item: item(owners),
+        kept: Arc::new(written(&[("code", code.as_str()), ("title", "Greet the user by name")])),
+        lines: Default::default(),
+    };
+    let (to, _told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(1), to).teller();
+    let checked = acts.inner.act(&round, &teller, &mut Stop::never()).await;
+    assert!(
+        matches!(checked, Ok(Done::HandsIn(..))),
+        "the check hands in what it found"
+    );
+    let ended = Release {
+        item: item(owners),
+        ..release(End::Cancelled)
+    };
+    acts.inner.release(&ended).await.expect("it lets go");
+    assert_eq!(acts.inner.host.titles(), ["Greet the user by name", "Work 1"]);
 }
 
 #[test]

@@ -127,7 +127,10 @@ fn a_lock_command_is_the_settings_alone() {
     for heavy in HEAVY {
         assert!(writes.refused.contains(&format!("Bash({heavy} *)")), "{heavy}");
     }
-    assert_eq!(writes.told(&words()), "Make your changes there and commit them there.");
+    assert_eq!(
+        writes.told(&words(), &[]),
+        "Make your changes there and commit them there."
+    );
 }
 
 // A heavy command left out for a lock command stays refused in every other use the installation's arguments allow:
@@ -270,23 +273,49 @@ fn the_permissions_are_given_as_the_command_line_s_lists_of_rules() {
 // it commits there and with which commands it updates a lock file; nothing of a lock command its line is not allowed.
 #[test]
 fn an_agent_is_told_what_its_line_may_do() {
-    let reads = of(true, &[]).told(&words());
+    let reads = of(true, &[]).told(&words(), &[]);
     assert_eq!(reads, "You only read it, and change no file.");
 
-    let writes = of(false, &[]).told(&words());
+    let writes = of(false, &[]).told(&words(), &[]);
     assert_eq!(
         writes,
         "Make your changes there and commit them there. Update a lock file with `cargo update`, `cargo add` or \
          `npm install --package-lock-only --ignore-scripts`, your arguments after it."
     );
-    let open = of(false, &args(&["--allowedTools", "Bash(cargo:*)"])).told(&words());
+    let open = of(false, &args(&["--allowedTools", "Bash(cargo:*)"])).told(&words(), &[]);
     assert_eq!(
         open,
         "Make your changes there and commit them there. Update a lock file with \
          `npm install --package-lock-only --ignore-scripts`, your arguments after it."
     );
-    let none = of(false, &args(&["--dangerously-skip-permissions"])).told(&words());
+    let none = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &[]);
     assert_eq!(none, "Make your changes there and commit them there.");
+}
+
+// A line that writes is told the paths the project protects, after what else it may do, and one that only reads is
+// not, as it changes no file.
+#[test]
+fn a_line_that_writes_is_told_the_paths_the_project_protects() {
+    let protected = [
+        "AGENTS.md".to_string(),
+        "flow/".to_string(),
+        ".github/workflows/".to_string(),
+    ];
+    let writes = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &protected);
+    assert_eq!(
+        writes,
+        "Make your changes there and commit them there. The project protects `AGENTS.md`, `flow/` and \
+         `.github/workflows/`: change what is there only where the work needs it."
+    );
+    let one = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &protected[..1]);
+    assert!(
+        one.ends_with(" The project protects `AGENTS.md`: change what is there only where the work needs it."),
+        "{one}"
+    );
+    assert_eq!(
+        of(true, &[]).told(&words(), &protected),
+        "You only read it, and change no file."
+    );
 }
 
 // An allow of the installation's that matches a heavy command's text without a word's end counts as reaching it: one
