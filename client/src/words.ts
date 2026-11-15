@@ -175,6 +175,10 @@ export function faultWords(fault: Fault): string {
       return `The shape of ${w.block} is written in ${w.word}, which the engine holds no return to as it reads one: a return would be held to less than the shape says.`;
     case 'unknownDetail':
       return `The engine fills no place named "${w.detail}".`;
+    case 'triggerNeverRuns': {
+      const writers = w.writers.map(([cell, when]) => `${cell} (${when})`).join('; ');
+      return `The trigger ${w.trigger} stands on ${w.block}, but the cell runs only where ${w.needs}, and each writer of ${w.block} runs only where it cannot: ${writers}; the trigger can never run the cell.`;
+    }
     case 'readNotInContext':
       return `The trigger ${w.trigger} has the agent read ${w.block}, but ${w.block} is not in the cell's context.`;
     case 'notATrigger':

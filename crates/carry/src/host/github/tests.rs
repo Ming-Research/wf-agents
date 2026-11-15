@@ -966,3 +966,108 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         "gh keeps its configuration in the data directory"
     );
 }
+
+// The check takes as its own a run of the full workflows an entry of the work asked for on the very commit it checks,
+// naming no tests, which passed: it runs nothing again, and passes; a run of an entry on another commit it does not
+// take, and runs the full workflows itself. Under a second alone, a bare repository for GitHub; no other test holds
+// the check to a full run of an entry.
+#[tokio::test]
+async fn the_check_takes_a_full_run_that_passed_on_its_commit_and_runs_nothing_again() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.green(&head);
+    let place = hub.place();
+    let entry = Asking::Entry(decide::Seq(40));
+    let whole = Named::default();
+    let said = (hub
+        .host
+        .run_tests(&branch(&place), &whole, entry, &mut Stop::never())
+        .await)
+        .expect("run");
+    assert!(said.is_some(), "the entry ran the full workflows");
+    let full_runs = |hub: &Hub| {
+        (hub.github().asked().iter())
+            .filter(|a| matches!(a, Asked::Dispatch { workflow, .. } if workflow == "ci.yml"))
+            .count()
+    };
+    assert_eq!(full_runs(&hub), 1);
+    let main = hub.main_on_github();
+    let verdict = hub
+        .host
+        .verdict(
+            &branch(&place),
+            &head,
+            &main,
+            (hub.round(), &[entry]),
+            &mut Stop::never(),
+        )
+        .await
+        .expect("judged")
+        .expect("not stopped");
+    assert_eq!((&verdict.failed, &verdict.held), (&None, &None), "{verdict:?}");
+    assert_eq!(full_runs(&hub), 1, "nothing is run again");
+    // An entry whose run was on another commit is not taken: the check runs the full workflows itself.
+    let later = commit(&place.dir, "weather.txt", "Sunny.\n");
+    hub.green(&later);
+    let verdict = hub
+        .host
+        .verdict(
+            &branch(&place),
+            &later,
+            &main,
+            (hub.round(), &[entry]),
+            &mut Stop::never(),
+        )
+        .await
+        .expect("judged")
+        .expect("not stopped");
+    assert_eq!(verdict.failed, None, "{verdict:?}");
+    assert_eq!(
+        full_runs(&hub),
+        2,
+        "the full workflows run on the commit the check judges"
+    );
+}
+
+// A full run an entry of the work asked for on the very commit the check judges that did not pass is not taken: the
+// check runs the full workflows itself, and judges what they find. Under a second alone, a bare repository for GitHub;
+// no other test holds the check to a red run of an entry.
+#[tokio::test]
+async fn the_check_takes_no_full_run_of_its_commit_that_did_not_pass() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let jobs = vec![passed("lint"), check("test", Outcome::Failed("failure".into()))];
+    hub.github().fast(&head, jobs, Some(("test-results", fast::junit())));
+    let place = hub.place();
+    let entry = Asking::Entry(decide::Seq(40));
+    let said = (hub
+        .host
+        .run_tests(&branch(&place), &Named::default(), entry, &mut Stop::never())
+        .await)
+        .expect("run");
+    assert!(
+        said.is_some_and(|said| said.contains("1 of the 2 tests passed")),
+        "the entry's run is red"
+    );
+    let full_runs = |hub: &Hub| {
+        (hub.github().asked().iter())
+            .filter(|a| matches!(a, Asked::Dispatch { workflow, .. } if workflow == "ci.yml"))
+            .count()
+    };
+    assert_eq!(full_runs(&hub), 1);
+    let main = hub.main_on_github();
+    let verdict = hub
+        .host
+        .verdict(
+            &branch(&place),
+            &head,
+            &main,
+            (hub.round(), &[entry]),
+            &mut Stop::never(),
+        )
+        .await
+        .expect("judged")
+        .expect("not stopped");
+    assert_eq!(full_runs(&hub), 2, "the check runs the full workflows itself");
+    assert!(verdict.failed.is_some() || verdict.held.is_some(), "{verdict:?}");
+}

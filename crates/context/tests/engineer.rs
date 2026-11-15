@@ -187,6 +187,28 @@ fn names_a_cell(flow: &Compiled, text: &str) -> bool {
     (flow.cells.iter()).any(|c| text.contains(c.id.as_str()))
 }
 
+// Words to a line whose cell that ran last does not apply now are refused, saying which: R1, once it wrote that deep
+// research is needed. Well under a second alone; no other test holds this refusal.
+#[test]
+fn words_to_a_line_whose_cell_no_longer_applies_are_refused() {
+    let (sim, _) = deeply_until("D1");
+    assert_eq!(
+        receiver(&sim, To::Line("engineer".to_string())),
+        Err(NoOne::Skipped(CellId::from("R1")))
+    );
+}
+
+// Words to a line the flow does not have are refused, saying so. Well under a second alone; no other test holds this
+// refusal.
+#[test]
+fn words_to_a_line_the_flow_does_not_have_are_refused() {
+    let (sim, _) = deeply_until("D1");
+    assert_eq!(
+        receiver(&sim, To::Line("nobody".to_string())),
+        Err(NoOne::NoSuchLine("nobody".to_string()))
+    );
+}
+
 #[test]
 fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_under_discussion() {
     let (mut sim, round) = until("R2");

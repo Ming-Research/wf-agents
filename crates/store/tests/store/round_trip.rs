@@ -235,3 +235,24 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
     assert_eq!(rows["filled"].len(), 5);
     assert!(new.filled.iter().any(|f| f.attempt == 2));
 }
+
+// A run that finished waiting for a new version of a block, as a check that holds the work waits for main, loads back
+// waiting for it: lost, the work would rest as stalled after a restart, and be said to wait on the owner. Well under a
+// second alone; no other test keeps what a finished run waits for.
+#[test]
+fn a_run_that_finished_waiting_for_a_block_loads_back_waiting_for_it() {
+    let mut new = of_the_new_form();
+    let last = new.records.finished.last_mut().expect("a finished run");
+    last.waits_for = Some("main".into());
+    let db = Db::new();
+    let mut store = db.open();
+    first_work(&mut store);
+    let (_, work) = store
+        .add(&first("second", "2", &[]), "judged", Time(START), &Work::default())
+        .expect("the item is added");
+    store.save(work, &new).expect("the work is saved");
+    let loaded = db.open().load(work).expect("it loads");
+    let waits = loaded.records.finished.last().and_then(|f| f.waits_for.clone());
+    assert_eq!(waits, Some("main".into()));
+    assert_eq!(loaded, new);
+}

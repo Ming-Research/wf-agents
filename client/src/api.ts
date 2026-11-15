@@ -254,6 +254,9 @@ export type What =
   | { kind: 'unknownDetail'; detail: string }
   /// A trigger of an agent's cell has its agent read a datum that the cell's context does not hold.
   | { kind: 'readNotInContext'; trigger: string; block: string }
+  /// A trigger of the cell stands on a block whose every writer runs only where the cell cannot: each writer with
+  /// where it runs.
+  | { kind: 'triggerNeverRuns'; trigger: string; block: string; needs: string; writers: [string, string][] }
   /// The cell says what it does for a trigger that is not among its triggers.
   | { kind: 'notATrigger'; trigger: string }
   | { kind: 'engineIsGiven'; block: string }

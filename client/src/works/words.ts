@@ -542,6 +542,8 @@ export function unmetWords(unmet: Unmet): string {
       return `it dealt with the owner's words by ${unmet.name}, and gave no reply`;
     case 'unexplained':
       return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
+    case 'notATest':
+      return `its run changed ${unmet.path}, which is none of the project's tests, the only files its line changes`;
     case 'unanswered':
       return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
   }
