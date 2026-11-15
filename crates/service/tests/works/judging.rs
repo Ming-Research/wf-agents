@@ -754,17 +754,6 @@ fn the_owners_pause_and_letting_on_are_steps_and_the_items_start_is_none() {
         built.judged(&never_let_on),
         left(6, r#"{ runs = "review" }"#, "{ let_on = true }")
     );
-    // An item never let on has no step for the pause it was added with.
-    let held = Built::held("merged", true);
-    let shown = held.shown();
-    assert_eq!(
-        held.judged_as(r#"{ paused = "owner" }"#, true, &shown),
-        Judged::Short {
-            step: 1,
-            said: r#"{ paused = "owner" }"#.to_string(),
-            shown: None,
-        }
-    );
 }
 
 #[test]

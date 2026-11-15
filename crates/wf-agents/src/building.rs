@@ -36,7 +36,6 @@ use explore::model::Model;
 use flow::Compiled;
 use flow::agents::Agents;
 use serde::Deserialize;
-use service::script::items::Step;
 use service::{Clock, Script, SystemClock};
 use toml::{Table, Value};
 use work::Time;
@@ -167,7 +166,13 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
                 }),
             }
         }
-        let stalls = of_flow.iter().any(|c| matches!(c.end, Step::Stalled(_)));
+        // Whether the exploration reached a stall, made or not.
+        let stalls = (explored.groups.values()).any(|p| {
+            matches!(
+                decide::decide(&g.compiled.flow, &p.work.records),
+                decide::Decision::Stalled { .. }
+            )
+        });
         for case in &mut of_flow {
             case.store = match (stalls, case.mains) {
                 (true, _) => Store::Stalled,
@@ -331,9 +336,11 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         return Err(format!("{}: a store of no flow", m.store.dir()));
     };
     if roots.iter().any(|r| r != root) {
+        let names: Vec<&str> = of_store.iter().map(|g| g.compiled.name.as_str()).collect();
         return Err(format!(
-            "{}: its flows are in more than one directory, and a store is served with one",
-            m.store.dir()
+            "{}: its flows, {}, are in more than one directory, and a store is served with one",
+            m.store.dir(),
+            names.join(", ")
         ));
     }
     let words = &m.words[*root];
