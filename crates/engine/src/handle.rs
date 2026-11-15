@@ -227,11 +227,9 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             let Some(declared) = flow.blocks.get(&block) else {
                 return Err(Refused::NoSuchBlock(block));
             };
-            // What stands for the questions and their answers the engine writes itself, as they are taken.
-            let engines = [asked::ASKED, flow::ANSWER];
             let theirs = match by {
                 Outsider::Person => declared.writers.people,
-                Outsider::Outside => (declared.writers.outside.as_deref()).is_some_and(|s| !engines.contains(&s)),
+                Outsider::Outside => outside_writes(declared),
             };
             if !theirs {
                 return Err(Refused::NotTheirs { block, by });
@@ -256,23 +254,31 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             });
         }
         Event::WroteForRound { run, block, content } => {
-            if began(work, run) == ended(work, run) || !open(work, run) {
+            if began(work, run) == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
             }
-            let wrote = Event::Wrote {
-                block: block.clone(),
-                by: Outsider::Outside,
-                content,
-                matters: true,
-                value: None,
+            // What the block says already is not written again: the round is told of the version that says it.
+            let version = match says_already(flow, work, &block, &content) {
+                Some(version) => version,
+                None => {
+                    let wrote = Event::Wrote {
+                        block: block.clone(),
+                        by: Outsider::Outside,
+                        content,
+                        matters: true,
+                        value: None,
+                    };
+                    take(flow, work, wrote)?;
+                    (work.records.written.last())
+                        .map(|w| w.at)
+                        .expect("the version was written")
+                }
             };
-            take(flow, work, wrote)?;
-            let version = work
-                .records
-                .written
-                .last()
-                .map(|w| w.at)
-                .expect("the version was written");
+            // A run abandoned while its round is under way consumes nothing, and a round told of the version already
+            // is not told of it again.
+            if !open(work, run) || told_of(work, run, &block).is_some_and(|told| told >= version) {
+                return Ok(());
+            }
             let at = work.tick();
             work.records.put_in.push(PutIn {
                 run,
@@ -949,6 +955,40 @@ fn waits(work: &Work, run: RunId, round: usize) -> Vec<CallId> {
 /// Whether the run was abandoned.
 fn abandoned(work: &Work, run: RunId) -> bool {
     work.records.abandoned.iter().any(|a| a.run == run)
+}
+
+/// Whether a source outside the work writes the block: what stands for the questions and their answers the engine
+/// writes itself, as they are taken.
+fn outside_writes(declared: &flow::Block) -> bool {
+    let engines = [asked::ASKED, flow::ANSWER];
+    (declared.writers.outside.as_deref()).is_some_and(|s| !engines.contains(&s))
+}
+
+/// The latest version of the block, where it is one a source outside the work wrote of a block that is no choice, and
+/// says this content.
+fn says_already(flow: &Compiled, work: &Work, block: &BlockId, content: &str) -> Option<Seq> {
+    let declared = flow.blocks.get(block)?;
+    if !outside_writes(declared) || declared.values.is_some() {
+        return None;
+    }
+    let latest = decide::versions(&work.records).get(block)?.last()?.at;
+    let outside = (work.records.written.iter()).any(|w| w.at == latest && w.by == Outsider::Outside);
+    (outside
+        && work
+            .contents
+            .get(&(block.clone(), latest))
+            .is_some_and(|said| said == content))
+    .then_some(latest)
+}
+
+/// The latest version of the block the run's round was told of: the one it started from, or one put in to it since.
+fn told_of(work: &Work, run: RunId, block: &BlockId) -> Option<Seq> {
+    let records = &work.records;
+    let began = (records.started.iter().find(|s| s.run == run)).and_then(|s| s.basis.get(block).copied().flatten());
+    let put_in = (records.put_in.iter())
+        .filter(|p| p.run == run && &p.block == block)
+        .map(|p| p.version);
+    began.into_iter().chain(put_in).max()
 }
 
 /// Whether the run has neither finished nor been abandoned.

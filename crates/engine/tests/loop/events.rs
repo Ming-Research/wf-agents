@@ -197,3 +197,46 @@ fn a_write_from_outside_said_not_to_matter_runs_nothing() {
     w.returns(again, hands_in(&[]));
     assert_eq!(w.on(wrote("main", Outsider::Outside, false, None)), vec![]);
 }
+
+/// What the outside says of main for the writer's round, as a carrier does for what it read of main itself.
+fn main_for(run: RunId, content: &str) -> Event {
+    Event::WroteForRound {
+        run,
+        block: "main".into(),
+        content: content.to_string(),
+    }
+}
+
+// What the outside says for a round where the block says it already, as the check says the head of main it takes in
+// after the watch of main wrote that head, is no new version: the round is told of the version that says it, once,
+// and its run consumes it, so that its cell is not run again for it.
+#[test]
+fn a_write_for_a_round_of_what_the_block_says_already_puts_that_version_in_and_writes_nothing() {
+    let (mut w, write, _) = W::requested();
+    let (_, moved) = w.on_and_place(wrote("main", Outsider::Outside, true, None));
+    let written = w.work.records.written.len();
+    w.on(main_for(write, "main, as written by Outside"));
+    w.on(main_for(write, "main, as written by Outside"));
+    assert_eq!(w.work.records.written.len(), written, "nothing is written again");
+    let put: Vec<(RunId, &str, Seq)> = (w.work.records.put_in.iter())
+        .map(|p| (p.run, p.block.as_str(), p.version))
+        .collect();
+    assert_eq!(put, [(write, "main", moved)]);
+    let (_, cell, ..) = round(&w.returns(write, hands_in(&[("text", None)])));
+    assert_eq!(cell, "judge", "the writer consumed main as it was told of it");
+}
+
+// A run abandoned while its round is under way consumes nothing: what the outside says for its round is the outside's
+// word all the same, written and put into no round.
+#[test]
+fn a_write_for_the_round_of_a_run_abandoned_is_written_and_put_in_nowhere() {
+    let (mut w, write, _) = W::requested();
+    w.on(Event::Cancelled { why: None });
+    w.on(main_for(write, "Main is at c0ffee."));
+    let main = w.last_written();
+    assert_eq!(
+        w.work.contents.get(&("main".into(), main)),
+        Some(&"Main is at c0ffee.".to_string())
+    );
+    assert_eq!(w.work.records.put_in, Vec::new());
+}

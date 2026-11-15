@@ -6,8 +6,9 @@
 //! does not: each file it adds, changes or deletes, by its path and the content it ends with, so that main moving on
 //! asks nothing again where the work's own change is the same. The engine asks the owner of it by itself, in the
 //! question of `agents/asks.toml` (`[protected]`), which shows each file with why the work says it is needed and its
-//! change, waits, and recommends none of its options: asked again under its name where the change is another or the
-//! work gives another reason for it, withdrawn once the work touches none of the paths. The question is the engine's,
+//! change, waits, and recommends none of its options: asked again under its name where the change is another, or where
+//! the work gives another reason for it before the owner answered, withdrawn once the work touches none of the paths.
+//! The owner's yes to the change holds while the change is the same, whatever reason is given for it after. The question is the engine's,
 //! beside what the round returns, and no agent writes it.
 //!
 //! Why a file is changed is the work's, said in the field `protected_changes` of a return that does the cell's work,
@@ -207,9 +208,10 @@ pub(crate) fn let_merge(work: &Work, words: &AskProtected, change: &Change) -> b
 
 /// What the engine asks of the change, where it is to ask anything, each file with why the work changes it as `given`
 /// or the question that stands says it ([`reasons`]): the question asked, or asked anew where the one that stands is of
-/// another change or says other reasons, or was answered with another option than the one that lets it merge; or
-/// withdrawn where the work's change is empty and one stands. None where the question stands unanswered of this change
-/// with these reasons, or was answered letting it merge.
+/// another change, or says other reasons and is not answered, or was answered with another option than the one that
+/// lets it merge; or withdrawn where the work's change is empty and one stands. None where the question stands
+/// unanswered of this change with these reasons, or was answered letting this change merge, whatever reasons are given
+/// for it since.
 pub(crate) fn asking(
     work: &Work,
     words: &AskProtected,
@@ -234,8 +236,8 @@ fn asked(
     }
     let reasons = reasons(standing, change, given);
     let key = change.key();
-    let same = standing.is_some_and(|s| s.stands && s.about.as_deref() == Some(key.as_str()) && s.reasons == reasons);
-    let stays = same && standing.is_some_and(|s| s.answer.is_none() || s.answer == Some(words.merges));
+    let of_it = standing.filter(|s| s.stands && s.about.as_deref() == Some(key.as_str()));
+    let stays = of_it.is_some_and(|s| s.answer == Some(words.merges) || (s.answer.is_none() && s.reasons == reasons));
     if stays {
         return None;
     }
@@ -572,8 +574,12 @@ pub(crate) mod tests {
         assert_eq!(reasons, second);
     }
 
+    // Another reason for the file as it is asks anew while the question waits, and lets nothing merge before the
+    // answer; the owner's yes to the change holds whatever reason a round gives after it, so that the same change is
+    // not asked again. A yes given to a question with no reason was asked again for the reason a later round gave
+    // (work 9).
     #[tokio::test]
-    async fn another_reason_for_the_file_as_it_is_asks_anew_with_it_and_lets_nothing_merge_before_the_answer() {
+    async fn another_reason_asks_anew_while_the_question_waits_and_a_yes_holds_whatever_reason_comes_after_it() {
         let (repo, place) = started().await;
         commits(&place.dir, "AGENTS.md", "Rules.\n");
         let first = because(&[("AGENTS.md", "The guide must say it.")]);
@@ -582,9 +588,9 @@ pub(crate) mod tests {
             .unwrap()
             .asks
             .unwrap();
-        let work = asked_with(asked, Some(words().merges));
         let other = because(&[("AGENTS.md", "The guide must say it, and why.")]);
-        let anew = found(&repo, &place, &work, Some(&other)).await.unwrap().asks;
+        let waiting = asked_with(asked.clone(), None);
+        let anew = found(&repo, &place, &waiting, Some(&other)).await.unwrap().asks;
         let Some(question @ Question::Asked { .. }) = anew else {
             panic!("another reason is not asked: {anew:?}");
         };
@@ -597,6 +603,13 @@ pub(crate) mod tests {
             !let_merge(&asked_with(question, None), &words(), &change),
             "asked anew, it waits for an answer"
         );
+        let let_it = asked_with(asked, Some(words().merges));
+        assert_eq!(found(&repo, &place, &let_it, Some(&other)).await, Ok(Looked::default()));
+        assert!(let_merge(&let_it, &words(), &change));
+        // The check's question says no reason: a reason a round gives after the owner's yes to it asks nothing.
+        let unexplained = asking(&Work::default(), &words(), &change, &BTreeMap::new()).unwrap();
+        let let_it = asked_with(unexplained, Some(words().merges));
+        assert_eq!(found(&repo, &place, &let_it, Some(&first)).await, Ok(Looked::default()));
     }
 
     #[tokio::test]

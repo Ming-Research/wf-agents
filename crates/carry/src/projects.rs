@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use flow::agents::{NoProject, fill};
 use service::{CallReply, Release, ReleaseReply, Round, RoundReply, Rounds, ToolCall, Tools};
-use store::Item;
+use store::{Item, WorkNumber};
 use work::Spent;
 
 use crate::settings::{Project, Settings};
@@ -141,6 +141,14 @@ impl Rounds for ByProject<dyn Rounds> {
             Ok(rounds) => rounds.stop(round, reply),
             // Nothing was carried out for it: the round ends with nothing.
             Err(_) => reply.ended(engine::Came::hands_in(Vec::new()), Spent::default()),
+        }
+    }
+
+    // The work's project is not said with it: each project's rounds are told, and those of the others hold nothing of
+    // the work.
+    fn paused(&self, work: WorkNumber, paused: bool) {
+        for rounds in self.of.values() {
+            rounds.paused(work, paused);
         }
     }
 
