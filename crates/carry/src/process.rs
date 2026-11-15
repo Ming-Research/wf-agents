@@ -479,15 +479,16 @@ mod tests {
         let mut orphan = group();
         let mut overseer = Overseer::of(orphan.id()).expect("an overseer");
         drop(overseer.0.stdin.take());
+        // The group's first process is this one's child, a zombie in the group until it is reaped here.
         let began = std::time::Instant::now();
-        while alive(orphan.id()).await {
+        while orphan.try_wait().expect("the group's first process").is_none() || alive(orphan.id()).await {
             if began.elapsed() > Duration::from_secs(15) {
                 signal(orphan.id(), "KILL").await;
+                let _ = orphan.wait();
                 panic!("the group outlived its overseer's pipe");
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        let _ = orphan.wait();
     }
 
     // However the process of the engine ends, a program it runs ends with it: killed, as by `kill -9` or a crash, it
