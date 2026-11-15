@@ -42,6 +42,9 @@ export default defineConfig({
         test: {
           name: 'browser',
           include: [BROWSER_TESTS],
+          // After the `unit` project, which has the default 0: the groups run from the lowest number to the highest,
+          // and a project of a group starts when the one before has finished.
+          sequence: { groupOrder: 1 },
           browser: {
             enabled: true,
             headless: true,
