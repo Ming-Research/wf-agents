@@ -189,3 +189,42 @@ fn what_is_handed_in_that_the_flow_does_not_allow_is_sent_back_with_why() {
     };
     assert_eq!(given, Given::SentBack(vec![unmet]));
 }
+
+// A block handed in holding nothing, where it holds nothing yet, takes nothing away and is no write: no version of it is
+// kept, and the cell that takes it is not entered for it (decision a-write-of-nothing-only-empties). Work 3's initial
+// research wrote `found` so where its task said to write none.
+#[test]
+fn a_block_handed_in_holding_nothing_where_it_holds_nothing_keeps_no_version_and_runs_no_cell() {
+    let (flow, mut work) = (small(), Work::default());
+    let request = Event::Wrote {
+        block: "request".into(),
+        by: Outsider::Person,
+        content: "do it".to_string(),
+        matters: true,
+        value: None,
+    };
+    let (write, ..) = round(&handle(&flow, &mut work, Time(1), request).unwrap());
+    let came = Came::hands_in(vec![Handed {
+        block: "text".into(),
+        content: " \n".to_string(),
+        matters: true,
+        value: None,
+    }]);
+    let returned = Event::Returned {
+        run: write,
+        came,
+        spent: Spent::default(),
+    };
+    let effects = handle(&flow, &mut work, Time(2), returned).unwrap();
+    assert!(
+        !effects.iter().any(|e| matches!(e, Effect::Round { .. })),
+        "a cell is entered for nothing: {effects:?}"
+    );
+    let finished = (work.records.finished.iter()).find(|f| f.run == write);
+    assert_eq!(finished.map(|f| f.writes.clone()), Some(vec![]));
+    assert!(
+        !work.contents.keys().any(|(block, _)| block.as_str() == "text"),
+        "{:?}",
+        work.contents
+    );
+}
