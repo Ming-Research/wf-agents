@@ -192,7 +192,7 @@ describe('the panel of the item selected', () => {
     // What it waits for is its card, under the line, in the look of every stop: why, and the button that ends it.
     const card = el.querySelector('[data-wait="limit"]') as HTMLElement;
     expect(card.className).toBe('cw-choice cw-choice-holds');
-    expect(text(card, '.cw-choice-q')).toEqual(['review_plan ran 3 times in a row for what a cell after it wrote, its limit.']);
+    expect(text(card, '.cw-choice-q')).toEqual(['The cell ran 3 times in a row for what a cell after it wrote, its limit.']);
     expect(card.querySelector('button')?.title).toBe('Run the cell again past its limit');
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
   });

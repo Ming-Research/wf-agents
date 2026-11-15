@@ -109,12 +109,12 @@ const OWNERS: [string, Now, Wait][] = [
   [
     'a run at its limit of returns',
     { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 4, who: 'owner', what: limit }] },
-    wait('limit', 'The run of plan had 2 returns sent back, its limit.', { kind: 'goOn', call: 4 }),
+    wait('limit', "The cell's run had 2 returns sent back, its limit.", { kind: 'goOn', call: 4 }),
   ],
   [
     'a cell at its limit of runs',
     { kind: 'waits', at: 'plan', on: [{ kind: 'limit', runs: 3 }] },
-    wait('limit', 'plan ran 3 times in a row for what a cell after it wrote, its limit.', { kind: 'letGo', cell: 'plan' }),
+    wait('limit', 'The cell ran 3 times in a row for what a cell after it wrote, its limit.', { kind: 'letGo', cell: 'plan' }),
   ],
   [
     'a pause the engine made',

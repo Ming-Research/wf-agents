@@ -386,7 +386,7 @@ describe('a work whose round failed', () => {
     const run = rows[2].querySelectorAll('td')[2].querySelector('.run');
     expect(run?.className).toContain('run-failed');
     expect(run?.querySelector('.run-word')?.textContent).toBe('round failed');
-    expect(texts(page, '.step-lead .step-words')[3]).toBe(`the engine paused the work. ${FAILED}`);
+    expect(texts(page, '.step-lead .step-words')[3]).toBe(`The engine paused the work. ${FAILED}`);
   });
 
   it('shows in the panel of the run the round that failed, why, and that it is given again once the work is let on', async () => {

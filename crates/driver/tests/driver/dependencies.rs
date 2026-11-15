@@ -2,7 +2,7 @@
 //! merged reaches the work as its dependencies block, which the driver writes as the item is added, in the very call in
 //! which the last of them merges, and, on opening, wherever the block and what it stands for have come apart.
 
-use driver::{MERGED, NewItem, WAITING};
+use driver::{MERGED, NewItem, Unmerged, WAITING};
 use store::Storage;
 
 use super::*;
@@ -304,6 +304,14 @@ fn the_blocks_text_says_which_items_are_still_waited_for_and_which_were_cancelle
             version(WAITING, "Waits for the items 2 (cancelled) to merge."),
         ]
     );
+    // The one it waits for is said cancelled, so that the work is seen to wait for good.
+    assert_eq!(
+        h.d().unmerged(wc),
+        [Unmerged {
+            item: b,
+            cancelled: true
+        }]
+    );
     let kept = h.d().work(wc).expect("the work is there");
     assert!(kept.work.records.started.is_empty(), "the work started");
     // Opening again writes nothing more: the block says what it stands for.
@@ -327,6 +335,9 @@ fn a_cancelled_dependency_is_named_beside_one_still_going() {
     );
     assert_eq!(h.let_on(wc), vec![]);
     assert_eq!(h.decision(wc), waits_for_dependencies("draft"));
+    // Both are waited for, in the order the item names them, the cancelled one said so.
+    let unmerged = |item, cancelled| Unmerged { item, cancelled };
+    assert_eq!(h.d().unmerged(wc), [unmerged(b, false), unmerged(a, true)]);
 }
 
 #[test]

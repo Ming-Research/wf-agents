@@ -129,8 +129,9 @@ export type Waited =
   /// time, waits for it. The works of a project check and merge one at a time.
   | { kind: 'turn'; holder: number; since: number }
   /// The items the work's item depends on that have not merged, by their numbers: a precondition only they make hold,
-  /// as they merge.
-  | { kind: 'items'; items: number[] };
+  /// as they merge; and those of them that were cancelled, which never will, so that the work waits for good. Absent
+  /// where none was.
+  | { kind: 'items'; items: number[]; cancelled?: number[] };
 
 /// What a work does now.
 export type Now =
