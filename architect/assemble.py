@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Puts together `AGENTS.md` beside this script, which an architect session started in this directory reads: the
-architect's rules, the installation's settings an architect works by, the project's constitution and the rules of its
+architect's rules and what it reports, the installation's settings an architect works by, the project's constitution and the rules of its
 design tree, the rules every agent of the engine works by, and the help of the engine's commands.
 
-The architect's rules are read as they stand beside this script. What the engine gives its agents is read as the
+The architect's own files are read as they stand beside this script. What the engine gives its agents is read as the
 project's main branch holds it, the branch the engine takes its flows from, so that the architect is given what the
 engine's agents are given whatever this checkout is on. The settings are read from the engine serving on the loopback
 address, which must be running. Run it from any directory, again whenever one of these changes."""
@@ -19,7 +19,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "AGENTS.md"
-RULES = HERE / "rules.md"
+# The architect's own files, in the order they are given.
+OWN = [HERE / "rules.md", HERE / "notes.md"]
 # The engine's commands an architect has no use for: the engine's own start, the flow's tooling and the help itself.
 NOT_THE_ARCHITECTS = {"run", "flow", "help"}
 # The settings an architect works by, as prefixes of their names; a project's are added as its own.
@@ -128,7 +129,7 @@ def main() -> None:
     program = shutil.which("wf-agents") or str(Path.home() / ".local" / "bin" / "wf-agents")
     general = f"flow/agents/rules/{rule_sets['general']['file']}"
     parts = [
-        part(str(RULES.relative_to(root)), named(RULES.read_text(), names, values)),
+        *(part(str(own.relative_to(root)), named(own.read_text(), names, values)) for own in OWN),
         installation(values, project),
         *(
             part(declaration["files"][kind]["path"], on_main(root, ref, declaration["files"][kind]["path"]))
