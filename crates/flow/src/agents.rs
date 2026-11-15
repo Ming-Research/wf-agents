@@ -1,9 +1,9 @@
 //! What the engine says to every agent, whatever the flow, as it is written beside the flows: the project's files and
 //! settings (`project.toml`), and in `agents/` what a session begins with, the rules for the agents, the engine's own
 //! words, the return and its fields, the tools, the message a cell is sent as it is entered (design document
-//! `data-and-context`, 51), and what the engine writes as it works: into the blocks its acts write, and in the commits
-//! it makes. Every word an agent is sent that is not a flow's is in these files; the code holds none of them, only how
-//! they are put together. A field a file does not know is refused, and what cannot be read is said with the path of
+//! `data-and-context`, 51), and what the engine writes as it works: into the blocks its acts write, in the commits it
+//! makes, on the pull requests of the works, and as the result of a call it ends itself. Every word an agent is sent
+//! that is not a flow's is in these files; the code holds none of them, only how they are put together. A field a file does not know is refused, and what cannot be read is said with the path of
 //! its file.
 
 use std::collections::BTreeMap;
@@ -66,6 +66,12 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
 /// The file, in `agents/`, of the questions the engine itself asks the owner.
 pub const ASKS_FILE: &str = "asks.toml";
 
+/// The file, in `agents/`, of what the engine writes on a work's pull request where the project's host is GitHub.
+pub const PULL_REQUEST_FILE: &str = "pull_request.toml";
+
+/// The file, in `agents/`, of the result a call has where the engine ends it itself.
+pub const CALLS_FILE: &str = "calls.toml";
+
 /// The field of a return that holds the blocks a cell writes, each under its name, in its own shape. The form of a
 /// line lists the blocks of the line's cells there; the cell is told its own with its task, and the engine sends back
 /// a block that is not among them.
@@ -102,6 +108,47 @@ pub struct Agents {
     pub asks: Asks,
     /// What the engine says as it guards what rounds cost and keeps their sessions' caches: `agents/cost.toml`.
     pub cost: Cost,
+    /// What the engine writes on a work's pull request: [`PULL_REQUEST_FILE`].
+    pub pull_request: PullRequest,
+    /// The result a call has where the engine ends it itself: [`CALLS_FILE`].
+    pub calls: Calls,
+}
+
+/// [`PULL_REQUEST_FILE`]: what the engine writes on a work's pull request where the project's host is GitHub.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PullRequest {
+    /// What opens the body where the work wrote of itself: `{about}` that, in a block of plain text.
+    pub about: String,
+    /// The rest of the body: `{work}` the work's number.
+    pub body: String,
+    /// What follows, on a line of its own, what the work wrote of itself where it is cut.
+    pub cut: String,
+    /// The title of the commit the merge makes: `{name}` the name of the work's merge, `{number}` the pull request's
+    /// number.
+    pub merged: String,
+    /// The comment it is closed with, where its work ended without merging.
+    pub closed: String,
+    pub withheld: Withheld,
+}
+
+/// What stands, in what is published, in place of each path of this machine.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Withheld {
+    pub data: String,
+    pub repository: String,
+    pub home: String,
+}
+
+/// [`CALLS_FILE`]: the result a call has where the engine ends it itself, kept as its result in the work's records.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Calls {
+    /// Of a call withdrawn as its run was abandoned, before it had its result.
+    pub withdrawn: String,
+    /// Of the engine's wait before a round that failed in passing is tried again, once its time has come.
+    pub waited: String,
 }
 
 /// `agents/cost.toml`: what the engine says as it guards what the agents' rounds cost and keeps their sessions' prompt
@@ -151,10 +198,13 @@ pub struct GuardWords {
     pub no_tools: String,
 }
 
-/// Why the engine paused a work whose spend or time is past the line of the flow's other works.
+/// Why the engine paused a work: its spend or time is past the line of the flow's other works, or what it has spent in
+/// all is past its budget.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkWords {
+    /// What it has spent in all is past its budget: `{work}`, `{spent}` and `{budget}`.
+    pub budget: String,
     pub spent: String,
     pub time: String,
     pub started: String,
@@ -1209,6 +1259,8 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         commits: writes.commits,
         asks: asks(&at.join(ASKS_FILE))?,
         cost: file(&at.join("cost.toml"))?,
+        pull_request: file(&at.join(PULL_REQUEST_FILE))?,
+        calls: file(&at.join(CALLS_FILE))?,
     })
 }
 

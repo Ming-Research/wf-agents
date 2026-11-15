@@ -4,7 +4,8 @@
 //! running them again, on the commit and on main's head; the work's pull request, which the check
 //! pushes the commit to and opens where the branch has none, as a draft whose title it keeps to the name of the work's
 //! merge and whose body to what the work says of itself, is what is merged, by GitHub once it is made ready, in a
-//! commit of that name. A work that has ended has, where it did not merge, its pull request closed.
+//! commit of that name. A work that has ended has, where it did not merge, its pull request closed. What the engine
+//! writes there of its own is in the words beside the flows (`agents/pull_request.toml`).
 //!
 //! What it does is found again on GitHub, never kept by the engine: the pull request by the work's branch, and a run of
 //! a workflow by the value its name holds, worked out from what asked for it. A check given again after the engine
@@ -81,14 +82,16 @@ pub struct Config {
     pub tool: Option<flow::agents::Tool>,
     /// The words of the check before a merge, from its file beside the flows, which say what it ran again.
     pub check: Option<flow::agents::Check>,
+    /// What the engine writes on a work's pull request, from its file beside the flows.
+    pub pull_request: flow::agents::PullRequest,
     /// How often GitHub is asked how a run of a workflow goes.
     pub fast_poll: Duration,
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
     /// needs none.
     pub token: Option<String>,
     /// The paths of this machine that nothing the engine publishes on GitHub names: the data directory, the project's
-    /// local repository and the home directory, each said by what it is instead.
-    pub withheld: Vec<(String, &'static str)>,
+    /// local repository and the home directory, each with what stands in its place.
+    pub withheld: Vec<(String, String)>,
     /// The installation's id, in whose namespace the value that finds a run of a workflow is worked out.
     pub installation: Uuid,
 }
@@ -105,6 +108,7 @@ impl std::fmt::Debug for Config {
             .field("delete_branch", &self.delete_branch)
             .field("ci", &self.ci)
             .field("runners", &self.runners)
+            .field("pull_request", &self.pull_request)
             .field("fast_poll", &self.fast_poll)
             .field("token", &self.token.as_ref().map(|_| "(given)"))
             .field("withheld", &self.withheld)
@@ -128,16 +132,17 @@ const GITHUB: &str = "github.com";
 
 impl GitHub<Gh> {
     /// GitHub as the installation's settings and the project's declaration say, for the installation of this id,
-    /// reached with `gh` and the engine's token, which `env` gives from the engine's environment; `gh` keeps its
-    /// configuration in the data directory, which is an absolute path. Says why where the token is not there.
+    /// reached with `gh` and the engine's token, which `env` gives from the engine's environment, and saying what is
+    /// written beside the flows with the project's declaration in place of the one beside them: the project's
+    /// workflows, the words of `run_tests`, those of the check before a merge and those of the pull requests. `gh`
+    /// keeps its configuration in the data directory, which is an absolute path. Says why where the token is not there.
     pub fn from_settings(
         github: &settings::GitHub,
         project: &Project,
         data: &Path,
         installation: Uuid,
         env: impl Fn(&str) -> Option<String>,
-        ci: Option<flow::agents::Ci>,
-        (tool, check): (Option<flow::agents::Tool>, Option<flow::agents::Check>),
+        beside: &flow::agents::Agents,
     ) -> Result<GitHub<Gh>, String> {
         let token = (env(&github.token_env).filter(|token| !token.is_empty())).ok_or_else(|| {
             format!(
@@ -154,13 +159,14 @@ impl GitHub<Gh> {
             timeout: Duration::from_secs(github.timeout_minutes * 60),
             merge_method: github.merge_method.clone(),
             delete_branch: github.delete_branch,
-            ci,
+            ci: beside.project.ci.clone(),
             runners: github.runners.clone(),
-            tool,
-            check,
+            tool: beside.tools.get(crate::tools::RUN_TESTS).cloned(),
+            check: Some(beside.acts.check.clone()),
+            pull_request: beside.pull_request.clone(),
             fast_poll: FAST_POLL,
             token: Some(token.clone()),
-            withheld: withheld(data, &project.repo, env("HOME")),
+            withheld: withheld(data, &project.repo, env("HOME"), &beside.pull_request.withheld),
             installation,
         };
         let gh = Gh::new(&github.gh, &github.repository, &token, &dir);
@@ -424,8 +430,11 @@ impl<A: Api> Host for GitHub<A> {
                 failed.said(|why| format!("GitHub did not make the pull request {} ready: {why}", open.url))
             })?;
         }
-        // Titled as GitHub titles a squash by default, with the pull request's number, whatever the method.
-        let title = format!("{} (#{})", self.title(branch), open.number);
+        let number = open.number.to_string();
+        let title = fill(
+            &self.config.pull_request.merged,
+            &[("name", &self.title(branch)), ("number", &number)],
+        );
         let method = &self.config.merge_method;
         let commit = match self.api.merge(open.number, checked, method, &title).await {
             Ok(commit) => commit,
@@ -506,7 +515,7 @@ impl<A: Api> Host for GitHub<A> {
         // Only the work's pull request into main is the work's: one into another branch is a person's.
         let pulls = self.api.pulls(&branch.place.branch).await?;
         for open in (pulls.iter()).filter(|p| p.state == State::Open && p.base == self.project.main) {
-            (self.api.close(open.number, super::CLOSED).await)
+            (self.api.close(open.number, &self.config.pull_request.closed).await)
                 .map_err(|why| format!("GitHub did not close the pull request {}: {why}", open.url))?;
         }
         Ok(())
@@ -559,16 +568,18 @@ const UNSEEN: char = '\u{200B}';
 
 /// What an agent wrote, as it may be published on the repository: no mention notifies anyone, no reference names an
 /// issue or a pull request, and no closing word closes one, each broken by an unseen space after its first character
-/// (`@`, `#`, the word's first letter); every path withheld is said as what it is; and the text is cut to [`ABOUT`]
-/// characters, saying so. GitHub's own reading of a fenced block is not relied on for any of it.
-pub(crate) fn neutral(text: &str, withheld: &[(String, &'static str)]) -> String {
+/// (`@`, `#`, the word's first letter); every path withheld is said as what stands in its place; and the text is cut to
+/// [`ABOUT`] characters, followed by `cut` on a line of its own. GitHub's own reading of a fenced block is not relied on
+/// for any of it.
+pub(crate) fn neutral(text: &str, withheld: &[(String, String)], cut: &str) -> String {
     let mut text = text.to_string();
     for (path, said) in withheld {
         text = text.replace(path.as_str(), said);
     }
     if text.chars().count() > ABOUT {
         text = text.chars().take(ABOUT).collect();
-        text.push_str("\n(cut: the whole is on the engine's page)");
+        text.push('\n');
+        text.push_str(cut);
     }
     let mut out = String::with_capacity(text.len() + 16);
     let mut word = String::new();
@@ -617,7 +628,11 @@ impl<A: Api> GitHub<A> {
     /// The title of the work's pull request: the name of its merge, made [`neutral`] as what the work writes is, cut
     /// to [`TITLE`] characters, saying so.
     fn title(&self, branch: &Branch<'_>) -> String {
-        let title = neutral(branch.title.trim(), &self.config.withheld);
+        let title = neutral(
+            branch.title.trim(),
+            &self.config.withheld,
+            &self.config.pull_request.cut,
+        );
         if title.chars().count() <= TITLE {
             return title;
         }
@@ -626,36 +641,35 @@ impl<A: Api> GitHub<A> {
         cut
     }
 
-    /// What the pull request of the work says of itself: what the work wrote of itself, as a block of plain text made
-    /// [`neutral`], then what the pull request is. A person's edit of the body is written over at the next check.
+    /// What the pull request of the work says of itself, in its words: what the work wrote of itself, as a block of
+    /// plain text made [`neutral`], then what the pull request is. A person's edit of the body is written over at the
+    /// next check.
     fn body(&self, branch: &Branch<'_>) -> String {
-        let about = neutral(branch.about.trim(), &self.config.withheld);
-        let what = format!(
-            "This pull request carries work {} of wf-agents.\n\nThe engine pushes here each commit of the work's \
-             branch that it checks, and reads the CI of that commit. It merges the pull request once the check passed \
-             on the commit it merges and the work's flow lets it go. What was decided in the work, and why, is on the \
-             engine's page for the work. The text above is written over at each check.\n",
-            branch.work.0
-        );
+        let words = &self.config.pull_request;
+        let about = neutral(branch.about.trim(), &self.config.withheld, &words.cut);
+        let what = fill(&words.body, &[("work", &branch.work.0.to_string())]);
         if about.is_empty() {
             return what;
         }
         let fence = fence(&about);
-        format!("What the work's agents wrote of the change:\n\n{fence}text\n{about}\n{fence}\n\n---\n\n{what}")
+        let fenced = format!("{fence}text\n{about}\n{fence}");
+        format!("{}{what}", fill(&words.about, &[("about", &fenced)]))
     }
 }
 
-/// The paths nothing published names, each with what is said in its place: the longest first, so that one inside
-/// another is said as the one it is in.
-pub(crate) fn withheld(data: &Path, repo: &Path, home: Option<String>) -> Vec<(String, &'static str)> {
+/// The paths nothing published names, each with what stands in its place, as `said` words it: the longest first, so
+/// that one inside another is said as the one it is in.
+pub(crate) fn withheld(
+    data: &Path,
+    repo: &Path,
+    home: Option<String>,
+    said: &flow::agents::Withheld,
+) -> Vec<(String, String)> {
     let mut withheld = vec![
-        (data.display().to_string(), "<the data directory>"),
-        (repo.display().to_string(), "<the repository>"),
+        (data.display().to_string(), said.data.clone()),
+        (repo.display().to_string(), said.repository.clone()),
     ];
-    withheld.extend(
-        home.filter(|home| home.len() > 1)
-            .map(|home| (home, "<the home directory>")),
-    );
+    withheld.extend(home.filter(|home| home.len() > 1).map(|home| (home, said.home.clone())));
     withheld.sort_by_key(|(path, _)| std::cmp::Reverse(path.len()));
     withheld
 }

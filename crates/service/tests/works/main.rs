@@ -519,6 +519,7 @@ fn open(
         outside: (outside.cloned()).unwrap_or_else(|| Arc::new(recording.scripted.clone())),
         host: Some(Arc::new(recording.scripted.clone())),
         slots: SLOTS,
+        calls: Scripted::calls(),
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")

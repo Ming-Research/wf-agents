@@ -63,6 +63,7 @@ fn by_project<T: ?Sized>(reached: Arc<T>) -> ByProject<T> {
     ByProject {
         of: [("one".to_string(), reached)].into(),
         said: said(),
+        withdrawn: "Withdrawn.".to_string(),
     }
 }
 
@@ -237,7 +238,7 @@ fn a_call_of_an_item_of_no_project_named_is_answered_in_the_words_beside_the_flo
         [
             "Nothing was run: two is not named.",
             "Nothing was run: no project.",
-            service::WITHDRAWN
+            "Withdrawn."
         ]
     );
 }

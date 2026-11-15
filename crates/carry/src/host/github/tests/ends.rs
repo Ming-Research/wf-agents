@@ -34,7 +34,7 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     assert_eq!(pulls[0].title, "Greet the user");
     let body = &pulls[0].body;
     assert!(body.contains("\n```text\nGreets the user by name.\n```\n"), "{body}");
-    assert!(body.contains("\n---\n\nThis pull request carries work 1"), "{body}");
+    assert!(body.contains("\n---\n\nThis pull request carries work W1"), "{body}");
     let edits = |hub: &Hub| {
         (hub.github().asked().into_iter())
             .filter(|a| matches!(a, Asked::Edit { .. }))

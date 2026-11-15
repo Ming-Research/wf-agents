@@ -49,6 +49,23 @@ fn tool() -> flow::agents::Tool {
     toml::from_str(text).expect("the file of run_tests reads")
 }
 
+/// What the engine writes on a pull request, as this repository's file beside the flows gives it.
+fn pull_request() -> flow::agents::PullRequest {
+    let text = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../flow/agents/pull_request.toml"
+    ));
+    toml::from_str(text).expect("the file of the pull requests reads")
+}
+
+/// What is written beside this repository's flows, its declaration of the project with the workflows these give.
+fn beside(ci: Option<flow::agents::Ci>) -> flow::agents::Agents {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let mut beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+    beside.project.ci = ci;
+    beside
+}
+
 /// The project's two workflows as the tests' project declares them: `fast.yml`, which runs the lint by name, and
 /// `ci.yml`, the full one, both reporting in `test-results`.
 fn ci() -> flow::agents::Ci {
@@ -88,6 +105,7 @@ fn config(bare: &std::path::Path) -> Config {
         runners: vec!["github".to_string()],
         tool: Some(tool()),
         check: Some(crate::acts::words().check),
+        pull_request: pull_request(),
         fast_poll: Duration::from_millis(10),
         token: None,
         withheld: Vec::new(),
@@ -102,7 +120,7 @@ impl Hub {
         run(&repo.data, &["init", "-q", "--bare", "-b", "main", "github.git"]);
         run(&repo.project.repo, &["push", "-q", &bare.display().to_string(), "main"]);
         let mut config = config(&bare);
-        config.withheld = withheld(&repo.data, &repo.project.repo, None);
+        config.withheld = withheld(&repo.data, &repo.project.repo, None, &config.pull_request.withheld);
         let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config);
         Hub {
             repo,
@@ -930,8 +948,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         &repo.data,
         INSTALLATION,
         |_| None,
-        None,
-        (None, None),
+        &beside(None),
     );
     let refused = none.err().expect("refused");
     assert!(refused.contains("no WF_GITHUB_TOKEN"), "{refused}");
@@ -942,8 +959,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         &repo.data,
         INSTALLATION,
         given,
-        Some(ci()),
-        (None, None),
+        &beside(Some(ci())),
     );
     let host = host.expect("made");
     let config = &host.config;

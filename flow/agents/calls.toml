@@ -1,0 +1,9 @@
+# The result a call has where the engine ends it itself, kept as the call's result in the work's records. No round is
+# given either: a run abandoned has no round after it, and the engine's wait is no call a round is told of.
+
+# A call withdrawn as its run was abandoned, before it had its result: a person's question, a run at its limit, the
+# engine's wait or a tool's call.
+withdrawn = "Withdrawn: its run was abandoned before it had its result."
+
+# The engine's wait before a round that failed in passing is tried again, once its time has come.
+waited = "The wait is over: the round is tried again."
