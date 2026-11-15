@@ -39,22 +39,44 @@ pub struct Records {
     pub finished: Vec<Finished>,
     /// Each run that was abandoned, leaving no record.
     pub abandoned: Vec<Abandoned>,
+    /// Each version of a block put into a round while it was under way, which the round was told of beside those it
+    /// began with. Records kept before a version reached a round so have none, and read so.
+    #[serde(default)]
+    pub put_in: Vec<PutIn>,
     /// Every write of a block by a person or from outside the work.
     pub written: Vec<Written>,
+    /// Each version of a question put to the owner: asked, asked anew or withdrawn under its name (design document
+    /// `data-and-context`, 32, 33). Records kept before questions were data of their own have none, and read so.
+    #[serde(default)]
+    pub questions: Vec<Questioned>,
+    /// Each answer the owner gave to a version of a question (34). Records kept before answers were data of their own
+    /// have none, and read so.
+    #[serde(default)]
+    pub answers: Vec<Answered>,
     /// Each time the owner let a cell go on after it reached its limit.
     pub let_go: Vec<LetGo>,
     /// Each time the work was paused or let on again; the latest says which it is.
     pub pauses: Vec<Pause>,
-    /// When the work's item was cancelled, if it was.
-    pub cancelled: Option<Seq>,
-    /// When what the work held outside the engine was let go, once it had ended and nothing of it was under way: its
-    /// worktree, and its pull request where it did not merge. Records kept before the engine let go of anything have
-    /// none, and read so.
+    /// Each time the work's item was cancelled, in order. The cancel that stands is [`Records::cancelled`].
+    pub cancels: Vec<Seq>,
+    /// Each time the work's item was reopened, each after a cancel, in order: the cancel before it no longer stands.
     #[serde(default)]
-    pub released: Option<Seq>,
+    pub reopens: Vec<Seq>,
+    /// Each time what the work held outside the engine was let go, once it had ended and nothing of it was under way:
+    /// its worktree, and its pull request where it did not merge. Records kept before the engine let go of anything
+    /// have none, and read so. What was let go since the work's latest reopen is [`Records::released`].
+    #[serde(default)]
+    pub releases: Vec<Seq>,
 }
 
 impl Records {
+    /// Whether the entry at this place wrote a version of the block: a person's or the outside's write of it, or a run
+    /// that finished there writing it.
+    pub fn wrote(&self, block: &BlockId, at: Seq) -> bool {
+        (self.written.iter()).any(|w| &w.block == block && w.at == at)
+            || (self.finished.iter()).any(|f| f.at == at && f.writes.iter().any(|w| &w.block == block))
+    }
+
     /// The records as they stood before this place: every entry at an earlier place, and none at it or after. Records
     /// are only added to, so these are what was recorded then, and what was decided then is decided again from them.
     pub fn before(&self, place: Seq) -> Records {
@@ -69,12 +91,31 @@ impl Records {
             done: kept(&self.done, |e| e.at, place),
             finished: kept(&self.finished, |e| e.at, place),
             abandoned: kept(&self.abandoned, |e| e.at, place),
+            put_in: kept(&self.put_in, |e| e.at, place),
             written: kept(&self.written, |e| e.at, place),
+            questions: kept(&self.questions, |e| e.at, place),
+            answers: kept(&self.answers, |e| e.at, place),
             let_go: kept(&self.let_go, |e| e.at, place),
             pauses: kept(&self.pauses, |e| e.at, place),
-            cancelled: self.cancelled.filter(|at| *at < place),
-            released: self.released.filter(|at| *at < place),
+            cancels: kept(&self.cancels, |at| *at, place),
+            reopens: kept(&self.reopens, |at| *at, place),
+            releases: kept(&self.releases, |at| *at, place),
         }
+    }
+
+    /// The cancel that stands: the latest cancel, where no reopen came after it.
+    pub fn cancelled(&self) -> Option<Seq> {
+        let cancel = self.cancels.iter().max().copied()?;
+        let reopened = self.reopens.iter().any(|at| *at > cancel);
+        (!reopened).then_some(cancel)
+    }
+
+    /// When what the work held outside was let go, where it was since the work's latest reopen: a reopened work holds
+    /// its place again once it is let on, and lets it go again when it ends again.
+    pub fn released(&self) -> Option<Seq> {
+        let reopened = self.reopens.iter().max().copied();
+        let release = self.releases.iter().max().copied()?;
+        reopened.is_none_or(|reopened| release > reopened).then_some(release)
     }
 }
 
@@ -86,7 +127,8 @@ pub struct Started {
     pub at: Seq,
     /// Why the run was started, as the decision gave it.
     pub because: Vec<Cause>,
-    /// The version the run started from, of each block its cell reads or may write; `None` where there was none.
+    /// The version the run started from, of each block that runs its cell or that it may write; `None` where there was
+    /// none. Of a block that runs the cell, it is the version the round was told of as it began.
     pub basis: BTreeMap<BlockId, Option<Seq>>,
 }
 
@@ -104,7 +146,10 @@ pub struct Returned {
     pub at: Seq,
 }
 
-/// A run rests at a call until the call has its result.
+/// A call of a run: one its return asked for, made as the return was taken and before the run finished, whose result
+/// the cell is given when it is entered again; or one the engine makes for a run at rest, which goes on once it has the
+/// result, as a wait before a round is tried again or the owner's word at a limit. Runs kept before a return that asks
+/// ended its run made the calls they asked for between their rounds, and rested at them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Called {
     pub call: CallId,
@@ -129,16 +174,25 @@ pub struct Finished {
     pub at: Seq,
     /// The blocks the run wrote. Each is a version of its block, named by this entry's place.
     pub writes: Vec<Write>,
+    /// The blocks its return says it has dealt with, by name, in the order it named them, each once: each is a block of
+    /// the run's `basis` or one [put in](PutIn) to it. Of each, what the run consumes is the latest version it was told
+    /// of: the one it began from, or one put in to it later (design document `data-and-context`, 9). A return that
+    /// dealt with nothing names none. None where the return did not say, as no return of the earlier form does and no
+    /// record kept before returns said it holds: such a run dealt with every block of its `basis`. That is read from
+    /// the run's own record, never from what the flow says runs its cell now, so that a run reads the same after the
+    /// flow changes.
+    #[serde(default)]
+    pub dealt_with: Option<Vec<BlockId>>,
 }
 
 /// A block a run wrote as it finished.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Write {
     pub block: BlockId,
-    /// Whether the change matters to the cells that read the block, compared with the version the run started from.
-    /// Where it does not, the version keeps that version's meaning. Not read for a block with a value: a choice
+    /// Whether the run hands the version in as changing nothing in meaning, compared with the version the run started
+    /// from. Where it does, the version keeps that version's meaning. Not read for a block with a value: a choice
     /// changes its meaning when its value does.
-    pub matters: bool,
+    pub meaning_unchanged: bool,
     /// The block's value, where a condition reads it: a choice such as yes or no.
     pub value: Option<String>,
 }
@@ -147,6 +201,19 @@ pub struct Write {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Abandoned {
     pub run: RunId,
+    pub at: Seq,
+}
+
+/// A version of a block was put into the round of the run that was under way, after the round began, so that the
+/// round was told of it: what the owner says reaches a round so (design document `data-and-context`, 41). The version
+/// was written before it was put in, and the round was under way then. A version the round was never told of stays
+/// new to its cell, however the round ends.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PutIn {
+    pub run: RunId,
+    pub block: BlockId,
+    /// The version put into the round, named by the place of the entry that wrote it.
+    pub version: Seq,
     pub at: Seq,
 }
 
@@ -161,6 +228,43 @@ pub struct Written {
     pub matters: bool,
     /// The block's value, where a condition reads it.
     pub value: Option<String>,
+    /// The cell what was written is said to, where it is said to one: of the owner's entry of the record of what is
+    /// said, the cell the words were given to. Records kept before an entry held its cell have none, and read so.
+    #[serde(default)]
+    pub said_to: Option<CellId>,
+    pub at: Seq,
+}
+
+/// A version of a question put to the owner, named by the place of this entry: what the walk reads of it. What it asks
+/// and its options are kept with what came back from the round that brought it. A question has a name no other
+/// question of the work has, and belongs to the cell of its latest version: one cell's alone where an agent asks it,
+/// the cell of the round at whose end the engine found what it asks where the engine does. A version that withdraws it
+/// leaves it standing no more.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Questioned {
+    pub name: String,
+    /// The cell it belongs to: the cell of the run whose return asked it, or whose round's end the engine asked it at.
+    pub cell: CellId,
+    /// The run whose return brought it.
+    pub run: RunId,
+    /// The engine itself asked it, from what it found of the work as the run's round ended, and not the run's agent.
+    pub engine: bool,
+    /// The cell waits for the answer: the work goes past the cell to no later one until this version is answered.
+    pub waits: bool,
+    /// This version withdraws the question.
+    pub withdrawn: bool,
+    pub at: Seq,
+}
+
+/// The owner's answer to a version of a question: the option taken, counted from one, and why, where the owner said.
+/// The last answer to a question's latest version is its answer; one to an earlier version answers it no more.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Answered {
+    pub question: String,
+    /// The version answered, named by the place of the entry that wrote it.
+    pub version: Seq,
+    pub option: u64,
+    pub why: Option<String>,
     pub at: Seq,
 }
 
@@ -212,26 +316,31 @@ pub enum Pauser {
 /// Why a cell runs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Cause {
-    /// It has no record.
+    /// It had no record: a cell ran once before anything else ran it, as runs started before the walk chose by what is
+    /// new say. The walk no longer gives it: a cell runs only for what is new to it.
     NoRecord,
-    /// A block it reads has another meaning than the one its record knows. `was` is the version the record knows:
-    /// the one its run started from, or the one it wrote itself; the run now starts from the current one. `behind`
-    /// says every change of the block's meaning since that version was written by a cell after this one: a judging
-    /// cell's opinion on what it wrote, for one.
+    /// A block that runs the cell is new to it: it has a version, changing its meaning, later than the one the cell
+    /// consumed, that the cell did not write itself (design document `data-and-context`, 6). `was` is the version the
+    /// cell consumed, `None` where it consumed none; the run starts from the latest, as its `basis` says. `behind` says
+    /// every such new version was written by a cell after this one: a judging cell's opinion on what it wrote, for one.
     Changed {
         block: BlockId,
         was: Option<Seq>,
         behind: bool,
     },
+    /// The calls the cell's earlier runs asked for, as their returns were taken, all have their results, which no
+    /// run of the cell was given yet (design document `data-and-context`, 28). The run is given them.
+    Results { calls: Vec<CallId> },
 }
 
 impl Cause {
-    /// Whether the cause is no way round: a first run, or a change of meaning that a person, the outside or a cell
-    /// before this one made.
+    /// Whether the cause is no way round: a first run, or a version that a person, the outside or a cell before this
+    /// one wrote.
     pub fn forward(&self) -> bool {
         match self {
             Cause::NoRecord => true,
             Cause::Changed { behind, .. } => !behind,
+            Cause::Results { .. } => false,
         }
     }
 }
@@ -257,4 +366,24 @@ pub enum RecordFault {
     ReturnedWithoutRound(RunId),
     /// Two entries share this place.
     PlaceTwice(Seq),
+    /// What was put in at this place is no version of its block.
+    PutInNoVersion(Seq),
+    /// What was put in at this place is a version written at that place or after it.
+    PutInBeforeWritten(Seq),
+    /// What was put in at this place was put into a run that had no round under way then.
+    PutInNoRound(Seq),
+    /// The run's return names, as dealt with, a block that is neither in its `basis` nor was put in to it.
+    DealtWithUnknown(RunId),
+    /// The run's return names one block twice as dealt with.
+    DealtWithTwice(RunId),
+    /// The call was made after its run had finished or was abandoned: a run makes its calls before it ends.
+    CalledAfterEnd(CallId),
+    /// The answer at this place names no version of its question, asking it, written before it.
+    AnswerNoVersion(Seq),
+    /// What is decided on these records, once done, leads to deciding again without end: the engine, which went round
+    /// past its bound, says so, as the walk alone cannot.
+    WithoutEnd,
+    /// The work was reopened at this place with no cancel since it was last reopened: only a cancelled item is
+    /// reopened.
+    ReopenedNotCancelled(Seq),
 }

@@ -9,9 +9,8 @@
 //!
 //! 1. No run of the cell starts unless the dependencies block's current value, as the run starts, is the one the
 //!    precondition looks for (decision conditions-and-preconditions).
-//! 2. The cell finishes at most one run, and once it has, the work has ended as merged;
-//!    every run of it starts for its having no record, so that what people write of the item, its background, runs
-//!    nothing.
+//! 2. The cell finishes at most one run, and once it has, the work has ended as merged; every run of it starts for
+//!    what the items it is made of say, so that what people write of the item, its background, runs nothing.
 //! 3. Once people stop, the outside says the items have merged and the owner lets the work on and lets on any run at a
 //!    limit, the work ends within `CONTENT` steps: merged, with the one finished run, unless it was cancelled (property
 //!    a-work-comes-to-rest).
@@ -38,7 +37,7 @@ mod support;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
-use decide::{BlockId, Cause, Decision, End, Maker, Outsider, Pauser, RunId, TestKind, Waited, decide};
+use decide::{BlockId, Cause, Decision, End, Maker, Outsider, Pauser, RunId, Waited, decide};
 use engine::{Call, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle};
 use flow::{Compiled, Has, Kind, compile, read};
 use support::{Driver, Part, Rng};
@@ -61,6 +60,9 @@ fn deliver() -> Compiled {
     let has = Has {
         sources: ["dependencies".to_string()].into(),
         acts: ["deliver".to_string()].into(),
+        // The triggers beside the flows are every flow's, and one says what happened by the files of the tree.
+        details: ["files".to_string()].into(),
+        ..Default::default()
     };
     compile(&source, &has).expect("the deliver flow compiles")
 }
@@ -75,9 +77,10 @@ fn dependencies(flow: &Compiled) -> BlockId {
 
 /// The value the cell's precondition looks for in the dependencies block.
 fn wanted(flow: &Compiled) -> String {
-    let cell = &flow.flow.cells()[0];
-    let test = &flow.flow.tests()[&cell.requires[0]];
-    test.is.clone()
+    match &flow.flow.cells()[0].requires[..] {
+        [decide::Condition::Is { value, .. }] => value.clone(),
+        other => panic!("the cell waits on the value of the dependencies block alone, not {other:?}"),
+    }
 }
 
 fn wrote(block: &BlockId, by: Outsider, value: Option<&str>) -> Event {
@@ -110,26 +113,26 @@ fn the_deliver_flow_is_one_act_of_the_engines_held_until_the_items_it_is_made_of
         panic!("the deliver flow has more than its one cell: {:?}", flow.flow.cells());
     };
     assert_eq!(cell.id.as_str(), "V1");
-    assert_eq!(cell.applies, None, "the last cell has no condition");
+    assert_eq!(cell.applies, [], "the last cell has no condition");
     let spec = &flow.cells[0];
     assert_eq!((spec.title.as_str(), spec.kind), ("Deliver", Kind::Engine));
     assert_eq!(spec.act.as_deref(), Some("deliver"));
-    assert_eq!(cell.requires, ["all_delivered".into()]);
-    let test = &flow.flow.tests()[&cell.requires[0]];
+    // It waits until the dependencies block says the items have merged.
     assert_eq!(
-        (test.kind, test.reads.clone()),
-        (TestKind::All, vec![dependencies(&flow)])
+        cell.requires,
+        [decide::Condition::Is {
+            block: dependencies(&flow),
+            value: "merged".to_string(),
+        }]
     );
-    assert_eq!(test.is, "merged");
-    assert_eq!(flow.tests[&cell.requires[0]], "The items it is made of are merged");
     assert_eq!(cell.outputs, ["delivered".into()]);
     assert!(
         flow.blocks[&BlockId::from("delivered")].readers.shown,
         "the owner reads what was delivered"
     );
-    // What the item is to deliver: people write it, the owner reads it, and no cell does, so that the cell takes no
-    // input from it and an edit of it runs nothing.
-    assert_eq!(cell.inputs, Vec::<BlockId>::new());
+    // The cell is run by what the items it is made of say, each merge of one a new version; what the item is to
+    // deliver people write and the owner reads, and no cell does, so that an edit of it runs nothing.
+    assert_eq!(cell.runs_on, vec![dependencies(&flow)]);
     let background = &flow.blocks[&BlockId::from("background")];
     assert!(background.writers.people && background.readers.shown);
     assert_eq!(background.values, None);
@@ -153,7 +156,10 @@ fn a_work_waits_at_its_cell_until_its_items_have_merged_then_runs_it_once_and_ha
     let waits = Decision::Wait {
         at: "V1".into(),
         on: vec![Waited::Precondition {
-            test: "all_delivered".into(),
+            on: decide::Condition::Is {
+                block: deps.clone(),
+                value: "merged".to_string(),
+            },
             // The items it is made of merging is what makes it hold: no person can.
             by: vec![Maker::Outside {
                 source: "dependencies".to_string(),
@@ -180,7 +186,7 @@ fn a_work_waits_at_its_cell_until_its_items_have_merged_then_runs_it_once_and_ha
         panic!("the cell's first round is not given: {effects:?}");
     };
     assert_eq!(cell.as_str(), "V1");
-    let came = Came::HandsIn(delivered(&flow));
+    let came = Came::hands_in(delivered(&flow));
     let effects = take(
         &mut work,
         Event::Returned {
@@ -221,7 +227,7 @@ impl Part for Deliverable {
                 value: Some(self.merged.clone()),
             });
         }
-        Came::HandsIn(handed)
+        Came::hands_in(handed)
     }
 
     fn acts(&mut self, d: &mut Driver) -> Event {
@@ -279,11 +285,11 @@ struct Seen {
 fn check(d: &Driver, part: &Deliverable) {
     let r = &d.work.records;
     for s in &r.started {
-        assert_eq!(
-            s.because,
-            [Cause::NoRecord],
-            "{:?} started for what was written, though the cell reads nothing",
-            s.run
+        assert!(
+            matches!(s.because.as_slice(), [Cause::Changed { block, .. }] if *block == part.deps),
+            "{:?} started for {:?}, though only what the items it is made of say runs the cell",
+            s.run,
+            s.because
         );
         let value = (r.written.iter())
             .filter(|w| w.block == part.deps && w.at < s.at)
@@ -380,7 +386,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
                 }
             } else if d.paused {
                 d.take(Event::Resumed);
-            } else if !deps_merged && r.cancelled.is_none() {
+            } else if !deps_merged && r.cancelled().is_none() {
                 d.take(wrote(&part.deps, Outsider::Outside, Some(&part.merged)));
             } else if let Some(effect) = at_limit {
                 // The owner lets the run go on at its limit.
@@ -395,7 +401,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         }
         let r = &d.work.records;
         let decision = decide(&d.flow.flow, r);
-        if r.cancelled.is_some() && r.finished.is_empty() {
+        if r.cancelled().is_some() && r.finished.is_empty() {
             assert_eq!(decision, Decision::Ended(End::Cancelled), "a cancelled work goes on");
             seen.cancels += 1;
         } else {

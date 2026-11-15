@@ -1,13 +1,20 @@
 //! What is kept of each round of an agent in the data directory, where it is and how it is read back for the page.
 //!
 //! Each try of a round keeps the message it was told and what the command line printed, in `rounds/<work>` in the
-//! data directory: `<run>-<round>.message.md` and `.result.json` for its first try, `.message.2.md` and
-//! `.result.2.json` for the next, and so on; other files there are not read here. What a try ran on is in the work's
-//! records, not here; a try kept before tries were recorded kept it here, in `.ran.json` (`.ran.2.json` for the next
-//! try, and so on), which is read for it. Read back, a try is what it was told, and of what it printed only what the page shows: the
-//! agent's closing words where they are not the structured return itself, the structured return, how many turns it
-//! took, how long, and by which models; or, where the program said the try failed, why. The rest, ids of sessions and of credentials among it, is never read out of the file. A
-//! result that is empty is no result: the program printed none.
+//! data directory: `<run>-<round>.message.md` and `.stream.jsonl` for its first try, `.message.2.md` and
+//! `.stream.2.jsonl` for the next, and so on. A try told what an earlier try of its round was told keeps its message
+//! as a second name of that try's file, read as any is; a message file is therefore never written over, which would
+//! change the other try's too. The result is the stream's last line but for the command line's own
+//! `system` lines, such as a `task_summary`, once it printed one. A try kept before the command line was run with a
+//! stream kept its result alone, in `.result.json` (`.result.2.json` for the next try, and so on), which is read for
+//! it. Other files there are not read here. What a try ran on is in the work's records, not here; a try kept before
+//! tries were recorded kept it here, in `.ran.json` (`.ran.2.json` for the next try, and so on), which is read for it.
+//! Read back, a try is what it was told, and of what it printed only what the page shows: the agent's closing words
+//! where they are not the structured return itself, the structured return, how many turns it took, how long, by
+//! which models and how many tokens it wrote to the prompt cache; or, where the program said the try failed, why. The
+//! rest, ids of sessions and of credentials among it, is never read out of the file. A result that is empty is no
+//! result: the program printed none. While a round is under way, the end of its latest try's stream says what its
+//! agent was last seen doing ([`doing`]).
 //!
 //! What is read is bounded, so that a round kept large neither holds the page up nor fills it: a file's length is
 //! looked at before it is read, a message is read up to [`BOUNDS`]' `message` and said to be cut, a result longer than
@@ -15,13 +22,13 @@
 //! left out.
 
 use std::collections::BTreeMap;
-use std::io::{ErrorKind, Read};
+use std::io::{ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
-use service::{Back, Returned, Told, Try};
+use service::{Back, Doing, Returned, Told, Try};
 use store::WorkNumber;
 use work::RanOn;
 
@@ -49,7 +56,16 @@ pub(crate) fn base(data: &Path, work: WorkNumber, run: RunId, number: usize) -> 
     dir.join(format!("{}-{number}", run.0))
 }
 
-/// Where the try of this number of a round, the first being one, keeps what it is told and what it returns.
+/// Where the try of this number of a round, the first being one, keeps the command line's stream.
+pub(crate) fn stream_at(base: &Path, n: usize) -> PathBuf {
+    match n {
+        1 => base.with_extension("stream.jsonl"),
+        n => base.with_extension(format!("stream.{n}.jsonl")),
+    }
+}
+
+/// Where the try of this number of a round, the first being one, keeps what it is told, and where a try kept before
+/// the stream was kept its result.
 pub(crate) fn at(base: &Path, n: usize) -> (PathBuf, PathBuf) {
     match n {
         1 => (base.with_extension("message.md"), base.with_extension("result.json")),
@@ -120,16 +136,23 @@ fn told_within(data: &Path, base: &Path, bounds: &Bounds) -> Result<Told, String
         }
         let shown = read_up_to(&message, bounds.message).map_err(|e| format!("{}: {e}", named(&message)))?;
         let message = text_of(&shown, whole > bounds.message);
-        let back = match length(&result).map_err(|e| format!("{}: {e}", named(&result)))? {
-            None | Some(0) => Back::Nothing,
-            Some(long) if long > bounds.result => Back::Unreadable(format!(
-                "it is {long} bytes long, more than the {} that are read of a result",
-                bounds.result
-            )),
-            Some(_) => {
-                let printed = std::fs::read(&result).map_err(|e| format!("{}: {e}", named(&result)))?;
-                back(&printed)
+        let stream = stream_at(base, n);
+        let streamed = length(&stream).map_err(|e| format!("{}: {e}", named(&stream)))?;
+        let back = match streamed {
+            Some(long) => {
+                result_of_stream(&stream, long, bounds.result).map_err(|e| format!("{}: {e}", named(&stream)))?
             }
+            None => match length(&result).map_err(|e| format!("{}: {e}", named(&result)))? {
+                None | Some(0) => Back::Nothing,
+                Some(long) if long > bounds.result => Back::Unreadable(format!(
+                    "it is {long} bytes long, more than the {} that are read of a result",
+                    bounds.result
+                )),
+                Some(_) => {
+                    let printed = std::fs::read(&result).map_err(|e| format!("{}: {e}", named(&result)))?;
+                    back(&printed)
+                }
+            },
         };
         read_so_far += message.len() as u64 + size(&back);
         let on = ran_at(base, n);
@@ -142,6 +165,36 @@ fn told_within(data: &Path, base: &Path, bounds: &Bounds) -> Result<Told, String
         });
     }
     Ok(told)
+}
+
+/// What came back, read from a stream this long: its result, the last line of it but for the command line's own
+/// `system` lines, which may follow the result. No more than `bound` bytes are read, from its end. A stream whose last
+/// line but for those is no result, as one under way or stopped, gave nothing back yet.
+fn result_of_stream(path: &Path, long: u64, bound: u64) -> std::io::Result<Back> {
+    let mut file = std::fs::File::open(path)?;
+    // One byte more than the bound, so that the newline before a line of the bound's length is read.
+    let from = long.saturating_sub(bound + 1);
+    file.seek(SeekFrom::Start(from))?;
+    let mut end = Vec::new();
+    file.take(bound + 1).read_to_end(&mut end)?;
+    let mut lines = end.trim_ascii_end().rsplit(|b| *b == b'\n').peekable();
+    while let Some(line) = lines.next() {
+        // The first line read may have begun before what was read: none is whole that has none before it.
+        if lines.peek().is_none() && from > 0 {
+            return Ok(Back::Unreadable(format!(
+                "its last lines are longer than the {bound} bytes that are read of a result"
+            )));
+        }
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
+            return Ok(Back::Nothing);
+        };
+        match value["type"].as_str() {
+            Some("result") => return Ok(back(line)),
+            Some("system") => continue,
+            _ => return Ok(Back::Nothing),
+        }
+    }
+    Ok(Back::Nothing)
 }
 
 /// The file's length; none where there is no such file.
@@ -191,6 +244,14 @@ struct Printed {
     duration_ms: Option<u64>,
     #[serde(rename = "modelUsage", default)]
     model_usage: BTreeMap<String, IgnoredAny>,
+    #[serde(default)]
+    usage: Option<PrintedUsage>,
+}
+
+/// Of the tokens the command line printed, what the records do not keep apart.
+#[derive(Deserialize)]
+struct PrintedUsage {
+    cache_creation_input_tokens: Option<u64>,
 }
 
 /// What came back, read from what the command line printed: what it returned, or that it failed and why; or why it
@@ -223,7 +284,101 @@ fn back(printed: &[u8]) -> Back {
         turns: printed.num_turns,
         duration_ms: printed.duration_ms,
         models: printed.model_usage.into_keys().collect(),
+        cache_creation_input_tokens: printed.usage.and_then(|usage| usage.cache_creation_input_tokens),
     })
+}
+
+/// How much of the end of a try's stream is read for what its agent was last seen doing, in bytes: past it, a line is
+/// a tool's long result or the agent's long words, and what is before it is not what the agent does now.
+const DOING_BOUND: u64 = 256 << 10;
+
+/// How many of the latest things an agent did are given.
+const DOING: usize = 8;
+
+/// What the agent of the round of this number of the run of the work was last seen doing, as the stream of its latest
+/// try says as it comes: up to the last [`DOING`] things, the latest last, read from no more than [`DOING_BOUND`] bytes
+/// of its end; nothing where no try of it was kept, or its stream says nothing yet. A file that cannot be read is
+/// named from the data directory.
+pub(crate) fn doing(data: &Path, work: WorkNumber, run: RunId, number: usize) -> Result<Vec<Doing>, String> {
+    let base = base(data, work, run, number);
+    let named = |path: &Path| path.strip_prefix(data).unwrap_or(path).display().to_string();
+    // The latest try is the last whose message was kept.
+    let mut latest = None;
+    for n in 1.. {
+        let (message, _) = at(&base, n);
+        match length(&message).map_err(|e| format!("{}: {e}", named(&message)))? {
+            Some(_) => latest = Some(n),
+            None => break,
+        }
+    }
+    let Some(n) = latest else {
+        return Ok(Vec::new());
+    };
+    let stream = stream_at(&base, n);
+    let Some(long) = length(&stream).map_err(|e| format!("{}: {e}", named(&stream)))? else {
+        return Ok(Vec::new());
+    };
+    let end = read_end(&stream, long, DOING_BOUND).map_err(|e| format!("{}: {e}", named(&stream)))?;
+    let mut lines: Vec<&[u8]> = end.split(|b| *b == b'\n').collect();
+    // The first line read may have begun before what was read.
+    if long > DOING_BOUND && !lines.is_empty() {
+        lines.remove(0);
+    }
+    let mut done: Vec<Doing> = lines.into_iter().flat_map(things_done).collect();
+    let from = done.len().saturating_sub(DOING);
+    Ok(done.split_off(from))
+}
+
+/// The last bytes of the file this long, up to this many.
+fn read_end(path: &Path, long: u64, most: u64) -> std::io::Result<Vec<u8>> {
+    let mut file = std::fs::File::open(path)?;
+    file.seek(SeekFrom::Start(long.saturating_sub(most)))?;
+    let mut end = Vec::new();
+    file.take(most).read_to_end(&mut end)?;
+    Ok(end)
+}
+
+/// What a line of the command line's stream says the agent did: each tool it used, with what its input names, and
+/// what it said; or that its session was compacted. Anything else says nothing.
+fn things_done(line: &[u8]) -> Vec<Doing> {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
+        return Vec::new();
+    };
+    match value["type"].as_str() {
+        Some("assistant") => (value["message"]["content"].as_array().into_iter().flatten())
+            .filter_map(|content| match content["type"].as_str()? {
+                "tool_use" => Some(Doing::Tool {
+                    name: content["name"].as_str().unwrap_or_default().to_string(),
+                    on: subject(&content["input"]).map(one_line),
+                }),
+                "text" => (content["text"].as_str())
+                    .filter(|text| !text.trim().is_empty())
+                    .map(|text| Doing::Said(one_line(text))),
+                _ => None,
+            })
+            .collect(),
+        Some("system") if value["subtype"] == "compact_boundary" => vec![Doing::Compacting],
+        _ => Vec::new(),
+    }
+}
+
+/// What a tool's input says it is used on: the first of the keys that name it that the input has.
+fn subject(input: &serde_json::Value) -> Option<&str> {
+    ["command", "file_path", "path", "pattern", "description", "url", "query"]
+        .iter()
+        .find_map(|key| input[*key].as_str())
+}
+
+/// The longest a thing done is said, in characters: the start of a longer one is said.
+const DOING_CHARS: usize = 160;
+
+/// A text on one line, its start only where it is long.
+fn one_line(text: &str) -> String {
+    let one = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    match one.char_indices().nth(DOING_CHARS) {
+        Some((at, _)) => format!("{}…", &one[..at]),
+        None => one,
+    }
 }
 
 #[cfg(test)]
@@ -233,6 +388,10 @@ mod tests {
     /// A result the command line printed, with what is not for the page beside what is: its closing words are its
     /// structured return.
     const RESULT: &str = include_str!("../tests/fixtures/result.json");
+
+    /// A stream the command line printed, with what named the machine and the account replaced: a tool used, then
+    /// the return, the result, and a `task_summary` after it.
+    const STREAM: &str = include_str!("../tests/fixtures/stream.jsonl");
 
     /// A data directory, and where the round kept in it is.
     fn kept() -> (tempfile::TempDir, PathBuf) {
@@ -264,6 +423,7 @@ mod tests {
             turns: Some(2),
             duration_ms: Some(1781),
             models: vec!["claude-haiku-5-5".to_string()],
+            cache_creation_input_tokens: Some(4839),
         })
     }
 
@@ -287,6 +447,153 @@ mod tests {
                 tries: vec![tried("# Task\n\nGreet the user.\n", greeted())],
                 left_out: 0,
             }
+        );
+    }
+
+    #[test]
+    fn a_try_kept_as_a_stream_gives_what_its_result_says_though_system_lines_follow_it() {
+        let (dir, base) = kept();
+        // The command line's `task_summary` follows the result.
+        assert!(STREAM.lines().last().is_some_and(|line| line.contains("task_summary")));
+        std::fs::write(at(&base, 1).0, "Greet the user.").unwrap();
+        std::fs::write(stream_at(&base, 1), STREAM).unwrap();
+        // A stream under way, or stopped: before its result, a `task_summary` after a tool's use is its last line.
+        std::fs::write(at(&base, 2).0, "Again.").unwrap();
+        let under_way: String = STREAM.lines().take(18).map(|line| format!("{line}\n")).collect();
+        assert!(
+            under_way
+                .lines()
+                .last()
+                .is_some_and(|line| line.contains("task_summary"))
+        );
+        std::fs::write(stream_at(&base, 2), under_way).unwrap();
+        // A try kept before the stream was kept is read from its result.
+        keep(&base, 3, "Once more.", Some(RESULT));
+        let structured = serde_json::json!({ "hands_in": [{ "block": "greeting", "content": "BANANA" }], "asks": [] });
+        let streamed = Back::Returned(Returned {
+            text: None,
+            structured: Some(serde_json::to_string_pretty(&structured).unwrap()),
+            turns: Some(3),
+            duration_ms: Some(2658),
+            models: vec!["claude-haiku-5-5".to_string()],
+            cache_creation_input_tokens: Some(9090),
+        });
+        assert_eq!(
+            told_at(&dir).tries,
+            [
+                tried("Greet the user.", streamed),
+                tried("Again.", Back::Nothing),
+                tried("Once more.", greeted())
+            ]
+        );
+    }
+
+    /// A line of the stream in which the agent did these.
+    fn assistant(content: serde_json::Value) -> String {
+        serde_json::json!({ "type": "assistant", "message": { "content": content } }).to_string()
+    }
+
+    fn doing_at(dir: &tempfile::TempDir) -> Vec<Doing> {
+        doing(dir.path(), WorkNumber(3), RunId(7), 2).unwrap()
+    }
+
+    #[test]
+    fn what_an_agent_does_is_read_from_its_latest_try_s_stream_as_it_comes() {
+        let (dir, base) = kept();
+        assert_eq!(doing_at(&dir), [], "no try was kept");
+        std::fs::write(at(&base, 1).0, "Greet the user.").unwrap();
+        assert_eq!(doing_at(&dir), [], "its stream has not begun");
+        // The first try's stream: a tool used, with what its input names, then the return, whose tool names nothing.
+        std::fs::write(stream_at(&base, 1), STREAM).unwrap();
+        let bash = Doing::Tool {
+            name: "Bash".to_string(),
+            on: Some("echo hi".to_string()),
+        };
+        let returned = Doing::Tool {
+            name: "StructuredOutput".to_string(),
+            on: None,
+        };
+        assert_eq!(doing_at(&dir), [bash, returned]);
+        // A second try under way: what it said, long words cut, a compaction; a line that is not one of these, or not
+        // whole, says nothing.
+        std::fs::write(at(&base, 2).0, "Again.").unwrap();
+        let said = format!("Reading   the\nplan {}", "a".repeat(200));
+        let lines = [
+            assistant(serde_json::json!([{ "type": "text", "text": said }, { "type": "thinking", "thinking": "" }])),
+            r#"{"type":"user","message":{"content":[]}}"#.to_string(),
+            r#"{"type":"system","subtype":"compact_boundary"}"#.to_string(),
+            assistant(serde_json::json!([{ "type": "tool_use", "name": "Read", "input": { "file_path": "/w/a.rs" } }])),
+            r#"{"type":"assistant","message":{"con"#.to_string(),
+        ];
+        std::fs::write(stream_at(&base, 2), lines.join("\n")).unwrap();
+        let cut = format!("Reading the plan {}…", "a".repeat(160 - "Reading the plan ".len()));
+        let read = Doing::Tool {
+            name: "Read".to_string(),
+            on: Some("/w/a.rs".to_string()),
+        };
+        assert_eq!(doing_at(&dir), [Doing::Said(cut), Doing::Compacting, read]);
+    }
+
+    #[test]
+    fn only_the_last_things_an_agent_did_are_read_from_the_end_of_its_stream() {
+        let (dir, base) = kept();
+        std::fs::write(at(&base, 1).0, "Count.").unwrap();
+        let echo = |n: usize| {
+            let input = serde_json::json!({ "command": format!("echo {n}") });
+            assistant(serde_json::json!([{ "type": "tool_use", "name": "Bash", "input": input }]))
+        };
+        let used = |from: usize, to: usize| (from..to).map(echo).collect::<Vec<_>>().join("\n");
+        let seen = |dir: &tempfile::TempDir| -> Vec<Option<String>> {
+            (doing_at(dir).into_iter())
+                .map(|d| match d {
+                    Doing::Tool { on, .. } => on,
+                    _ => None,
+                })
+                .collect()
+        };
+        let echoed =
+            |from: usize, to: usize| -> Vec<Option<String>> { (from..to).map(|n| Some(format!("echo {n}"))).collect() };
+        // Of many, the last few.
+        std::fs::write(stream_at(&base, 1), used(0, 12)).unwrap();
+        assert_eq!(seen(&dir), echoed(4, 12));
+        // A tool's long result after the first uses puts them past what is read of the stream's end: fewer than the
+        // last few are given, those after it.
+        let long = format!(
+            r#"{{"type":"user","message":{{"content":"{}"}}}}"#,
+            "x".repeat(300 << 10)
+        );
+        let stream = [used(0, 5), long, used(5, 8)].join("\n");
+        std::fs::write(stream_at(&base, 1), stream).unwrap();
+        assert_eq!(seen(&dir), echoed(5, 8));
+    }
+
+    #[test]
+    fn no_more_of_a_stream_is_read_than_the_bound_of_a_result() {
+        let (dir, base) = kept();
+        let bounds = Bounds {
+            message: 100,
+            result: 40,
+            round: 1000,
+        };
+        std::fs::write(at(&base, 1).0, "First.").unwrap();
+        let long = format!(
+            "{}\n{{\"type\":\"result\",\"result\":\"{}\"}}\n",
+            "x".repeat(100),
+            "y".repeat(40)
+        );
+        std::fs::write(stream_at(&base, 1), long).unwrap();
+        std::fs::write(at(&base, 2).0, "Second.").unwrap();
+        let short = format!("{}\n{{\"type\":\"result\",\"result\":\"ok\"}}\n", "x".repeat(100));
+        std::fs::write(stream_at(&base, 2), short).unwrap();
+        let told = told_within(dir.path(), &base, &bounds).unwrap();
+        let unread = "its last lines are longer than the 40 bytes that are read of a result".to_string();
+        let ok = Back::Returned(Returned {
+            text: Some("ok".to_string()),
+            ..Returned::default()
+        });
+        assert_eq!(
+            told.tries,
+            [tried("First.", Back::Unreadable(unread)), tried("Second.", ok)]
         );
     }
 

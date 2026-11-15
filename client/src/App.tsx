@@ -1,25 +1,32 @@
 // The page: the bar with its tabs, and under it the view the address's hash names (route.ts): the console, the works
-// (works/), the flow, the observations, the system or the settings. The flow view is the view's line (the flow's name, its limits, the legend, and when comparing
-// the switch between the flow as it is and as it was), the chart under it, and the panel docked at its right with what
-// the owner chose or what changed. The owner reviews every change to the flow here, so when there is a definition to
-// compare against, what changed is marked on the chart and listed in the panel.
+// (works/), the flow, the observations, the system or the settings. The flow view is the view's line (the flow's name,
+// its limits, its tools, the switch between the matrix and the flowchart, the legend of the one shown), the matrix or
+// the flowchart under it (graph/), and over its right the console's window (`Drawer`) with what the owner chose, the
+// same from either, coming and going as the console's does.
 
-import { type CSSProperties, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { type Comparison, type Definition, type Flow, load } from './api';
+import { type Definition, type Flow, type Given, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems, waitsForOwner } from './Engine';
-import { type Version, changeBlock, changeCell, matrix } from './matrix';
-import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
-import { type Route, hashOf, tabOf, useRoute } from './route';
+import { LazyFlowChart } from './graph/lazy';
+import { GraphLegend } from './graph/legend';
+import { chartOf } from './graph/model';
+import { matrix } from './matrix';
+import { usesFixtures } from './mock-data';
+import { useNotifications } from './notify';
+import { ObservationsView } from './observations/ObservationsView';
+import { Bar, Drawer, Panel, Switch } from './parts';
+import { type Route, hashOf, periodOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
-import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
-import { BlockPanel, CellPanel, ChangesList, Faults, type Fold } from './Side';
+import { WIDTH_KEYS } from './sizes';
+import { BlockPanel, CellPanel, Faults, GroupPanel, LinePanel, TestPanel, ToolPanel } from './Side';
+import { SettingsView } from './system/SettingsView';
+import { SystemView } from './system/SystemView';
 import { type Theme, useTheme } from './theme';
 import { WorkView } from './works/WorkView';
 import { WorksList } from './works/WorksList';
-import { LIMIT_WORDS } from './words';
 
 export function App() {
   const named = useRoute();
@@ -38,10 +45,10 @@ export function App() {
   );
 }
 
-type Loaded = { definition: Definition; comparison: Comparison } | { failed: string };
+type Loaded = { definition: Definition; given?: Given } | { failed: string };
 
-/// The view a route names. The flow, once shown, stays as the owner left it (what is chosen, the version, the panel)
-/// while another tab is shown, and is not read again on coming back.
+/// The view a route names. The flow, once shown, stays as the owner left it (what is chosen, the panel) while another
+/// tab is shown, and is not read again on coming back.
 export function Views({
   route,
   loadFlow = load,
@@ -66,14 +73,16 @@ export function Views({
           {route.view === 'console' && (
             // The console's drawing library is large: it is read only once the console is first shown.
             <Suspense fallback={<p className="message muted">Reading the console</p>}>
-              <LazyConsolePage />
+              <LazyConsolePage named={'item' in route ? route.item : undefined} />
             </Suspense>
           )}
           {route.view === 'works' && <WorksList />}
-          {route.view === 'work' && <WorkView key={route.work} work={route.work} />}
-          {(route.view === 'observations' || route.view === 'system' || route.view === 'settings') && (
-            <p className="message muted">Nothing is shown here yet.</p>
+          {route.view === 'work' && (
+            <WorkView key={`${route.work}/${route.run ?? ''}`} work={route.work} run={route.run} />
           )}
+          {route.view === 'observations' && <ObservationsView />}
+          {route.view === 'system' && <SystemView period={periodOf(route)} />}
+          {route.view === 'settings' && <SettingsView />}
         </div>
       )}
       {flowShown && (
@@ -103,7 +112,9 @@ function FlowView({ active, loadFlow }: { active: boolean; loadFlow: () => Promi
   }, [loadFlow]);
   if (!loaded) return <p className="message muted">Reading the flow</p>;
   if ('failed' in loaded) return <p className="message">The page could not read the flow: {loaded.failed}</p>;
-  return <FlowPage definition={loaded.definition} comparison={loaded.comparison} active={active} />;
+  return (
+    <FlowPage definition={loaded.definition} given={loaded.given} active={active} />
+  );
 }
 
 /// The views, as the bar's tabs: the console first, which the page is centred on.
@@ -128,6 +139,8 @@ export function Shell({ route, serves = 'all', children }: {
 }) {
   const [theme, setTheme] = useTheme();
   const [bar, setBar] = useState<BarItems>({ items: null, failed: null });
+  // The questions that hold a work, told of by the browser as they come, on the engine's own page only.
+  useNotifications(bar.items, serves === 'all' && !usesFixtures(window.location.search));
   const waiting = bar.items?.items.filter((i) => waitsForOwner(i.work.now)).length ?? 0;
   const views = TABS.map((t) =>
     t.href === '#/console' ? { ...t, count: waiting, countTitle: `${waiting} waiting for you` } : t,
@@ -166,57 +179,83 @@ function BarEngine({ onRead }: { onRead: (bar: BarItems) => void }) {
   return <Engine items={items} failed={failed} />;
 }
 
-/// The limits of the flow as a whole, in one short muted sentence; the words of each in full on the pointer's tip.
+/// The limits of the flow as a whole, by their keys as `flow.toml` writes them.
 function limitsWords(flow: Flow): string {
   const { runs, returns, calls } = flow.limits;
-  return `Limits of a cell: ${runs} ways round in a row, ${returns} returns sent back, ${calls} calls`;
+  return `limits runs ${runs}, returns ${returns}, calls ${calls}`;
 }
 
-function limitsHint(flow: Flow): string {
-  const each = (['runs', 'returns', 'calls'] as const).map((l) => `${flow.limits[l]} ${LIMIT_WORDS[l]}`).join(', ');
-  return `Each cell, unless it says otherwise: ${each}`;
-}
+/// How the flow view draws the flow: the matrix of its blocks against its cells, or the flowchart of how a work moves
+/// through its cells.
+export type ChartView = 'matrix' | 'flowchart';
 
-export function FlowPage({ definition, comparison, active = true }: {
+export function FlowPage({ definition, given, active = true }: {
   definition: Definition;
-  comparison: Comparison;
+  /// What an agent is sent as each cell of the definition shown is entered; none where the page was not given it.
+  given?: Given;
   /// Whether the flow is the view shown: a flow kept while another tab is shown takes no keys.
   active?: boolean;
 }) {
-  const [version, setVersion] = useState<Version>('after');
   const [chosen, setChosen] = useState<Chosen>(null);
-  // The panel is folded away at first, unless there are changes to read in it: where the two definitions are the
-  // same, or cannot be compared, its room stays the chart's.
-  const [folded, setFolded] = useState(() => comparison.state !== 'compared' || !comparison.changes?.length);
-  const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
+  // The matrix first; the flowchart, once shown, is kept as the owner left it while the matrix is shown.
+  const [chartView, setChartView] = useState<ChartView>('matrix');
+  const [graphShown, setGraphShown] = useState(false);
+  // Whether the flowchart draws every arrow a write runs; else only the chosen cell's, as what it is given.
+  const [dataArrows, setDataArrows] = useState(false);
+  if (chartView === 'flowchart' && !graphShown) setGraphShown(true);
+  // The window with what is chosen, the console's: whether it is out, and whether its tab brought it out, which keeps
+  // it out once what is chosen is let go.
+  const [win, setWin] = useState({ open: false, byHand: false });
+  const panel = useRef<HTMLElement>(null);
+  // How wide the window is, for the room the chart leaves under it.
+  const [windowWidth, setWindowWidth] = useState(0);
 
-  const after = definition.state === 'compiled' ? definition.flow : undefined;
-  const against = comparison.state === 'compared' ? comparison.against : undefined;
-  const before = against?.state === 'compiled' ? against.flow : undefined;
-  const changes = comparison.state === 'compared' ? (comparison.changes ?? undefined) : undefined;
-  const comparing = after !== undefined && before !== undefined && changes !== undefined;
+  const flow = definition.state === 'compiled' ? definition.flow : undefined;
+  const drawn = useMemo(() => (flow ? matrix(flow) : undefined), [flow]);
+  const graphWaysBack = useMemo(() => (flow ? chartOf(flow).waysBack : 0), [flow]);
 
-  const shownVersion: Version = comparing ? version : 'after';
-  const drawn = useMemo(
-    () => (after ? matrix(comparing ? { after, before, changes } : { after }, shownVersion) : undefined),
-    [after, before, changes, comparing, shownVersion],
-  );
-
-  // Choosing brings the panel back if it was folded away; Escape lets go of what is chosen.
+  // Choosing slides the window out; letting go slides it back, unless its tab brought it out, in which case it stays
+  // until the tab takes it back. The tab takes it back without letting go, and the next choice brings it out again.
   const choose = useCallback((c: Chosen) => {
     setChosen(c);
-    if (c !== null) setFolded(false);
+    setWin((w) => {
+      if (c !== null) return w.open ? w : { open: true, byHand: false };
+      return w.byHand ? w : { open: false, byHand: false };
+    });
   }, []);
-  const close = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') setChosen(null);
-  }, []);
+  const fold = useCallback(
+    () => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true })),
+    [],
+  );
+  // Escape slides the window in while it has the keys, and else lets go of what is chosen; a question the page asks
+  // answers it alone.
   useEffect(() => {
     if (!active) return;
-    window.addEventListener('keydown', close);
-    return () => window.removeEventListener('keydown', close);
-  }, [close, active]);
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
+      const inside = panel.current?.contains(document.activeElement) === true;
+      if (win.open && inside) {
+        (document.activeElement as HTMLElement | null)?.blur();
+        setWin({ open: false, byHand: false });
+      } else choose(null);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [active, win.open, choose]);
+  const compiled = flow !== undefined;
+  useEffect(() => {
+    const el = panel.current;
+    if (el === null) return;
+    setWindowWidth(el.offsetWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(() => setWindowWidth(el.offsetWidth));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [compiled]);
+  // What the window covers of the chart's right while it is out: what is chosen is brought into the rest.
+  const covered = win.open ? windowWidth : 0;
 
-  if (!after || !drawn) {
+  if (!flow || !drawn) {
     return (
       <>
         <div className="view-line">
@@ -235,95 +274,145 @@ export function FlowPage({ definition, comparison, active = true }: {
     );
   }
 
-  const shownFlow = shownVersion === 'before' && before ? before : after;
-  const column = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
-  const row = chosen && 'block' in chosen ? drawn.blocks.find((b) => b.name === chosen.block) : undefined;
-  const flowOf = (inShown: boolean) => (inShown ? shownFlow : shownFlow === after ? (before ?? after) : after);
-  const edge = (
-    <Edge
-      side="left"
-      label="Drag the panel's width"
-      start={() => panelWidth ?? PANEL.first}
-      onDrag={setPanelWidth}
-      onReset={() => setPanelWidth(null)}
-    />
-  );
-  const fold: Fold = { folded, onFold: () => setFolded((f) => !f), edge };
+  const cell = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
+  // A block chosen by its name: its datum's row, or else the row of a trigger that stands on it, which a block standing
+  // only for a trigger has alone. A trigger's row is named for the trigger, which may be another block's name; a
+  // group's trigger stands on no one block.
+  const block =
+    chosen && 'block' in chosen
+      ? (drawn.blocks.find((b) => b.trigger === undefined && b.on === chosen.block) ??
+          drawn.blocks.find((b) => b.block !== undefined && b.on === chosen.block))?.block
+      : undefined;
+  const lineRow = chosen && 'line' in chosen ? drawn.lines.find((l) => l.name === chosen.line) : undefined;
+  const testRow =
+    chosen && 'test' in chosen ? drawn.conditions.find((c) => c.test && c.name === chosen.test) : undefined;
+  const tool = chosen && 'tool' in chosen ? chosen.tool : undefined;
+  const group = chosen && 'group' in chosen ? chosen.group : undefined;
 
-  let panel = (
-    <Panel label="Nothing chosen" {...fold}>
-      <p className="muted">Choose a cell's head or a block's name to see everything about it</p>
+  let shown = (
+    <Panel label="Nothing chosen">
+      <p className="muted">Choose a cell's head or a row's name to see everything about it</p>
     </Panel>
   );
-  if (column) {
-    panel = (
+  if (cell) {
+    shown = (
       <CellPanel
-        column={column}
+        cell={cell}
         matrix={drawn}
-        flow={flowOf(column.cell !== undefined)}
-        changes={(changes ?? []).filter((c) => changeCell(c) === column.id)}
+        flow={flow}
+        sent={given?.state === 'compiled' ? given.cells[cell.id] : undefined}
+        tools={given?.state === 'compiled' ? given.tools : undefined}
+        act={given?.state === 'compiled' ? given.acts[cell.id] : undefined}
+        unknown={given?.state === 'compiled' ? given.unknown : undefined}
         onChoose={choose}
-        fold={fold}
       />
     );
-  } else if (row) {
-    panel = (
-      <BlockPanel
-        row={row}
-        matrix={drawn}
-        flow={flowOf(row.block !== undefined)}
-        changes={(changes ?? []).filter((c) => changeBlock(c) === row.name)}
-        onChoose={choose}
-        fold={fold}
+  } else if (block) {
+    shown = <BlockPanel block={block} matrix={drawn} flow={flow} onChoose={choose} />;
+  } else if (lineRow) {
+    shown = <LinePanel row={lineRow} flow={flow} onChoose={choose} />;
+  } else if (testRow) {
+    shown = <TestPanel row={testRow} flow={flow} onChoose={choose} />;
+  } else if (tool !== undefined) {
+    shown = (
+      <ToolPanel
+        name={tool}
+        words={given?.state === 'compiled' ? given.toolFiles[tool] : undefined}
+        unread={given?.state === 'unread' ? given.why : undefined}
       />
     );
-  } else if (comparing) {
-    panel = <ChangesList changes={changes} after={after} before={before} onChoose={choose} fold={fold} />;
-  } else if (against && against.state !== 'compiled') {
-    panel = (
-      <Panel
-        label="Nothing to compare"
-        title="Nothing to compare"
-        lines={
-          <StatusLine tone="removed" word={against.state === 'faults' ? 'Does not compile' : 'Cannot be read'}>
-            the definition compared against
-          </StatusLine>
-        }
-        {...fold}
-      >
-        {against.state === 'faults' ? <Faults faults={against.faults} /> : <p>{against.reason}</p>}
-      </Panel>
-    );
+  } else if (group !== undefined) {
+    shown = <GroupPanel name={group} flow={flow} onChoose={choose} />;
   }
 
   return (
     <>
       <div className="view-line">
-        <span className="view-name">{shownFlow.name}</span>
-        {comparing && (
-          <Switch<Version>
-            label="Version of the flow"
-            value={shownVersion}
-            onChange={setVersion}
-            choices={[
-              { value: 'after', name: 'As it is' },
-              { value: 'before', name: 'As it was' },
-            ]}
-          />
-        )}
-        <span className="view-facts" title={limitsHint(shownFlow)}>
-          {limitsWords(shownFlow)}
+        <span className="view-name">{flow.name}</span>
+        <span className="view-facts" title="flow.toml">
+          {limitsWords(flow)}
+          {flow.tools.length > 0 && (
+            <>
+              {' · tools '}
+              {flow.tools.map((t, i) => (
+                <Fragment key={t}>
+                  {i > 0 && ', '}
+                  <button
+                    type="button"
+                    className="link mono"
+                    aria-pressed={tool === t}
+                    onClick={() => choose(tool === t ? null : { tool: t })}
+                  >
+                    {t}
+                  </button>
+                </Fragment>
+              ))}
+            </>
+          )}
         </span>
         <span className="view-end">
-          <Legend waysBack={drawn.waysBack} comparing={comparing} />
+          <Switch<ChartView>
+            label="Matrix or flowchart"
+            value={chartView}
+            onChange={setChartView}
+            choices={[
+              { value: 'matrix', name: 'Matrix' },
+              { value: 'flowchart', name: 'Flowchart' },
+            ]}
+          />
+          {chartView === 'matrix' ? (
+            <Legend waysBack={drawn.waysBack} />
+          ) : (
+            <>
+              <label
+                className="view-toggle"
+                title="Every arrow a write runs; else only those into and out of the cell chosen"
+              >
+                <input type="checkbox" checked={dataArrows} onChange={(e) => setDataArrows(e.target.checked)} />
+                Data arrows
+              </label>
+              <GraphLegend waysBack={graphWaysBack} />
+            </>
+          )}
         </span>
       </div>
-      <main
-        className={`view-body with-panel ${folded ? 'panel-folded' : ''}`}
-        style={panelWidth !== null ? ({ '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined}
-      >
-        <Chart matrix={drawn} chosen={chosen} onChoose={choose} />
-        {panel}
+      {given?.state === 'unread' && (
+        <p className="read-failed" role="alert">
+          What an agent is sent could not be read, and the flow is shown without it: {given.why}
+        </p>
+      )}
+      <main className="view-body with-window">
+        <Chart
+          matrix={drawn}
+          chosen={chosen}
+          onChoose={choose}
+          covered={chartView === 'matrix' ? covered : 0}
+          hidden={chartView !== 'matrix'}
+        />
+        {graphShown && (
+          <div className="graph-place" hidden={chartView !== 'flowchart'}>
+            <Suspense fallback={<p className="message muted">Reading the flowchart</p>}>
+              <LazyFlowChart
+                flow={flow}
+                dataArrows={dataArrows}
+                chosen={chosen}
+                onChoose={choose}
+                covered={chartView === 'flowchart' ? covered : 0}
+              />
+            </Suspense>
+          </div>
+        )}
+        <Drawer
+          open={win.open}
+          onToggle={fold}
+          panel={panel}
+          label="What is chosen"
+          hide="Put the panel away"
+          show="Show what is chosen"
+          widthKey={WIDTH_KEYS.flowWindow}
+        >
+          {shown}
+        </Drawer>
       </main>
     </>
   );

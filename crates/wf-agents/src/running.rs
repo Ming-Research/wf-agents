@@ -16,11 +16,8 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use flow::{Compiled, Has, Source};
-use service::{Carriers, Levels, Script, Scripted, Service, SystemClock};
+use service::{Carriers, Levels, Projects, Script, Scripted, Service, SystemClock};
 use store::Store;
-
-/// The store's file in the data directory.
-const STORE: &str = "store.sqlite";
 
 /// The file in the data directory whose lock says that an engine runs on it.
 const HELD: &str = "engine.lock";
@@ -29,8 +26,8 @@ const HELD: &str = "engine.lock";
 /// driver's, whether the items an item depends on have merged, and, with the real carriers, `main`, through the
 /// acts' watch of main; nothing writes `session` or `tree` yet, so a block of either stays unwritten, and a cell that
 /// reads one starts from no version of it.
-fn has(source: &Source) -> Has {
-    crate::has(source)
+fn has(dir: &Path) -> Has {
+    crate::has(dir)
 }
 
 /// What carries the works out.
@@ -41,10 +38,12 @@ pub enum With {
     Settings(PathBuf),
 }
 
-/// What carries the works out, read and checked: a script, or the settings.
+/// What carries the works out, read and checked: a script, or the settings with what is written beside the flows.
 enum Read {
     Script(Script),
-    Settings(Box<carry::Settings>),
+    /// The settings, and what is written beside the flows: what the acts write and the agents' rounds are told, and
+    /// what the form of a return and the system prompts are made of.
+    Settings(Box<carry::Settings>, Box<flow::agents::Agents>),
 }
 
 /// The address the works page is printed at.
@@ -58,6 +57,13 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         eprintln!("no flow is given: the engine runs on at least one");
         return ExitCode::FAILURE;
     };
+    // The settings' file, which the page shows and the owner changes there.
+    let settings_file = match &with {
+        With::Settings(file) => Some(file.clone()),
+        With::Script(_) => None,
+    };
+    // The one project of a script's items, named before what carries the works out is read.
+    let scripted = script_projects(&with);
     let Some((flows, with)) = read(data, dirs, &with) else {
         return ExitCode::FAILURE;
     };
@@ -94,17 +100,20 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let store = match Store::open(data.join(STORE)) {
+        let store = match Store::open(data.join(store::FILE)) {
             Ok(store) => store,
             Err(fault) => {
                 let words = service::store_fault_words(&fault);
-                eprintln!("{}: the store cannot be opened: {words}", data.join(STORE).display());
+                eprintln!(
+                    "{}: the store cannot be opened: {words}",
+                    data.join(store::FILE).display()
+                );
                 return ExitCode::FAILURE;
             }
         };
         let levels = match &with {
             Read::Script(_) => script_levels(),
-            Read::Settings(settings) => match settings.levels() {
+            Read::Settings(settings, _) => match settings.levels() {
                 Ok(levels) => levels,
                 Err(why) => {
                     eprintln!("{why}");
@@ -112,11 +121,39 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 }
             },
         };
+        // The projects an item may be added to: the settings'; a script's one, named as its file is.
+        let projects = match &with {
+            Read::Script(_) => scripted,
+            Read::Settings(settings, _) => Projects::new(settings.projects.keys().cloned()),
+        };
+        // The checkout of the project whose repository holds the flows shown, for what the page shows an agent is sent,
+        // the declaration beside the flows being that project's; none where no project's does, as with a script.
+        let project = match &with {
+            Read::Script(_) => None,
+            Read::Settings(settings, _) => holding(settings, shown),
+        };
+        // What the block of main says as a watch reads its head, in the words its definition gives: the same in every
+        // flow, whose triggers are shared. Filled with the name of the project's main branch, which the settings give.
+        let main_says = (flows.iter().flat_map(|flow| flow.blocks.values()))
+            .find(|block| block.writers.outside.as_deref() == Some(carry::MAIN))
+            .and_then(|block| block.writes.get("text").map(str::to_string))
+            .unwrap_or_default();
         // The copies of the database are kept where the real carriers are, as the settings say; a script keeps none.
         let mut copies: Option<Keeping> = None;
-        let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
-            Read::Script(script) => (Scripted::new(script).carriers(), None),
-            Read::Settings(settings) => {
+        // The settings as the page shows them, beside those the engine runs with; a script has none.
+        let mut install: Option<web::settings::Install> = None;
+        let (carriers, watches): (Carriers, Vec<carry::ProjectWatch>) = match with {
+            Read::Script(script) => (Scripted::new(script).carriers(), Vec::new()),
+            Read::Settings(settings, beside) => {
+                if let Some(file) = settings_file {
+                    match installed(file, &settings) {
+                        Ok(made) => install = Some(made),
+                        Err(why) => {
+                            eprintln!("{why}");
+                            return ExitCode::FAILURE;
+                        }
+                    }
+                }
                 match keeping(data, settings.backup.as_ref()) {
                     Ok(keeping) => copies = Some(keeping),
                     Err(why) => {
@@ -124,8 +161,8 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 }
-                match carry::carry(*settings, data) {
-                    Ok((carriers, watch)) => (carriers, Some(watch)),
+                match carry::carry(*settings, data, *beside) {
+                    Ok((carriers, watches)) => (carriers, watches),
                     Err(why) => {
                         eprintln!("The carriers cannot be made: {why}");
                         return ExitCode::FAILURE;
@@ -140,25 +177,35 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        // The watch of main writes, through the loop, the block of main of each work: the check before a merge then
-        // runs again when main has moved since it passed.
-        if let Some(watch) = watch {
-            let handle = service.handle();
-            tokio::spawn(watch.run(move |head| handle.outside(carry::MAIN, &head)));
+        // The watch of each project's main writes, through the loop, the block of main of each work of its items: the
+        // check before a merge then runs again when main has moved since it passed.
+        for carry::ProjectWatch { project, main, watch } in watches {
+            let (handle, main_says) = (service.handle(), main_says.clone());
+            tokio::spawn(watch.run(move |head| {
+                let says = flow::agents::fill(&main_says, &[("main", &main), ("head", &head)]);
+                handle.outside(&project, carry::MAIN, &says);
+            }));
         }
-        // The page compares the flow's files with the flow as it was committed, so that an edit of them shows there
-        // as what changed.
-        let mut flows_shown = web::Flows::dirs(shown.clone(), None, Box::new(has));
-        flows_shown.against = crate::committed::reader(shown.clone());
+        // The page lays out what an agent is sent as a cell is entered, read from beside the flow shown, with the
+        // project's own files as its checkout holds them.
+        let in_dir = shown.clone();
+        let mut flows_shown = web::Flows::dirs(shown.clone(), Box::new(move |_: &Source| has(&in_dir)));
+        flows_shown.alike.project = project;
         let router = match copies {
             Some(keeping) => {
                 // One task keeps the copies, a step at a time, with the time the loop reads from its clock.
                 let handle = service.handle();
                 let copies = keeping.about();
                 keeping.run(handle.clone());
-                web::with_works_and_copies(flows_shown, handle, levels, copies)
+                web::with_works_and_copies(flows_shown, handle, levels, projects, copies)
             }
-            None => web::with_works(flows_shown, service.handle(), levels),
+            None => web::with_works(flows_shown, service.handle(), levels, projects),
+        };
+        // The observations are read, and marked read, through connections of their own to the store's file.
+        let router = router.merge(web::observations::router(service.handle(), data.join(store::FILE)));
+        let router = match install {
+            Some(install) => router.merge(web::settings::router(install)),
+            None => router,
         };
         println!("The owner's pages are at {}", works_page(address));
         let held = web::works::Engine::of(service.driver()).paused.map(|paused| paused.by);
@@ -181,6 +228,26 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
     })
 }
 
+/// The settings as the page shows them: their file, read as the engine reads it, beside those the engine runs with.
+fn installed(file: PathBuf, settings: &carry::Settings) -> Result<web::settings::Install, String> {
+    let running = serde_json::to_value(settings).map_err(|e| format!("the settings cannot be shown: {e}"))?;
+    Ok(web::settings::Install {
+        file,
+        read: Box::new(|text| {
+            let settings = carry::Settings::read(text)?;
+            settings.levels()?;
+            serde_json::to_value(&settings).map_err(|e| e.to_string())
+        }),
+        running,
+        git: &carry::git::SAFE,
+        program: web::settings::Program {
+            variable: carry::account::VARIABLE,
+            sign_in: carry::account::SIGN_IN,
+            signed_in_as: carry::account::signed_in_as,
+        },
+    })
+}
+
 /// The directory in the data directory that holds the copies of the database.
 const COPIES: &str = "backups";
 
@@ -195,7 +262,7 @@ enum Keeping {
 /// What keeps the copies, with the engine's token for the place off the machine from its environment, and its own
 /// directory for `gh`'s configuration, apart from the host's.
 fn keeping(data: &Path, settings: Option<&carry::settings::Backup>) -> Result<Keeping, String> {
-    let (store, dir) = (data.join(STORE), data.join(COPIES));
+    let (store, dir) = (data.join(store::FILE), data.join(COPIES));
     let ground = backup::Disk::open(&store, &dir)?;
     let Some(b) = settings else {
         let plan = backup::Plan {
@@ -272,6 +339,25 @@ fn said(out: &backup::Outcome) {
     }
 }
 
+/// The one project of the items of an engine whose agents follow a script, which runs in no repository: named as the
+/// script's file is, without its extension.
+fn script_projects(with: &With) -> Projects {
+    let name = match with {
+        With::Script(script) => script.file_stem().map(|stem| stem.to_string_lossy().into_owned()),
+        With::Settings(_) => None,
+    };
+    Projects::one(&name.unwrap_or_default())
+}
+
+/// The checkout of the project whose repository holds the directory of the flow shown, where one does.
+fn holding(settings: &carry::Settings, shown: &Path) -> Option<PathBuf> {
+    let shown = std::fs::canonicalize(shown).ok()?;
+    (settings.projects.values())
+        .map(|project| &project.repo)
+        .find(|repo| std::fs::canonicalize(repo).is_ok_and(|repo| shown.starts_with(repo)))
+        .cloned()
+}
+
 /// The levels of the items of an engine whose agents follow a script, which run on no model: one, `1`, at which every
 /// item is added.
 fn script_levels() -> Levels {
@@ -320,7 +406,7 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
                 continue;
             }
         };
-        match flow::compile(&source, &has(&source)) {
+        match flow::compile(&source, &has(dir)) {
             Ok(compiled) => flows.push(compiled),
             Err(faults) => {
                 for fault in &faults {
@@ -330,22 +416,32 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
             }
         }
     }
+    // What the driver and the watch of main write of a flow, whatever carries its works out, checked once the flows
+    // compiled: a text they fill that the flow does not give would be written empty.
+    for fault in (flows.iter()).flat_map(|flow| [driver::faults(flow), carry::main_faults(flow)].concat()) {
+        eprintln!("{fault}");
+        wrong = true;
+    }
     let read = match with {
         With::Script(script) => read_script(script, &flows, compiled_all, &mut wrong).map(Read::Script),
-        With::Settings(settings) => match carry::Settings::load(settings) {
-            Ok(settings) => {
-                // What the real acts need of a flow, checked once the flows compiled.
-                for fault in flows.iter().flat_map(carry::faults) {
+        With::Settings(settings) => match (carry::Settings::load(settings), beside(dirs, &flows)) {
+            (Ok(settings), Ok(beside)) => {
+                // What the real acts need of a flow and of their words, checked once the flows compiled; what the
+                // system prompts of its lines are made of, its texts' settings with their values and its places
+                // filled; and the project's files every system prompt holds.
+                for fault in start_faults(&settings, &beside, &flows) {
                     eprintln!("{fault}");
                     wrong = true;
                 }
                 for warning in settings.warnings() {
                     eprintln!("{warning}");
                 }
-                Some(Read::Settings(Box::new(settings)))
+                Some(Read::Settings(Box::new(settings), Box::new(beside)))
             }
-            Err(why) => {
-                eprintln!("{why}");
+            (settings, beside) => {
+                for why in [settings.err(), beside.err()].into_iter().flatten() {
+                    eprintln!("{why}");
+                }
                 None
             }
         },
@@ -354,6 +450,79 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
         Some(read) if !wrong && compiled_all => Some((flows, read)),
         _ => None,
     }
+}
+
+/// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
+/// their words beside the flows; what the texts sent to the agents name and hold ([`carry::system::faults`]); and of each
+/// project, its declaration on its main and its files every system prompt holds there, where works branch from
+/// ([`carry::system::project_files`]), and two projects in one repository, each said with the projects' keys. The texts
+/// are the flows', the same for every project but for what a project's declaration gives them: a fault every project's
+/// texts have is said once, and one only some have is said with their keys.
+fn start_faults(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Compiled]) -> Vec<String> {
+    let mut faults: Vec<String> = (flows.iter())
+        .flat_map(|flow| carry::faults(flow, &beside.acts.check.values))
+        .collect();
+    let words = carry::word_faults(&beside.acts.check).into_iter();
+    faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
+    let (declared, wrong) = carry::projects::declared(settings, beside);
+    faults.extend(wrong);
+    let mut of_texts: Vec<(String, Vec<&str>)> = Vec::new();
+    for (name, project) in &declared {
+        for fault in flows
+            .iter()
+            .flat_map(|flow| carry::system::faults(settings, &project.beside, flow))
+        {
+            match of_texts.iter_mut().find(|(said, _)| *said == fault) {
+                Some((_, names)) => names.push(name.as_str()),
+                None => of_texts.push((fault, vec![name.as_str()])),
+            }
+        }
+    }
+    for (fault, names) in of_texts {
+        if names.len() == declared.len() {
+            faults.push(fault);
+        } else {
+            let keys: Vec<String> = names.iter().map(|name| format!("projects.{name}")).collect();
+            faults.push(format!("{}: {fault}", keys.join(", ")));
+        }
+    }
+    for (name, project) in &declared {
+        let files = carry::system::project_files(&project.settings, &project.beside);
+        faults.extend(files.into_iter().map(|fault| format!("projects.{name}: {fault}")));
+    }
+    faults
+}
+
+/// What is written beside the flows, read from the directory that holds them, with the form of return of each flow
+/// that compiled made of it; or why it cannot be: the flows are not all in one directory, what is beside them cannot be
+/// read, or a flow's form cannot be made of it. Every flow is beside the one directory: what every flow shares is
+/// written once, beside them all (principle one-thing-one-place).
+fn beside(dirs: &[PathBuf], flows: &[Compiled]) -> Result<flow::agents::Agents, String> {
+    let holder = |dir: &PathBuf| {
+        let dir = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        (dir.parent().map(Path::to_path_buf)).ok_or_else(|| format!("{}: no directory holds it", dir.display()))
+    };
+    let mut roots = Vec::new();
+    for dir in dirs {
+        let root = holder(dir)?;
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+    let [root] = roots.as_slice() else {
+        return Err(format!(
+            "the flows are in more than one directory ({}): every flow is beside the files they share",
+            (roots.iter())
+                .map(|r| r.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    };
+    let beside = flow::agents::read(root)?;
+    for compiled in flows {
+        flow::form::form(compiled, &beside)?;
+    }
+    Ok(beside)
 }
 
 /// The script, checked against the flows where they all compiled; or none, having said why it cannot be read.
@@ -374,5 +543,206 @@ fn read_script(script: &Path, flows: &[Compiled], compiled_all: bool, wrong: &mu
             eprintln!("{}: {e}", script.display());
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The directory that holds the repository's flows.
+    fn flows() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow")
+    }
+
+    /// The engineer's flow as the repository defines it, compiled as `wf-agents run` compiles it.
+    fn engineer() -> Compiled {
+        let dir = flows().join("engineer");
+        let source = flow::read(&dir).expect("the flow is read");
+        flow::compile(&source, &has(&dir)).expect("the flow compiles")
+    }
+
+    /// Runs git in the directory, which must pass.
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// The sample's settings, on a repository of their own whose main holds the files `project.toml` names.
+    fn settings(dir: &Path) -> carry::Settings {
+        let mut settings = carry::Settings::read(include_str!("../../carry/install.sample.toml")).expect("it reads");
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(repo.join("design")).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        for (key, value) in [
+            ("user.name", "Tester"),
+            ("user.email", "tester@example.com"),
+            ("commit.gpgsign", "false"),
+        ] {
+            git(&repo, &["config", key, value]);
+        }
+        for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+            std::fs::write(repo.join(path), "Some text.\n").unwrap();
+        }
+        // The project's declaration, the one beside the repository's flows.
+        std::fs::create_dir_all(repo.join("flow")).unwrap();
+        std::fs::copy(flows().join("project.toml"), repo.join(flow::agents::DECLARATION)).unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "Files"]);
+        settings.projects.get_mut("example").expect("the sample's project").repo = repo;
+        settings
+    }
+
+    // Every project's faults are said at once: a declaration main does not hold does not keep the others from being
+    // looked at, and two projects that name one repository are refused.
+    #[test]
+    fn every_projects_fault_is_said_at_once_and_two_projects_in_one_repository_are_refused() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let mut settings = settings(dir.path());
+        let example = settings.projects["example"].clone();
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        git(&other, &["init", "-q", "-b", "main"]);
+        let who = [
+            "-c",
+            "user.name=Tester",
+            "-c",
+            "user.email=tester@example.com",
+            "-c",
+            "commit.gpgsign=false",
+        ];
+        git(
+            &other,
+            &[&who[..], &["commit", "-q", "--allow-empty", "-m", "Empty"][..]].concat(),
+        );
+        let mut undeclared = example.clone();
+        undeclared.repo = other;
+        settings.projects.insert("other".to_string(), undeclared);
+        settings.projects.insert("same".to_string(), example);
+        let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
+        let faults = start_faults(&settings, &beside, &[engineer()]);
+        assert_eq!(faults.len(), 2, "{faults:?}");
+        assert!(
+            faults[0].starts_with("projects.example, projects.same: name one repository, "),
+            "{faults:?}"
+        );
+        assert!(
+            faults[1].starts_with(
+                "projects.other: refs/heads/main:flow/project.toml, the project's declaration on main where works \
+                 branch from, cannot be read: "
+            ),
+            "{faults:?}"
+        );
+    }
+
+    // The flows given are beside one directory, whose files every flow shares; flows from two are refused.
+    #[test]
+    fn flows_from_more_than_one_directory_are_refused() {
+        let read = beside(&[flows().join("engineer"), flows().join("deliver")], &[]).expect("one directory");
+        assert_eq!(read.root, std::fs::canonicalize(flows()).unwrap());
+        let other = tempfile::tempdir().expect("a directory");
+        std::fs::create_dir_all(other.path().join("elsewhere")).unwrap();
+        let refused = beside(&[flows().join("engineer"), other.path().join("elsewhere")], &[]).expect_err("refused");
+        assert!(
+            refused.starts_with("the flows are in more than one directory"),
+            "{refused}"
+        );
+    }
+
+    // As the engine starts, the sample's installation, on the local repository with no fast CI, carries the engineer's
+    // flow out with nothing wrong; what the texts sent to the agents lack and what main lacks of the project's files are
+    // said together, with what the acts need: here a place no one fills in the heading of the project's files, for every
+    // line, and the tree's rules not on main.
+    #[test]
+    fn the_start_says_every_fault_of_the_prompts_and_the_projects_files() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let settings = settings(dir.path());
+        let mut beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
+        let compiled = [engineer()];
+        assert_eq!(start_faults(&settings, &beside, &compiled), Vec::<String>::new());
+        beside.session.heading = "# `{path}` {where}\n\n{text}".to_string();
+        let mut lines: Vec<&str> = compiled[0].cells.iter().filter_map(|c| c.line.as_deref()).collect();
+        lines.sort();
+        lines.dedup();
+        let faults = start_faults(&settings, &beside, &compiled);
+        assert_eq!(faults.len(), lines.len(), "{faults:?}");
+        assert!(
+            (faults.iter()).all(|f| f.ends_with("flow/agents/session.toml: the engine fills no place `{where}`")),
+            "{faults:?}"
+        );
+        let repo = &settings.projects["example"].repo;
+        git(repo, &["rm", "-q", "design/README.md"]);
+        git(repo, &["commit", "-q", "-m", "No rules"]);
+        let faults = start_faults(&settings, &beside, &compiled);
+        assert_eq!(faults.len(), lines.len() + 1, "{faults:?}");
+        assert_eq!(
+            faults.last().map(String::as_str),
+            Some(
+                "projects.example: project.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, \
+                 where works branch from"
+            )
+        );
+    }
+
+    // The page reads a change of the file as the engine reads the file, and runs with the settings the engine read.
+    #[test]
+    fn the_page_reads_the_settings_as_the_engine_reads_them() {
+        let sample = include_str!("../../carry/install.sample.toml");
+        let settings = carry::Settings::read(sample).expect("the sample reads");
+        let install = installed(PathBuf::from("install.toml"), &settings).expect("it is made");
+        assert_eq!((install.read)(sample), Ok(install.running.clone()));
+        assert_eq!(install.running["agents"]["slots"], 2);
+        assert_eq!(
+            install.running["history"]["samples"], 19,
+            "a key left out at its default"
+        );
+        let misspelt = sample.replace("slots = 2", "slots = 2\nslot = 3");
+        assert!((install.read)(&misspelt).expect_err("refused").contains("slot"));
+        let no_level = sample.replace("highest_level = \"3\"", "highest_level = \"9\"");
+        assert_eq!(
+            (install.read)(&no_level),
+            Err("items.highest_level: there is no level \"9\"".to_string())
+        );
+    }
+
+    // A value the engine reads as the one it runs with is shown with no other beside it, however the file writes it: a
+    // whole number for a decimal one, a table written in part; one the file changed since the engine started is.
+    #[test]
+    fn the_page_shows_beside_a_key_only_a_value_the_engine_reads_otherwise() {
+        let sample = include_str!("../../carry/install.sample.toml")
+            .replace("work_budget_usd = 5.0", "work_budget_usd = 5")
+            .replace(
+                "permissions = { heavy = [\"uv\"], locks = [\"uv lock\"], locks_except = [\"uv lock *--script*\"] }",
+                "permissions = { heavy = [\"uv\"] }",
+            );
+        let settings = carry::Settings::read(&sample).expect("it reads");
+        let dir = tempfile::tempdir().expect("a directory");
+        let file = dir.path().join("install.toml");
+        std::fs::write(&file, &sample).unwrap();
+        let install = installed(file.clone(), &settings).expect("it is made");
+        let differ = |page: &web::settings::SettingsPage| -> Vec<String> {
+            (page.tables.iter())
+                .flat_map(|t| {
+                    (t.keys.iter())
+                        .filter(|k| k.written.is_some() && k.running.is_some())
+                        .map(move |k| format!("{}.{} runs with {}", t.name, k.key, k.running.as_deref().unwrap_or("")))
+                })
+                .collect()
+        };
+        let page = web::settings::page_of(&install).expect("it is shown");
+        assert_eq!(page.unreadable, None);
+        assert_eq!(differ(&page), Vec::<String>::new());
+        std::fs::write(&file, sample.replace("slots = 2", "slots = 3")).unwrap();
+        let page = web::settings::page_of(&install).expect("it is shown");
+        assert_eq!(differ(&page), ["agents.slots runs with 2"]);
     }
 }

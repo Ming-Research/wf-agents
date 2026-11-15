@@ -1,4 +1,5 @@
-//! What each input shows: its current version, the version the cell's record knows, and whether its meaning changed.
+//! What each block that runs a cell shows: its current version, the version the cell consumed, and whether it is new
+//! to the cell.
 
 use super::*;
 
@@ -21,15 +22,14 @@ fn an_input_changed_since_the_record_shows_the_version_the_record_started_from_a
 }
 
 #[test]
-fn a_cell_that_wrote_a_block_it_reads_knows_its_own_version() {
+fn a_cell_that_wrote_a_block_that_runs_it_consumed_the_version_it_was_told_of_and_its_own_is_not_new_to_it() {
     let mut w = World::with_gate(vec![cell("design", &["plan"], &["plan"])]);
     let first = w.person_writes("plan");
     let own = w.run("design", &[("plan", Matters)]);
     assert_eq!(
         input_of(&w, "design", "plan"),
-        input("plan", Some(own), Some(own), false)
+        input("plan", Some(own), Some(first), false)
     );
-    assert_ne!(first, own);
 }
 
 #[test]
@@ -48,11 +48,11 @@ fn a_write_said_not_to_matter_moves_the_current_version_and_leaves_the_input_unc
 }
 
 #[test]
-fn an_input_of_a_cell_with_no_record_knows_nothing_and_has_not_changed() {
+fn a_block_with_a_version_is_new_to_a_cell_that_consumed_none() {
     let mut w = planned();
     let background = w.person_writes("background");
     assert_eq!(
         input_of(&w, "research", "background"),
-        input("background", Some(background), None, false)
+        input("background", Some(background), None, true)
     );
 }

@@ -1,11 +1,12 @@
 //! When a line goes on in its session and when it begins a new one, with the command line: the context a round ended
-//! with, past the limit, has the line's next round begin a session of its own id; a compaction is counted and given
-//! the round's whole message again; and the sessions are recorded with why they began.
+//! with, past the limit, the installation's or the lower one its line's history gives, has the line's next round begin
+//! a session of its own id; a compaction is counted and given the round's whole message again; and the sessions are
+//! recorded with why they began.
 
 use service::Act;
 use work::Why;
 
-use crate::{Fake, On, Real, ended};
+use crate::{Call, Fake, On, Real, ended};
 
 #[tokio::test]
 async fn a_round_ending_past_the_context_limit_has_the_lines_next_round_begin_a_session_of_its_own() {
@@ -44,6 +45,41 @@ async fn a_round_ending_past_the_context_limit_has_the_lines_next_round_begin_a_
 }
 
 #[tokio::test]
+async fn a_round_ending_past_what_its_lines_other_sessions_ended_with_has_the_lines_next_round_begin_a_new_session() {
+    // The first work's rounds each end with 100,000 tokens; the second's build with 600,000.
+    let fake = Fake {
+        contexts: &[100_000, 100_000, 100_000, 100_000, 600_000, 100_000],
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    real.settings.history.samples = 2;
+    real.restart();
+    let first = real.add().await;
+    real.act(first, Act::Resume);
+    real.until(|real| ended(&real.decision(first))).await;
+    let second = real.add().await;
+    real.act(second, Act::Resume);
+    real.until(|real| ended(&real.decision(second))).await;
+    // The first work's line ran in one session, with no history of another to judge it by.
+    assert!(real.work(first).sessions.is_empty(), "{:?}", real.work(first).sessions);
+    // The second's build ended past the line its line's rounds in the first work give, 100,000 tokens, below the
+    // installation's limit: the line begins a new session, its own earlier round being no part of what judged it.
+    let limit = Why::Limit {
+        context: 600_000,
+        limit: 100_000,
+    };
+    let kept = real.work(second);
+    let engineer: Vec<&Why> = (kept.sessions.iter())
+        .filter(|s| s.line == "engineer")
+        .map(|s| &s.why)
+        .collect();
+    assert_eq!(engineer, [&limit]);
+    // Each round's calls were recorded, its program having said it took its message in.
+    let measured = &kept.measured;
+    assert!(!measured.is_empty() && measured.iter().all(|m| m.measures.received && m.measures.calls == 1));
+}
+
+#[tokio::test]
 async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_message_again() {
     let fake = Fake {
         compacts: true,
@@ -54,18 +90,14 @@ async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_messa
     real.act(work, Act::Resume);
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    assert!(
-        calls[1].stdin.starts_with("# Build (cell `build`), round 1\n"),
-        "{}",
-        calls[1].stdin
-    );
+    assert!(calls[1].of("Build"), "{}", calls[1].stdin);
     // What the hook gave the build's session again is the whole message, as a session that begins is told it.
     let again = std::fs::read_to_string(real.calls_dir().join("2.again")).expect("the hook ran");
     assert!(
         again.starts_with("Your session was compacted during this round."),
         "{again}"
     );
-    for part in ["# Build (cell `build`), round 1", "## Your task", "## What it reads"] {
+    for part in ["\n# Build\n", "## Your task\n\nBuild", "## What this cell returns"] {
         assert!(again.contains(part), "{part} is missing from:\n{again}");
     }
     let kept = real.work(work);
@@ -74,6 +106,11 @@ async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_messa
         "{:?}",
         kept.spent
     );
+    // Each compaction is recorded as the session reopened, which the loop is told while the round is under way.
+    let compactions: u32 = kept.spent.values().map(|spent| spent.compactions).sum();
+    let reopened = (kept.sessions.iter()).filter(|s| s.why == work::Why::Compacted).count();
+    assert!(compactions > 0);
+    assert_eq!(reopened, compactions as usize, "{:?}", kept.sessions);
     let build = real.run_of(work, "build");
     let base = real.data.join(format!("rounds/1/{}-1", build.0));
     assert!(
@@ -93,7 +130,7 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     let mut real = Real::open(On::Loading, fake, None, "true");
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| real.owners_call(work).is_some()).await;
+    real.until(|real| real.waited_question(work).is_some()).await;
     // The settings give level 1 another model while the build waits for the owner's answer: the engineer's line
     // begins a new session, and the plan, which loads it, runs again in it first.
     let level = real.settings.agents.levels.get_mut("1").expect("level 1");
@@ -101,32 +138,43 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     real.restart();
     let planned = |real: &Real| real.finished(work).iter().filter(|cell| *cell == "plan").count();
     real.until(|real| planned(real) == 2).await;
-    let call = real.owners_call(work).expect("the build still waits");
-    let result = "By their first name.".to_string();
-    real.act(work, Act::Answer { call, result });
+    let waits = |real: &Real| {
+        let decision = real.decision(work);
+        let on_the_owner = |on: &[decide::Waited]| on.iter().any(|w| matches!(w, decide::Waited::Answer { .. }));
+        matches!(&decision, decide::Decision::Wait { at, on } if at.as_str() == "build" && on_the_owner(on))
+    };
+    // The plan ran again in the new session, and the work is held at the build for the owner still.
+    assert!(waits(&real), "{:?}", real.decision(work));
+    real.answer(work, "By their first name.");
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    let of = |heading: &str| {
-        (calls.iter())
-            .find(|c| c.stdin.starts_with(heading))
-            .unwrap_or_else(|| panic!("no call is told {heading}"))
-    };
-    let first = of("# Build (cell `build`), round 1\n");
+    let builds: Vec<&Call> = (calls.iter()).filter(|c| c.of("Build")).collect();
+    let first = builds[0];
     let again = (calls.iter())
-        .filter(|c| c.stdin.starts_with("# Plan (cell `plan`), round 1\n"))
+        .filter(|c| c.of("Plan"))
         .nth(1)
         .expect("the plan ran again");
-    let second = of("# Build (cell `build`), round 2\n");
+    let second = builds[1];
     assert_eq!(again.session().0, "--session-id", "the plan begins the new session");
     assert_ne!(again.session().1, first.session().1);
-    // The build's next round goes on in the session the plan began, which never saw the build: it is told its task
-    // and what it is answered, as a round that begins a session is.
+    // The build, entered again for the answer, goes on in the session the plan began, which never saw the build: it
+    // is told its task and what it reads, as a round that begins a session is, and that the answer runs it. The answer
+    // is in what it reads, in the words of the block the answer writes.
     assert_eq!(second.session(), ("--resume", again.session().1));
-    for part in ["## Your task", "## What it reads", "By their first name."] {
+    for part in [
+        "## Your task\n\nBuild",
+        "## What this cell returns",
+        "By their first name.",
+    ] {
         assert!(second.stdin.contains(part), "{part} is missing from:\n{}", second.stdin);
     }
-    // Its next round goes on in the same session, which saw its last: it is told only its results.
-    let third = of("# Build (cell `build`), round 3\n");
+    // Entered again for the check, it goes on in the same session, which saw its last run: it is told its task by its
+    // held line.
+    let third = builds[2];
     assert_eq!(third.session(), ("--resume", again.session().1));
-    assert!(!third.stdin.contains("## Your task"), "{}", third.stdin);
+    assert!(
+        third.stdin.contains("As given before in this session"),
+        "{}",
+        third.stdin
+    );
 }

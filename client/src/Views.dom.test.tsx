@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { Comparison, Definition } from './api';
+import type { Definition } from './api';
 import { Views } from './App';
 import type { Route } from './route';
 import type { Serves } from './serves';
@@ -14,8 +14,11 @@ import {
   fixtureCall,
   fixtureCopies,
   fixtureItems,
+  fixtureProjects,
   fixtureRound,
   fixtureTold,
+  fixtureDoing,
+  fixtureSystem,
   fixtureVersion,
   fixtureWork,
 } from './works/fixtures';
@@ -32,10 +35,13 @@ afterEach(() => {
 const source: Source = {
   loadCopies: async () => fixtureCopies(),
   loadItems: async () => fixtureItems(),
+  loadProjects: async () => fixtureProjects(),
   loadWork: async (n) => fixtureWork(n),
   loadVersion: async (n, block, at) => fixtureVersion(n, block, at),
   loadRound: async (n, run, round) => fixtureRound(n, run, round),
   loadTold: async (n, run, round) => fixtureTold(n, run, round),
+  loadDoing: async (n, run, round) => fixtureDoing(n, run, round),
+  loadSystem: async (n, line, session) => fixtureSystem(n, line, session),
   loadCall: async (n, call) => fixtureCall(n, call),
   act: async () => null,
   changes: () => () => undefined,
@@ -50,9 +56,9 @@ async function settle() {
 /// Draws the views and gives the way to go to another route, and how often the flow was read.
 function drawViews(first: Route, serves: Serves | null = 'all') {
   let reads = 0;
-  const loadFlow = async (): Promise<{ definition: Definition; comparison: Comparison }> => {
+  const loadFlow = async (): Promise<{ definition: Definition }> => {
     reads += 1;
-    return { definition: { state: 'compiled', flow: small() }, comparison: { state: 'nothingToCompare' } };
+    return { definition: { state: 'compiled', flow: small() } };
   };
   const container = document.createElement('div');
   document.body.append(container);

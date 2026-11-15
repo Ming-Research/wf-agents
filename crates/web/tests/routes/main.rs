@@ -5,19 +5,22 @@
 
 mod acts;
 mod attention;
-mod changes;
 mod changing;
 mod copies;
 mod definition;
 mod directories;
 mod engine;
 mod failing;
+mod given;
 mod items;
+mod observations;
 mod other_sites;
 mod page;
+mod planning;
 mod sessions;
 mod stopped;
 mod stream;
+mod system;
 mod told;
 mod works;
 
@@ -100,7 +103,7 @@ pub const MERGE: &str = r#"
 title = "Merge"
 kind = "engine"
 act = "merge"
-requires = ["may_merge"]
+requires = { test = "may_merge" }
 inputs = ["content"]
 "#;
 
@@ -153,15 +156,16 @@ pub fn has(_: &Source) -> flow::Has {
     flow::Has {
         sources: BTreeSet::from(["main".to_string()]),
         acts: BTreeSet::from(["check".to_string(), "merge".to_string()]),
+        ..Default::default()
     }
 }
 
-/// The interface over a definition shown and, when given, one compared against, compiled against [`has`].
-pub fn serve(shown: &Shared, against: Option<&Shared>) -> Router {
+/// The interface over a definition shown, compiled against [`has`].
+pub fn serve(shown: &Shared) -> Router {
     web::router(Flows {
         shown: shown.read(),
-        against: against.map(Shared::read),
         has: Box::new(has),
+        alike: web::given::Alike::default(),
     })
 }
 
@@ -195,11 +199,13 @@ pub fn trial_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial")
 }
 
-/// What the trial flow is compiled against: the driver's source outside a work, and the act `merge`.
+/// What the trial flow is compiled against: the driver's source outside a work, the engine's as the owner answers,
+/// and the act `merge`.
 pub(crate) fn trial_has(_: &Source) -> flow::Has {
     flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
+        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
+        ..Default::default()
     }
 }
 
@@ -253,20 +259,30 @@ pub fn running_carried(
     let (service, inbox) = Service::open(store, vec![flow], carriers, clock).unwrap();
     let handle = service.handle();
     tokio::spawn(service.run(inbox));
-    let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_has));
+    let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
+    // The observations are read from the store's file, as the engine's program serves them.
+    let observations = web::observations::router(handle.clone(), dir.path().join("store.sqlite"));
     Running {
-        router: web::with_works(flows, handle, levels()),
+        router: web::with_works(flows, handle, levels(), projects()).merge(observations),
         _dir: dir,
     }
 }
 
-/// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at.
+/// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at; and a title
+/// has 20 words at most.
 pub fn levels() -> service::Levels {
     let levels = [("1", "Easy work"), ("2", "Ordinary work"), ("3", "Hard work")].map(|(name, desc)| service::Level {
         name: name.to_string(),
         desc: desc.to_string(),
     });
-    service::Levels::new(levels, "2", Some("2")).expect("the levels are made")
+    service::Levels::new(levels, "2", Some("2"))
+        .expect("the levels are made")
+        .with_title_max(20)
+}
+
+/// The projects an item is added to: `trial`, and `other`.
+pub fn projects() -> service::Projects {
+    service::Projects::new(["trial".to_string(), "other".to_string()])
 }
 
 /// The answer to a POST of this JSON: its status, and its body as JSON, or null where it has none.
@@ -312,6 +328,7 @@ pub async fn greeted(router: &Router) {
     let item = json!({
         "title": "Greet the user",
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
     });

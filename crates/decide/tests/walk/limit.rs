@@ -1,4 +1,4 @@
-//! The limit of ways round.
+//! The limit of ways round: runs in a row each for what cells after it wrote, each dealing with something.
 
 use super::*;
 
@@ -106,14 +106,19 @@ fn a_run_with_a_reason_from_outside_through_a_cell_before_it_is_no_way_round_eve
 #[test]
 fn two_cells_in_a_circle_are_bounded_by_the_earlier_ones_limit() {
     let mut w = World::with_gate(vec![
-        with_limit(2, cell("a", &["y"], &["x"])),
+        with_limit(2, cell("a", &["brief", "y"], &["x"])),
         cell("b", &["x"], &["y"]),
     ]);
+    let brief = w.person_writes("brief");
     let x1 = w.run("a", &[("x", Matters)]);
     let y1 = w.run("b", &[("y", Matters)]);
     assert_eq!(
         w.decide(),
-        runs("a", vec![changed("y", None, true)], &[("y", Some(y1)), ("x", Some(x1))])
+        runs(
+            "a",
+            vec![changed("y", None, true)],
+            &[("brief", Some(brief)), ("y", Some(y1)), ("x", Some(x1))]
+        )
     );
     let x2 = w.run("a", &[("x", Matters)]);
     // The later cell's every run has a reason from a cell before it.
@@ -131,7 +136,7 @@ fn two_cells_in_a_circle_are_bounded_by_the_earlier_ones_limit() {
         runs(
             "a",
             vec![changed("y", Some(y1), true)],
-            &[("y", Some(y2)), ("x", Some(x2))]
+            &[("brief", Some(brief)), ("y", Some(y2)), ("x", Some(x2))]
         )
     );
     w.run("a", &[("x", Matters)]);
@@ -140,12 +145,33 @@ fn two_cells_in_a_circle_are_bounded_by_the_earlier_ones_limit() {
 }
 
 #[test]
+fn a_run_that_dealt_with_nothing_is_passed_over_in_the_count_of_ways_round() {
+    let mut w = World::with_gate(vec![
+        with_limit(1, cell("a", &["brief", "y"], &["x"])),
+        cell("b", &["x"], &["y"]),
+    ]);
+    w.person_writes("brief");
+    w.run("a", &[("x", Matters)]);
+    w.run("b", &[("y", Matters)]);
+    // A way round that deals with nothing: the cell would run at once again, and it is counted as no way round.
+    w.start("a");
+    w.finish_dealing("a", &[], &[]);
+    w.run("a", &[("x", Matters)]);
+    w.run("b", &[("y", Matters)]);
+    assert_eq!(w.decide(), wait("a", vec![Waited::Limit { runs: 1 }]));
+}
+
+#[test]
 fn an_abandoned_run_is_not_counted_toward_the_limit() {
     let cells = vec![
-        with_limit(2, on_test("implementing", cell("implement", &["opinions"], &["code"]))),
+        with_limit(
+            2,
+            on_test("implementing", cell("implement", &["brief", "opinions"], &["code"])),
+        ),
         cell("review", &["code"], &["opinions"]),
     ];
     let mut w = World::with_gate(cells);
+    let brief = w.person_writes("brief");
     w.run("implement", &[("code", Matters)]);
     let o1 = w.run("review", &[("opinions", Matters)]);
     let c2 = w.run("implement", &[("code", Matters)]);
@@ -162,7 +188,7 @@ fn an_abandoned_run_is_not_counted_toward_the_limit() {
         runs(
             "implement",
             vec![changed("opinions", Some(o1), true)],
-            &[("opinions", Some(o2)), ("code", Some(c2))]
+            &[("brief", Some(brief)), ("opinions", Some(o2)), ("code", Some(c2))]
         )
     );
 }
@@ -179,10 +205,11 @@ fn a_limit_of_zero_is_refused() {
 #[test]
 fn a_persons_confirmation_of_a_choice_a_later_cell_made_does_not_lift_the_limit() {
     let cells = vec![
-        with_limit(1, cell("implement", &["verdict"], &["code"])),
+        with_limit(1, cell("implement", &["brief", "verdict"], &["code"])),
         cell("review", &["code"], &["verdict"]),
     ];
     let mut w = World::with_gate(cells);
+    w.person_writes("brief");
     w.run("implement", &[("code", Matters)]);
     w.run("review", &[("verdict", Value("no"))]);
     w.run("implement", &[("code", Matters)]);
@@ -196,10 +223,14 @@ fn a_persons_confirmation_of_a_choice_a_later_cell_made_does_not_lift_the_limit(
 #[test]
 fn a_persons_change_is_no_way_round_though_a_later_cell_rewrote_it_as_not_mattering() {
     let cells = vec![
-        with_limit(1, on_test("implementing", cell("implement", &["opinions"], &["code"]))),
+        with_limit(
+            1,
+            on_test("implementing", cell("implement", &["brief", "opinions"], &["code"])),
+        ),
         cell("review", &["code", "rules"], &["opinions"]),
     ];
     let mut w = World::with_gate(cells);
+    let brief = w.person_writes("brief");
     w.person_writes("rules");
     w.run("implement", &[("code", Matters)]);
     let o1 = w.run("review", &[("opinions", Matters)]);
@@ -219,7 +250,11 @@ fn a_persons_change_is_no_way_round_though_a_later_cell_rewrote_it_as_not_matter
         runs(
             "implement",
             vec![changed("opinions", Some(o1), false)],
-            &[("opinions", Some(rewritten)), ("code", Some(code))]
+            &[
+                ("brief", Some(brief)),
+                ("opinions", Some(rewritten)),
+                ("code", Some(code))
+            ]
         )
     );
 }

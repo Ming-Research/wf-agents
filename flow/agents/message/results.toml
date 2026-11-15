@@ -1,0 +1,12 @@
+# What a round is told of the results of the calls it is given: `heading`, then each call with its result, then `after`.
+# A call is headed by what it was: `tool` a tool run on `{input}`, or `tool_alone` one run on nothing, `{name}` the
+# tool's name; `question` a question put to a person, as it was put; `at_limit` the owner's word at a limit; `unknown`
+# a call the work does not hold, `{call}` its number. `none` stands in place of a result where a call has none.
+heading = "## The results of what you asked for"
+tool = "### The tool `{name}`, on: {input}"
+tool_alone = "### The tool `{name}`"
+question = "### Your question: {question}"
+at_limit = "### The owner let the run go on at its limit"
+unknown = "### Call {call}, which the work does not hold"
+none = "(It has no result.)"
+after = "Go on with the task."

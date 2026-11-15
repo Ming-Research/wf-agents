@@ -1,0 +1,61 @@
+# A project's declaration, `flow/project.toml` on its repository's main branch: each project an installation names has
+# its own, read as the engine starts. It holds what is the project's: its design tree; its files, which the agents of
+# its works are given as they are in the work's checkout; its settings, which the words sent to the agents name as
+# `project.<name>`; and its tests and workflows. This one is the declaration of the project whose repository holds the
+# flows. A path is from the root of the project's checkout.
+
+# The directory that holds the project's design tree, which the engine looks at on each work's branch.
+tree = "design/"
+
+# The project's guide for its agents.
+[files.guide]
+path = "AGENTS.md"
+
+# The constitution of the project's design tree.
+[files.constitution]
+path = "design/constitution.md"
+
+# The rules of the project's design tree.
+[files.tree_rules]
+path = "design/README.md"
+
+[project]
+# Where an agent keeps what it makes for research, committed.
+research = "research/"
+# How an agent names a test to `run_tests`, by the name the project's test runners give it.
+test_names = '''
+An agent names to `run_tests` a test by the name its JUnit result gives it, as it is: a Rust test by its name as nextest
+gives it (`tests::a_row`: the test binary is no part of it), and a page test by its describes and its title joined by
+` > ` (`a describe > its title`), as vitest lists it. Only an exact name names a test: a binary, a module, a file or
+a describe alone names none.'''
+
+# Where the project's tests are, as git pathspecs, and the data its tests expect.
+[tests]
+paths = [
+  ":(glob)crates/**/tests/**",
+  ":(glob)crates/**/tests.rs",
+  ":(glob)client/**/*.test.ts",
+  ":(glob)client/**/*.test.tsx",
+]
+expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/laid_out/"]
+
+# The project's two workflows, which the engine runs by hand on main's file with a commit given. Each reports every test
+# as JUnit XML, named as an agent asks for it, in the artifact `test-results`.
+[ci.fast]
+# Builds and runs only the tests and checks it is given.
+workflow = "fast.yml"
+runner = "14900k"
+checks = ["lint"]
+
+[ci.full]
+# Every job required to merge, run once before the merge.
+workflows = ["ci.yml"]
+runner = "14900k"
+too_long = "2h"
+
+# The paths that govern the project's agents, which the owner changes: where a work's change against main touches one,
+# the work says why each such change is needed (`agents/return/fields/protected_changes.toml`) or takes it back, and the
+# engine asks the owner whether the change stays (`agents/asks.toml`). A path ending in `/` is a directory and
+# everything in it.
+[protected]
+paths = ["AGENTS.md", "design/constitution.md", "design/principles/", "flow/", ".github/workflows/"]

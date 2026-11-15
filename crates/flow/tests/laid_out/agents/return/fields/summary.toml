@@ -1,0 +1,7 @@
+# A sentence or two on the round, for the owner: a field of both kinds of return.
+in = ["calls", "outcome"]
+told = "listed"
+words = "`summary`: what this round did and found."
+
+[shape]
+type = "string"

@@ -6,7 +6,8 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cellNowWords } from '../works/marks';
-import type { Act, Item, WorkPage } from '../works-api';
+import type { Act, Item, Speaking, WorkPage } from '../works-api';
+import type { Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
 
@@ -21,17 +22,28 @@ afterEach(() => {
 });
 
 const ITEMS = fixtureItems();
+
+/// The engineer's flow where the research's cell and the deep research's may write the work's questions, as the
+/// definition says by `questions` among their outputs, and the review's cells may not.
+const ASKING: Flow = {
+  ...FLOW,
+  cells: FLOW.cells.map((c) =>
+    c.id === 'research' || c.id === 'deep_research' ? { ...c, outputs: [...c.outputs, 'questions'] } : c,
+  ),
+};
 const itemOf = (n: number) => ITEMS.items.find((i) => i.number === n) as Item;
-const pageOf = (i: Item): PageState => ({
+const pageOf = (i: Item, speaking: Speaking[] = SPEAKING): PageState => ({
   page: {
     summary: i.work,
     title: i.title,
     level: i.level,
+    project: i.project,
     history: i.history,
-    flow: FLOW,
+    flow: ASKING,
     cells: [],
     blocks: [],
     steps: [],
+    speaking,
   } satisfies WorkPage,
 });
 
@@ -41,17 +53,35 @@ const ENGINEER: Record<string, string> = { research: 'R1', deep_research: 'D1', 
 const engineer = <T,>(x: T): T =>
   JSON.parse(JSON.stringify(x).replace(/"(research|deep_research|implement)"/g, (_, id: string) => `"${ENGINEER[id]}"`)) as T;
 
-/// What the panel sent, each answered at once.
-type Sent = [number, Act][];
-const answered = (sent: Sent) => (work: number, what: Act) => {
-  sent.push([work, what]);
-  return Promise.resolve(null);
-};
+/// Where the engine says the owner's words go: what is said to the engineer's line reaches the implementation, and
+/// no cell of the deep research's line can take any.
+const SPEAKING: Speaking[] = [
+  { to: { kind: 'line', line: 'engineer' }, cell: 'implement', refused: null },
+  {
+    to: { kind: 'line', line: 'deep_research' },
+    cell: null,
+    refused: 'no cell of the line deep_research has run yet, and the work stands at none of them',
+  },
+];
 
-/// Draws the panel of item `n` as the console does, in the same root as the panel drawn before it, if any; `asEngineer`
-/// draws it with the engineer's flow's cell ids.
-function draw(n: number, send: (work: number, what: Act) => Promise<unknown>, page?: PageState, asEngineer = false) {
-  const item = asEngineer ? engineer(itemOf(n)) : itemOf(n);
+/// What the panel sent, each answered at once, with this where it is given.
+type Sent = [number, Act][];
+const answered =
+  (sent: Sent, answer: unknown = null) =>
+  (work: number, what: Act) => {
+    sent.push([work, what]);
+    return Promise.resolve(answer);
+  };
+
+/// Draws the panel of item `n`, or of this item, as the console does, in the same root as the panel drawn before it, if
+/// any; `asEngineer` draws item `n` with the engineer's flow's cell ids.
+function draw(
+  n: number | Item,
+  send: (work: number, what: Act) => Promise<unknown>,
+  page?: PageState,
+  asEngineer = false,
+) {
+  const item = typeof n !== 'number' ? n : asEngineer ? engineer(itemOf(n)) : itemOf(n);
   if (root === undefined) {
     container = document.createElement('div');
     document.body.append(container);
@@ -62,7 +92,7 @@ function draw(n: number, send: (work: number, what: Act) => Promise<unknown>, pa
     r.render(
       <ItemPanel
         item={item}
-        page={page === undefined ? (asEngineer ? engineer(pageOf(itemOf(n))) : pageOf(item)) : page}
+        page={page === undefined ? (asEngineer ? engineer(pageOf(item)) : pageOf(item)) : page}
         act={send}
         waitsFor={[11]}
         onTitle={() => undefined}
@@ -117,13 +147,22 @@ describe('the panel of the item selected', () => {
     const el = draw(12, answered([]));
     expect(text(el, '.drawer-id')).toEqual(['12']);
     expect(text(el, '.drawer-title')).toEqual(['Show the cost of a work']);
-    expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
+    expect(text(el, '.drawer-belongs')).toEqual(['project wf-agents']);
     const [itemLine, workLine] = lines(el);
     expect(itemLine).toBe('Open Added 1.1d ago Waits for 11 to merge');
     expect(workLine).toContain(
       'Waiting for you Review the plan reached its limit: 3 runs in a row for what a cell after it wrote W12',
     );
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
+  });
+
+  it("names the item's project by its key and value, and nothing for an item added before items had projects", () => {
+    const el = draw(8, answered([]));
+    expect(text(el, '.drawer-belongs .muted.mono')).toEqual(['project']);
+    expect(text(el, '.drawer-belongs .mono:not(.muted)')).toEqual(['Whitefoot']);
+    draw(21, answered([]));
+    expect(text(el, '.drawer-title')).toEqual(['Store the versions of each block']);
+    expect(el.querySelector('.drawer-belongs')).toBeNull();
   });
 
   it('says a work the engine paused as halted, with the reason, and shows it paused on the switch that starts it', () => {
@@ -166,22 +205,97 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.cw-choice-stops')).toEqual(['The work waits for this answer']);
   });
 
-  it('writes a message into the block that is the owner\'s words to the cell chosen, and names the cells that read it', async () => {
+  it("says a message to the chosen cell's line, names the cell the engine says it reaches, and then the one it gave it to", async () => {
     const sent: Sent = [];
-    const el = draw(12, answered(sent), undefined, true);
-    expect(text(el, '.cw-to .switch-choice')).toEqual(['Research', 'Deep research', 'Implementation']);
-    // Before the work has come to the implementation, a message goes to the research.
-    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Research']);
-    expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
-    act(() => button(el, 'Implementation').click());
+    // The engine gives the words to another cell than the one the page read it would: the page says the engine's.
+    const el = draw(12, answered(sent, { reached: 'R1' }), undefined, true);
+    // A button for each line that can ask the owner a question, and none for the review's line, which cannot.
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['D1', 'Implement']);
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Implement']);
+    expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
+    act(() => button(el, 'Implement').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
     expect(button(el, 'Send').disabled).toBe(true);
     type(el.querySelector('textarea') as HTMLTextAreaElement, '  Keep it to one table  ');
     expect(button(el, 'Send').disabled).toBe(false);
     await act(async () => button(el, 'Send').click());
-    expect(sent).toEqual([[12, { kind: 'write', block: 'code_opinions', content: 'Keep it to one table', value: null }]]);
+    expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'line', line: 'engineer' }, words: 'Keep it to one table' }]]);
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
-    expect(text(el, '.cw-done')).toEqual(['Written in code_opinions']);
+    expect(text(el, '.cw-done')).toEqual(['Said to Initial research']);
+  });
+
+  it('says words to the line where the work waits for an answer about that question, where the engine sends them', async () => {
+    const sent: Sent = [];
+    const i = itemOf(12);
+    const waits = engineer({
+      ...i,
+      work: { ...i.work, now: { kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'one_table' }] } },
+    } satisfies Item);
+    const speaking: Speaking[] = [
+      ...SPEAKING,
+      { to: { kind: 'question', name: 'one_table' }, cell: 'research', refused: null },
+    ];
+    const el = draw(waits, answered(sent, { reached: 'R1' }), engineer(pageOf(i, speaking)));
+    expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
+    type(el.querySelector('textarea') as HTMLTextAreaElement, 'Why two tables?');
+    await act(async () => button(el, 'Send').click());
+    expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'question', name: 'one_table' }, words: 'Why two tables?' }]]);
+    // To another line, they are said to that line, which the engine says no cell of can take them.
+    act(() => button(el, 'D1').click());
+    expect(text(el, '.write-readers')).toEqual([`No cell takes the words: ${SPEAKING[1].refused}`]);
+  });
+
+  it('shows a button for each line that can ask the owner a question and none for one that cannot, and says words to the line of the button chosen', async () => {
+    const sent: Sent = [];
+    const speaking: Speaking[] = [
+      { to: { kind: 'line', line: 'engineer' }, cell: 'implement', refused: null },
+      { to: { kind: 'line', line: 'deep_research' }, cell: 'deep_research', refused: null },
+      { to: { kind: 'line', line: 'review' }, cell: 'review', refused: null },
+    ];
+    const i = itemOf(12);
+    const el = draw(i, answered(sent, { reached: 'deep_research' }), pageOf(i, speaking));
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['Deep research', 'Implement']);
+    act(() => button(el, 'Deep research').click());
+    expect(text(el, '.write-readers')).toEqual(['Goes to Deep research']);
+    type(el.querySelector('textarea') as HTMLTextAreaElement, 'Look at the second table');
+    await act(async () => button(el, 'Send').click());
+    expect(sent).toEqual([
+      [12, { kind: 'say', to: { kind: 'line', line: 'deep_research' }, words: 'Look at the second table' }],
+    ]);
+  });
+
+  it('takes a question a cell asked by a call to the discussion, quoted, to the line of the cell that asked it', async () => {
+    const sent: Sent = [];
+    const speaking: Speaking[] = [{ to: { kind: 'line', line: 'engineer' }, cell: 'research', refused: null }];
+    const el = draw(1, answered(sent, { reached: 'R1' }), engineer(pageOf(itemOf(1), speaking)), true);
+    await act(async () => button(el, 'Discuss').click());
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Initial research']);
+    expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
+    // The discussion's box, not the one the question is answered in.
+    type(discussion(el).querySelector('textarea') as HTMLTextAreaElement, 'Kept a day: say why not.');
+    await act(async () => button(el, 'Send').click());
+    expect(sent).toEqual([
+      [
+        1,
+        {
+          kind: 'say',
+          to: { kind: 'line', line: 'engineer' },
+          words: '> Should a stale run be abandoned at once or kept a day?\n\nKept a day: say why not.',
+        },
+      ],
+    ]);
+  });
+
+  it('says why no cell can take a message, and sends it to no cell', async () => {
+    const sent: Sent = [];
+    const refused = 'no cell of the line engineer has run yet, and the work stands at none of them';
+    const speaking: Speaking[] = [{ to: { kind: 'line', line: 'engineer' }, cell: null, refused }];
+    const el = draw(12, answered(sent), engineer(pageOf(itemOf(12), speaking)), true);
+    expect(text(el, '.write-readers')).toEqual([`No cell takes the words: ${refused}`]);
+    type(el.querySelector('textarea') as HTMLTextAreaElement, 'Keep it to one table');
+    expect(button(el, 'Send').disabled).toBe(true);
+    await act(async () => button(el, 'Send').click());
+    expect(sent).toEqual([]);
   });
 
   it('keeps what is typed for a block of a work, so that it stands when the panel shows it again', () => {
@@ -192,7 +306,7 @@ describe('the panel of the item selected', () => {
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Half a thought');
   });
 
-  it('pauses a work that goes on, starts one that is paused, and cancels one once the owner confirms', async () => {
+  it('pauses a work that goes on, starts one that is paused, and cancels one once the owner confirms and says why', async () => {
     const sent: Sent = [];
     const el = draw(2, answered(sent));
     await act(async () => button(el, 'Pause').click());
@@ -208,10 +322,13 @@ describe('the panel of the item selected', () => {
     await act(async () => (el.querySelector('dialog .confirm-buttons button') as HTMLButtonElement).click());
     expect(el.querySelector('dialog')).toBeNull();
     await act(async () => button(el, 'Cancel').click());
+    // A cancel says why: until it does, it is not made.
+    expect(button(el, 'Cancel the work').disabled).toBe(true);
+    type(el.querySelector('dialog textarea') as HTMLTextAreaElement, ' Joined into #3 ');
     await act(async () => button(el, 'Cancel the work').click());
     expect(sent.slice(1)).toEqual([
       [4, { kind: 'resume' }],
-      [4, { kind: 'cancel' }],
+      [4, { kind: 'cancel', why: 'Joined into #3' }],
     ]);
   });
 

@@ -4,9 +4,12 @@
 //! what it tests; this file holds what the modules build their expectations from, and the works several of them start
 //! from.
 
+// The walk's tests use only part of the helper the tests of a flow compiled elsewhere share.
+#[allow(dead_code)]
 #[path = "../support/mod.rs"]
 mod support;
 
+mod before;
 mod changed_flow;
 mod failing;
 mod faults;
@@ -19,16 +22,20 @@ mod opinions;
 mod order;
 mod paused_answers;
 mod preconditions;
+mod questions;
 mod room;
 mod rounds;
 mod skipping;
-mod stale;
+mod stalling;
+mod stopping;
+mod waiting;
+mod written_over;
 
 use std::collections::BTreeMap;
 
 use decide::{
     Abandoned, Abandoning, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Maker,
-    Pauser, RecordFault, Returned, Round, RunId, Seq, Waited, Who, Write, Written,
+    Pauser, PutIn, RecordFault, Returned, Round, RunId, Seq, Stalling, Unrun, Waited, Who, Write, Written,
 };
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{World, cell, gate, merge_word, resting};
@@ -48,8 +55,8 @@ fn runs(cell: &str, because: Vec<Cause>, basis: Versions<'_>) -> Decision {
     }
 }
 
-/// A block the cell reads has another meaning than the version its record knows; `behind` where a cell after it
-/// wrote the current version.
+/// A block that runs the cell is new to it, which consumed the version `was`; `behind` where cells after it wrote every
+/// new version.
 fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
     Cause::Changed {
         block: block.into(),
@@ -78,13 +85,34 @@ fn wait(at: &str, on: Vec<Waited>) -> Decision {
     Decision::Wait { at: at.into(), on }
 }
 
-fn outdated(block: &str) -> Abandoning {
-    Abandoning::Outdated { block: block.into() }
+/// The work stalled at the cell, for these keys of its preconditions, each cell that writes what it waits for not
+/// running for its reason.
+fn stalled(at: &str, on: &[&str], by: &[(&str, Unrun)]) -> Decision {
+    Decision::Stalled {
+        at: at.into(),
+        on: on.iter().map(|key| (*key).into()).collect(),
+        by: (by.iter())
+            .map(|(cell, why)| Stalling {
+                cell: (*cell).into(),
+                why: why.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// The first run of a cell, for each of these blocks that has a version, none consumed.
+fn first(blocks: &[&str]) -> Vec<Cause> {
+    blocks.iter().map(|b| changed(b, None, false)).collect()
+}
+
+/// The results of these calls, which the cell's earlier runs asked for, are all in.
+fn results(calls: &[CallId]) -> Cause {
+    Cause::Results { calls: calls.to_vec() }
 }
 
 /// The wait on the precondition, which these can make hold.
 fn precondition(test: &str, by: Vec<Maker>) -> Waited {
-    Waited::Precondition { test: test.into(), by }
+    Waited::Precondition { on: test.into(), by }
 }
 
 /// The cell of this name, as one who can make a precondition hold.
@@ -94,16 +122,16 @@ fn by_cell(cell: &str) -> Maker {
 
 /// A cell that runs only when the block's current value is this one.
 fn when(block: &str, value: &str, mut c: Cell) -> Cell {
-    c.applies = Some(Condition::Is {
+    c.applies = vec![Condition::Is {
         block: block.into(),
         value: value.into(),
-    });
+    }];
     c
 }
 
 /// A cell that runs only while the named test holds.
 fn on_test(test: &str, mut c: Cell) -> Cell {
-    c.applies = Some(Condition::Test(test.into()));
+    c.applies = vec![Condition::Test(test.into())];
     c
 }
 
@@ -126,12 +154,11 @@ fn reasons(decision: &Decision) -> (String, Vec<(String, bool)>) {
         .map(|c| match c {
             Cause::Changed { block, behind, .. } => (block.0.clone(), *behind),
             Cause::NoRecord => ("no record".to_string(), false),
+            Cause::Results { .. } => ("results".to_string(), false),
         })
         .collect();
     (cell.0.clone(), because)
 }
-
-const NO_RECORD: Cause = Cause::NoRecord;
 
 /// The implementation and its review, which writes its opinions for the implementation; both ran once, the review
 /// with nothing to say.

@@ -102,8 +102,10 @@ run next all the same, and the note would be filled, since the new session lacks
 
 ## What an agent reads by itself
 
-22. Not everything in a context is data. What an agent reads on its own account, the design tree and the code, is in
-    the context of the session that read it and nowhere else, and the context manager cannot fill it in.
+22. Not everything in a context is data. What an agent reads on its own account, the files of the design tree and
+    the code, is in the context of the session that read it and nowhere else, and the context manager cannot fill it
+    in. Of the tree it fills in the version, the commit and the id of the tree, and what changed since the version the
+    session read, as the files that changed, so that the agent reads those again.
 
 23. `AGENTS.md` can be put into a context as it is. So it is data, which the cell of every agent takes: the context
     manager fills it into each new session, and a cell runs again because of it only when its content changed.
@@ -111,8 +113,9 @@ run next all the same, and the note would be filled, since the new session lacks
 24. The design tree is read by the agent, which chooses what bears on the problem. One cell does this reading for the
     cells that follow it in its session. So that the reading is done again in a session reopened, this cell takes
     `session`: data that stand for the session of a line, one for each line, and get a new version each time that
-    session is reopened. The cell also takes the design tree, so that a change of the tree has it read again. No data
-    stand for the reading itself. What the cell finds for other cells it hands in as any cell does; run again for a
+    session is reopened. The tree runs no cell: it is a datum the cells that read it are given, so that a changed tree
+    is read where the line goes on, by the next cell that enters the session, and not by running the reading again
+    (22). No data stand for the reading itself. What the cell finds for other cells it hands in as any cell does; run again for a
     new session alone, it finds nothing changed and hands in nothing new, so that no cell runs because of it (9).
 
 25. A session reopened while a round is under way is no case of its own. `session` has a new version; the round did
@@ -137,3 +140,45 @@ run next all the same, and the note would be filled, since the new session lacks
     charge: where there is one place to write, nothing can be written to the wrong one.
 
 29. A round is not told who wrote a version: nothing in this design needs it.
+
+## What is said to a work
+
+30. A question and a message are two channels. A question is asked by a cell and answered on it, where it is asked
+    (26). A message is what the owner says to a work, and the cell's answer: it may be said at any time, wherever the
+    work stands, and may go back and forth. Words said about a question, as remarks on it, are a message, not its
+    answer.
+
+31. What the owner says and what the cells say back are kept as one record, `discussion`, each entry with who spoke
+    and to which cell, in the order they were said: the owner adds to it, and so do the cells that answer, and no
+    entry is changed. Every cell that can be spoken to is given the record, all of it (16), so that the owner's words
+    are in the very message of the round that answers them, and a session reopened holds everything that was said.
+    The record runs no cell.
+
+32. What runs a cell that is spoken to is a datum of its own, `{cell}_spoken_to`, with no content, which has a new
+    version when the owner speaks to that cell. Words about a question go to the cell that asked it. Other words go to
+    a line the owner chooses, and reach the cell that line has reached: the one running or holding the work on that
+    line, or else the one of that line that ran last. The page shows the cell the words will reach, as the engine
+    decides it; where no cell can take them they are not sent, and the page says so: they never go to another cell
+    unsaid.
+
+33. A cell that can ask a question that stops the work can be spoken to: every cell that may write a question has
+    both the datum an answer writes (26) and its own `{cell}_spoken_to`. A flow without them is refused as it loads.
+
+34. The cell answers at once and goes on with its work. It hands in its answer as it hands in anything, in `reply`,
+    and the answer is added to the record; with it the round says that it has dealt with the owner's words. What else
+    ran the cell is still new, so the cell is entered again and goes on with the rest (9). No tool is needed for
+    answering.
+
+35. While a round of the cell spoken to is under way, the words are put into its session right after its next use of
+    one of its program's own tools, so that they do not wait for the round's end. This is done for what the owner says
+    and for nothing else. Words that did not reach the round before it ended are still new to the cell, and it runs
+    again.
+
+36. While the cell spoken to has no round under way and waits for the result of a call, the engine enters it for the
+    words, and it goes on waiting for the result.
+
+37. While a round of a cell later in the flow is under way, that round is told to stop, the cell spoken to runs, and
+    the flow comes back to the cell that stopped: a round that stopped so has dealt with nothing (8), and its cell runs
+    again.
+
+38. A round that says it has dealt with the owner's words and has handed in no answer has its return sent back.

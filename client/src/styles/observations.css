@@ -1,0 +1,74 @@
+/* The observations: one row each in the list view (works.css), the full width, a line between rows: the mark of one
+   not yet read, its text cut to three lines with where it came from under it, and at its right the button that marks
+   it read or when it was read. A row read is muted. Every value is a token (tokens.css). */
+
+.observation {
+  display: grid;
+  grid-template-columns: var(--space-8) minmax(0, 1fr) auto;
+  gap: 0 var(--space-8);
+  align-items: start;
+  padding: var(--space-8) var(--space-12);
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+/* The mark stands on the middle of the text's first line. */
+.observation-mark {
+  display: flex;
+  align-items: center;
+  height: calc(var(--size-body) * var(--line-height));
+}
+
+/* An observation not yet read: a dot in the text's colour, which says no state of a work. */
+.dot-unread {
+  background: var(--text);
+}
+
+.observation-body {
+  min-width: 0;
+}
+
+/* The text as the agent wrote it, in the page's font, cut to three lines and whole on pointing at it. */
+.observation-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--size-body);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.observation-read .observation-text {
+  color: var(--muted);
+}
+
+/* Where it came from, on one line cut at its end, the item's title giving way first. */
+.observation-facts {
+  display: flex;
+  align-items: baseline;
+  gap: 0 var(--space-12);
+  min-width: 0;
+  margin-top: var(--space-2);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--size-small);
+  white-space: nowrap;
+}
+
+.observation-facts > * {
+  flex: none;
+}
+
+.observation-facts > .observation-item {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.observation-end {
+  color: var(--muted);
+  font-size: var(--size-small);
+  white-space: nowrap;
+}

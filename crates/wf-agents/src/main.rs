@@ -1,10 +1,13 @@
 //! The `wf-agents` command. Each part of the system adds its subcommands here.
 //!
+//! - `reference`: `wf-agents help`, the whole reference of the command line.
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
+//! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
 
-mod committed;
+mod reference;
 mod running;
+mod situations;
 mod talk;
 
 use std::net::{Ipv4Addr, SocketAddr};
@@ -13,7 +16,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Has, Source};
-use web::works::{Act, DependencyChange, EngineAct};
+use web::works::{Act, ChangeAsked, EngineAct, SpokenTo};
 
 use crate::talk::Asked;
 
@@ -22,7 +25,7 @@ const PORT: u16 = 7470;
 
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
-#[command(version)]
+#[command(version, disable_help_subcommand = true)]
 struct Cli {
     // Required: with none, clap fails with the usage and the names of the subcommands.
     #[command(subcommand)]
@@ -31,6 +34,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// With no command named, prints the whole reference at once: the program's description, then every command with
+    /// its long help, each under a line with its full name. With commands named, prints the long help of that one,
+    /// as its `--help` does.
+    Help {
+        /// The command, and the command under it, to print the help of.
+        command: Vec<String>,
+    },
     /// A flow's definition: a directory holding `flow.toml` and one file for each cell.
     #[command(subcommand)]
     Flow(FlowCommand),
@@ -63,12 +73,18 @@ enum Command {
         /// The level of the item, among those the settings name; the settings' default level where none is given.
         #[arg(long)]
         level: Option<String>,
+        /// The project it belongs to, among those the settings name, whose repository its works run in.
+        #[arg(long)]
+        project: String,
         /// The name of the flow its work runs on.
         #[arg(long)]
         flow: String,
-        /// An item it depends on, by number; given once for each.
+        /// An item it depends on, by number, of its own project or another; given once for each.
         #[arg(long = "depends-on", value_name = "ITEM")]
         depends_on: Vec<u64>,
+        /// A tag it carries, which classifies it; given once for each.
+        #[arg(long = "tag", value_name = "TAG")]
+        tags: Vec<String>,
         /// A block written for it, with this text.
         #[arg(long = "write", value_name = "BLOCK=TEXT")]
         texts: Vec<String>,
@@ -81,28 +97,47 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Makes several changes of items at once, for one reason: in the order given, each judged against what those
+    /// before it make, all of them or none. Each is ITEM:KIND or ITEM:KIND=VALUE, the kind one of title=TEXT,
+    /// level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, cancel and reopen. Every refusal
+    /// is said at once, by the change's place among them.
+    Change {
+        #[command(flatten)]
+        why: Why,
+        #[arg(required = true, value_name = "ITEM:KIND[=VALUE]")]
+        changes: Vec<String>,
+        #[command(flatten)]
+        at: At,
+    },
     /// Puts an item at another level, among those the settings name and at most the highest an item may be at: its
     /// work's rounds run on it from their next.
     SetLevel {
         item: u64,
         level: String,
         #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
         at: At,
     },
-    /// Gives an item another title, which its merge will be named by. The title it had is kept, as every change of an
-    /// item is: `wf-agents show` says each.
+    /// Gives an item another title, in the owner's language, as the page and the item's agents know it: its merge is
+    /// named by a line its work writes in the repository's language, never by its title. The title it had is kept, as
+    /// every change of an item is, with why: `wf-agents show` of its work says the latest, and with `history` each.
     SetTitle {
         item: u64,
         title: String,
         #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
         at: At,
     },
     /// Makes an item depend on another, while its work has started no run: its work then waits for that one to merge as
-    /// well. Refused where that one depends on it already, by way of any items.
+    /// well. Refused where that one depends on it already, by way of any items, or is cancelled.
     AddDependency {
         item: u64,
         /// The item it comes to depend on.
         on: u64,
+        #[command(flatten)]
+        why: Why,
         #[command(flatten)]
         at: At,
     },
@@ -112,17 +147,118 @@ enum Command {
         /// The item it no longer depends on.
         on: u64,
         #[command(flatten)]
-        at: At,
-    },
-    /// Says whether everything is paused and how many slots are taken, and lists the items, each with what its work
-    /// does now.
-    List {
+        why: Why,
         #[command(flatten)]
         at: At,
     },
-    /// Shows a work: what it does now, its cells, its blocks and its runs.
+    /// Has an item carry a tag, which classifies it: a name with no space and no comma.
+    Tag {
+        item: u64,
+        tag: String,
+        #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Has an item no longer carry a tag.
+    Untag {
+        item: u64,
+        tag: String,
+        #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Reopens a cancelled item: its work is paused, and goes on from its records once it is let on with `wf-agents
+    /// resume`, making its place again on the branch it kept. Refused while it depends on a cancelled item, or a
+    /// merged item depends on it.
+    Reopen {
+        item: u64,
+        #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Says whether everything is paused and how many slots are taken, and lists the items that have not ended, each
+    /// with what its work does now, at most a hundred from the first given, and how many that ended it leaves out.
+    List {
+        /// Only the items that carry this tag.
+        #[arg(long)]
+        tag: Option<String>,
+        /// The item to list from, the first where none is given.
+        #[arg(long, value_name = "ITEM")]
+        from: Option<u64>,
+        /// The items that ended, merged or cancelled, as well.
+        #[arg(long)]
+        all: bool,
+        #[command(flatten)]
+        at: At,
+    },
+    /// What changed in the plan since the mark the last call gave: each item added, each change of an item, each cancel
+    /// and reopen, with when and why, oldest first, and the mark to give next time. With no mark, from the start.
+    Changes {
+        /// The mark the last call gave.
+        #[arg(long)]
+        since: Option<String>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// The items that could be let on now: paused, every item they depend on merged. Those more open items wait for
+    /// come first; the choice is yours.
+    Candidates {
+        #[command(flatten)]
+        at: At,
+    },
+    /// Where a text is mentioned, ignoring case: in titles, in the blocks people wrote, and in why changes were made.
+    Search {
+        text: String,
+        /// The most hits to give.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[command(flatten)]
+        at: At,
+    },
+    /// What an item waits for and what waits for it: up, the items it depends on, each with those it depends on in
+    /// turn; down, the items that depend on it, likewise; to a depth.
+    Graph {
+        item: u64,
+        /// Only up: what it depends on.
+        #[arg(long, conflicts_with = "down")]
+        up: bool,
+        /// Only down: what depends on it.
+        #[arg(long)]
+        down: bool,
+        /// How many steps to walk.
+        #[arg(long, default_value_t = 3)]
+        depth: usize,
+        #[command(flatten)]
+        at: At,
+    },
+    /// The tags items carry, each with how many items carry it and how many of those have not ended.
+    Tags {
+        #[command(flatten)]
+        at: At,
+    },
+    /// The text of an item's blocks, as the latest version of each says it, in short: of each section, its heading and
+    /// first paragraph, cut. With a block, that block alone; with --whole, that block whole.
+    Text {
+        item: u64,
+        block: Option<String>,
+        #[arg(long, requires = "block")]
+        whole: bool,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Shows a work: what it does now, its cells and its blocks, and the latest ten of what happened to its item, of its
+    /// runs and of its sessions, and ten of its questions, those not answered first, saying how many more there are.
+    /// With a part, that part alone, a hundred at a time.
     Show {
         work: u64,
+        /// The part to give alone.
+        part: Option<talk::Part>,
+        /// The place in the part to give it from, the first being one.
+        #[arg(long, requires = "part", value_name = "N")]
+        from: Option<usize>,
         #[command(flatten)]
         at: At,
     },
@@ -147,7 +283,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Cancels a work's item, saying why: nothing of the work goes on.
+    /// Cancels a work's item, saying why: nothing of the work goes on. Refused while an item that has not ended depends
+    /// on it; `wf-agents change` cancels several at once, by item.
     Cancel {
         work: u64,
         /// Why it is cancelled, in a sentence, such as the item it was joined into; kept with the cancel.
@@ -170,19 +307,46 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Gives a call that waits for a person its result.
-    Answer {
+    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    Result {
         work: u64,
         call: u64,
         result: String,
         #[command(flatten)]
         at: At,
     },
+    /// Says something to a work: about a question of it, or to a line of its flow. The engine chooses the cell it
+    /// reaches, the one that asked the question or the one the line has reached, and refuses it, saying why, where no
+    /// cell can take it.
+    Say {
+        work: u64,
+        words: String,
+        /// The line of the work's flow it is said to.
+        #[arg(long, conflicts_with = "question", required_unless_present = "question")]
+        line: Option<String>,
+        /// The question of the work it is about, by its name.
+        #[arg(long)]
+        question: Option<String>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Answers a version of a question of a work, taking an option, counted from one.
+    Answer {
+        work: u64,
+        question: String,
+        version: u64,
+        option: u64,
+        /// Why, in a sentence, where there is something to say: kept with the answer, which the asking cell is given.
+        #[arg(long)]
+        why: Option<String>,
+        #[command(flatten)]
+        at: At,
+    },
     /// Waits for what needs whoever plans the work and says it, a line each, most pressing first: a work that ended,
-    /// one that rests for a person (a cell's question, a ruling only a person can give, a limit, a pause the engine made
-    /// with its reason), one that waits for items none of which is going on. It answers as soon as there is something
-    /// since the mark, and says the mark to give next time; nothing that happens between two calls is lost. With no
-    /// mark, it gives what stands now, the works that ended being taken as read.
+    /// one that rests for a person (a cell's question, a ruling only a person can give, a limit, a pause the engine
+    /// made with its reason), one that waits for items none of which is going on. It answers as soon as there is
+    /// something since the mark, and says the mark to give next time; nothing that happens between two calls is lost.
+    /// With no mark, it gives what stands now, the works that ended being taken as read.
     Wait {
         /// The mark the last call gave.
         #[arg(long)]
@@ -208,6 +372,28 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Shows how the system ran over the last days: what its rounds took; the rounds whose cost or time, and the calls
+    /// of tools whose time, went past the lines of their history, the latest first; and the rounds and calls under way,
+    /// the oldest first, each against its own lines. At most so many of each are listed, and how many more there are
+    /// is said.
+    System {
+        /// How many days the span goes back from now.
+        #[arg(long, default_value_t = 7)]
+        days: u64,
+        /// The most listed of each.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        #[command(flatten)]
+        at: At,
+    },
+}
+
+/// Why a change is made, kept with it.
+#[derive(Args)]
+struct Why {
+    /// Why the change is made, in a sentence; kept with it.
+    #[arg(long = "why", value_name = "SENTENCE")]
+    why: String,
 }
 
 /// Where the running engine is.
@@ -227,24 +413,79 @@ enum FlowCommand {
         dir: PathBuf,
     },
     /// Serves the owner's flow page for the definition in a directory, on the loopback address: the flow as a chart,
-    /// or its faults when it does not compile, and what changed from another definition when one is given. Both
-    /// directories are read again for every request, so an edit shows when the page is loaded again.
+    /// or its faults when it does not compile. The directory is read again for every request, so an edit shows when
+    /// the page is loaded again.
     Page {
         /// The definition's directory.
         dir: PathBuf,
-        /// The directory of a definition to compare against: the page shows what changed from it to the one shown.
-        #[arg(long)]
-        against: Option<PathBuf>,
         /// The port of the page on the loopback address.
         #[arg(long, default_value_t = 7490)]
         port: u16,
+    },
+    /// Writes what each agent's cell of the definition in a directory is sent in every situation an entry of it can be
+    /// in, a file for each situation in a directory for the cell: the situation, the system prompt of its line, the
+    /// message and the form of a return, what a run fills left open as `{name}`. It reads nothing of an installation
+    /// or a work, and prints for each cell how many situations it wrote.
+    Situations {
+        /// The definition's directory.
+        dir: PathBuf,
+        /// The directory each cell's directory is made in; a cell's that holds files already is refused.
+        #[arg(long)]
+        out: PathBuf,
+        /// Only this cell, by its id.
+        #[arg(long)]
+        cell: Option<String>,
+        /// The project's checkout, whose files the system prompt holds; they are left out where none is given.
+        #[arg(long)]
+        project: Option<PathBuf>,
     },
 }
 
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::Help { command } => {
+            let program = <Cli as clap::CommandFactory>::command();
+            let said = if command.is_empty() {
+                Some(reference::whole(&program))
+            } else {
+                reference::of(&program, &command)
+            };
+            match said {
+                Some(said) => {
+                    print!("{said}");
+                    ExitCode::SUCCESS
+                }
+                None => {
+                    eprintln!("no command `{}`", command.join(" "));
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Command::Flow(FlowCommand::Check { dir }) => check(&dir),
-        Command::Flow(FlowCommand::Page { dir, against, port }) => page(dir, against, port),
+        Command::Flow(FlowCommand::Page { dir, port }) => page(dir, port),
+        Command::Flow(FlowCommand::Situations {
+            dir,
+            out,
+            cell,
+            project,
+        }) => {
+            let asked = situations::Asked {
+                dir: &dir,
+                out: &out,
+                cell: cell.as_deref(),
+                project: project.as_deref(),
+            };
+            match situations::write(&asked, &has(&dir)) {
+                Ok(said) => {
+                    said.iter().for_each(|line| println!("{line}"));
+                    ExitCode::SUCCESS
+                }
+                Err(why) => {
+                    eprintln!("{why}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Command::Run {
             data,
             flows,
@@ -261,29 +502,63 @@ fn main() -> ExitCode {
         Command::Add {
             title,
             level,
+            project,
             flow,
             depends_on,
+            tags,
             texts,
             files,
             choices,
             at,
-        } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices) {
-            Ok(item) => talk::ask(at.port, Asked::Add(item)),
+        } => {
+            let written = talk::Written {
+                texts: &texts,
+                files: &files,
+                choices: &choices,
+            };
+            match talk::new_item(title, level, project, flow, depends_on, tags, written) {
+                Ok(item) => talk::ask(at.port, Asked::Add(item)),
+                Err(why) => {
+                    eprintln!("{why}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Command::Change { why, changes, at } => match talk::changes(&changes) {
+            Ok(changes) => talk::ask(at.port, Asked::Change { why: why.why, changes }),
             Err(why) => {
                 eprintln!("{why}");
                 ExitCode::FAILURE
             }
         },
-        Command::SetLevel { item, level, at } => talk::ask(at.port, Asked::SetLevel(item, level)),
-        Command::SetTitle { item, title, at } => talk::ask(at.port, Asked::SetTitle(item, title)),
-        Command::AddDependency { item, on, at } => {
-            talk::ask(at.port, Asked::Depend(item, DependencyChange::Add { item: on }))
+        Command::SetLevel { item, level, why, at } => one(at, why, ChangeAsked::Level { item, level }),
+        Command::SetTitle { item, title, why, at } => one(at, why, ChangeAsked::Title { item, title }),
+        Command::AddDependency { item, on, why, at } => one(at, why, ChangeAsked::DependsOn { item, on }),
+        Command::RemoveDependency { item, on, why, at } => one(at, why, ChangeAsked::NoLongerDependsOn { item, on }),
+        Command::Tag { item, tag, why, at } => one(at, why, ChangeAsked::Tag { item, tag }),
+        Command::Untag { item, tag, why, at } => one(at, why, ChangeAsked::Untag { item, tag }),
+        Command::Reopen { item, why, at } => one(at, why, ChangeAsked::Reopen { item }),
+        Command::List { tag, from, all, at } => talk::ask(at.port, Asked::List(talk::Listing { tag, from, all })),
+        Command::Changes { since, at } => talk::ask(at.port, Asked::Changes { since }),
+        Command::Candidates { at } => talk::ask(at.port, Asked::Candidates),
+        Command::Search { text, limit, at } => talk::ask(at.port, Asked::Search { text, limit }),
+        Command::Graph {
+            item,
+            down,
+            up,
+            depth,
+            at,
+        } => {
+            let way = match (down, up) {
+                (true, _) => Some("down"),
+                (_, true) => Some("up"),
+                _ => None,
+            };
+            talk::ask(at.port, Asked::Graph { item, way, depth })
         }
-        Command::RemoveDependency { item, on, at } => {
-            talk::ask(at.port, Asked::Depend(item, DependencyChange::Remove { item: on }))
-        }
-        Command::List { at } => talk::ask(at.port, Asked::List),
-        Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
+        Command::Tags { at } => talk::ask(at.port, Asked::Tags),
+        Command::Text { item, block, whole, at } => talk::ask(at.port, Asked::Text { item, block, whole }),
+        Command::Show { work, part, from, at } => talk::ask(at.port, Asked::Show { work, part, from }),
         Command::Resume { work, all, at } => match (work, all) {
             (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
             _ => talk::ask(at.port, Asked::Everything(EngineAct::Resume {})),
@@ -318,31 +593,118 @@ fn main() -> ExitCode {
             };
             talk::ask(at.port, Asked::Act(work, Act::Write { block, content, value }))
         }
-        Command::Answer { work, call, result, at } => {
-            talk::ask(at.port, Asked::Act(work, Act::Answer { call, result }))
+        Command::Result { work, call, result, at } => {
+            talk::ask(at.port, Asked::Act(work, Act::Result { call, result }))
+        }
+        Command::Answer {
+            work,
+            question,
+            version,
+            option,
+            why,
+            at,
+        } => {
+            let act = Act::Answer {
+                question,
+                version,
+                option,
+                why,
+            };
+            talk::ask(at.port, Asked::Act(work, act))
+        }
+        Command::Say {
+            work,
+            words,
+            line,
+            question,
+            at,
+        } => {
+            let to = match (line, question) {
+                (_, Some(name)) => SpokenTo::Question { name },
+                (Some(line), None) => SpokenTo::Line { line },
+                (None, None) => unreachable!("the command line asks for a line or a question"),
+            };
+            talk::ask(at.port, Asked::Act(work, Act::Say { to, words }))
         }
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
         Command::NewSession { work, line, at } => talk::ask(at.port, Asked::Act(work, Act::NewSession { line })),
+        Command::System { days, limit, at } => talk::ask(at.port, Asked::System { days, limit }),
     }
 }
 
+/// Asks for one change of an item, for its reason.
+fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
+    talk::ask(
+        at.port,
+        Asked::Change {
+            why: why.why,
+            changes: vec![change],
+        },
+    )
+}
+
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
-/// `dependencies` and `session`, written by the engine's driver; `main`, written by the acts' watch of main on the
-/// host; and `tree`, whose writer is not built yet.
-const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
+/// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
+/// `answer`, written by the engine's loop as the owner answers a question of the cell, and `asked`, as the questions
+/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; `tree`, written
+/// by the carriers as they look at the design tree on a work's branch; and `words`, written by the engine's loop as
+/// the owner speaks to a cell, the record of what is said and the cell's block that it was spoken to.
+const SOURCES: [&str; 8] = [
+    "answer",
+    "asked",
+    "dependencies",
+    "main",
+    "session",
+    "start",
+    "tree",
+    "words",
+];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
 /// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
 /// of the items it depends on, is delivered.
 const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 
-/// What the engine has, by name, for any definition.
-fn has(_: &Source) -> Has {
+/// The names of the tools an agent may ask the engine for in its return: `query`, one read-only query on the engine's
+/// records, and `run_tests`, which runs named tests and checks, or all of them, where the host checks the work. Neither
+/// is built yet: a cell may name them, and the system prompt of its line tells of those its flow names, with their
+/// words beside the flows (`agents/tools/`), while the form of the return does not hold them yet.
+const TOOLS: [&str; 2] = ["query", "run_tests"];
+
+/// The names of the fields of a return that are the engine's, as the design of data and context settles them: what a
+/// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions, why the
+/// work changes each file the project protects, and its answer to the owner. A datum may be written through
+/// `questions` or `reply`.
+const FIELDS: [&str; 6] = [
+    "dealt_with",
+    "meaning_unchanged",
+    "observations",
+    "questions",
+    "protected_changes",
+    "reply",
+];
+
+/// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
+/// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
+/// as a datum.
+const DETAILS: [&str; 1] = ["files"];
+
+/// What the engine has, by name, for the definition in this directory. Of the parts of a line's system prompt, the
+/// names of those that are not the line's own sets of rules, which no line names and no set of rules takes, are those
+/// `agents/session.toml` beside the flows gives them (`flow::system::reserved`); where the files beside the flows
+/// cannot be read, none, and what would read them says why.
+fn has(dir: &Path) -> Has {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let beside = dir.parent().map(flow::agents::read);
+    let system = (beside.and_then(Result::ok)).map(|beside| flow::system::reserved(&beside));
     Has {
         sources: names(&SOURCES),
         acts: names(&ACTS),
+        tools: names(&TOOLS),
+        system: system.into_iter().flatten().collect(),
+        fields: names(&FIELDS),
+        details: names(&DETAILS),
     }
 }
 
@@ -354,7 +716,7 @@ fn check(dir: &Path) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match flow::compile(&source, &has(&source)) {
+    match flow::compile(&source, &has(dir)) {
         Ok(compiled) => {
             let count = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
             println!(
@@ -382,17 +744,22 @@ fn line(fault: &Fault) -> String {
     } else {
         format!("{} {}", fault.file, fault.field)
     };
-    format!("{at}: {}", words(&fault.what))
+    format!("{at}: {}", words(&fault.what, &fault.field))
 }
 
-/// What is wrong, in words.
-fn words(what: &FaultKind) -> String {
+/// What is wrong, in words. Where it is wrong is told too, since a name given twice is one of two things: a name in a
+/// list that stands in it again, and, at the field `tools` itself, a cell naming tools of its own where the flow's file
+/// already gives them to every agent cell.
+fn words(what: &FaultKind, field: &str) -> String {
     use FaultKind as F;
     match what {
         F::Unreadable { message } => format!("cannot be read: {}", message.trim_end()),
         F::OrderEmpty => "the order names no cell".to_string(),
         F::NoCellFile { cell } => format!("the order names {cell}, which has no file"),
         F::NotInOrder { cell } => format!("the cell {cell} has a file but is not named in the order"),
+        F::Twice { name } if field == "tools" => {
+            format!("the cell names {name} of its own, and the flow already gives its agent cells theirs")
+        }
         F::Twice { name } => format!("{name} is named a second time in the same list"),
         F::LimitOutOfRange { value } => {
             format!("the limit {value} is not a whole number from 1 to the largest count the engine keeps")
@@ -403,12 +770,25 @@ fn words(what: &FaultKind) -> String {
         F::NoTask => {
             "an agent's cell has no task, or one of no words: its agent would be told nothing to do".to_string()
         }
+        F::NoTaskFile { file } => format!("the task is written in {file}, which the flow's directory does not hold"),
+        F::TaskFileEmpty { file } => format!("the task is written in {file}, which holds no words"),
+        F::TaskFileOutside { file } => format!("the task is written in {file}, which is outside the flow's directory"),
         F::EngineHasTask => "an engine's cell has a task, which no agent reads".to_string(),
         F::NoAct => "an engine's cell names no act to carry it out".to_string(),
         F::AgentHasAct { act } => format!("an agent carries the cell out, but the cell names the act \"{act}\""),
         F::EngineHasEffort => "an engine's cell names a reasoning effort, which no agent runs at".to_string(),
         F::NoEffort => "an agent's cell names no reasoning effort for its rounds to run at".to_string(),
+        F::EngineHasTools => "an engine's cell names tools, which no agent asks for".to_string(),
         F::UnknownAct { act } => format!("the engine has no act named \"{act}\""),
+        F::UnknownTool { tool } => format!("the engine has no tool named \"{tool}\""),
+        F::NoSuchRules { name } => format!("the line names the rules {name}, but the flow has no rules/{name}.md"),
+        F::EnginePart { name } => {
+            format!("the engine places {name} in every system prompt itself: a line names only its own sets of rules")
+        }
+        F::RulesNamedAsEnginePart { name } => {
+            format!("a set of rules is named {name}, which is a part the engine places in every system prompt itself")
+        }
+        F::UnusedRules { name } => format!("no line names the rules {name}, so no agent would be given them"),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),
         F::NoteIsAChoice { block } => format!("{block} is a note, but it is a choice, and a note is words to a cell"),
@@ -416,12 +796,68 @@ fn words(what: &FaultKind) -> String {
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
-        F::NotAnInput { block } => {
-            format!("the cell says what the work is by {block}, but {block} is not among the blocks it reads")
+        F::DescribedNotRunOn { block } => {
+            format!("the cell says what the work is by {block}, but {block} does not run it")
         }
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
+        F::TwoForms => "name them one way: inputs, runs_on and given, or triggered_by and context".to_string(),
+        F::NoSuchData { name } => {
+            format!("the flow names {name} among the engine's own data, but no file of ../data/ defines {name}")
+        }
+        F::DefinedTwice { name, also } => format!("{name} is defined here and again in {also}"),
+        F::NoSuchTrigger { trigger } => {
+            format!("the cell names the trigger {trigger}, which nothing in ../triggers/ defines")
+        }
+        F::NoSuchDatum { trigger, datum } => {
+            format!("the cell names the trigger {trigger}, but the flow has no datum {datum}")
+        }
+        F::ReadNotInContext { trigger, block } => {
+            format!("the trigger {trigger} has the agent read {block}, but {block} is not in the cell's context")
+        }
+        F::NotATrigger { trigger } => {
+            format!("the cell says what it does for {trigger}, but {trigger} is not among its triggers")
+        }
+        F::TriggerOnly { block } => {
+            format!("{block} stands only for a trigger and has no content: no cell is given it or writes it")
+        }
+        F::NotLaidOut => {
+            "the cell names triggered_by and context, which only a flow laid out one thing to a file has".to_string()
+        }
+        F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
+        F::UnknownReturnField { field } => format!("the engine's return has no field named \"{field}\""),
+        F::AsksWithNoAnswer { block } => {
+            format!(
+                "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"
+            )
+        }
+        F::AsksAndCannotBeSpokenTo { block } => {
+            format!(
+                "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
+            )
+        }
+        F::TriggerNeverRuns {
+            trigger,
+            block,
+            needs,
+            writers,
+        } => {
+            let writers: Vec<String> = writers.iter().map(|(cell, when)| format!("{cell} ({when})")).collect();
+            format!(
+                "the trigger {trigger} stands on {block}, but the cell runs only where {needs}, and each writer of {block} runs only where it cannot: {}; the trigger can never run the cell",
+                writers.join("; ")
+            )
+        }
+        F::UnknownDetail { detail } => format!("the engine fills no place named \"{detail}\""),
+        F::EngineIsGiven { block } => {
+            format!("an engine's cell says how it is given {block}, but it has no session")
+        }
+        F::RunByNothing => "nothing runs this agent's cell, so it would never be entered".to_string(),
+        F::NoKind { block } => format!("the cell is given {block}, but does not say its kind"),
+        F::SaysNothing { block } => format!("the table for {block} says nothing"),
+        F::NotRunOn { block } => format!("the cell says why {block} runs it, but {block} is not among what runs it"),
+        F::NotGiven { block } => format!("the cell says how it is given {block}, but it is not given {block}"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {
             format!("nothing reads {block}: no cell, no condition, no test, and the page does not show it")
@@ -433,9 +869,21 @@ fn words(what: &FaultKind) -> String {
         F::NotAValue { block, is } => {
             format!("a condition or a test waits for {block} to be {is}, which is not one of its values")
         }
+        F::DefaultNotAChoice { block } => {
+            format!("{block} says what it counts as before it is written, and it is not a choice")
+        }
+        F::DefaultNotAValue { block, default } => {
+            format!("{block} counts as {default} before it is written, which is not one of its values")
+        }
+        F::BlockNamedTest => {
+            "a block is named test, which a cell's when and requires take for a named test".to_string()
+        }
+        F::EmptyCondition => "a table of no keys says nothing that must hold".to_string(),
+        F::GroupNameTaken { group } => format!("the group {group} has the name of a block or a datum of the flow"),
+        F::GroupEmpty { group } => format!("the group {group} names no block"),
         F::ConditionOnOwnOutput { block } => format!(
-            "the condition reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
-             whether it runs"
+            "the condition reads {block}, which the cell itself writes and another writes too: the cell would decide \
+             by what it writes itself, beside another, whether it runs"
         ),
         F::ConditionNotWrittenBefore { block } => {
             format!("the condition reads {block}, which neither a cell before this one, people nor the outside write")
@@ -449,7 +897,7 @@ fn words(what: &FaultKind) -> String {
         F::UnusedTest { test } => format!("no cell uses the test {test}"),
         F::TestOnOwnOutput { test, block } => format!(
             "the test {test} reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
-             whether it runs, or whether the work waits before it"
+             whether the work waits before it, or, beside another writer, whether it runs"
         ),
         F::TestNotWrittenBefore { test, block } => {
             format!("the test {test} reads {block}, which neither a cell before this one, people nor the outside write")
@@ -472,15 +920,28 @@ fn flow_page(address: SocketAddr) -> String {
 }
 
 #[test]
+fn a_name_given_twice_says_where_it_was_given_twice() {
+    let twice = |name: &str, field: &str| words(&FaultKind::Twice { name: name.to_string() }, field);
+    assert_eq!(
+        twice("query", "tools[2]"),
+        "query is named a second time in the same list"
+    );
+    assert_eq!(
+        twice("tools", "tools"),
+        "the cell names tools of its own, and the flow already gives its agent cells theirs"
+    );
+}
+
+#[test]
 fn the_flow_page_is_printed_at_the_flow_view() {
     let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 7490));
     assert_eq!(flow_page(address), "http://127.0.0.1:7490/#/flow");
 }
 
-fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
+fn page(dir: PathBuf, port: u16) -> ExitCode {
     let shown = dir.display().to_string();
-    let compared = against.as_ref().map(|a| a.display().to_string());
-    let flows = web::Flows::dirs(dir, against, Box::new(has));
+    let in_dir = dir.clone();
+    let flows = web::Flows::dirs(dir, Box::new(move |_: &Source| has(&in_dir)));
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {
@@ -497,8 +958,7 @@ fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let against = compared.map(|c| format!(", compared against {c}")).unwrap_or_default();
-        println!("The flow page of {shown}{against} is at {}", flow_page(address));
+        println!("The flow page of {shown} is at {}", flow_page(address));
         match web::serve(listener, web::router(flows)).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

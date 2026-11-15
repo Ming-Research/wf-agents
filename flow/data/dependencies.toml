@@ -1,0 +1,11 @@
+what = "Whether the items the work's item depends on have merged: `merged` once each has, or it depends on none; `waiting` while one has not."
+values = ["waiting", "merged"]
+from = "dependencies"
+
+# What the engine writes with each value. Filled in a run: `{items}` each item it waits for, by its number, with
+# `between` between two, one whose work was cancelled as `cancelled` says, `{item}` its number.
+[writes]
+merged = "Every item this one depends on has merged."
+waiting = "Waits for the items {items} to merge."
+cancelled = "{item} (cancelled)"
+between = ", "

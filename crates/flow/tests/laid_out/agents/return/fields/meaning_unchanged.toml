@@ -1,0 +1,8 @@
+# The blocks written again with their meaning unchanged, whose words follow those of `outputs`.
+in = ["outcome"]
+told = "with_outputs"
+words = "Name in `meaning_unchanged` a block you write again with its meaning unchanged."
+
+[shape]
+type = "array"
+items = { type = "string" }

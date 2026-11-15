@@ -3,7 +3,10 @@
 use std::collections::BTreeMap;
 
 use decide::{BlockId, Cell, Condition, TestName};
-use flow::{Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Kind, Limits, Readers, Test, TestKind, Writers};
+use flow::{
+    Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Readers, RunsOn, Test, TestKind,
+    Texts, Trigger, Writers,
+};
 
 use crate::support::{at, compiled, edit, faults, valid};
 
@@ -12,33 +15,33 @@ fn blocks(names: &[&str]) -> Vec<BlockId> {
 }
 
 #[test]
-fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_each_reads_and_writes() {
+fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_that_run_each_and_that_each_writes() {
     let compiled = compiled(&valid());
     let mut plan = Cell::new("plan");
-    plan.inputs = blocks(&["request", "opinions"]);
+    plan.runs_on = blocks(&["request", "opinions"]);
     plan.outputs = blocks(&["plan"]);
     let mut judge = Cell::new("judge");
-    judge.inputs = blocks(&["plan"]);
+    judge.runs_on = blocks(&["plan"]);
     judge.outputs = blocks(&["needs_design", "opinions"]);
     let mut design = Cell::new("design");
-    design.applies = Some(Condition::Is {
+    design.applies = vec![Condition::Is {
         block: "needs_design".into(),
         value: "yes".to_string(),
-    });
-    design.inputs = blocks(&["plan"]);
+    }];
+    design.runs_on = blocks(&["plan"]);
     design.outputs = blocks(&["design"]);
     let mut answer = Cell::new("answer");
-    answer.applies = Some(Condition::Test("has_comment".into()));
-    answer.requires = vec![TestName::from("plan_confirmed")];
-    answer.inputs = blocks(&["comments", "plan"]);
+    answer.applies = vec![Condition::Test("has_comment".into())];
+    answer.requires = vec![Condition::Test(TestName::from("plan_confirmed"))];
+    answer.runs_on = blocks(&["comments", "plan"]);
     answer.outputs = blocks(&["reply"]);
     answer.limit = 5;
     let mut check = Cell::new("check");
-    check.inputs = blocks(&["main", "design"]);
+    check.runs_on = blocks(&["main", "design"]);
     check.outputs = blocks(&["ci"]);
     let mut merge = Cell::new("merge");
-    merge.requires = vec![TestName::from("may_merge")];
-    merge.inputs = blocks(&["ci"]);
+    merge.requires = vec![Condition::Test(TestName::from("may_merge"))];
+    merge.runs_on = blocks(&["ci"]);
     let expected = [plan, judge, design, answer, check, merge];
 
     let cells = compiled.flow.cells();
@@ -47,9 +50,10 @@ fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_each_reads_and_wr
         assert_eq!(cell.id, expected.id);
         assert_eq!(cell.applies, expected.applies, "{}", cell.id);
         assert_eq!(cell.requires, expected.requires, "{}", cell.id);
-        assert_eq!(cell.inputs, expected.inputs, "{}", cell.id);
+        assert_eq!(cell.runs_on, expected.runs_on, "{}", cell.id);
         assert_eq!(cell.outputs, expected.outputs, "{}", cell.id);
         assert_eq!(cell.limit, expected.limit, "{}", cell.id);
+        assert_eq!(cell.calls, 40, "{}", cell.id);
     }
 }
 
@@ -71,45 +75,101 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         line: line.map(str::to_string),
         reads_only: false,
         task: None,
+        task_file: None,
         act: None,
         must_write: Vec::new(),
         describes: Vec::new(),
-        input: BTreeMap::new(),
+        named_by: None,
+        runs_on: Vec::new(),
+        given: Vec::new(),
+        tools: Vec::new(),
+        system: Vec::new(),
         returns: 2,
         calls: 40,
         effort: None,
         levels_above: 0,
         takes_main: false,
+        triggers: Vec::new(),
     };
-    let agent = |id: &str, title: &str, line: &str, task: &str| CellSpec {
+    let runs_on = |blocks: &[&str]| {
+        (blocks.iter())
+            .map(|&b| RunsOn {
+                block: b.into(),
+                why: None,
+            })
+            .collect()
+    };
+    // Each block that runs a cell written before triggers is a trigger of its name, which the agent reads for it where
+    // the cell is given the block.
+    let triggers = |blocks: &[&str], read: bool| {
+        (blocks.iter())
+            .map(|&b| Trigger {
+                name: b.to_string(),
+                what: None,
+                block: b.into(),
+                group: Vec::new(),
+                read: if read { vec![b.into()] } else { Vec::new() },
+                detail: None,
+                does: None,
+            })
+            .collect()
+    };
+    // Each cell is written in the old form: each block of its `inputs` runs it, and an agent cell is given it, the
+    // version it last worked from and the latest where it names no kind.
+    let agent = |id: &str, title: &str, line: &str, task: &str, inputs: &[&str]| CellSpec {
         task: Some(task.to_string()),
         effort: Some(Effort::High),
+        runs_on: runs_on(inputs),
+        given: (inputs.iter())
+            .map(|&b| Given {
+                block: b.into(),
+                kind: InputKind::LastAndLatest,
+                why: None,
+            })
+            .collect(),
+        triggers: triggers(inputs, true),
         ..spec(id, title, Kind::Agent, Some(line))
     };
-    let engine = |id: &str, title: &str, act: &str| CellSpec {
+    let engine = |id: &str, title: &str, act: &str, inputs: &[&str]| CellSpec {
         act: Some(act.to_string()),
+        runs_on: runs_on(inputs),
+        triggers: triggers(inputs, false),
         ..spec(id, title, Kind::Engine, None)
     };
     assert_eq!(
         compiled.cells,
         [
-            agent("plan", "Plan", "engineer", "Write the plan from the request."),
+            agent(
+                "plan",
+                "Plan",
+                "engineer",
+                "Write the plan from the request.",
+                &["request", "opinions"],
+            ),
             agent(
                 "judge",
                 "Judge the plan",
                 "review",
                 "Judge the plan, and say whether it needs a design.",
+                &["plan"],
             ),
-            agent("design", "Design", "engineer", "Design what the plan asks for."),
+            agent(
+                "design",
+                "Design",
+                "engineer",
+                "Design what the plan asks for.",
+                &["plan"]
+            ),
             // A task of several lines keeps its line breaks.
             agent(
                 "answer",
                 "Answer comments",
                 "engineer",
                 "Answer the comments on the plan.\nSay what you changed for each.\n",
+                &["comments", "plan"],
             ),
-            engine("check", "Check with the latest main", "check"),
-            engine("merge", "Merge", "merge"),
+            engine("check", "Check with the latest main", "check", &["main", "design"]),
+            engine("merge", "Merge", "merge", &["ci"]),
         ]
     );
 
@@ -120,8 +180,13 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
                  readers: &[&str],
                  conditions: &[&str]| {
         Block {
+            file: FLOW_FILE.to_string(),
             values: values.map(|v| v.iter().map(|s| s.to_string()).collect()),
+            default: None,
             what: None,
+            field: None,
+            trigger: false,
+            writes: Texts::default(),
             writers: Writers {
                 cells: ids(writers),
                 people: who.0,

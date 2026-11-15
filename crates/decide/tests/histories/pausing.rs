@@ -1,10 +1,10 @@
-//! What a pause holds back, checked after every step: a paused work still answers a note, a person's words to a cell,
-//! and begins nothing else. While the work is paused, a run starts only for a cell one of whose reasons is a change of
-//! meaning of a note that a person made since the cell last ran; the pause alone holds back no cell one of whose
-//! reasons is such a change; and the engine gives a run at rest its next round under a pause exactly when the run
-//! started for such a change and its last round did not fail in a way that paused the work. All are judged by the histories' own reading of the
-//! reasons (`reading`); which cell the work would run once let on is what the walk says of the same records with the
-//! pause lifted, as `properties::reaches` takes it.
+//! What a pause holds back, checked after every step: a paused work still answers the owner, a note a person wrote to
+//! a cell or the owner turning to it, and begins nothing else. While the work is paused, a run starts only for a cell
+//! one of whose reasons is such a version written since the cell last ran; the pause alone holds back no cell one of
+//! whose reasons is one; and the engine gives a run at rest its next round under a pause exactly when the run started
+//! for one and its last round did not fail in a way that paused the work. All are judged by the histories' own reading
+//! of the reasons (`reading`); which cell the work would run once let on is what the walk says of the same records with
+//! the pause lifted, as `properties::reaches` takes it.
 
 use decide::run::Hold;
 use decide::{Cell, Decision, Flow, Pause, Pauser, Room, Seq, decide_in, hold_in};
@@ -25,12 +25,18 @@ pub const WENT_ON_PAUSED: &str = "a run started for a note has its next round wh
 pub const UNPAUSED_ANSWERS: &str =
     "a run for a note whose round failed without pausing the work goes on while the work is paused";
 
-/// Whether one of these reasons, of a run of the cell that starts or started at this place, is a change of meaning
-/// that a person made since the cell last ran: of a note it reads, after the version the cell's record knew where it
-/// has a record, after the start of the run of its record, or with no record after the start of its first run, and
-/// before the place. A cell no run of which started before the place has not run, and has none.
+/// Whether one of these reasons, of a run of the cell that starts or started at this place, is the owner's since the
+/// cell last ran: a version of a note that runs it that a person wrote, or of a block that interrupts that the outside
+/// wrote, changing its meaning, after the version the cell consumed, after the start of its latest run that finished
+/// dealing with something, or with none after the start of its first run, and before the place. A cell no run of which
+/// started before the place has not run, and has none.
 pub fn for_a_note(flow: &Flow, reading: &Reading, cell: &Cell, reasons: &[Reason], place: Seq) -> bool {
-    let record = reading.record(&cell.id, place).map(|run| reading.started[&run].at);
+    // A run that only asked for calls dealt with nothing: the cell has not run for anything by it.
+    let record = (reading.finished.values())
+        .filter(|f| f.at < place && reading.started[&f.run].cell == cell.id)
+        .filter(|f| f.dealt_with.as_ref().is_none_or(|d| !d.is_empty()))
+        .max_by_key(|f| f.at)
+        .map(|f| reading.started[&f.run].at);
     let first = (reading.started.values())
         .filter(|s| s.cell == cell.id && s.at < place)
         .map(|s| s.at)
@@ -38,15 +44,16 @@ pub fn for_a_note(flow: &Flow, reading: &Reading, cell: &Cell, reasons: &[Reason
     let Some(since) = record.or(first) else {
         return false;
     };
-    let by_person = |block, was: Option<Seq>| {
-        flow.is_note(block)
-            && (reading.of(block).iter()).any(|v| {
-                v.by == Writer::Person && v.changed_meaning() && v.at > since && v.at < place && Some(v.at) > was
-            })
+    let owners = |block, was: Option<Seq>| {
+        (reading.of(block).iter()).any(|v| {
+            let theirs = (flow.is_note(block) && v.by == Writer::Person)
+                || (flow.interrupts(block) && matches!(v.by, Writer::Person | Writer::Outside));
+            theirs && v.changed_meaning() && v.at > since && v.at < place && Some(v.at) > was
+        })
     };
     reasons.iter().any(|r| match r {
-        Reason::NoRecord => cell.inputs.iter().any(|block| by_person(block, None)),
-        Reason::Changed { block, was } => by_person(block, *was),
+        Reason::Changed { block, was } => owners(block, *was),
+        Reason::Results { .. } => false,
     })
 }
 
@@ -61,7 +68,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
     match d {
         Decision::Run { cell, .. } => {
             v.count(STARTED_PAUSED);
-            let reasons = reading.reasons(cell_of(cell), now);
+            let reasons = reading.entering(flow, cell_of(cell), now);
             if !for_a_note(flow, reading, cell_of(cell), &reasons, now) {
                 v.fail(
                     ONLY_FOR_A_NOTE,
@@ -83,7 +90,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
             let lifted = Room { paused: false, ..room };
             if let Decision::Run { cell, .. } = decide_in(flow, &let_on, lifted) {
                 v.count(HELD_PAUSED);
-                let reasons = reading.reasons(cell_of(&cell), now);
+                let reasons = reading.entering(flow, cell_of(&cell), now);
                 if for_a_note(flow, reading, cell_of(&cell), &reasons, now) {
                     v.fail(
                         ANSWERS,
@@ -128,7 +135,16 @@ pub fn goes_on(v: &mut Verdict, flow: &Flow, reading: &Reading, run: decide::Run
         }
         return goes;
     }
-    let expected = !failed && for_a_note(flow, reading, cell, &reading.reasons(cell, s.at), s.at);
+    let reasons: Vec<Reason> = (s.because.iter())
+        .filter_map(|c| match c {
+            decide::Cause::Changed { block, was, .. } => Some(Reason::Changed {
+                block: block.clone(),
+                was: *was,
+            }),
+            _ => None,
+        })
+        .collect();
+    let expected = !failed && for_a_note(flow, reading, cell, &reasons, s.at);
     if goes != expected {
         let property = if goes { ONLY_FOR_A_NOTE } else { ANSWERS };
         v.fail(

@@ -10,8 +10,14 @@ use decide::run::{Failure, Limit, Unmet};
 use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
+pub mod filled;
+pub mod measured;
+pub mod observations;
 pub mod sessions;
 
+pub use filled::{Fill, FillFault, Filled};
+pub use measured::{Measured, Measures, Pinged};
+pub use observations::Observed;
 pub use sessions::{Ran, RanOn, Session, Why};
 
 /// Everything kept of one work.
@@ -23,6 +29,10 @@ pub struct Work {
     pub contents: BTreeMap<(BlockId, Seq), String>,
     /// What each round that began was given, by its run and its number in the run, the first being one.
     pub given: BTreeMap<(RunId, usize), Given>,
+    /// Each time something was filled into the session of a try of a round, in order: what a session holds is read
+    /// from here, and from what the rounds that ran in it handed in, never worked out again (design document
+    /// `data-and-context`, 13). A try may be filled more than once, as when its session is begun anew under it.
+    pub filled: Vec<Filled>,
     /// What came back at the end of each round that ended while its run was open, by its run and its number in the
     /// run, the first being one. A round that ended after its run was abandoned has none: what came back was dropped.
     pub back: BTreeMap<(RunId, usize), Back>,
@@ -38,9 +48,17 @@ pub struct Work {
     pub sessions: Vec<Session>,
     /// Each try of an agent's round that began, with what it ran on, in order.
     pub ran: Vec<Ran>,
-    /// Why the work's item was cancelled, as whoever cancelled it said, once the records say it was; none where nothing
-    /// was said, as by a cancel kept before a cancel said why.
-    pub why_cancelled: Option<String>,
+    /// The observations its runs kept as each finished, in the order they were kept (module [`observations`]).
+    pub observed: Vec<Observed>,
+    /// What the calls of each try of an agent's round to the model came to, where its carrier said, in order.
+    pub measured: Vec<Measured>,
+    /// Each keep-warm ping of a line's session, in order.
+    pub pinged: Vec<Pinged>,
+    /// Why the work's item was cancelled, by the place of each cancel, as whoever cancelled it said; none for a cancel
+    /// where nothing was said, as one kept before a cancel said why.
+    pub why_cancelled: BTreeMap<Seq, String>,
+    /// Why the work's item was reopened, by the place of each reopen, as whoever reopened it said.
+    pub why_reopened: BTreeMap<Seq, String>,
 }
 
 impl Work {
@@ -55,13 +73,20 @@ impl Work {
             .chain(r.done.iter().map(|e| e.at))
             .chain(r.finished.iter().map(|e| e.at))
             .chain(r.abandoned.iter().map(|e| e.at))
+            .chain(r.put_in.iter().map(|e| e.at))
             .chain(r.written.iter().map(|e| e.at))
+            .chain(r.questions.iter().map(|e| e.at))
+            .chain(r.answers.iter().map(|e| e.at))
             .chain(r.let_go.iter().map(|e| e.at))
             .chain(r.pauses.iter().map(|e| e.at))
-            .chain(r.cancelled)
-            .chain(r.released)
+            .chain(r.cancels.iter().copied())
+            .chain(r.reopens.iter().copied())
+            .chain(r.releases.iter().copied())
             .chain(self.sessions.iter().map(|s| s.at))
-            .chain(self.ran.iter().map(|r| r.at));
+            .chain(self.filled.iter().map(|f| f.at))
+            .chain(self.ran.iter().map(|r| r.at))
+            .chain(self.measured.iter().map(|m| m.at))
+            .chain(self.pinged.iter().map(|p| p.at));
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 
@@ -78,6 +103,12 @@ impl Work {
         let names = (r.started.iter().map(|s| s.run.0)).chain(r.called.iter().map(|c| c.call.0));
         names.max().unwrap_or(0) + 1
     }
+}
+
+/// The digest of a text that tells it apart from another and keeps nothing of it: its SHA-1, in hexadecimal (principle
+/// `stored-content-is-kept-small`).
+pub fn digest(text: &str) -> String {
+    sha1_smol::Sha1::from(text).digest().to_string()
 }
 
 /// A time, as whatever drives the engine reads its clock: milliseconds since the start of 1970. The engine reads no
@@ -119,7 +150,9 @@ pub enum Given {
     /// The first round: the cell's task. Why the cell runs and the version of each block it starts from are the
     /// run's `Started` entry of the records, read there by whoever needs them.
     Task,
-    /// The results of the calls the round before asked for.
+    /// The results of calls: of those the earlier runs of the cell asked for, given to the first round of the run
+    /// entered for them; or, in works kept before a return that asks ended its run, of those the round before asked
+    /// for.
     Results(Vec<CallId>),
     /// Why what the round before handed in was sent back.
     SentBack(Vec<Unmet>),
@@ -128,11 +161,30 @@ pub enum Given {
 /// What came back at the end of a round.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Back {
-    /// Calls were asked for. The calls made for them are in the records: those of the run made after this round
-    /// ended and before its next began.
+    /// Calls were asked for, by a return of the form before a return said what it dealt with. The calls made for them
+    /// are in the records: those of the run made after this round ended and before its next began.
     Asked(Vec<Ask>),
-    /// These blocks were handed in.
+    /// These blocks were handed in, by a return of the form before a return said what it dealt with: it dealt with
+    /// everything that ran its round.
     HandedIn(Vec<Handed>),
+    /// A return: which of what ran the round it dealt with, in the order it named them, the blocks it writes, and the
+    /// calls it asks for (design document `data-and-context`, 9, 27, 30). Taken, the calls are made as its run
+    /// finishes, before the finish. What was found wrong with it as it was read, which only its reading could see, is
+    /// kept with it, so that the run is decided again from the records alone; and so is what it says beside its work.
+    /// Returns kept before a return was read so have neither, and read as having none. Beside it is what the engine
+    /// itself asks the owner from what it found of the work as the round ended, which no word of the agent's is;
+    /// returns kept before the engine asked anything have none.
+    Returned {
+        dealt_with: Vec<BlockId>,
+        handed: Vec<Handed>,
+        asks: Vec<Ask>,
+        #[serde(default)]
+        found: Vec<Unmet>,
+        #[serde(default)]
+        said: Said,
+        #[serde(default)]
+        engine: Vec<Question>,
+    },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate
     /// `decide`, module `run`). Records kept before kinds were told apart hold none, and read as a failure that
@@ -148,12 +200,101 @@ pub enum Back {
     },
 }
 
+/// What a return says beside its work: its questions, which are data of their own once its run finishes (design
+/// document `data-and-context`, 32 to 36), its observations and its reply (38 to 40, 49).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Said {
+    /// What it asks the owner, each question by its name, in the order it wrote them.
+    #[serde(default)]
+    pub questions: Vec<Question>,
+    /// What its agent came across beyond the work, each a text.
+    #[serde(default)]
+    pub observations: Vec<String>,
+    /// Its answer to what the owner said to its cell, where it gave one.
+    #[serde(default)]
+    pub reply: Option<String>,
+}
+
+impl Said {
+    /// Whether a question it asks waits for the owner's answer: the work stops at its cell until the answer comes.
+    pub fn waits(&self) -> bool {
+        self.waiting() > 0
+    }
+
+    /// How many of the questions it asks wait for the owner's answer.
+    pub fn waiting(&self) -> usize {
+        (self.questions.iter())
+            .filter(|q| matches!(q, Question::Asked { waits: true, .. }))
+            .count()
+    }
+}
+
+impl Question {
+    /// Its name.
+    pub fn name(&self) -> &str {
+        match self {
+            Question::Asked { name, .. } | Question::Withdrawn { name, .. } => name,
+        }
+    }
+}
+
+impl Work {
+    /// What the version of a question asks and its options, or why it was withdrawn: as the round that brought it
+    /// returned it, the last of its run to end before the version was written, among what the agent said or what the
+    /// engine asked beside it. None where that round's return holds no question of the name.
+    pub fn question(&self, version: &decide::Questioned) -> Option<&Question> {
+        let r = &self.records;
+        let round = (r.returned.iter())
+            .filter(|e| e.run == version.run && e.at < version.at)
+            .count();
+        match self.back.get(&(version.run, round))? {
+            Back::Returned { said, engine, .. } => {
+                let of = if version.engine { engine } else { &said.questions };
+                of.iter().rev().find(|q| q.name() == version.name)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// A question a return asks the owner, or withdraws, under its name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Question {
+    /// The question asked, or asked anew: whether its cell waits for the answer, the option it recommends, counted
+    /// from one, where it recommends one (the engine's own questions recommend none), what it asks, and its options;
+    /// and, of a question of the engine's, what it found that the question is of, told apart from what any other
+    /// version is of, and why the work's agents said each part of it is needed, by the part's name: of a change of the
+    /// paths the project protects, each file's reason by its path, which a later version asks with again where the
+    /// file is as it was.
+    Asked {
+        name: String,
+        waits: bool,
+        recommends: Option<u64>,
+        ask: String,
+        options: Vec<Way>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        about: Option<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        reasons: BTreeMap<String, String>,
+    },
+    /// The question withdrawn, for this reason.
+    Withdrawn { name: String, why: String },
+}
+
+/// An option of a question, one of the ways that each would do: what the work does by it, and what follows from it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Way {
+    pub does: String,
+    pub follows: String,
+}
+
 /// A block as a run hands it in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Handed {
     pub block: BlockId,
     pub content: String,
-    /// Whether the change matters to the cells that read the block.
+    /// Whether the change matters to the cells the block runs: one that does not is handed in as changing nothing in
+    /// meaning, and runs no cell.
     pub matters: bool,
     /// The block's value, where it is a choice.
     pub value: Option<String>,

@@ -26,19 +26,46 @@ pub struct CaughtUp {
     pub outcome: Outcome,
 }
 
+impl CaughtUp {
+    /// What the rounds of the run are told of it; nothing where the branch held main already.
+    pub fn told(&self) -> Option<context::Main> {
+        let name = self.name.clone();
+        Some(match &self.outcome {
+            Outcome::Holds { .. } => return None,
+            Outcome::TookIn { main, merge } => context::Main::TookIn {
+                name,
+                main: main.clone(),
+                merge: merge.clone(),
+            },
+            Outcome::Conflict { main, files } => context::Main::Conflict {
+                name,
+                main: main.clone(),
+                files: files.clone(),
+            },
+            // What the worktree holds is told as the files of its changes, each line of git's status short of the
+            // two letters of its state and the space after them.
+            Outcome::Uncommitted { main, changes, merging } => context::Main::Uncommitted {
+                name,
+                main: main.clone(),
+                files: (changes.lines())
+                    .map(|line| line.get(3..).unwrap_or(line).trim().to_string())
+                    .collect(),
+                merging: *merging,
+            },
+            // Why is for whoever runs the engine.
+            Outcome::Failed { .. } => context::Main::Failed { name },
+        })
+    }
+}
+
 /// What taking main in did.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum Outcome {
     /// The branch held main's head at this commit already: nothing was to be taken in.
     Holds { main: String },
-    /// Main's head at `main` was merged into the branch as the commit `merge`; `files` are those main changed since
-    /// the branch last took it in.
-    TookIn {
-        main: String,
-        merge: String,
-        files: Vec<String>,
-    },
+    /// Main's head at `main` was merged into the branch as the commit `merge`.
+    TookIn { main: String, merge: String },
     /// Main's head at `main` does not merge into the branch without a conflict in these files: nothing was taken in.
     Conflict { main: String, files: Vec<String> },
     /// The worktree holds these changes to its files not committed, or a merge under way where `merging` says so,
@@ -60,9 +87,11 @@ pub(crate) fn kept_at(data: &Path, work: WorkNumber, run: RunId) -> PathBuf {
         .join(format!("{}.main.json", run.0))
 }
 
-/// The words a run's merge of main is made with.
-fn taking_in(name: &str, main: &str, run: RunId) -> String {
-    format!("Merge {name} at {main} into the work's branch as run {} starts", run.0)
+/// The words a run's merge of main is made with, as the project's `commits` says.
+fn taking_in(project: &Project, main: &str, run: RunId) -> String {
+    let run = run.0.to_string();
+    let slots = [("main", project.main.as_str()), ("head", main), ("run", &run)];
+    flow::agents::fill(&project.commits.run, &slots)
 }
 
 /// Takes main's head, as the reference `main` holds it, into the work's branch in its worktree as the run starts, and
@@ -90,16 +119,15 @@ async fn tried(project: &Project, place: &Place, main: &str, run: RunId) -> Resu
     if merging || !changes.is_empty() {
         return Ok(Outcome::Uncommitted { main, changes, merging });
     }
-    let message = taking_in(&project.main, &main, run);
+    let message = taking_in(project, &main, run);
     let head = git::git(repo, &["rev-parse", "--verify", &place.reference()]).await?;
     if git::said(repo, &["merge-base", "--is-ancestor", &main, &head])
         .await?
         .ok
     {
         // This run's merge, made before the engine stopped and before what came of it was kept.
-        if let Some((merge, before)) = git::merged_as(&dir, &main, &message).await? {
-            let files = changed(repo, &before, &main).await?;
-            return Ok(Outcome::TookIn { main, merge, files });
+        if let Some((merge, _)) = git::merged_as(&dir, &main, &message, &project.commits).await? {
+            return Ok(Outcome::TookIn { main, merge });
         }
         return Ok(Outcome::Holds { main });
     }
@@ -107,22 +135,46 @@ async fn tried(project: &Project, place: &Place, main: &str, run: RunId) -> Resu
         let files = conflict.files.lines().map(str::to_string).collect();
         return Ok(Outcome::Conflict { main, files });
     }
-    let files = changed(repo, &head, &main).await?;
-    let merge = git::merge_as(&dir, &main, &message).await?;
-    Ok(Outcome::TookIn { main, merge, files })
-}
-
-/// The files main changed, at `main`, since the branch at `head` last took it in.
-async fn changed(repo: &Path, head: &str, main: &str) -> Result<Vec<String>, String> {
-    let base = git::git(repo, &["merge-base", head, main]).await?;
-    let changed = git::git(repo, &["diff", "--name-only", "--no-renames", &base, main]).await?;
-    Ok(changed.lines().map(str::to_string).collect())
+    let merge = git::merge_as(&dir, &main, &message, &project.commits).await?;
+    Ok(Outcome::TookIn { main, merge })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::git::tests::{Repo, commit, run};
+
+    #[test]
+    fn changes_not_committed_are_told_as_their_files_and_a_failure_without_why() {
+        let caught = |outcome| CaughtUp {
+            name: "main".to_string(),
+            outcome,
+        };
+        let left = caught(Outcome::Uncommitted {
+            main: "beef".to_string(),
+            changes: " M a.rs\n?? b.rs".to_string(),
+            merging: false,
+        });
+        let told = context::Main::Uncommitted {
+            name: "main".to_string(),
+            main: "beef".to_string(),
+            files: vec!["a.rs".to_string(), "b.rs".to_string()],
+            merging: false,
+        };
+        assert_eq!(left.told(), Some(told));
+        let failed = caught(Outcome::Failed {
+            why: "the network is down".to_string(),
+        });
+        let name = "main".to_string();
+        assert_eq!(failed.told(), Some(context::Main::Failed { name }));
+        assert_eq!(
+            caught(Outcome::Holds {
+                main: "beef".to_string()
+            })
+            .told(),
+            None
+        );
+    }
 
     const WORK: WorkNumber = WorkNumber(1);
     const RUN: RunId = RunId(7);
@@ -138,22 +190,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn main_that_merges_cleanly_is_taken_in_with_the_files_it_changed() {
+    async fn main_that_merges_cleanly_is_taken_in_and_what_it_changed_is_what_the_merge_shows() {
         let (repo, place, main) = moved("other.txt").await;
         let caught = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
         assert_eq!(caught.name, "main");
-        let Outcome::TookIn {
-            main: took,
-            merge,
-            files,
-        } = caught.outcome
-        else {
+        let Outcome::TookIn { main: took, merge } = caught.outcome else {
             panic!("{caught:?}");
         };
-        assert_eq!(
-            (took.as_str(), files.as_slice()),
-            (main.as_str(), &["other.txt".to_string()][..])
-        );
+        assert_eq!(took, main);
+        // What the merge changed is what the command the message gives shows.
+        let changed = run(&place.dir, &["diff", "--name-only", &format!("{merge}^1"), &merge]);
+        assert_eq!(changed, "other.txt");
         assert_eq!(
             run(&place.dir, &["rev-parse", "HEAD"]),
             merge,
@@ -168,18 +215,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn main_taken_in_by_a_branch_with_no_commit_of_its_own_is_a_merge_commit_and_not_a_move_forward() {
+        let repo = Repo::new("true");
+        let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let main = commit(&repo.project.repo, "other.txt", "Good day.\n");
+        let caught = take_in(&repo.project, &started.place, "refs/heads/main", RUN).await;
+        let Outcome::TookIn { merge, .. } = caught.outcome else {
+            panic!("{caught:?}");
+        };
+        let parents = run(&started.place.dir, &["rev-list", "--parents", "-n", "1", &merge]);
+        assert_eq!(parents.split(' ').count(), 3, "a commit with two parents: {parents}");
+        assert_ne!(merge, main, "not main's own commit");
+    }
+
+    #[tokio::test]
     async fn a_merge_this_run_made_before_the_engine_stopped_is_what_it_took_in() {
         let (repo, place, main) = moved("other.txt").await;
         // The engine stopped after the merge, before what came of it was kept.
-        let merge = git::merge_as(&place.dir, &main, &taking_in("main", &main, RUN))
-            .await
-            .unwrap();
+        let merge = git::merge_as(
+            &place.dir,
+            &main,
+            &taking_in(&repo.project, &main, RUN),
+            &repo.project.commits,
+        )
+        .await
+        .unwrap();
         let caught = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
-        let files = vec!["other.txt".to_string()];
         let took = Outcome::TookIn {
             main: main.clone(),
             merge,
-            files,
         };
         assert_eq!(caught.outcome, took);
         // Another run finds main held: the merge is not its own.
@@ -203,11 +267,32 @@ mod tests {
         };
         let lock = tokio::sync::Mutex::new(());
         let mut stop = crate::held::Stop::never();
-        let checked = crate::acts::check(&repo.project, &host, &branch, &lock, &mut stop)
-            .await
-            .expect("the work is checked")
-            .expect("nothing stopped it");
+        // The work names its own commit, under the run's merge.
+        let built = run(&place.dir, &["rev-parse", &format!("{merge}^1")]);
+        let named = format!("Greets the user, in {built}.");
+        let (protecting, work) = (crate::acts::Protecting::default(), work::Work::default());
+        let gate = crate::acts::Gate {
+            named: &named,
+            protecting: &protecting,
+            work: &work,
+        };
+        let checked = crate::acts::check(
+            &repo.project,
+            &host,
+            &branch,
+            &lock,
+            (crate::host::Asking::Round(RunId(1), 1), &mut stop, &|_| {}),
+            &crate::acts::words().check,
+            &gate,
+        )
+        .await
+        .expect("the work is checked")
+        .expect("nothing stopped it");
         assert_eq!(checked.commit, merge, "the run's merge is what is judged");
+        assert_eq!(
+            checked.failed, None,
+            "the run's merge is the engine's, over the commit the work names"
+        );
         assert!(!checked.took_in, "the check merged nothing of its own");
     }
 

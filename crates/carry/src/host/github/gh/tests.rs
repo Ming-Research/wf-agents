@@ -2,115 +2,260 @@
 
 use super::*;
 
-fn run(id: u64, name: &str, status: &str, conclusion: Option<&str>) -> Value {
-    json!({
-        "id": id,
-        "name": name,
-        "status": status,
-        "conclusion": conclusion,
-        "html_url": format!("https://github.com/o/r/runs/{id}"),
-        "output": { "title": "Lint", "summary": "" },
-        "app": { "slug": "github-actions" },
-    })
+#[test]
+fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_skipped() {
+    let job = |status: &str, conclusion: Option<&str>| {
+        job(
+            &json!({ "name": "test", "status": status, "conclusion": conclusion, "html_url": "https://github.com/o/r/runs/1/job/2" }),
+        )
+    };
+    assert_eq!(
+        job("completed", Some("success")).map(|j| j.outcome),
+        Some(Outcome::Passed)
+    );
+    assert_eq!(
+        job("completed", Some("failure")).map(|j| j.outcome),
+        Some(Outcome::Failed("failure".to_string()))
+    );
+    assert_eq!(
+        job("completed", Some("cancelled")).map(|j| j.outcome),
+        Some(Outcome::Broken("cancelled".to_string()))
+    );
+    assert_eq!(job("in_progress", None).map(|j| j.outcome), Some(Outcome::Pending));
+    assert_eq!(
+        job("completed", Some("skipped")).map(|j| j.outcome),
+        Some(Outcome::Skipped),
+        "a job whose condition was false did not run, and is not left out"
+    );
 }
 
+// The time of a job is the whole seconds from its `started_at` to its `completed_at`, and only a job that ran to a
+// conclusion has one: a cancelled job, one not complete and one that did not run did not finish.
 #[test]
-fn the_latest_run_of_each_check_counts() {
-    let runs = [
-        run(7, "check", "completed", Some("failure")),
-        // Run again by a person, and passed.
-        run(9, "check", "completed", Some("success")),
-        run(8, "page", "in_progress", None),
-    ];
-    let checks = checks(&runs, &[]);
-    assert_eq!(checks.len(), 2);
+fn a_jobs_wall_time_is_read_from_its_two_stamps_when_it_ran_to_a_conclusion() {
+    let took = |status: &str, conclusion: Option<&str>, started: Value, completed: Value| {
+        job(&json!({
+            "name": "test", "status": status, "conclusion": conclusion,
+            "started_at": started, "completed_at": completed,
+        }))
+        .map(|j| j.took)
+    };
+    let (start, end) = (json!("2026-11-14T10:00:00Z"), json!("2026-11-14T10:03:12Z"));
     assert_eq!(
-        (checks[0].name.as_str(), &checks[0].outcome),
-        ("check", &Outcome::Passed)
+        took("completed", Some("success"), start.clone(), end.clone()),
+        Some(Some(192))
     );
-    assert_eq!(checks[0].job, Some(9));
-    assert_eq!(checks[0].url.as_deref(), Some("https://github.com/o/r/runs/9"));
-    assert_eq!(checks[0].summary.as_deref(), Some("Lint"));
     assert_eq!(
-        (checks[1].name.as_str(), &checks[1].outcome),
-        ("page", &Outcome::Pending)
+        took("completed", Some("failure"), start.clone(), end.clone()),
+        Some(Some(192))
     );
-    // The earlier run is kept to be said as it is, beside the latest.
-    assert_eq!(checks[0].earlier, ["failure https://github.com/o/r/runs/7"]);
-    assert!(checks[1].earlier.is_empty());
-}
-
-// A job stopped at its time limit, or cancelled, judged the code as far as it ran: what it ran and what was still
-// running when it ended are what the agent needs, and a run of the same commit asked again gives the same.
-#[test]
-fn a_failure_a_timeout_or_a_cancel_judges_the_code() {
-    let outcome = |conclusion| check_run("c", &run(1, "c", "completed", conclusion)).outcome;
-    for passed in ["success", "neutral", "skipped"] {
-        assert_eq!(outcome(Some(passed)), Outcome::Passed, "{passed}");
+    assert_eq!(
+        took("completed", Some("timed_out"), start.clone(), end.clone()),
+        Some(Some(192))
+    );
+    for (status, conclusion) in [
+        ("completed", Some("cancelled")),
+        ("completed", Some("skipped")),
+        ("in_progress", None),
+    ] {
+        assert_eq!(
+            took(status, conclusion, start.clone(), end.clone()),
+            Some(None),
+            "{status} {conclusion:?} did not finish"
+        );
     }
-    for failed in ["failure", "timed_out", "cancelled"] {
-        assert_eq!(outcome(Some(failed)), Outcome::Failed(failed.to_string()));
+    // No usable stamp, no time: a missing one, a null, an order reversed, and any other form of a time.
+    for (started, completed) in [
+        (json!(null), end.clone()),
+        (start.clone(), json!(null)),
+        (end.clone(), start.clone()),
+        (start.clone(), json!("2026-11-14T10:03:12.000Z")),
+        (start.clone(), json!("2026-11-14T11:03:12+01:00")),
+        (start.clone(), json!("2026-13-14T10:03:12Z")),
+        (start.clone(), json!("2026-02-29T10:03:12Z")),
+        (start.clone(), json!("2026-11-14T24:00:00Z")),
+        (start.clone(), json!("2026-11-14 10:03:12Z")),
+        (start.clone(), json!("2026-11-1\u{e9}T10:03:12Z")),
+    ] {
+        assert_eq!(
+            took("completed", Some("success"), started.clone(), completed.clone()),
+            Some(None),
+            "{started} to {completed}"
+        );
     }
-    for broken in ["action_required", "stale", "startup_failure"] {
-        assert_eq!(outcome(Some(broken)), Outcome::Broken(broken.to_string()));
-    }
-    assert_eq!(outcome(None), Outcome::Broken("no conclusion".to_string()));
-    let queued = check_run("c", &run(1, "c", "queued", None));
-    assert_eq!(queued.outcome, Outcome::Pending);
-    let mut other = run(1, "c", "completed", Some("failure"));
-    other["app"]["slug"] = json!("another-app");
+}
+
+// The seconds between two stamps hold over a day, a month, a year and a leap day, and none is lost at the March of a
+// leap year.
+#[test]
+fn the_seconds_between_two_stamps_hold_across_days_months_years_and_leap_days() {
+    let between = |from: &str, to: &str| seconds_between(from, to);
+    assert_eq!(between("2026-11-14T10:00:00Z", "2026-11-14T10:00:00Z"), Some(0));
+    assert_eq!(between("2026-11-14T23:59:59Z", "2026-11-15T00:00:00Z"), Some(1));
+    assert_eq!(between("2026-11-30T23:59:00Z", "2026-12-01T00:01:00Z"), Some(120));
+    assert_eq!(between("2026-12-31T23:59:59Z", "2027-01-01T00:00:00Z"), Some(1));
     assert_eq!(
-        check_run("c", &other).job,
-        None,
-        "only a job of GitHub Actions has a log GitHub keeps"
+        between("2024-02-28T00:00:00Z", "2024-03-01T00:00:00Z"),
+        Some(2 * 86_400),
+        "2024 has a 29th of February"
+    );
+    assert_eq!(
+        between("2026-02-28T00:00:00Z", "2026-03-01T00:00:00Z"),
+        Some(86_400),
+        "2026 has none"
+    );
+    assert_eq!(
+        between("2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
+        Some(366 * 86_400)
+    );
+    assert_eq!(
+        between("1999-12-31T00:00:00Z", "2000-03-01T00:00:00Z"),
+        Some(61 * 86_400),
+        "2000 is a leap year"
+    );
+    assert_eq!(
+        between("2100-02-28T00:00:00Z", "2100-03-01T00:00:00Z"),
+        Some(86_400),
+        "2100 is not"
+    );
+    assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
+    assert_eq!(epoch("2026-11-14T10:03:12Z"), Some(1_794_650_592));
+}
+
+// Reference: the Unix time of a day is 86 400 s times the days counted from 1970-01-01 on the Gregorian calendar, which
+// this walk counts one day at a time, with no formula, and a day past a month's last is no day.
+#[test]
+fn the_epoch_of_every_day_from_1970_to_2400_is_what_counting_the_days_one_by_one_gives() {
+    let leap = |year: i64| (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let mut days = 0i64;
+    for year in 1970..=2400i64 {
+        let february = if leap(year) { 29 } else { 28 };
+        for (month, length) in [31, february, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            .into_iter()
+            .enumerate()
+        {
+            let month = month + 1;
+            for day in 1..=length {
+                let at = |time: &str| epoch(&format!("{year:04}-{month:02}-{day:02}T{time}Z"));
+                assert_eq!(at("00:00:00"), Some(days * 86_400), "{year}-{month}-{day}");
+                assert_eq!(at("23:59:59"), Some(days * 86_400 + 86_399), "{year}-{month}-{day}");
+                assert_eq!(at("12:34:56"), Some(days * 86_400 + 45_296), "{year}-{month}-{day}");
+                days += 1;
+            }
+            let past = epoch(&format!("{year:04}-{month:02}-{:02}T00:00:00Z", length + 1));
+            assert_eq!(past, None, "{year}-{month} has no day {}", length + 1);
+        }
+    }
+}
+
+// Reference: the Unix times the system's `date -u` gives for these stamps, and the two constants every Unix reference
+// gives for the first and the last day of the years 1 to 9999.
+#[test]
+fn a_stamp_is_the_unix_time_the_systems_date_gives_for_it() {
+    for (stamp, unix) in [
+        ("2026-11-14T10:03:12Z", 1_794_650_592),
+        ("2024-02-29T23:59:59Z", 1_709_251_199),
+        ("2024-12-31T23:59:59Z", 1_735_689_599),
+        ("2026-02-28T00:00:00Z", 1_772_236_800),
+        ("2038-01-19T03:14:07Z", 2_147_483_647),
+        ("2100-03-01T00:00:00Z", 4_107_542_400),
+        ("2000-02-29T00:00:00Z", 951_782_400),
+        ("1999-12-31T23:59:59Z", 946_684_799),
+        ("2200-03-01T00:00:00Z", 7_263_216_000),
+        ("2400-02-29T12:00:00Z", 13_574_606_400),
+        ("0001-01-01T00:00:00Z", -62_135_596_800),
+        ("9999-12-31T23:59:59Z", 253_402_300_799),
+    ] {
+        assert_eq!(epoch(stamp), Some(unix), "{stamp}");
+    }
+    assert_eq!(
+        seconds_between("0001-01-01T00:00:00Z", "9999-12-31T23:59:59Z"),
+        Some(253_402_300_799 + 62_135_596_800)
     );
 }
 
-// The check run GitHub gave for a job of a work's CI that a hung test held until the job's time limit, as GitHub's
-// REST API answered it (`commits/<sha>/check-runs`), but for the fields the host does not read.
+// A stamp is the one form GitHub gives and no other: a sign, a blank, a lower-case mark or a letter that is not an
+// ASCII digit in a field, or a form of another length, gives no time and never a wrong one.
 #[test]
-fn a_job_cancelled_at_its_time_limit_is_a_failure_after_how_long_it_ran() {
-    let real = json!({
-        "id": 130395109590_u64,
-        "name": "check",
-        "status": "completed",
-        "conclusion": "cancelled",
-        "started_at": "2026-11-11T07:48:56Z",
-        "completed_at": "2026-11-11T08:04:11Z",
-        "html_url": "https://github.com/Ming-Research/wf-agents/actions/runs/42982244461/job/130395109590",
-        "output": { "title": null, "summary": null },
-        "app": { "slug": "github-actions" },
-    });
-    let check = check_run("check", &real);
-    assert_eq!(
-        check.outcome,
-        Outcome::Failed("cancelled after 15 minutes and 15 seconds".to_string())
-    );
-    assert_eq!(check.job, Some(130395109590));
+fn a_stamp_with_anything_but_digits_in_a_field_or_in_another_form_is_no_stamp() {
+    for stamp in [
+        "",
+        "2026-11-14T10:03:12",
+        "2026-11-14T10:03:12ZZ",
+        "2026-11-14t10:03:12Z",
+        "2026-11-14T10:03:12z",
+        "+026-11-14T10:03:12Z",
+        "2026-+1-14T10:03:12Z",
+        "2026-11--4T10:03:12Z",
+        "2026-11-14T 0:03:12Z",
+        "2026-11-14T10:0 :12Z",
+        "2026-11-14T10:03:1-Z",
+        "2026-11-14T10:03:\u{e9}Z",
+        "2026-11-14T10:03:12\u{e9}",
+        "\u{663}026-11-14T10:03:12Z",
+        "2026-00-14T10:03:12Z",
+        "2026-11-00T10:03:12Z",
+        "2026-11-31T10:03:12Z",
+        "2026-11-14T10:60:00Z",
+        "2026-11-14T10:00:60Z",
+    ] {
+        assert_eq!(epoch(stamp), None, "{stamp:?}");
+        assert_eq!(seconds_between("2026-11-14T10:00:00Z", stamp), None, "{stamp:?}");
+        assert_eq!(seconds_between(stamp, "2026-11-14T10:00:00Z"), None, "{stamp:?}");
+    }
+}
+
+// Only a conclusion that judged the code gives a time: `neutral` counts as passed, while the others that end a job
+// without judging it, GitHub's `action_required`, `stale` and `startup_failure`, give none.
+#[test]
+fn a_neutral_job_is_timed_and_one_that_ended_without_judging_the_code_is_not() {
+    let took = |conclusion: &str| {
+        job(&json!({
+            "name": "test", "status": "completed", "conclusion": conclusion,
+            "started_at": "2026-11-14T10:00:00Z", "completed_at": "2026-11-14T10:00:07Z",
+        }))
+        .map(|j| (j.outcome, j.took))
+    };
+    assert_eq!(took("neutral"), Some((Outcome::Passed, Some(7))));
+    for conclusion in ["action_required", "stale", "startup_failure", "cancelled"] {
+        let (outcome, took) = took(conclusion).expect("a job");
+        assert!(matches!(outcome, Outcome::Broken(_)), "{conclusion}");
+        assert_eq!(took, None, "{conclusion}");
+    }
 }
 
 #[test]
-fn a_commit_status_is_a_check_by_its_context() {
-    let statuses = [
-        json!({ "context": "ci/a", "state": "success", "target_url": "https://ci.example/a", "description": "" }),
-        json!({ "context": "ci/b", "state": "failure", "description": "Two tests failed" }),
-        json!({ "context": "ci/c", "state": "error" }),
-        json!({ "context": "ci/d", "state": "pending" }),
-    ];
-    let checks = checks(&[], &statuses);
-    let outcomes: Vec<(&str, &Outcome)> = checks.iter().map(|c| (c.name.as_str(), &c.outcome)).collect();
+fn a_run_is_read_by_its_status_and_one_that_completed_cancelled_is_said_so() {
+    let run = |status: &str, conclusion: Option<&str>| {
+        run(&json!({
+            "id": 43658592831u64,
+            "display_title": "ci 0f3a",
+            "status": status,
+            "conclusion": conclusion,
+            "html_url": "https://github.com/o/r/actions/runs/43658592831",
+        }))
+        .expect("a run")
+    };
+    let going = run("in_progress", None);
     assert_eq!(
-        outcomes,
-        [
-            ("ci/a", &Outcome::Passed),
-            ("ci/b", &Outcome::Failed("failure".to_string())),
-            ("ci/c", &Outcome::Broken("error".to_string())),
-            ("ci/d", &Outcome::Pending),
-        ]
+        going,
+        Run {
+            id: 43658592831,
+            title: "ci 0f3a".to_string(),
+            started: true,
+            completed: false,
+            cancelled: false,
+            url: "https://github.com/o/r/actions/runs/43658592831".to_string(),
+        }
     );
-    assert_eq!(checks[0].url.as_deref(), Some("https://ci.example/a"));
-    assert_eq!(checks[0].summary, None);
-    assert_eq!(checks[1].summary.as_deref(), Some("Two tests failed"));
+    let queued = run("queued", None);
+    assert!(!queued.started && !queued.completed && !queued.cancelled);
+    let cancelled = run("completed", Some("cancelled"));
+    assert!(cancelled.completed && cancelled.cancelled);
+    for judged in ["success", "failure", "timed_out"] {
+        let ended = run("completed", Some(judged));
+        assert!(ended.completed && !ended.cancelled, "{judged}");
+    }
 }
 
 #[test]
@@ -156,7 +301,7 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
 }
 
 #[test]
-fn the_requests_that_open_edit_ready_and_close_a_pull_request_are_as_githubs_api_takes_them() {
+fn the_requests_that_open_edit_ready_merge_and_close_a_pull_request_are_as_githubs_api_takes_them() {
     let (method, path, body) = opening("o/r", "work-1-x", "main", "Greet the user", "It greets.");
     assert_eq!((method, path.as_str()), ("POST", "repos/o/r/pulls"));
     assert_eq!(
@@ -173,6 +318,12 @@ fn the_requests_that_open_edit_ready_and_close_a_pull_request_are_as_githubs_api
     assert!(
         query.contains("markPullRequestReadyForReview(input: {pullRequestId: $id})"),
         "{query}"
+    );
+    let (method, path, body) = merging("o/r", 12, "c0ffee", "squash", "Greet the user by name (#12)");
+    assert_eq!((method, path.as_str()), ("PUT", "repos/o/r/pulls/12/merge"));
+    assert_eq!(
+        body,
+        json!({ "sha": "c0ffee", "merge_method": "squash", "commit_title": "Greet the user by name (#12)" })
     );
     let [(said, at, comment), (close, pull, closed)] = closing("o/r", 12, "Its work ended without merging.");
     assert_eq!((said, at.as_str()), ("POST", "repos/o/r/issues/12/comments"));
@@ -200,21 +351,31 @@ fn an_answer_is_read_with_its_status_and_a_refusal_in_githubs_words() {
     assert_eq!(included("gh: not logged in"), None);
 }
 
-#[tokio::test]
-async fn a_jobs_log_is_read_with_the_escapes_that_colour_it() {
-    // As gh does: a body with terminal escapes is printed only where it is allowed; else the status and headers are,
-    // and gh exits with an error.
-    let dir = tempfile::tempdir().unwrap();
-    let script = dir.path().join("gh");
-    std::fs::write(
-        &script,
-        "#!/bin/sh\nprintf 'HTTP/2.0 200 OK\\r\\n\\r\\n'\ncase \"$*\" in *--allow-escape-sequences*) printf '\\033[31merror\\033[0m: failed\\n' ;; *) echo 'the response contains terminal escape sequences' >&2; exit 1 ;; esac\n",
-    )
-    .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
-    assert_eq!(gh.log(7).await, Ok("\u{1b}[31merror\u{1b}[0m: failed\n".to_string()));
+// GitHub's refusal is of the kind its status tells, whatever its words: its own fault, or its limit on the requests it
+// takes, passes by itself; any other refusal waits for the owner, though its words name a timeout.
+#[test]
+fn a_refusal_is_of_the_kind_its_status_tells_whatever_its_words() {
+    use decide::run::Failure;
+    let kind = |head: &str| {
+        let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"Connection timed out\"}}");
+        refused(&included(&out).expect("an answer")).kind
+    };
+    for passes in [
+        "HTTP/2.0 500 Internal Server Error",
+        "HTTP/2.0 502 Bad Gateway",
+        "HTTP/2.0 429 Too Many Requests",
+        "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 0",
+        "HTTP/2.0 403 Forbidden\r\nretry-after: 60",
+    ] {
+        assert_eq!(kind(passes), Some(Failure::Passing), "{passes}");
+    }
+    for refused in [
+        "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 4999",
+        "HTTP/2.0 405 Method Not Allowed",
+        "HTTP/2.0 422 Unprocessable Entity",
+    ] {
+        assert_eq!(kind(refused), Some(Failure::Other), "{refused}");
+    }
 }
 
 #[test]
@@ -261,6 +422,10 @@ async fn a_gh_that_never_answers_is_given_up_within_its_limit() {
         .within(std::time::Duration::from_millis(500));
     let began = std::time::Instant::now();
     let given_up = gh.pulls("work-1").await.expect_err("given up");
-    assert!(given_up.contains("did not end within"), "{given_up}");
+    assert!(given_up.why.contains("did not end within"), "{given_up}");
+    assert_eq!(
+        given_up.kind, None,
+        "no answer tells no kind: the words are read for the network's"
+    );
     assert!(began.elapsed() < std::time::Duration::from_secs(10));
 }

@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use decide::run::Failure;
-use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, decide};
+use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, Started, decide};
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
 
@@ -72,15 +72,30 @@ pub struct Seen {
     pub bound_finished: usize,
     /// Releases given of what a work that ended held.
     pub released: usize,
+    /// Words told to a round under way.
+    pub told: usize,
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
 /// the finishes and the cells' definitions (property a-run-is-one-mechanism), said in words; none where there is none.
+/// A run is held to what its cell must write where its return asked for no call, however much of what ran its round it
+/// dealt with (decision a-return-hands-in-what-its-cell-must-every-time). A return with a question that waits is not
+/// held either; the histories that check this give no cell that must write a question to ask. Nor is a run entered while
+/// its cell waited ([`waited`]).
 pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
     for finished in &records.finished {
         let started = (records.started.iter())
             .find(|s| s.run == finished.run)
             .expect("a finished run started");
+        let ended = (records.returned.iter())
+            .filter(|r| r.run == finished.run)
+            .map(|r| r.at)
+            .max();
+        let asked = (records.called.iter())
+            .any(|c| c.run == finished.run && c.at < finished.at && ended.is_none_or(|e| c.at > e));
+        if asked || waited(records, started) {
+            continue;
+        }
         let spec = (flow.cells.iter())
             .find(|c| c.id == started.cell)
             .expect("the cell is in the flow");
@@ -96,35 +111,82 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
     None
 }
 
-/// Whether the run started for a note a person wrote: one of its reasons is a note that a person wrote since its cell
-/// last ran (since the start of the run of its record, or with no record of its first run), after the version its
-/// cell's record knew, and before the run started; for a cell with no record, a note the run started from. A cell no
-/// run of which started before has not run. Read from the records and the flow's notes; it does not ask whether the
-/// write changed the note's meaning, nor, with no record, whether the cell reads it, so it is a little wider than the
-/// rule.
+/// Whether the cell of the run waited, as the run started, for what an earlier run of it asked: the result of a call
+/// that run asked for as its return was taken, given to no run of the cell since and not in yet; or the owner's answer
+/// to a question of the cell that waits, with no answer to its latest version. A run entered meanwhile, for the owner's
+/// words, answers them and goes on waiting, held to nothing its cell must write (design document `data-and-context`,
+/// 42). Read from the records.
+pub fn waited(records: &Records, started: &Started) -> bool {
+    let at = started.at;
+    let earlier: Vec<&Started> = (records.started.iter())
+        .filter(|s| s.cell == started.cell && s.at < at)
+        .collect();
+    let given: BTreeSet<CallId> = (earlier.iter())
+        .flat_map(|s| &s.because)
+        .flat_map(|c| match c {
+            Cause::Results { calls } => calls.clone(),
+            _ => Vec::new(),
+        })
+        .collect();
+    let open = earlier.iter().any(|s| {
+        let Some(finished) = records.finished.iter().find(|f| f.run == s.run && f.at < at) else {
+            return false;
+        };
+        let ended = (records.returned.iter()).filter(|r| r.run == s.run).map(|r| r.at).max();
+        (records.called.iter()).any(|c| {
+            c.run == s.run
+                && c.at < finished.at
+                && ended.is_none_or(|e| c.at > e)
+                && !given.contains(&c.call)
+                && !records.done.iter().any(|d| d.call == c.call && d.at < at)
+        })
+    });
+    let held = (records.questions.iter())
+        .filter(|q| q.cell == started.cell && q.at < at)
+        .any(|q| {
+            let latest = !(records.questions.iter()).any(|o| o.name == q.name && o.at > q.at && o.at < at);
+            let answered = (records.answers.iter()).any(|a| a.question == q.name && a.version == q.at && a.at < at);
+            latest && q.waits && !q.withdrawn && !answered
+        });
+    open || held
+}
+
+/// Whether the run started for a note a person wrote, or for the owner turning to its cell: one of its reasons is a
+/// note that a person wrote, or a block the owner turns to the cell by that the outside wrote, since its cell last ran
+/// (since the start of the run of its record, or with no record of its first run), after the version its cell's record
+/// knew, and before the run started; for a cell with no record, one the run started from. A cell no run of which
+/// started before has not run. Read from the records and the flow's notes; it does not ask whether the write changed
+/// the block's meaning, nor, with no record, whether the cell reads it, so it is a little wider than the rule.
 pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
     let r = records;
     let Some(started) = r.started.iter().find(|s| s.run == run) else {
         return false;
     };
-    // Since the cell last ran: since the start of the run of its record, or with no record of its first run.
+    // Since the cell last ran: since the start of its latest run that finished dealing with something, or with none of
+    // its first run. A run that only asked for calls dealt with nothing.
     let of_cell = || (r.started.iter()).filter(|s| s.cell == started.cell && s.at < started.at);
     let record = (r.finished.iter())
-        .filter(|f| f.at < started.at)
+        .filter(|f| f.at < started.at && f.dealt_with.as_ref().is_none_or(|d| !d.is_empty()))
         .filter_map(|f| of_cell().find(|s| s.run == f.run).map(|s| (f.at, s.at)))
         .max();
     let Some(since) = record.map(|(_, at)| at).or_else(|| of_cell().map(|s| s.at).min()) else {
         return false;
     };
     let by_person = |block: &decide::BlockId, was: Option<decide::Seq>| {
-        flow.is_note(block)
-            && (r.written.iter()).any(|w| {
-                w.by == Outsider::Person && w.block == *block && w.at > since && Some(w.at) > was && w.at < started.at
-            })
+        let by = if flow.is_note(block) {
+            Outsider::Person
+        } else if flow.interrupts(block) {
+            Outsider::Outside
+        } else {
+            return false;
+        };
+        (r.written.iter())
+            .any(|w| w.by == by && w.block == *block && w.at > since && Some(w.at) > was && w.at < started.at)
     };
     started.because.iter().any(|c| match c {
         Cause::NoRecord => started.basis.keys().any(|block| by_person(block, None)),
         Cause::Changed { block, was, .. } => by_person(block, *was),
+        Cause::Results { .. } => false,
     })
 }
 
@@ -227,13 +289,23 @@ impl Driver {
                 for a in &r.abandoned[before.records.abandoned.len()..] {
                     let ended = r.returned.iter().filter(|e| e.run == a.run).count();
                     let last = self.work.back.get(&(a.run, ended));
-                    if r.cancelled.is_none() && matches!(last, Some(Back::Failed { .. })) {
+                    if r.cancelled().is_none() && matches!(last, Some(Back::Failed { .. })) {
                         self.seen.failed_abandoned += 1;
                     }
                 }
                 self.paused = decide::paused(&self.work.records);
                 for effect in effects {
                     match &effect {
+                        // Words told to a round under way are handed to it and kept by no one: a stop does not give
+                        // them again.
+                        Effect::Tell { run, .. } => {
+                            let r = &self.work.records;
+                            let began = r.rounds.iter().filter(|x| x.run == *run).count();
+                            let ended = r.returned.iter().filter(|x| x.run == *run).count();
+                            assert!(began > ended, "words are told to a run with no round under way");
+                            self.seen.told += 1;
+                            continue;
+                        }
                         Effect::Round { run, number, .. } => {
                             assert!(
                                 self.rounds.insert((*run, *number)),
@@ -278,6 +350,7 @@ impl Driver {
                             );
                             self.seen.released += 1;
                         }
+                        Effect::Ping { .. } => panic!("the work's loop gives a ping, which only its driver gives"),
                     }
                     self.held.push(effect);
                 }
@@ -356,6 +429,7 @@ impl Driver {
         }
         for effect in &self.held {
             match effect {
+                Effect::Tell { .. } => panic!("words told to a round are held"),
                 Effect::Round { run, .. } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run"),
                 Effect::Call { call, run, .. } => {
                     assert!(
@@ -367,6 +441,7 @@ impl Driver {
                     assert!(r.called.iter().any(|c| c.call == *call), "an unknown call withdrawn");
                 }
                 Effect::Stop { run } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run stopped"),
+                Effect::Ping { .. } => panic!("the work's loop gives a ping, which only its driver gives"),
                 // Nothing of a work is under way as it lets go of what it holds: no round, and no call, which a tool
                 // may be working at in the worktree.
                 Effect::Release { end } => {
@@ -385,7 +460,7 @@ impl Driver {
         }
         // A work that ended with nothing under way has let go of what it holds, or is to.
         let ended = matches!(decide(&self.flow.flow, r), Decision::Ended(_));
-        if ended && r.released.is_none() && (self.held.iter()).all(|e| matches!(e, Effect::Release { .. })) {
+        if ended && r.released().is_none() && (self.held.iter()).all(|e| matches!(e, Effect::Release { .. })) {
             assert_eq!(
                 self.held.len(),
                 1,
@@ -462,7 +537,8 @@ impl Driver {
             .filter(|e| match e {
                 Effect::Round { .. } => true,
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
-                Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } => true,
+                Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } | Effect::Ping { .. } => true,
+                Effect::Tell { .. } => false,
             })
             .cloned()
             .collect()
@@ -492,10 +568,13 @@ impl Driver {
                 let came = part.returns(self, run, cell.as_str());
                 let place = self.flow.flow.place(&cell).expect("the cell is in the flow");
                 let must = &self.flow.cells[place].must_write;
-                let lacks = match &came {
-                    Came::HandsIn(handed) => must.iter().any(|b| !handed.iter().any(|h| h.block == *b)),
-                    Came::Asks(_) => false,
-                };
+                // A hand-in deals with what ran its round, by naming it or by naming nothing, or writes something;
+                // a return that asks for calls, or for nothing, is none.
+                let hand_in = came.dealt_with.as_ref().is_none_or(|d| !d.is_empty()) || !came.writes.is_empty();
+                let lacks = came.asks.is_empty()
+                    && hand_in
+                    && !came.said.waits()
+                    && must.iter().any(|b| !came.writes.iter().any(|h| h.block == *b));
                 self.returned(run, came);
                 let r = &self.work.records;
                 let open = !r.finished.iter().any(|f| f.run == run) && !r.abandoned.iter().any(|a| a.run == run);
@@ -525,7 +604,7 @@ impl Driver {
                 } else {
                     Event::Returned {
                         run,
-                        came: Came::Asks(vec![]),
+                        came: Came::asks(vec![]),
                         spent,
                     }
                 };
@@ -537,6 +616,8 @@ impl Driver {
                     "the release of a work that ended was refused"
                 );
             }
+            Effect::Ping { .. } => panic!("the work's loop gives a ping, which only its driver gives"),
+            Effect::Tell { .. } => unreachable!("words told to a round are not held"),
         }
     }
 

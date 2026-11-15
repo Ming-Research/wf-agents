@@ -8,9 +8,9 @@
 //!    refusal, with no person's write of the verdict since; nor while a person's write of a verdict is its latest and
 //!    is the refusal (property no-merge-on-what-is-not-settled).
 //! 2. No round of the merge begins unless the check's record wrote each choice it writes that a precondition of kind
-//!    `all` reads with the value that precondition looks for (property no-merge-on-what-is-not-settled), and the record
-//!    of every cell before the merge that is not skipped knows the current meaning of each of its inputs: the version
-//!    it wrote itself where it wrote the block, the one its run started from otherwise (property
+//!    `all` reads with the value that precondition looks for (property no-merge-on-what-is-not-settled), and nothing is
+//!    new to a cell before the merge that is not skipped: of each block that runs it, every version that changes what
+//!    the block says and that it did not write itself was dealt with by a return of it (property
 //!    merge-only-on-what-is-current).
 //! 3. From the state a random history reached, a work everyone is content with merges within `content_bound` steps
 //!    (property a-work-comes-to-rest).
@@ -22,16 +22,18 @@
 //! The first two are judged as each round of the merge begins, by the histories' own reading of the records as they
 //! were then (`reading`), never by the deciding code's tests.
 //!
-//! What a history is. With a chance of four in five it begins with the outside making the first cell's precondition
-//! hold (the items the work depends on merged); otherwise with a look. Then, for 0 to 199 steps, the driver's random
+//! What a history is. It begins with the owner's start, the block that runs the first cell, which the outside writes
+//! once; then, with a chance of four in five, with the outside making the first cell's precondition hold (the items
+//! the work depends on merged); otherwise with a look. Then, for 0 to 199 steps, the driver's random
 //! steps, people acting at a step with a chance of one in four and the engine stopping at any step:
 //! - an agent's round ends with one to three calls in a tenth of the rounds (a tool in seven of ten, a question for the
 //!   owner or the architect otherwise), asking for nothing in one in twenty-five, handing in a block its cell may not
 //!   write beside the rest in one in twenty-five, and otherwise handing in what its cell may write: each choice in nine
 //!   of ten, its first value (yes) in a little over half of those; each other block in four of five, mattering in seven
-//!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. In one history
-//!   of five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach their
-//!   limit of returns;
+//!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. A return that
+//!   hands in names as dealt with each trigger its round was told ran it, by its name, as an agent writes it. In one
+//!   history of five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach
+//!   their limit of returns;
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
 //!   kind `all` looks for in three of five (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
@@ -68,8 +70,11 @@
 //! the owner resumes a paused work, lets the cell it waits at go on at its limit, and makes a precondition it waits on
 //! hold where a person or the outside can: writes a verdict whose refusal stands as a value that is not, and the
 //! outside writes what the first cell's precondition looks for. Where the precondition reads a choice that only cells
-//! write (the check's), the owner writes a few words in an input of the cell that writes it which only people write
-//! (an opinion for the check), so that the cell runs again; in the continuation the check then says yes.
+//! write (the check's), the work is stalled: the owner speaks to the line of the cell that writes it, where the
+//! owner's words run that cell, or, where they do not (the check is spoken to by no one), of the nearest cell before it
+//! that they run and that applies (the implementation, of the engineer's line), so that the cell runs again, or the
+//! work goes on from the cell spoken to until it does; in the continuation the check then says yes. Among the random
+//! steps, the owner now and then speaks to a line.
 //!
 //! Every situation the properties are about is counted over all histories (`required`), and the test fails if one was
 //! never reached. A failing case prints its seed and its steps; `one_history(&flow, seed, ..)` replays it.
@@ -79,7 +84,10 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod groups;
+mod merging;
 mod reading;
+mod single;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -88,9 +96,10 @@ use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
 use decide::{
-    BlockId, Cause, CellId, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, TestName, Waited, Who,
+    BlockId, Cause, CellId, Condition, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited, Who,
     decide,
 };
+use engine::spoken::{self, To};
 use engine::{Ask, Came, Effect, Event, Handed};
 use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
@@ -120,8 +129,23 @@ fn engineer() -> Compiled {
     let source = read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&["dependencies", "main", "session", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "words",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "tree",
+        ]),
         acts: names(&["start", "check", "merge"]),
+        // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
+        // place the engine fills with what changed of the tree.
+        tools: names(&["query", "run_tests"]),
+        fields: names(&["questions", "reply"]),
+        details: names(&["files"]),
+        ..Default::default()
     };
     compile(&source, &has).expect("the engineer's flow compiles")
 }
@@ -159,13 +183,19 @@ impl Roles {
                 (flow.blocks[b].writers.cells.iter()).map(move |c| (flow.flow.place(c).expect("a cell"), b.clone()))
             })
             .collect();
+        // What a precondition waits for of a block: its value, as a key on the block or as a test of kind `all`.
         let mut passing = BTreeMap::new();
-        for name in cells.iter().flat_map(|c| &c.requires) {
-            let t = &tests[name];
-            if t.kind == TestKind::All {
-                for b in &t.reads {
-                    passing.insert(b.clone(), t.is.clone());
+        for key in cells.iter().flat_map(|c| &c.requires) {
+            match key {
+                Condition::Is { block, value } => {
+                    passing.insert(block.clone(), value.clone());
                 }
+                Condition::Test(name) if tests[name].kind == TestKind::All => {
+                    for b in &tests[name].reads {
+                        passing.insert(b.clone(), tests[name].is.clone());
+                    }
+                }
+                Condition::Test(_) => {}
             }
         }
         Self {
@@ -177,7 +207,7 @@ impl Roles {
         }
     }
 
-    /// The choices the check writes that a precondition of kind `all` reads, with the value it looks for.
+    /// The choices the check writes that a precondition waits on the value of, with the value it waits for.
     fn check_passes<'a>(&'a self, flow: &'a Compiled) -> impl Iterator<Item = (&'a BlockId, &'a String)> {
         let outputs = &flow.flow.cells()[self.check].outputs;
         self.passing.iter().filter(move |(b, _)| outputs.contains(b))
@@ -188,7 +218,7 @@ impl Roles {
 fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
     let cells = flow.flow.cells();
     let mut reached: Vec<String> = cells.iter().map(|c| ran(&c.id)).collect();
-    reached.extend(cells.iter().filter(|c| c.applies.is_some()).map(|c| skipped(&c.id)));
+    reached.extend(cells.iter().filter(|c| can_turn(flow, c)).map(|c| skipped(&c.id)));
     reached.extend((roles.judges.iter()).map(|(j, b)| refused(&cells[*j].id, b, &roles.refusals[b])));
     reached.extend(roles.refusals.keys().map(person_wrote));
     reached.extend(roles.check_passes(flow).map(|(b, pass)| check_failed(b, pass)));
@@ -209,6 +239,40 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
         .map(String::from),
     );
     reached
+}
+
+/// The blocks a key of a condition or of preconditions reads: its block, or those of its named test.
+fn key_reads<'a>(flow: &'a Compiled, key: &'a Condition) -> Vec<&'a BlockId> {
+    match key {
+        Condition::Is { block, .. } => vec![block],
+        Condition::Test(name) => flow.flow.tests()[name].reads.iter().collect(),
+    }
+}
+
+/// Whether the condition of the cell can come to fail after the cell ran, so that a history can skip it then: a block
+/// a key of it reads can be written again with another value by a person or the outside, by the cell itself, or by a
+/// cell that may run while the key holds. A writer whose own condition holds the block at another value than this
+/// key's runs only while this key fails, and so cannot turn it: the research that hands the work to the deep research
+/// is skipped from then on, and nothing writes the block again. One that holds it at the same value can: the research
+/// runs again while it says no, and its yes skips the cell that runs on no.
+fn can_turn(flow: &Compiled, cell: &decide::Cell) -> bool {
+    cell.applies.iter().any(|key| {
+        let held = match key {
+            Condition::Is { value, .. } => Some(value),
+            Condition::Test(_) => None,
+        };
+        key_reads(flow, key).into_iter().any(|block| {
+            let writers = &flow.blocks[block].writers;
+            let kept_out = |writer: &CellId| {
+                let place = flow.flow.place(writer).expect("a writer is a cell of the flow");
+                (flow.flow.cells()[place].applies.iter())
+                    .any(|k| matches!(k, Condition::Is { block: b, value } if b == block && Some(value) != held))
+            };
+            writers.people
+                || writers.outside.is_some()
+                || (writers.cells.iter()).any(|writer| *writer == cell.id || !kept_out(writer))
+        })
+    })
 }
 
 fn ran(cell: &CellId) -> String {
@@ -243,6 +307,18 @@ const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a pr
 const ENGINE_STOPPED: &str = "the engine stopped";
 const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
 
+/// The source of the block the driver writes as the owner starts a work, which runs the first cell.
+const START: &str = "start";
+
+/// The owner starts the work: the outside writes the block of [`START`], as the driver does when the owner first lets
+/// the work on.
+fn started(flow: &Compiled) -> Event {
+    let (block, _) = (flow.blocks.iter())
+        .find(|(_, b)| b.writers.outside.as_deref() == Some(START))
+        .expect("the flow has a block the owner's start writes");
+    wrote(block, Outsider::Outside, true, None)
+}
+
 /// The place of the cell.
 fn place(flow: &Compiled, cell: &str) -> usize {
     flow.flow.place(&cell.into()).expect("the cell is in the flow")
@@ -254,13 +330,14 @@ fn opinion(flow: &Compiled, block: &BlockId, i: usize) -> bool {
 }
 
 /// Whether the block is an opinion addressed to the cell at this place: one of its inputs that only people write, as
-/// prose, or that a cell after it writes.
+/// prose, that stands for the owner's words to it, or that a cell after it writes.
 fn addressed(flow: &Compiled, block: &BlockId, i: usize) -> bool {
     let b = &flow.blocks[block];
     let only_people =
         b.writers.people && b.writers.cells.is_empty() && b.writers.outside.is_none() && b.values.is_none();
+    let words = b.writers.outside.as_deref() == Some(flow::WORDS);
     let from_after = (b.writers.cells.iter()).any(|c| flow.flow.place(c).is_some_and(|j| j > i));
-    flow.flow.cells()[i].inputs.contains(block) && (only_people || from_after)
+    flow.flow.cells()[i].runs_on.contains(block) && (only_people || words || from_after)
 }
 
 /// Whether the block was ever written.
@@ -288,11 +365,42 @@ fn handed(block: &BlockId, cell: &str, matters: bool, value: Option<String>) -> 
     }
 }
 
-/// A write by whoever may write the block outside a cell, a person first, that makes the named test hold, or moves it
-/// towards holding; none where nobody outside a cell can.
-fn make_hold(d: &Driver, name: &TestName) -> Option<Event> {
-    let test = &d.flow.flow.tests()[name];
+/// What the round of the run of the cell at this place returns that hands in these blocks. An agent's return names as
+/// dealt with each trigger its round was told ran it, as its agent is told them (crate `context`), and is read as the
+/// agents' rounds read a return (`CellSpec::dealt_with`), a group's trigger by its own name; an act of the engine's
+/// names none, and deals with everything that ran its round.
+fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
+    let spec = &d.flow.cells[i];
+    if spec.kind == Kind::Engine {
+        return Came::hands_in(writes);
+    }
+    let told = decide::told(&d.flow.flow, &d.work.records, run).expect("the run started");
+    let names: Vec<String> = spec.ran(&told.ran_by).map(|t| t.name.clone()).collect();
+    let (dealt_with, none) = spec.dealt_with(&names);
+    assert!(none.is_empty(), "{} names no trigger {none:?}", spec.id);
+    Came::works(dealt_with, writes)
+}
+
+/// A write by whoever may write the block outside a cell, a person first, that makes the key hold, or moves its named
+/// test towards holding; none where nobody outside a cell can.
+fn make_hold(d: &Driver, key: &Condition) -> Option<Event> {
     let reading = Reading::new(&d.flow.flow, &d.work.records, None);
+    let name = match key {
+        Condition::Test(name) => name,
+        // A key on a block's value: the person or the outside that writes the block writes that value.
+        Condition::Is { block: b, value } => {
+            let writers = &d.flow.blocks[b].writers;
+            let by = if writers.people {
+                Outsider::Person
+            } else if writers.outside.is_some() {
+                Outsider::Outside
+            } else {
+                return None;
+            };
+            return (reading.value_now(b) != Some(value.as_str())).then(|| wrote(b, by, true, Some(value.clone())));
+        }
+    };
+    let test = &d.flow.flow.tests()[name];
     for b in &test.reads {
         let block = &d.flow.blocks[b];
         let by = if block.writers.people {
@@ -423,7 +531,7 @@ impl Random {
         };
         let for_judges: Vec<&BlockId> = (self.roles.judges.iter())
             .filter(|(j, _)| reading.applies(*j))
-            .flat_map(|(j, _)| d.flow.flow.cells()[*j].inputs.iter().filter(only_people))
+            .flat_map(|(j, _)| d.flow.flow.cells()[*j].runs_on.iter().filter(only_people))
             .collect();
         if self.steering.chance(50) && !for_judges.is_empty() {
             self.refuse_next = true;
@@ -492,7 +600,7 @@ impl Random {
                 handed_in.push(handed(b, cell, true, None));
             }
         }
-        Came::HandsIn(handed_in)
+        Came::hands_in(handed_in)
     }
 }
 
@@ -511,18 +619,19 @@ impl Part for Random {
         if self.refuse_next && self.roles.judges.iter().any(|(j, _)| *j == i) {
             self.refuse_next = false;
             let handed_in = self.as_it_stands(d, i, cell, true);
-            return Came::HandsIn(handed_in);
+            return hands_in(d, run, i, handed_in);
         }
         if self.steer == Steer::FailCheckAnswered && self.check_failed && self.answered.is_none() {
             let check = &d.flow.flow.cells()[self.roles.check].outputs;
-            let told = d.flow.flow.cells()[i].inputs.iter().any(|b| check.contains(b));
+            let told = d.flow.flow.cells()[i].runs_on.iter().any(|b| check.contains(b));
             if told {
                 self.answered = Some(run);
-                return Came::HandsIn(self.as_it_stands(d, i, cell, false));
+                let handed_in = self.as_it_stands(d, i, cell, false);
+                return hands_in(d, run, i, handed_in);
             }
         }
         if self.sloppy && d.rng.chance(50) {
-            return Came::Asks(vec![]);
+            return Came::asks(vec![]);
         }
         match d.rng.below(100) {
             0..=9 => {
@@ -543,9 +652,9 @@ impl Part for Random {
                         }
                     })
                     .collect();
-                Came::Asks(asks)
+                Came::asks(asks)
             }
-            10..=13 => Came::Asks(vec![]),
+            10..=13 => Came::asks(vec![]),
             14..=17 => {
                 let mut handed_in = self.valid(d, i, cell);
                 let outputs = &d.flow.flow.cells()[i].outputs;
@@ -556,9 +665,12 @@ impl Part for Random {
                 let block = others[d.rng.below(others.len())].clone();
                 let value = d.flow.blocks[&block].values.as_ref().map(|v| v[0].clone());
                 handed_in.push(handed(&block, cell, true, value));
-                Came::HandsIn(handed_in)
+                hands_in(d, run, i, handed_in)
             }
-            _ => Came::HandsIn(self.valid(d, i, cell)),
+            _ => {
+                let handed_in = self.valid(d, i, cell);
+                hands_in(d, run, i, handed_in)
+            }
         }
     }
 
@@ -573,10 +685,19 @@ impl Part for Random {
             .filter(|(_, b)| b.writers.people && b.values.is_none())
             .map(|(id, _)| id)
             .collect();
+        // The owner's start is written once, as the work begins; what the engine writes itself, of the questions, the
+        // answers and the owner's words, is written by no one outside.
+        let engines = [START, "asked", flow::ANSWER, flow::WORDS];
         let outside: Vec<&BlockId> = (blocks.iter())
-            .filter(|(_, b)| b.writers.outside.is_some())
+            .filter(|(_, b)| b.writers.outside.as_deref().is_some_and(|s| !engines.contains(&s)))
             .map(|(id, _)| id)
             .collect();
+        // The lines the owner speaks to.
+        let mut lines: Vec<String> = (d.flow.cells.iter())
+            .filter(|c| (c.triggers.iter()).any(|t| t.of_source(&d.flow, flow::WORDS).is_some()))
+            .filter_map(|c| c.line.clone())
+            .collect();
+        lines.dedup();
         // Around the check: a person pauses the work while the check's round is under way, and while the pause holds
         // the merge back after the check passed, writes for a judge or lets the work on, so that a judge looks again
         // after the check passed.
@@ -591,7 +712,7 @@ impl Part for Random {
         }
         if paused && passed_before_merge(d, &self.roles) {
             let for_judges: Vec<&BlockId> = (self.roles.judges.iter())
-                .flat_map(|(j, _)| &d.flow.flow.cells()[*j].inputs)
+                .flat_map(|(j, _)| &d.flow.flow.cells()[*j].runs_on)
                 .filter(|b| blocks[*b].writers.people)
                 .collect();
             let verdicts: Vec<&BlockId> = self.roles.refusals.keys().collect();
@@ -639,6 +760,14 @@ impl Part for Random {
                     _ => cells[d.rng.below(cells.len())].id.clone(),
                 };
                 Some(Event::LetGo { cell })
+            }
+            77..=81 => (!lines.is_empty()).then(|| says(&lines[d.rng.below(lines.len())])),
+            82..=84 => {
+                let standing: Vec<String> = (decide::questions::questions(&d.work.records).into_iter())
+                    .filter(|(_, q)| q.stands())
+                    .map(|(name, _)| name.to_string())
+                    .collect();
+                (!standing.is_empty()).then(|| remarks(&standing[d.rng.below(standing.len())]))
             }
             67..=76 => Some(if paused {
                 Event::Resumed
@@ -719,7 +848,7 @@ impl Part for Content {
                 }
             })
             .collect();
-        Came::HandsIn(handed_in)
+        hands_in(d, run, i, handed_in)
     }
 
     fn acts(&mut self, _: &mut Driver) -> Event {
@@ -751,7 +880,7 @@ fn content_bound(d: &Driver) -> u64 {
     let flow = &d.flow.flow;
     let changes = |b: &BlockId| 2 + 2 * d.flow.blocks[b].writers.cells.len() as u64;
     let runs: u64 = (flow.cells().iter())
-        .map(|c| 2 + c.inputs.iter().map(changes).sum::<u64>())
+        .map(|c| 2 + c.runs_on.iter().map(changes).sum::<u64>())
         .sum();
     let tested: BTreeSet<&BlockId> = flow.tests().values().flat_map(|t| &t.reads).collect();
     let asked: u64 = (tested.iter())
@@ -762,25 +891,66 @@ fn content_bound(d: &Driver) -> u64 {
     d.held.len() as u64 + PER_RUN * runs + tested.len() as u64 + 1 + asked * (1 + PER_RUN)
 }
 
-/// The owner's few words to a cell, where the named test reads a block only cells write: in an input of a cell that
-/// writes it which only people write, so that the cell runs again and writes the block anew; none where no such cell
-/// or input is.
-fn ask_a_cell(d: &Driver, name: &TestName) -> Option<Event> {
-    let test = &d.flow.flow.tests()[name];
+/// The owner's few words to a cell, where the key reads a block only cells write: to the line of a cell that writes it
+/// that the owner's words run and that applies, so that the cell runs again and writes the block anew; where that cell
+/// is none, to the line of the nearest cell before it that is one and writes a block the writer runs on, whose run,
+/// answering the owner, writes it anew, so that the writer runs again. A cell spoken to that writes nothing the writer
+/// runs on would run again and leave the work where it was. Where no cell the owner's words run has run yet, so that no
+/// line has reached one, the owner writes what the item asks for, the first block only people write that runs a cell,
+/// which begins the lines again; none where no such block is either, or where such a cell ran and the engine still
+/// gives the words to none that would move the work.
+fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
     let only_cells = |b: &BlockId| {
         let w = &d.flow.blocks[b].writers;
         !w.people && w.outside.is_none()
     };
-    let only_people = |b: &BlockId| {
-        let block = &d.flow.blocks[b];
-        let w = &block.writers;
-        w.people && w.cells.is_empty() && w.outside.is_none() && block.values.is_none()
+    let cells = d.flow.flow.cells();
+    // The line of the cell at `j`, where the owner's words to it reach that cell, as the engine chooses.
+    let spoken_to = |j: usize| {
+        let spec = &d.flow.cells[j];
+        let line = spec.line.clone()?;
+        let reached = spoken::receiver(&d.flow, &d.work, &To::Line(line.clone()));
+        (reached.as_ref() == Ok(&spec.id)).then_some(line)
     };
-    (test.reads.iter().filter(|b| only_cells(b)))
+    // Whether the cell at `j` runs the writer at `w` again by what it writes: it is the writer, or writes a block the
+    // writer runs on.
+    let leads_to = |j: usize, w: usize| j == w || cells[j].outputs.iter().any(|b| cells[w].runs_on.contains(b));
+    (key_reads(&d.flow, key).into_iter().filter(|b| only_cells(b)))
         .flat_map(|b| &d.flow.blocks[b].writers.cells)
         .filter_map(|c| d.flow.flow.place(c))
-        .find_map(|j| d.flow.flow.cells()[j].inputs.iter().find(|b| only_people(b)))
-        .map(|b| wrote(b, Outsider::Person, true, None))
+        .find_map(|w| (0..=w).rev().filter(|&j| leads_to(j, w)).find_map(spoken_to))
+        .map(|line| says(&line))
+        .or_else(|| {
+            let spoken_to =
+                |c: &CellId| (d.flow.cells.iter()).any(|s| s.id == *c && spoken::trigger(&d.flow, s).is_some());
+            if d.work.records.started.iter().any(|s| spoken_to(&s.cell)) {
+                return None;
+            }
+            let only_people = |b: &&BlockId| {
+                let block = &d.flow.blocks[*b];
+                let w = &block.writers;
+                w.people && w.cells.is_empty() && w.outside.is_none() && block.values.is_none()
+            };
+            (cells.iter().flat_map(|c| &c.runs_on))
+                .find(only_people)
+                .map(|b| wrote(b, Outsider::Person, true, None))
+        })
+}
+
+/// The owner's few words to the line.
+fn says(line: &str) -> Event {
+    Event::Said {
+        to: To::Line(line.to_string()),
+        words: format!("{line}, do it again"),
+    }
+}
+
+/// The owner's few words about the question.
+fn remarks(question: &str) -> Event {
+    Event::Said {
+        to: To::Question(question.to_string()),
+        words: format!("About {question}: say more"),
+    }
 }
 
 /// What one history found: the first breach of each property, and what it reached.
@@ -847,7 +1017,7 @@ impl History {
         for &i in &ran_cells {
             let cell = &flow.cells()[i];
             reached.push(ran(&cell.id));
-            if cell.applies.is_some() && !reading.applies(i) {
+            if !cell.applies.is_empty() && !reading.applies(i) {
                 reached.push(skipped(&cell.id));
             }
         }
@@ -951,32 +1121,14 @@ impl History {
             if !r.applies(i) {
                 continue;
             }
-            let Some(f) = r.record(&cell.id) else {
-                broken.push((
-                    MERGE_ON_AN_OLD_CHECK,
-                    format!(
-                        "the merge's round at {at:?} began with no record of {}, which is not skipped",
-                        cell.id
-                    ),
-                ));
-                continue;
-            };
-            let basis = &r.started(f.run).basis;
-            for b in &cell.inputs {
-                // The version the record knows: its own write, or the one its run started from.
-                let known = if f.writes.iter().any(|w| &w.block == b) {
-                    Some(f.at)
-                } else {
-                    basis.get(b).copied().flatten()
-                };
-                let (was, now) = (r.meaning_of(b, known), r.meaning_now(b));
-                if was != now {
+            for b in &cell.runs_on {
+                let new: Vec<Seq> = r.new_to(&cell.id, b).iter().map(|v| v.at).collect();
+                if !new.is_empty() {
                     broken.push((
                         MERGE_ON_AN_OLD_CHECK,
                         format!(
-                            "the merge's round at {at:?} began while the record of {} (at {:?}) knows {b} at \
-                             {known:?}, of meaning {was:?}, and its meaning is {now:?}",
-                            cell.id, f.at
+                            "the merge's round at {at:?} began while {b} at {new:?} was new to {}",
+                            cell.id
                         ),
                     ));
                 }
@@ -1030,10 +1182,16 @@ impl History {
         }
     }
 
-    /// What the owner or the outside does in the content continuation where nothing is to be done: resumes the work,
-    /// lets the cell it waits at go on at its limit, or makes a precondition it waits on hold, or asks the cell that
-    /// writes what it reads to write it again, which it says; none where none of these moves it on.
+    /// What the owner or the outside does in the content continuation where nothing is to be done: of a stalled work,
+    /// asks the cell that writes what it waits for to write it again, which it says; resumes the work; lets the cell it
+    /// waits at go on at its limit, or makes a precondition it waits on hold, or asks the cell that writes what it reads
+    /// to write it again, which it says; none where none of these moves it on.
     fn resolve(&self, decision: &Decision) -> Option<(Event, bool)> {
+        if let Decision::Stalled { on, .. } = decision
+            && let Some(asked) = on.iter().find_map(|key| ask_a_cell(&self.d, key))
+        {
+            return Some((asked, true));
+        }
         if decide::paused(&self.d.work.records) {
             return Some((Event::Resumed, false));
         }
@@ -1041,11 +1199,11 @@ impl History {
             return None;
         };
         on.iter().find_map(|w| match w {
-            Waited::Limit { .. } => Some((Event::LetGo { cell: at.clone() }, false)),
-            Waited::Precondition { test, .. } => {
-                (make_hold(&self.d, test).map(|e| (e, false))).or_else(|| ask_a_cell(&self.d, test).map(|e| (e, true)))
+            Waited::Limit { .. } | Waited::Calls { .. } => Some((Event::LetGo { cell: at.clone() }, false)),
+            Waited::Precondition { on, .. } => {
+                (make_hold(&self.d, on).map(|e| (e, false))).or_else(|| ask_a_cell(&self.d, on).map(|e| (e, true)))
             }
-            Waited::Call { .. } | Waited::Slot => None,
+            Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } => None,
         })
     }
 
@@ -1135,7 +1293,7 @@ impl History {
         }
         // The bound of a cell's runs `content_bound` rests on.
         let most = |cell: &CellId| {
-            let inputs = &flow.cells()[flow.place(cell).expect("a cell")].inputs;
+            let inputs = &flow.cells()[flow.place(cell).expect("a cell")].runs_on;
             2 + (inputs.iter())
                 .map(|b| 2 + 2 * self.d.flow.blocks[b].writers.cells.len() as u64)
                 .sum::<u64>()
@@ -1190,9 +1348,10 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         ended: false,
     };
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        h.d.take(started(&h.d.flow));
         let first = (h.d.flow.flow.cells()[0].requires.first())
             .filter(|_| starts)
-            .and_then(|test| make_hold(&h.d, test))
+            .and_then(|key| make_hold(&h.d, key))
             .unwrap_or(Event::Look);
         h.d.take(first);
         h.observe();
@@ -1225,7 +1384,7 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
                 break;
             }
         }
-        if h.d.work.records.cancelled.is_none() {
+        if h.d.work.records.cancelled().is_none() {
             h.content();
         }
         h.reached_at_the_end();
@@ -1251,6 +1410,31 @@ type Case = (u64, String, Vec<String>);
 /// before it fails, and two tests side by side would each take the other's.
 static HOOK: Mutex<()> = Mutex::new(());
 
+/// Runs `f` on each seed below `seeds` on as many threads as the machine has cores, and gives the results in seed order.
+fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
+    let next = std::sync::atomic::AtomicU64::new(0);
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let mut done: Vec<(u64, T)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut mine = Vec::new();
+                    loop {
+                        let seed = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if seed >= seeds {
+                            return mine;
+                        }
+                        mine.push((seed, f(seed)));
+                    }
+                })
+            })
+            .collect();
+        workers.into_iter().flat_map(|w| w.join().expect("a worker")).collect()
+    });
+    done.sort_by_key(|(seed, _)| *seed);
+    done.into_iter().map(|(_, t)| t).collect()
+}
+
 /// Runs the histories, prints what they reached and counted, and fails if one breaks a property, or if none reached a
 /// situation the properties are about. A panic anywhere in a history, raised while the hook is silenced, is kept as a
 /// breach with its message, so that it is said when the test fails.
@@ -1265,7 +1449,7 @@ fn histories() {
     let mut broken: BTreeMap<&str, Vec<Case>> = BTreeMap::new();
     let mut continued = 0;
     let mut most = (0, 1);
-    for seed in 0..SEEDS {
+    let results = in_parallel(SEEDS, |seed| {
         let mut log = Vec::new();
         let verdict = match panic::catch_unwind(AssertUnwindSafe(|| one_history(&flow, seed, &mut log))) {
             Ok(verdict) => verdict,
@@ -1275,6 +1459,9 @@ fn histories() {
                 verdict
             }
         };
+        (verdict, log)
+    });
+    for (seed, (verdict, log)) in (0..SEEDS).zip(results) {
         for r in verdict.reached {
             *reached.entry(r).or_default() += 1;
         }

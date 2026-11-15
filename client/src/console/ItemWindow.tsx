@@ -34,18 +34,21 @@ import {
   useState,
 } from 'react';
 
-import { Button, Confirm, PanelPart, Switch } from '../parts';
+import { Attr, Button, Confirm, PanelPart, Switch } from '../parts';
 import { mocksShown } from '../mock-data';
 import {
   type Act,
   type Item,
   loadVersion as loadVersionOf,
+  type Said,
+  type SpokenTo,
   type Summary,
   type Waited,
   type WorkPage,
 } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
-import { callWords, outageWords } from '../works/words';
+import { LetGoAgain } from '../works/Boxes';
+import { CANCEL_DOES, CANCEL_WHY, callWords, letGoFailed, outageWords, stalledWords } from '../works/words';
 import { type ItemStanding, standingOf, whoGives } from './items';
 import { Markdown } from './markdown';
 import { markRead } from './mock';
@@ -65,7 +68,6 @@ import {
   type Body,
   changedIn,
   type Choice,
-  named,
   type Message,
   type MessageCell,
   messagesAbout,
@@ -87,6 +89,7 @@ const WHO = { owner: 'you', architect: 'the architect' } as const;
 function whom(w: Waited, page: WorkPage | null): string | null {
   switch (w.kind) {
     case 'limit':
+    case 'calls':
       return WHO.owner;
     case 'call':
       return w.who === null ? 'the engine' : WHO[w.who];
@@ -99,6 +102,8 @@ function whom(w: Waited, page: WorkPage | null): string | null {
     case 'slot':
     case 'agents':
       return 'the engine';
+    case 'answer':
+      return WHO.owner;
   }
 }
 
@@ -156,10 +161,14 @@ function lineWords(w: Waited, cell: string): string {
       return `until ${w.words.charAt(0).toLowerCase()}${w.words.slice(1)}`;
     case 'limit':
       return `${cell} reached its limit: ${w.runs} runs in a row for what a cell after it wrote`;
+    case 'calls':
+      return `${cell} reached its limit: ${w.runs} runs in a row that only asked for calls`;
     case 'slot':
       return `at ${cell}, for a free slot, which the engine gives in its order`;
     case 'agents':
       return `at ${cell}, for the wait every work shares: ${outageWords(w.outage)}`;
+    case 'answer':
+      return `at ${cell}, for your answer to ${w.question}`;
   }
 }
 
@@ -168,8 +177,8 @@ function lineWords(w: Waited, cell: string): string {
 function goOnOf(now: Summary['now']): Act | null {
   if (now.kind !== 'waits') return null;
   for (const w of now.on) {
-    if (w.kind === 'call' && w.what.kind === 'atLimit') return { kind: 'answer', call: w.call, result: 'go on' };
-    if (w.kind === 'limit') return { kind: 'letGo', cell: now.at };
+    if (w.kind === 'call' && w.what.kind === 'atLimit') return { kind: 'result', call: w.call, result: 'go on' };
+    if (w.kind === 'limit' || w.kind === 'calls') return { kind: 'letGo', cell: now.at };
   }
   return null;
 }
@@ -205,6 +214,8 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
       return { word: 'Merged', facts: null };
     case 'cancelled':
       return { word: 'Cancelled', facts: null };
+    case 'stalled':
+      return { word: MOOD_WORDS.owner, facts: `at ${titleOf(page, now.at)}: ${stalledWords(now)}` };
   }
 }
 
@@ -241,24 +252,28 @@ function Line({ tone, word, children }: { tone: Tone; word: ReactNode; children?
 function useSending(act: (what: Act) => Promise<unknown>) {
   const [waiting, setWaiting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
-  const send = (what: Act): Promise<boolean> => {
-    if (waiting) return Promise.resolve(false);
+  // What the engine answered, where it took the act; none where it was not sent or was refused.
+  const send = (what: Act): Promise<{ answer: unknown } | null> => {
+    if (waiting) return Promise.resolve(null);
     setWaiting(true);
     setRefused(null);
     return act(what).then(
-      () => {
+      (answer) => {
         setWaiting(false);
-        return true;
+        return { answer };
       },
       (e: unknown) => {
         setWaiting(false);
-        setRefused(e instanceof Error ? e.message : String(e));
-        return false;
+        setRefused(refusal(e));
+        return null;
       },
     );
   };
   return { waiting, refused, send };
 }
+
+/// Why what the owner did was refused, in words.
+const refusal = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /// The words for who writes a message or is named in one: a cell by the name the owner calls it.
 const WRITER: Record<string, string> = {
@@ -275,9 +290,6 @@ const WRITER: Record<string, string> = {
 /// in the work's flow.
 const writerOf = (x: Who | MessageCell, page: WorkPage | null): string =>
   Object.hasOwn(WRITER, x) ? WRITER[x] : titleOf(page, x);
-
-/// Whether a work went through a cell: it finished a round of it, or has one open.
-const went = (w: Summary, cell: string) => w.cells.some((c) => c.cell === cell && (c.finished > 0 || c.open !== null));
 
 /// Where a message of a work stands in the window, to jump to it.
 const messageId = (work: number, at: number) => `cw-message-${work}-${at}`;
@@ -364,9 +376,9 @@ function ItemView({
   const [offer, setOffer] = useState<{ x: number; y: number; text: string } | null>(null);
   // What the owner's last Confirm did, said under it.
   const [confirmed, setConfirmed] = useState<string | null>(null);
-  // Whom the message being written goes to, where the owner chose; and how many times a question was taken to the discussion,
-  // to bring the box into view once it is drawn for the cell chosen.
-  const [messageTo, setMessageTo] = useState<MessageCell | null>(null);
+  // Whom the message being written goes to, where the owner chose; and how many times a question was taken to the
+  // discussion, to bring the box into view once it is drawn for the cell chosen.
+  const [messageTo, setMessageTo] = useState<string | null>(null);
   const [discussed, setDiscussed] = useState(0);
   const inner = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -375,11 +387,11 @@ function ItemView({
     box.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     box.current?.focus({ preventScroll: true });
   }, [discussed]);
-  // A question taken to the discussion: quoted into the box, which goes to the cell that asked it, or for a question of
-  // the plan to the cell that wrote the plan. Nothing else changes: the work is not paused.
+  // A question taken to the discussion: quoted into the box, which goes to the line of the cell that asked it, or for a
+  // question of the plan to the line the work stands at. Nothing else changes: the work is not paused.
   const discuss = (c: Choice) => {
     setQuote(quoteOf(c));
-    setMessageTo(c.asks?.cell ?? (went(work, 'D1') ? 'D1' : 'R1'));
+    setMessageTo(read?.flow.cells.find((x) => x.id === c.asks?.cell)?.line ?? null);
     setDiscussed((n) => n + 1);
   };
   const jump = (at: number) =>
@@ -459,7 +471,7 @@ function ItemView({
     for (const q of questions) {
       if (q.asks === undefined || !answered(q)) continue;
       const result = q.chosen === null ? (q.answer ?? '').trim() : q.options[q.chosen].label;
-      const taken = await answering.send({ kind: 'answer', call: q.asks.call, result });
+      const taken = await answering.send({ kind: 'result', call: q.asks.call, result });
       if (!taken) return;
     }
     if (body.planWaits) setBody((was) => ({ ...was, planWaits: false }));
@@ -483,6 +495,8 @@ function ItemView({
     setBody((was) => ({ ...was, messages: [...was.messages, message] }));
     setQuote(null);
   };
+  // An ended work whose letting go of what it held failed is tried again from here.
+  const letGoFailedNow = read === null ? null : letGoFailed(work, read.steps);
   return (
     <div className="cw-item" ref={inner}>
       <header className="drawer-head">
@@ -492,12 +506,21 @@ function ItemView({
             {item.title}
           </button>
         </h2>
-        <span className="drawer-belongs">{mock.project}</span>
+        {item.project !== null && (
+          <span className="drawer-belongs">
+            <Attr name="project" value={item.project} />
+          </span>
+        )}
       </header>
       <ItemLine item={item} waitsFor={waitsFor} goal={goal} tier={mock.tier} />
       <WorkLine w={work} page={read} />
       {!ended(work) && (
         <Acts paused={work.paused || work.now.kind === 'paused'} goOn={goOnOf(work.now)} act={send} />
+      )}
+      {letGoFailedNow !== null && (
+        <div className="cw-acts">
+          <LetGoAgain why={letGoFailedNow} send={(what) => send(what).then(() => null, refusal)} />
+        </div>
       )}
       <div className="drawer-body">
         <div className="cw-tabs">
@@ -659,11 +682,12 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
 }
 
 /// What the owner does to a work that goes on: let it go on past a limit it waits at; start it or pause it, with one
-/// switch whose pressed choice says which it is in; cancel it, once they confirm. While one is under way, none takes
-/// effect.
+/// switch whose pressed choice says which it is in; cancel it, once they confirm and say why. While one is under way,
+/// none takes effect.
 function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (what: Act) => Promise<unknown> }) {
   const { waiting, refused, send } = useSending(act);
   const [asking, setAsking] = useState(false);
+  const [why, setWhy] = useState('');
   return (
     <div className="acts cw-acts">
       {goOn !== null && (
@@ -700,12 +724,20 @@ function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (
         <Confirm
           title="Cancel this work?"
           verb="Cancel the work"
+          ready={why.trim() !== ''}
           onAnswer={(yes) => {
             setAsking(false);
-            if (yes) void send({ kind: 'cancel' });
+            if (yes) void send({ kind: 'cancel', why: why.trim() });
           }}
         >
-          It cannot be let on again.
+          <p>{CANCEL_DOES}.</p>
+          <textarea
+            rows={2}
+            aria-label="Why it is cancelled"
+            placeholder={CANCEL_WHY}
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+          />
         </Confirm>
       )}
       {refused !== null && <span className="failed small">{refused}</span>}
@@ -945,24 +977,21 @@ function RulingBox({ ruling, page, act }: {
   );
 }
 
-/// The discussion: the messages written before, the owner's and the replies, and a box to write one. The owner picks a block of
-/// the work that people write, of those that hold words rather than a choice, and what they send is written into it;
-/// the line under the box names the cells that read it, and those the message names with `@`.
-/// Whom the owner writes a message to, of the engineer's flow: the cells that plan and build, by the names the owner
-/// calls them.
-const MESSAGE_TO = [
-  { cell: 'R1', name: 'Research' },
-  { cell: 'D1', name: 'Deep research' },
-  { cell: 'I1', name: 'Implementation' },
-] as const;
+/// The block a cell writes the work's questions in, which the flow's definition names among its outputs.
+const QUESTIONS = 'questions';
 
+/// The discussion: the messages written before, the owner's and the replies, and a box to write one. The owner picks
+/// the line it goes to, of the lines that can ask the owner a question, and what they send is said to that line, or,
+/// where the work waits on that line for the owner's answer to a question, about that question; the engine chooses the
+/// cell it reaches, which each button and the line under the box name as the engine says it, or say why no cell can
+/// take it, and then it is not sent.
 function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
   messages: Message[];
-  /// Whom the owner chose the message goes to; none where they did not.
-  messageTo: MessageCell | null;
-  setMessageTo: (cell: MessageCell) => void;
+  /// The line the owner chose the message goes to; none where they did not.
+  messageTo: string | null;
+  setMessageTo: (line: string) => void;
   quote: string | null;
   unquote: () => void;
   box: RefObject<HTMLTextAreaElement | null>;
@@ -970,27 +999,28 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   sent: (message: Message) => void;
 }) {
   const read = pageIn(page);
-  const blocks = (read?.flow.blocks ?? []).filter((b) => b.writtenBy.people && b.values === null);
-  // Whom a message goes to: the research, the deep research or the implementation, and a cell that asked the owner a
-  // question the work waits at, each by the block of the owner's words its cell reads. The deep research cannot be
-  // chosen where the work did not go through it. Once the work has come to the implementation, a message goes there
-  // unless the owner picks another; before that, to the research.
-  const askers = [...new Set(askedOf(work.now).flatMap((c) => (c.asks === undefined ? [] : [c.asks.cell])))];
-  const cells: { cell: MessageCell; name: string }[] = [
-    ...MESSAGE_TO,
-    ...askers.filter((c) => !MESSAGE_TO.some((t) => t.cell === c)).map((c) => ({ cell: c, name: titleOf(read, c) })),
-  ];
-  const targets = cells.map((t) => ({
-    ...t,
-    // The block that is the owner's words to this cell alone: one people write that this cell reads and no other cell
-    // does. A block several cells read, such as the background, is no message to one of them and is never written
-    // from here.
-    block: blocks.find((b) => b.readBy.cells.length === 1 && b.readBy.cells[0] === t.cell),
-    off: t.cell === 'D1' && !went(work, 'D1'),
-  }));
-  const usable = targets.filter((t) => t.block !== undefined && !t.off);
-  const target = usable.find((t) => t.cell === (messageTo ?? (went(work, 'I1') ? 'I1' : 'R1'))) ?? usable[0];
-  const block = target?.block;
+  // Words to the line of the cell the work waits at for the owner's answer to a question of the work's are about that
+  // question, and go where words about it go: a question asked by a call has no name, and its asker's line takes them.
+  const now = work.now;
+  const held =
+    now.kind === 'waits' ? now.on.find((w): w is Extract<Waited, { kind: 'answer' }> => w.kind === 'answer') : undefined;
+  const heldOn = now.kind === 'waits' ? read?.flow.cells.find((c) => c.id === now.at)?.line : undefined;
+  // The lines one of whose cells may write the work's questions, each with what the words said to it would reach.
+  const targets = (read?.flow.lines ?? [])
+    .filter((l) => read?.flow.cells.some((c) => c.line === l.name && c.outputs.includes(QUESTIONS)))
+    .map((l) => {
+      const to: SpokenTo =
+        held !== undefined && heldOn === l.name ? { kind: 'question', name: held.question } : { kind: 'line', line: l.name };
+      return { line: l.name, to, speaking: read?.speaking?.find((s) => sameTo(s.to, to)) };
+    });
+  // The one chosen, else the line the work stands at, else the first the engine has a cell for, or says why it has none.
+  const target =
+    targets.find((t) => t.line === messageTo) ??
+    targets.find((t) => t.line === heldOn) ??
+    targets.find((t) => t.speaking?.cell != null) ??
+    targets.find((t) => t.speaking !== undefined) ??
+    targets[0];
+  const speaking = target?.speaking;
   return (
     <Fold title="Discussion" count={messages.length}>
       {messages.map((n, i) => (
@@ -1008,33 +1038,40 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
         <p className="muted">Reading the work's flow</p>
       ) : 'failed' in page ? (
         <p className="failed small">The page could not read the work: {page.failed}</p>
-      ) : block === undefined ? (
-        <p className="muted">People write no block of this flow</p>
+      ) : target === undefined ? (
+        <p className="muted">No cell of this flow takes the owner's words</p>
       ) : (
         <div className="write-box cw-compose">
           <div className="cw-to switch" role="radiogroup" aria-label="Whom the message goes to">
             {targets.map((t) => (
               <button
-                key={t.cell}
+                key={t.line}
                 type="button"
                 role="radio"
                 className="switch-choice"
-                aria-checked={t.cell === target?.cell}
-                aria-pressed={t.cell === target?.cell}
-                disabled={t.block === undefined || t.off}
-                title={t.off ? 'The work did not go through the deep research' : undefined}
-                onClick={() => setMessageTo(t.cell)}
+                aria-checked={t.line === target.line}
+                aria-pressed={t.line === target.line}
+                title={t.speaking?.cell === null ? t.speaking.refused ?? undefined : undefined}
+                onClick={() => setMessageTo(t.line)}
               >
-                {t.name}
+                {t.speaking?.cell == null ? t.line : titleOf(read, t.speaking.cell)}
               </button>
             ))}
           </div>
           <Compose
-            key={draftKey(work.number, block.name)}
+            key={draftKey(work.number, `${target.line}_spoken_to`)}
             work={work}
-            block={block.name}
-            to={target?.cell ?? 'R1'}
-            readers={block.readBy.cells.map((c) => titleOf(read, c))}
+            draft={`${target.line}_spoken_to`}
+            to={target.to}
+            reaches={speaking?.cell ?? null}
+            title={(cell) => titleOf(read, cell)}
+            cannot={
+              speaking === undefined
+                ? 'The engine does not say which cell the words would reach'
+                : speaking.cell === null
+                  ? `No cell takes the words: ${speaking.refused ?? 'the engine does not say why'}`
+                  : null
+            }
             quote={quote}
             unquote={unquote}
             box={box}
@@ -1047,21 +1084,29 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   );
 }
 
-/// The box for one block of one work, its draft kept as it is typed, with the passage quoted into it over it, and the
-/// names one can write to offered when `@` is typed.
-function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sent }: {
+/// Whether two say the words to the same line or about the same question.
+const sameTo = (a: SpokenTo, b: SpokenTo): boolean =>
+  a.kind === 'line' ? b.kind === 'line' && a.line === b.line : b.kind === 'question' && a.name === b.name;
+
+/// The box for what the owner says to one cell of one work, its draft kept as it is typed under the name `draft`, with
+/// the passage quoted into it over it, and the names one can write to offered when `@` is typed.
+function Compose({ work, draft, to, reaches, title, cannot, quote, unquote, box, act, sent }: {
   work: Summary;
-  block: string;
-  /// The cell the message goes to.
-  to: MessageCell;
-  readers: string[];
+  draft: string;
+  /// What the message is said to.
+  to: SpokenTo;
+  /// The cell it reaches, as the engine chooses it; none where no cell can take it.
+  reaches: MessageCell | null;
+  title: (cell: string) => string;
+  /// Why it cannot be sent, where it cannot.
+  cannot: string | null;
   quote: string | null;
   unquote: () => void;
   box: RefObject<HTMLTextAreaElement | null>;
   act: (what: Act) => Promise<unknown>;
   sent: (message: Message) => void;
 }) {
-  const key = draftKey(work.number, block);
+  const key = draftKey(work.number, draft);
   const [text, setText] = useState(() => readDraft(key));
   const [written, setWritten] = useState(false);
   const { waiting, refused, send } = useSending(act);
@@ -1080,17 +1125,22 @@ function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sen
     type(text.replace(/@(\w*)$/, `@${x} `));
     box.current?.focus();
   };
-  const to = [...readers, ...named(text, working).map((x) => WRITER[x])];
+  // Only the cell the engine chooses: a name written with `@` is the owner's words, and reaches no one of itself.
+  const goes = reaches === null ? [] : [title(reaches)];
+  // The cell the engine gave the words to, as it answered the act; none where it did not say.
+  const [said, setSaid] = useState<MessageCell | null>(null);
   const submit = () => {
+    if (reaches === null) return;
     const words = text.trim();
     const content = quote === null ? words : `${quote.replace(/^/gm, '> ')}\n\n${words}`;
-    void send({ kind: 'write', block, content, value: null }).then((done) => {
-      if (!done) return;
+    void send({ kind: 'say', to, words: content }).then((done) => {
+      if (done === null) return;
+      const reached = (done.answer as Said | null)?.reached ?? null;
       writeDraft(key, '');
       setText((now) => (now.trim() === words ? '' : now));
       setWritten(true);
-      const at = named(words, working);
-      sent({ who: 'owner', at: Date.now(), to: [cell, ...at], quote, text: words });
+      setSaid(reached);
+      sent({ who: 'owner', at: Date.now(), to: reached === null ? [] : [reached], quote, text: words });
     });
   };
   return (
@@ -1107,7 +1157,7 @@ function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sen
         ref={box}
         rows={3}
         value={text}
-        aria-label={`What to write in ${block}`}
+        aria-label={reaches === null ? 'What to say' : `What to say to ${title(reaches)}`}
         placeholder="Write a message"
         onChange={(e) => type(e.target.value)}
       />
@@ -1121,12 +1171,12 @@ function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sen
         </div>
       ) : null}
       <div className="write-line">
-        <span className="muted small write-readers">{to.length > 0 ? `Goes to ${to.join(', ')}` : 'No cell reads it'}</span>
-        <Button primary disabled={waiting || text.trim() === ''} onClick={submit}>
+        <span className="muted small write-readers">{cannot ?? `Goes to ${goes.join(', ')}`}</span>
+        <Button primary disabled={waiting || text.trim() === '' || cannot !== null} onClick={submit}>
           Send
         </Button>
       </div>
-      {written && <p className="cw-done">Written in {block}</p>}
+      {written && <p className="cw-done">{said === null ? 'Said' : `Said to ${title(said)}`}</p>}
       {refused !== null && <p className="failed small">{refused}</p>}
     </>
   );

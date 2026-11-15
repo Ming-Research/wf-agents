@@ -1,0 +1,9 @@
+# What of what ran the round it has dealt with.
+in = ["outcome"]
+required = true
+told = "alone"
+words = "In `dealt_with`, name what you have dealt with of what ran you."
+
+[shape]
+type = "array"
+items = { type = "string" }

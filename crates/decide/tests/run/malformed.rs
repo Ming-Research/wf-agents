@@ -6,7 +6,7 @@ use super::*;
 fn a_let_go_past_the_rounds_there_are_counts_nothing_and_does_not_panic() {
     let s = spec();
     assert_eq!(step_let_go(vec![wanting()], 10, &s), send_back(wanting_unmet()));
-    assert_eq!(step_let_go(vec![asks(5)], 10, &s), Step::Make);
+    assert_eq!(step_let_go(vec![asks(5)], 10, &s), finish_asking());
 }
 
 #[test]

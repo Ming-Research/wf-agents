@@ -1,0 +1,2 @@
+# What the testing says to the cell it judges. Only the testing writes it, so that no one writes over what it said.
+what = "What the testing says to the implementation, in English: each test that stays red, with what goes wrong by its reference; each place suspected but not tested, such as what shows only on one machine or under concurrency, with why not."

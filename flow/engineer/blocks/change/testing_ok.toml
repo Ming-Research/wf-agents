@@ -1,0 +1,4 @@
+what = "yes when none of the testing's tests is red on the commit `code` names and no suspicion stands; no otherwise."
+values = ["yes", "no"]
+from = "owner"
+shown = true

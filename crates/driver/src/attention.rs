@@ -2,7 +2,8 @@
 //!
 //! A line is a work that stands where only someone outside its flow can move it, and came to stand so since the mark
 //! the planner gives: it ended, merged or cancelled; it rests for a person, at a cell's question, a ruling only a person
-//! can give, a limit, or a pause the engine made with its reason; it waits for items none of which is going on; or its
+//! can give, a limit, a pause the engine made with its reason, or stalled, no cell able to write what it waits for; it
+//! waits for items none of which is going on; or its
 //! records cannot be those of a work. A work going on from one cell to the next is nothing for the planner, and neither
 //! is one the owner paused, which shows only as the reason why a work waiting for it is idle. A work that ended and
 //! could not let go of what it held, which the engine paused saying why, rests for a person. One line is about no
@@ -59,8 +60,8 @@ pub enum Heed {
     Agents { outage: Outage },
     /// The work's records cannot be those of a work: nothing is decided on them.
     Fault { work: WorkNumber },
-    /// The work rests for a person: a call a person answers, a precondition a person can make hold, a limit, or a
-    /// pause the engine made with its reason.
+    /// The work rests for a person: a call a person answers, a precondition a person can make hold, a limit, a pause
+    /// the engine made with its reason, or stalled, no cell able to write what it waits for.
     ForAPerson { work: WorkNumber },
     /// The work waits for these items, none of which is going on.
     Idle { work: WorkNumber, items: Vec<Idle> },
@@ -276,6 +277,9 @@ enum Standing {
     PausedByOwner {
         at: Seq,
     },
+    /// It is stalled, and nothing pauses it: no cell will write what it waits for, and it rests until someone writes
+    /// what runs a cell.
+    Still,
     /// It goes on: a round is under way or about to begin, or it waits for what the engine or a cell will give.
     Going,
 }
@@ -315,6 +319,9 @@ impl Standing {
                     Standing::Going
                 }
             }
+            // A stalled work that a pause holds is the pauser's to let on: the engine's pause says why it stalled.
+            Decision::Stalled { .. } if decide::paused(records) => paused(),
+            Decision::Stalled { .. } => Standing::Still,
             Decision::Busy { .. } | Decision::Run { .. } | Decision::GoOn { .. } | Decision::Abandon { .. } => {
                 Standing::Going
             }
@@ -326,8 +333,13 @@ impl Standing {
 fn for_a_person(waited: &Waited) -> bool {
     match waited {
         Waited::Call { on, .. } => on.is_some(),
-        Waited::Precondition { by, .. } => by.contains(&Maker::Owner),
-        Waited::Limit { .. } => true,
+        // What the engine writes of the questions changes only as the owner answers them.
+        Waited::Precondition { by, .. } => (by.iter()).any(|maker| match maker {
+            Maker::Owner => true,
+            Maker::Outside { source } => source == engine::asked::ASKED,
+            Maker::Cell { .. } => false,
+        }),
+        Waited::Limit { .. } | Waited::Calls { .. } | Waited::Answer { .. } => true,
         // The engine gives it as soon as a round of another work ends.
         Waited::Slot => false,
     }
@@ -340,7 +352,9 @@ fn on_items(waited: &Waited) -> bool {
             !by.is_empty()
                 && (by.iter()).all(|maker| matches!(maker, Maker::Outside { source } if source == DEPENDENCIES))
         }
-        Waited::Call { .. } | Waited::Limit { .. } | Waited::Slot => false,
+        Waited::Call { .. } | Waited::Limit { .. } | Waited::Calls { .. } | Waited::Slot | Waited::Answer { .. } => {
+            false
+        }
     }
 }
 
@@ -348,7 +362,7 @@ fn on_items(waited: &Waited) -> bool {
 fn ended_at(records: &Records, end: End) -> Option<Seq> {
     match end {
         End::Merged => records.finished.iter().map(|finished| finished.at).max(),
-        End::Cancelled => records.cancelled,
+        End::Cancelled => records.cancelled(),
     }
 }
 
@@ -438,7 +452,9 @@ impl Reader<'_> {
     fn line(&self, number: WorkNumber) -> Option<(u8, Line)> {
         let (rank, heed) = match &self.standing[&number] {
             Standing::Fault(_) => (1, Heed::Fault { work: number }),
-            Standing::Asked { .. } | Standing::PausedByEngine { .. } => (2, Heed::ForAPerson { work: number }),
+            Standing::Asked { .. } | Standing::PausedByEngine { .. } | Standing::Still => {
+                (2, Heed::ForAPerson { work: number })
+            }
             Standing::Items { .. } => {
                 let items = self.idle[&number].clone()?;
                 (3, Heed::Idle { work: number, items })
@@ -536,7 +552,7 @@ impl Reader<'_> {
                 Standing::Ended(End::Merged) => continue,
                 Standing::Ended(End::Cancelled) => Stuck::Cancelled,
                 Standing::Fault(_) => Stuck::Fault,
-                Standing::Asked { .. } | Standing::PausedByEngine { .. } => Stuck::ForAPerson,
+                Standing::Asked { .. } | Standing::PausedByEngine { .. } | Standing::Still => Stuck::ForAPerson,
                 Standing::PausedByOwner { .. } => Stuck::Paused,
                 Standing::Items { .. } => {
                     self.idle.get(on)?.as_ref()?;

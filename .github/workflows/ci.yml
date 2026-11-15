@@ -2,35 +2,54 @@ name: ci
 
 # Every check of the code: the page's types, lint, tests and build; the Rust format and clippy with warnings as errors;
 # and the Rust tests, which take most of the time, split across three jobs beside the others. The job `check` is red
-# whenever the lint or a job of the tests is, and it and `page` are the checks the engine waits for. It runs on each
-# pull request into `main` and on each push to `main`, on GitHub's machines from a clean start: this is the CI the check
-# before a work's merge waits for. `next` is the name `main` had, kept in the lists below while a pull request targets
-# it. What an agent names to its check while it works, and the tests it runs on the code before its change, the fast CI
-# runs instead (fast.yml), on the owner's machine; so a push to a branch of the code before a change
-# (`wf-agents-before/`) runs nothing here.
+# whenever the page, the lint or a job of the tests is. It is the project's full workflow (`ci.full` of
+# flow/project.toml): what the check before a work's merge runs on the exact commit to merge, once, and what a request of
+# an agent's `run_tests` that names no test runs. The engine dispatches it by hand on main's file, with the commit to
+# test and a value only its request knows, which the run's name holds, and judges the run by the jobs' conclusions and
+# by the JUnit of every test in the artifact `test-results`: nextest's of each third of the Rust tests and vitest's of
+# the page's, each in a file of its own. It runs on each pull request into `main` and on each push to `main` as well.
+# What an agent names to `run_tests` while it works, the fast CI runs instead (fast.yml).
+#
+# Its jobs run on the owner's own machine (the runners labelled 14900k, eight of them, which fast.yml uses too), whose
+# runners keep each what its last run built, as fast.yml says: the checkout, the compiled target and the page's
+# dependencies stay between runs, and only what changed is built again. Only `check`, which builds nothing and takes
+# seconds, runs on GitHub's machines. A pull request from a fork runs none of the jobs that run on the owner's machine,
+# since the repository is public and its code would run there: the run is red, with those jobs skipped, until one who
+# may write to the repository pushes the branch itself.
+run-name: ${{ inputs.call && format('ci {0}', inputs.call) || '' }}
+
 on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit to check out and test, pushed to a branch of the repository already
+        required: true
+      call:
+        description: A value only the request that asks for this run knows, which the run's name holds
+        required: true
   pull_request:
     branches:
       - main
-      - next
   push:
     branches:
       - main
-      - next
 
 permissions:
   contents: read
 
-# A newer push to the same pull request makes the older run pointless; `main` keeps every run.
+# A newer push to the same pull request makes the older run pointless; `main` keeps every run, and so does every run an
+# engine asked for by hand, which an agent or a merge waits for.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/next' }}
+  group: ci-${{ github.event_name == 'workflow_dispatch' && inputs.call || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' }}
 
 jobs:
   # The owner's page (client/): checked and tested on its own, so that what is wrong with it shows without waiting for
   # the Rust build.
   page:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, 14900k]
+    # Not for a fork's pull request: its code must not run on the owner's machine.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     timeout-minutes: 10
     defaults:
       run:
@@ -38,55 +57,95 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The commit an engine's request gives; for a pull request or a push, empty, which is the commit of the event.
+          ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.21.0
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-      - run: npm ci
+          # The checkout the runner keeps from its last run, which only what changed is brought up to date in.
+          clean: false
+      - run: git clean -ffdxq -e target -e client/node_modules -e client/dist
+      - run: echo "$HOME/.cargo/bin:/opt/node/bin" >> "$GITHUB_PATH"
+      - run: '[ "$(node --version)" = v24.21.0 ]'
+      # The dependencies are installed only when their lock changed since the last run of this runner.
+      - run: |
+          lock=$(git rev-parse HEAD:client/package-lock.json)
+          if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
+            npm ci
+            echo "$lock" > node_modules/.wf-lock
+          fi
       - name: Type-check the page
         run: npm run typecheck
       - name: Lint the page
         run: npm run lint
       # The page's browser tests (`*.browser.test.tsx`) draw it in headless Chromium: the headless shell of the one the
-      # version of Playwright the lock file locks drives, with the system libraries it needs, and nothing more.
+      # version of Playwright the lock file locks drives, installed once for each version into the runner user's cache;
+      # the system libraries it needs are installed on the machine by hand, which a workflow has no root to do.
       - name: Chromium for the page's browser tests
-        run: npx --no-install playwright install --with-deps --only-shell chromium
+        run: npx --no-install playwright install --only-shell chromium
+      # With vitest's JUnit beside its own report: what became of each test, by its describes and its title joined by
+      # ` > `, which is the name an agent asks for it by.
       - name: Test the page
-        run: npm test
+        run: npm test -- --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/page.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: junit-page
+          path: ${{ runner.temp }}/page.xml
+          if-no-files-found: ignore
       - name: Build the page
         run: npm run build
 
   # The Rust format and clippy with warnings as errors, beside the tests.
   lint:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, 14900k]
+    # Not for a fork's pull request: its code must not run on the owner's machine.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     timeout-minutes: 15
     env:
       CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The commit an engine's request gives; for a pull request or a push, empty, which is the commit of the event.
+          ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
-      # Installs the toolchain rust-toolchain.toml pins, with its components.
-      - run: rustup toolchain install
+          # The checkout the runner keeps from its last run, which only what changed is brought up to date in.
+          clean: false
+      - run: git clean -ffdxq -e target -e client/node_modules -e client/dist
+      - run: echo "$HOME/.cargo/bin:/opt/node/bin" >> "$GITHUB_PATH"
+      - run: |
+          rustc --version
+          [ "$(node --version)" = v24.21.0 ]
       # Formatting first: it needs no build, so a misformatted push fails in seconds.
       - name: Format
         run: cargo fmt --all --check
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.21.0
-          cache: npm
-          cache-dependency-path: client/package-lock.json
+      # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate. Its
+      # build of the files as they are is kept for every runner of the machine (as fast.yml keeps it), and its
+      # dependencies are installed only when their lock changed.
       - name: Build the page
         working-directory: client
         run: |
-          npm ci
-          npm run build
+          tree=$(git rev-parse HEAD:client)
+          lock=$(git rev-parse HEAD:client/package-lock.json)
+          if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
+            npm ci
+            echo "$lock" > node_modules/.wf-lock
+          fi
+          kept="$HOME/page-builds/$tree"
+          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+            :
+          elif [ -f "$kept/index.html" ]; then
+            # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
+            rm -rf dist && cp -R "$kept" dist
+          else
+            npm run build
+            mkdir -p "$HOME/page-builds"
+            tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
+            find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
+          fi
+          echo "$tree" > node_modules/.wf-tree
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -94,7 +153,9 @@ jobs:
   # third of each binary's tests (nextest's partition count:k/3).
   test:
     name: test ${{ matrix.partition }} of 3
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, 14900k]
+    # Not for a fork's pull request: its code must not run on the owner's machine.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     timeout-minutes: 15
     strategy:
       # Every job runs to its end, so that a red run shows every test that fails.
@@ -103,33 +164,48 @@ jobs:
         partition: [1, 2, 3]
     env:
       CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The commit an engine's request gives; for a pull request or a push, empty, which is the commit of the event.
+          ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
-      - run: rustup toolchain install
-      # The three jobs build the same, so one of them keeps the cache.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          save-if: ${{ matrix.partition == 1 }}
-      # cargo-nextest at the version fast.yml checks for on the owner's machine, installed where it is absent.
-      - id: nextest
-        run: if cargo nextest --version 2>/dev/null | grep -q '0.9.146'; then echo "have=true" >> "$GITHUB_OUTPUT"; fi
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
-        if: steps.nextest.outputs.have != 'true'
-        with:
-          tool: cargo-nextest@0.9.146
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.21.0
-          cache: npm
-          cache-dependency-path: client/package-lock.json
+          # The checkout the runner keeps from its last run, which only what changed is brought up to date in.
+          clean: false
+      - run: git clean -ffdxq -e target -e client/node_modules -e client/dist
+      - run: echo "$HOME/.cargo/bin:/opt/node/bin" >> "$GITHUB_PATH"
+      - run: |
+          rustc --version
+          [ "$(node --version)" = v24.21.0 ]
+      # cargo-nextest at the version fast.yml checks for, installed on the machine by hand.
+      - run: cargo nextest --version | grep -q '0.9.146'
+      # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate. Its
+      # build of the files as they are is kept for every runner of the machine (as fast.yml keeps it), and its
+      # dependencies are installed only when their lock changed.
       - name: Build the page
         working-directory: client
         run: |
-          npm ci
-          npm run build
+          tree=$(git rev-parse HEAD:client)
+          lock=$(git rev-parse HEAD:client/package-lock.json)
+          if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
+            npm ci
+            echo "$lock" > node_modules/.wf-lock
+          fi
+          kept="$HOME/page-builds/$tree"
+          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+            :
+          elif [ -f "$kept/index.html" ]; then
+            # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
+            rm -rf dist && cp -R "$kept" dist
+          else
+            npm run build
+            mkdir -p "$HOME/page-builds"
+            tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
+            find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
+          fi
+          echo "$tree" > node_modules/.wf-tree
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), as fast.yml runs them:
       # a test still running at 60 s (the tests of random histories at 300 s) is stopped and fails under its own name.
       # Every test of the job's third runs to its end, so that a red run shows every test that fails, not the first one's.
@@ -139,24 +215,31 @@ jobs:
         run: |
           cargo nextest run --workspace --locked --cargo-profile ci --profile ci --no-fail-fast \
             --partition "count:$PARTITION/3"
-      # What became of each test of the job's third, as nextest's JUnit, whatever became of the step before.
+      # What became of each test of the job's third, as nextest's JUnit, in a file named by the third so that the thirds
+      # are one artifact together, whatever became of the step before.
+      - name: Name the results
+        if: ${{ !cancelled() }}
+        env:
+          PARTITION: ${{ matrix.partition }}
+        run: |
+          junit=target/nextest/ci/junit.xml
+          if [ -f "$junit" ]; then mv "$junit" "target/nextest/ci/rust-$PARTITION.xml"; fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: junit-${{ matrix.partition }}
-          path: target/nextest/ci/junit.xml
+          path: target/nextest/ci/rust-${{ matrix.partition }}.xml
           if-no-files-found: ignore
 
-  # The check a merge waits for, named as the engine reads it (`github.checks`): red whenever the lint or a job of the
-  # tests did not pass, cancelled ones included.
+  # Red whenever the page, the lint or a job of the tests did not pass, cancelled ones included; and the one place the
+  # JUnit of every job is made one artifact, `test-results`, which the engine reads.
   #
-  # The engine gives the implementing agent the log of each red check it names, and reads only that one job's log, by
-  # the conventions of its reading (crates/carry/src/host/github/log.rs): a step begins at a line `##[group]Run ` and
-  # the steps that failed hold a line `##[error]`. So this job prints, in its own log, the steps of each job that did
-  # not pass, each after a line as a step begins that names the job, with GitHub's times taken off and its workflow
-  # commands stopped, so that they are printed as the job printed them.
+  # The jobs of a run are what the engine judges the run by, each by its conclusion; this job prints, in its own log,
+  # the steps of each job that did not pass, each after a line as a step begins that names the job, with GitHub's times
+  # taken off and its workflow commands stopped, so that they are printed as the job printed them, for whoever reads the
+  # run on GitHub.
   check:
-    needs: [lint, test]
+    needs: [page, lint, test]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -165,6 +248,14 @@ jobs:
       # To read the logs of the run's other jobs.
       actions: read
     steps:
+      # The JUnit of the page and of each third of the Rust tests, in one artifact. Where none was kept (each job was
+      # cancelled, say) there is nothing to merge, and the engine says the run uploaded none.
+      - uses: actions/upload-artifact/merge@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: test-results
+          pattern: junit-*
       # The ten slowest tests of the run, read from the JUnit the jobs of the tests kept, in the run's summary and its
       # log: what a test costs, for whoever adds one. It never makes the check red.
       - name: The slowest tests
@@ -175,7 +266,7 @@ jobs:
         # ends without an error all the same: the engine gives an agent every step of this log that holds one. Results
         # kept half written end it so too, the status of the lines below being that of `tee`.
         run: |
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-*' --dir "$RUNNER_TEMP/junit" \
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-[123]' --dir "$RUNNER_TEMP/junit" \
             || { echo "No job of the tests kept its results."; exit 0; }
           python3 -I - "$RUNNER_TEMP/junit" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
           import pathlib, sys, xml.etree.ElementTree as ET
@@ -195,13 +286,13 @@ jobs:
           RESULTS: ${{ join(needs.*.result, ' ') }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "lint and test: $RESULTS"
+          echo "page, lint and test: $RESULTS"
           red=false
           for r in $RESULTS; do [ "$r" = success ] || red=true; done
           [ $red = true ] || exit 0
           jobs="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs"
           mapfile -t not_passed < <(gh api --paginate "$jobs" --jq '.jobs[]
-            | select(.name == "lint" or (.name | startswith("test ")))
+            | select(.name == "page" or .name == "lint" or (.name | startswith("test ")))
             | select(.conclusion != "success") | "\(.id)\t\(.name)\t\(.conclusion // .status)"')
           stop="stop-$(cat /proc/sys/kernel/random/uuid)"
           for line in "${not_passed[@]}"; do

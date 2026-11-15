@@ -16,9 +16,17 @@ wf-agents runs coding agents through a defined flow.
   (`<data>/install.toml`, of which `crates/carry/install.sample.toml` is a sample); given `--script`, they follow the
   script instead. To try it on the trial flow with a script, in `crates/service/tests/trial`:
   `wf-agents run --data <an empty directory> --flow flow --script script.toml`; then
-  `wf-agents add --title "Greet the user" --flow trial --write "request=Greet the user."` and `wf-agents resume 1`,
+  `wf-agents add --title "Greet the user" --flow trial --project script --write "request=Greet the user."` and
+  `wf-agents resume 1`,
   and `wf-agents list` or the pages to follow it;
   `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it. Whoever plans the work waits
-  with `wf-agents wait` for what needs them, each answer ending with the mark to give the next.
+  with `wf-agents wait` for what needs them, each answer ending with the mark to give the next. They read the plan
+  with `wf-agents changes --since <mark>`, `candidates`, `search <text>`, `graph <item>` (up to what it depends on and
+  down to what depends on it; `--up` or `--down` for one), `tags` and `text <item> [<block>]`, and `list`, which leaves
+  out what merged or was cancelled unless given `--all`; they change items with
+  `wf-agents change --why <sentence> <item>:<kind>[=<value>]...`, all or none, or one at a time with `set-title`,
+  `set-level`, `add-dependency`, `remove-dependency`, `tag`, `untag`, `cancel` and `reopen`, each with `--why`.
+  `wf-agents system` says how the system ran over the last days: what went past the lines of its history, and what is
+  under way against its own.
 - `client/`: the owner's page, which the `wf-agents` binary carries: build it with `npm ci` and `npm run build` in
   `client/` before building the Rust.

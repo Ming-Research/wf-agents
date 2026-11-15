@@ -1,0 +1,8 @@
+# The sets of rules for the agents, each a file here, which a line names in its `rules`: rules of how agents work, not
+# of the flow.
+
+[general]
+file = "general.md"
+
+[engineering]
+file = "engineering.md"

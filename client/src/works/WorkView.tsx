@@ -1,12 +1,12 @@
-// One work: the view's line with its item's title, what it does now, what it has taken and the owner's buttons; its
-// history as a chart; and the panel docked at the chart's right with what the owner chose. What the work waits for,
-// and what the owner writes to it, are in the console's item window. The work is read again each time the interface
-// says it changed and whenever the stream of changes opens again, keeping what the owner has chosen and opened; a read
-// that fails keeps what is shown and says so.
+// One work: the view's line with its item's title and project, what it does now, what it has taken, which opens what
+// the work used in the panel, and the owner's buttons; its history as a chart; and the panel docked at the chart's
+// right with what the owner chose. What the work waits for, and what the owner writes to it, are in the console's item
+// window. The work is read again each time the interface says it changed and whenever the stream of changes opens
+// again, keeping what the owner has chosen and opened; a read that fails keeps what is shown and says so.
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { Edge } from '../parts';
+import { Attr, Edge } from '../parts';
 import type { Fold } from '../Side';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from '../sizes';
 import type { Act, RoundPage, ToldPage, WorkPage } from '../works-api';
@@ -17,7 +17,11 @@ import { type Source, useChanges, useReading, useSource } from './source';
 import { ChosenPanel, type Reader } from './StepPanel';
 import { spentWords, tokensWords } from './words';
 
-export function WorkView({ work }: { work: number }) {
+export function WorkView({ work, run }: {
+  work: number;
+  /// The run the address names, chosen as the work is first shown, as by a link to it.
+  run?: number;
+}) {
   const source = useSource();
   const load = useCallback(() => source.loadWork(work), [source, work]);
   const { value: page, failed, read } = useReading(load);
@@ -31,7 +35,7 @@ export function WorkView({ work }: { work: number }) {
       <p className="message muted">Reading work {work}</p>
     );
   }
-  return <WorkScreen page={page} failed={failed} onActed={read} />;
+  return <WorkScreen page={page} failed={failed} onActed={read} run={run} />;
 }
 
 /// The reads of a work's contents, each made once: a version, an ended round, what it was told and returned, and a
@@ -58,22 +62,30 @@ export function readerOf(source: Source, work: number): Reader {
         ? cached<ToldPage>(`t:${run}/${number}`, () => source.loadTold(work, run, number))
         : source.loadTold(work, run, number),
     call: (call) => cached(`c:${call}`, async () => (await source.loadCall(work, call)).result),
+    system: (line, session) =>
+      cached(`s:${line}/${session}`, async () => (await source.loadSystem(work, line, session)).text),
+    doing: async (run, number) => (await source.loadDoing(work, run, number)).doing,
   };
 }
 
-export function WorkScreen({ page, failed = null, onActed }: {
+export function WorkScreen({ page, failed = null, onActed, run }: {
   page: WorkPage;
   /// Why the last read of the work failed, where it did: what is shown is from before.
   failed?: string | null;
   onActed: () => void;
+  /// The run chosen as the work is first shown; none chooses nothing.
+  run?: number;
 }) {
   const source = useSource();
   const { summary } = page;
   const work = summary.number;
   const reader = useMemo(() => readerOf(source, work), [source, work]);
-  const [chosen, setChosen] = useState<Chosen>(null);
-  // The panel is open at first, unless the window is too narrow to show the history beside it.
-  const [folded, setFolded] = useState(() => window.innerWidth < 2 * PANEL.first);
+  const [chosen, setChosen] = useState<Chosen>(() => {
+    const step = run === undefined ? -1 : page.steps.findIndex((s) => s.kind === 'run' && s.run === run);
+    return step < 0 ? null : { step };
+  });
+  // The panel is open at first, unless the window is too narrow to show the history beside it and nothing is chosen.
+  const [folded, setFolded] = useState(() => chosen === null && window.innerWidth < 2 * PANEL.first);
   const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
 
   const send: Send = useCallback(
@@ -111,6 +123,7 @@ export function WorkScreen({ page, failed = null, onActed }: {
     />
   );
   const fold: Fold = { folded, onFold: () => setFolded((f) => !f), edge };
+  const usage = chosen !== null && 'usage' in chosen;
   return (
     <>
       <div className="view-line">
@@ -119,14 +132,21 @@ export function WorkScreen({ page, failed = null, onActed }: {
         </a>
         <span className="mono muted">#{summary.item}</span>
         <span className="view-name">{page.title}</span>
+        {page.project !== null && <Attr name="project" value={page.project} />}
         <span className="view-facts">
           <NowLine now={summary.now} paused={summary.paused} />
         </span>
         <span className="view-end">
-          <span className="muted small" title={tokensWords(summary.spent)}>
+          <button
+            type="button"
+            className="link small"
+            aria-pressed={usage}
+            title={`${usage ? 'Hide' : 'Show'} what the work used: ${tokensWords(summary.spent)}`}
+            onClick={() => choose(usage ? null : { usage: true })}
+          >
             {spentWords(summary.spent)}
-          </span>
-          <ActButtons summary={summary} lines={page.flow.lines.map((l) => l.name)} send={send} />
+          </button>
+          <ActButtons summary={summary} steps={page.steps} lines={page.flow.lines.map((l) => l.name)} send={send} />
         </span>
       </div>
       {failed !== null && (

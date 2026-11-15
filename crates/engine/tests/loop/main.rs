@@ -17,10 +17,12 @@ mod named_tests;
 mod paused_answers;
 mod pausing;
 mod pending;
+mod questions;
 mod rebuilt;
 mod refused;
 mod room;
 mod sessions;
+mod stalling;
 mod times;
 
 use std::collections::BTreeMap;
@@ -93,7 +95,7 @@ fn judged_source() -> Source {
         title = "Merge"
         kind = "engine"
         act = "merge"
-        requires = ["may_merge"]
+        requires = { test = "may_merge" }
         inputs = ["text", "verdict"]
         outputs = ["merged"]
     "#;
@@ -103,6 +105,7 @@ fn judged_source() -> Source {
             .iter()
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        ..Default::default()
     }
 }
 
@@ -111,6 +114,7 @@ fn has(sources: &[&str]) -> Has {
     Has {
         sources: sources.iter().map(|s| s.to_string()).collect(),
         acts: ["merge".to_string()].into(),
+        ..Default::default()
     }
 }
 
@@ -155,6 +159,12 @@ impl W {
         let why = handle(&self.flow, &mut self.work, now, event).expect_err("the event is refused");
         assert_eq!(self.work, before, "a refused event changed the work");
         why
+    }
+
+    /// Takes the write, which the loop must take; the place of the entry names the version.
+    fn on_and_place(&mut self, event: Event) -> (Vec<Effect>, Seq) {
+        let effects = self.on(event);
+        (effects, self.last_written())
     }
 
     /// A person writes the block; the place of the entry names the version.
@@ -244,7 +254,7 @@ fn handed(block: &str, value: Option<&str>) -> Handed {
 
 /// What came back: these blocks handed in.
 fn hands_in(blocks: &[(&str, Option<&str>)]) -> Came {
-    Came::HandsIn(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
+    Came::hands_in(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
 }
 
 /// What the writer hands in that does not meet what the flow requires: the judge's verdict.
@@ -318,11 +328,6 @@ fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
         was,
         behind,
     }
-}
-
-/// What the run's first round was given.
-fn given_of(w: &W, run: RunId) -> Given {
-    w.work.given.get(&(run, 1)).expect("a round was given").clone()
 }
 
 /// The calls given to be made, each with its run and what it is.

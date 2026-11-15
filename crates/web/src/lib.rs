@@ -1,16 +1,21 @@
 //! The owner's pages: a JSON interface made for them, and the pages themselves, built into the binary.
 //!
-//! The owner reviews every change to the flow on this page and has no other way to see it (Article 7), so the
-//! interface gives the definition as the page shows it: compiled, with every cell and block and who writes and reads
-//! each, or the faults that keep it from compiling; and, when there is a definition to compare against, what changed
-//! from that one. Both definitions are read anew for every request, so that an edit of their files shows when the page
-//! is loaded again.
+//! The owner reads the flow on this page and has no other way to see it (Article 7), so the interface gives the
+//! definition as the page shows it: compiled, with every cell and block and who writes and reads each, or the faults
+//! that keep it from compiling. The definition is read anew for every request, so that an edit of its files shows when
+//! the page is loaded again.
 //!
 //! - `GET /api/v1/flow`: the definition shown ([`view::Definition`]).
-//! - `GET /api/v1/flow/changes`: what changed from the definition compared against ([`view::Comparison`]).
+//! - `GET /api/v1/flow/given`: what an agent is sent as the engine enters each agent's cell of the definition shown,
+//!   part by part in the order sent ([`given::Given`]): the system prompt and the message as the engine makes them,
+//!   every form of each part.
 //! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]), and what needs
 //!   whoever plans the work since a mark ([`attention`]).
 //! - `GET /api/v1/backup`: how the copies of the database stand ([`copies`]).
+//! - The observations of the installation, and the owner's reading of each ([`observations`]).
+//! - `GET /api/v1/system`: how the whole system went over a span of time ([`system`]).
+//! - `GET` and `POST /api/v1/settings`, and its accounts: the installation's settings as their file writes them, and
+//!   what the owner changes of them ([`settings`]), where the engine runs on settings.
 //! - Any other path that is not under `/api/` is a file of the page, `index.html` when there is no such file.
 //!
 //! Wherever they are served, a request that could come from a page of another site is refused before it reaches a
@@ -18,8 +23,13 @@
 
 pub mod attention;
 pub mod copies;
+pub mod given;
 mod guard;
 pub mod interface;
+pub mod observations;
+pub mod plan;
+pub mod settings;
+pub mod system;
 pub mod view;
 pub mod works;
 
@@ -35,7 +45,7 @@ use axum::routing::{any, get};
 use flow::{Compiled, Source};
 use serde_json::json;
 
-use crate::view::{Change, Comparison, Definition, Fault, Flow};
+use crate::view::{Definition, Fault, Flow};
 
 pub use crate::copies::Copies;
 
@@ -53,22 +63,25 @@ pub type Has = Box<dyn Fn(&Source) -> flow::Has + Send + Sync>;
 pub struct Flows {
     /// The definition shown.
     pub shown: Read,
-    /// The definition compared against, if any.
-    pub against: Option<Read>,
     /// What each definition is compiled against.
     pub has: Has,
+    /// What every agent is sent alike, as the program that carries the rounds out has it.
+    pub alike: given::Alike,
 }
 
 impl Flows {
-    /// The definitions in these directories, read with [`flow::read`].
-    pub fn dirs(shown: PathBuf, against: Option<PathBuf>, has: Has) -> Self {
-        let reader = |dir: PathBuf| -> Read {
-            Box::new(move || flow::read(&dir).map_err(|e| format!("{}: {e}", dir.display())))
+    /// The definition in this directory, read with [`flow::read`], with what every agent is sent alike read from
+    /// beside it: the directory that holds the flows is the one that holds this one. No project's checkout is known.
+    pub fn dirs(shown: PathBuf, has: Has) -> Self {
+        let alike = given::Alike {
+            root: shown.parent().map(PathBuf::from),
+            flow: Some(shown.clone()),
+            project: None,
         };
         Flows {
-            shown: reader(shown),
-            against: against.map(reader),
+            shown: Box::new(move || flow::read(&shown).map_err(|e| format!("{}: {e}", shown.display()))),
             has,
+            alike,
         }
     }
 
@@ -98,41 +111,41 @@ impl Flows {
         self.compile(&self.shown).0
     }
 
-    fn comparison(&self) -> Comparison {
-        let Some(against) = &self.against else {
-            return Comparison::NothingToCompare;
-        };
-        let (view, before) = self.compile(against);
-        let (_, after) = self.compile(&self.shown);
-        let changes = match (&before, &after) {
-            (Some(before), Some(after)) => Some(
-                flow::compare(before, after)
-                    .iter()
-                    .map(|c| Change::of(c, before, after))
-                    .collect(),
-            ),
-            _ => None,
-        };
-        Comparison::Compared { against: view, changes }
+    fn given(&self) -> given::Given {
+        match self.compile(&self.shown).1 {
+            Some(compiled) => given::given(&compiled, &self.alike),
+            None => given::Given::NotCompiled,
+        }
     }
 }
 
 /// The interface and the page, over these definitions, with the items and the works of the engine's loop, whose items
-/// are added at these levels.
-pub fn with_works(flows: Flows, handle: service::Handle, levels: service::Levels) -> Router {
-    router(flows).merge(interface::router(handle, levels))
+/// are added at these levels, to these projects.
+pub fn with_works(
+    flows: Flows,
+    handle: service::Handle,
+    levels: service::Levels,
+    projects: service::Projects,
+) -> Router {
+    router(flows).merge(interface::router(handle, levels, projects))
 }
 
 /// The same, with the route of how the copies of the database stand.
-pub fn with_works_and_copies(flows: Flows, handle: service::Handle, levels: service::Levels, copies: Copies) -> Router {
-    with_works(flows, handle.clone(), levels).merge(copies::router(handle, copies))
+pub fn with_works_and_copies(
+    flows: Flows,
+    handle: service::Handle,
+    levels: service::Levels,
+    projects: service::Projects,
+    copies: Copies,
+) -> Router {
+    with_works(flows, handle.clone(), levels, projects).merge(copies::router(handle, copies))
 }
 
 /// The interface and the page, over these definitions.
 pub fn router(flows: Flows) -> Router {
     Router::new()
         .route("/api/v1/flow", get(definition))
-        .route("/api/v1/flow/changes", get(changes))
+        .route("/api/v1/flow/given", get(given))
         .route("/api/{*rest}", any(no_such))
         .fallback(page)
         .with_state(Arc::new(flows))
@@ -153,8 +166,8 @@ async fn definition(State(flows): State<Arc<Flows>>) -> Response {
     off_the_server(move || flows.definition()).await
 }
 
-async fn changes(State(flows): State<Arc<Flows>>) -> Response {
-    off_the_server(move || flows.comparison()).await
+async fn given(State(flows): State<Arc<Flows>>) -> Response {
+    off_the_server(move || flows.given()).await
 }
 
 /// Reads the disk on a thread of its own, off the threads that serve requests, and answers with what it made.

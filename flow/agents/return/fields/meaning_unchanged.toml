@@ -1,0 +1,12 @@
+# The blocks written again with their meaning unchanged: new versions that run no cell. Its words follow those of
+# `outputs`, in the same paragraph.
+in = ["outcome"]
+told = "with_outputs"
+words = '''
+Where you write a block again with
+its meaning unchanged, as when you mend a word, name it in `meaning_unchanged` as well: it is a new version all the
+same, and runs no cell.'''
+
+[shape]
+type = "array"
+items = { type = "string" }

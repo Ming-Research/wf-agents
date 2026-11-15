@@ -1,0 +1,4 @@
+# The questions the cells ask the owner. A cell writes it through the return's field `questions`.
+what = "The questions the cells ask the owner, each under its name."
+shown = true
+field = "questions"

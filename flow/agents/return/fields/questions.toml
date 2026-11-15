@@ -1,0 +1,26 @@
+# What the cell asks the owner: each question data of its own, by its name (design statements 32 to 36). What a cell
+# asks is kept in the record `questions` (`../../../data/`).
+in = ["outcome"]
+told = "listed"
+words = '''
+`questions`: what you ask the owner, only where ways that each would do are left, no fact decides between them, and
+  a wrong choice costs much; decide the rest yourself. Set `waits` where you cannot go on without the answer, or where
+  going on by your recommendation would likely be undone at a cost: the work stops at this cell, and you are entered
+  again with the answer. Otherwise the work goes on by your recommendation. A text points to a question as `{{name}}`;
+  `recommends` counts the options from 1. Write a question again under its name to rewrite it, or give its name and why
+  to withdraw it; a question you do not write stands, with its answer.'''
+
+[shape]
+type = "array"
+
+[[shape.items.anyOf]]
+type = "object"
+properties = { name = { type = "string" }, waits = { type = "boolean" }, recommends = { type = "integer" }, ask = { type = "string" }, options = { type = "array", items = { type = "object", properties = { does = { type = "string" }, follows = { type = "string" } }, required = ["does", "follows"], additionalProperties = false } } }
+required = ["name", "waits", "recommends", "ask", "options"]
+additionalProperties = false
+
+[[shape.items.anyOf]]
+type = "object"
+properties = { name = { type = "string" }, withdrawn = { type = "string" } }
+required = ["name", "withdrawn"]
+additionalProperties = false

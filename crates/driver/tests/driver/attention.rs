@@ -20,7 +20,7 @@ fn since(h: &H, mark: Option<&Mark>) -> Attention {
 
 /// The work's round under way asks the owner a question; gives the time it did.
 fn asks_the_owner(h: &mut H, work: WorkNumber) -> Time {
-    h.returns(work, Came::Asks(vec![question(Who::Owner)]));
+    h.returns(work, Came::asks(vec![question(Who::Owner)]));
     Time(h.clock)
 }
 
@@ -130,6 +130,40 @@ fn the_engine_pausing_a_work_for_its_reason_is_a_line_and_the_owner_pausing_one_
             since: rested[0],
         }]
     );
+}
+
+#[test]
+fn a_work_that_stalls_is_a_line_until_what_runs_a_cell_moves_it_on() {
+    let mut h = H::new();
+    let (_, w) = h.add(new_item("a", &[], "plain"));
+    let mark = since(&h, None).mark;
+    h.let_on(w);
+    // The writer deals with what ran it and hands in nothing: nothing runs the merge, and nothing will.
+    h.hands_in(w, &[]);
+    let stalled = Time(h.clock);
+    let at_the_merge = Decision::Stalled {
+        at: "merge".into(),
+        on: Vec::new(),
+        by: vec![decide::Stalling {
+            cell: "write".into(),
+            why: decide::Unrun::NothingNew,
+        }],
+    };
+    assert_eq!(h.decision(w), at_the_merge);
+    let kept = h.d().work(w).expect("the work is there");
+    assert!(!decide::paused(&kept.work.records), "nothing pauses a stalled work");
+    let answer = since(&h, Some(&mark));
+    assert_eq!(
+        answer.lines,
+        vec![Line {
+            heed: Heed::ForAPerson { work: w },
+            since: stalled,
+        }]
+    );
+    // The owner writes a request: the writer runs, and the work stands so no longer.
+    h.on(w, wrote("request", Outsider::Person, None));
+    assert!(matches!(h.decision(w), Decision::Busy { .. }), "{:?}", h.decision(w));
+    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![]);
 }
 
 #[test]
@@ -333,8 +367,9 @@ fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_when_the_ot
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (b, wb) = h.add(new_item("b", &[], "short"));
-    h.on(wb, Event::Cancelled { why: None });
+    // As a store kept before an item could not be cancelled under one that depends on it: b is cancelled anyway.
     let (_, ww) = h.add(new_item("w", &[a, b], "judged"));
+    h.on(wb, Event::Cancelled { why: None });
     h.let_on(wa);
     h.let_on(ww);
     let mark = since(&h, None).mark;
@@ -537,6 +572,9 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         people = true
         [blocks.merged]
         shown = true
+        [blocks.start]
+        outside = "start"
+        writes = { text = "The owner started the work." }
         [tests.may_merge]
         says = "The owner let the work merge"
         kind = "all"
@@ -549,14 +587,14 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         line = "main"
         task = "Write the text the request asks for."
         effort = "high"
-        inputs = ["request"]
+        inputs = ["start", "request"]
         outputs = ["text"]
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
-        requires = ["may_merge"]
+        requires = { test = "may_merge" }
         inputs = ["text"]
         outputs = ["merged"]
     "#;
@@ -642,7 +680,7 @@ fn a_work_the_engine_paused_while_it_waits_for_a_tool_rests_for_a_person_from_th
     let mut h = H::new();
     let (_, w) = h.add(new_item("a", &[], "plain"));
     h.let_on(w);
-    h.returns(w, Came::Asks(vec![tool("ci")]));
+    h.returns(w, Came::asks(vec![tool("ci")]));
     let mark = since(&h, None).mark;
     h.on(
         w,

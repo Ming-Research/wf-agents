@@ -1,0 +1,12 @@
+# Gives long answers.
+words = "`answers`: gives long answers."
+
+[request]
+type = "object"
+properties = { tests = { type = "array", items = { type = "string" } } }
+additionalProperties = false
+
+# How much of a result is given: the first `bound` bytes of it, then `cut`.
+[given]
+bound = 40
+cut = "(Cut: {given} of {size} bytes.)"

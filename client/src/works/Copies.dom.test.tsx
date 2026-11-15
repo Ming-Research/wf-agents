@@ -32,10 +32,13 @@ function sourceOf(copies: () => Promise<Copies>): Source {
   return {
     loadCopies: copies,
     loadItems: async () => fixtureItems(),
+    loadProjects: never,
     loadWork: never,
     loadVersion: never,
     loadRound: never,
     loadTold: never,
+    loadDoing: never,
+    loadSystem: never,
     loadCall: never,
     act: async () => null,
     changes: () => () => undefined,

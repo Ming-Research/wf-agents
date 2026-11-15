@@ -6,7 +6,7 @@ use crate::{Shared, ask, serve, tiny};
 
 #[tokio::test]
 async fn the_root_and_any_other_path_of_the_page_are_its_index() {
-    let router = serve(&Shared::new(Ok(tiny())), None);
+    let router = serve(&Shared::new(Ok(tiny())));
     for path in ["/", "/cells/plan"] {
         let (status, content_type, body) = ask(&router, Method::GET, path).await;
         assert_eq!(status, StatusCode::OK, "{path}");
@@ -17,7 +17,7 @@ async fn the_root_and_any_other_path_of_the_page_are_its_index() {
 
 #[tokio::test]
 async fn a_missing_asset_a_path_of_the_interface_that_is_none_and_a_write_are_refused() {
-    let router = serve(&Shared::new(Ok(tiny())), None);
+    let router = serve(&Shared::new(Ok(tiny())));
     let (status, ..) = ask(&router, Method::GET, "/assets/none.js").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, content_type, _) = ask(&router, Method::GET, "/api/v1/nothing").await;

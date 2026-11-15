@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Round, Waited } from '../works-api';
+import type { Round, Step, Waited } from '../works-api';
 import {
   RUN_WORDS,
   callState,
@@ -10,6 +10,7 @@ import {
   duration,
   isOpen,
   isWayRound,
+  letGoFailed,
   nowTone,
   nowWords,
   pauseWords,
@@ -116,6 +117,11 @@ describe('how a run stands', () => {
     spent: null,
     context: null,
     compactions: 0,
+    session: null,
+    tries: [],
+    missed: null,
+    estimated: false,
+    judged: { cost: null, time: null },
   });
 
   it('says a run whose last round failed failed, neither under way nor at rest, and open', () => {
@@ -152,7 +158,7 @@ describe('why a run ran, in words', () => {
   });
 
   it('says a call of an abandoned run with no result was withdrawn with it', () => {
-    const row = { call: 4, what: { kind: 'tool', name: 'shell', input: 'ls' } as const, made: 0, done: null, chars: null };
+    const row = { call: 4, what: { kind: 'tool', name: 'shell', input: 'ls' } as const, made: 0, done: null, chars: null, time: null };
     expect(callState(row)).toBe(`made ${clock(0)}, no result yet`);
     expect(callState(row, true)).toBe(`made ${clock(0)}, withdrawn with its run`);
     expect(callState({ ...row, done: 12_000, chars: 3 }, true)).toBe(`made ${clock(0)}, done in 12s`);
@@ -170,6 +176,18 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'notHandedIn', block: 'verdict' })).toBe(
       'it did not hand in verdict, which the cell must hand in every time',
     );
+    expect(unmetWords({ kind: 'notATrigger', name: 'on_nothing' })).toBe(
+      'it said it dealt with on_nothing, which does not run the cell',
+    );
+    expect(unmetWords({ kind: 'notATool', name: 'browse' })).toBe(
+      'it asked for browse, which is not a tool the cell may ask for',
+    );
+    expect(unmetWords({ kind: 'unchangedNotWritten', block: 'plan' })).toBe(
+      'it named plan as unchanged in meaning, and did not write it',
+    );
+    expect(unmetWords({ kind: 'unexplained', path: 'AGENTS.md' })).toBe(
+      'it left AGENTS.md, a file the project protects, changed, and said not why',
+    );
   });
 });
 
@@ -186,5 +204,23 @@ describe('what was taken, in words', () => {
     expect(tokens(1_234)).toBe('1.2k');
     expect(tokens(14_400)).toBe('14k');
     expect(tokens(1_200_000)).toBe('1.2M');
+  });
+});
+
+describe('a failed letting go of what an ended work held', () => {
+  const paused = (at: number, by: 'owner' | 'engine'): Step => ({ kind: 'paused', at, time: at, by, why: 'HTTP 502' });
+  const resumed = (at: number): Step => ({ kind: 'resumed', at, time: at });
+  const merged = { now: { kind: 'merged' as const }, paused: true };
+
+  it("is the engine's pause of the ended work that was not let on since", () => {
+    expect(letGoFailed(merged, [paused(1, 'engine')])).toBe('HTTP 502');
+    expect(letGoFailed({ ...merged, now: { kind: 'cancelled' } }, [paused(1, 'engine')])).toBe('HTTP 502');
+  });
+
+  it('is none for a work going on, one let on since, one the owner paused, or one not paused', () => {
+    expect(letGoFailed({ now: { kind: 'next', cell: 'plan' }, paused: true }, [paused(1, 'engine')])).toBeNull();
+    expect(letGoFailed(merged, [paused(1, 'engine'), resumed(2)])).toBeNull();
+    expect(letGoFailed(merged, [paused(1, 'owner')])).toBeNull();
+    expect(letGoFailed({ ...merged, paused: false }, [paused(1, 'engine')])).toBeNull();
   });
 });

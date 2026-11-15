@@ -43,15 +43,17 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
     let Decision::Wait { on, .. } = trial.decision(work) else {
         unreachable!()
     };
+    // The plan's first run, its call, its second run entered for the answer, the build's first run: the call is the
+    // fifth name.
     assert_eq!(
         on,
         [Waited::Call {
-            call: CallId(4),
+            call: CallId(5),
             on: None
         }]
     );
     trial.step().await.unwrap();
-    assert_eq!(trial.work(work).results[&CallId(4)], "Every check passed.");
+    assert_eq!(trial.work(work).results[&CallId(5)], "Every check passed.");
 
     let end = trial.until(work, |d| matches!(d, Decision::Ended(_))).await;
     assert_eq!(end, Decision::Ended(End::Merged));
@@ -60,14 +62,15 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
         ["plan", "build", "review", "build", "review", "merge"]
     );
 
-    // The second build ran for what the review wrote, and was given its task anew.
+    // The third build, after the one entered for the CI's result, ran for what the review wrote, and was given its task
+    // anew.
     let kept = trial.work(work);
     let second = kept
         .records
         .started
         .iter()
         .filter(|s| s.cell.as_str() == "build")
-        .nth(1)
+        .nth(2)
         .unwrap();
     assert_eq!(
         second.because,
@@ -131,7 +134,10 @@ async fn a_work_whose_script_says_nothing_comes_to_its_merge_with_the_owners_opi
     };
     trial.act(work, opinion).unwrap();
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
-    // The review, which started from the opinions, is abandoned as its round ends; the build runs again for the
-    // owner's opinion, and the review for what it built.
-    assert_eq!(trial.finished(work), ["plan", "build", "build", "review", "merge"]);
+    // The review's return is taken as its round ends; the build runs again for the owner's opinion, and the review
+    // for what it built.
+    assert_eq!(
+        trial.finished(work),
+        ["plan", "build", "review", "build", "review", "merge"]
+    );
 }

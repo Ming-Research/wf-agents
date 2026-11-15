@@ -1,8 +1,8 @@
-// The page's parts, its own small design system (look.md): the bar, the view's line, a button, a segmented switch, a
-// tag, a label, a list row, the docked panel, and the few signs the chart's heads use. Each is drawn by its class in
-// styles/parts.css from the tokens in styles/tokens.css.
+// The page's parts, its own small design system: the bar, the view's line, a button, a segmented switch, a
+// label, a list row, the docked panel, the window that floats over a view, and the few signs the chart's heads use.
+// Each is drawn by its class in styles/parts.css from the tokens in styles/tokens.css.
 
-import { type PointerEvent as Press, type ReactNode, useEffect, useRef } from 'react';
+import { type PointerEvent as Press, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
 /// The bar: the page's name, the views as text tabs (the one shown marked), and at its right what belongs to the page
 /// as a whole.
@@ -58,11 +58,13 @@ export function Button({ primary, submit, disabled, title, onClick, children }: 
 
 /// The page's own question before a command whose effect reaches past what it names: the question as its title,
 /// what follows as its body, and two buttons, the one that goes on named by the command's verb. It is laid over the
-/// page and nothing under it can be reached until it is answered; Escape answers no.
-export function Confirm({ title, children, verb, onAnswer }: {
+/// page and nothing under it can be reached until it is answered; Escape answers no. Where `ready` is false, what the
+/// body asks for is not given yet, and the verb cannot be pressed.
+export function Confirm({ title, children, verb, ready, onAnswer }: {
   title: string;
   children: ReactNode;
   verb: string;
+  ready?: boolean;
   onAnswer: (yes: boolean) => void;
 }) {
   const box = useRef<HTMLDialogElement>(null);
@@ -90,7 +92,7 @@ export function Confirm({ title, children, verb, onAnswer }: {
         <div className="confirm-body">{children}</div>
         <div className="confirm-buttons">
           <Button onClick={() => onAnswer(false)}>Cancel</Button>
-          <Button primary onClick={() => onAnswer(true)}>
+          <Button primary disabled={ready === false} onClick={() => onAnswer(true)}>
             {verb}
           </Button>
         </div>
@@ -170,21 +172,6 @@ export function Edge({ side, label, start, onDrag, onReset }: {
   );
 }
 
-/// What a change did to a thing.
-export type Status = 'same' | 'added' | 'removed' | 'changed';
-
-export const STATUS_WORDS: Record<Exclude<Status, 'same'>, string> = {
-  added: 'put in',
-  removed: 'taken out',
-  changed: 'changed',
-};
-
-/// A tag: a few words of a state, in its colour on its tint; nothing for a thing the change left as it was.
-export function Tag({ status }: { status: Status }) {
-  if (status === 'same') return null;
-  return <span className={`tag tag-${status}`}>{STATUS_WORDS[status]}</span>;
-}
-
 /// A label: what a part holds or what a value is, small, upper case and muted.
 export function Label({ children }: { children: ReactNode }) {
   return <span className="label">{children}</span>;
@@ -193,6 +180,15 @@ export function Label({ children }: { children: ReactNode }) {
 /// A list row: one thing, at least a row high.
 export function ListRow({ children }: { children: ReactNode }) {
   return <li className="list-row">{children}</li>;
+}
+
+/// An attribute as the flow's files write it: its key, then its value (principle definitions-shown-as-written).
+export function Attr({ name, value }: { name: string; value: ReactNode }) {
+  return (
+    <span>
+      <span className="muted mono">{name}</span> <span className="mono">{value}</span>
+    </span>
+  );
 }
 
 /// A word that opens something on the page.
@@ -204,9 +200,10 @@ export function LinkButton({ onClick, children }: { onClick: () => void; childre
   );
 }
 
-/// The panel docked at the right of a view, laid out as the console's drawer: a handle on its left edge that folds it
-/// away and brings it back; a head with the thing's id and title on one line and what it belongs to at the right; one
-/// or more status lines under it; then its sections; and room at its bottom for a box that answers (`foot`).
+/// The panel of a view: a head with the thing's id and title on one line and what it belongs to at the right; one or
+/// more status lines under it; then its sections; and room at its bottom for a box that answers (`foot`). Docked at the
+/// right of its view, laid out as the console's drawer, it has a handle on its left edge that folds it away and brings
+/// it back (`folded`, `onFold`); given neither, it is what a window (`Drawer`) shows, which comes and goes itself.
 export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, edge, children }: {
   /// What the panel is about, for a reader of the screen.
   label: string;
@@ -215,13 +212,34 @@ export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, 
   title?: ReactNode;
   belongs?: ReactNode;
   lines?: ReactNode;
-  folded: boolean;
-  onFold: () => void;
+  folded?: boolean;
+  onFold?: () => void;
   foot?: ReactNode;
-  /// The edge that drags the panel's width.
+  /// The edge that drags the docked panel's width.
   edge?: ReactNode;
   children: ReactNode;
 }) {
+  const inner = (
+    <>
+      {title !== undefined && (
+        <header className="drawer-head">
+          {id !== undefined && <span className="drawer-id">{id}</span>}
+          <h2 className="drawer-title">{title}</h2>
+          {belongs !== undefined && <span className="drawer-belongs">{belongs}</span>}
+        </header>
+      )}
+      {lines}
+      <div className="drawer-body">{children}</div>
+      {foot !== undefined && <div className="drawer-foot">{foot}</div>}
+    </>
+  );
+  if (onFold === undefined) {
+    return (
+      <section className="drawer-inner" aria-label={label}>
+        {inner}
+      </section>
+    );
+  }
   return (
     <aside className={folded ? 'drawer drawer-folded' : 'drawer'} aria-label={label}>
       {!folded && edge}
@@ -236,23 +254,99 @@ export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, 
         {folded ? '‹' : '›'}
       </button>
       <div className="drawer-inner" hidden={folded}>
-        {title !== undefined && (
-          <header className="drawer-head">
-            {id !== undefined && <span className="drawer-id">{id}</span>}
-            <h2 className="drawer-title">{title}</h2>
-            {belongs !== undefined && <span className="drawer-belongs">{belongs}</span>}
-          </header>
-        )}
-        {lines}
-        <div className="drawer-body">{children}</div>
-        {foot !== undefined && <div className="drawer-foot">{foot}</div>}
+        {inner}
       </div>
     </aside>
   );
 }
 
-/// The colours a status line's dot takes: none; green for put in or done; red for taken out or failed; orange for
-/// changed or waiting for the owner; blue for running; the way back's purple.
+/// The least width of a window, and its width before the owner first drags it.
+const WINDOW = { least: 360, first: 560 };
+
+/// The width of a window kept under `key` from last time, or its first width.
+function keptWindow(key: string): number {
+  try {
+    const v = Number(localStorage.getItem(key));
+    return Number.isFinite(v) && v >= WINDOW.least ? v : WINDOW.first;
+  } catch {
+    return WINDOW.first;
+  }
+}
+
+/// The window beside a view, the console's, kept at the right of the screen like a page of a binder: a narrow tab
+/// stuck to its left edge, which stays on the screen while the window is out of it; a press on the tab slides the
+/// window in along the edge, the tab with it, and another slides it back. Its left edge dragged changes its width,
+/// which the browser keeps under `widthKey`. It floats over the view, which keeps its whole width under it. When it
+/// comes and goes besides the tab is its view's to say (`open`); `label` names it, and `hide` and `show` say what the
+/// tab does.
+///
+/// Brought over from the console of the engine on `old-main` (`client/src/console/Drawer.tsx`); its tab is the handle
+/// every panel of the page has.
+export function Drawer({
+  open,
+  onToggle,
+  panel,
+  label,
+  hide,
+  show,
+  widthKey,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  panel: RefObject<HTMLElement | null>;
+  label: string;
+  hide: string;
+  show: string;
+  widthKey: string;
+  children: ReactNode;
+}) {
+  const [width, setWidth] = useState(() => keptWindow(widthKey));
+  // Dragging the left edge: the window keeps its right side and takes the rest, within its least width and most of
+  // the screen; the width is kept once the drag ends.
+  const drag = (e: Press<HTMLDivElement>) => {
+    e.preventDefault();
+    const from = e.clientX;
+    const was = width;
+    let now = was;
+    const move = (m: PointerEvent) => {
+      now = Math.round(Math.min(window.innerWidth * 0.85, Math.max(WINDOW.least, was + from - m.clientX)));
+      setWidth(now);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      try {
+        localStorage.setItem(widthKey, String(now));
+      } catch {
+        // Kept for this page only.
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <aside ref={panel} className={open ? 'cw cw-open' : 'cw'} style={{ width }} aria-label={label}>
+      <button
+        type="button"
+        className="cw-tab"
+        aria-expanded={open}
+        aria-label={open ? hide : show}
+        title={open ? hide : show}
+        onClick={onToggle}
+      >
+        {open ? '›' : '‹'}
+      </button>
+      <div className="cw-edge" title="Drag to change the width" onPointerDown={drag} />
+      <div className="cw-inner" aria-hidden={!open} inert={!open}>
+        {children}
+      </div>
+    </aside>
+  );
+}
+
+/// The colours a status line's dot takes: none; green for done; red for failed; orange for a change of a block's
+/// meaning or for waiting for the owner; blue for running; the way back's purple.
 export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
 
 /// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.

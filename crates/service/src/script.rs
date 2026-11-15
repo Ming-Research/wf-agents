@@ -22,7 +22,8 @@
 //! [flows.trial.values]
 //! verdict = "yes"
 //!
-//! # The second round of the first run of the cell review hands in these blocks.
+//! # The second round of the first run of the cell review hands in these blocks, and says what it came across beyond
+//! # its work.
 //! [[flows.trial.rounds]]
 //! cell = "review"
 //! run = 1
@@ -32,6 +33,9 @@
 //!     { block = "opinions", content = "Name the error.", matters = true },
 //!     { block = "verdict", value = "no" },
 //! ]
+//! observations = ["The greeting has no test."]
+//! # Its answer to what the owner said to the cell.
+//! reply = "Named the error."
 //!
 //! # The first round of the first run of plan asks the owner a question, and a tool to run.
 //! [[flows.trial.rounds]]
@@ -166,6 +170,10 @@ pub struct RoundScript {
     pub hands_in: Option<Vec<HandIn>>,
     /// The calls it asks for.
     pub asks: Option<Vec<AskScript>>,
+    /// What it came across beyond its work, each a text, where it does the cell's work.
+    pub observations: Option<Vec<String>>,
+    /// Its answer to what the owner said to its cell, in `reply`, where it does the cell's work.
+    pub reply: Option<String>,
     /// Why it fails, where it fails: nothing comes back.
     pub fails: Option<String>,
     /// The kind of cause of its failure, as a carrier tells it apart (`usage_limit`, `passing`, ...); a cause no
@@ -261,8 +269,9 @@ impl Script {
 
     /// Everything wrong with the script for these flows, each in words with where it is: a flow, a cell or a block
     /// it names that is not there, a default value that is not one of its choice's, a round that does more than one of
-    /// handing in, asking and failing, a round said twice, and an act of the engine that asks or costs. A script that names a block a cell may
-    /// not write, or a value a choice does not have, is not wrong: what it hands in is sent back.
+    /// handing in, asking and failing, one that asks or fails and says observations or a reply, a round said twice, and
+    /// an act of the engine that asks or costs. A script that names a block a cell may not write, or a value a choice
+    /// does not have, is not wrong: what it hands in is sent back.
     pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
         let mut faults = Vec::new();
         if self.slots == Some(0) {
@@ -299,6 +308,16 @@ impl Script {
                 }
                 if round.fails.is_some() && (round.hands_in.is_some() || round.asks.is_some()) {
                     faults.push(format!("{at}: a round that fails neither hands in nor asks"));
+                }
+                if round.observations.is_some() && (round.fails.is_some() || round.asks.is_some()) {
+                    faults.push(format!(
+                        "{at}: only a round that does the cell's work says observations"
+                    ));
+                }
+                if round.reply.is_some() && (round.fails.is_some() || round.asks.is_some()) {
+                    faults.push(format!(
+                        "{at}: only a round that does the cell's work answers the owner"
+                    ));
                 }
                 if round.fails.is_none() && (round.failure.is_some() || round.resets.is_some()) {
                     faults.push(format!(
@@ -367,7 +386,7 @@ impl Script {
             let choice = flow.blocks.get(&BlockId::from(block)).and_then(|b| b.values.as_ref());
             choice.and_then(|values| named.or_else(|| values.first().cloned()))
         };
-        let came = match entry {
+        let mut came = match entry {
             Some(RoundScript {
                 fails: Some(why),
                 failure,
@@ -384,10 +403,10 @@ impl Script {
                     ms: or(took.ms, self.took.ms, ROUND_MS),
                 };
             }
-            Some(RoundScript { asks: Some(asks), .. }) => Came::Asks(asks.iter().map(AskScript::ask).collect()),
+            Some(RoundScript { asks: Some(asks), .. }) => Came::asks(asks.iter().map(AskScript::ask).collect()),
             Some(RoundScript {
                 hands_in: Some(handed), ..
-            }) => Came::HandsIn(
+            }) => Came::hands_in(
                 (handed.iter())
                     .map(|h| Handed {
                         block: BlockId(h.block.clone()),
@@ -411,7 +430,7 @@ impl Script {
                     (readers.into_iter().flatten())
                         .any(|reader| matches!((flow.flow.place(reader), place), (Some(r), Some(p)) if r < p))
                 };
-                Came::HandsIn(
+                Came::hands_in(
                     (outputs.iter())
                         .filter(|block| !back(block) || cell.must_write.contains(block))
                         .map(|block| Handed {
@@ -424,6 +443,11 @@ impl Script {
                 )
             }
         };
+        // What it came across beyond its work, and its answer to the owner, are said beside the blocks it hands in.
+        if let Some(observations) = entry.and_then(|entry| entry.observations.clone()) {
+            came.said.observations = observations;
+        }
+        came.said.reply = entry.and_then(|entry| entry.reply.clone());
         Planned {
             ends: Ends::Came(came),
             spent,

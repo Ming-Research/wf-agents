@@ -1,0 +1,6 @@
+title = "Deliver"
+kind = "engine"
+act = "deliver"
+requires = { dependencies = "merged" }
+triggered_by = ["on_dependencies"]
+outputs = ["delivered"]

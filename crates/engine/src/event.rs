@@ -1,9 +1,11 @@
 //! What happens to a work, and what is to be done for it.
 
 use decide::run::{Failure, Unmet};
-use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId};
+use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 
-use work::{Ask, Call, Given, Handed, RanOn, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
+
+use crate::spoken::{NoOne, Telling, To};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,6 +21,16 @@ pub enum Event {
         matters: bool,
         value: Option<String>,
     },
+    /// The outside wrote a block while the round of this run was under way, as its carrier's own doing for that round,
+    /// as taking main in is: the version is written and put into the round, so that the round is told of it and the
+    /// run consumes it. Where the block's latest version says it already, as the watch of main may have written the
+    /// head a check reads, no version is written and that one is put in, unless the round was told of it already; a
+    /// run abandoned while its round is under way consumes nothing, and the version is only written.
+    WroteForRound {
+        run: RunId,
+        block: BlockId,
+        content: String,
+    },
     /// The owner let the cell go on at its limit.
     LetGo { cell: CellId },
     /// The work was paused: by the owner, who gives no reason, or by the engine itself, for this reason, as when it
@@ -28,6 +40,9 @@ pub enum Event {
     Resumed,
     /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
     Cancelled { why: Option<String> },
+    /// The work's item, which was cancelled, was reopened, for this reason: the work no longer ends there, and is
+    /// paused by the owner, as a work added is, until it is let on.
+    Reopened { why: String },
     /// The round of the run that was under way ended, having taken this.
     Returned { run: RunId, came: Came, spent: Spent },
     /// The round of the run that was under way failed, for this reason, having taken this: nothing came back. The
@@ -44,11 +59,47 @@ pub enum Event {
     },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// The owner says these words to a line of the work's flow, or about a question of the work: to the cell the
+    /// engine chooses (crate module `spoken`).
+    Said { to: To, words: String },
+    /// What the owner said reached the round of this run that is under way, after a use of one of its program's own
+    /// tools: these versions, which the engine gave its carrier to tell the round ([`Effect::Tell`]), are put into it.
+    SaidToRound { run: RunId, versions: Vec<(BlockId, Seq)> },
+    /// The owner answers this version of the question, taking this option, counted from one, for this reason where
+    /// one is given (design document `data-and-context`, 34).
+    Answer {
+        question: String,
+        version: Seq,
+        option: u64,
+        why: Option<String>,
+    },
     /// A new session of the line began, or is to begin with the line's next round, for this reason.
     Anew { line: String, why: Why },
     /// A try of the round of the run that is under way began, on this: the try of this number in the round, the first
     /// being one.
     Ran { run: RunId, attempt: usize, on: RanOn },
+    /// The message of the try of this number of the round of the run that is under way filled this into its session,
+    /// as the context manager worked it out (crate `context`).
+    Filled {
+        run: RunId,
+        attempt: usize,
+        fills: Vec<Fill>,
+    },
+    /// What the calls to the model of the try of this number of the round of the run that is under way came to, as
+    /// its carrier read them.
+    Measured {
+        run: RunId,
+        attempt: usize,
+        measures: Measures,
+    },
+    /// A keep-warm ping of the session of this number of the line ended, having taken this, or failed for this
+    /// reason, as [`Effect::Ping`] asked.
+    Pinged {
+        line: String,
+        session: u32,
+        spent: Spent,
+        failed: Option<String>,
+    },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out
@@ -56,13 +107,56 @@ pub enum Event {
     NotReleased { why: String },
 }
 
-/// What came back at the end of a round.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Came {
-    /// The agent asks for these.
-    Asks(Vec<Ask>),
-    /// The agent, or the engine's act, hands in these blocks.
-    HandsIn(Vec<Handed>),
+/// What came back at the end of a round: the return of the agent, or of the engine's act. A return either asks for
+/// calls, and for nothing else, or does the cell's work (design document `data-and-context`, 30).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Came {
+    /// Which of what ran the round the return dealt with, in the order it names them; `None` where it does not say, as
+    /// the engine's acts and no return read in the form before a return named it do: such a return dealt with
+    /// everything that ran the round, and the engine records that.
+    pub dealt_with: Option<Vec<BlockId>>,
+    /// The blocks it writes.
+    pub writes: Vec<Handed>,
+    /// The calls it asks for.
+    pub asks: Vec<Ask>,
+    /// What was found wrong with it as it was read against the cell it was entered for, which only its reading can
+    /// see, in the order found: the run's check names these first, with everything else wrong with it.
+    pub found: Vec<Unmet>,
+    /// What it says beside its work.
+    pub said: Said,
+    /// What the engine itself asks the owner as the round ends, from what it found of the work then, such as a change
+    /// of a path the project protects: no word of the agent's, and so no question the return is held to or let off for.
+    /// It is recorded as the round's end is taken, whether or not the return is.
+    pub engine: Vec<Question>,
+}
+
+impl Came {
+    /// A return that does the cell's work, writing these blocks, without naming what it dealt with: it dealt with
+    /// everything that ran its round, as the engine's acts and a return of the form before a return named it do.
+    pub fn hands_in(writes: Vec<Handed>) -> Came {
+        Came {
+            writes,
+            ..Came::default()
+        }
+    }
+
+    /// A return that asks for these calls, and so deals with nothing.
+    pub fn asks(asks: Vec<Ask>) -> Came {
+        Came {
+            dealt_with: Some(Vec::new()),
+            asks,
+            ..Came::default()
+        }
+    }
+
+    /// A return that does the cell's work: it dealt with these, and writes these blocks.
+    pub fn works(dealt_with: Vec<BlockId>, writes: Vec<Handed>) -> Came {
+        Came {
+            dealt_with: Some(dealt_with),
+            writes,
+            ..Came::default()
+        }
+    }
 }
 
 /// What is to be done for a work outside the engine.
@@ -78,16 +172,27 @@ pub enum Effect {
     },
     /// This call is made.
     Call { call: CallId, run: RunId, what: Call },
-    /// This call is withdrawn: its run was abandoned. It is to be done until the call is said to have its result,
-    /// which is then that it was withdrawn, or whatever came back before it could be.
+    /// This call is withdrawn: its run was abandoned, or its work ended before its cell was entered for its result.
+    /// It is to be done until the call is said to have its result, which is then that it was withdrawn, or whatever
+    /// came back before it could be.
     Withdraw { call: CallId },
-    /// The round of this run that is under way is stopped: the run was abandoned with its work cancelled. It is to
-    /// be done until the round is said to have ended; what comes back from it is dropped.
+    /// What the owner said is to be told to the round of this run under way, after its next use of one of its
+    /// program's own tools ([`Telling`]). Once the round was given it, its carrier says so with its `versions`
+    /// ([`Event::SaidToRound`]); words that reached no round before it ended stay new to the cell, which runs again for
+    /// them. It is not given again after the engine stops.
+    Tell { run: RunId, telling: Box<Telling> },
+    /// The round of this run that is under way is stopped: the run was abandoned, with its work cancelled or for a
+    /// cell before it that the owner turned to. It is to be done until the round is said to have ended; what comes
+    /// back from it is dropped.
     Stop { run: RunId },
     /// The work has ended so, and nothing of it is under way: what it holds outside the engine is let go (its
     /// worktree, and its pull request where it did not merge; its branch stays). It is to be done until the work is
     /// said to have released it.
     Release { end: End },
+    /// The session of this number of the line, which waits for the line's next round, is sent a keep-warm ping, so that
+    /// the prompt cache does not let it go. Whatever drives the engine gives it, not the work's loop: it is to be done
+    /// until the ping is said to have ended or failed, and given again where it is still due after a stop.
+    Ping { line: String, session: u32 },
 }
 
 /// Which rounds may begin, of this work as of every other: a round that failed for a cause every work shares, such as
@@ -100,19 +205,50 @@ pub enum Gate {
     Open,
     /// No round of an agent begins; the engine's own acts do.
     Agents,
-    /// No round begins, the engine's own acts' included: they may reach the network, which cannot be reached.
+    /// No round of the engine's own acts begins, their host being out of reach; the agents' do.
+    Acts,
+    /// No round begins, of an agent or an act.
     Every,
 }
 
-/// Why what happened was not taken: it cannot have happened to this work.
+impl Gate {
+    /// Whether it holds the agents' rounds.
+    pub fn holds_agents(self) -> bool {
+        matches!(self, Gate::Agents | Gate::Every)
+    }
+
+    /// Whether it holds the engine's own acts.
+    pub fn holds_acts(self) -> bool {
+        matches!(self, Gate::Acts | Gate::Every)
+    }
+
+    /// The gate that holds what either holds.
+    pub fn and(self, other: Gate) -> Gate {
+        match (self, other) {
+            (Gate::Open, gate) | (gate, Gate::Open) => gate,
+            (Gate::Agents, Gate::Agents) => Gate::Agents,
+            (Gate::Acts, Gate::Acts) => Gate::Acts,
+            _ => Gate::Every,
+        }
+    }
+}
+
+/// Why what happened was not taken: it cannot have happened to this work, or nothing can be decided of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refused {
+    /// Doing what the deciding code decides on the work's records leads it to decide again without end: the loop
+    /// stopped at its bound, deciding this last. What the work was given meanwhile is let go with what happened.
+    WithoutEnd(decide::Decision),
     /// The flow has no such block.
     NoSuchBlock(BlockId),
     /// The flow does not let this writer write the block.
     NotTheirs { block: BlockId, by: Outsider },
-    /// The block was written with a value it cannot have, or without the value it must have.
-    Unmet(Unmet),
+    /// The block is a choice, and was written with no value.
+    NoValue { block: BlockId },
+    /// The block is a choice, and this is not one of its values.
+    NotAValue { block: BlockId, value: String },
+    /// The block is no choice, and was written with a value.
+    NotAChoice { block: BlockId },
     /// The flow has no such cell.
     NoSuchCell(CellId),
     /// No round of the run is under way.
@@ -125,4 +261,14 @@ pub enum Refused {
     NoSuchLine(String),
     /// The work has not ended, or something of it is still under way: it has nothing to let go yet.
     NotToRelease,
+    /// The work has no question of this name.
+    NoSuchQuestion(String),
+    /// The question has no such version that asks it: none was written at that place, or it withdrew the question.
+    NoSuchVersion { question: String, version: Seq },
+    /// The version of the question has no option of this number.
+    NotAnOption { question: String, option: u64 },
+    /// The work's item is not cancelled: there is no cancel to reopen.
+    NotCancelled,
+    /// No cell can take the owner's words, for this reason: they go to no other.
+    NoOneSpokenTo(NoOne),
 }

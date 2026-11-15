@@ -1,0 +1,8 @@
+what = "Fires when main has moved, so that the check before a merge runs again on what main is now."
+block = "main"
+from = "main"
+
+# What the engine writes into the block each time it reads the head of main. Filled in a run: `{main}` the main
+# branch's name, `{head}` its head.
+[writes]
+text = "The main branch {main} is at {head}."
