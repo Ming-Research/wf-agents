@@ -218,10 +218,10 @@ fn a_block_of_a_shape_is_kept_as_the_json_it_holds_where_it_is_of_that_shape() {
         json!(["a"]),
     ] {
         r["outcome"]["outputs"]["entry"] = wrong.clone();
-        let came = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
+        let read = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
         let found = vec![Unmet::NotOfItsShape { block: "entry".into() }];
-        assert_eq!(came.found, found, "{wrong}");
-        assert!(!came.writes.iter().any(|h| h.block.as_str() == "entry"), "{wrong}");
+        assert_eq!(read.found, found, "{wrong}");
+        assert!(!read.writes.iter().any(|h| h.block.as_str() == "entry"), "{wrong}");
     }
 }
 
