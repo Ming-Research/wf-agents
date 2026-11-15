@@ -886,6 +886,18 @@ impl Explorer<'_> {
         if cell.applies.is_empty() {
             return false;
         }
+        // Only a cell that can then still wait: the return asks a question that waits or writes an entry asking for
+        // tests, or the cell holds by a question of its own or waits for the result of an entry as the records stand.
+        let now = Seq(u64::MAX);
+        let held = |records: &Records| {
+            (questions(records, now).values())
+                .any(|q| q.cell == cell.id && !q.engine && q.waits && !q.withdrawn && !q.answered)
+        };
+        let entry = (came.writes.iter()).any(|h| cell.asks.iter().any(|a| a.record == h.block));
+        let pending = |records: &Records| Reading::of_flow(self.flow(), records).pending(cell, now);
+        if !came.said.waits() && !entry && !held(records) && !pending(records) {
+            return false;
+        }
         // The records as the return would leave them: its run finished with its writes, its questions written after.
         let n = came.said.questions.len() as u64;
         let mut after = records.clone();
@@ -915,7 +927,6 @@ impl Explorer<'_> {
             });
         }
         // And the questions' standing, as the engine writes it as it takes the return in, where it says otherwise.
-        let now = Seq(u64::MAX);
         let standing = (self.model.compiled.blocks.iter())
             .find(|(_, b)| b.writers.outside.as_deref() == Some(engine::asked::ASKED));
         if let Some((block, _)) = standing {
@@ -945,9 +956,7 @@ impl Explorer<'_> {
         if !applies(records) || applies(&after) {
             return false;
         }
-        let held = (questions(&after, now).values())
-            .any(|q| q.cell == cell.id && !q.engine && q.waits && !q.withdrawn && !q.answered);
-        held || Reading::of_flow(self.flow(), &after).pending(cell, now)
+        held(&after) || pending(&after)
     }
 
     /// Whether the loop took the return as its variant says it should be taken: one that does not meet the flow sent

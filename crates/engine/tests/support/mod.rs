@@ -173,8 +173,12 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
 /// apart from the deciding code, and only of the runs that finished between the two.
 pub fn skipping_its_wait(flow: &Compiled, before: &Records, after: &Records) -> Option<String> {
     let now = Seq(u64::MAX);
+    let finished = &after.finished[before.finished.len()..];
+    if finished.is_empty() {
+        return None;
+    }
     let (was, is) = (reading::Reading::new(before), reading::Reading::new(after));
-    for finished in &after.finished[before.finished.len()..] {
+    for finished in finished {
         let started = (after.started.iter())
             .find(|s| s.run == finished.run)
             .expect("a finished run started");
