@@ -6,7 +6,7 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cellNowWords } from '../works/marks';
-import type { Act, Item, Now, Question, WorkPage } from '../works-api';
+import type { Act, CellNow, Item, Now, Question, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
 
@@ -346,9 +346,9 @@ const question = (name: string, o: Partial<Question> = {}): Question => ({
 });
 
 /// Draws the panel of item 25, its work doing `now` and held by the questions `holding`, its page giving `questions`.
-function drawAsking(now: Now, holding: string[], questions: Question[], send = answered([])) {
+function drawAsking(now: Now, holding: string[], questions: Question[], send = answered([]), cells?: CellNow[]) {
   const i = itemOf(25);
-  const item: Item = { ...i, work: { ...i.work, now, holding } };
+  const item: Item = { ...i, work: { ...i.work, now, holding, cells: cells ?? i.work.cells } };
   const page = pageOf(item);
   if (page === null || !('page' in page)) throw new Error('no page');
   container = document.createElement('div');
@@ -415,6 +415,14 @@ describe('the questions put to the owner, in the panel of the item selected', ()
         question('gone', { withdrawn: 'Settled in the plan', ask: null, options: [] }),
       ],
       answered(sent),
+      // At the merge, every cell before it has run.
+      FLOW.cells.map((c) => ({
+        cell: c.id,
+        state: c.id === 'merge' ? 'notYet' : 'done',
+        finished: c.id === 'merge' ? 0 : 1,
+        record: null,
+        open: null,
+      })),
     );
     const [, workLine] = lines(el);
     expect(workLine).toContain('Waiting for you merge Merge until asked = answered W25');
