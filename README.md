@@ -20,11 +20,13 @@ wf-agents runs coding agents through a defined flow.
   `wf-agents add --title "Greet the user" --flow trial --project trial --write "request=Greet the user."` and
   `wf-agents resume 1`, `wf-agents answer 1 named 9 1` once its plan asks the owner,
   and `wf-agents list` or the pages to follow it;
-  `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it. Whoever plans the work waits
-  with `wf-agents wait` for what needs them, each answer ending with the mark to give the next. They read the plan
-  with `wf-agents changes --since <mark>`, `candidates`, `search <text>`, `graph <item>` (up to what it depends on and
-  down to what depends on it; `--up` or `--down` for one), `tags` and `text <item> [<block>]`, and `list`, which leaves
-  out what merged or was cancelled unless given `--all`; they change items with
+  `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it. `wf-agents play` with the same
+  `--flow` and `--script` and an empty `--data` plays instead the case the script states, on a clock of its own, and
+  says whether the work took the path it states; `run` with the script then serves what it left. Whoever plans the
+  work waits with `wf-agents wait` for what needs them, each answer ending with the mark to give the next. They read
+  the plan with `wf-agents changes --since <mark>`, `candidates`, `search <text>`, `graph <item>` (up to what it
+  depends on and down to what depends on it; `--up` or `--down` for one), `tags` and `text <item> [<block>]`, and
+  `list`, which leaves out what merged or was cancelled unless given `--all`; they change items with
   `wf-agents change --why <sentence> <item>:<kind>[=<value>]...`, all or none, or one at a time with `set-title`,
   `set-level`, `add-dependency`, `remove-dependency`, `tag`, `untag`, `cancel` and `reopen`, each with `--why`.
   `wf-agents system` says how the system ran over the last days: what went past the lines of its history, and what is
