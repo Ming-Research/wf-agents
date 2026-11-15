@@ -18,20 +18,39 @@ fn since(h: &H, mark: Option<&Mark>) -> Attention {
     h.d().attention(mark).expect("the driver answers")
 }
 
-/// The work's round under way asks the owner a question; gives the time it did.
-fn asks_the_owner(h: &mut H, work: WorkNumber) -> Time {
-    h.returns(work, Came::asks(vec![question(Who::Owner)]));
+/// The work's run reaches its limit, what its cell may not write sent back, and waits for the owner's word, the
+/// engine's call on the owner; gives the time it did.
+fn waits_for_the_owner(h: &mut H, work: WorkNumber) -> Time {
+    for _ in 0..5 {
+        h.hands_in(work, &[("merged", None)]);
+        if matches!(h.decision(work), Decision::Wait { .. }) {
+            break;
+        }
+    }
+    let Decision::Wait { on, .. } = h.decision(work) else {
+        panic!("the run never reached its limit: {:?}", h.decision(work));
+    };
+    assert!(
+        matches!(
+            on[..],
+            [Waited::Call {
+                on: Some(Who::Owner),
+                ..
+            }]
+        ),
+        "{on:?}"
+    );
     Time(h.clock)
 }
 
 #[test]
-fn a_question_for_the_owner_comes_once_since_it_was_asked_and_a_restart_adds_only_its_pause_of_everything() {
+fn a_wait_on_the_owner_comes_once_since_it_began_and_a_restart_adds_only_its_pause_of_everything() {
     let mut h = H::new();
     let (_, w) = h.add(new_item("a", &[], "plain"));
     h.let_on(w);
     let first = since(&h, None);
     assert_eq!(heeds(&first), vec![], "a work under way is something for the planner");
-    let asked = asks_the_owner(&mut h, w);
+    let asked = waits_for_the_owner(&mut h, w);
     let answer = since(&h, Some(&first.mark));
     assert_eq!(
         answer.lines,
@@ -281,31 +300,12 @@ fn a_run_at_its_limit_is_a_line() {
     let (_, w) = h.add(new_item("a", &[], "plain"));
     let mark = since(&h, None).mark;
     h.let_on(w);
-    // What the cell may not write is sent back, until the run reaches its limit and waits for the owner.
-    for _ in 0..5 {
-        h.hands_in(w, &[("merged", None)]);
-        if matches!(h.decision(w), Decision::Wait { .. }) {
-            break;
-        }
-    }
-    let Decision::Wait { on, .. } = h.decision(w) else {
-        panic!("the run never reached its limit");
-    };
-    assert!(
-        matches!(
-            on[..],
-            [Waited::Call {
-                on: Some(Who::Owner),
-                ..
-            }]
-        ),
-        "{on:?}"
-    );
+    let since_limit = waits_for_the_owner(&mut h, w);
     assert_eq!(
         since(&h, Some(&mark)).lines,
         vec![Line {
             heed: Heed::ForAPerson { work: w },
-            since: Time(h.clock),
+            since: since_limit,
         }]
     );
 }
@@ -522,8 +522,8 @@ fn what_rests_for_a_person_comes_first_the_longest_waiting_first() {
     }
     h.hands_in(wa, &[("text", None)]);
     h.hands_in(wa, &[("merged", None)]);
-    asks_the_owner(&mut h, wc);
-    asks_the_owner(&mut h, wb);
+    waits_for_the_owner(&mut h, wc);
+    waits_for_the_owner(&mut h, wb);
     assert_eq!(
         heeds(&since(&h, Some(&mark))),
         vec![
@@ -545,7 +545,7 @@ fn lines_past_the_most_are_counted_and_come_again_at_the_next_mark() {
         .collect();
     for w in &works {
         h.let_on(*w);
-        asks_the_owner(&mut h, *w);
+        waits_for_the_owner(&mut h, *w);
     }
     let first = since(&h, None);
     let shown = |works: &[WorkNumber]| -> Vec<Heed> { works.iter().map(|w| Heed::ForAPerson { work: *w }).collect() };
@@ -609,7 +609,7 @@ fn a_work_whose_records_are_at_fault_is_a_line_first() {
     let added = Time(h.clock);
     let (_, wb) = h.add(new_item("b", &[], "plain"));
     h.let_on(wb);
-    asks_the_owner(&mut h, wb);
+    waits_for_the_owner(&mut h, wb);
     at_fault(&mut h, wa);
     assert_eq!(
         heeds(&since(&h, None)),
@@ -647,7 +647,7 @@ fn a_work_waiting_for_an_item_that_rests_for_a_person_is_idle() {
     let (_, wb) = h.add(new_item("b", &[a], "judged"));
     h.let_on(wa);
     h.let_on(wb);
-    asks_the_owner(&mut h, wa);
+    waits_for_the_owner(&mut h, wa);
     assert_eq!(
         heeds(&since(&h, None)),
         vec![

@@ -126,7 +126,7 @@ pub fn given(
 ) -> BTreeMap<CallId, String> {
     (work.calls.iter())
         .filter_map(|(call, asked)| {
-            let work::Call::Asked(work::Ask::Tool { name, input }) = asked else {
+            let work::Call::Asked(work::Ask::Tool(work::Tool { name, input })) = asked else {
                 return None;
             };
             let result = work.results.get(call)?;
@@ -203,7 +203,7 @@ pub fn wholes<'a>(
     dir: &Path,
 ) -> Vec<(PathBuf, &'a str)> {
     let calls = (work.calls.iter()).filter_map(|(call, asked)| {
-        let work::Call::Asked(work::Ask::Tool { name, .. }) = asked else {
+        let work::Call::Asked(work::Ask::Tool(work::Tool { name, .. })) = asked else {
             return None;
         };
         let result = work.results.get(call)?;
@@ -335,10 +335,10 @@ mod tests {
     /// A work that asked `query` once, with this result, and was given this result of the tests I1 asked for.
     fn work_with(tests: &str, query: &str) -> work::Work {
         let mut work = work::Work::default();
-        let asked = work::Call::Asked(work::Ask::Tool {
+        let asked = work::Call::Asked(work::Ask::Tool(work::Tool {
             name: QUERY.to_string(),
             input: "{\"sql\": \"SELECT 1\"}".to_string(),
-        });
+        }));
         work.calls.insert(CallId(2), asked);
         work.results.insert(CallId(2), query.to_string());
         work.contents
@@ -395,10 +395,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let dir = files_dir(temp.path(), TAG, WORK);
         let mut work = work_with("short", "{\"rows\": []}");
-        let asked = work::Call::Asked(work::Ask::Tool {
+        let asked = work::Call::Asked(work::Ask::Tool(work::Tool {
             name: "run_tests".to_string(),
             input: "{}".to_string(),
-        });
+        }));
         let whole = format!("{}the last line\n", "a line of the tests\n".repeat(10));
         work.calls.insert(CallId(3), asked);
         work.results.insert(CallId(3), whole.clone());

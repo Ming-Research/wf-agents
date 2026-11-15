@@ -180,7 +180,7 @@ pub mod items;
 use flow::agents::Agents;
 use flow::{CellSpec, Compiled, Kind};
 use serde::Deserialize;
-use work::{Ask, Back, Handed, Question, Spent, Time, Way, Work};
+use work::{Back, Handed, Question, Spent, Time, Tool, Way, Work};
 
 use decide::run::Failure;
 use decide::{BlockId, Records, RunId, Seq};
@@ -944,7 +944,7 @@ impl Script {
             }
             Some(RoundScript { asks: Some(asks), .. }) => Came::asks(
                 (asks.iter())
-                    .map(|ask| Ask::Tool {
+                    .map(|ask| Tool {
                         name: ask.tool.clone(),
                         input: ask.input.clone(),
                     })

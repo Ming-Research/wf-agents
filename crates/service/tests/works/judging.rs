@@ -10,7 +10,7 @@ use flow::Compiled;
 use service::judge::Added;
 use service::script::items::Step;
 use service::{Judged, Script, Shown};
-use work::{Ask, Call, Handed, Question, Spent, Time, Way, Work};
+use work::{Call, Handed, Question, Spent, Time, Tool, Way, Work};
 
 use crate::{START, scoped, trial_flow};
 
@@ -128,7 +128,7 @@ impl Built {
     }
 
     /// The round under way asks for this, and the call it makes.
-    fn asks(&mut self, ask: Ask) -> CallId {
+    fn asks(&mut self, ask: Tool) -> CallId {
         let effects = self.returns(Came::asks(vec![ask]));
         (effects.iter())
             .find_map(|effect| match effect {
@@ -175,7 +175,7 @@ impl Built {
     /// The work from its add to the review's round under way.
     fn to_the_review() -> Built {
         let mut built = Built::to_the_build();
-        let call = built.asks(Ask::Tool {
+        let call = built.asks(Tool {
             name: "query".to_string(),
             input: "select number from items".to_string(),
         });

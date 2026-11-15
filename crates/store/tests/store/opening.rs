@@ -129,7 +129,7 @@ pub(crate) fn versions(path: &Path) -> Vec<u32> {
 }
 
 /// A work as one kept before the engine paused works itself: the owner pauses it as it is added, and lets it on; the
-/// writer hands in its text and the judge asks the owner a question.
+/// writer hands in its text and the judge asks the owner a question by a call.
 fn kept_before() -> Work {
     let mut d = Driver::new();
     d.on(Event::Paused {
@@ -139,7 +139,7 @@ fn kept_before() -> Work {
     d.wrote("request", Outsider::Person, None);
     d.on(Event::Resumed);
     d.end(hands_in(&[("text", None)]));
-    d.end(Came::asks(vec![question(Who::Owner)]));
+    d.asks_the_owner();
     // Its rounds were kept before a round said the context it ended with and how often it was compacted, and its
     // runs before a return said what it dealt with.
     for spent in d.work.spent.values_mut() {
