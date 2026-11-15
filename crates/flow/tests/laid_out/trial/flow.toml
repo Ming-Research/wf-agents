@@ -26,8 +26,10 @@ between = ", "
 
 [blocks.plan]
 
-# The questions the plan asks the owner and the owner's answers: the record the engine's source of answers writes, which
-# the plan writes as the questions it asks, each in the shape of an entry.
+# The questions the plan asks the owner: a record of the engine's source of answers, which the plan writes as the
+# questions it asks, each in the shape of an entry, and which the engine keeps as the work's questions. The engine writes
+# an entry of it only for a trigger of an answer that reads it, and the trigger of a flow written before flows were laid
+# out reads only its own block: here the record holds no entry.
 [blocks.q_and_a]
 outside = "answer"
 shown = true

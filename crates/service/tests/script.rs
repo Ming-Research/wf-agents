@@ -143,40 +143,6 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
 }
 
 #[test]
-fn a_script_is_told_a_read_no_source_outside_the_work_writes_and_one_no_round_of_the_cells_work_makes() {
-    let script = Script::read(
-        r#"
-        [[flows.engineer.rounds]]
-        cell = "I1"
-        hands_in = []
-        reads = [{ block = "code", content = "4b8e2d1" }, { block = "hed", content = "4b8e2d1" }]
-
-        [[flows.engineer.rounds]]
-        cell = "I1"
-        run = 2
-        asks = [{ tool = "query" }]
-        reads = [{ block = "head", content = "4b8e2d1" }]
-
-        [[flows.engineer.rounds]]
-        cell = "I1"
-        run = 3
-        fails = "No."
-        reads = [{ block = "head", content = "4b8e2d1" }]
-        "#,
-    )
-    .unwrap();
-    assert_eq!(
-        script.check(&[engineer()]),
-        [
-            "flows.engineer.rounds[0].reads[0]: no source outside the work writes code",
-            "flows.engineer.rounds[0].reads[1]: the flow engineer has no block hed",
-            "flows.engineer.rounds[1]: only an agent's round that does the cell's work reads",
-            "flows.engineer.rounds[2]: only an agent's round that does the cell's work reads",
-        ]
-    );
-}
-
-#[test]
 fn a_round_hands_in_beside_its_blocks_what_its_entry_says_it_read() {
     let flow = engineer();
     let script = Script::read(
@@ -231,6 +197,10 @@ fn a_script_with_a_field_it_does_not_know_is_not_read() {
     let asked = "[[flows.trial.rounds]]\ncell = \"plan\"\nasks = [{ question = \"Which name?\", who = \"owner\" }]\n";
     let refused = Script::read(asked).expect_err("a question to a person is refused");
     assert!(refused.contains("unknown field `question`"), "{refused}");
+    // The engine's question is named as the words beside the flows name it, which a script does not say.
+    let named = "[[flows.trial.rounds]]\ncell = \"build\"\n\n\
+                 [[flows.trial.rounds.engine]]\nname = \"x\"\nwithdrawn = \"No.\"\n";
+    assert!(Script::read(named).is_err());
 }
 
 #[test]
@@ -606,7 +576,7 @@ fn a_round_the_script_says_nothing_of_hands_in_no_record_of_the_works_questions(
 }
 
 #[test]
-fn a_round_ends_with_what_the_engine_asks_and_the_context_its_entry_says() {
+fn a_round_ends_with_the_context_its_entry_says_and_else_the_scripts() {
     let flow = engineer();
     let script = Script::read(
         r#"
@@ -616,43 +586,19 @@ fn a_round_ends_with_what_the_engine_asks_and_the_context_its_entry_says() {
         [[flows.engineer.rounds]]
         cell = "I1"
         took = { context_tokens = 48000 }
-
-        [[flows.engineer.rounds.engine]]
-        name = "protected_files"
-        waits = true
-        ask = "The work changes `AGENTS.md`."
-        options = [{ does = "Merge it", follows = "The guide changes." }, { does = "Take it back", follows = "It stays." }]
-        about = "AGENTS.md 4b8e2d1"
-        reasons = { "AGENTS.md" = "The guide names the new command." }
         "#,
     )
     .unwrap();
-    let planned = script.round(&flow, cell(&flow, "I1"), 1, 1, 1, &BTreeMap::new());
-    assert_eq!(planned.spent.context_tokens, Some(48000));
-    let Ends::Came(came) = planned.ends else {
-        panic!("the round hands in");
+    let context = |of: &str| {
+        script
+            .round(&flow, cell(&flow, of), 1, 1, 1, &BTreeMap::new())
+            .spent
+            .context_tokens
     };
-    let way = |does: &str, follows: &str| Way {
-        does: does.to_string(),
-        follows: follows.to_string(),
-    };
-    assert_eq!(
-        came.engine,
-        [Question::Asked {
-            name: "protected_files".to_string(),
-            waits: true,
-            recommends: None,
-            ask: "The work changes `AGENTS.md`.".to_string(),
-            options: vec![way("Merge it", "The guide changes."), way("Take it back", "It stays.")],
-            about: Some("AGENTS.md 4b8e2d1".to_string()),
-            reasons: BTreeMap::from([("AGENTS.md".to_string(), "The guide names the new command.".to_string())]),
-        }]
-    );
+    assert_eq!(context("I1"), Some(48000));
     // A round its entry says no context of ends with the script's; an act's, with none.
-    let r1 = script.round(&flow, cell(&flow, "R1"), 1, 1, 1, &BTreeMap::new());
-    assert_eq!(r1.spent.context_tokens, Some(9000));
-    let check = script.round(&flow, cell(&flow, "M1"), 1, 1, 1, &BTreeMap::new());
-    assert_eq!(check.spent.context_tokens, None);
+    assert_eq!(context("R1"), Some(9000));
+    assert_eq!(context("M1"), None);
 }
 
 #[test]
@@ -758,6 +704,36 @@ fn a_script_is_told_every_misuse_of_what_a_round_returns_at_once() {
         [outside]
         finds = { failure = "passing", why = "A crash.", resets = 600000 }
 
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        hands_in = []
+        reads = [{ block = "code", content = "4b8e2d1" }, { block = "hed", content = "4b8e2d1" }]
+
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        run = 2
+        asks = [{ tool = "query" }]
+        reads = [{ block = "head", content = "4b8e2d1" }]
+
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        run = 3
+        fails = "No."
+        reads = [{ block = "head", content = "4b8e2d1" }]
+
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        run = 4
+        reads = [{ block = "head", content = "4b8e2d1", for_round = true }]
+
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        work = 2
+
+        [[flows.engineer.rounds]]
+        cell = "I1"
+        work = 2
+
         [[flows.trial.rounds]]
         cell = "build"
         work = 0
@@ -783,7 +759,6 @@ fn a_script_is_told_every_misuse_of_what_a_round_returns_at_once() {
         took = { context_tokens = 10 }
 
         [[flows.trial.rounds.engine]]
-        name = "protected_files"
         withdrawn = "The work touches no protected file."
 
         [[flows.trial.rounds]]
@@ -792,7 +767,6 @@ fn a_script_is_told_every_misuse_of_what_a_round_returns_at_once() {
         took = { context_tokens = 10 }
 
         [[flows.trial.rounds.engine]]
-        name = "protected_files"
         withdrawn = "The work touches no protected file."
 
         [[flows.trial.rounds]]
@@ -803,17 +777,34 @@ fn a_script_is_told_every_misuse_of_what_a_round_returns_at_once() {
         [[flows.trial.rounds.questions]]
         name = "named"
         withdrawn = "No."
+
+        [[flows.trial.rounds.engine]]
+        withdrawn = "No."
+
+        [[flows.trial.rounds]]
+        cell = "build"
+        run = 3
+        asks = [{ tool = "query" }]
+
+        [[flows.trial.rounds.engine]]
+        withdrawn = "No."
         "#,
     )
     .unwrap();
     assert_eq!(
-        script.check(&[trial()]),
+        script.check(&[trial(), engineer()]),
         [
             "tools.check: no flow names the tool check",
             "outside.finds: the check of the outside finds only what holds every work: usage_limit, cannot_run, \
              offline or unavailable",
             "outside.finds: only a usage limit resets",
             "outside.finds.resets: a time counts from the script's start, which it does not say",
+            "flows.engineer.rounds[0].reads[0]: no source outside the work writes code",
+            "flows.engineer.rounds[0].reads[1]: the flow engineer has no block hed",
+            "flows.engineer.rounds[1]: only an agent's round that does the cell's work reads",
+            "flows.engineer.rounds[2]: only an agent's round that does the cell's work reads",
+            "flows.engineer.rounds[3].reads[0]: only an act's round says for_round",
+            "flows.engineer.rounds[5]: says again what flows.engineer.rounds[4] says",
             "flows.trial.rounds[0]: works, runs and rounds are counted from 1",
             "flows.trial.rounds[0].asks[0]: the cell build may not ask for the tool check",
             "flows.trial.rounds[1].hands_in[0]: q_and_a holds the work's questions, which a round asks in questions",
@@ -823,35 +814,9 @@ fn a_script_is_told_every_misuse_of_what_a_round_returns_at_once() {
             "flows.trial.rounds[4]: the engine asks nothing as a round of merge ends, which it looks at no branch for",
             "flows.trial.rounds[4]: an act of the engine takes no cost and no tokens",
             "flows.trial.rounds[5]: only a round that does the cell's work asks the owner",
+            "flows.trial.rounds[5]: only a round that does the cell's work ends with what the engine asks",
             "flows.trial.rounds[5].resets: a time counts from the script's start, which it does not say",
-        ]
-    );
-}
-
-#[test]
-fn an_agents_read_says_no_way_of_writing_it_and_a_round_of_one_work_is_not_said_again_by_another_works() {
-    let script = Script::read(
-        r#"
-        [[flows.engineer.rounds]]
-        cell = "I1"
-        reads = [{ block = "head", content = "4b8e2d1", for_round = true }]
-
-        [[flows.engineer.rounds]]
-        cell = "I1"
-        work = 2
-
-        [[flows.engineer.rounds]]
-        cell = "I1"
-        work = 2
-        "#,
-    )
-    .unwrap();
-    assert_eq!(
-        script.check(&[engineer()]),
-        [
-            "flows.engineer.rounds[0].reads[0]: an agent's round hands in what it read, and only an act's says \
-             for_round",
-            "flows.engineer.rounds[2]: says again what flows.engineer.rounds[1] says",
+            "flows.trial.rounds[6]: only a round that does the cell's work ends with what the engine asks",
         ]
     );
 }
@@ -1168,4 +1133,85 @@ async fn the_check_of_the_outside_finds_what_the_script_says_and_else_finds_it_w
         }
     );
     assert_eq!(Scripted::new(Script::default(), words()).check().await, Found::Well);
+}
+
+// A round of a line that only reads hands in nothing of what it read: as the real carrier does, what it found of the
+// branch as it ended is written from outside before what comes back, a change none of its own, as a commit someone made
+// during a review; read again, as by a round given again after a restart, it is not written again. Milliseconds alone,
+// on the paused clock; no other test holds the stand-ins to how a round that only reads writes what it read.
+#[tokio::test(start_paused = true)]
+async fn a_round_of_a_line_that_only_reads_writes_what_it_read_from_outside_as_it_ends() {
+    let flow = engineer();
+    let script = Script::read(
+        r#"
+        [[flows.engineer.rounds]]
+        cell = "T1"
+        reads = [{ block = "head", content = "9c0ffee" }]
+        "#,
+    )
+    .unwrap();
+    assert!(cell(&flow, "T1").reads_only, "the review is on a line that only reads");
+    let planned = script.round(&flow, cell(&flow, "T1"), 1, 1, 1, &BTreeMap::new());
+    let head = Read {
+        block: "head".into(),
+        content: "9c0ffee".to_string(),
+        for_round: false,
+    };
+    assert_eq!(planned.reads, Some(vec![head]));
+    let Ends::Came(came) = planned.ends else {
+        panic!("the review hands in");
+    };
+    assert!(came.read.is_empty(), "{:?}", came.read);
+    let reviewed = carried(&script, round(&flow, "T1", kept(&["T1"], 1, Work::default()))).await;
+    assert!(
+        matches!(&reviewed[..], [
+            Event::Wrote { block, by: Outsider::Outside, content, .. },
+            Event::Returned { came, .. },
+        ] if block.as_str() == "head" && content == "9c0ffee" && came.read.is_empty()),
+        "{reviewed:?}"
+    );
+    let again = written(kept(&["T1"], 1, Work::default()), "head", "9c0ffee");
+    let reviewed = carried(&script, round(&flow, "T1", again)).await;
+    assert!(matches!(&reviewed[..], [Event::Returned { .. }]), "{reviewed:?}");
+}
+
+// What the engine asks as a round ends is its own question, which the carriers name as the words beside the flows name
+// it: a script does not say its name. Milliseconds alone, on the paused clock.
+#[tokio::test(start_paused = true)]
+async fn what_the_engine_asks_as_a_round_ends_is_named_as_the_words_beside_the_flows_name_its_question() {
+    let flow = engineer();
+    let script = Script::read(
+        r#"
+        [[flows.engineer.rounds]]
+        cell = "I1"
+
+        [[flows.engineer.rounds.engine]]
+        waits = true
+        ask = "The work changes `AGENTS.md`."
+        options = [{ does = "Merge it", follows = "The guide changes." }, { does = "Take it back", follows = "It stays." }]
+        about = "AGENTS.md 4b8e2d1"
+        reasons = { "AGENTS.md" = "The guide names the new command." }
+        "#,
+    )
+    .unwrap();
+    let events = carried(&script, round(&flow, "I1", kept(&["I1"], 1, Work::default()))).await;
+    let Some(Event::Returned { came, .. }) = events.last() else {
+        panic!("the round returns: {events:?}");
+    };
+    let way = |does: &str, follows: &str| Way {
+        does: does.to_string(),
+        follows: follows.to_string(),
+    };
+    assert_eq!(
+        came.engine,
+        [Question::Asked {
+            name: words().asks.protected.name,
+            waits: true,
+            recommends: None,
+            ask: "The work changes `AGENTS.md`.".to_string(),
+            options: vec![way("Merge it", "The guide changes."), way("Take it back", "It stays.")],
+            about: Some("AGENTS.md 4b8e2d1".to_string()),
+            reasons: BTreeMap::from([("AGENTS.md".to_string(), "The guide names the new command.".to_string())]),
+        }]
+    );
 }

@@ -1,6 +1,7 @@
 //! The loop with the test carriers, over a store in a temporary directory, on the trial flow and its script, beside the
-//! files the flows of the tests share (`crates/flow/tests/laid_out`). Each test takes the loop one thing at a time, as the loop takes them, with the runtime's time paused
-//! so that each round ends when the script says; after every step it checks what the loop must always keep:
+//! files the flows of the tests share (`crates/flow/tests/laid_out`). Each test takes the loop one thing at a time, as
+//! the loop takes them, with the runtime's time paused so that each round ends when the script says; after every step
+//! it checks what the loop must always keep:
 //!
 //! - every todo handed out is answered once, or is still to be done;
 //! - nothing is handed out that the store does not hold as to be done.
@@ -24,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use decide::{CallId, Decision, RunId, Waited, Who};
+use decide::{CallId, Decision, RunId, Waited};
 use driver::{FirstWrite, NewItem, Todo};
 use engine::{Effect, Event};
 use flow::Compiled;
@@ -372,20 +373,6 @@ impl Trial {
         match self.decision(work) {
             Decision::Wait { on, .. } => on.iter().find_map(|waited| match waited {
                 Waited::Answer { question } => Some(question.clone()),
-                _ => None,
-            }),
-            _ => None,
-        }
-    }
-
-    /// The owner's call the work waits for, where it waits for one.
-    pub fn owners_call(&self, work: WorkNumber) -> Option<CallId> {
-        match self.decision(work) {
-            Decision::Wait { on, .. } => on.iter().find_map(|waited| match waited {
-                Waited::Call {
-                    call,
-                    on: Some(Who::Owner),
-                } => Some(*call),
                 _ => None,
             }),
             _ => None,

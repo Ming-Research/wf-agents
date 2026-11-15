@@ -53,9 +53,10 @@ pub const ENTRIES: [&str; 9] = [
     "withdrawn",
 ];
 
-/// What is wrong with the questions a return asks that its reading sees, in the order it wrote them: one that recommends
-/// none of its options, or has none; and one with the name of the question the engine itself asks, as what is written
-/// beside the flows names it. The run's check names these with everything else wrong with the return, in one send-back.
+/// What is wrong with the questions a return asks that its reading sees, in the order it wrote them: one that
+/// recommends none of its options, or has none; and one with the name of the question the engine itself asks, as what
+/// is written beside the flows names it. The run's check names these with everything else wrong with the return, in one
+/// send-back.
 pub fn unmet(asked: &[Question], words: &Agents) -> Vec<Unmet> {
     let mut found = Vec::new();
     for question in asked {

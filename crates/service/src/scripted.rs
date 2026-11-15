@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use decide::{BlockId, CallId, RunId};
 use driver::{Along, Found};
+use flow::Kind;
 use flow::agents::Agents;
 use store::WorkNumber;
 
@@ -71,8 +72,9 @@ impl Scripted {
     }
 
     /// What the round returns: the script's entry for it, as the cell's nth run in its work; a round of the act that
-    /// runs the tests hands in besides the result of each entry it gives ([`tested`]). What is wrong with the questions
-    /// it asks is found with it, and what it read is kept only where it differs from what its block says; an act's
+    /// runs the tests hands in besides the result of each entry it gives ([`tested`]). What the engine asks as it ends
+    /// is named as the words beside the flows name the engine's question, and what is wrong with the questions it asks
+    /// is found with it, and what it read is kept only where it differs from what its block says; an act's
     /// round reads what its entry says, or, where it says nothing, what the act reads by itself ([`taken_in`]).
     fn planned(&self, round: &Round) -> Planned {
         let nth = nth(&round.kept, round.run);
@@ -81,8 +83,19 @@ impl Scripted {
         let basis = basis.unwrap_or_default();
         let mut planned = (self.inner.script).round(&round.flow, &round.cell, round.work.0, nth, round.number, &basis);
         let new = |block: &BlockId, content: &str| says_now(&round.kept, block) != Some(content);
+        let entry = (self.inner.script).entry(
+            &round.flow.name,
+            round.cell.id.as_str(),
+            round.work.0,
+            nth,
+            round.number,
+        );
         if let Ends::Came(came) = &mut planned.ends {
             came.writes.extend(tested(round));
+            // What the engine asks as the round ends is its own question, named as the words beside the flows name it.
+            let protected = &self.inner.words.asks.protected.name;
+            let its_own = entry.and_then(|entry| entry.engine.as_ref()).into_iter().flatten();
+            came.engine = its_own.map(|question| question.question(protected)).collect();
             came.found
                 .extend(engine::asked::unmet(&came.said.questions, &self.inner.words));
             came.read.retain(|read| new(&read.block, &read.content));
@@ -187,14 +200,25 @@ impl Rounds for Scripted {
             }
             held.rounds.insert(key, Some(reply));
         }
-        // What an act read is written as its round begins, each as the script says: for the round, or from outside.
-        for read in planned.reads.iter().flatten() {
-            let (block, content) = (read.block.clone(), read.content.clone());
-            match read.for_round {
-                true => teller.outside_wrote_for_round(block, content),
-                false => teller.outside_wrote(block, content),
+        // What an act read is written as its round begins, each as the script says: for the round, or from outside;
+        // what a round of a line that only reads read, from outside as it ends, before what comes back.
+        let reads = planned.reads.clone().unwrap_or_default();
+        let (ending, beginning): (Vec<Read>, Vec<Read>) =
+            reads.into_iter().partition(|_| round.cell.kind == Kind::Agent);
+        let write = move |reads: Vec<Read>| {
+            for Read {
+                block,
+                content,
+                for_round,
+            } in reads
+            {
+                match for_round {
+                    true => teller.outside_wrote_for_round(block, content),
+                    false => teller.outside_wrote(block, content),
+                }
             }
-        }
+        };
+        write(beginning);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             // Where it stands as it goes: waiting for the turn for the first half of its time, then the CI run.
@@ -213,6 +237,7 @@ impl Rounds for Scripted {
             tokio::time::sleep(Duration::from_millis(planned.ms - waited)).await;
             let reply = inner.held().rounds.get_mut(&key).and_then(Option::take);
             if let Some(reply) = reply {
+                write(ending);
                 end(reply, planned);
             }
         });

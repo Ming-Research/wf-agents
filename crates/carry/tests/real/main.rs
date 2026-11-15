@@ -369,27 +369,38 @@ fn compiled(on: On) -> Compiled {
             .push_str("\n[blocks.verdict]\nvalues = [\"yes\", \"no\"]\nshown = true\n");
     }
     // A build may ask the owner: the record of the work's questions, which the engine's source of answers writes, is
-    // among its outputs, and the owner's answer and words run it by blocks of its own, as they run every cell that may
-    // ask; the record is declared where the flow does not declare it already.
+    // among its outputs, and the owner's answer and words run it, as they run every cell that may ask: by blocks of its
+    // own, but for the answer of a build that `answered` runs already. The record is declared where the flow does not
+    // declare it already.
     if let Some(build) = source
         .cells
         .get_mut("build")
         .filter(|build| build.contains("outputs = [\"code\"]"))
     {
+        let answered = build.contains("\"answered\"");
         let inputs = (build.lines().find(|line| line.starts_with("inputs = ["))).map(str::to_string);
         let inputs = inputs.expect("the build names its inputs");
-        let more = inputs.replacen(']', ", \"build_answered\", \"build_spoken_to\"]", 1);
+        let its_own = if answered {
+            ", \"build_spoken_to\"]"
+        } else {
+            ", \"build_answered\", \"build_spoken_to\"]"
+        };
+        let more = inputs.replacen(']', its_own, 1);
         *build = (build.replace(&inputs, &more)).replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
         if !source.flow.contains("[blocks.q_and_a]") {
             source.flow.push_str(
                 "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n",
             );
         }
-        source.flow.push_str(
-            "\n[blocks.build_answered]\noutside = \"answer\"\n\n[blocks.build_answered.writes]\n\
-             text = \"The owner answered {question} with option {option}, {does}.{why}\"\nwhy = \" {why}\"\n\n\
-             [blocks.build_spoken_to]\noutside = \"words\"\n",
-        );
+        if !answered {
+            source.flow.push_str(
+                "\n[blocks.build_answered]\noutside = \"answer\"\n\n[blocks.build_answered.writes]\n\
+                 text = \"The owner answered {question} with option {option}, {does}.{why}\"\nwhy = \" {why}\"\n",
+            );
+        }
+        source
+            .flow
+            .push_str("\n[blocks.build_spoken_to]\noutside = \"words\"\n");
     }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {

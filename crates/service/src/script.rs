@@ -51,8 +51,8 @@
 //! ]
 //! observations = ["The greeting has no test."]
 //!
-//! # The first round of the first run of plan hands in nothing, and asks the owner a question it waits for, as the record
-//! # of the work's questions holds one.
+//! # The first round of the first run of plan hands in nothing, and asks the owner a question it waits for, as the
+//! # record of the work's questions holds one.
 //! [[flows.trial.rounds]]
 //! cell = "plan"
 //! hands_in = []
@@ -100,24 +100,26 @@
 //! The questions a round asks are read as a return's are ([`engine::asked::unmet`]): one that recommends none of its
 //! options, or has the name of the question the engine itself asks in the words beside the flows, is found wrong with
 //! the return, which the run's check then sends back. A round that does its cell's work may say what the engine itself
-//! asks the owner as it ends (`engine`), as of a change of a path the project protects, in the shape the engine keeps
-//! its own questions in, which recommend none: the engine looks at the work's branch as a round of a line that may
-//! change the work ends, and as the work is checked before its merge. An ask of a tool may say what that call of it
+//! asks the owner as it ends (`engine`), its question of a change of a path the project protects, in the shape the
+//! engine keeps its own questions in, which recommend none and are named as the words beside the flows name that
+//! question: the engine looks at the work's branch as a round of a line that may change the work ends, and as the work
+//! is checked before its merge. An ask of a tool may say what that call of it
 //! answers and how long it takes (`answer`, `ms`), in place of what the tool's entry says.
 //!
 //! A round may say what its carrier read as it went (`reads`): of each block that a source outside the work writes from
 //! the work's branch or from main, such as its head, what the carrier reads it to say. An agent's round hands it in
-//! beside its blocks, as what the round committed, where it does the cell's work. An act's round writes it as it goes,
-//! each as its entry says: for its round (`for_round = true`), so that its run takes it in, as the check writes the
-//! main it takes in and the branch it read, which then runs it no more; or from outside (`for_round = false`), a new
-//! version the round does not take in, as the merge writes a head that moved since the check, which the review and the
-//! check then run on. What a carrier reads is written only where it differs from what the block says. A round the
-//! script says nothing of reads the work's head where its cell's line may change the work and it hands in a block an act
-//! of the engine's describes the work by: beside its blocks it hands in a version of the head, saying its cell, run and
-//! round, as an agent that wrote the code would have committed it. The act that checks the work, where its entry says
-//! nothing of what it read, takes main in as the real check does, the latest the work's block of main holds, writing
-//! nothing; only where that block holds none it writes, for its round, a version made up for it, so that it never writes
-//! main back to an older head.
+//! beside its blocks, as what the round committed, where it does the cell's work; of a line that only reads, it is
+//! written from outside as the round ends, before what comes back, a change found then being none of the round's own,
+//! as of a commit someone made during a review. An act's round writes it as it begins, each as its entry says: for its
+//! round (`for_round = true`), so that its run takes it in, as the check writes the main it takes in and the branch it
+//! read, which then runs it no more; or from outside (`for_round = false`), a new version the round does not take in,
+//! as the merge writes a head that moved since the check, which the review and the check then run on. What a carrier
+//! reads is written only where it differs from what the block says. A round the script says nothing of reads the work's
+//! head where its cell's line may change the work and it hands in a block an act of the engine's describes the work by:
+//! beside its blocks it hands in a version of the head, saying its cell, run and round, as an agent that wrote the code
+//! would have committed it. The act that checks the work, where its entry says nothing of what it read, takes main in
+//! as the real check does, the latest the work's block of main holds, writing nothing; only where that block holds none
+//! it writes, for its round, a version made up for it, so that it never writes main back to an older head.
 //!
 //! ```toml
 //! [[flows.engineer.rounds]]
@@ -388,6 +390,13 @@ pub struct WithdrawnScript {
     pub withdrawn: String,
 }
 
+/// The engine's question withdrawn, for this reason.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EngineWithdrawn {
+    pub withdrawn: String,
+}
+
 /// An option of a question: what the work does by it, and what follows from it.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -396,21 +405,21 @@ pub struct WayScript {
     pub follows: String,
 }
 
-/// A question the engine itself asks the owner as a round ends, as the engine keeps its own.
+/// The question the engine itself asks the owner as a round ends, as the engine keeps its own: it is named as the
+/// words beside the flows name it, which a script does not say.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
 pub enum EngineQuestion {
     Asked(EngineAsked),
-    Withdrawn(WithdrawnScript),
+    Withdrawn(EngineWithdrawn),
 }
 
-/// A question the engine asks, or asks anew: it recommends none of its options. What it is of, told apart from what any
-/// other version is of (`about`), and why the work's agents said each part of it is needed, by the part's name
+/// The engine's question asked, or asked anew: it recommends none of its options. What it is of, told apart from what
+/// any other version is of (`about`), and why the work's agents said each part of it is needed, by the part's name
 /// (`reasons`), as the engine keeps them.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EngineAsked {
-    pub name: String,
     pub waits: bool,
     pub ask: String,
     pub options: Vec<WayScript>,
@@ -439,8 +448,9 @@ pub struct Planned {
     pub turn: Option<u64>,
     /// The link of the CI run it says it runs as, from its begin or once the turn is taken.
     pub at: Option<String>,
-    /// What an act's round read as it goes, as its entry says, which it writes; none where its entry says nothing of it,
-    /// and of an agent's round, which hands in what it read with what comes back.
+    /// What it read, as its entry says, which it writes as it goes: an act's round, and an agent's of a line that
+    /// only reads; none where its entry says nothing of it, and of an agent's round of a line that may change the
+    /// work, which hands in what it read with what comes back.
     pub reads: Option<Vec<Read>>,
 }
 
@@ -471,12 +481,13 @@ impl Script {
     /// Everything wrong with the script for these flows, each in words with where it is: a flow, a cell, a block or a
     /// tool it names that is not there, a default value that is not one of its choice's, a time it names with no start
     /// to count from, what the check of the outside finds that holds no work; a round that does more than one of
-    /// handing in, asking and failing, one that asks or fails and says observations, questions, what the engine asks or,
-    /// of an agent's, what it read, a block it reads that no source outside the work writes, a round said twice; a tool
-    /// a round asks for that its cell may not ask for, the record of the work's questions handed in as a block, questions
-    /// of a cell that writes no record of them, what the engine asks as a round ends where it looks at nothing; and an
-    /// act of the engine that asks or costs, or reads without saying how it writes it. A script that names a block a cell
-    /// may not write, or a value a choice does not have, is not wrong: what it hands in is sent back.
+    /// handing in, asking and failing, one that asks or fails and says observations, questions, what the engine asks
+    /// or, of an agent's, what it read, a block it reads that no source outside the work writes, a round said twice; a
+    /// tool a round asks for that its cell may not ask for, the record of the work's questions handed in as a block,
+    /// questions of a cell that writes no record of them, what the engine asks as a round ends where it looks at
+    /// nothing; and an act of the engine that asks or costs, or reads without saying how it writes it. A script that
+    /// names a block a cell may not write, or a value a choice does not have, is not wrong: what it hands in is sent
+    /// back.
     pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
         let mut faults = Vec::new();
         if self.slots == Some(0) {
@@ -600,9 +611,7 @@ impl Script {
                         Some(_) => {}
                     }
                     match (agent, read.for_round) {
-                        (true, Some(_)) => faults.push(format!(
-                            "{at}.reads[{j}]: an agent's round hands in what it read, and only an act's says for_round"
-                        )),
+                        (true, Some(_)) => faults.push(format!("{at}.reads[{j}]: only an act's round says for_round")),
                         (false, None) if cell.is_some() => faults.push(format!(
                             "{at}.reads[{j}]: an act's round says whether it writes what it read for_round"
                         )),
@@ -697,9 +706,11 @@ impl Script {
                 ..Default::default()
             },
         };
-        // What an act read as it went, which it writes as its entry says.
+        // What an act read as it went, and a round of a line that only reads as it ended, which each writes as its
+        // entry says, the latter from outside.
+        let writes_reads = cell.kind == Kind::Engine || cell.reads_only;
         let reads = (entry.and_then(|entry| entry.reads.as_ref()))
-            .filter(|_| cell.kind == Kind::Engine)
+            .filter(|_| writes_reads)
             .map(|reads| {
                 (reads.iter())
                     .map(|read| Read {
@@ -789,16 +800,13 @@ impl Script {
                 )
             }
         };
-        // What it came across beyond its work, the questions it asks and what the engine asks as it ends are said
-        // beside the blocks it hands in.
+        // What it came across beyond its work and the questions it asks are said beside the blocks it hands in; what
+        // the engine asks as it ends, the carrier names as the words beside the flows name it.
         if let Some(observations) = entry.and_then(|entry| entry.observations.clone()) {
             came.said.observations = observations;
         }
         if let Some(questions) = entry.and_then(|entry| entry.questions.as_ref()) {
             came.said.questions = questions.iter().map(QuestionScript::question).collect();
-        }
-        if let Some(engine) = entry.and_then(|entry| entry.engine.as_ref()) {
-            came.engine = engine.iter().map(EngineQuestion::question).collect();
         }
         // What an agent's round read of the branch as it ended is handed in beside its blocks: what its entry says, or,
         // of a round the script says nothing of, the work's head where it hands in what an act describes the work by.
@@ -809,7 +817,7 @@ impl Script {
             value: None,
         };
         came.read = match entry.and_then(|entry| entry.reads.as_ref()) {
-            Some(_) if cell.kind == Kind::Engine => Vec::new(),
+            Some(_) if writes_reads => Vec::new(),
             Some(reads) => (reads.iter())
                 .map(|r| read(BlockId(r.block.clone()), r.content.clone()))
                 .collect(),
@@ -881,11 +889,12 @@ impl QuestionScript {
 }
 
 impl EngineQuestion {
-    /// The question as the engine asks it, as the engine keeps it.
-    fn question(&self) -> Question {
+    /// The question as the engine asks it under this name, its own question's as the words beside the flows name it, as
+    /// the engine keeps it.
+    pub fn question(&self, name: &str) -> Question {
         match self {
             EngineQuestion::Asked(q) => Question::Asked {
-                name: q.name.clone(),
+                name: name.to_string(),
                 waits: q.waits,
                 recommends: None,
                 ask: q.ask.clone(),
@@ -894,7 +903,7 @@ impl EngineQuestion {
                 reasons: q.reasons.clone(),
             },
             EngineQuestion::Withdrawn(q) => Question::Withdrawn {
-                name: q.name.clone(),
+                name: name.to_string(),
                 why: q.withdrawn.clone(),
             },
         }

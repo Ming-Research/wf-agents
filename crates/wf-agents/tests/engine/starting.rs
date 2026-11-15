@@ -117,7 +117,7 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
 
     let engine = Engine::start(&place);
     let held = "The engine started with works going on and holds every work until the owner has looked: none begins \
-                a round but to answer a note, until `wf-agents resume --all`";
+                a round but for the owner's words or answers, until `wf-agents resume --all`";
     assert_eq!(
         engine.says(&["list"]),
         format!(
@@ -128,9 +128,12 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
     // `wait` says first that the engine waits for the owner.
     let said = engine.says(&["wait", "--for", "0"]);
     assert!(said.starts_with(&format!("{held}, for ")), "{said}");
-    // The answer is taken, and the plan's next round waits for the owner to let everything on.
+    // The answer is taken: the plan's run entered for it runs and finishes, as a run that answers the owner does, and
+    // the build waits for the owner to let everything on.
     engine.says(&["answer", "1", "named", "9", "1"]);
     engine.until(&["list"], |line| line.ends_with("held back by the pause of everything"));
+    let shown = engine.says(&["show", "1"]);
+    assert!(shown.contains("\n  run 2 of plan: 1 round, finished"), "{shown}");
     assert!(engine.says(&["resume", "--all"]).starts_with("Works go on; "));
     engine.until(&["list", "--all"], |line| line.ends_with(": merged"));
 }
