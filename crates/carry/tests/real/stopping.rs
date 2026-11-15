@@ -62,4 +62,8 @@ async fn an_agents_round_under_way_is_stopped_when_its_work_is_cancelled() {
     assert!(began.elapsed() < Duration::from_secs(20), "the program was stopped");
     let pgid = real.data.join(format!("rounds/1/{}-1.pgid", plan.0));
     assert!(!pgid.exists(), "no program runs");
+    // What the hook gives the session again after a compaction is the program's while it runs, and no second copy of
+    // the message is kept past a round that was stopped.
+    let again = real.data.join(format!("rounds/1/{}-1.again.md", plan.0));
+    assert!(!again.exists(), "{}", again.display());
 }

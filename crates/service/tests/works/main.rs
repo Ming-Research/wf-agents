@@ -124,6 +124,8 @@ pub struct Trial {
     inbox: Inbox,
     /// What the carriers were handed since the process last started.
     handed: Arc<Mutex<BTreeSet<Unit>>>,
+    /// What the carriers were last told of each work's pause since the process last started.
+    paused: Told,
     /// How often the loop took an answer to each unit, over every start of the process.
     answered: BTreeMap<Unit, usize>,
     /// How many things the loop took, over every start.
@@ -134,6 +136,9 @@ pub struct Trial {
 
 /// The keep-warm pings handed out and not yet answered, each with its reply.
 type Pings = Arc<Mutex<Vec<(Ping, PingReply)>>>;
+
+/// What the carriers were last told of whether a pause holds each work.
+type Told = Arc<Mutex<BTreeMap<WorkNumber, bool>>>;
 
 impl Trial {
     /// The loop with the trial's script, on an empty store.
@@ -159,7 +164,8 @@ impl Trial {
         let path = dir.path().join("store.sqlite");
         let clock = Arc::new(TokioClock::new(START));
         let handed = Arc::new(Mutex::new(BTreeSet::new()));
-        let (service, inbox) = open(&path, &script, &clock, &handed, pings.as_ref());
+        let paused = Told::default();
+        let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), pings.as_ref());
         let trial = Trial {
             _dir: dir,
             path,
@@ -168,12 +174,19 @@ impl Trial {
             service,
             inbox,
             handed,
+            paused,
             answered: BTreeMap::new(),
             steps: 0,
             pings,
         };
         trial.check();
         trial
+    }
+
+    /// Whether the carriers were last told, since the process last started, that a pause holds the work back; none
+    /// where they were told nothing of it.
+    pub fn told_paused(&self, work: WorkNumber) -> Option<bool> {
+        self.paused.lock().expect("what was told").get(&work).copied()
     }
 
     /// The works with a keep-warm ping in hand.
@@ -199,10 +212,12 @@ impl Trial {
     /// hands out again what is to be done.
     pub fn restart(&mut self) {
         self.handed = Arc::new(Mutex::new(BTreeSet::new()));
+        self.paused = Told::default();
         if let Some(pings) = &self.pings {
             pings.lock().expect("the pings").clear();
         }
-        let (service, inbox) = open(&self.path, &self.script, &self.clock, &self.handed, self.pings.as_ref());
+        let recorded = (&self.handed, &self.paused);
+        let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, self.pings.as_ref());
         self.service = service;
         self.inbox = inbox;
         self.check();
@@ -462,18 +477,20 @@ fn carried(driver: &driver::Driver, todo: &Todo) -> Option<Unit> {
 }
 
 /// Opens the loop on the store at this path, with carriers following the script that record in `handed` what they
-/// are given, and keep the agents' sessions warm where `pings` holds the pings in hand.
+/// are given and in `paused` what they are told of each work's pause, and keep the agents' sessions warm where `pings`
+/// holds the pings in hand.
 fn open(
     path: &Path,
     script: &Script,
     clock: &Arc<TokioClock>,
-    handed: &Arc<Mutex<BTreeSet<Unit>>>,
+    (handed, paused): (&Arc<Mutex<BTreeSet<Unit>>>, &Told),
     pings: Option<&Pings>,
 ) -> (Service, Inbox) {
     let store = Store::open(path).expect("the store opens");
     let recording = Arc::new(Recording {
         scripted: Scripted::new(script.clone()),
         handed: handed.clone(),
+        paused: paused.clone(),
         path: path.to_path_buf(),
     });
     let agents: Arc<dyn Rounds> = match pings {
@@ -552,6 +569,8 @@ impl Rounds for Warm {
 struct Recording {
     scripted: Scripted,
     handed: Arc<Mutex<BTreeSet<Unit>>>,
+    /// What it was last told of whether a pause holds each work.
+    paused: Told,
     path: PathBuf,
 }
 
@@ -588,6 +607,10 @@ impl Rounds for Recording {
         let unit = Unit::Round(round.work, round.run, round.number);
         self.hand(round.work, Effect::Stop { run: round.run }, unit);
         self.scripted.stop(round, reply);
+    }
+
+    fn paused(&self, work: WorkNumber, paused: bool) {
+        self.paused.lock().expect("what was told").insert(work, paused);
     }
 
     fn release(&self, release: Release, reply: ReleaseReply) {

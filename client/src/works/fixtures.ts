@@ -307,6 +307,7 @@ class History {
           : [{ attempt: 1, ran: { level: '2', model: 'claude-sonnet-5-5', effort: defined?.effort ?? null }, filled: [fills] }],
       missed: null,
       estimated: false,
+      judged: { cost: null, time: null },
     };
     run.rounds.push(round);
     const results = given.kind === 'results' ? given.calls.map((c) => this.callPages.get(c) as CallPage) : [];
@@ -350,6 +351,7 @@ class History {
           made: this.time,
           done: result === null ? null : this.time + Math.round((ask.after ?? 0.2) * MINUTE),
           chars: result === null ? null : result.length,
+          time: null,
         };
         run.calls.push(row);
         this.callPages.set(row.call, { call: row.call, what, result });
@@ -373,7 +375,7 @@ class History {
   /// The run rests at a call the engine makes for it: the owner letting it go on at its limit.
   atLimit(run: RunStep, limit: CallRow['what'] & { kind: 'atLimit' }) {
     this.calls += 1;
-    const row: CallRow = { call: this.calls, what: limit, made: this.time, done: null, chars: null };
+    const row: CallRow = { call: this.calls, what: limit, made: this.time, done: null, chars: null, time: null };
     run.calls.push(row);
     this.callPages.set(row.call, { call: row.call, what: limit, result: null });
     return row.call;

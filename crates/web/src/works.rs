@@ -838,6 +838,105 @@ pub struct Round {
     /// to say it, as of a round the run guard stopped: an estimate. Worked out for a work's page only.
     #[serde(default)]
     pub estimated: bool,
+    /// What it cost and how long it took, or has taken so far while it is under way, against the lines of their
+    /// history. Worked out for a work's page only.
+    #[serde(default)]
+    pub judged: Judged,
+}
+
+/// What a round cost and how long it took against the lines of their history, as they stood when it began: worked out
+/// whenever it is read, and stopping nothing (principle `judged-by-own-history`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Judged {
+    /// What it cost, in millionths of a dollar, against what rounds of its kind on its model cost: none while it is
+    /// under way, for a round of an act, which costs nothing, and where too few rounds tell the line.
+    pub cost: Option<Against>,
+    /// How long it took, or has taken so far while it is under way, in milliseconds: none where too few rounds tell
+    /// the line.
+    pub time: Option<Against>,
+}
+
+/// A measure against the line of its history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Against {
+    /// The measure: millionths of a dollar for a cost, milliseconds for a time.
+    pub value: u64,
+    /// Its line, in the same units.
+    pub line: Line,
+    /// Whether the measure is past its line.
+    pub past: bool,
+}
+
+/// The line of a measure's history, which stands past the largest of the values of its kind by as much as that is
+/// past their median.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Line {
+    /// Where it stands, in the measure's units, to the nearest whole one.
+    pub value: u64,
+    /// How many values gave it.
+    pub samples: usize,
+    /// What gave it.
+    pub scope: Scope,
+}
+
+impl Line {
+    pub(crate) fn of(line: &driver::history::Line) -> Line {
+        Line {
+            value: line.value.round() as u64,
+            samples: line.samples,
+            scope: Scope::of(line.scope),
+        }
+    }
+}
+
+/// What gave a line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Scope {
+    /// The rounds of the cell.
+    Cell,
+    /// Every agent's round of the flow.
+    Flow,
+    /// The calls of the tool.
+    Tool,
+    /// The flow's other works.
+    Works,
+    /// The rounds of the line.
+    Line,
+}
+
+impl Scope {
+    pub(crate) fn of(scope: driver::history::Scope) -> Scope {
+        match scope {
+            driver::history::Scope::Cell => Scope::Cell,
+            driver::history::Scope::Flow => Scope::Flow,
+            driver::history::Scope::Tool => Scope::Tool,
+            driver::history::Scope::Works => Scope::Works,
+            driver::history::Scope::Line => Scope::Line,
+        }
+    }
+}
+
+impl Against {
+    pub(crate) fn of(against: &driver::judged::Against) -> Against {
+        Against {
+            value: against.value.round() as u64,
+            line: Line::of(&against.line),
+            past: against.past(),
+        }
+    }
+}
+
+impl Judged {
+    pub(crate) fn of(round: &driver::judged::Round) -> Judged {
+        Judged {
+            cost: round.cost.as_ref().map(Against::of),
+            time: round.time.as_ref().map(Against::of),
+        }
+    }
 }
 
 /// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
@@ -1006,6 +1105,10 @@ pub struct CallRow {
     pub done: Option<u64>,
     /// How long its result is, in characters.
     pub chars: Option<usize>,
+    /// How long a call of a tool took, or has taken so far while it has no result, in milliseconds, against the line
+    /// of the calls of its tool as it stood when it was made. Worked out for a work's page only.
+    #[serde(default)]
+    pub time: Option<Against>,
 }
 
 /// How a run ended.
@@ -1920,8 +2023,9 @@ impl WorkPage {
             })
             .collect();
         let misses = driver.misses(number);
+        let judged = driver.judged(Some(number), now);
         let mut runs = runs(kept)?;
-        in_detail(kept, &mut runs, &misses);
+        in_detail(kept, &mut runs, &misses, &judged);
         let mut steps: Vec<Step> = runs.into_iter().map(Step::Run).collect();
         for written in &work.records.written {
             let version = (view.blocks.get(&written.block))
@@ -2358,10 +2462,11 @@ impl Unmet {
 }
 
 /// Gives each round of the runs the session of its line it runs in, by the records' count, each try of it the records
-/// hold, with what was filled into its session, and how it missed its session's cache, of these misses: what a work's
-/// page shows of a round, and nothing else needs, since working out a round's session counts the line's rounds before
-/// it.
-fn in_detail(kept: Kept<'_>, runs: &mut [Run], misses: &[driver::cache::Miss]) {
+/// hold, with what was filled into its session, how it missed its session's cache, of these misses, and how it went
+/// against the lines of its history, as each call of a tool did, as judged: what a work's page shows of a round, and
+/// nothing else needs, since working out a round's session counts the line's rounds before it.
+fn in_detail(kept: Kept<'_>, runs: &mut [Run], misses: &[driver::cache::Miss], judged: &driver::judged::Judged) {
+    let of_work = kept.head.number;
     let work = kept.work;
     let records = &work.records;
     // The line of each run's cell, where the flow puts it on one.
@@ -2373,8 +2478,12 @@ fn in_detail(kept: Kept<'_>, runs: &mut [Run], misses: &[driver::cache::Miss]) {
     for r in runs {
         let run = RunId(r.run);
         let line = line_of(run);
+        for call in &mut r.calls {
+            call.time = judged.calls.get(&(of_work, CallId(call.call))).map(Against::of);
+        }
         for round in &mut r.rounds {
             let number = round.number;
+            round.judged = (judged.rounds.get(&(of_work, run, number))).map_or_else(Judged::default, Judged::of);
             round.estimated = work::measured::of_round(&work.measured, run, number).is_some_and(|m| m.priced);
             round.missed = (misses.iter())
                 .find(|m| m.run == run && m.round == number)
@@ -2491,6 +2600,7 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 tries: Vec::new(),
                 missed: None,
                 estimated: false,
+                judged: Judged::default(),
             });
         }
         let mut calls = Vec::new();
@@ -2502,6 +2612,7 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 made: time(work, called.at)?,
                 done: done.map(|done| time(work, done.at)).transpose()?,
                 chars: work.results.get(&called.call).map(|result| result.chars().count()),
+                time: None,
             });
         }
         let finished = records.finished.iter().find(|finished| finished.run == run);

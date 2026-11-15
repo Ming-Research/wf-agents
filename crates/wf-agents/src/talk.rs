@@ -15,11 +15,12 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
+use web::system::{Past, System, UnderWay};
 use web::works::{
-    Act, Added, Back, Call, CellKey, CellState, ChangeAsked, Engine, EngineAct, Failure, ItemChanged, ItemChanges,
-    ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person, QuestionPage,
-    Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Stalling, Step, Unrun, Until, VersionPage, Waited, WorkPage,
-    Writer,
+    Act, Added, Against, Back, Call, CellKey, CellState, ChangeAsked, Engine, EngineAct, Failure, ItemChanged,
+    ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person,
+    QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Stalling, Step, Unrun, Until, VersionPage, Waited,
+    WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -27,7 +28,17 @@ pub enum Asked {
     Add(NewItem),
     /// The items a listing gives.
     List(Listing),
-    Show(u64),
+    /// A work; or one part of it alone, from the entry at this place, the first being one.
+    Show {
+        work: u64,
+        part: Option<Part>,
+        from: Option<usize>,
+    },
+    /// How the system ran over this many days until now, at most this many of each kind of thing listed.
+    System {
+        days: u64,
+        limit: usize,
+    },
     Act(u64, Act),
     /// The owner's pause of everything set, or lifted.
     Everything(EngineAct),
@@ -78,6 +89,9 @@ const HOLD: u64 = 3600;
 
 /// The longest title a line of `wait` carries; the rest is cut.
 const TITLE: usize = 60;
+
+/// A day, in milliseconds.
+const DAY: u64 = 24 * 60 * 60 * 1000;
 
 /// Asks the engine on the loopback address at this port, and prints what came of it.
 pub fn ask(port: u16, asked: Asked) -> ExitCode {
@@ -164,9 +178,18 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
                 Ok(standing(&engine))
             }
-            Asked::Show(work) => {
+            Asked::Show { work, part, from } => {
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
-                Ok(show(&page))
+                Ok(match part {
+                    None => show(&page),
+                    Some(part) => show_part(&page, part, from.unwrap_or(1)),
+                })
+            }
+            Asked::System { days, limit } => {
+                let from = clock().saturating_sub(days.saturating_mul(DAY));
+                let path = format!("/api/v1/system?weeks={from}");
+                let system: System = send(address, Method::GET, &path, None::<&()>).await?;
+                Ok(system_said(&system, days, limit))
             }
             Asked::Act(work, act) => {
                 let resumed = act == Act::Resume {};
@@ -510,7 +533,7 @@ fn standing(engine: &Engine) -> String {
 const STARTED_HELD: &str = "The engine started with works going on and holds every work until you have looked: none \
                             begins a round but to answer a note, until `wf-agents resume --all`";
 
-/// The most items `list` gives in one answer.
+/// The most items `list` gives in one answer, and the most entries of a part of a work `show` gives alone.
 const LISTED: usize = 100;
 
 /// Which items a list gives: those carrying the tag alone, where one is given; from the item given; and those that
@@ -614,9 +637,48 @@ fn from_words(from: Option<u64>) -> String {
     from.map_or_else(String::new, |from| format!(" from #{from} on"))
 }
 
-/// One work: what it does now, its cells and blocks, what it took, and its runs.
+/// The most entries of each part of a work that grows with it, what happened to its item, its questions, its runs and
+/// its sessions, that `show` gives with the rest of the work.
+const SHOWN: usize = 10;
+
+/// A part of a work that grows with it, which `show` gives alone, a page at a time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum Part {
+    /// What happened to the work's item since it was added: each change made to it, each cancel and each reopen.
+    History,
+    /// Each question put to the owner, as it stands, in the order of their names.
+    Questions,
+    /// Each run of a cell, in the order they started.
+    Runs,
+    /// Each new session of a line, in the order they began.
+    Sessions,
+}
+
+impl Part {
+    /// Its name, as the command is given it.
+    fn name(self) -> String {
+        let value = clap::ValueEnum::to_possible_value(&self).expect("every part is given by its name");
+        value.get_name().to_string()
+    }
+
+    /// What it is of the work, in words.
+    fn said(self) -> &'static str {
+        match self {
+            Part::History => "what happened to its item",
+            Part::Questions => "its questions",
+            Part::Runs => "its runs",
+            Part::Sessions => "its sessions",
+        }
+    }
+}
+
+/// One work: what it does now, its cells and blocks and what it took; and of each part that grows with it, at most
+/// [`SHOWN`] entries, the latest, or of the questions those not answered first, with how many more there are and the
+/// command that gives them.
 fn show(page: &WorkPage) -> String {
     let summary = &page.summary;
+    let work = summary.number;
+    let happened = entries(page, Part::History);
     let mut lines = vec![
         format!(
             "Work {} of item {} \"{}\" at {}, {}, on the flow {}.",
@@ -638,21 +700,15 @@ fn show(page: &WorkPage) -> String {
             }
         ),
         format!("Spent: {}.", spent(&summary.spent)),
-        format!("Item {} {}", summary.item, history(&page.history)),
-        "Cells:".to_string(),
+        format!("Item {} {}", summary.item, added(&page.history, happened.is_empty())),
     ];
-    let runs: Vec<&Run> = (page.steps.iter())
-        .filter_map(|step| match step {
-            Step::Run(run) => Some(run),
-            _ => None,
-        })
-        .collect();
+    latest(&mut lines, &happened, work, Part::History);
+    lines.push("Cells:".to_string());
     for cell in &summary.cells {
         let run = |run: Option<u64>| run.map_or_else(String::new, |run| format!(" in run {run}"));
         let failure = |open: Option<u64>| {
-            let run = open.and_then(|open| runs.iter().find(|run| run.run == open));
-            run.and_then(|run| failure(run))
-                .map_or_else(String::new, |why| format!(": {why}"))
+            let run = open.and_then(|open| runs(page).find(|run| run.run == open));
+            run.and_then(failure).map_or_else(String::new, |why| format!(": {why}"))
         };
         let state = match cell.state {
             CellState::Running => format!("a round under way{}", run(cell.open)),
@@ -692,89 +748,175 @@ fn show(page: &WorkPage) -> String {
     }
     if !page.questions.is_empty() {
         lines.push("Questions:".to_string());
-    }
-    for q in &page.questions {
-        lines.extend(question(q));
-    }
-    for step in &page.steps {
-        match step {
-            Step::Cancelled { time, why, .. } => {
-                let why = why
-                    .as_deref()
-                    .map_or_else(|| "no reason was given".to_string(), |why| format!("\"{why}\""));
-                lines.push(format!("Cancelled at {}: {why}.", utc(*time)));
-            }
-            Step::Reopened { time, why, .. } => lines.push(format!("Reopened at {}: \"{why}\".", utc(*time))),
-            _ => {}
+        // Those not answered first, which may hold the work for the owner.
+        let (waiting, other): (Vec<&QuestionPage>, Vec<&QuestionPage>) = page.questions.iter().partition(|q| open(q));
+        let order: Vec<&QuestionPage> = waiting.iter().chain(&other).copied().collect();
+        lines.extend(order.iter().take(SHOWN).flat_map(|q| question(q)));
+        let more = order.len().saturating_sub(SHOWN);
+        if more > 0 {
+            let of = match waiting.len().saturating_sub(SHOWN) {
+                0 => String::new(),
+                n => format!(", {n} of them not answered"),
+            };
+            lines.push(format!("  And {more} more{of}: wf-agents show {work} questions"));
         }
     }
     lines.push("Runs:".to_string());
-    for run in runs {
-        let rounds = if run.rounds.len() == 1 {
-            "1 round".to_string()
-        } else {
-            format!("{} rounds", run.rounds.len())
-        };
-        let calls: Vec<String> = run.calls.iter().map(|call| call.call.to_string()).collect();
-        let calls = if calls.is_empty() {
-            String::new()
-        } else {
-            format!(", calls {}", calls.join(", "))
-        };
-        let end = match (&run.end, failure(run)) {
-            (None, Some(why)) => format!("open, its last round failed: {why}"),
-            (None, None) => "open".to_string(),
-            (Some(web::works::RunEnd::Finished { .. }), _) => "finished".to_string(),
-            (Some(web::works::RunEnd::Abandoned { .. }), _) => "abandoned".to_string(),
-        };
-        let last = run.rounds.iter().rev().find(|round| round.ended.is_some());
-        let context = last
-            .and_then(|round| round.context)
-            .map_or_else(String::new, |context| {
-                format!(", its last round ending with a context of {context} tokens")
-            });
-        let compactions: u32 = run.rounds.iter().map(|round| round.compactions).sum();
-        let compacted = match compactions {
-            0 => String::new(),
-            1 => ", its session compacted once".to_string(),
-            n => format!(", its session compacted {n} times"),
-        };
-        lines.push(format!(
-            "  run {} of {}: {rounds}{calls}{context}{compacted}, {end}",
-            run.run, run.cell
-        ));
-        // A round that missed its session's prompt cache, with what differed before the messages, or that nothing did,
-        // which is a fault of wf-agents.
-        for round in &run.rounds {
-            let Some(missed) = &round.missed else {
-                continue;
-            };
-            let cause = match missed.differs.is_empty() {
-                true => "nothing before the messages differed, a fault of wf-agents".to_string(),
-                false => format!("{} differed from the call before", missed.differs.join(", ")),
-            };
-            lines.push(format!(
-                "    round {} missed its session's cache: read {} of the {} tokens it held; {cause}",
-                round.number, missed.read, missed.held
-            ));
-        }
-    }
-    let sessions: Vec<String> = (page.steps.iter())
-        .filter_map(|step| match step {
-            Step::Session { at, line, why, .. } => Some(format!("  {line} at {at}: {}", session_why(why))),
-            _ => None,
-        })
-        .collect();
+    latest(&mut lines, &entries(page, Part::Runs), work, Part::Runs);
+    let sessions = entries(page, Part::Sessions);
     if !sessions.is_empty() {
         lines.push("Sessions:".to_string());
-        lines.extend(sessions);
+        latest(&mut lines, &sessions, work, Part::Sessions);
     }
     lines.join("\n")
 }
 
-/// What an item was as it was added and each change since, as the end of a sentence about it, with a line for each
-/// change.
-fn history(history: &ItemHistory) -> String {
+/// One part of a work alone: at most [`LISTED`] of its entries in their order, from the one at this place, the first
+/// being one, with how many more there are and the command that gives them.
+fn show_part(page: &WorkPage, part: Part, from: usize) -> String {
+    let (work, said) = (page.summary.number, part.said());
+    let all = entries(page, part);
+    let from = from.max(1);
+    if all.is_empty() {
+        return format!("Work {work}, {said}: none.");
+    }
+    if from > all.len() {
+        return format!("Work {work}, {said}: {}, fewer than {from}.", all.len());
+    }
+    let to = all.len().min(from - 1 + LISTED);
+    let mut lines = vec![format!("Work {work}, {said}, {from} to {to} of {}:", all.len())];
+    lines.extend(all[from - 1..to].iter().flatten().cloned());
+    if to < all.len() {
+        lines.push(format!(
+            "And {} more: wf-agents show {work} {} --from {}",
+            all.len() - to,
+            part.name(),
+            to + 1
+        ));
+    }
+    lines.join("\n")
+}
+
+/// The last [`SHOWN`] entries of a part, each its lines, after how many came before them, where any did, with the
+/// command that gives them.
+fn latest(lines: &mut Vec<String>, entries: &[Vec<String>], work: u64, part: Part) {
+    let before = entries.len().saturating_sub(SHOWN);
+    if before > 0 {
+        lines.push(format!("  And {before} earlier: wf-agents show {work} {}", part.name()));
+    }
+    lines.extend(entries[before..].iter().flatten().cloned());
+}
+
+/// Whether a question is neither answered nor withdrawn.
+fn open(q: &QuestionPage) -> bool {
+    q.answer.is_none() && q.withdrawn.is_none()
+}
+
+/// The runs of a work, in the order they started.
+fn runs(page: &WorkPage) -> impl Iterator<Item = &Run> {
+    page.steps.iter().filter_map(|step| match step {
+        Step::Run(run) => Some(run),
+        _ => None,
+    })
+}
+
+/// The entries of a part of a work, in their order, each its lines.
+fn entries(page: &WorkPage, part: Part) -> Vec<Vec<String>> {
+    match part {
+        Part::History => {
+            // What was changed of the item, and each cancel and reopen of it, each at its time.
+            let mut happened: Vec<(u64, String)> = (page.history.changes.iter())
+                .map(|change| {
+                    let why = (change.why.as_deref()).map_or_else(String::new, |why| format!(", because \"{why}\""));
+                    let line = format!("  {}: {}{why}", utc(change.time), item_changed(&change.what));
+                    (change.time, line)
+                })
+                .collect();
+            for step in &page.steps {
+                match step {
+                    Step::Cancelled { time, why, .. } => {
+                        let why = (why.as_deref()).map_or_else(
+                            || ", no reason being given".to_string(),
+                            |why| format!(", because \"{why}\""),
+                        );
+                        happened.push((*time, format!("  {}: cancelled{why}", utc(*time))));
+                    }
+                    Step::Reopened { time, why, .. } => {
+                        happened.push((*time, format!("  {}: reopened, because \"{why}\"", utc(*time))));
+                    }
+                    _ => {}
+                }
+            }
+            happened.sort_by_key(|(time, _)| *time);
+            happened.into_iter().map(|(_, line)| vec![line]).collect()
+        }
+        Part::Questions => page.questions.iter().map(question).collect(),
+        Part::Runs => runs(page).map(run_said).collect(),
+        Part::Sessions => (page.steps.iter())
+            .filter_map(|step| match step {
+                Step::Session { at, line, why, .. } => Some(vec![format!("  {line} at {at}: {}", session_why(why))]),
+                _ => None,
+            })
+            .collect(),
+    }
+}
+
+/// A run, in lines: its rounds and calls, the context its last round ended with, its session's compactions and how it
+/// ended; then each of its rounds that missed its session's prompt cache, with what differed before the messages, or
+/// that nothing did, which is a fault of wf-agents; then what of it went past the lines of its history.
+fn run_said(run: &Run) -> Vec<String> {
+    let rounds = if run.rounds.len() == 1 {
+        "1 round".to_string()
+    } else {
+        format!("{} rounds", run.rounds.len())
+    };
+    let calls: Vec<String> = run.calls.iter().map(|call| call.call.to_string()).collect();
+    let calls = if calls.is_empty() {
+        String::new()
+    } else {
+        format!(", calls {}", calls.join(", "))
+    };
+    let end = match (&run.end, failure(run)) {
+        (None, Some(why)) => format!("open, its last round failed: {why}"),
+        (None, None) => "open".to_string(),
+        (Some(web::works::RunEnd::Finished { .. }), _) => "finished".to_string(),
+        (Some(web::works::RunEnd::Abandoned { .. }), _) => "abandoned".to_string(),
+    };
+    let last = run.rounds.iter().rev().find(|round| round.ended.is_some());
+    let context = last
+        .and_then(|round| round.context)
+        .map_or_else(String::new, |context| {
+            format!(", its last round ending with a context of {context} tokens")
+        });
+    let compactions: u32 = run.rounds.iter().map(|round| round.compactions).sum();
+    let compacted = match compactions {
+        0 => String::new(),
+        1 => ", its session compacted once".to_string(),
+        n => format!(", its session compacted {n} times"),
+    };
+    let mut lines = vec![format!(
+        "  run {} of {}: {rounds}{calls}{context}{compacted}, {end}",
+        run.run, run.cell
+    )];
+    for round in &run.rounds {
+        let Some(missed) = &round.missed else {
+            continue;
+        };
+        let cause = match missed.differs.is_empty() {
+            true => "nothing before the messages differed, a fault of wf-agents".to_string(),
+            false => format!("{} differed from the call before", missed.differs.join(", ")),
+        };
+        lines.push(format!(
+            "    round {} missed its session's cache: read {} of the {} tokens it held; {cause}",
+            round.number, missed.read, missed.held
+        ));
+    }
+    lines.extend(past_of(run));
+    lines
+}
+
+/// What an item was as it was added, as the end of a sentence about it, and whether anything happened to it since.
+fn added(history: &ItemHistory, unchanged: bool) -> String {
     let first = &history.first;
     let after = if first.depends_on.is_empty() {
         String::new()
@@ -786,24 +928,16 @@ fn history(history: &ItemHistory) -> String {
         true => String::new(),
         false => format!(", tagged {}", first.tags.join(", ")),
     };
-    let mut lines = vec![format!(
+    format!(
         "was added as \"{}\" at {}{after}{tags}{}",
         first.title,
         level(first.level.as_deref()),
-        if history.changes.is_empty() {
+        if unchanged {
             ", and has not changed."
         } else {
             "; changed since:"
         }
-    )];
-    for change in &history.changes {
-        let why = change
-            .why
-            .as_deref()
-            .map_or_else(String::new, |why| format!(", because \"{why}\""));
-        lines.push(format!("  {}: {}{why}", utc(change.time), item_changed(&change.what)));
-    }
-    lines.join("\n")
+    )
 }
 
 /// What a change of an item did, as a clause.
@@ -1514,6 +1648,211 @@ fn writer(writer: &Writer) -> String {
     }
 }
 
+/// What of the run went past the lines of its history, a line each: a round whose cost or time did, one under way
+/// that has taken longer so far than its line, and a call of a tool that did, or has waited longer for its result.
+fn past_of(run: &Run) -> Vec<String> {
+    let mut lines = Vec::new();
+    for round in &run.rounds {
+        let mut said = Vec::new();
+        if let Some(cost) = round.judged.cost.filter(|cost| cost.past) {
+            said.push(cost_past(&cost));
+        }
+        if let Some(time) = round.judged.time.filter(|time| time.past) {
+            let took = match round.ended {
+                Some(_) => "took",
+                None => "has been under way for",
+            };
+            said.push(time_past(took, &time));
+        }
+        if !said.is_empty() {
+            lines.push(format!("    round {} {}", round.number, said.join("; ")));
+        }
+    }
+    for call in &run.calls {
+        let (Call::Tool { name, .. }, Some(time)) = (&call.what, call.time.filter(|time| time.past)) else {
+            continue;
+        };
+        let took = match call.done {
+            Some(_) => "took",
+            None => "has waited for its result for",
+        };
+        lines.push(format!(
+            "    call {} of the tool {name} {}",
+            call.call,
+            time_past(took, &time)
+        ));
+    }
+    lines
+}
+
+/// A cost past its line, as a clause.
+fn cost_past(cost: &Against) -> String {
+    format!(
+        "cost {}, past the line of {} that {}",
+        dollars(cost.value),
+        dollars(cost.line.value),
+        given_by(&cost.line)
+    )
+}
+
+/// A time past its line, as a clause, after what it did: took, or has been under way for.
+fn time_past(took: &str, time: &Against) -> String {
+    format!(
+        "{took} {}, past the line of {} that {}",
+        duration(time.value),
+        duration(time.line.value),
+        given_by(&time.line)
+    )
+}
+
+/// What gave a line, as the end of a sentence.
+fn given_by(line: &web::works::Line) -> String {
+    let of = match line.scope {
+        web::works::Scope::Cell => "rounds of its cell",
+        web::works::Scope::Flow => "agents' rounds of its flow",
+        web::works::Scope::Tool => "calls of its tool",
+        web::works::Scope::Works => "other works of its flow",
+        web::works::Scope::Line => "rounds of its line",
+    };
+    format!("{} {of} give", line.samples)
+}
+
+/// Millionths of a dollar, in dollars and cents.
+fn dollars(micros: u64) -> String {
+    format!("${:.2}", micros as f64 / 1_000_000.0)
+}
+
+/// How the system ran over the last `days`: what its rounds took, what ended past the lines of its history, the latest
+/// first, and what is under way against its own, the oldest first, at most `limit` of each, with how many more there
+/// are and how to see them.
+fn system_said(system: &System, days: u64, limit: usize) -> String {
+    let mut lines = vec![format!(
+        "Over the last {days} {}: {}.",
+        if days == 1 { "day" } else { "days" },
+        spent(&system.spent)
+    )];
+    let more = |left: usize| {
+        format!(
+            "  And {left} more: wf-agents system --days {days} --limit {}",
+            limit + left
+        )
+    };
+    if system.past.is_empty() {
+        lines.push("Nothing ended past the lines of its history.".to_string());
+    } else {
+        lines.push("Past the lines of their history, the latest first:".to_string());
+    }
+    for past in system.past.iter().take(limit) {
+        lines.push(match past {
+            Past::Round {
+                work,
+                item,
+                cell,
+                run,
+                round,
+                ended,
+                judged,
+            } => {
+                let mut said = Vec::new();
+                if let Some(cost) = judged.cost.filter(|cost| cost.past) {
+                    said.push(cost_past(&cost));
+                }
+                if let Some(time) = judged.time.filter(|time| time.past) {
+                    said.push(time_past("took", &time));
+                }
+                format!(
+                    "  W{work} of #{item}, round {round} of run {run} of {cell}, ended {}: {}",
+                    utc(*ended),
+                    said.join("; ")
+                )
+            }
+            Past::Call {
+                work,
+                item,
+                cell,
+                run,
+                call,
+                tool,
+                done,
+                time,
+            } => format!(
+                "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, done {}: {}",
+                utc(*done),
+                time_past("took", time)
+            ),
+        });
+    }
+    if system.past.len() > limit {
+        lines.push(more(system.past.len() - limit));
+    }
+    if system.under_way.is_empty() {
+        lines.push("Nothing is under way.".to_string());
+    } else {
+        lines.push("Under way, the oldest first:".to_string());
+    }
+    let so_far = |time: &Option<Against>, what: &str| match time {
+        Some(time) => format!(
+            "{} so far, {} the line of {} that {}",
+            duration(time.value),
+            if time.past { "past" } else { "within" },
+            duration(time.line.value),
+            given_by(&time.line)
+        ),
+        None => format!("no line yet, too few {what} having ended"),
+    };
+    for under_way in system.under_way.iter().take(limit) {
+        lines.push(match under_way {
+            UnderWay::Round {
+                work,
+                item,
+                cell,
+                run,
+                round,
+                began,
+                time,
+                bounds,
+            } => {
+                let bounds = bounds.map_or_else(String::new, |bounds| {
+                    let tokens = |line: Option<web::works::Line>| {
+                        line.map_or_else(|| "none yet".to_string(), |line| format!("{} tokens", line.value))
+                    };
+                    let cost = bounds
+                        .cost
+                        .map_or_else(|| "none yet".to_string(), |line| dollars(line.value));
+                    format!(
+                        "; its context's lines {} in all and {} a call, its cost's {cost}",
+                        tokens(bounds.added),
+                        tokens(bounds.rate)
+                    )
+                });
+                format!(
+                    "  W{work} of #{item}, round {round} of run {run} of {cell}, since {}: {}{bounds}",
+                    utc(*began),
+                    so_far(time, "rounds of its cell")
+                )
+            }
+            UnderWay::Call {
+                work,
+                item,
+                cell,
+                run,
+                call,
+                tool,
+                made,
+                time,
+            } => format!(
+                "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, since {}: {}",
+                utc(*made),
+                so_far(time, "calls of its tool")
+            ),
+        });
+    }
+    if system.under_way.len() > limit {
+        lines.push(more(system.under_way.len() - limit));
+    }
+    lines.join("\n")
+}
+
 /// What rounds took, as a clause.
 fn spent(spent: &Spent) -> String {
     let rounds = if spent.rounds == 1 {
@@ -1657,6 +1996,190 @@ mod tests {
         );
     }
 
+    /// A work of the trial flow with this many runs, new sessions and changes of its item, and this many questions, the
+    /// first `open` of them not answered.
+    fn work(runs: u64, sessions: u64, changes: u64, questions: u64, open: u64) -> WorkPage {
+        let item = item(1, false, &[], &[]);
+        let mut history = item.history;
+        history.changes = (1..=changes)
+            .map(|n| web::works::ItemChange {
+                time: n * 10,
+                why: None,
+                what: ItemChanged::Tagged { tag: format!("t{n}") },
+            })
+            .collect();
+        let mut steps: Vec<Step> = (1..=runs)
+            .map(|n| {
+                Step::Run(Run {
+                    run: n,
+                    cell: "plan".to_string(),
+                    at: n,
+                    time: n,
+                    because: Vec::new(),
+                    basis: Vec::new(),
+                    rounds: Vec::new(),
+                    calls: Vec::new(),
+                    end: None,
+                    spent: Spent::default(),
+                })
+            })
+            .collect();
+        steps.extend((1..=sessions).map(|n| Step::Session {
+            at: n,
+            time: n,
+            line: "engineer".to_string(),
+            why: SessionWhy::Owner,
+        }));
+        let questions = (1..=questions)
+            .map(|n| QuestionPage {
+                name: format!("q{n:03}"),
+                cell: "plan".to_string(),
+                version: n,
+                engine: false,
+                waits: true,
+                withdrawn: None,
+                ask: Some(format!("Which way, {n}?")),
+                options: Vec::new(),
+                recommends: None,
+                answer: (n > open).then_some(web::works::AnswerPage {
+                    option: 1,
+                    at: n,
+                    why: None,
+                }),
+            })
+            .collect();
+        WorkPage {
+            summary: item.work,
+            title: item.title,
+            level: item.level,
+            project: item.project,
+            tags: Vec::new(),
+            history,
+            flow: web::view::Flow {
+                name: "trial".to_string(),
+                limits: web::view::Limits {
+                    runs: 3,
+                    returns: 3,
+                    calls: 3,
+                },
+                lines: Vec::new(),
+                tests: Vec::new(),
+                tools: Vec::new(),
+                groups: Vec::new(),
+                cells: Vec::new(),
+                blocks: Vec::new(),
+            },
+            cells: Vec::new(),
+            blocks: Vec::new(),
+            steps,
+            questions,
+        }
+    }
+
+    // What a work grows by, its item's history, its questions, its runs and its sessions, is shown at most ten of each,
+    // with how many more there are and the command that gives them, so that a work a thousand runs long shows in as
+    // many lines as one of twenty.
+    #[test]
+    fn a_work_is_shown_in_as_many_lines_however_long_it_grows_and_says_what_it_left_out_and_how_to_see_it() {
+        let shown = show(&work(25, 13, 12, 14, 12));
+        let lines: Vec<&str> = shown.lines().collect();
+        let runs: Vec<&str> = lines.iter().copied().filter(|l| l.starts_with("  run ")).collect();
+        assert_eq!(runs.len(), SHOWN, "{shown}");
+        assert!(runs[0].starts_with("  run 16 of plan: ") && runs[9].starts_with("  run 25 of plan: "));
+        assert!(lines.contains(&"  And 15 earlier: wf-agents show 1 runs"), "{shown}");
+        // The latest of the item's history: the third change on.
+        let history = format!(
+            "; changed since:\n  And 2 earlier: wf-agents show 1 history\n  {}: tagged t3\n",
+            utc(30)
+        );
+        assert!(shown.contains(&history), "{shown}");
+        let sessions = lines.iter().filter(|l| l.starts_with("  engineer at ")).count();
+        assert_eq!(sessions, SHOWN, "{shown}");
+        assert!(lines.contains(&"  And 3 earlier: wf-agents show 1 sessions"), "{shown}");
+        // The questions not answered come first: of the twelve, ten are shown, and the four left out are said with how
+        // many of them are not answered.
+        let asked = lines.iter().filter(|l| l.contains(": Which way, ")).count();
+        assert_eq!(asked, SHOWN, "{shown}");
+        assert!(
+            lines.contains(&"  q001 (of plan, version 1, waits): Which way, 1?"),
+            "{shown}"
+        );
+        assert!(
+            !shown.contains("Which way, 13?"),
+            "an answered one is left out first: {shown}"
+        );
+        assert!(
+            lines.contains(&"  And 4 more, 2 of them not answered: wf-agents show 1 questions"),
+            "{shown}"
+        );
+        let long = show(&work(1000, 400, 300, 200, 150));
+        assert_eq!(long.lines().count(), lines.len(), "{long}");
+        assert!(long.contains("  And 990 earlier: wf-agents show 1 runs\n"), "{long}");
+        assert!(long.contains("  And 390 earlier: wf-agents show 1 sessions"), "{long}");
+        assert!(long.contains("  And 190 more, 140 of them not answered: wf-agents show 1 questions"));
+        // Fewer than the bound are each shown, and nothing is said of more.
+        let few = show(&work(3, 3, 0, 1, 1));
+        assert_eq!(
+            few.lines().filter(|l| l.starts_with("  engineer at ")).count(),
+            3,
+            "{few}"
+        );
+        assert_eq!(few.lines().filter(|l| l.starts_with("  run ")).count(), 3, "{few}");
+        assert!(!few.contains(" earlier: ") && !few.contains(" more"), "{few}");
+    }
+
+    // A part given alone comes a hundred entries at a time, from the place asked, each answer saying how to ask for the
+    // next.
+    #[test]
+    fn a_part_of_a_work_is_given_alone_a_hundred_at_a_time_from_the_place_asked() {
+        let page = work(250, 0, 0, 0, 0);
+        let first = show_part(&page, Part::Runs, 1);
+        let lines: Vec<&str> = first.lines().collect();
+        assert_eq!(lines[0], "Work 1, its runs, 1 to 100 of 250:");
+        assert_eq!(lines.len(), LISTED + 2);
+        assert!(lines[1].starts_with("  run 1 of plan: ") && lines[LISTED].starts_with("  run 100 of plan: "));
+        assert_eq!(lines[LISTED + 1], "And 150 more: wf-agents show 1 runs --from 101");
+        let last = show_part(&page, Part::Runs, 201);
+        assert!(
+            last.starts_with("Work 1, its runs, 201 to 250 of 250:\n  run 201 of plan: "),
+            "{last}"
+        );
+        assert_eq!(last.lines().count(), 51, "the last answer says nothing more: {last}");
+        assert_eq!(
+            show_part(&page, Part::Runs, 251),
+            "Work 1, its runs: 250, fewer than 251."
+        );
+        assert_eq!(show_part(&page, Part::Sessions, 1), "Work 1, its sessions: none.");
+    }
+
+    // What happened to an item is one history in the order it happened: the changes made to it, and the cancels and
+    // reopens of its work.
+    #[test]
+    fn an_items_history_holds_its_changes_cancels_and_reopens_in_the_order_they_happened() {
+        let mut page = work(0, 0, 2, 0, 0);
+        page.steps.push(Step::Cancelled {
+            at: 1,
+            time: 15,
+            why: None,
+        });
+        page.steps.push(Step::Reopened {
+            at: 2,
+            time: 25,
+            why: "Wanted after all.".to_string(),
+        });
+        let said = show_part(&page, Part::History, 1);
+        let lines = [
+            "Work 1, what happened to its item, 1 to 4 of 4:".to_string(),
+            format!("  {}: tagged t1", utc(10)),
+            format!("  {}: cancelled, no reason being given", utc(15)),
+            format!("  {}: tagged t2", utc(20)),
+            format!("  {}: reopened, because \"Wanted after all.\"", utc(25)),
+        ];
+        assert_eq!(said, lines.join("\n"));
+        assert!(show(&page).contains("; changed since:\n"));
+        assert!(show(&work(0, 0, 0, 0, 0)).contains(", and has not changed.\nCells:\n"));
+    }
+
     #[test]
     fn a_text_in_short_is_each_sections_heading_and_first_paragraph_cut() {
         let long = "word ".repeat(100);
@@ -1715,6 +2238,60 @@ mod tests {
                 "{refused}"
             );
         }
+    }
+
+    #[test]
+    fn the_system_lists_at_most_its_limit_of_what_went_past_its_lines_and_says_how_to_see_the_rest() {
+        let line = web::works::Line {
+            value: 25_000,
+            samples: 19,
+            scope: web::works::Scope::Cell,
+        };
+        let time = Against {
+            value: 100_000,
+            line,
+            past: true,
+        };
+        let past = |n: u64| Past::Round {
+            work: n,
+            item: n,
+            cell: "I1".to_string(),
+            run: 1,
+            round: 1,
+            ended: 0,
+            judged: web::works::Judged {
+                cost: None,
+                time: Some(time),
+            },
+        };
+        let system = System {
+            now: 0,
+            from: Some(0),
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: (1..=12).map(past).collect(),
+            under_way: Vec::new(),
+        };
+        let said = system_said(&system, 7, 10);
+        let lines: Vec<&str> = said.lines().collect();
+        assert_eq!(lines.len(), 14, "{said}");
+        assert_eq!(lines[1], "Past the lines of their history, the latest first:");
+        assert_eq!(
+            lines[2],
+            "  W1 of #1, round 1 of run 1 of I1, ended 1970-01-01 00:00 UTC: took 1m 40s, past the line of 25s that 19 \
+             rounds of its cell give"
+        );
+        assert_eq!(lines[12], "  And 2 more: wf-agents system --days 7 --limit 12");
+        assert_eq!(lines[13], "Nothing is under way.");
     }
 
     #[test]

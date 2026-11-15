@@ -44,7 +44,8 @@ return that does the cell's work, of a line that may change the work, is sent ba
 as the round left it of which neither its `protected_changes` nor the question that stands of the file as it is says
 why, unless the owner let the file merge as it is, and nothing is asked meanwhile. A reason stands for the file as it
 then is: the question carries it above the file's change, a later version asks with it while the file is as it was, a
-file changed again needs its own, and another reason asks anew, a yes given before included. The check before the
+file changed again needs its own, and another reason asks anew while the question waits for its answer. The owner's
+yes to the change holds while the change is the same, whatever reason a round gives after it. The check before the
 merge, with no return to say why, asks with what the question that stands says, and says of a file no round explained
 that it has none.
 Why: The owner judges a change of what governs the agents by why the agent made it, and a question with the diff alone
@@ -52,8 +53,9 @@ left that to guess (work 9). What the branch holds as the round ends is judged, 
 that a change left unexplained by a round stopped, failed or sent back is the next round's to explain; a yes the owner
 gave without a reason, as to the check's question, settles it. Asking at once and adding the reason later was turned
 down: the owner would be asked of the same change twice. The reason is kept in the question, which is where the owner
-reads it and where a later round's look finds it. That a new reason takes back a yes is a judgment, with no case behind
-it: the owner answered what was said.
+reads it and where a later round's look finds it. A new reason that took back a yes asked the owner again of a change
+already let merge, only main having been merged into the branch since: the yes had been given to a question with no
+reason, and the round that then gave one asked it anew (work 9).
 
 ### decision an-answer-to-the-engines-question-runs-the-last-cell-that-takes-one
 The owner's answer to a question the engine asked is said to the last cell of the walk that has a trigger of an

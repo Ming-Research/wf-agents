@@ -38,6 +38,7 @@ function round(number: number, from: number, to: number, usd: number, over: Part
     tries: [{ attempt: 1, ran: { level: '2', model: 'claude-sonnet-5-5', effort: 'high' }, filled: [] }],
     missed: null,
     estimated: false,
+    judged: { cost: null, time: null },
     ...over,
   };
 }
@@ -76,7 +77,7 @@ function work(): WorkPage {
           tries: [{ attempt: 1, ran: { level: '3', model: 'claude-opus-5-5', effort: null }, filled: [] }],
         }),
       ],
-      [{ call: 4, what: { kind: 'tool', name: 'shell', input: 'npm test' }, made: 40 * MINUTE, done: 45 * MINUTE, chars: 3 }],
+      [{ call: 4, what: { kind: 'tool', name: 'shell', input: 'npm test' }, made: 40 * MINUTE, done: 45 * MINUTE, chars: 3, time: null }],
     ),
     run(3, 'check', [round(1, 50, 52, 0, { session: null, tries: [], context: null })]),
   ];

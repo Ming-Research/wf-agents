@@ -68,7 +68,8 @@
 //! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
 //! by as it runs, and each line of a work the context past which its session begins anew. It gives the keep-warm pings
 //! of the sessions of lines that wait as their time comes, the time being among what it asks to be told ([`warm`]);
-//! and it tells a round that missed its session's prompt cache from the records ([`cache`]).
+//! it tells a round that missed its session's prompt cache from the records ([`cache`]); and it tells how each round
+//! and each call of a tool went against the lines of its history, which stops nothing ([`judged`]).
 
 pub mod attention;
 
@@ -77,6 +78,8 @@ pub mod cache;
 pub mod changes;
 
 pub mod history;
+
+pub mod judged;
 
 pub mod sessions;
 
@@ -862,6 +865,25 @@ impl Driver {
             (Some(life), Some(held)) => cache::misses(&held.flow, &held.work, life),
             _ => Vec::new(),
         }
+    }
+
+    /// How the rounds and the calls of tools of the work, or of every work where none is named, went against the lines
+    /// of their history, what is under way as of `now` ([`judged`]): nothing without a policy, which says how many
+    /// values a line is worked out from, as no round is judged while it runs without one.
+    pub fn judged(&self, work: Option<WorkNumber>, now: Time) -> judged::Judged {
+        let Some(policy) = &self.policy else {
+            return judged::Judged::default();
+        };
+        let works: Vec<judged::Of<'_>> = (self.shown())
+            .map(|held| judged::Of {
+                number: held.head.number,
+                flow: &held.head.flow,
+                compiled: &held.flow,
+                work: &held.work,
+                samples: &held.samples,
+            })
+            .collect();
+        judged::judged(&works, |number| work.is_none_or(|w| w == number), policy.samples, now)
     }
 
     /// The lines a round of the cell of the work is judged by while it runs: from the history of the rounds of every

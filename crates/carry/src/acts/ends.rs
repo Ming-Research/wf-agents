@@ -259,20 +259,9 @@ async fn the_host_is_asked_by_the_checks_round_and_given_the_name_of_the_works_m
         notes: Vec::new(),
     };
     let acts = acts(&repo, Fake::new(&main).judges(Ok(Some(passes))));
-    let flow = Arc::new(acts_flow());
-    let check = (flow.cells.iter()).find(|cell| cell.act.as_deref() == Some("check"));
     let code = format!("Greets the user, in commit {head}.");
-    let round = Round {
-        work: WORK,
-        flow: flow.clone(),
-        cell: check.expect("the flow has a check").clone(),
-        run: RunId(4),
-        number: 2,
-        given: work::Given::Task,
-        item: item(owners),
-        kept: Arc::new(written(&[("code", code.as_str()), ("title", "Greet the user by name")])),
-        lines: Default::default(),
-    };
+    let kept = written(&[("code", code.as_str()), ("title", "Greet the user by name")]);
+    let round = checking(item(owners), kept);
     let (to, _told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(4), to).teller();
     let checked = acts.inner.act(&round, &teller, &mut Stop::never()).await;
@@ -287,6 +276,60 @@ async fn the_host_is_asked_by_the_checks_round_and_given_the_name_of_the_works_m
     acts.inner.release(&ended).await.expect("it lets go");
     assert_eq!(acts.inner.host.titles(), ["Greet the user by name", "Work 1"]);
     assert_eq!(acts.inner.host.askings(), [Asking::Round(RunId(4), 2)]);
+}
+
+/// The second round of the check's run 4 of the work as it is kept.
+fn checking(item: Item, kept: Work) -> Round {
+    let flow = Arc::new(acts_flow());
+    let check = (flow.cells.iter()).find(|cell| cell.act.as_deref() == Some("check"));
+    Round {
+        work: WORK,
+        flow: flow.clone(),
+        cell: check.expect("the flow has a check").clone(),
+        run: RunId(4),
+        number: 2,
+        given: work::Given::Task,
+        item,
+        kept: Arc::new(kept),
+        lines: Default::default(),
+    }
+}
+
+// The check's round is told of the head of main the check takes in, in the words the watch of main writes it, as the
+// check reads it: main's block at that head is then what the round read, and runs the check no more. A check that
+// waited for its turn while main moved, and took that main in, was run again for it (work 5).
+#[tokio::test]
+async fn the_checks_round_is_told_of_the_head_of_main_it_takes_in() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+    let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
+    let passes = Verdict {
+        failed: None,
+        by: None,
+        notes: Vec::new(),
+    };
+    let acts = acts(&repo, Fake::new(&main).judges(Ok(Some(passes))));
+    let code = format!("Greets the user, in commit {head}.");
+    let round = checking(item("Greet the user"), written(&[("code", code.as_str())]));
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(4), to).teller();
+    let checked = acts.inner.act(&round, &teller, &mut Stop::never()).await;
+    assert!(
+        matches!(checked, Ok(Done::HandsIn(..))),
+        "the check hands in what it found"
+    );
+    let mut said = Vec::new();
+    while let Ok(message) = told.try_recv() {
+        if let service::Message::Happened {
+            event: engine::Event::WroteForRound { run, block, content },
+            ..
+        } = message
+        {
+            said.push((run, block.to_string(), content));
+        }
+    }
+    assert_eq!(said, [(RunId(4), "main".to_string(), format!("Main is at {main}."))]);
 }
 
 #[test]

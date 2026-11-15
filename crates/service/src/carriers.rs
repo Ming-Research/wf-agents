@@ -59,6 +59,14 @@ pub trait Rounds: Send + Sync {
         let _ = (round, told);
     }
 
+    /// Says whether a pause holds the work back now, its own or the owner's pause of everything: of every work as the
+    /// loop opens, before any round is given, and again whenever it may have changed, the same said again changing
+    /// nothing. What a carrier holds a round back for itself, as the acts the check for the project's turn to check
+    /// and merge, a pause holds back too, as the walk holds back what would begin a round; by default nothing is held.
+    fn paused(&self, work: WorkNumber, paused: bool) {
+        let _ = (work, paused);
+    }
+
     /// What the round of this number of the run was told and what came back of it, each try in order, as far as
     /// this carrier keeps them; no try where it keeps nothing, as by default. Unlike the others, this is called off
     /// the loop, on a thread that may wait on the disk; an error says why what was kept could not be read.
@@ -565,7 +573,8 @@ impl Teller {
     }
 
     /// As [`Teller::outside_wrote`], for the round: the version is put into it, so that the round is told of it and its
-    /// run consumes it. The carrier does it for what it did before its program began, as taking main in.
+    /// run consumes it; where the block says it already, the version that says it is put in, and none is written. The
+    /// carrier does it for what it did or read itself for the round, as taking main in.
     pub fn outside_wrote_for_round(&self, block: BlockId, content: String) {
         self.tell(Event::WroteForRound {
             run: self.run,
