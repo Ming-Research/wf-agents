@@ -22,6 +22,7 @@ pub(crate) mod fake;
 use std::future::Future;
 use std::sync::Arc;
 
+use decide::run::Failure;
 use decide::{CallId, RunId};
 use store::WorkNumber;
 
@@ -66,6 +67,66 @@ impl Asking {
     }
 }
 
+/// Why the host did not do what it was asked, with the kind of its cause where the host's answer, or what the host
+/// found, tells it: a fault of the host that passes by itself, or a refusal no wait mends. Where nothing tells it, as
+/// where a command gave no answer, the act's words are read for the network's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failed {
+    pub why: String,
+    pub kind: Option<Failure>,
+}
+
+impl Failed {
+    /// A failure that passes by itself: what failed is tried again after a wait.
+    pub fn passing(why: impl Into<String>) -> Failed {
+        Failed {
+            why: why.into(),
+            kind: Some(Failure::Passing),
+        }
+    }
+
+    /// A refusal that no wait mends, as a person's doing or what the configuration says: the work waits, with why, for
+    /// the owner.
+    pub fn refused(why: impl Into<String>) -> Failed {
+        Failed {
+            why: why.into(),
+            kind: Some(Failure::Other),
+        }
+    }
+
+    /// The same failure, of the same kind, in the words these make of its own.
+    pub fn said(self, words: impl FnOnce(String) -> String) -> Failed {
+        Failed {
+            why: words(self.why),
+            kind: self.kind,
+        }
+    }
+}
+
+impl From<String> for Failed {
+    fn from(why: String) -> Self {
+        Failed { why, kind: None }
+    }
+}
+
+impl From<&str> for Failed {
+    fn from(why: &str) -> Self {
+        why.to_string().into()
+    }
+}
+
+impl From<Failed> for String {
+    fn from(failed: Failed) -> Self {
+        failed.why
+    }
+}
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)
+    }
+}
+
 /// Why a work's branch was not merged.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NotMerged {
@@ -73,12 +134,25 @@ pub enum NotMerged {
     /// what nothing checked. The check is to be taken again on main's new head.
     Moved { main: String, checked: String },
     /// Anything else, as git or the host said it.
-    Failed(String),
+    Failed(Failed),
+}
+
+impl NotMerged {
+    /// Not merged for a refusal no wait mends ([`Failed::refused`]).
+    pub fn refused(why: String) -> NotMerged {
+        NotMerged::Failed(Failed::refused(why))
+    }
 }
 
 impl From<String> for NotMerged {
     fn from(why: String) -> Self {
-        NotMerged::Failed(why)
+        NotMerged::Failed(why.into())
+    }
+}
+
+impl From<Failed> for NotMerged {
+    fn from(failed: Failed) -> Self {
+        NotMerged::Failed(failed)
     }
 }
 
@@ -105,14 +179,15 @@ pub trait Host: Send + Sync + 'static {
 
     /// The verdict on the commit, the head of the work's branch, which is committed and merges into main without a
     /// conflict, as the round of the check that asks finds it; none where it was told to stop. A failure fails it,
-    /// whatever else passes, and nothing is run again.
+    /// whatever else passes, and nothing is run again. Checks that could not be run fail the round, with the kind of
+    /// the cause where the host tells it ([`Failed`]).
     fn verdict(
         &self,
         branch: &Branch<'_>,
         commit: &str,
         asking: Asking,
         stop: &mut Stop,
-    ) -> impl Future<Output = Result<Option<Verdict>, String>> + Send;
+    ) -> impl Future<Output = Result<Option<Verdict>, Failed>> + Send;
 
     /// Merges the work's branch into main, by a commit named by the branch's title, and gives the commit the merge made
     /// main's head with. Where `checked` names the commit the check passed, only that commit is merged, and only onto
@@ -190,7 +265,7 @@ impl<H: Host> Host for Arc<H> {
         commit: &str,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<Verdict>, String> {
+    ) -> Result<Option<Verdict>, Failed> {
         (**self).verdict(branch, commit, asking, stop).await
     }
 

@@ -1,36 +1,18 @@
-//! The kind of cause of an act of the engine's that failed. A failure git, ssh, `gh` or the host give where the network
-//! fails is the network's, and is waited out with every work where a look at the act's own host finds it out of reach,
-//! or else tried again as a failure in passing; any other pauses the work, as one the act cannot get past. An act of a
-//! host no network reaches, as the local repository, fails for no network. An act that knows its cause says it itself
-//! ([`Failed::passing`]).
+//! The kind of cause of an act of the engine's that failed. Where the host's answer tells it, or what the act found,
+//! the act says it itself ([`Failed`]): a fault of the host's own or its limit on requests, and CI that never started,
+//! pass by themselves and are tried again after a wait; a refusal, a person's doing on what the work holds there and a
+//! fault of the configuration pause the work, with why, for the owner. Where nothing tells it, as where a command gave
+//! no answer, a failure git, ssh, `gh` or the host give where the network fails is the network's, and is waited out
+//! with every work where a look at the act's own host finds it out of reach, or else tried again as a failure in
+//! passing; any other pauses the work, as one the act cannot get past. An act of a host no network reaches, as the
+//! local repository, fails for no network.
 
 use decide::run::Failure;
 
-/// Why an act could not be done, and the kind of its cause where the act knows it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Failed {
-    pub(crate) why: String,
-    pub(crate) kind: Option<Failure>,
-}
+use crate::host::Failed;
 
-impl Failed {
-    /// An act that failed for a cause that passes by itself: it is tried again after a wait.
-    pub(crate) fn passing(why: String) -> Self {
-        Failed {
-            why,
-            kind: Some(Failure::Passing),
-        }
-    }
-}
-
-impl From<String> for Failed {
-    fn from(why: String) -> Self {
-        Failed { why, kind: None }
-    }
-}
-
-/// The kind of cause of a failed act: the one the act said, or by what it failed with, the act's host being looked at
-/// only where its words are the network's. `reached` looks, and gives none where the host is reached by no network.
+/// The kind of cause of a failed act: the one the act said, or by the words it failed with, the act's host being looked
+/// at only where they are the network's. `reached` looks, and gives none where the host is reached by no network.
 pub(crate) async fn kind(failed: &Failed, reached: impl AsyncFnOnce() -> Option<bool>) -> Failure {
     if let Some(kind) = failed.kind {
         return kind;
@@ -143,8 +125,10 @@ mod tests {
         // Words that are not the network's are not looked at.
         let refused = Failed::from("the pull request goes into next, not into main".to_string());
         assert_eq!(kind(&refused, async || panic!("looked")).await, Failure::Other);
-        // What the act said of its cause stands.
+        // What the act said of its cause stands: a refusal whose words name a timeout is no failure of the network.
         let moved = Failed::passing("main has moved".to_string());
         assert_eq!(kind(&moved, async || panic!("looked")).await, Failure::Passing);
+        let refused = Failed::refused("GitHub did not merge the pull request: HTTP 422: the request timed out");
+        assert_eq!(kind(&refused, async || panic!("looked")).await, Failure::Other);
     }
 }

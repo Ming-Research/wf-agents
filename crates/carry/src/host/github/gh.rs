@@ -15,6 +15,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use super::api::{Api, Check, File, Outcome, Pull, Run, State};
+use crate::host::Failed;
 
 /// GitHub's REST API, through `gh`, in one repository.
 #[derive(Clone)]
@@ -42,11 +43,13 @@ impl std::fmt::Debug for Gh {
     }
 }
 
-/// What GitHub answered: the status, and the body.
+/// What GitHub answered: the status, and the body; and whether its headers say it limits the requests it takes, none
+/// remaining of them or a time given to try again after.
 #[derive(Debug, PartialEq, Eq)]
 struct Answer {
     status: u16,
     body: String,
+    limited: bool,
 }
 
 impl Gh {
@@ -168,24 +171,24 @@ impl Gh {
     }
 
     /// Asks GitHub, and gives the body of an answer whose status is one of `ok`; or GitHub's words for why not.
-    async fn want(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<String, String> {
+    async fn want(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<String, Failed> {
         let answer = self.ask(method, path, body).await?;
         if ok.contains(&answer.status) {
             Ok(answer.body)
         } else {
-            Err(refusal(&answer))
+            Err(refused(&answer))
         }
     }
 
     /// As [`Gh::want`], the body read as JSON.
-    async fn json(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<Value, String> {
+    async fn json(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<Value, Failed> {
         let body = self.want(method, path, body, ok).await?;
-        serde_json::from_str(&body).map_err(|e| format!("GitHub's answer to {method} {path} is not JSON: {e}"))
+        serde_json::from_str(&body).map_err(|e| format!("GitHub's answer to {method} {path} is not JSON: {e}").into())
     }
 }
 
 impl Api for Gh {
-    async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, String> {
+    async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, Failed> {
         let owner = self.repository.split('/').next().unwrap_or_default();
         let path = format!(
             "repos/{}/pulls?head={owner}:{branch}&state=all&per_page=100",
@@ -195,23 +198,23 @@ impl Api for Gh {
         let pulls = listed
             .as_array()
             .ok_or("GitHub's list of pull requests is not a list")?;
-        pulls.iter().map(pull).collect()
+        Ok(pulls.iter().map(pull).collect::<Result<_, String>>()?)
     }
 
-    async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, String> {
+    async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, Failed> {
         let (method, path, asked) = opening(&self.repository, branch, base, title, body);
-        pull(&self.json(method, &path, Some(asked), &[201]).await?)
+        Ok(pull(&self.json(method, &path, Some(asked), &[201]).await?)?)
     }
 
-    async fn merge(&self, number: u64, head: &str, method: &str, title: &str) -> Result<String, String> {
+    async fn merge(&self, number: u64, head: &str, method: &str, title: &str) -> Result<String, Failed> {
         let (put, path, asked) = merging(&self.repository, number, head, method, title);
         let merged = self.json(put, &path, Some(asked), &[200]).await?;
         (merged["sha"].as_str())
             .map(str::to_string)
-            .ok_or_else(|| "GitHub's answer to the merge names no commit".to_string())
+            .ok_or_else(|| "GitHub's answer to the merge names no commit".into())
     }
 
-    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, String> {
+    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, Failed> {
         let path = format!(
             "repos/{}/actions/workflows/{workflow}/runs?branch={branch}&event=workflow_dispatch&per_page=50",
             self.repository
@@ -221,7 +224,7 @@ impl Api for Gh {
         Ok(runs.iter().filter_map(run).collect())
     }
 
-    async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), String> {
+    async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), Failed> {
         let path = format!("repos/{}/actions/workflows/{workflow}/dispatches", self.repository);
         let inputs: serde_json::Map<String, Value> = (inputs.iter())
             .map(|(name, value)| (name.clone(), Value::String(value.clone())))
@@ -230,14 +233,20 @@ impl Api for Gh {
         self.want("POST", &path, Some(asked), &[200, 204]).await.map(|_| ())
     }
 
-    async fn jobs(&self, run: u64) -> Result<Vec<Check>, String> {
+    async fn cancel(&self, run: u64) -> Result<(), Failed> {
+        let path = format!("repos/{}/actions/runs/{run}/cancel", self.repository);
+        // A run that has completed already is answered 409, "Cannot cancel a workflow run that is completed".
+        self.want("POST", &path, None, &[202, 409]).await.map(|_| ())
+    }
+
+    async fn jobs(&self, run: u64) -> Result<Vec<Check>, Failed> {
         let path = format!("repos/{}/actions/runs/{run}/jobs?per_page=100", self.repository);
         let listed = self.json("GET", &path, None, &[200]).await?;
         let jobs = listed["jobs"].as_array().cloned().unwrap_or_default();
         Ok(jobs.iter().filter_map(job).collect())
     }
 
-    async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, String> {
+    async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, Failed> {
         let dir = std::env::temp_dir().join(format!("wf-agents-artifact-{}", uuid::Uuid::new_v4().simple()));
         let (run, dir_text) = (run.to_string(), dir.to_string_lossy().into_owned());
         let args = [
@@ -262,40 +271,40 @@ impl Api for Gh {
         Ok((!files.is_empty()).then_some(files))
     }
 
-    async fn delete(&self, branch: &str) -> Result<(), String> {
+    async fn delete(&self, branch: &str) -> Result<(), Failed> {
         let path = format!("repos/{}/git/refs/heads/{branch}", self.repository);
         // A branch that is not there is answered 422, "Reference does not exist".
         self.want("DELETE", &path, None, &[204, 404, 422]).await.map(|_| ())
     }
 
-    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), String> {
+    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), Failed> {
         let (method, path, asked) = editing(&self.repository, number, title, body);
         self.want(method, &path, Some(asked), &[200]).await.map(|_| ())
     }
 
-    async fn ready(&self, node: &str) -> Result<(), String> {
+    async fn ready(&self, node: &str) -> Result<(), Failed> {
         let (method, path, asked) = readying(node);
         let answer = self.json(method, &path, Some(asked), &[200]).await?;
         // GraphQL says what it refused with a status of 200.
         match answer["errors"].as_array() {
             Some(errors) if !errors.is_empty() => {
                 let words: Vec<&str> = errors.iter().filter_map(|e| e["message"].as_str()).collect();
-                Err(format!(
+                Err(Failed::refused(format!(
                     "GitHub did not make the pull request ready: {}",
                     words.join("; ")
-                ))
+                )))
             }
             _ => Ok(()),
         }
     }
 
-    async fn close(&self, number: u64, comment: &str) -> Result<(), String> {
+    async fn close(&self, number: u64, comment: &str) -> Result<(), Failed> {
         let [(method, path, said), (closing, at, closed)] = closing(&self.repository, number, comment);
         self.want(method, &path, Some(said), &[201]).await?;
         self.want(closing, &at, Some(closed), &[200]).await.map(|_| ())
     }
 
-    async fn reopen(&self, number: u64) -> Result<(), String> {
+    async fn reopen(&self, number: u64) -> Result<(), Failed> {
         let (method, path, asked) = reopening(&self.repository, number);
         self.want(method, &path, Some(asked), &[200]).await.map(|_| ())
     }
@@ -382,11 +391,29 @@ pub(crate) fn environment(
 /// What `gh api --include` printed, read as GitHub's answer: the status line, the headers, an empty line, the body.
 fn included(out: &str) -> Option<Answer> {
     let (head, body) = (out.split_once("\r\n\r\n")).or_else(|| out.split_once("\n\n"))?;
-    let status = head.lines().next()?.split_whitespace().nth(1)?.parse().ok()?;
+    let mut lines = head.lines();
+    let status = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
+    let limited = lines.filter_map(|line| line.split_once(':')).any(|(name, value)| {
+        let (name, value) = (name.trim().to_ascii_lowercase(), value.trim());
+        name == "retry-after" || (name == "x-ratelimit-remaining" && value == "0")
+    });
     Some(Answer {
         status,
         body: body.to_string(),
+        limited,
     })
+}
+
+/// GitHub's refusal, of the kind its status tells: a fault of GitHub's own (5xx) or its limit on the requests it takes
+/// (429, or another refusal whose headers say it limits them) passes by itself; any other is a refusal no wait mends,
+/// whatever its words.
+fn refused(answer: &Answer) -> Failed {
+    let why = refusal(answer);
+    if answer.status >= 500 || answer.status == 429 || answer.limited {
+        Failed::passing(why)
+    } else {
+        Failed::refused(why)
+    }
 }
 
 /// GitHub's words for why it did not do what it was asked, with the status.

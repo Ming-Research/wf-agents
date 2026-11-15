@@ -95,9 +95,10 @@ pub enum Failure {
     /// The service has no model of the name the round's level gives: no round on it can run until the installation
     /// names another, so the work is paused, and so is every other work that runs a round on that model.
     NoModel,
-    /// A cause no kind tells apart that is no report of the agents' command line: the engine's own act failed, or
-    /// the round could not be carried out at all. The work is paused. Rounds that failed before kinds were told apart
-    /// read so, since each paused its work.
+    /// A cause no other kind holds: a request the service refused, an error the command line reported of no kind its
+    /// fields or its words tell, a refusal of the engine's act by its host or what only a person mends there, or a
+    /// round that could not be carried out at all. Running again meets it again, and the work is paused. Rounds that
+    /// failed before kinds were told apart read so, since each paused its work.
     #[default]
     Other,
 }

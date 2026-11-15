@@ -42,7 +42,7 @@ impl Hub {
     async fn judged(&self, commit: &str, round: Asking) -> Result<Option<Verdict>, String> {
         let place = self.place();
         let branch = branch(&place);
-        self.host.verdict(&branch, commit, round, &mut Stop::never()).await
+        (self.host.verdict(&branch, commit, round, &mut Stop::never()).await).map_err(String::from)
     }
 
     /// The value of each run GitHub was asked for, in order.

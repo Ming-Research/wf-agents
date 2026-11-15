@@ -22,7 +22,6 @@
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
-use decide::run::Failure;
 use flow::Compiled;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -625,7 +624,7 @@ impl Stream {
         };
         // The command line gave up on the return, having refused every attempt at it: the last is read as any return
         // is, by the engine's own reading, which sends it back where it cannot be read.
-        if failure::kind(&why) == Failure::Unread
+        if failure::gave_up(&why, &fields)
             && let Some((id, raw)) = self.attempts.last()
         {
             return match serde_json::from_str::<Value>(&raw) {
@@ -802,6 +801,8 @@ fn spent(result: &Result, begin: Begin, before: u64) -> Spent {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+
+    use decide::run::Failure;
 
     use super::*;
 
@@ -1017,7 +1018,11 @@ mod tests {
             "the attempt itself is not quoted: {}",
             no.why
         );
-        assert_eq!(failure::kind(&no.why), Failure::Unread, "it is sent back");
+        assert_eq!(
+            failure::of(&no.why, &no.said, no.spent.as_ref()),
+            Failure::Unread,
+            "it is sent back"
+        );
         assert_eq!(no.spent.map(|s| s.usd_micros), Some(400_000));
         // Given up on with no attempt in the stream, the result's own words say why, without the quote.
         let no = read(gave_up(&said).as_bytes(), Begin::New, 0).expect_err("nothing to take");

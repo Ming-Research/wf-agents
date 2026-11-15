@@ -10,6 +10,7 @@ mod ends;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use decide::run::Failure;
 use decide::{CallId, RunId};
 use store::WorkNumber;
 use tokio::sync::Mutex;
@@ -140,6 +141,11 @@ impl Hub {
     }
 
     async fn verdict(&self, commit: &str) -> Result<Option<Verdict>, String> {
+        self.failing(commit).await.map_err(String::from)
+    }
+
+    /// The verdict on the commit, or why there is none, of the kind the host told.
+    async fn failing(&self, commit: &str) -> Result<Option<Verdict>, Failed> {
         let place = self.place();
         self.host
             .verdict(&branch(&place), commit, self.round(), &mut Stop::never())
@@ -149,7 +155,7 @@ impl Hub {
     /// Merges the commit the check passed; a refusal but for a moved main in the host's words.
     async fn merge(&self, checked: &str) -> Result<String, String> {
         self.merging(checked).await.map_err(|not| match not {
-            NotMerged::Failed(why) => why,
+            NotMerged::Failed(failed) => failed.why,
             moved => panic!("refused otherwise: {moved:?}"),
         })
     }
@@ -537,25 +543,72 @@ async fn a_run_that_uploads_no_junit_holds_the_work_and_a_job_that_ended_without
     );
 }
 
+/// The runs GitHub was asked to cancel, in order.
+fn cancelled(hub: &Hub) -> Vec<u64> {
+    (hub.github().asked().into_iter())
+        .filter_map(|asked| match asked {
+            Asked::Cancel(run) => Some(run),
+            _ => None,
+        })
+        .collect()
+}
+
+// A full run no runner took is the engine's own to cancel, and fails the round in passing: what stops it is no work's,
+// and asked for again after a wait it may start. A project that declares no full workflows has no check, which only
+// its owner mends.
 #[tokio::test]
-async fn a_full_run_no_runner_took_fails_the_round_and_a_project_with_no_full_workflows_has_no_check() {
+async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_project_with_no_full_workflows_has_no_check()
+{
     let hub = Hub::new();
     let head = hub.committed().await;
     hub.github().no_runner();
-    let failed = hub.verdict(&head).await.expect_err("the round fails");
+    let failed = hub.failing(&head).await.expect_err("the round fails");
     assert!(
-        failed.starts_with(&format!(
+        failed.why.starts_with(&format!(
             "the run of ci.yml asked for on {head} never started: no runner took it after"
         )),
         "{failed}"
     );
+    assert!(failed.why.ends_with("and the engine cancelled it"), "{failed}");
+    assert_eq!(failed.kind, Some(Failure::Passing));
+    assert_eq!(cancelled(&hub), [1000], "the run asked for is cancelled");
     let hub = Hub::new().with(|config| config.ci.as_mut().expect("a declaration").full = None);
     let head = hub.committed().await;
-    let failed = hub.verdict(&head).await.expect_err("the round fails");
+    let failed = hub.failing(&head).await.expect_err("the round fails");
     assert_eq!(
-        failed,
+        failed.why,
         "Nothing was run: the project declares no full workflows; name the tests to run."
     );
+    assert_eq!(failed.kind, Some(Failure::Other));
+}
+
+// A full run not complete in the time the project gives it is cancelled and is what it found: the check fails, its
+// jobs not complete said so, and no round of the check is failed for it.
+#[tokio::test]
+async fn a_full_run_past_its_time_is_cancelled_and_fails_the_check_with_its_jobs_not_complete() {
+    let hub = Hub::new().with(|config| {
+        config
+            .ci
+            .as_mut()
+            .expect("a declaration")
+            .full
+            .as_mut()
+            .expect("full")
+            .too_long = "1s".to_string()
+    });
+    let head = hub.committed().await;
+    hub.github().runs_go_on();
+    let jobs = vec![passed("lint"), check("test", Outcome::Pending)];
+    hub.github()
+        .fast(&head, jobs, Some(("test-results", fast::junit_green())));
+    let verdict = hub.failing(&head).await.expect("judged").expect("nothing stopped it");
+    let failed = verdict.failed.expect("it fails");
+    assert!(
+        failed.contains("the run did not complete within 1 second, the time it may take, and the engine cancelled it"),
+        "{failed}"
+    );
+    assert!(failed.contains("- test: not complete"), "{failed}");
+    assert_eq!(cancelled(&hub), [1000]);
 }
 
 #[tokio::test]
@@ -702,6 +755,25 @@ async fn the_merge_refuses_a_main_that_moved_on_github_since_the_check() {
     );
 }
 
+// What GitHub's answer to a merge tells is its kind: a fault of GitHub's own passes, a refusal waits for the owner.
+#[tokio::test]
+async fn a_merge_github_fails_in_passing_or_refuses_is_of_the_kind_its_answer_tells() {
+    for (said, kind) in [
+        ("HTTP 502: Bad Gateway", Failure::Passing),
+        ("HTTP 405: At least 1 approving review is required", Failure::Other),
+    ] {
+        let hub = Hub::new();
+        let checked = hub.committed().await;
+        hub.green(&checked);
+        hub.verdict(&checked).await.unwrap().unwrap();
+        hub.github().refuse_merges(said);
+        match hub.merging(&checked).await {
+            Err(NotMerged::Failed(failed)) => assert_eq!(failed.kind, Some(kind), "{said}"),
+            other => panic!("{said}: {other:?}"),
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_merge_github_refuses_fails_the_round_in_githubs_words() {
     let hub = Hub::new();
@@ -760,7 +832,7 @@ async fn a_merge_with_no_pull_request_or_no_check_fails_the_round() {
     let place = hub.place();
     let failed = hub.host.merge(&branch(&place), None).await.expect_err("no check");
     assert!(
-        matches!(&failed, NotMerged::Failed(why) if why.contains("the flow has no check")),
+        matches!(&failed, NotMerged::Failed(why) if why.why.contains("the flow has no check")),
         "{failed:?}"
     );
 }
@@ -825,6 +897,7 @@ fn the_token_goes_to_git_in_its_environment_for_github_over_https_alone() {
 #[test]
 fn a_length_of_time_is_said_in_minutes_or_seconds() {
     assert_eq!(span(Duration::from_secs(600)), "10 minutes");
+    assert_eq!(span(Duration::from_secs(1)), "1 second");
     assert_eq!(span(Duration::from_millis(300)), "0 seconds");
 }
 
