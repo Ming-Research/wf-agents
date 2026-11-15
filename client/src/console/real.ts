@@ -197,11 +197,11 @@ export interface Ruling {
 /// Whether a version of a block keeps a test that reads it from holding: for a test that holds when every one or at
 /// least one block has its value, when the version has another; for one that holds when none has it, when the version
 /// has it, and for `noneStanding` only as written by a person, the outside or a cell that is not skipped now; for a
-/// test of content, when the version holds nothing.
+/// test of content, when the version holds nothing, as the engine recorded it.
 function keeps(test: Test, v: Version, skipped: Set<string>): boolean {
   switch (test.kind) {
     case 'anyContent':
-      return v.chars === 0;
+      return v.empty;
     case 'all':
     case 'any':
       return v.value !== test.is;
