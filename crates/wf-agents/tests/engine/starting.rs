@@ -25,7 +25,9 @@ fn a_script_that_names_what_the_flow_lacks_keeps_the_engine_from_starting() {
 // under a second alone; no other test runs the command on flows with no words beside them.
 #[test]
 fn a_script_run_on_flows_with_no_words_beside_them_does_not_start() {
-    let place = Place::new(SCRIPT);
+    let place = Place::new(
+        "[[flows.trial.rounds]]\ncell = \"review\"\nhands_in = [{ block = \"verdict\", value = \"yes\" }]\n",
+    );
     // The trial flow in a directory of its own, with nothing beside it but what the engine says to the owner.
     let flow = place.dir.path().join("flow");
     std::fs::create_dir(&flow).unwrap();
