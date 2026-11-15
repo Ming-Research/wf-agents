@@ -692,7 +692,7 @@ pub struct Tool {
     #[serde(default)]
     pub texts: BTreeMap<String, String>,
     /// How many bytes of a result of the tool `query` a message gives; a result longer is given cut and kept whole in
-    /// the records. Only `query` has its results cut. With none, a result is given whole.
+    /// the records and in a file. Only `query` has its results cut. With none, a result is given whole.
     pub given_bytes: Option<usize>,
     /// The shape of a request of it.
     pub request: toml::Value,
@@ -727,8 +727,9 @@ pub struct ResultWords {
     pub came_tests: String,
     pub came_checks: String,
     pub came_join: String,
-    /// The title of the tests, and of the jobs.
+    /// The title of the tests that did not pass, of those that passed, and of the jobs.
     pub tests_title: String,
+    pub passed_title: String,
     pub jobs_title: String,
     /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one; the
     /// time of a job is said the same way.
@@ -815,7 +816,8 @@ pub struct LocalWords {
 pub struct ResultGiven {
     /// The most bytes of a result a round is given.
     pub bound: usize,
-    /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole.
+    /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole, `{file}` the file
+    /// that holds it whole, `{days}` the days that file is kept.
     pub cut: String,
 }
 
