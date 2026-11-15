@@ -135,7 +135,7 @@ describe('the list of works', () => {
       // A work held for main to move goes with what goes on by itself, not with what waits for the owner.
       summary(13, { kind: 'waits', at: 'M2', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'w' }] }, 1000),
       // A stalled work comes with a fault.
-      summary(14, { kind: 'stalled', at: 'M2', on: [], by: [] }, 5),
+      summary(14, { kind: 'stalled', at: 'M2', on: [], by: [], why: 'Nothing new runs `M2`.' }, 5),
     ];
     const items: Item[] = works.map((w) => ({
       number: w.number,

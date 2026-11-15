@@ -175,8 +175,9 @@ describe('the list of works', () => {
     // The work the engine paused waits for the owner, as the engine's list says, and the fault comes after.
     expect(rows.map((r) => Number(r.dataset.work))).toEqual([50, 43, 44, 45, 41, 49, 42, 46, 47, 48]);
     expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([true, true, true, true, true, false, false, false, false, false]);
+    // The cell it waits at, once, in its place, then what it asks.
     expect(rows[1].querySelector('.now-words')?.textContent).toBe(
-      'Waiting for you · Should the list show the works of cancelled items, or leave them out?',
+      'Waiting for you · plan · Should the list show the works of cancelled items, or leave them out?',
     );
     expect(rows[1].querySelectorAll('.strip .state-mark')).toHaveLength(6);
     await click(rows[4]);
@@ -385,7 +386,7 @@ describe('a work whose round failed', () => {
     const run = rows[2].querySelectorAll('td')[2].querySelector('.run');
     expect(run?.className).toContain('run-failed');
     expect(run?.querySelector('.run-word')?.textContent).toBe('round failed');
-    expect(texts(page, '.step-lead .step-words')[3]).toBe(`the engine paused the work: ${FAILED}`);
+    expect(texts(page, '.step-lead .step-words')[3]).toBe(`the engine paused the work. ${FAILED}`);
   });
 
   it('shows in the panel of the run the round that failed, why, and that it is given again once the work is let on', async () => {
@@ -399,7 +400,7 @@ describe('a work whose round failed', () => {
     await chooseStep(page, 3);
     const pause = page.querySelector('aside[aria-label="Paused"]') as HTMLElement;
     expect(pause.textContent).toContain(
-      `The engine paused the work: only a note to a cell is answered until the owner lets it on. Why: ${FAILED}`,
+      `The engine paused the work. Only a note to a cell is answered until the owner lets it on. ${FAILED}`,
     );
   });
 });

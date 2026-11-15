@@ -154,7 +154,7 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
     );
     // A precondition holds the work before its cell whether or not it is paused, and the items it depends on, not the
     // owner, can make it hold: it waits for those that have not merged.
-    let waits = "waits at plan for the items it depends on to merge: item 1";
+    let waits = "waits at plan for the items it depends on to merge: #1";
     let list = engine.says(&["list"]);
     assert!(
         list.ends_with(&format!(

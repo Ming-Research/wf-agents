@@ -158,6 +158,33 @@ describe('the System view', () => {
     );
   });
 
+  it("says the wait every work shares in sentences, the names and values it marks in the monospace", async () => {
+    const s = sources();
+    const items = fixtureItems();
+    const found = 'It is not signed in, as `claude auth status` says.';
+    s.works.loadItems = async () => ({
+      ...items,
+      outage: {
+        service: 'agents',
+        failure: 'cannotRun',
+        why: 'Not logged in',
+        work: 3,
+        run: 2,
+        round: 1,
+        since: 0,
+        checked: { at: 0, taken: 2, found: { kind: 'down', failure: 'cannotRun', why: found } },
+        until: { kind: 'checked', at: 0 },
+        holds: true,
+      },
+    });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const shared = part(container, 'Now').querySelectorAll('dd')[2] as HTMLElement;
+    expect([...shared.querySelectorAll('code')].map((c) => c.textContent)).toEqual(['claude auth status']);
+    expect(shared.textContent).not.toContain('`');
+    expect(shared.textContent).toContain(' found it down. It is not signed in, as claude auth status says. Round 1 of run 2 of W3 met it.');
+  });
+
   it('unfolds the works a count counts, and folds them again', async () => {
     const s = sources();
     const { container } = draw(<SystemView period="week" />, s);

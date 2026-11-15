@@ -87,7 +87,7 @@ const KINDS: Wait[] = [
   wait('limit', 'The run of plan had 2 returns sent back, its limit.', { kind: 'goOn', call: 4 }),
   wait('pause', 'The engine paused the work. A round failed.'),
   wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
-  wait('write-content', '`merge` requires `test = may_merge`, which `content` keeps from holding.', {
+  wait('write-content', '`test = may_merge` does not hold, as `content` says, and the cell requires it.', {
     kind: 'write',
     block: 'content',
     value: 'yes',
@@ -122,7 +122,7 @@ describe("the browser's notifications", () => {
     expect(Told.made).toEqual([]);
     draw(withWaits(142, [question(9, 'Keep the width per view?')]));
     expect(Told.made.map((n) => [n.title, n.options.body, n.options.tag, n.options.renotify])).toEqual([
-      ["Waiting for you: #142 Keep the panel's width", 'Keep the width per view?', 'wf-agents-item-142', true],
+      ["Waiting for you: #142 Keep the panel's width", 'implement · Keep the width per view?', 'wf-agents-item-142', true],
     ]);
     draw(withWaits(142, [question(9, 'Keep the width per view?')]));
     expect(Told.made).toHaveLength(1);
@@ -139,10 +139,11 @@ describe("the browser's notifications", () => {
     }
     const ask = wait('answer-long', 'Which way?\n\nThe details.', { kind: 'answer', question: 'long', version: 2 });
     draw(withWaits(142, [ask]));
-    // A name or a value in backticks is said bare: a notification has no monospace.
-    const bare = KINDS.map((w) => w.why.replace(/`/g, ''));
-    expect(bare[5]).toBe('merge requires test = may_merge, which content keeps from holding.');
-    expect(Told.made.map((n) => n.options.body)).toEqual([...bare, 'Which way?']);
+    // After the cell the work stands at, as a line names it: a name or a value in backticks is said bare, as a
+    // notification has no monospace.
+    const bare = KINDS.map((w) => `implement · ${w.why.replace(/`/g, '')}`);
+    expect(bare[5]).toBe('implement · test = may_merge does not hold, as content says, and the cell requires it.');
+    expect(Told.made.map((n) => n.options.body)).toEqual([...bare, 'implement · Which way?']);
     for (const n of Told.made) {
       expect(n.title).toBe("Waiting for you: #142 Keep the panel's width");
       expect(n.options.body).not.toContain('waits for you');
@@ -151,13 +152,31 @@ describe("the browser's notifications", () => {
     for (const w of KINDS) expect(opens(w)).toBe(`#/console/items/142/waits/${w.key}`);
   });
 
+  it('tell of a question the merge waits for by what it asks, at the cell the work waits at', () => {
+    const draw = drawn(fixtureItems());
+    const merge: Now = {
+      kind: 'waits',
+      at: 'M1',
+      on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'owner' }] }],
+    };
+    const asks: Wait = {
+      ...wait('answer-scope', '选哪一种？', { kind: 'answer', question: 'scope', version: 4 }),
+      under: 'The merge waits for this answer.',
+    };
+    const items = fixtureItems().items.map((i): Item =>
+      i.number === 142 ? { ...i, work: { ...i.work, now: merge, waits: [asks] } } : i,
+    );
+    draw({ items, outage: null });
+    expect(Told.made.map((n) => n.options.body)).toEqual(['M1 · 选哪一种？']);
+  });
+
   it('tell nothing where the list holds nothing, whatever the work does', () => {
     const draw = drawn(fixtureItems());
     const at = (now: Now): Items => {
       const items = fixtureItems().items.map((i): Item => (i.number === 142 ? { ...i, work: { ...i.work, now, waits: [] } } : i));
       return { items, outage: null };
     };
-    draw(at({ kind: 'stalled', at: 'M2', on: [], by: [] }));
+    draw(at({ kind: 'stalled', at: 'M2', on: [], by: [], why: 'Nothing new runs `M2`.' }));
     draw(at({ kind: 'paused', by: 'owner', why: null }));
     draw(at({ kind: 'everything', by: 'owner' }));
     draw(at({ kind: 'fault', words: 'Two entries at 3' }));

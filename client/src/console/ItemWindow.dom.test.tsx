@@ -138,12 +138,13 @@ const lines = (el: HTMLElement) =>
 /// The work's state line has no row of keys under it: what it says is one line.
 const noKeys = (el: HTMLElement) => el.querySelector('.cw-item > .status-line .cw-keys, .cw-item > .status-line .keys') === null;
 
-/// The engine's wait for the owner's answer to this question of the work's, at this version: said by what it asks
-/// where the work waits for it at its cell, and by the engine's sentence where the merge waits for it.
+/// The engine's wait for the owner's answer to this question of the work's, at this version: said by what it asks,
+/// with the engine's sentence of why apart where the merge waits for it.
 const answering = (name: string, version = 30, merge = false): Wait => ({
   key: `answer-${name}`,
-  why: merge ? MERGE_WAITS : `What of ${name}?`,
+  why: `What of ${name}?`,
   ends: { kind: 'answer', question: name, version },
+  ...(merge ? { under: MERGE_WAITS } : {}),
 });
 
 /// Why the engine says a question the merge waits for holds the work, in the words beside the flows.
@@ -184,7 +185,8 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.drawer-title')).toEqual(['Show the cost of a work']);
     expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
     const [itemLine, workLine] = lines(el);
-    expect(itemLine).toBe('Open Added 1.1d ago Waits for 11 to merge');
+    // The items it waits for in the state's own word, each as an item's number is written.
+    expect(itemLine).toBe('Open Added 1.1d ago Waiting for the items it depends on: #11');
     expect(workLine).toContain('Waiting for you review_plan Review the plan');
     expect(noKeys(el)).toBe(true);
     // What it waits for is its card, under the line, in the look of every stop: why, and the button that ends it.

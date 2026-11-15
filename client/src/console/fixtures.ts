@@ -134,8 +134,8 @@ const owners = (t: Test): Waited => ({ kind: 'precondition', test: t.name, words
 const wait = (key: string, why: string, ends: Ends): Wait => ({ key, why, ends });
 
 /// The block a test reads that the owner writes, keeping the cell's `requires` from holding, as the engine says it.
-const ruling = (cell: string, t: Test, block: string): Wait =>
-  wait(`write-${block}`, `\`${cell}\` requires \`test = ${t.name}\`, which \`${block}\` keeps from holding.`, {
+const ruling = (t: Test, block: string): Wait =>
+  wait(`write-${block}`, `\`test = ${t.name}\` does not hold, as \`${block}\` says, and the cell requires it.`, {
     kind: 'write',
     block,
     value: 'yes',
@@ -386,7 +386,7 @@ export function fixtureItems(start = Date.now()): Items {
       work: work(
           { kind: 'waits', at: 'implement', on: [owners(PLAN_CONFIRMED)] },
           cellsAt('implement', 'notYet'),
-          { hours: 3, dollars: 1.9, rounds: 14, quiet: 40, waits: [ruling('implement', PLAN_CONFIRMED, 'plan_confirmed')] },
+          { hours: 3, dollars: 1.9, rounds: 14, quiet: 40, waits: [ruling(PLAN_CONFIRMED, 'plan_confirmed')] },
         ),
     },
     8: {
@@ -461,7 +461,7 @@ export function fixtureItems(start = Date.now()): Items {
       work: work(
           { kind: 'waits', at: 'merge', on: [owners(MAY_MERGE)] },
           cellsAt('merge', 'notYet'),
-          { hours: 7, dollars: 5.05, rounds: 44, quiet: 25, waits: [ruling('merge', MAY_MERGE, 'merge_allowed')] },
+          { hours: 7, dollars: 5.05, rounds: 44, quiet: 25, waits: [ruling(MAY_MERGE, 'merge_allowed')] },
         ),
     },
     16: {
@@ -510,7 +510,7 @@ export function fixtureItems(start = Date.now()): Items {
             quiet: 12,
             waits: [
               wait('call-12', 'May a page keep its stream open while hidden?', { kind: 'reply', call: 12 }),
-              ruling('implement', PLAN_CONFIRMED, 'plan_confirmed'),
+              ruling(PLAN_CONFIRMED, 'plan_confirmed'),
             ],
           },
         ),
@@ -548,7 +548,7 @@ export function fixtureItems(start = Date.now()): Items {
         hours: 0.5,
         dollars: 0,
         rounds: 0,
-        waits: [ruling('research', REQUEST_READ, 'request_read')],
+        waits: [ruling(REQUEST_READ, 'request_read')],
       }),
     },
   };

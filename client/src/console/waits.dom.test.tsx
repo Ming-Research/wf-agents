@@ -47,6 +47,9 @@ const shared = (failure: Failure): Now => {
   return { kind: 'waits', at: 'plan', on: [{ kind: 'agents', outage }] };
 };
 
+/// Why the engine says the merge waits for a question it went on past, said on that question's card alone.
+const MERGE = 'The merge waits for this answer.';
+
 /// What the owner does about the agents' command line, in the engine's words, which the page says once.
 const MEND = 'Sign it in again or install it; the engine lets the work go on once its check finds it runs.';
 
@@ -56,6 +59,7 @@ const STALLED: Now = {
   at: 'merge',
   on: [{ test: 'checked = yes', words: 'checked = yes' }],
   by: [{ cell: 'check', why: { kind: 'nothingNew' } }],
+  why: 'It waits for `checked = yes`, which only `check` can make hold, and `check` does not run, as nothing new runs it.',
 };
 
 /// A review's verdict that holds the work, for the owner to rule on.
@@ -134,12 +138,12 @@ const OWNERS: [string, Now, Wait][] = [
   [
     'a question the work went on past, which the merge now waits for',
     ANSWERS,
-    wait('answer-measure', 'The merge waits for this answer.', { kind: 'answer', question: 'measure', version: 4 }),
+    { ...wait('answer-measure', 'What of measure?', { kind: 'answer', question: 'measure', version: 4 }), under: MERGE },
   ],
   [
     "a review's verdict for the owner to rule on",
     VERDICT,
-    wait('write-content', '`merge` requires `test = may_merge`, which `content` keeps from holding.', {
+    wait('write-content', '`test = may_merge` does not hold, as `content` says, and the cell requires it.', {
       kind: 'write',
       block: 'content',
       value: 'yes',
@@ -397,14 +401,14 @@ describe('the cards of what waits for the owner', () => {
     expect(document.querySelector('[data-wait="held"] button')?.textContent).toBe('Resume all');
   });
 
-  it('say why a question holds the work under what it asks, where that is not what it asks, as for the merge', () => {
+  it('say why the merge waits for a question under what it asks, from the wait apart from its reason', () => {
     const [, now, w] = OWNERS[6];
     const container = draw(now, [w], undefined, none);
     const card = container.querySelector('[data-wait="answer-measure"]') as HTMLElement;
     expect(card.querySelector('.cw-choice-q')?.textContent).toBe('What of measure?');
-    expect([...card.querySelectorAll('.cw-choice-stops')].map((e) => e.textContent)).toEqual([
-      'The merge waits for this answer.',
-    ]);
+    expect([...card.querySelectorAll('.cw-choice-stops')].map((e) => e.textContent)).toEqual([MERGE]);
+    // Said once on the page: the state line says what it asks, not why the merge waits.
+    expect(container.textContent?.split(MERGE).length).toBe(2);
     unmount();
     // A question the work waits for at its cell is its own why: the card says nothing more.
     const [, at, own] = OWNERS[5];
@@ -417,7 +421,6 @@ describe('the cards of what waits for the owner', () => {
     await act(async () => undefined);
     const card = container.querySelector('[data-wait="write-content"]') as HTMLElement;
     expect([...card.querySelectorAll('.cw-choice-q code')].map((c) => c.textContent)).toEqual([
-      'merge',
       'test = may_merge',
       'content',
     ]);
@@ -446,6 +449,16 @@ describe('the cards of what waits for the owner', () => {
     expect(buttons).toEqual(['Resume']);
     act(() => (container.querySelector('[data-wait="pause"] button') as HTMLButtonElement).click());
     expect(sent).toEqual([{ kind: 'resume' }]);
+  });
+
+  it("draw a reason's marked names in the monospace and the rest as the plain text it is, a program's own words whole", () => {
+    const said =
+      'The engine paused the work. `pytest` failed in __init__: **kwargs is not a **mapping**.\n```\n# not a heading\n- not a list';
+    const container = draw(OWNERS[3][1], [wait('pause', said, { kind: 'resume' })], undefined, none);
+    const reason = container.querySelector('[data-wait="pause"] .cw-choice-q') as HTMLElement;
+    expect([...reason.querySelectorAll('code')].map((c) => c.textContent)).toEqual(['pytest']);
+    expect(reason.querySelector('strong, em, h1, h2, h3, h4, ul, ol, li, pre')).toBeNull();
+    expect(reason.textContent).toBe(said.replace('`pytest`', 'pytest'));
   });
 
   it('are opened by an address that keeps the name of what waits whole, whatever its characters', () => {

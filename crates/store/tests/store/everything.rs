@@ -1,7 +1,7 @@
 //! The owner's pause of everything, as the store keeps it: set and lifted, the latest saying whether it holds, and
 //! kept across an opening; and a file made before the store kept it opens with none.
 
-use store::{EverythingPaused, SCHEMA_VERSION};
+use store::{EverythingPaused, PauseOfEverything, SCHEMA_VERSION};
 
 use super::opening::{MIGRATIONS, SCHEMA_1, columns, versions};
 use super::*;
@@ -31,6 +31,34 @@ fn the_pause_of_everything_is_kept_set_and_lifted_with_who_set_it_and_holds_acro
     assert_eq!(store.everything_paused(), paused(2000, Pauser::Engine));
     drop(store);
     assert_eq!(db.open().everything_paused(), paused(2000, Pauser::Engine));
+}
+
+#[test]
+fn every_setting_and_lifting_of_the_pause_of_everything_is_given_back_in_order_with_who_and_when_across_an_opening() {
+    let db = Db::new();
+    let mut store = db.open();
+    assert_eq!(store.everything_pauses(), Ok(Vec::new()));
+    let kept = [
+        (true, Pauser::Owner, 0),
+        (false, Pauser::Owner, 1000),
+        (true, Pauser::Engine, 2000),
+        (false, Pauser::Owner, 3000),
+    ];
+    for (paused, by, at) in kept {
+        store
+            .pause_everything(paused, by, Time(START + at))
+            .expect("it is kept");
+    }
+    let expected: Vec<PauseOfEverything> = (kept.iter())
+        .map(|(paused, by, at)| PauseOfEverything {
+            paused: *paused,
+            by: *by,
+            at: Time(START + at),
+        })
+        .collect();
+    assert_eq!(store.everything_pauses(), Ok(expected.clone()));
+    drop(store);
+    assert_eq!(db.open().everything_pauses(), Ok(expected));
 }
 
 #[test]

@@ -152,9 +152,9 @@ export type Now =
   | { kind: 'next'; cell: string }
   /// It can go on by itself no further at this cell, and nothing pauses it: each key of the cell's `requires` that does
   /// not hold, none where it stands at its last cell for want of anything new to run it; and each cell that writes what
-  /// it waits for, none of which runs, with why. It goes on once the owner, or a source outside the work, writes what
-  /// runs a cell.
-  | { kind: 'stalled'; at: string; on: CellKey[]; by: Stalling[] };
+  /// it waits for, none of which runs, with why; and all that in a sentence, as the engine says it in the words beside the
+  /// flows, which every view says. It goes on once the owner, or a source outside the work, writes what runs a cell.
+  | { kind: 'stalled'; at: string; on: CellKey[]; by: Stalling[]; why: string };
 
 /// A key of a cell's `when` or `requires`: the named test, or the block's key as the cell's file writes it
 /// (`checked = yes`); and the words shown for it, the test's or the same key.
@@ -239,6 +239,10 @@ export interface Wait {
   key: string;
   why: string;
   ends: Ends;
+  /// For a question a cell's precondition waits for, which the work went on past at the cell that asked it, why the
+  /// work waits for it there, in a sentence: said by the question's card alone, under what it asks. Absent for
+  /// anything else.
+  under?: string | null;
 }
 
 /// What the owner does that ends a wait on them.

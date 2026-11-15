@@ -679,7 +679,7 @@ function long(start: number): Built {
   });
   const approval: Wait = {
     key: 'write-approval',
-    why: '`merge` requires `test = approved`, which `approval` keeps from holding.',
+    why: '`test = approved` does not hold, as `approval` says, and the cell requires it.',
     ends: { kind: 'write', block: 'approval', value: 'yes' },
   };
   const page = h.page(
