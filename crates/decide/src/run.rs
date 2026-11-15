@@ -348,6 +348,8 @@ pub enum Unmet {
     /// The return names a record it adds an entry to as written with its meaning unchanged: each entry of a record is
     /// new, and is read so by every rule that reads it.
     EntryUnchanged { block: BlockId },
+    /// The block has a shape its file gives, and what the return writes of it is not of that shape.
+    NotOfItsShape { block: BlockId },
     /// The return writes a question of this name that is not its cell's own: another cell's, or one the engine asked.
     QuestionTaken { name: String },
     /// The return withdraws a question of this name that is none of its cell's that stands.
@@ -681,7 +683,10 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     }
     // A block written in a shape it does not take was handed in, and is said to be wrong only for its shape.
     let misshapen = |block: &BlockId| {
-        (found.iter()).any(|u| matches!(u, Unmet::NoValue { block: b } | Unmet::NotAChoice { block: b } if b == block))
+        (found.iter()).any(|u| {
+            matches!(u, Unmet::NoValue { block: b } | Unmet::NotAChoice { block: b } | Unmet::NotOfItsShape { block: b }
+                if b == block)
+        })
     };
     if !waiting {
         for block in requires.must_write {

@@ -422,6 +422,7 @@ impl Driver {
         // While a cell waits for the result of what it asked for, no round of a later cell is under way but one of a cell
         // that gives it (decision a-wait-holds-its-cell).
         let now = Seq(u64::MAX);
+        let reading = reading::Reading::new(r);
         for effect in &pending {
             let Effect::Round { cell, .. } = effect else {
                 continue;
@@ -429,8 +430,8 @@ impl Driver {
             let Some(i) = self.flow.flow.place(cell) else {
                 continue;
             };
-            for before in &self.flow.flow.cells()[..i] {
-                if decide::applies(&self.flow.flow, r, &before.id) && awaits(&self.flow.flow, r, &before.id, now) {
+            for (j, before) in self.flow.flow.cells()[..i].iter().enumerate() {
+                if reading.applies(&self.flow.flow, j) && awaits(&self.flow.flow, r, &before.id, now) {
                     let gives = (before.asks.iter()).any(|a| self.flow.flow.cells()[i].runs_on.contains(&a.record));
                     assert!(
                         gives,

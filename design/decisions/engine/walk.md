@@ -85,26 +85,25 @@ with the round's end, it is what the round did, on its return and on the chart.
 ### decision a-wait-of-a-skipped-cell-is-put-away
 A wait of a cell that no longer applies is put away: it holds nothing, the cell that gives what it waits for gives it
 nothing, and it is waited for again once the cell applies again. The cell that gives the result of an entry is then
-entered for it, though it took the record in before, passing over the entry while its cell was skipped. Built for the
-entries of what a cell asks for in a record; for a question, the engine's record of the questions' standing still holds
-the merge whatever cell asked it, and the rule waits for that part.
-Why: The owner settled it for a question (2026-11-15): a question of a cell skipped is put away, holds nothing, and comes
-back when the cell runs again. Run for a cell that no longer applies, its entry ran later on another cell's commit,
-for a cell whose work no longer counted, and gave a result to none that read it. One rule for every wait keeps a
-skipped cell from holding, or spending, for what it no longer does.
+entered for it, though it took the record in before, passing over the entry while its cell was skipped. Of a question,
+the engine's record of the questions' standing (`asked`) holds the merge whatever cell asked it, skipped or not.
+Why: Run for a cell that no longer applies, its entry ran later on another cell's commit, for a cell whose work no
+longer counted, and gave a result to none that read it. One rule for every wait keeps a skipped cell from holding, or
+spending, for what it no longer does.
 
 ### decision the-owner-turning-to-a-waiting-cell-enters-it-once
 While a cell waits (decision a-wait-holds-its-cell), the owner turning to it, by words or by an answer, enters it only
-for a version no run of the cell has seen: none that finished was told it, and none still open holds it; and only such
-a version, of a cell no waiting cell holds back, stops a round under way of a later cell. A run so entered that asks in turn leaves what the owner wrote new,
-for the run the results begin, which deals with both; a run abandoned, its round stopped or its return unread, saw
-nothing, and the cell is entered for the version again.
+for a version no run of the cell has seen: none that finished was told it, and none still open holds it; and only such a
+version, of a cell no waiting cell holds back, stops a round under way of a later cell. A run so entered that asks in
+turn leaves what the owner wrote new, for the run the results begin, which deals with both; a run abandoned, its round
+stopped or its return unread, saw nothing, and the cell is entered for the version again.
 Why: Entered again for the same version each time such a run asked, the cell went round without end, a call asked at
 each turn, and no limit counted it: a build entered for an answer that asked for a tool first did so in the real
-carriers' tests. Counting a version the cell was told as the owner turning to it, the round that ran the tests was
-stopped as it wrote the result, for words the asking cell had answered before it asked, or for words to a cell after
-it, which could not run before the result came. Counted from the cell's last run
-begun instead, a version told to a run that was then abandoned waited for every result before any run answered it.
+carriers' tests. Counting a version the cell was told as the owner turning to it stopped a round for words the asking
+cell had answered before it asked. And words to a cell held behind a wait would stop the very round that is ending that
+wait, while the cell spoken to can run only once the wait is over: the work would be held for ever. Counted from the
+cell's last run begun instead, a version told to a run that was then abandoned waited for every result before any run
+answered it.
 
 ### decision a-work-no-cell-can-move-is-stalled
 A work that waits only for what cells write, at a cell whose preconditions only cells make hold or at its last cell

@@ -168,6 +168,108 @@ fn made(flow: &Compiled, agents: &Agents, line: &str) -> Result<Made, String> {
     })
 }
 
+/// The words of a shape the engine holds a return to as it reads it ([`fits`]), and no other: a shape its file gives a
+/// block in any other would be held to less than it says ([`unchecked`]).
+pub const CHECKED: [&str; 7] = [
+    "type",
+    "properties",
+    "required",
+    "additionalProperties",
+    "items",
+    "anyOf",
+    "enum",
+];
+
+/// The types a shape may say a value is of.
+const TYPES: [&str; 7] = ["object", "array", "string", "integer", "number", "boolean", "null"];
+
+/// Whether the value is of the shape, as the engine holds a return's block to the shape its file gives it: of the type
+/// it says, each property of the shape it gives, those it requires there, no other where it allows none, each item of
+/// the shape it gives, of one of the shapes `anyOf` gives, and one of the values `enum` gives.
+pub fn fits(value: &serde_json::Value, shape: &Shape) -> bool {
+    serde_json::to_value(&shape.0).is_ok_and(|shape| fits_json(value, &shape))
+}
+
+fn fits_json(value: &serde_json::Value, shape: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    let Some(shape) = shape.as_object() else {
+        return false;
+    };
+    let typed = match shape.get("type").and_then(Value::as_str) {
+        None => true,
+        Some("object") => value.is_object(),
+        Some("array") => value.is_array(),
+        Some("string") => value.is_string(),
+        Some("integer") => value.is_i64() || value.is_u64(),
+        Some("number") => value.is_number(),
+        Some("boolean") => value.is_boolean(),
+        Some("null") => value.is_null(),
+        Some(_) => false,
+    };
+    let valued = (shape.get("enum").and_then(Value::as_array)).is_none_or(|values| values.contains(value));
+    let one_of =
+        (shape.get("anyOf").and_then(Value::as_array)).is_none_or(|any| any.iter().any(|s| fits_json(value, s)));
+    let items = match (shape.get("items"), value.as_array()) {
+        (Some(items), Some(list)) => list.iter().all(|item| fits_json(item, items)),
+        _ => true,
+    };
+    let members = value.as_object().is_none_or(|object| {
+        let properties = shape.get("properties").and_then(Value::as_object);
+        let required = (shape.get("required").and_then(Value::as_array))
+            .is_none_or(|names| names.iter().all(|n| n.as_str().is_some_and(|n| object.contains_key(n))));
+        let each = object
+            .iter()
+            .all(|(name, member)| match properties.and_then(|p| p.get(name)) {
+                Some(of) => fits_json(member, of),
+                None => match shape.get("additionalProperties") {
+                    Some(Value::Bool(allowed)) => *allowed,
+                    Some(of) => fits_json(member, of),
+                    None => true,
+                },
+            });
+        required && each
+    });
+    typed && valued && one_of && items && members
+}
+
+/// What of the shape the engine would not hold a return to ([`fits`]): each word it is written in that is none of
+/// [`CHECKED`], and each type that is none it knows, at every depth.
+pub fn unchecked(shape: &Shape) -> Vec<String> {
+    let mut found = Vec::new();
+    unchecked_in(&shape.0, &mut found);
+    found
+}
+
+fn unchecked_in(shape: &toml::Value, found: &mut Vec<String>) {
+    let Some(table) = shape.as_table() else {
+        found.push(format!("{shape} is no shape"));
+        return;
+    };
+    for (word, value) in table {
+        if !CHECKED.contains(&word.as_str()) {
+            found.push(format!("`{word}`"));
+            continue;
+        }
+        match (word.as_str(), value) {
+            ("type", toml::Value::String(kind)) if !TYPES.contains(&kind.as_str()) => {
+                found.push(format!("the type `{kind}`"));
+            }
+            ("properties", toml::Value::Table(properties)) => {
+                for of in properties.values() {
+                    unchecked_in(of, found);
+                }
+            }
+            ("items" | "additionalProperties", toml::Value::Table(_)) => unchecked_in(value, found),
+            ("anyOf", toml::Value::Array(shapes)) => {
+                for of in shapes {
+                    unchecked_in(of, found);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The shape a return holds the block to: the one its file gives; of a choice, its value, one of its values, and a line
 /// of why; of any other, a text.
 fn shape(block: &Block) -> toml::Value {

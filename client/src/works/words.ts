@@ -438,6 +438,8 @@ export function unmetWords(unmet: Unmet): string {
       return `it named ${unmet.block} as unchanged in meaning, and did not write it`;
     case 'entryUnchanged':
       return `it named ${unmet.block}, a record, as unchanged in meaning, and each entry of a record is new`;
+    case 'notOfItsShape':
+      return `it wrote ${unmet.block} in another shape than the form gives it`;
     case 'questionTaken':
       return `it wrote the question ${unmet.name}, which is not its cell's own`;
     case 'noSuchQuestion':

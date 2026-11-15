@@ -31,13 +31,14 @@ struct Inner {
     held: Held<(WorkNumber, CallId), CallReply>,
     /// The tool `query`, closed until the settings open it.
     query: Querying,
-    /// What a call is answered that names a record its cell writes, `{name}` the record's name: in a work kept from
-    /// before, a cell asked for tests by a tool, which it now asks for in the record.
+    /// What a call is answered that names the record its cell asks for tests in, `{name}` the record's name: in a work
+    /// kept from before, a cell asked for tests by a tool, which it now asks for in the record.
     as_a_tool: String,
 }
 
 impl Tools {
-    /// The tools, the tool `query` as this says it is, a call that names a record its cell writes answered so.
+    /// The tools, the tool `query` as this says it is, a call that names the record its cell asks for tests in answered
+    /// so.
     pub fn new(query: Querying, as_a_tool: String) -> Self {
         Tools {
             inner: Arc::new(Inner {
@@ -49,15 +50,15 @@ impl Tools {
     }
 }
 
-/// Whether the call names a record its run's cell writes: what it asked for is asked for by an entry of it now.
+/// Whether the call names the record its run's cell asks for tests in: what it asked for is asked for by an entry of
+/// it now.
 fn names_a_record(call: &ToolCall) -> bool {
     let block = BlockId::from(call.name.as_str());
     let cell = (call.kept.records.started.iter())
         .find(|s| s.run == call.run)
         .map(|s| &s.cell);
-    let writes = (cell.and_then(|cell| call.flow.flow.place(cell)))
-        .is_some_and(|i| call.flow.flow.cells()[i].outputs.contains(&block));
-    writes && call.flow.flow.adds_entries(&block)
+    (cell.and_then(|cell| call.flow.flow.place(cell)))
+        .is_some_and(|i| (call.flow.flow.cells()[i].asks.iter()).any(|asks| asks.record == block))
 }
 
 impl ToolsTrait for Tools {
@@ -439,15 +440,17 @@ mod tests {
     }
 
     // A call of `run_tests` as a tool, in a work kept from before the cells asked for tests in a record, is answered,
-    // where its run's cell writes the record, that it is asked for there now, in the words of the act's file, so that
-    // the run goes on to write an entry; of a cell that does not write it, as any tool the engine does not have. Well
-    // under a second alone; no other test holds what such a call is answered.
+    // where its run's cell asks for tests in the record, that it is asked for there now, in the words of the act's file,
+    // so that the run goes on to write an entry; of a cell that does not, and a call named after another record the
+    // cell writes, as any tool the engine does not have. Well under a second alone; no other test holds what such a
+    // call is answered.
     #[tokio::test]
-    async fn a_call_of_run_tests_as_a_tool_is_told_to_write_an_entry_where_its_cell_writes_the_record() {
+    async fn a_call_of_run_tests_as_a_tool_is_told_to_write_an_entry_where_its_cell_asks_for_tests_in_the_record() {
         let flow = Arc::new(engineer());
         let words = crate::acts::words().run_tests.as_a_tool;
         let tools = Tools::new(Querying::closed(), words.clone());
-        for (n, cell) in ["I1", "T1"].into_iter().enumerate() {
+        let calls = [("I1", "run_tests"), ("T1", "run_tests"), ("I1", "q_and_a")];
+        for (n, (cell, name)) in calls.into_iter().enumerate() {
             let (id, run) = (CallId(n as u64 + 1), decide::RunId(n as u64 + 1));
             let mut kept = work::Work::default();
             let at = kept.tick();
@@ -470,7 +473,7 @@ mod tests {
                 flow: flow.clone(),
                 run,
                 call: id,
-                name: "run_tests".to_string(),
+                name: name.to_string(),
                 input: "{\"tests\": []}".to_string(),
                 item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
                 kept: Arc::new(kept),
@@ -484,9 +487,9 @@ mod tests {
             else {
                 panic!("the call is answered with its result");
             };
-            match cell {
-                "I1" => assert_eq!(result, flow::agents::fill(&words, &[("name", "run_tests")])),
-                _ => assert_eq!(result, "No such tool: run_tests. The tools are: query."),
+            match (cell, name) {
+                ("I1", "run_tests") => assert_eq!(result, flow::agents::fill(&words, &[("name", "run_tests")])),
+                _ => assert_eq!(result, format!("No such tool: {name}. The tools are: query.")),
             }
         }
     }

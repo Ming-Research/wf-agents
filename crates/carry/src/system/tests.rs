@@ -403,6 +403,48 @@ fn the_words_of_run_tests_are_told_as_the_host_runs_the_tests() {
     );
 }
 
+// A place of a block's words the engine fills for no host, or for one host and not the other, and a word of a block's
+// shape the engine holds no return to, are said as the engine starts, every one of them; the repository's flow has
+// none. Well under a millisecond alone; no other test holds a block's words or shape to what the engine does with them.
+#[test]
+fn a_place_of_a_blocks_words_the_engine_does_not_fill_and_a_shape_it_does_not_check_are_said_at_once() {
+    let (beside, mut flow) = (beside(), engineer());
+    let record = decide::BlockId::from("run_tests");
+    assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
+    let block = flow.blocks.get_mut(&record).expect("the record");
+    block.words = Some(format!(
+        "{} {{nowhere}} {{{{name}}}}",
+        block.words.clone().unwrap_or_default()
+    ));
+    let shape: toml::Value = toml::from_str("type = \"object\"\nminProperties = 1\n").expect("a shape");
+    block.shape = Some(flow::Shape(shape));
+    let mut local_only = beside.clone();
+    let places = &mut local_only.acts.run_tests.places;
+    places.get_mut("runs_on").expect("a place").remove("github");
+    let faults_of = |beside: &Agents| -> Vec<String> {
+        (faults(&settings(), beside, &flow).into_iter())
+            .filter(|f| f.starts_with("flow engineer: block run_tests,"))
+            .collect()
+    };
+    assert_eq!(
+        faults_of(&beside),
+        [
+            "flow engineer: block run_tests, its shape: the engine holds no return to `minProperties`",
+            "flow engineer: block run_tests, what its writer is told: the engine fills no place `{nowhere}` where the \
+             host is github",
+            "flow engineer: block run_tests, what its writer is told: the engine fills no place `{nowhere}` where the \
+             host is local",
+        ]
+    );
+    let runs_on = "flow engineer: block run_tests, what its writer is told: the engine fills no place `{runs_on}` where \
+                   the host is github";
+    assert!(
+        faults_of(&local_only).iter().any(|f| f == runs_on),
+        "{:?}",
+        faults_of(&local_only)
+    );
+}
+
 // A place the engine does not fill, in the heading a file of the project stands under or in the engine's words, and a
 // set of rules or a tool nothing beside the flows defines, are said as the engine starts, every one of them.
 #[test]

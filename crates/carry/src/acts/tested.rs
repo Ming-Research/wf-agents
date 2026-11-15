@@ -8,6 +8,7 @@
 
 use decide::{BlockId, CellId};
 use flow::Compiled;
+use flow::agents::RunTests;
 use serde::Deserialize;
 use work::{Handed, Work};
 
@@ -25,11 +26,11 @@ pub(crate) struct Tested {
 }
 
 /// Runs, for the cell `giving` of the flow, each entry it gives the result of, and gives each result as the asking
-/// cell's block of it; first cancels what the entries replaced asked for. None where it was told to stop; an `Err` is a
-/// host that could not be reached.
+/// cell's block of it; first cancels what the entries replaced asked for, saying in `words` what could not be. None
+/// where it was told to stop; an `Err` is a host that could not be reached.
 pub(crate) async fn act(
     host: &impl Host,
-    project: &Project,
+    (project, words): (&Project, &RunTests),
     branch: &Branch<'_>,
     (flow, work, giving): (&Compiled, &Work, &CellId),
     stop: &mut Stop,
@@ -38,19 +39,7 @@ pub(crate) async fn act(
     let replaced: Vec<Asking> = (entries.iter())
         .flat_map(|entry| entry.replaced.iter().map(|at| Asking::Entry(*at)))
         .collect();
-    let mut observations = Vec::new();
-    if !replaced.is_empty()
-        && let Err(failed) = host.cancel_tests(branch, &replaced).await
-    {
-        // What a replaced entry still runs costs a runner, and nothing reads it: what cannot be cancelled is kept as an
-        // observation, and the entries are run all the same.
-        let names: Vec<String> = replaced.iter().map(Asking::name).collect();
-        observations.push(format!(
-            "What the replaced entries of `run_tests` ({}) asked the host for could not be cancelled: {}",
-            names.join(", "),
-            failed.why
-        ));
-    }
+    let observations = cancel(host, branch, &replaced, words).await;
     let mut results = Vec::new();
     for entry in &entries {
         let input = (work.contents.get(&(entry.record.clone(), entry.at))).map_or("", String::as_str);
@@ -88,6 +77,24 @@ pub(crate) fn whole(flow: &Compiled, work: &Work) -> Vec<Asking> {
         .filter(|f| (f.writes.iter()).any(|w| records.contains(&&w.block) && names_none(&w.block, f.at)))
         .map(|f| Asking::Entry(f.at))
         .collect()
+}
+
+/// Cancels what the replaced entries asked the host for. What a replaced entry still runs costs a runner, and nothing
+/// reads it: what cannot be cancelled is kept as an observation, in the words of the act's file (`not_cancelled`), and
+/// the entries are run all the same. Nothing is kept where nothing was replaced, or where it was cancelled.
+async fn cancel(host: &impl Host, branch: &Branch<'_>, replaced: &[Asking], words: &RunTests) -> Vec<String> {
+    if replaced.is_empty() {
+        return Vec::new();
+    }
+    let Err(failed) = host.cancel_tests(branch, replaced).await else {
+        return Vec::new();
+    };
+    let names: Vec<String> = replaced.iter().map(Asking::name).collect();
+    let entries = names.join(", ");
+    vec![flow::agents::fill(
+        &words.not_cancelled,
+        &[("entries", &entries), ("why", &failed.why)],
+    )]
 }
 
 /// What a result says where the tests could not be run, said once: the cell may ask again.
@@ -314,6 +321,35 @@ mod tests {
             [Asked::RunTests(named), Asked::RunTests(Named::default())]
         );
         assert_eq!(host.askings(), [Asking::Entry(decide::Seq(1)); 2]);
+    }
+
+    #[tokio::test]
+    async fn what_the_host_could_not_cancel_is_kept_in_the_words_of_the_acts_file_and_nothing_else_is() {
+        let repo = Repo::new("true");
+        let place = repo.place(WORK);
+        let branch = Branch {
+            work: WORK,
+            title: "Greet the user",
+            about: "",
+            place: &place,
+        };
+        let words = crate::acts::words().run_tests;
+        let replaced = [Asking::Entry(decide::Seq(1)), Asking::Entry(decide::Seq(4))];
+        let host = Fake::new("main").refuses_cancel("the runs are gone");
+        let kept = cancel(&host, &branch, &replaced, &words).await;
+        let opening = words.not_cancelled.split('{').next().expect("words");
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert!(kept[0].starts_with(opening), "{kept:?}");
+        assert!(kept[0].contains(&Asking::Entry(decide::Seq(4)).name()), "{kept:?}");
+        assert!(
+            kept[0].contains("the runs are gone") && !kept[0].contains('{'),
+            "{kept:?}"
+        );
+        assert_eq!(host.asked(), [Asked::Cancel(replaced.to_vec())]);
+        let host = Fake::new("main");
+        assert_eq!(cancel(&host, &branch, &replaced, &words).await, Vec::<String>::new());
+        assert_eq!(cancel(&host, &branch, &[], &words).await, Vec::<String>::new());
+        assert_eq!(host.asked(), [Asked::Cancel(replaced.to_vec())]);
     }
 
     #[tokio::test]

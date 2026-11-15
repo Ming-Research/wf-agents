@@ -20,7 +20,11 @@
 //!   entered again for the results of what it asked for one to three times in a row. In about a third of the
 //!   histories, drawn apart, a cell asks for tests in a record, which runs a cell after it that hands in the result of
 //!   each entry it gives, as the engine's act does; the asking cell runs only while "flip" holds in two of five of
-//!   those, and the owner's words run a cell after it in half (properties `WAITS` and `RESULTS`).
+//!   those, and the owner's words run a cell after it in half (properties `WAITS` and `RESULTS`). In half of those
+//!   where it runs only while "flip" holds, the owner is steered so that its entry is taken up again: once it waits for
+//!   the result of an entry, "flip" fails, and once the cell that gives results ran since, passing the entry over,
+//!   "flip" holds again, so that the cell that gives results is entered for the entry (decision
+//!   a-wait-of-a-skipped-cell-is-put-away).
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -312,6 +316,16 @@ struct History {
     moments: Vec<Moment>,
     /// How many of the runs started and finished the properties have looked at.
     looked_at: (usize, usize),
+    /// Where the history is steered so that the asking cell's entry is taken up again: how far it went.
+    taking_up: Option<TakingUp>,
+}
+
+/// How far the steering went that has the cell that gives results take an asking cell's entry up again: the asking
+/// cell, run only while "flip" holds, and the place where the owner made "flip" fail as it waited for a result, none
+/// before.
+struct TakingUp {
+    asker: CellId,
+    since: Option<Seq>,
 }
 
 impl History {
@@ -335,6 +349,7 @@ impl History {
         // the result of each entry into the asking cell's own block, drawn apart so that the other draws keep their
         // order.
         let mut asking = Rng::new(seed ^ 0x7E57_ED00_A5C1_0000);
+        let mut taking_up = None;
         let result = asking.chance(35).then(|| {
             let i = asking.below(cells.len());
             let result = format!("{}_tested", cells[i].id);
@@ -346,7 +361,8 @@ impl History {
             });
             // Now and then the asking cell can be skipped, so that its entry is put away, and the owner's words turn to
             // a cell after it, which its wait holds back.
-            if cells[i].applies.is_empty() && asking.chance(40) {
+            let skippable = cells[i].applies.is_empty() && asking.chance(40);
+            if skippable {
                 cells[i] = when_flipped(cells[i].clone());
             }
             if i + 1 < cells.len() && asking.chance(50) {
@@ -356,6 +372,12 @@ impl History {
                 }
             }
             cells.push(cell(GIVER, &[TESTS], &[result.as_str()]));
+            if skippable && asking.chance(50) {
+                taking_up = Some(TakingUp {
+                    asker: cells[i].id.clone(),
+                    since: None,
+                });
+            }
             result
         });
         let mut w = if judged.is_some() {
@@ -415,6 +437,7 @@ impl History {
             verdict: Verdict::default(),
             moments: Vec::new(),
             looked_at: (0, 0),
+            taking_up,
         }
     }
 
@@ -425,6 +448,9 @@ impl History {
     /// One step: people may act first, then the engine applies the decision. Says whether the work moved; it has
     /// not when it rests waiting for people who no longer act, is paused, or has ended.
     fn step(&mut self, people: bool) -> bool {
+        if people {
+            self.take_up();
+        }
         if people && self.rng.chance(16) {
             self.person_acts(None, &[]);
         }
@@ -1031,6 +1057,39 @@ impl History {
                     dealt_with,
                     writes,
                     calls: Vec::new(),
+                }
+            }
+        }
+    }
+
+    /// The owner's word "flip", where the history is steered so that the cell that gives results takes the asking
+    /// cell's entry up again: once the asking cell applies and waits for the result of an entry, "flip" fails, and the
+    /// entry is put away; once a run of the cell that gives results started since has finished, passing the entry over,
+    /// "flip" holds again (decision a-wait-of-a-skipped-cell-is-put-away).
+    fn take_up(&mut self) {
+        let Some((asker, since)) = (self.taking_up.as_ref()).map(|t| (t.asker.clone(), t.since)) else {
+            return;
+        };
+        let Some(i) = self.w.flow.place(&asker) else {
+            return;
+        };
+        let reading = Reading::of_flow(&self.w.flow, &self.w.records);
+        match since {
+            None => {
+                let waits = reading.applies(&self.w.flow, i) && reading.pending(&self.w.flow.cells()[i], Seq(u64::MAX));
+                if waits {
+                    self.note("the owner's word flip comes to no, the asking cell waiting".into());
+                    let at = self.w.says("flip", false);
+                    self.taking_up = Some(TakingUp { asker, since: Some(at) });
+                }
+            }
+            Some(since) => {
+                let passed = (reading.started.values())
+                    .any(|s| s.cell.as_str() == GIVER && s.at > since && reading.finished.contains_key(&s.run));
+                if passed {
+                    self.note("the owner's word flip comes to yes, the cell that gives results having run".into());
+                    self.w.says("flip", true);
+                    self.taking_up = None;
                 }
             }
         }

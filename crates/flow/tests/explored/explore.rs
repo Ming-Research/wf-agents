@@ -932,7 +932,7 @@ impl Explorer<'_> {
                 (r.done(call, NOW), s.questions.contains_key(&call)).hash(&mut h);
             }
             streaks(flow, records, &cell.id).hash(&mut h);
-            r.pending(flow, cell, NOW).hash(&mut h);
+            r.pending(cell, NOW).hash(&mut h);
             let finished = (r.started.values()).any(|st| st.cell == cell.id && r.finished.contains_key(&st.run));
             finished.hash(&mut h);
         }
@@ -1103,7 +1103,7 @@ impl Explorer<'_> {
                 let name = format!("{cell} ran while {} before it waited for an answer", before.id);
                 self.breach(Property::NewToIt, name, trace, String::new());
             }
-            if r.pending(flow, before, NOW) {
+            if r.pending(before, NOW) {
                 if (before.asks.iter()).any(|asks| def.runs_on.contains(&asks.record)) {
                     held = true;
                     self.reach(RAN_FOR_A_WAIT.to_string());

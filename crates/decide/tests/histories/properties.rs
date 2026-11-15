@@ -119,15 +119,18 @@ pub const RESULTS: &str = "a result is handed in only for an entry that waits fo
 const WAITED_FOR_A_RESULT: &str = "a cell runs that gives the result a cell before it waits for";
 const RESULT_GIVEN: &str = "the result of an entry is handed in";
 const ENTRY_PUT_AWAY: &str = "the entry of a cell skipped is put away while a cell that gives results runs";
-/// Not required: that the asking cell is skipped while the round that gives results is under way, and applies again
-/// after, takes a row of acts the histories all but never reach; the walk's own test of it holds the rule
-/// (`tests/walk/asking.rs`).
 const ENTRY_TAKEN_UP: &str = "a cell that gives results runs for an entry it put away, its cell applying again";
 const WAITING_HOLDS_A_STOP: &str = "the owner turns to a cell a waiting cell holds back while a round is under way";
 
 /// What the histories that draw a cell asking for tests must reach (decisions a-wait-holds-its-cell,
 /// a-wait-of-a-skipped-cell-is-put-away).
-pub const WAITS_REACHED: &[&str] = &[WAITED_FOR_A_RESULT, RESULT_GIVEN, ENTRY_PUT_AWAY, WAITING_HOLDS_A_STOP];
+pub const WAITS_REACHED: &[&str] = &[
+    WAITED_FOR_A_RESULT,
+    RESULT_GIVEN,
+    ENTRY_PUT_AWAY,
+    ENTRY_TAKEN_UP,
+    WAITING_HOLDS_A_STOP,
+];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
@@ -381,7 +384,8 @@ fn finished_since_let_go<'r>(reading: &'r Reading, cell: &decide::CellId, place:
 /// The cells after the cell at place `i` that wrote what these causes of a run of it, starting at this place, are new
 /// versions of, each once: of the causes the run dealt with, where it finished. None where one of them is a first run
 /// or a version that a person, the outside or a cell before it wrote, which is no send-back and starts the cell's
-/// counts anew; the results of its calls are no one's.
+/// counts anew; the results of its calls, and those of what it asked for in a record, are no one's (decision
+/// the-same-sender-again).
 fn sent_by(flow: &Flow, reading: &Reading, i: usize, because: &[Cause], place: Seq) -> Option<Vec<decide::CellId>> {
     let cell = &flow.cells()[i].id;
     let mut senders: Vec<decide::CellId> = Vec::new();
@@ -389,6 +393,7 @@ fn sent_by(flow: &Flow, reading: &Reading, i: usize, because: &[Cause], place: S
         match cause {
             Cause::NoRecord => return None,
             Cause::Changed { behind: false, .. } => return None,
+            Cause::Changed { block, .. } if reading.results.contains(block) => {}
             Cause::Changed { block, .. } => {
                 for v in reading.new_to(cell, block, place) {
                     if let Writer::Cell(writer, _) = &v.by
@@ -443,13 +448,10 @@ fn sent_back_since(flow: &Flow, reading: &Reading, i: usize, sender: &decide::Ce
     count
 }
 
-/// A run that has just finished (property a-run-is-one-mechanism, nothing written over unseen): of each block it
-/// writes, the version latest just before its finish is the latest its round was told of. A run that dealt with part
-/// of what ran it is counted.
 /// The first cell before place `upto` that applies and waits for the result of what it asked for, by this reading.
 fn waiting(flow: &Flow, reading: &Reading, upto: usize) -> Option<usize> {
     let now = Seq(u64::MAX);
-    (0..upto).find(|&j| reading.applies(flow, j) && reading.pending(flow, &flow.cells()[j], now))
+    (0..upto).find(|&j| reading.applies(flow, j) && reading.pending(&flow.cells()[j], now))
 }
 
 /// While a cell waits for the result of what it asked for, no later cell runs but one that gives that result; and the
@@ -542,6 +544,9 @@ pub fn results(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId) {
     }
 }
 
+/// A run that has just finished (property a-run-is-one-mechanism, nothing written over unseen): of each block it
+/// writes, the version latest just before its finish is the latest its round was told of. A run that dealt with part
+/// of what ran it is counted.
 pub fn finished(v: &mut Verdict, reading: &Reading, run: RunId) {
     let s = reading.started[&run];
     let f = reading.finished[&run];
@@ -700,7 +705,7 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         // A cell that waits for a result the cell entered gives holds the work behind it, whatever else it waits for:
         // only the owner turning to it, or its run at rest, comes first (decision a-wait-holds-its-cell).
         let gives = (cell.asks.iter()).any(|asks| flow.cells()[i].runs_on.contains(&asks.record));
-        if reading.pending(flow, cell, now) && gives {
+        if reading.pending(cell, now) && gives {
             if at_rest || !entering.is_empty() {
                 let what = format!(
                     "the walk passes {} to {}, which gives what it waits for",
@@ -724,7 +729,7 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         }
         // A cell that waits for a result holds the work: the cells after it are passed for what ends the wait, which
         // the property of waits judges (decision a-wait-holds-its-cell).
-        if reading.pending(flow, cell, now) {
+        if reading.pending(cell, now) {
             return;
         }
     }
@@ -1111,7 +1116,7 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
     for (i, cell) in cells[..exempt_from].iter().enumerate() {
         // A cell that waits for a result, and every cell after it, is reached once the wait is over (decision
         // a-wait-holds-its-cell).
-        if reading.applies(flow, i) && reading.pending(flow, cell, now) {
+        if reading.applies(flow, i) && reading.pending(cell, now) {
             break;
         }
         if !reading.applies(flow, i) {
@@ -1151,4 +1156,50 @@ pub fn replay(v: &mut Verdict, flow: &Flow, records: &Records, moments: &[Moment
             );
         }
     }
+}
+
+/// A result is no one's send-back (decision the-same-sender-again): of a cell whose limit is one, a run entered by the
+/// result of its entry and by a version a cell after it wrote, then a run entered by the result of its next entry
+/// alone, counts no sender for the result; the count the properties keep says so as the walk does.
+#[test]
+fn a_result_sends_no_cell_back_in_the_count_the_properties_keep() {
+    use crate::support::{Says::Matters, World, cell};
+    use crate::{BRIEF, GIVER, TESTS};
+    let mut asker = cell("asker", &[BRIEF, "o", "asker_tested"], &["x", TESTS]);
+    asker.asks.push(decide::Asks {
+        record: TESTS.into(),
+        result: "asker_tested".into(),
+    });
+    asker.again = 1;
+    let cells = vec![
+        asker,
+        cell("later", &["x"], &["o"]),
+        cell(GIVER, &[TESTS], &["asker_tested"]),
+    ];
+    let mut w = World::with_gate(cells);
+    w.notes(&[BRIEF]);
+    w.written_by_cells("asker_tested");
+    w.written_by_cells(TESTS);
+    w.person_writes(BRIEF);
+    w.run("asker", &[("x", Matters)]);
+    w.run("later", &[("o", Matters)]);
+    // Entered for what the later cell wrote, it asks for tests and leaves that for after their result.
+    w.start("asker");
+    w.finish_dealing("asker", &[], &[(TESTS, Matters)]);
+    w.run(GIVER, &[("asker_tested", Matters)]);
+    // Entered for the result and for what the later cell wrote, it deals with both, and asks again.
+    w.run("asker", &[(TESTS, Matters)]);
+    w.run(GIVER, &[("asker_tested", Matters)]);
+    // Entered for the result alone.
+    w.start("asker");
+    let reading = Reading::of_flow(&w.flow, &w.records);
+    let mut v = Verdict::default();
+    for s in &w.records.started {
+        started(&mut v, &w.flow, &reading, s);
+    }
+    let spoke: Vec<&String> = (v.broken.iter())
+        .filter(|(p, _)| *p == SPOKE)
+        .map(|(_, what)| what)
+        .collect();
+    assert!(spoke.is_empty(), "{spoke:?}");
 }

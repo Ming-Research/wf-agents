@@ -452,7 +452,7 @@ impl<H: Host> Inner<H> {
             }
             flow::RUNS_TESTS => {
                 let of = (&*round.flow, &*round.kept, &round.cell.id);
-                match tested::act(&self.host, project, &branch, of, stop).await? {
+                match tested::act(&self.host, (project, &words.run_tests), &branch, of, stop).await? {
                     Some(tested) => Ok(Done::HandsIn(Box::new(Came {
                         said: Said {
                             observations: tested.observations,

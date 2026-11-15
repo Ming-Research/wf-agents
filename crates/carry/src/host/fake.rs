@@ -22,6 +22,8 @@ pub(crate) struct Fake {
     titles: Mutex<Vec<String>>,
     /// What asked for each verdict and each run of the tests, in order.
     askings: Mutex<Vec<Asking>>,
+    /// Why cancelling what runs the tests fails, where it does.
+    cancelling: Mutex<Option<String>>,
 }
 
 /// What the host was asked.
@@ -58,7 +60,14 @@ impl Fake {
             tests: Mutex::new(None),
             titles: Mutex::new(Vec::new()),
             askings: Mutex::new(Vec::new()),
+            cancelling: Mutex::new(None),
         }
+    }
+
+    /// Fails to cancel what runs the tests, with these words.
+    pub(crate) fn refuses_cancel(self, why: &str) -> Fake {
+        *lock(&self.cancelling) = Some(why.to_string());
+        self
     }
 
     /// Fails to let go, with these words, until it is told otherwise.
@@ -147,7 +156,10 @@ impl Host for Fake {
     async fn cancel_tests(&self, branch: &Branch<'_>, asking: &[Asking]) -> Result<(), Failed> {
         self.given(branch);
         lock(&self.asked).push(Asked::Cancel(asking.to_vec()));
-        Ok(())
+        match lock(&self.cancelling).clone() {
+            Some(why) => Err(Failed::refused(why)),
+            None => Ok(()),
+        }
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

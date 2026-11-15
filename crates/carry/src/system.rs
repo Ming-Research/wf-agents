@@ -280,6 +280,33 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
             ));
         }
     }
+    // A block's shape is held to as a return is read in the words the engine checks alone, and each place of what its
+    // writer is told is filled as a message fills it, for every host a project may have: any other would hold a return
+    // to less than the block's file says, or reach the agent as written.
+    let filled: Vec<(Hosted, std::collections::BTreeMap<String, String>)> = (([Hosted::GitHub, Hosted::Local])
+        .into_iter())
+    .map(|hosted| (hosted, places(&filling, beside, hosted)))
+    .collect();
+    for (name, block) in &flow.blocks {
+        let name = name.as_str();
+        for word in block.shape.as_ref().map(flow::form::unchecked).unwrap_or_default() {
+            add(format!("block {name}, its shape: the engine holds no return to {word}"));
+        }
+        let pieces = block.words.as_deref().map(flow::system::with_slots).unwrap_or_default();
+        for piece in pieces {
+            let flow::system::Piece::Slot { name: place } = piece else {
+                continue;
+            };
+            for (hosted, places) in &filled {
+                if !places.contains_key(&place) {
+                    add(format!(
+                        "block {name}, what its writer is told: the engine fills no place `{{{place}}}` where the host is {}",
+                        hosted.key()
+                    ));
+                }
+            }
+        }
+    }
     faults
 }
 

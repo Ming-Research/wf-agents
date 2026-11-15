@@ -331,6 +331,7 @@ export type Unmet =
   | { kind: 'notATool'; name: string }
   | { kind: 'unchangedNotWritten'; block: string }
   | { kind: 'entryUnchanged'; block: string }
+  | { kind: 'notOfItsShape'; block: string }
   | { kind: 'questionTaken'; name: string }
   | { kind: 'noSuchQuestion'; name: string }
   | { kind: 'questionTwice'; name: string }

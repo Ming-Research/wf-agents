@@ -3,8 +3,13 @@
 # found, not a failure of the act: the round fails only where the host could not be reached.
 
 # What a call of `run_tests` as a tool is answered, from a work kept from before the cells asked for tests in a record,
-# where the call's cell writes the record: `{name}` the record's name.
+# where the call's cell asks for tests in the record: `{name}` the record's name.
 as_a_tool = "`{name}` is no tool now: ask for the tests by writing `{name}` in `outputs`, as its words there say."
+
+# What the act's round keeps as an observation where what the entries a newer entry of the same cell replaced asked the
+# host for could not be cancelled, which costs a runner and is read by no one: `{entries}` those entries, `{why}` the
+# host's words. The entries are run all the same.
+not_cancelled = "What the replaced entries of `run_tests` ({entries}) asked the host for could not be cancelled: {why}"
 
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
 # gives a round the first `bound` bytes of it, then `cut`: `{given}` the bytes given, `{size}` the bytes the result is

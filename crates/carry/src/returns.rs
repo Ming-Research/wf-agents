@@ -310,8 +310,8 @@ fn questions(asked: &[Question], words: &Agents, found: &mut Vec<Unmet>) {
 
 /// Each block the return writes, in the order the cell writes them, then any other in the order of its name: one the
 /// cell writes there, as a string, as a choice's value with its line of why, or, of a block whose file gives it a shape,
-/// as the JSON that shape holds it to, which is kept as its content. A block that is not among the cell's outputs, and
-/// one in a shape neither a block nor a choice has, is found. Beside them, what the return writes of the record of the
+/// as the JSON that shape holds it to, which is kept as its content. A block that is not among the cell's outputs, one
+/// in a shape neither a block nor a choice has, and one not of the shape its file gives it, is found. Beside them, what the return writes of the record of the
 /// work's questions, which is read as the questions it asks: their entries are the engine's to write.
 fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) -> (Vec<Handed>, Vec<Value>) {
     let place = flow.flow.place(&cell.id);
@@ -335,8 +335,13 @@ fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<U
             continue;
         }
         let matters = !outcome.meaning_unchanged.contains(name);
-        // The form holds a block of a shape to it, and what it holds is kept as written, whatever it is.
-        if declared.is_some_and(|d| d.shape.is_some()) {
+        // A block of a shape is kept as the JSON it holds, where it holds what the shape says: the form gives the
+        // shape, and the return is held to it as it is read.
+        if let Some(shape) = declared.and_then(|d| d.shape.as_ref()) {
+            if !flow::form::fits(&outcome.outputs[name], shape) {
+                found.push(Unmet::NotOfItsShape { block });
+                continue;
+            }
             handed.push(Handed {
                 block,
                 content: outcome.outputs[name].to_string(),

@@ -274,9 +274,9 @@ impl<'a> Reading<'a> {
 
     /// Whether the cell waits at this place for the result of what it asked for in a record: its latest entry of the
     /// record before the place, a version a run of it wrote that changed what the record says, has no version of its
-    /// result after it. A cell skipped holds nothing by it, and waits for it again once it applies again (decision
-    /// a-wait-of-a-skipped-cell-is-put-away).
-    pub fn pending(&self, _flow: &Flow, cell: &Cell, place: Seq) -> bool {
+    /// result after it. Whether the cell applies is the caller's to judge: a cell skipped holds nothing by its wait
+    /// (decision a-wait-of-a-skipped-cell-is-put-away).
+    pub fn pending(&self, cell: &Cell, place: Seq) -> bool {
         cell.asks
             .iter()
             .any(|asks| self.awaited(cell, &asks.record, &asks.result, place))
@@ -333,7 +333,7 @@ impl<'a> Reading<'a> {
         };
         reasons.sort_by_key(|r| order(r).unwrap_or(usize::MAX));
         let owed = self.owed(&cell.id, place);
-        if owed.iter().any(|c| !self.done(*c, place)) || self.pending(flow, cell, place) {
+        if owed.iter().any(|c| !self.done(*c, place)) || self.pending(cell, place) {
             let abandoned = |run: RunId| (self.records.abandoned.iter()).any(|a| a.run == run && a.at < place);
             let seen = |block: &BlockId| {
                 (self.started.values())

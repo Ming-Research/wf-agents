@@ -1071,6 +1071,8 @@ pub enum Unmet {
     UnchangedNotWritten { block: String },
     /// The return names a record it adds an entry to as written with its meaning unchanged: each entry is new.
     EntryUnchanged { block: String },
+    /// It writes a block of a shape its file gives as something else.
+    NotOfItsShape { block: String },
     /// A question it writes is not its cell's own: another cell's, or one the engine asked.
     QuestionTaken { name: String },
     /// It withdraws a question of which none of its cell's stands.
@@ -2515,6 +2517,9 @@ impl Unmet {
                 block: block.to_string(),
             },
             UnmetOf::EntryUnchanged { block } => Unmet::EntryUnchanged {
+                block: block.to_string(),
+            },
+            UnmetOf::NotOfItsShape { block } => Unmet::NotOfItsShape {
                 block: block.to_string(),
             },
             UnmetOf::QuestionTaken { name } => Unmet::QuestionTaken { name: name.clone() },

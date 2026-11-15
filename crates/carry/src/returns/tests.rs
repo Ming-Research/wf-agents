@@ -187,16 +187,19 @@ fn a_block_named_as_written_with_its_meaning_unchanged_runs_no_cell() {
     assert_eq!(read(&r), Ok(expected));
 }
 
-// A block whose file gives it a shape is read as the JSON the form holds it to and kept as its content, whatever the
-// shape: an entry of the tests a cell asks for is an object, which was read as a choice written wrongly. Well under a
-// millisecond alone; no other test holds the reading to a block of a shape.
+// A block whose file gives it a shape is read as the JSON the form holds it to and kept as its content, where it is of
+// that shape: an entry of the tests a cell asks for is an object, which was read as a choice written wrongly. One of
+// another shape is found, and not handed in. Well under a millisecond alone; no other test holds the reading to a
+// block of a shape.
 #[test]
-fn a_block_of_a_shape_is_kept_as_the_json_it_holds() {
+fn a_block_of_a_shape_is_kept_as_the_json_it_holds_where_it_is_of_that_shape() {
     let write = WRITE.replace(
         r#"outputs = ["plan", "ok", "discussion", "q_and_a"]"#,
         r#"outputs = ["plan", "ok", "discussion", "q_and_a", "entry"]"#,
     );
-    let entry = "shown = true\n\n[shape]\ntype = \"object\"\n";
+    let entry = "shown = true\n\n[shape]\ntype = \"object\"\nproperties = { tests = { type = \"array\", items = { type = \
+                 \"string\" } }, checks = { type = \"array\", items = { type = \"string\" } } }\n\
+                 additionalProperties = false\n";
     let flow = compiled(FLOW, &write, &[("blocks/entry.toml", entry)]);
     let mut r = work();
     r["outcome"]["outputs"]["entry"] = json!({"tests": ["a"], "checks": []});
@@ -208,6 +211,18 @@ fn a_block_of_a_shape_is_kept_as_the_json_it_holds() {
     let kept: Value = serde_json::from_str(&entry.content).expect("it is kept as JSON");
     assert_eq!(kept, json!({"tests": ["a"], "checks": []}));
     assert_eq!((entry.value.as_ref(), entry.matters), (None, true));
+    for wrong in [
+        json!({"test": ["a"]}),
+        json!({"tests": "a"}),
+        json!({"tests": [1]}),
+        json!(["a"]),
+    ] {
+        r["outcome"]["outputs"]["entry"] = wrong.clone();
+        let came = came(&r, &flow, cell(&flow), &words()).expect("it is read").came;
+        let found = vec![Unmet::NotOfItsShape { block: "entry".into() }];
+        assert_eq!(came.found, found, "{wrong}");
+        assert!(!came.writes.iter().any(|h| h.block.as_str() == "entry"), "{wrong}");
+    }
 }
 
 #[test]

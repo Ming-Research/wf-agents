@@ -663,6 +663,7 @@ pub struct SentBackFaults {
     pub not_a_tool: String,
     pub unchanged_not_written: String,
     pub entry_unchanged: String,
+    pub not_of_its_shape: String,
     pub question_taken: String,
     pub no_such_question: String,
     pub question_twice: String,
@@ -730,8 +731,11 @@ pub struct RunTests {
     #[serde(default)]
     pub places: BTreeMap<String, BTreeMap<String, String>>,
     /// What a call of the tool of the same name is answered, from a work kept from before the cells asked for tests in
-    /// a record, where the call's cell writes the record: `{name}` the record's name.
+    /// a record, where the call's cell asks for tests in the record: `{name}` the record's name.
     pub as_a_tool: String,
+    /// What the act's round keeps as an observation where what the entries a newer one replaced asked the host for
+    /// could not be cancelled: `{entries}` those entries, `{why}` the host's words.
+    pub not_cancelled: String,
 }
 
 /// What a result of the tests a cell asked for says of the tests and checks a run found. `{...}` are filled in a run.
