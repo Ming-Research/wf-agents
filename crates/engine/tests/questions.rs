@@ -303,18 +303,21 @@ fn check(work: &Work, checked: &mut Checked) {
     for started in &r.started[checked.started..] {
         let before = r.before(started.at);
         let standing = questions(&before);
-        // Meanwhile only the owner turning to it, by an answer written since its last run began, enters it.
+        // Meanwhile only the owner turning to it, by an answer written since its last run began, enters it, or the
+        // results of the calls a run of it asked for, with what the owner wrote that no run of it dealt with.
         let last = (before.started.iter())
             .filter(|s| s.cell == started.cell)
             .map(|s| s.at)
             .max();
+        let results = (started.because.iter()).any(|c| matches!(c, Cause::Results { .. }));
         let turned = !started.because.is_empty()
             && started.because.iter().all(|c| match c {
                 Cause::Changed { block, .. } => {
                     block.as_str().ends_with("_answered")
-                        && (before.written.iter()).any(|w| &w.block == block && Some(w.at) > last)
+                        && (results || (before.written.iter()).any(|w| &w.block == block && Some(w.at) > last))
                 }
-                _ => false,
+                Cause::Results { .. } => true,
+                Cause::NoRecord => false,
             });
         for (name, q) in &standing {
             assert!(

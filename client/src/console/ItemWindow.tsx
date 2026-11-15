@@ -40,6 +40,7 @@ import {
   type Act,
   type Item,
   loadVersion as loadVersionOf,
+  type Said,
   type SpokenTo,
   type Summary,
   type Waited,
@@ -251,19 +252,20 @@ function Line({ tone, word, children }: { tone: Tone; word: ReactNode; children?
 function useSending(act: (what: Act) => Promise<unknown>) {
   const [waiting, setWaiting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
-  const send = (what: Act): Promise<boolean> => {
-    if (waiting) return Promise.resolve(false);
+  // What the engine answered, where it took the act; none where it was not sent or was refused.
+  const send = (what: Act): Promise<{ answer: unknown } | null> => {
+    if (waiting) return Promise.resolve(null);
     setWaiting(true);
     setRefused(null);
     return act(what).then(
-      () => {
+      (answer) => {
         setWaiting(false);
-        return true;
+        return { answer };
       },
       (e: unknown) => {
         setWaiting(false);
         setRefused(refusal(e));
-        return false;
+        return null;
       },
     );
   };
@@ -377,11 +379,9 @@ function ItemView({
   const [offer, setOffer] = useState<{ x: number; y: number; text: string } | null>(null);
   // What the owner's last Confirm did, said under it.
   const [confirmed, setConfirmed] = useState<string | null>(null);
-  // Whom the message being written goes to, where the owner chose, and the question it is about, where a question was
-  // taken to the discussion; and how many times one was, to bring the box into view once it is drawn for the cell
-  // chosen.
+  // Whom the message being written goes to, where the owner chose; and how many times a question was taken to the
+  // discussion, to bring the box into view once it is drawn for the cell chosen.
   const [messageTo, setMessageTo] = useState<MessageCell | null>(null);
-  const [aboutQuestion, setAboutQuestion] = useState<string | null>(null);
   const [discussed, setDiscussed] = useState(0);
   const inner = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -395,7 +395,6 @@ function ItemView({
   const discuss = (c: Choice) => {
     setQuote(quoteOf(c));
     setMessageTo(c.asks?.cell ?? (went(work, 'D1') ? 'D1' : 'R1'));
-    setAboutQuestion(c.asks?.question ?? null);
     setDiscussed((n) => n + 1);
   };
   const jump = (at: number) =>
@@ -616,11 +615,7 @@ function ItemView({
               page={page}
               messages={body.messages}
               messageTo={messageTo}
-              setMessageTo={(cell) => {
-                setMessageTo(cell);
-                setAboutQuestion(null);
-              }}
-              aboutQuestion={aboutQuestion}
+              setMessageTo={setMessageTo}
               quote={quote}
               unquote={() => setQuote(null)}
               box={box}
@@ -986,9 +981,9 @@ function RulingBox({ ruling, page, act }: {
 }
 
 /// The discussion: the messages written before, the owner's and the replies, and a box to write one. The owner picks
-/// whom it goes to, and what they send is said to that cell's line, or about the question taken to the discussion; the
-/// engine chooses the cell it reaches, and the line under the box names that cell as the engine says it, and those the
-/// message names with `@`, or says why no cell can take it, and then it is not sent.
+/// whom it goes to, and what they send is said to that cell's line, or, where the work waits on that line for the
+/// owner's answer to a question, about that question; the engine chooses the cell it reaches, and the line under the
+/// box names that cell as the engine says it, or says why no cell can take it, and then it is not sent.
 /// Whom the owner writes a message to, of the engineer's flow: the cells that plan and build, by the names the owner
 /// calls them.
 const MESSAGE_TO = [
@@ -997,15 +992,13 @@ const MESSAGE_TO = [
   { cell: 'I1', name: 'Implementation' },
 ] as const;
 
-function Discussion({ work, page, messages, messageTo, setMessageTo, aboutQuestion, quote, unquote, box, act, sent }: {
+function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
   messages: Message[];
   /// Whom the owner chose the message goes to; none where they did not.
   messageTo: MessageCell | null;
   setMessageTo: (cell: MessageCell) => void;
-  /// The question the message is about, by its name, where one was taken to the discussion.
-  aboutQuestion: string | null;
   quote: string | null;
   unquote: () => void;
   box: RefObject<HTMLTextAreaElement | null>;
@@ -1029,11 +1022,17 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, aboutQuesti
   }));
   // The one chosen, and no other where it cannot be.
   const target = targets.find((t) => t.cell === (messageTo ?? (went(work, 'I1') ? 'I1' : 'R1')) && t.line !== null);
+  // Words to the line of the cell the work waits at for the owner's answer to a question of the work's are about that
+  // question, and go where words about it go: a question asked by a call has no name, and its asker's line takes them.
+  const now = work.now;
+  const held =
+    now.kind === 'waits' ? now.on.find((w): w is Extract<Waited, { kind: 'answer' }> => w.kind === 'answer') : undefined;
+  const heldOn = now.kind === 'waits' ? read?.flow.cells.find((c) => c.id === now.at)?.line : undefined;
   const to: SpokenTo | null =
-    aboutQuestion !== null
-      ? { kind: 'question', name: aboutQuestion }
-      : target?.line == null
-        ? null
+    target?.line == null
+      ? null
+      : held !== undefined && heldOn === target.line
+        ? { kind: 'question', name: held.question }
         : { kind: 'line', line: target.line };
   const speaking = to === null ? undefined : read?.speaking?.find((s) => sameTo(s.to, to));
   return (
@@ -1143,18 +1142,20 @@ function Compose({ work, draft, to, reaches, title, cannot, quote, unquote, box,
   };
   // Only the cell the engine chooses: a name written with `@` is the owner's words, and reaches no one of itself.
   const goes = reaches === null ? [] : [title(reaches)];
+  // The cell the engine gave the words to, as it answered the act; none where it did not say.
   const [said, setSaid] = useState<MessageCell | null>(null);
   const submit = () => {
     if (reaches === null) return;
     const words = text.trim();
     const content = quote === null ? words : `${quote.replace(/^/gm, '> ')}\n\n${words}`;
     void send({ kind: 'say', to, words: content }).then((done) => {
-      if (!done) return;
+      if (done === null) return;
+      const reached = (done.answer as Said | null)?.reached ?? null;
       writeDraft(key, '');
       setText((now) => (now.trim() === words ? '' : now));
       setWritten(true);
-      setSaid(reaches);
-      sent({ who: 'owner', at: Date.now(), to: [reaches], quote, text: words });
+      setSaid(reached);
+      sent({ who: 'owner', at: Date.now(), to: reached === null ? [] : [reached], quote, text: words });
     });
   };
   return (
@@ -1190,7 +1191,7 @@ function Compose({ work, draft, to, reaches, title, cannot, quote, unquote, box,
           Send
         </Button>
       </div>
-      {written && said !== null && <p className="cw-done">Said to {title(said)}</p>}
+      {written && <p className="cw-done">{said === null ? 'Said' : `Said to ${title(said)}`}</p>}
       {refused !== null && <p className="failed small">{refused}</p>}
     </>
   );

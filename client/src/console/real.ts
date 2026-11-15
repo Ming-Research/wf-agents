@@ -6,11 +6,11 @@
 // - The body, from the work's blocks, the current version of each: Background is `background`; Plan is `plan_owner`,
 //   and under it `questions`; there is no Problem. For an item of the `deliver` flow, Plan is `delivered`.
 // - The messages: of the record of what is said (the block the engine's source of the owner's words writes and the
-//   cells write through the return's field `reply`), each of the owner's entries is the owner's, to the cell whose
-//   block of the owner's words the engine wrote in the same act, at the place after it, and each a cell wrote is its
-//   reply, to the owner, each with the words alone, without what the record's `owner` or `reply` text puts around
-//   them; of a flow before that record, each version of a block people write as a note to one cell (one people write,
-//   with no fixed values, that one cell reads) is the owner's, to that cell. In the order of their times.
+//   cells write through the return's field `reply`), each of the owner's entries is the owner's, to the cell it names,
+//   and each a cell wrote is its reply, to the owner, each with the words alone, the cell and the words read back out
+//   of the entry by the record's `owner` or `reply` text; of a flow before that record, each version of a block people
+//   write as a note to one cell (one people write, with no fixed values, that one cell reads) is the owner's, to that
+//   cell. In the order of their times.
 // - A question a cell asked the owner: its sentence alone, answered in words, since the engine gives no options.
 // - A ruling: for each precondition the work waits for, each block its test reads that people write whose current
 //   version keeps the test from holding, with that version's writer and content (`readRulings`).
@@ -70,17 +70,20 @@ const versionsOf = (page: WorkPage, block: string): Version[] =>
 /// The source outside the work that writes the record of what is said and each cell's block of the owner's words.
 const WORDS = 'words';
 
-/// The words of an entry of the record, as the engine wrote the entry from one of the record's texts, `owner` or
-/// `reply`: what that text puts before and after its place of the words (`slot`) taken off, its place `cell` filled
-/// with the cell; the entry whole where it does not read so.
-function wordsOf(entry: string, text: SentPiece[] | undefined, slot: string, cell: string): string {
-  const at = text?.findIndex((p) => p.piece === 'slot' && p.name === slot) ?? -1;
-  if (text === undefined || at < 0) return entry;
-  const filled = (pieces: SentPiece[]) =>
-    pieces.map((p) => (p.piece === 'text' ? p.text : p.name === 'cell' ? cell : `{${p.name}}`)).join('');
-  const [before, after] = [filled(text.slice(0, at)), filled(text.slice(at + 1))];
-  if (!entry.startsWith(before) || !entry.endsWith(after) || entry.length < before.length + after.length) return entry;
-  return entry.slice(before.length, entry.length - after.length);
+/// What fills each place of an entry of the record, by the place's name, as the engine wrote the entry from one of the
+/// record's texts, `owner` or `reply`: the words between the text's own, the last place taking the rest; none where the
+/// entry does not read so.
+function placesOf(entry: string, text: SentPiece[] | undefined): Map<string, string> | null {
+  if (text === undefined) return null;
+  const last = text.map((p) => p.piece).lastIndexOf('slot');
+  const escaped = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = text
+    .map((p, i) => (p.piece === 'text' ? escaped(p.text) : i === last ? '([\\s\\S]*)' : '([\\s\\S]*?)'))
+    .join('');
+  const found = new RegExp(`^${pattern}$`).exec(entry);
+  if (found === null) return null;
+  const names = text.flatMap((p) => (p.piece === 'slot' ? [p.name] : []));
+  return new Map(names.map((name, i): [string, string] => [name, found[i + 1]]));
 }
 
 /// A message as the owner's box writes it: the passage it quotes, each line after `> `, a blank line, and the words.
@@ -113,26 +116,20 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
   ]);
   // The owner's notes of a flow before the record, each to the one cell that reads it.
   const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && b.readBy.cells.length === 1);
-  // The record of what is said, and of each place, the cell whose block of the owner's words the engine wrote there.
+  // The record of what is said.
   const record = page.flow.blocks.find((b) => b.field === 'reply' && b.writtenBy.outside === WORDS);
   const text = (name: string) => record?.writes?.find(([n]) => n === name)?.[1];
-  const spokenAt = new Map<number, string>();
-  for (const c of page.flow.cells) {
-    for (const t of c.triggers) {
-      if (page.flow.blocks.find((b) => b.name === t.block)?.writtenBy.outside !== WORDS) continue;
-      for (const v of page.blocks.find((b) => b.name === t.block)?.versions ?? []) spokenAt.set(v.at, c.id);
-    }
-  }
   const entries = record === undefined ? [] : versionsOf(page, record.name).map((v) => ({ v, block: record.name }));
   const said = await Promise.all([
     ...entries.map(async ({ v, block }): Promise<Message & { place: number }> => {
       const entry = await contentOf(load, work, block, v.at);
       if (v.by.kind === 'run') {
-        const words = wordsOf(entry, text('reply'), 'reply', v.by.cell);
+        const words = placesOf(entry, text('reply'))?.get('reply') ?? entry;
         return { who: v.by.cell, at: v.time, to: ['owner'], quote: null, text: words, place: v.at };
       }
-      const cell = spokenAt.get(v.at + 1);
-      const { quote, text: words } = quoted(wordsOf(entry, text('owner'), 'words', cell ?? ''));
+      const places = placesOf(entry, text('owner'));
+      const cell = places?.get('cell');
+      const { quote, text: words } = quoted(places?.get('words') ?? entry);
       return { who: 'owner', at: v.time, to: cell === undefined ? [] : [cell], quote, text: words, place: v.at };
     }),
     ...notes.flatMap((b) =>

@@ -54,17 +54,24 @@ const SPEAKING: Speaking[] = [
   },
 ];
 
-/// What the panel sent, each answered at once.
+/// What the panel sent, each answered at once, with this where it is given.
 type Sent = [number, Act][];
-const answered = (sent: Sent) => (work: number, what: Act) => {
-  sent.push([work, what]);
-  return Promise.resolve(null);
-};
+const answered =
+  (sent: Sent, answer: unknown = null) =>
+  (work: number, what: Act) => {
+    sent.push([work, what]);
+    return Promise.resolve(answer);
+  };
 
-/// Draws the panel of item `n` as the console does, in the same root as the panel drawn before it, if any; `asEngineer`
-/// draws it with the engineer's flow's cell ids.
-function draw(n: number, send: (work: number, what: Act) => Promise<unknown>, page?: PageState, asEngineer = false) {
-  const item = asEngineer ? engineer(itemOf(n)) : itemOf(n);
+/// Draws the panel of item `n`, or of this item, as the console does, in the same root as the panel drawn before it, if
+/// any; `asEngineer` draws item `n` with the engineer's flow's cell ids.
+function draw(
+  n: number | Item,
+  send: (work: number, what: Act) => Promise<unknown>,
+  page?: PageState,
+  asEngineer = false,
+) {
+  const item = typeof n !== 'number' ? n : asEngineer ? engineer(itemOf(n)) : itemOf(n);
   if (root === undefined) {
     container = document.createElement('div');
     document.body.append(container);
@@ -75,7 +82,7 @@ function draw(n: number, send: (work: number, what: Act) => Promise<unknown>, pa
     r.render(
       <ItemPanel
         item={item}
-        page={page === undefined ? (asEngineer ? engineer(pageOf(itemOf(n))) : pageOf(item)) : page}
+        page={page === undefined ? (asEngineer ? engineer(pageOf(item)) : pageOf(item)) : page}
         act={send}
         waitsFor={[11]}
         onTitle={() => undefined}
@@ -188,9 +195,10 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.cw-choice-stops')).toEqual(['The work waits for this answer']);
   });
 
-  it("says a message to the chosen cell's line, and names the cell the engine says it reaches", async () => {
+  it("says a message to the chosen cell's line, names the cell the engine says it reaches, and then the one it gave it to", async () => {
     const sent: Sent = [];
-    const el = draw(12, answered(sent), undefined, true);
+    // The engine gives the words to another cell than the one the page read it would: the page says the engine's.
+    const el = draw(12, answered(sent, { reached: 'R1' }), undefined, true);
     expect(text(el, '.cw-to .switch-choice')).toEqual(['Research', 'Deep research', 'Implementation']);
     // Before the work has come to the implementation, a message goes to the research's line, which the engine says
     // has reached the implementation.
@@ -204,7 +212,50 @@ describe('the panel of the item selected', () => {
     await act(async () => button(el, 'Send').click());
     expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'line', line: 'engineer' }, words: 'Keep it to one table' }]]);
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
-    expect(text(el, '.cw-done')).toEqual(['Said to Implement']);
+    expect(text(el, '.cw-done')).toEqual(['Said to Initial research']);
+    expect(text(discussion(el), '.cw-message .status-line .muted').at(-2)).toBe('to Initial research');
+  });
+
+  it('says words to the line where the work waits for an answer about that question, where the engine sends them', async () => {
+    const sent: Sent = [];
+    const i = itemOf(12);
+    const waits = engineer({
+      ...i,
+      work: { ...i.work, now: { kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'one_table' }] } },
+    } satisfies Item);
+    const speaking: Speaking[] = [
+      ...SPEAKING,
+      { to: { kind: 'question', name: 'one_table' }, cell: 'research', refused: null },
+    ];
+    const el = draw(waits, answered(sent, { reached: 'R1' }), engineer(pageOf(i, speaking)));
+    expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
+    type(el.querySelector('textarea') as HTMLTextAreaElement, 'Why two tables?');
+    await act(async () => button(el, 'Send').click());
+    expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'question', name: 'one_table' }, words: 'Why two tables?' }]]);
+    // To another line, they are said to that line, which the engine says no cell of can take them.
+    act(() => button(el, 'Deep research').click());
+    expect(text(el, '.write-readers')).toEqual([`No cell takes the words: ${SPEAKING[1].refused}`]);
+  });
+
+  it('takes a question a cell asked by a call to the discussion, quoted, to the line of the cell that asked it', async () => {
+    const sent: Sent = [];
+    const speaking: Speaking[] = [{ to: { kind: 'line', line: 'engineer' }, cell: 'research', refused: null }];
+    const el = draw(1, answered(sent, { reached: 'R1' }), engineer(pageOf(itemOf(1), speaking)), true);
+    await act(async () => button(el, 'Discuss').click());
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Research']);
+    expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
+    type(el.querySelector('textarea') as HTMLTextAreaElement, 'Kept a day: say why not.');
+    await act(async () => button(el, 'Send').click());
+    expect(sent).toEqual([
+      [
+        1,
+        {
+          kind: 'say',
+          to: { kind: 'line', line: 'engineer' },
+          words: '> Should a stale run be abandoned at once or kept a day?\n\nKept a day: say why not.',
+        },
+      ],
+    ]);
   });
 
   it('says why no cell can take a message, and sends it to no cell', async () => {

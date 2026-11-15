@@ -331,7 +331,9 @@ pub enum Failed {
 impl Driver {
     /// Opens the driver on a store, with the flows the works run on, this many slots and the policy of when a line
     /// begins a new session, and gives everything that is to be done: what was to be done before and is not known as
-    /// done, and what follows from looking at every work now, the free slots given in the engine's order.
+    /// done, and what follows from looking at every work now, the free slots given in the engine's order. A work kept
+    /// with the owner's words in a cell's block of them, as they were written before the record of what is said held
+    /// them, has them carried into the record first (`engine::spoken::carry`).
     ///
     /// Where a work is going on, one that has not ended and that its own pause does not hold, and nothing pauses
     /// everything, the driver pauses everything itself before it looks at any work, and keeps that it did: nothing
@@ -400,7 +402,12 @@ impl Driver {
             if driver.of_item.insert(head.item, head.number).is_some() {
                 return Err(Fault::NotOneWork(head.item));
             }
-            let work = driver.store.load(head.number).map_err(Fault::Store)?;
+            let mut work = driver.store.load(head.number).map_err(Fault::Store)?;
+            // The owner's words a work kept before the record of what is said held them are carried into it, once; a
+            // work at fault is written nothing.
+            if standing_of(&flow, &work) != Standing::AtFault && engine::spoken::carry(&flow, &mut work) {
+                driver.store.save(head.number, &work).map_err(Fault::Store)?;
+            }
             let standing = standing_of(&flow, &work);
             let samples = history::samples(&flow, &work);
             let held = Held {

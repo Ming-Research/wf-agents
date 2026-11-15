@@ -220,6 +220,43 @@ pub(crate) fn heard(
     Ok(())
 }
 
+/// Carries into the record of what is said the owner's words of a work kept before the record held them: each version a
+/// person wrote, with words, of a cell's block of the owner's words, which the engine alone writes now, and with none,
+/// is the owner's entry to that cell, written once, after everything the work holds, at the time of the last thing that
+/// happened to it. It runs no cell: the words ran it as they were written. Gives whether it wrote any.
+pub fn carry(flow: &Compiled, work: &mut Work) -> bool {
+    let mut carried = false;
+    for spec in &flow.cells {
+        let Some((trigger, own)) = trigger(flow, spec) else {
+            continue;
+        };
+        let said: Vec<String> = (work.records.written.iter())
+            .filter(|w| w.block == *own && w.by == Outsider::Person)
+            .filter_map(|w| work.contents.get(&(own.clone(), w.at)))
+            .filter(|words| !words.trim().is_empty())
+            .cloned()
+            .collect();
+        let records = (trigger.read.iter().filter(|b| *b != own))
+            .filter_map(|b| (flow.blocks.get(b)).map(|declared| (b, declared)))
+            .filter(|(_, declared)| declared.writers.outside.as_deref() == Some(flow::WORDS));
+        for (block, record) in records {
+            for words in &said {
+                let entry = fill(
+                    record.writes.get(OWNER).unwrap_or_default(),
+                    &[("cell", spec.id.as_str()), ("words", words.as_str())],
+                );
+                let held = (work.records.written.iter())
+                    .any(|w| w.block == *block && work.contents.get(&(block.clone(), w.at)) == Some(&entry));
+                if !held {
+                    write(work, block, entry);
+                    carried = true;
+                }
+            }
+        }
+    }
+    carried
+}
+
 /// The run of the cell whose round is under way, where one is.
 fn under_way(work: &Work, cell: &CellId) -> Option<RunId> {
     let r = &work.records;

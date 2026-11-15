@@ -25,7 +25,7 @@ use tokio::sync::broadcast::error::RecvError;
 use crate::plan::{Candidates, Graph, HITS, Hits, PlanChanges, PlanMark, Tags, Way};
 use crate::works::{
     Act, Added, Broken, CallPage, Changed, DoingPage, Engine, EngineAct, ItemChanges, Items, ItemsChanged, LevelsPage,
-    NewItem, ProjectsPage, Refusal, RoundPage, SystemPage, ToldPage, VersionPage, WorkPage,
+    NewItem, ProjectsPage, Refusal, RoundPage, Said, SystemPage, ToldPage, VersionPage, WorkPage,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
@@ -376,7 +376,12 @@ async fn act(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection
         );
     }
     match handle.act(number, act.taken()).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        // Words said answer with the cell the engine gave them to; every other act with nothing.
+        Ok(service::Acted { reached: Some(cell) }) => Json(Said {
+            reached: cell.to_string(),
+        })
+        .into_response(),
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(refusal) => refused(&refusal),
     }
 }

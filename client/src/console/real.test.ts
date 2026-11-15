@@ -97,4 +97,23 @@ describe('the messages of a work, read from the record of what is said', () => {
       { who: 'implement', at: 9000, to: ['owner'], quote: null, text: 'Done.' },
     ]);
   });
+
+  it("read an owner's entry no block of the owner's words follows, as one carried from before the record, as to the cell it names", async () => {
+    const item = fixtureItems().items[0];
+    const page: WorkPage = {
+      summary: item.work,
+      title: item.title,
+      level: item.level,
+      project: item.project,
+      history: item.history,
+      flow: SPOKEN,
+      cells: [],
+      blocks: [{ name: 'discussion', versions: [version(12, { kind: 'outside' }, 40)] }],
+      steps: [],
+    };
+    const load = (_: number, block: string, at: number): Promise<VersionPage> =>
+      Promise.resolve({ block, at, content: 'The owner, to `implement`:\n\nOne table.' });
+    const body = await readBody(page, load);
+    expect(body.messages).toEqual([{ who: 'owner', at: 12000, to: ['implement'], quote: null, text: 'One table.' }]);
+  });
 });

@@ -380,3 +380,74 @@ fn a_work_at_fault_with_a_round_under_way_is_given_that_round_again_as_the_drive
     assert!(matches!(h.decision(wa), Decision::Fault(_)));
     assert_eq!(todos, given);
 }
+
+/// The engineer's flow as the repository defines it, compiled against what the engine has for it, as `wf-agents`
+/// compiles it.
+fn engineer() -> flow::Compiled {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let beside = flow::agents::read(&root).expect("the files beside the flows are read");
+    let source = flow::read(&root.join("engineer")).expect("the engineer's flow is read");
+    let names = |names: &[&str]| {
+        (names.iter())
+            .map(|n| n.to_string())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let has = flow::Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge"]),
+        tools: names(&["query", "run_tests"]),
+        system: flow::system::reserved(&beside).into_iter().collect(),
+        fields: names(&["dealt_with", "meaning_unchanged", "observations", "questions", "reply"]),
+        details: names(&["files"]),
+    };
+    flow::compile(&source, &has).expect("the engineer's flow compiles")
+}
+
+#[test]
+fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_record_once_as_the_driver_opens() {
+    let db = Db::new();
+    let (mut driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
+    let (_, work, _) =
+        (driver.add(Time(START), new_item("Greet the user", &[], "engineer"))).expect("the item is added");
+    drop(driver);
+    // As the console wrote the owner's words before the record held them: into R1's block of them, as a person's.
+    let mut store = db.open();
+    let mut kept = store.load(work).expect("the work loads");
+    let at = kept.tick();
+    let block = decide::BlockId::from("r1_spoken_to");
+    kept.contents
+        .insert((block.clone(), at), "Keep it to one table.".to_string());
+    kept.records.written.push(decide::Written {
+        block,
+        by: Outsider::Person,
+        matters: true,
+        value: None,
+        at,
+    });
+    store.save(work, &kept).expect("the work is saved");
+    drop(store);
+    let carried = |db: &Db| {
+        let w = db.open().load(work).expect("the work loads");
+        (w.records.written.iter())
+            .filter(|x| x.block.as_str() == "discussion" && x.by == Outsider::Outside)
+            .map(|x| w.contents[&(x.block.clone(), x.at)].clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(carried(&db), Vec::<String>::new());
+    let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
+    drop(driver);
+    let entry = "The owner, to `R1`:\n\nKeep it to one table.".to_string();
+    assert_eq!(carried(&db), [entry.clone()], "the words are the owner's entry to R1");
+    let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens again");
+    drop(driver);
+    assert_eq!(carried(&db), [entry], "they are carried once");
+}

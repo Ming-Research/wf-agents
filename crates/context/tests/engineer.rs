@@ -315,9 +315,12 @@ fn words_to_a_work_that_has_ended_are_refused_and_go_to_no_cell() {
 fn a_reopened_session_s_reading_of_the_tree_leaves_the_line_where_its_cell_that_takes_words_stands() {
     let (mut sim, round) = until("I1");
     tried(&mut sim, &round);
-    sim.hands_in(&round, &[("code", "abc", None)]);
-    // The engineer's session is reopened: R0, which the owner's words do not run, reads the tree again.
+    // The engineer's session is reopened: R0, which the owner's words do not run, reads the tree again before the
+    // review.
     sim.anew("engineer", engine::Why::Owner);
+    let new = "A new session of the line `engineer`: the owner asked for one.";
+    sim.wrote("engineer_session", new, None, Outsider::Outside);
+    sim.hands_in(&round, &[("code", "abc", None)]);
     let reading = sim.round().expect("a round is given");
     assert_eq!(reading.cell.as_str(), "R0");
     assert_eq!(receiver(&sim, To::Line("engineer".into())), Ok(CellId::from("I1")));

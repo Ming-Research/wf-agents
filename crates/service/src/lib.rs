@@ -107,7 +107,7 @@ pub enum Message {
     Act {
         work: WorkNumber,
         act: Act,
-        reply: oneshot::Sender<Result<(), Refusal>>,
+        reply: oneshot::Sender<Result<Acted, Refusal>>,
     },
     /// The owner sets the pause of everything, or lifts it.
     Everything {
@@ -188,6 +188,12 @@ pub enum Act {
     NewSession {
         line: String,
     },
+}
+
+/// What came of an act the loop took: of one that says the owner's words, the cell the engine gave them to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Acted {
+    pub reached: Option<CellId>,
 }
 
 /// Something happened: these works grew, an item was added where `items`, and the copies of the database changed where
@@ -383,8 +389,8 @@ impl Service {
             Message::Act { work, act, reply } => {
                 let now = self.now()?;
                 match self.act(now, work, act) {
-                    Ok(todos) => {
-                        let _ = reply.send(Ok(()));
+                    Ok((todos, acted)) => {
+                        let _ = reply.send(Ok(acted));
                         self.hand(now, todos)?;
                     }
                     Err(refusal) => {
@@ -518,8 +524,10 @@ impl Service {
         self.clock.now().map_err(Fault::Clock)
     }
 
-    /// The owner's act as what happened to the work, given to the driver.
-    fn act(&mut self, now: Time, work: WorkNumber, act: Act) -> Result<Vec<Todo>, Refusal> {
+    /// The owner's act as what happened to the work, given to the driver, with what came of it: of words said, the cell
+    /// the engine chose for them, as it chooses it on the work as it stands before it takes them.
+    fn act(&mut self, now: Time, work: WorkNumber, act: Act) -> Result<(Vec<Todo>, Acted), Refusal> {
+        let mut acted = Acted::default();
         let event = match act {
             Act::Write { block, content, value } => Event::Wrote {
                 block,
@@ -540,10 +548,14 @@ impl Service {
                     .ok_or(Refusal::Failed(Failed::NoSuchWork(work)))?;
                 let asked = vec![(item, Asked::Cancel)];
                 let (_, todos) = (self.driver.change(now, why.as_deref(), asked)).map_err(Refusal::Failed)?;
-                return Ok(todos);
+                return Ok((todos, acted));
             }
             Act::NewSession { line } => Event::Anew { line, why: Why::Owner },
-            Act::Say { to, words } => Event::Said { to, words },
+            Act::Say { to, words } => {
+                let kept = (self.driver.work(work)).ok_or(Refusal::Failed(Failed::NoSuchWork(work)))?;
+                acted.reached = engine::spoken::receiver(kept.flow, kept.work, &to).ok();
+                Event::Said { to, words }
+            }
             Act::Answer {
                 question,
                 version,
@@ -571,7 +583,8 @@ impl Service {
                 Event::Done { call, result }
             }
         };
-        self.driver.happened(now, work, event).map_err(Refusal::Failed)
+        let todos = self.driver.happened(now, work, event).map_err(Refusal::Failed)?;
+        Ok((todos, acted))
     }
 
     /// Hands out what is to be done, and gives the driver what the loop answers itself, until nothing is left.
@@ -851,8 +864,8 @@ impl Handle {
         answer.await.map_err(|_| Refusal::Gone)?
     }
 
-    /// Does what the owner does to a work.
-    pub async fn act(&self, work: WorkNumber, act: Act) -> Result<(), Refusal> {
+    /// Does what the owner does to a work, and says what came of it.
+    pub async fn act(&self, work: WorkNumber, act: Act) -> Result<Acted, Refusal> {
         let (reply, answer) = oneshot::channel();
         self.to
             .send(Message::Act { work, act, reply })

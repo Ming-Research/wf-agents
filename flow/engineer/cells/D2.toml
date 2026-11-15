@@ -35,7 +35,7 @@ must_write = ["better_found"]
 [do]
 on_plan = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
 on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
-on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `reply`."""
+on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `reply`. What it asks that is not yours to change, pass on in the block you write for the cell whose it is."""
 
 [kinds]
 # Given as the files that changed since the tree this session read.

@@ -29,8 +29,8 @@ use driver::{FirstWrite, NewItem, Todo};
 use engine::{Effect, Event};
 use flow::Compiled;
 use service::{
-    Act, CallReply, Carriers, Inbox, Message, Ping, PingReply, Refusal, Release, ReleaseReply, Round, RoundReply,
-    Rounds, Script, Scripted, Service, TokioClock, ToolCall, Tools,
+    Act, Acted, CallReply, Carriers, Inbox, Message, Ping, PingReply, Refusal, Release, ReleaseReply, Round,
+    RoundReply, Rounds, Script, Scripted, Service, TokioClock, ToolCall, Tools,
 };
 use store::{ItemNumber, Storage, Store, WorkNumber};
 use tokio::sync::oneshot;
@@ -55,7 +55,11 @@ pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
 }
 
 /// Gives the loop what the owner does, and gives what the loop answered and what came of its taking it.
-pub fn act_on(service: &mut Service, work: WorkNumber, act: Act) -> (Result<(), Refusal>, Result<(), service::Fault>) {
+pub fn act_on(
+    service: &mut Service,
+    work: WorkNumber,
+    act: Act,
+) -> (Result<Acted, Refusal>, Result<(), service::Fault>) {
     let (reply, mut answer) = oneshot::channel();
     let taken = service.take(Message::Act { work, act, reply });
     (answer.try_recv().expect("the loop answers at once"), taken)
@@ -300,7 +304,7 @@ impl Trial {
     }
 
     /// Does what the owner does to the work.
-    pub fn act(&mut self, work: WorkNumber, act: Act) -> Result<(), Refusal> {
+    pub fn act(&mut self, work: WorkNumber, act: Act) -> Result<Acted, Refusal> {
         let (reply, mut answer) = oneshot::channel();
         self.take(Message::Act { work, act, reply });
         self.steps += 1;

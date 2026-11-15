@@ -1367,8 +1367,15 @@ pub enum Act {
     /// Has the line begin a new session at its next round.
     NewSession { line: String },
     /// Says words to a line of the work's flow, or about a question of the work: to the cell the engine chooses, which
-    /// the work's page shows (`speaking`).
+    /// the work's page shows (`speaking`), and which the act answers with ([`Said`]).
     Say { to: SpokenTo, words: String },
+}
+
+/// What the act that says the owner's words answers with: the cell the engine gave them to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Said {
+    pub reached: String,
 }
 
 /// An item the owner adds, with its work, which is added paused: it begins no round until the owner lets it on.

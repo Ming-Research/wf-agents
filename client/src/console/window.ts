@@ -28,8 +28,7 @@ export type Part =
       chosen: number | null;
       confirmed?: boolean;
       changed?: boolean;
-      /// The call it waits at and the cell that asked it, with the question's name where it is a question of the work's.
-      asks?: { call: number; cell: string; question?: string };
+      asks?: { call: number; cell: string };
       /// What the owner wrote as the answer to a question with no options, which is answered in words.
       answer?: string;
     };

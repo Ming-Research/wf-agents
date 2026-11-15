@@ -21,8 +21,8 @@
 // - `GET  /api/v1/works/{work}/lines/{line}/sessions/{session}/system`: the system prompt the line's session of this
 //   number, the line's first being none, began with (`SystemPage`).
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
-// - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
-//   was refused (`Refusal`) and a status of 4xx.
+// - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, words said with
+//   the cell the engine gave them to (`Said`), or with why it was refused (`Refusal`) and a status of 4xx.
 // - `GET  /api/v1/engine`: the engine as a whole, its slots and the pause of everything (`Engine`).
 // - `POST /api/v1/engine/acts`: what the owner does to the engine as a whole (`EngineAct`); answers as an act on a work.
 // - `GET  /api/v1/changes`: a stream of server-sent events, one each time something happened (`Changed`), on which a
@@ -647,6 +647,11 @@ export type Act =
   /// work's page shows (`speaking`).
   | { kind: 'say'; to: SpokenTo; words: string };
 
+/// What the act that says the owner's words answers with: the cell the engine gave them to.
+export interface Said {
+  reached: string;
+}
+
 export interface NewItem {
   title: string;
   /// The level it is given; with none, the level the installation adds an item at where it is given none.
@@ -754,7 +759,7 @@ export const loadSystem = (work: number, line: string, session: number) =>
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
 export const loadLevels = () => read<Levels>('/api/v1/levels');
 export const loadProjects = () => read<Projects>('/api/v1/projects');
-export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
+export const act = (work: number, what: Act) => send<Said>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
 export const changeItems = (changes: ItemChanges) => send<ItemsChanged>('/api/v1/items/changes', changes);
 export const loadEngine = () => read<Engine>('/api/v1/engine');
