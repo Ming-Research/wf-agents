@@ -4,8 +4,8 @@
 //! fault in the walk's own reading is not repeated in the judging. It reads only the records and the flow, with its
 //! named tests, never what the deciding code works out of them: it takes the deciding code's types and calls none of
 //! its walk. It is read by everything that judges the deciding code by the records, the histories of crate `decide`,
-//! the exploration of the repository's own flow (crate `flow`, `tests/explored`) and the judge of a script's play
-//! (crate `service`), so it is one crate they share (principle `one-thing-one-place`).
+//! the exploration of a flow (crate `explore`) and the judge of a script's play (crate `service`), so it is one crate
+//! they share (principle `one-thing-one-place`).
 
 use std::collections::BTreeMap;
 
@@ -282,6 +282,14 @@ impl<'a> Reading<'a> {
             .any(|asks| self.awaited(cell, &asks.record, &asks.result, place))
     }
 
+    /// Whether the cell waits at this place for the owner's answer to a question of its own: the latest version before
+    /// the place of a question it asked waits for the answer, is no withdrawal, and has no answer before the place
+    /// (decision a-wait-holds-its-cell). Whether the cell applies is the caller's to judge: a cell skipped holds
+    /// nothing by its wait (decision a-wait-of-a-skipped-cell-is-put-away).
+    pub fn question_waits(&self, cell: &CellId, place: Seq) -> bool {
+        (questions(self.records, place).values()).any(|q| &q.cell == cell && q.waits && !q.withdrawn && !q.answered)
+    }
+
     /// Whether the cell's latest entry of the record before the place has no version of the result after it.
     fn awaited(&self, cell: &Cell, record: &BlockId, result: &BlockId, place: Seq) -> bool {
         let entry = (self.of(record).iter())
@@ -333,7 +341,10 @@ impl<'a> Reading<'a> {
         };
         reasons.sort_by_key(|r| order(r).unwrap_or(usize::MAX));
         let owed = self.owed(&cell.id, place);
-        if owed.iter().any(|c| !self.done(*c, place)) || self.pending(cell, place) {
+        if owed.iter().any(|c| !self.done(*c, place))
+            || self.pending(cell, place)
+            || self.question_waits(&cell.id, place)
+        {
             let abandoned = |run: RunId| (self.records.abandoned.iter()).any(|a| a.run == run && a.at < place);
             let seen = |block: &BlockId| {
                 (self.started.values())
@@ -556,9 +567,6 @@ pub struct Asked {
 pub fn questions(records: &Records, place: Seq) -> BTreeMap<String, Asked> {
     let mut latest: BTreeMap<String, Asked> = BTreeMap::new();
     for q in records.questions.iter().filter(|q| q.at < place) {
-        if latest.get(&q.name).is_some_and(|kept| kept.at > q.at) {
-            continue;
-        }
         let asked = Asked {
             cell: q.cell.clone(),
             at: q.at,
