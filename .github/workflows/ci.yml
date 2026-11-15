@@ -123,8 +123,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   # The Rust tests, which take most of the time, split across four jobs: each builds every test binary and runs its
-  # part. Seven of the tests walk many random histories, each using every core and together taking a third of all the
-  # test time, so a split by count alone (nextest's partition count:k/4 counts every test the same) leaves one job with
+  # part. About a dozen of the tests walk many random histories or run for seconds, the longest using every core, and
+  # together take half of all the test time, so a split by count alone (nextest's partition count:k/4 counts every test the same) leaves one job with
   # the longest of them and the run waiting for it. Each job runs its own long tests first (`heavy_k` below) and then
   # its quarter of every other test.
   test:
@@ -186,9 +186,9 @@ jobs:
         env:
           PARTITION: ${{ matrix.partition }}
         run: |
-          heavy_1='test(~random_works_on_the_engineers_flow_keep_what_the_flow_must) | test(~a_work_saved_at_every_step_and_loaded_back_at_random_ends_as_the_one_kept_in_memory)'
-          heavy_2='test(~every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell)'
-          heavy_3='test(~many_works_keep_the_drivers_properties_with_and_without_stops_and_failures) | test(~questions_and_answers_at_any_step_keep_the_waits_and_the_merge_gate) | test(~a_history_stopped_at_any_call_of_the_store_ends_as_it_does_with_no_stop)'
+          heavy_1='test(~random_works_on_the_engineers_flow_keep_what_the_flow_must)'
+          heavy_2='test(~every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell) | test(~random_works_keep_the_engines_properties_and_come_to_rest) | test(~whole_works_keep_the_engines_properties_with_and_without_stops)'
+          heavy_3='test(~many_works_keep_the_drivers_properties_with_and_without_stops_and_failures) | test(~questions_and_answers_at_any_step_keep_the_waits_and_the_merge_gate) | test(~a_history_stopped_at_any_call_of_the_store_ends_as_it_does_with_no_stop) | test(~a_work_saved_at_every_step_and_loaded_back_at_random_ends_as_the_one_kept_in_memory) | test(~whole_works_on_the_deliver_flow_wait_for_their_items_deliver_once_and_come_to_rest_with_and_without_stops) | test(~a_merge_refused_for_a_main_that_moved_is_checked_again_on_its_new_head_and_merges_unpaused)'
           heavy_4='test(~rounds_failing_often_while_people_pause_and_write_keep_the_engines_properties) | test(~a_judge_running_while_the_cell_it_judges_is_skipped_keeps_the_engines_properties)'
           mine="heavy_$PARTITION"
           junit=target/nextest/ci/junit.xml
