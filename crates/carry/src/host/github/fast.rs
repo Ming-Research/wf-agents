@@ -875,7 +875,7 @@ fn case_lines(words: &ResultWords, case: &Case) -> Vec<String> {
     if case.outcome == results::Outcome::Failed
         && let Some(said) = &case.said
     {
-        let said = output::fenced(&output::plain(said, process::KEPT_WHOLE));
+        let said = flow::system::fenced(&output::plain(said, process::KEPT_WHOLE));
         lines.push(fill(&words.output, &[("said", &said)]));
     }
     lines

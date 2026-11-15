@@ -658,17 +658,6 @@ pub(crate) fn neutral(text: &str, withheld: &[(String, &'static str)]) -> String
     out
 }
 
-/// A fence of backticks longer than any run of them in the text, so that the text cannot end the block it is in.
-fn fence(text: &str) -> String {
-    let mut longest = 0;
-    let mut run = 0;
-    for c in text.chars() {
-        run = if c == '`' { run + 1 } else { 0 };
-        longest = longest.max(run);
-    }
-    "`".repeat((longest + 1).max(3))
-}
-
 /// How many characters of the name of a work's merge its pull request and its merge's commit take: GitHub refuses a
 /// title of more than 256, and the name is one line.
 const TITLE: usize = 200;
@@ -700,7 +689,7 @@ impl<A: Api> GitHub<A> {
         if about.is_empty() {
             return what;
         }
-        let fence = fence(&about);
+        let fence = flow::system::fence(&about);
         format!("What the work's agents wrote of the change:\n\n{fence}text\n{about}\n{fence}\n\n---\n\n{what}")
     }
 }

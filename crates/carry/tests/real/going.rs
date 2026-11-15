@@ -184,7 +184,9 @@ async fn a_build_that_asks_for_tests_on_two_of_its_commits_is_given_each_result_
     );
     for (at, result) in &results {
         // Cut as a result is given: its first bytes up to the bound, then the words that say so.
-        let given = format!("## `build_tested`, version {at}\n\n{}\n\n", &result[..bound]);
+        // The fence the review is given it in is counted on what it is given, the result cut.
+        let fence = flow::system::fence(&result[..bound]);
+        let given = format!("## `build_tested`, version {at}\n\n{fence}\n{}", &result[..bound]);
         assert!(review.contains(&given), "version {at} is not given cut");
     }
 }

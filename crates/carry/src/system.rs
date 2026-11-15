@@ -126,7 +126,7 @@ pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
     let named_checks = ways.and_then(|ways| match fast {
         Some(fast) if !fast.checks.is_empty() => {
             let checks: Vec<String> = fast.checks.iter().map(|c| format!("`{c}`")).collect();
-            (ways.get("named")).map(|words| words.replace("{checks}", &checks.join(", ")))
+            (ways.get("named")).map(|words| flow::agents::fill(words, &[("checks", &checks.join(", "))]))
         }
         Some(_) => ways.get("none_named").cloned(),
         None => ways.get("whole").cloned(),
