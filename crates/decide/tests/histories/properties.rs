@@ -766,10 +766,11 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         let owed_open = reading.owed(&cell.id, now).iter().any(|c| !reading.done(*c, now));
         let unmet = cell.requires.iter().any(|key| !reading.key_holds(flow, key, j));
         // A cell that waits for a result the cell entered gives holds the work behind it, whatever else it waits for:
-        // only the owner turning to it, or its run at rest, comes first (decision a-wait-holds-its-cell).
+        // only the owner turning to it, or its run resting on a call of its own, comes first (decision
+        // a-wait-holds-its-cell).
         let gives = (cell.asks.iter()).any(|asks| flow.cells()[i].runs_on.contains(&asks.record));
         if reading.pending(cell, now) && gives {
-            if at_rest || !entering.is_empty() {
+            if rests_on_a_call(reading, &cell.id) || !entering.is_empty() {
                 let what = format!(
                     "the walk passes {} to {}, which gives what it waits for",
                     cell.id,
