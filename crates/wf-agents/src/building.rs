@@ -37,7 +37,7 @@ use explore::model::Model;
 use flow::Compiled;
 use flow::agents::Agents;
 use serde::{Deserialize, Serialize};
-use service::script::items::{ItemScript, StepScript, WriteScript};
+use service::script::items::{ItemScript, Step, StepScript, WriteScript};
 use service::script::{Down, FlowScript, OutsideScript, Took, ToolScript};
 use service::{Clock, Script, SystemClock};
 use work::Time;
@@ -189,7 +189,7 @@ fn built(data: &Path, dirs: &[PathBuf], items: &Path, start: Option<u64>) -> Res
             began.elapsed()
         );
         for (state, count) in &explored.grouped {
-            match state.starts_with(&service::script::items::Step::Ends(decide::End::Merged).to_string()) {
+            match state.starts_with(&Step::Ends(decide::End::Merged).to_string()) {
                 true => counted.merged += count,
                 false if !state.starts_with("{ ends") => counted.points += count,
                 false => {}
@@ -577,10 +577,12 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
             .join("\n"));
     }
     std::fs::write(&serving_file, &serving_text).map_err(|e| format!("{}: {e}", serving_file.display()))?;
-    // A store with a round left under way starts with every work held by the engine (decision
+    // A store with a work going on, one that has not ended and that its own pause does not hold, starts with every
+    // work held by the engine, unless the owner's pause of everything holds them (decision
     // a-start-pauses-everything-only-over-works-going-on); one with none starts as it was left.
-    let held = m.cases.iter().any(|c| c.under_way.is_some() || c.holds_slot);
-    let let_on = held && *m.store != Store::Everything;
+    let going_on = |c: &&Case| !c.held && !matches!(c.end, Step::Ends(_) | Step::Paused(_));
+    let held = *m.store != Store::Everything && m.cases.iter().any(|c| going_on(&c));
+    let let_on = held;
     let how = Serving {
         data: store_data.clone(),
         flows: dirs.clone(),
@@ -597,18 +599,18 @@ fn make(m: &Making<'_>, pool: &mut Pool) -> Result<Made, String> {
         flow_args.join(" "),
         serving_file.display()
     );
-    let serving = match (held, let_on) {
-        (true, true) => format!(
-            "Served by {run}. A round having been left under way, it starts with every work held by the engine, the \
-             hold after a restart; `wf-agents resume --all --port <port>` lets it on, and every other state shows."
+    let serving = match (held, m.store) {
+        (true, _) => format!(
+            "Served by {run}. A work being on its way, it starts with every work held by the engine, the hold after a \
+             restart; `wf-agents resume --all --port <port>` lets it on, and every other state shows."
         ),
-        (true, false) => format!(
-            "Served by {run}, and not let on: lifting the hold the engine starts with would lift the pause of \
-             everything, which is the state it shows."
+        (false, Store::Everything) => format!(
+            "Served by {run}. It starts with everything paused by the owner, as it was left, and is not let on: \
+             lifting the pause of everything would undo the state it shows."
         ),
         (false, _) => format!(
-            "Served by {run}. Nothing of it is under way, so it starts as it was left, holding nothing, and shows its \
-             states as it starts."
+            "Served by {run}. No work of it being on its way, each having ended or being paused, it starts as it was \
+             left, holding nothing, and shows its states as it starts."
         ),
     };
     write_store(&dir, m.store, &list, &serving, &played.untaken)?;
