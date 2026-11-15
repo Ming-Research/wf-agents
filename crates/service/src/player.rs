@@ -262,7 +262,17 @@ pub async fn play(
             refused: play.refused[k].clone(),
         })
         .collect::<Vec<_>>();
-    let untaken = Vec::new();
+    let mut untaken = Vec::new();
+    if fault.is_none() && items.iter().all(ItemPlayed::took) {
+        let driver = play.stepper.service().driver();
+        let kept: Vec<_> = (play.works.iter())
+            .filter_map(|work| driver.work(*work).map(|kept| (work.0, kept)))
+            .collect();
+        let works: Vec<(&str, u64, &decide::Records)> = (kept.iter())
+            .map(|(work, kept)| (kept.flow.name.as_str(), *work, &kept.work.records))
+            .collect();
+        untaken = script.untaken(&works);
+    }
     Ok(Played {
         items,
         untaken,

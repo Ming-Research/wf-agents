@@ -159,7 +159,7 @@
 //! but its work, flow, cell, run and round, and the versions its run started from, which its start recorded, so that a
 //! round given again after the process started again returns what it would have.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub mod items;
 
@@ -169,7 +169,7 @@ use serde::Deserialize;
 use work::{Ask, Handed, Question, Spent, Time, Way};
 
 use decide::run::Failure;
-use decide::{BlockId, Seq};
+use decide::{BlockId, Records, Seq};
 use engine::Came;
 
 /// How long a round takes where the script says nothing, in milliseconds.
@@ -685,11 +685,52 @@ impl Script {
     /// The entry of the round of this number of the cell's nth run in the flow, for this work: the work's own, else
     /// every work's; none where the script says nothing of it.
     pub fn entry(&self, flow: &str, cell: &str, work: u64, run: usize, number: usize) -> Option<&RoundScript> {
+        let place = self.place(flow, cell, work, run, number)?;
+        self.flows.get(flow).map(|script| &script.rounds[place])
+    }
+
+    /// The place among the flow's round entries of the entry of the round of this number of the cell's nth run, for
+    /// this work, as [`Script::entry`] finds it.
+    fn place(&self, flow: &str, cell: &str, work: u64, run: usize, number: usize) -> Option<usize> {
         let rounds = self.flows.get(flow).into_iter().flat_map(|script| &script.rounds);
         let of = |of: Option<u64>| {
-            (rounds.clone()).find(|r| r.cell == cell && r.work == of && r.run == run && r.round == number)
+            (rounds.clone()).position(|r| r.cell == cell && r.work == of && r.run == run && r.round == number)
         };
         of(Some(work)).or_else(|| of(None))
+    }
+
+    /// Each round entry that no round of these works took, each work given with its flow's name and its records, as
+    /// where the script holds it, `flows.<flow>.rounds[<place>]`, with the round it is for: every round that a run of
+    /// a work began takes the entry [`Script::entry`] finds for it, the run counted as its cell's nth in its work.
+    pub fn untaken(&self, works: &[(&str, u64, &Records)]) -> Vec<String> {
+        let mut taken: BTreeSet<(&str, usize)> = BTreeSet::new();
+        for (flow, work, records) in works {
+            for s in &records.started {
+                let nth = (records.started.iter())
+                    .filter(|t| t.cell == s.cell && t.run <= s.run)
+                    .count();
+                let rounds = records.rounds.iter().filter(|r| r.run == s.run).count();
+                for number in 1..=rounds {
+                    if let Some(place) = self.place(flow, s.cell.as_str(), *work, nth, number) {
+                        taken.insert((*flow, place));
+                    }
+                }
+            }
+        }
+        let mut untaken = Vec::new();
+        for (flow, script) in &self.flows {
+            for (place, round) in script.rounds.iter().enumerate() {
+                if !taken.contains(&(flow.as_str(), place)) {
+                    let work = round.work.map_or(String::new(), |work| format!(" of work {work}"));
+                    untaken.push(format!(
+                        "flows.{flow}.rounds[{place}]: no round of the play took it, round {} of the cell {}'s \
+                         run {}{work}",
+                        round.round, round.cell, round.run
+                    ));
+                }
+            }
+        }
+        untaken
     }
 
     /// What the round of this number of the cell's nth run returns in the flow, in the work of this number, and what
