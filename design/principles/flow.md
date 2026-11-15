@@ -101,6 +101,13 @@ short, and is opened only where it is not understood.
 Why: Otherwise the owner reads the whole story again each time; a question written well can be decided with nobody's
 help.
 
+### principle who-asks-can-be-spoken-to
+A cell that may ask the owner a question can be spoken to by the owner; a cell that asks nothing is not spoken to.
+Why: Once asked, the owner may need to ask back about the question's background, and only the cell that asked knows why
+it asked: said to another cell, the words reach one that does not know the question. A cell that asks nothing has
+nothing of its own the owner needs to take up with it: what the owner wants of a review goes through the cell that
+answers the review, which fixes the point or has the owner rule on it.
+
 ### principle named-paths-wait-for-the-owner
 A change that touches a path the project's configuration names for the owner, such as a specification or the
 principles of its design, waits at the merge for the owner's yes, and a later change to those paths asks again. The
