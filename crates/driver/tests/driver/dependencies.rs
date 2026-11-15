@@ -299,9 +299,9 @@ fn the_blocks_text_says_which_items_are_still_waited_for_and_which_were_cancelle
     assert_eq!(
         versions_of(&h, wc),
         [
-            version(WAITING, "Waits for the items 1, 2 to merge."),
-            version(WAITING, "Waits for the items 2 to merge."),
-            version(WAITING, "Waits for the items 2 (cancelled) to merge."),
+            version(WAITING, "Waits for the items #1, #2 to merge."),
+            version(WAITING, "Waits for the items #2 to merge."),
+            version(WAITING, "Waits for the items #2 (cancelled) to merge."),
         ]
     );
     let kept = h.d().work(wc).expect("the work is there");
@@ -321,8 +321,8 @@ fn a_cancelled_dependency_is_named_beside_one_still_going() {
     assert_eq!(
         versions_of(&h, wc),
         [
-            version(WAITING, "Waits for the items 1, 2 to merge."),
-            version(WAITING, "Waits for the items 1 (cancelled), 2 to merge."),
+            version(WAITING, "Waits for the items #1, #2 to merge."),
+            version(WAITING, "Waits for the items #1 (cancelled), #2 to merge."),
         ]
     );
     assert_eq!(h.let_on(wc), vec![]);

@@ -69,17 +69,17 @@ const START_BLOCK: &str = r#"
 
 /// The dependencies block, which the driver writes, and the named test the first cell of a flow waits on: that every
 /// item the work's item depends on has merged.
-const DEPENDENCIES_BLOCK: &str = r#"
+const DEPENDENCIES_BLOCK: &str = r##"
         [blocks.deps]
         values = ["waiting", "merged"]
         outside = "dependencies"
-        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", cancelled = "{item} (cancelled)", between = ", " }
+        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", item = "#{number}", cancelled = "{item} (cancelled)", between = ", " }
         [tests.ready]
         says = "Every item this one depends on has merged"
         kind = "all"
         reads = ["deps"]
         is = "merged"
-"#;
+"##;
 
 /// A writer that waits for the items its item depends on to have merged, and reads a request and the opinions on what
 /// it wrote; a judge that writes opinions for it and a verdict, a choice; and the merge, the engine's own cell.

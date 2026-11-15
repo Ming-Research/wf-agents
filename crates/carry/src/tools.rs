@@ -490,7 +490,7 @@ mod tests {
         let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
         tools.call(call, CallReply::new(WORK, CallId(2), to));
         said.recv().await.expect("the call is answered");
-        assert_eq!(tools.inner.host.titles(), ["Work 1"]);
+        assert_eq!(tools.inner.host.titles(), ["Work W1"]);
         assert_eq!(tools.inner.host.askings(), [Asking::Call(CallId(2))]);
     }
 

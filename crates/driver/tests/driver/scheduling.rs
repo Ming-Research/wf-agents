@@ -124,7 +124,7 @@ fn a_slot_that_comes_free_goes_to_a_work_that_has_begun_before_one_that_has_not(
 /// A flow whose first cell is the engine's own act, which takes no slot: it makes the place the writer, an agent,
 /// writes in, once the items the work's item depends on have merged; then the merge.
 fn started() -> flow::Compiled {
-    let flow = r#"
+    let flow = r##"
         name = "started"
         order = ["start", "write", "merge"]
         [limits]
@@ -141,7 +141,7 @@ fn started() -> flow::Compiled {
         [blocks.deps]
         values = ["waiting", "merged"]
         outside = "dependencies"
-        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", cancelled = "{item} (cancelled)", between = ", " }
+        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", item = "#{number}", cancelled = "{item} (cancelled)", between = ", " }
         [blocks.start]
         outside = "start"
         writes = { text = "The owner started the work." }
@@ -150,7 +150,7 @@ fn started() -> flow::Compiled {
         kind = "all"
         reads = ["deps"]
         is = "merged"
-    "#;
+    "##;
     let start = r#"
         title = "Start"
         kind = "engine"

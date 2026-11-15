@@ -24,12 +24,12 @@ fn everything_is_paused_and_let_on_again_from_the_command_line() {
             "--write",
             "request=Greet the user, please."
         ]),
-        "Added item 1 with its work 1, paused: let it on with `wf-agents resume 1`.\n"
+        "Added item #1 with its work W1, paused: let it on with `wf-agents resume 1`.\n"
     );
     // A work let on under the pause of everything is said to be held back still.
     assert_eq!(
         engine.says(&["resume", "1"]),
-        "Work 1 is let on, and held back by the pause of everything until `wf-agents resume --all`.\n"
+        "W1 is let on, and held back by the pause of everything until `wf-agents resume --all`.\n"
     );
     assert_eq!(
         engine.says(&["list"]),

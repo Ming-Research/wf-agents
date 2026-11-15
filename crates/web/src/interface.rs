@@ -270,7 +270,7 @@ async fn work(State(handle): State<Handle>, path: Result<Path<u64>, PathRejectio
         Ok(Path(number)) => WorkNumber(number),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("There is no work {}.", number.0);
+    let missing = format!("There is no work W{}.", number.0);
     let page = handle
         .read_at(move |driver, now| driver.work(number).map(|_| WorkPage::of(driver, number, now)))
         .await;
@@ -282,7 +282,7 @@ async fn version(State(handle): State<Handle>, path: Result<Path<(u64, String, u
         Ok(Path((number, block, at))) => (WorkNumber(number), block, at),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no version of {block} at {at}.", number.0);
+    let missing = format!("W{} has no version of {block} at {at}.", number.0);
     let page = handle.read(move |driver| {
         driver
             .work(number)
@@ -296,7 +296,7 @@ async fn round(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)
         Ok(Path((number, run, round))) => (WorkNumber(number), run, round),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no round {round} of run {run}.", number.0);
+    let missing = format!("W{} has no round {round} of run {run}.", number.0);
     let page = handle.read(move |driver| driver.work(number).map(|_| RoundPage::of(driver, number, run, round)));
     found(page.await, number, missing)
 }
@@ -306,7 +306,7 @@ async fn told(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)>
         Ok(Path((number, run, round))) => (WorkNumber(number), run, round),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no round {round} of run {run}.", number.0);
+    let missing = format!("W{} has no round {round} of run {run}.", number.0);
     let told = handle.told(number, RunId(run), round).await;
     let page = told.map(|work| work.map(|told| told.map(|round| round.map(ToldPage::of)).map_err(Broken)));
     found(page, number, missing)
@@ -320,7 +320,7 @@ async fn doing(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)
         Ok(Path((number, run, round))) => (WorkNumber(number), run, round),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no round {round} of run {run}.", number.0);
+    let missing = format!("W{} has no round {round} of run {run}.", number.0);
     let doing = handle.doing(number, RunId(run), round).await;
     let page = doing.map(|work| work.map(|doing| doing.map(|round| round.map(DoingPage::of)).map_err(Broken)));
     found(page, number, missing)
@@ -333,10 +333,7 @@ async fn system(State(handle): State<Handle>, path: Result<Path<(u64, String, u3
         Ok(Path((number, line, session))) => (WorkNumber(number), line, session),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!(
-        "Work {} kept no system prompt of session {session} of {line}.",
-        number.0
-    );
+    let missing = format!("W{} kept no system prompt of session {session} of {line}.", number.0);
     let system = handle.system(number, line.clone(), session).await;
     let page = system.map(|work| {
         work.map(|system| {
@@ -353,7 +350,7 @@ async fn call(State(handle): State<Handle>, path: Result<Path<(u64, u64)>, PathR
         Ok(Path((number, call))) => (WorkNumber(number), call),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no call {call}.", number.0);
+    let missing = format!("W{} has no call {call}.", number.0);
     let page = handle.read(move |driver| driver.work(number).map(|_| CallPage::of(driver, number, call)));
     found(page.await, number, missing)
 }
@@ -430,7 +427,7 @@ fn found<T: Serialize>(
 ) -> Response {
     match page {
         Ok(Some(Ok(Some(page)))) => Json(page).into_response(),
-        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no work {}.", number.0)),
+        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no work W{}.", number.0)),
         Ok(Some(Ok(None))) => fail(StatusCode::NOT_FOUND, missing),
         Ok(Some(Err(broken))) => fail(
             StatusCode::INTERNAL_SERVER_ERROR,

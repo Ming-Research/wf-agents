@@ -1012,6 +1012,8 @@ pub struct Deliver {
     pub one: String,
     pub many: String,
     pub between: String,
+    /// How each item is written: `{number}` its number.
+    pub item: String,
 }
 
 /// `agents/acts/check.toml`.

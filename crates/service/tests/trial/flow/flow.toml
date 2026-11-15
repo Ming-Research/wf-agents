@@ -23,6 +23,7 @@ outside = "dependencies"
 [blocks.dependencies.writes]
 merged = "Every item this one depends on has merged."
 waiting = "Waits for the items {items} to merge."
+item = "#{number}"
 cancelled = "{item} (cancelled)"
 between = ", "
 

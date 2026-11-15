@@ -113,8 +113,8 @@ impl Attention {
         let outages = Outages::of(driver, at);
         // The work a line is of, with its item, and what it does now.
         let of_work = |work: WorkNumber, person: bool| -> Result<(Of, Now), Broken> {
-            let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work {}", work.0)))?;
-            let view = (driver.view(work)).ok_or_else(|| Broken(format!("work {} has no view", work.0)))?;
+            let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work W{}", work.0)))?;
+            let view = (driver.view(work)).ok_or_else(|| Broken(format!("W{} has no view", work.0)))?;
             let of = Of {
                 work: work.0,
                 item: kept.item.number.0,
@@ -253,7 +253,7 @@ fn not_answered(refusal: &of::Refused) -> Response {
         of::Refused::NotOfTheseRecords { work } => fail(
             StatusCode::UNPROCESSABLE_ENTITY,
             format!(
-                "The mark is not of these records: it names work {} as it has never been. Give no mark to read what \
+                "The mark is not of these records: it names W{} as it has never been. Give no mark to read what \
                  stands now.",
                 work.0
             ),

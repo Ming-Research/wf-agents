@@ -19,7 +19,7 @@ impl fmt::Display for Fault {
                 let failed = failed_words(failed);
                 write!(
                     f,
-                    "what was said to have come of something to be done for work {}: {failed}",
+                    "what was said to have come of something to be done for W{}: {failed}",
                     work.0
                 )
             }
@@ -34,7 +34,7 @@ impl fmt::Display for Fault {
                 };
                 write!(
                     f,
-                    "the driver gave something to be done for work {} that names {what}",
+                    "the driver gave something to be done for W{} that names {what}",
                     todo.work.0
                 )
             }
@@ -86,7 +86,7 @@ fn failed_words(failed: &Failed) -> String {
             "the item would depend on {}, cancelled, and wait for good: reopen it first, or leave it out",
             items(on)
         ),
-        Failed::NoSuchWork(work) => format!("there is no work {}", work.0),
+        Failed::NoSuchWork(work) => format!("there is no work W{}", work.0),
         Failed::NoSuchFlow(flow) => format!("there is no flow named {flow}"),
         Failed::Refused(refused) => refused_words(refused),
         Failed::Stopped { fault, .. } => format!("the engine stopped: {}", driver_fault(fault)),
@@ -277,10 +277,10 @@ fn driver_fault(fault: &driver::Fault) -> String {
             "more than one block of the flow {flow} is written by the source {}",
             driver::DEPENDENCIES
         ),
-        F::NoSuchFlow { work, flow } => format!("work {} runs on the flow {flow}, which was not given", work.0),
-        F::NotOneWork(item) => format!("the store holds item {} without exactly one work", item.0),
+        F::NoSuchFlow { work, flow } => format!("W{} runs on the flow {flow}, which was not given", work.0),
+        F::NotOneWork(item) => format!("the store holds #{} without exactly one work", item.0),
         F::Refused { work, refused } => format!(
-            "what the driver itself gave the engine's loop for work {} was refused: {}",
+            "what the driver itself gave the engine's loop for W{} was refused: {}",
             work.0,
             refused_words(refused)
         ),
@@ -301,9 +301,9 @@ pub fn store_fault_words(fault: &store::Fault) -> String {
         F::Schema { found: None, expected } => {
             format!("the database has tables but no version of the schema, and this program keeps version {expected}")
         }
-        F::NoSuchWork(work) => format!("it has no work {}", work.0),
-        F::NoSuchDependency(item) => format!("an item was to depend on item {}, which it does not have", item.0),
-        F::NoSuchItem(item) => format!("it has no item {}", item.0),
+        F::NoSuchWork(work) => format!("it has no work W{}", work.0),
+        F::NoSuchDependency(item) => format!("an item was to depend on #{}, which it does not have", item.0),
+        F::NoSuchItem(item) => format!("it has no item #{}", item.0),
         F::Diverged { table, entry, how } => {
             let how = match how {
                 store::Divergence::Changed => "holds something else",

@@ -218,23 +218,23 @@ async fn what_there_is_none_of_is_refused_with_why() {
     let none = StatusCode::NOT_FOUND;
     assert_eq!(
         refused(router, "/api/v1/works/9").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/9/calls/2").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/versions/request/4").await,
-        (none, "Work 1 has no version of request at 4.".to_string())
+        (none, "W1 has no version of request at 4.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/runs/1/rounds/7").await,
-        (none, "Work 1 has no round 7 of run 1.".to_string())
+        (none, "W1 has no round 7 of run 1.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/calls/3").await,
-        (none, "Work 1 has no call 3.".to_string())
+        (none, "W1 has no call 3.".to_string())
     );
     let (status, words) = refused(router, "/api/v1/works/one").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
