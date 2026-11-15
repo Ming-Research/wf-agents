@@ -185,8 +185,9 @@ pub struct Sessions {
     /// here: it follows from the prices of the session's model.
     #[serde(default = "cache_minutes")]
     pub cache_minutes: u64,
-    /// How long after a session's last call a line that waits has it sent a keep-warm ping, in minutes: five before the
-    /// cache lets it go, time for the ping and four tries again a minute apart.
+    /// How long after a session's last call it is sent a keep-warm ping, whatever its work does meanwhile, unless a
+    /// round of its line runs then, in minutes: five before the cache lets it go, time for the ping and four tries again
+    /// a minute apart.
     #[serde(default = "warm_minutes")]
     pub warm_minutes: u64,
     /// Whether the sessions of works are kept warm while the owner holds everything: a session waits out the pause
@@ -854,7 +855,7 @@ impl Settings {
     }
 
     /// When a line begins a new session, where the model or the account its session's rounds ran on is not the one its
-    /// rounds run on now, and past the limit of its context; and how its sessions are kept warm while it waits.
+    /// rounds run on now, and past the limit of its context; and how its sessions are kept warm.
     pub fn policy(&self) -> Policy {
         let settings = self.clone();
         let sessions = &self.sessions;

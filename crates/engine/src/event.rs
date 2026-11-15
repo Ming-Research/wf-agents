@@ -1,8 +1,11 @@
 //! What happens to a work, and what is to be done for it.
 
+use std::collections::BTreeSet;
+
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 
+use flow::{CellSpec, Kind};
 use work::{Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Tool, Why};
 
 use crate::spoken::{NoOne, Telling, To};
@@ -202,41 +205,68 @@ pub enum Effect {
     Ping { line: String, session: u32 },
 }
 
-/// Which rounds may begin, of this work as of every other: a round that failed for a cause every work shares, such as
-/// the account's usage limit, holds them, as whatever drives the engine works out from the records of every work. It
-/// holds back nothing of a run but the beginning of its rounds.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Gate {
-    /// Every round may begin.
-    #[default]
-    Open,
-    /// No round of an agent begins; the engine's own acts do.
-    Agents,
-    /// No round of the engine's own acts begins, their host being out of reach; the agents' do.
-    Acts,
-    /// No round begins, of an agent or an act.
-    Every,
+/// Which rounds of a work may begin. A round that failed for a cause every work shares, such as the account's usage
+/// limit, holds the agents' rounds of every work, and their host out of reach the acts' rounds, as whatever drives the
+/// engine works out from the records of every work; a keep-warm ping of a line's session under way holds the rounds of
+/// that line's cells, so that the line's next round begins once the ping has ended and is filled as the session then
+/// stands. It holds back nothing of a run but the beginning of its rounds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Gate {
+    /// No round of an agent begins.
+    pub agents: bool,
+    /// No round of the engine's own acts begins, their host being out of reach.
+    pub acts: bool,
+    /// No round of a cell of these lines begins.
+    pub lines: BTreeSet<String>,
 }
 
 impl Gate {
-    /// Whether it holds the agents' rounds.
-    pub fn holds_agents(self) -> bool {
-        matches!(self, Gate::Agents | Gate::Every)
+    /// Every round may begin.
+    pub const OPEN: Gate = Gate {
+        agents: false,
+        acts: false,
+        lines: BTreeSet::new(),
+    };
+
+    /// No round of an agent begins; the engine's own acts do.
+    pub const AGENTS: Gate = Gate {
+        agents: true,
+        acts: false,
+        lines: BTreeSet::new(),
+    };
+
+    /// No round of the engine's own acts begins; the agents' do.
+    pub const ACTS: Gate = Gate {
+        agents: false,
+        acts: true,
+        lines: BTreeSet::new(),
+    };
+
+    /// Whether it holds the agents' rounds, of every line.
+    pub fn holds_agents(&self) -> bool {
+        self.agents
     }
 
     /// Whether it holds the engine's own acts.
-    pub fn holds_acts(self) -> bool {
-        matches!(self, Gate::Acts | Gate::Every)
+    pub fn holds_acts(&self) -> bool {
+        self.acts
+    }
+
+    /// Whether it holds the rounds of the cell: an agent's while it holds the agents' or the cell's line, an act's
+    /// while it holds the acts'.
+    pub fn holds(&self, cell: &CellSpec) -> bool {
+        match cell.kind {
+            Kind::Agent => self.agents || cell.line.as_ref().is_some_and(|line| self.lines.contains(line)),
+            Kind::Engine => self.acts,
+        }
     }
 
     /// The gate that holds what either holds.
-    pub fn and(self, other: Gate) -> Gate {
-        match (self, other) {
-            (Gate::Open, gate) | (gate, Gate::Open) => gate,
-            (Gate::Agents, Gate::Agents) => Gate::Agents,
-            (Gate::Acts, Gate::Acts) => Gate::Acts,
-            _ => Gate::Every,
-        }
+    pub fn and(mut self, other: Gate) -> Gate {
+        self.agents |= other.agents;
+        self.acts |= other.acts;
+        self.lines.extend(other.lines);
+        self
     }
 }
 

@@ -68,7 +68,7 @@ pub struct Policy {
     pub warm: Option<Warm>,
 }
 
-/// How the sessions of lines that wait for their next round are kept warm ([`crate::warm`]).
+/// How the sessions of lines are kept warm ([`crate::warm`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Warm {
     /// How long the agents' program's prompt cache keeps a session after its last call, in milliseconds.

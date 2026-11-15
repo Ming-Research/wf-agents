@@ -99,10 +99,11 @@ pub struct Service {
     changed: broadcast::Sender<Changed>,
     /// When the driver is to be told the time next, with the timer that will tell the loop so.
     wake: Option<(Wake, tokio::task::AbortHandle)>,
-    /// The works a keep-warm ping of which is under way: how many are, and what else is to be done for the work, held
-    /// back until none is, so that nothing of the work runs beside its ping: no round, no call, and no letting go of
-    /// what it holds, as its worktree, under the program the ping runs. Lost in a stop, when the driver gives what is
-    /// to be done again.
+    /// The works a keep-warm ping of which is under way: how many are, and the letting go of what the work holds, held
+    /// back until none is, so that its worktree, which the ping's program runs in, is not taken from under it. The
+    /// work's rounds, its calls and its acts go on beside its pings: the driver holds back the rounds of a line whose
+    /// ping is under way, and a ping changes nothing they work on. Lost in a stop, when the driver gives what is to be
+    /// done again.
     pinging: BTreeMap<WorkNumber, (usize, Vec<Todo>)>,
 }
 
@@ -666,21 +667,16 @@ impl Service {
     fn hand(&mut self, now: Time, todos: Vec<Todo>) -> Result<(), Fault> {
         let mut queue = VecDeque::from(todos);
         while let Some(todo) = queue.pop_front() {
-            // A ping runs beside nothing else of its work: what else is to be done for the work waits for its pings to
-            // end, and a round stopped before it was given is not given.
+            // The letting go of what a work holds waits for its pings to end: their program runs in its worktree.
             match &todo.effect {
                 Effect::Ping { .. } => self.pinging.entry(todo.work).or_default().0 += 1,
-                Effect::Stop { run } => {
-                    if let Some((_, held)) = self.pinging.get_mut(&todo.work) {
-                        held.retain(|t| !matches!(t.effect, Effect::Round { run: r, .. } if r == *run));
-                    }
-                }
-                _ => {
+                Effect::Release { .. } => {
                     if let Some((_, held)) = self.pinging.get_mut(&todo.work) {
                         held.push(todo);
                         continue;
                     }
                 }
+                _ => {}
             }
             if let Some(event) = self.give(&todo)? {
                 let more = (self.driver.happened(now, todo.work, event)).map_err(|failed| answer(todo.work, failed))?;

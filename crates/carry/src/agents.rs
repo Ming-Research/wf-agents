@@ -97,7 +97,7 @@ use uuid::Uuid;
 use work::{Back, Measures, RanOn, Spent, Why, Work};
 
 use crate::catch_up::{self, CaughtUp};
-use crate::cli::{self, Begin, Calls, Compacted, InSession, Words};
+use crate::cli::{self, Begin, Calls, Compacted, InSession, Tools, Words};
 use crate::guard::{Crossing, Guard};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::{self, Permissions};
@@ -118,6 +118,9 @@ pub struct Agents {
     inner: Arc<Inner>,
 }
 
+/// The lock of one line's session of a work: one program at a time runs on it, a round's or a keep-warm ping's.
+type SessionLock = Arc<tokio::sync::Mutex<()>>;
+
 struct Inner {
     settings: Settings,
     data: PathBuf,
@@ -129,9 +132,10 @@ struct Inner {
     clock: Arc<dyn Clock>,
     /// The script that gives the rounds of a test their parts to play, where one does (design document `testing`, 12).
     parts: Option<Script>,
-    /// A lock for each work, so that a keep-warm ping of a work never runs beside a round of it: a round waits for a
-    /// ping of its work to end, and a ping that finds a round of its work under way is given up.
-    in_work: std::sync::Mutex<BTreeMap<WorkNumber, Arc<tokio::sync::Mutex<()>>>>,
+    /// A lock for each line of each work, so that a keep-warm ping of a line's session never runs beside a round of
+    /// the line, two programs on one session: a round waits for a ping of its line to end, and a ping that finds a
+    /// round of its line under way is given up. A round of another line runs beside the ping.
+    on_line: std::sync::Mutex<BTreeMap<(WorkNumber, String), SessionLock>>,
     /// What the owner said to each round given and not yet ended that its hook is to give it, by the round; one
     /// telling of a round, or its end, at a time, so that what waits for its hook is known.
     said: std::sync::Mutex<Tellings>,
@@ -220,7 +224,7 @@ impl Agents {
                 held: Held::new(),
                 clock,
                 parts,
-                in_work: std::sync::Mutex::new(BTreeMap::new()),
+                on_line: std::sync::Mutex::new(BTreeMap::new()),
                 said: std::sync::Mutex::new(BTreeMap::new()),
             }),
         }
@@ -401,9 +405,9 @@ impl Inner {
         let refused = permissions::refused_commands(&of.beside);
         let results = self.results_root().await?;
         let permissions = Permissions::of(round.cell.reads_only, args, &refused, added).reading(&results);
-        // One program at a time in a work: a keep-warm ping of it under way ends first, so that what its session holds
-        // and cost is worked out with the ping in.
-        let lock = self.lock(round.work);
+        // One program at a time on a session: a keep-warm ping of the line under way ends first, so that what its
+        // session holds and cost is worked out with the ping in.
+        let lock = self.lock(round.work, line);
         let _one = lock.lock().await;
         let InSession {
             number,
@@ -522,8 +526,7 @@ impl Inner {
                         &system,
                         &permissions,
                         &form,
-                        &compacted,
-                        &words,
+                        (&compacted, &words, Tools::Permitted),
                         session,
                         begin,
                     );
@@ -746,8 +749,8 @@ impl Inner {
     }
 
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
-    /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, with the
-    /// variables its project's declaration names.
+    /// permissions, given the form of return of its flow, with its hooks and the tools it may use, in the session,
+    /// begun or gone on in, in the worktree, with the variables its project's declaration names.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
@@ -757,14 +760,13 @@ impl Inner {
         system: &str,
         permissions: &Permissions,
         form: &str,
-        compacted: &Compacted,
-        words: &Words,
+        hooks: (&Compacted, &Words, Tools<'_>),
         session: Uuid,
         begin: Begin,
     ) -> Command {
         let agents = &self.settings.agents;
         let mut command = Command::new(&agents.command);
-        let args = cli::arguments(agents, on, system, form, permissions, compacted, words, session, begin);
+        let args = cli::arguments(agents, on, system, form, permissions, hooks, session, begin);
         command
             .args(args)
             .env_clear()
@@ -1142,10 +1144,10 @@ impl Inner {
         Ok(root)
     }
 
-    /// The lock of the work, made where it has none.
-    fn lock(&self, work: WorkNumber) -> Arc<tokio::sync::Mutex<()>> {
-        let mut locks = self.in_work.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        locks.entry(work).or_default().clone()
+    /// The lock of the work's line, made where it has none.
+    fn lock(&self, work: WorkNumber, line: &str) -> SessionLock {
+        let mut locks = self.on_line.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        locks.entry((work, line.to_string())).or_default().clone()
     }
 
     /// What comes before a session's messages in the prompt of a call on this, with this system prompt, form of return
@@ -1174,16 +1176,16 @@ impl Inner {
     }
 
     /// Sends the session of the ping its keep-warm message, with the command line of the session's last round, which
-    /// the cache keeps the session under, and gives what it took; or why it failed, with what it took. A work a round
-    /// of which is under way is not pinged, and a ping that has not ended by the time the cache lets the session go is
-    /// stopped, since after that it would write the session again for nothing.
+    /// the cache keeps the session under, and gives what it took; or why it failed, with what it took. A session a
+    /// round of whose line is under way is not pinged, and a ping that has not ended by the time the cache lets the
+    /// session go is stopped, since after that it would write the session again for nothing.
     async fn ping(&self, ping: &Ping) -> Result<Spent, (String, Spent)> {
         let failed = |why: String| (why, Spent::default());
         let of = crate::projects::of(&self.projects, &ping.item).map_err(failed)?;
         let said = &of.beside.cost.ping;
         let fill = flow::agents::fill;
         let (flow, work, line) = (&*ping.flow, &*ping.kept, ping.line.as_str());
-        let lock = self.lock(ping.work);
+        let lock = self.lock(ping.work, line);
         let Ok(_one) = lock.try_lock() else {
             return Err(failed(said.under_way.clone()));
         };
@@ -1231,6 +1233,9 @@ impl Inner {
         let _ = tokio::fs::remove_file(&compacted.marks).await;
         // A ping's compaction gives the session nothing again: its next round is filled from the top.
         write(&compacted.again, b"").await.map_err(failed)?;
+        // The ping runs in the worktree, where a round of another line or an act may work beside it: it may use no
+        // tool but its return, each other refused in the words of its message, which says so.
+        let tools = Tools::TheReturnAlone { refused: &said.message };
         let command = self.command(
             &dir,
             &of.beside.project.environment,
@@ -1238,8 +1243,7 @@ impl Inner {
             &system,
             &permissions,
             &form,
-            &compacted,
-            &words,
+            (&compacted, &words, tools),
             session,
             Begin::Resume,
         );
@@ -1997,6 +2001,39 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    // A ping takes its own line's lock alone, which a round of the line holds while its program runs: beside a round of
+    // its line it is given up, saying so, and beside a round of another line it goes on, here to find that no round of
+    // its line ran. Well under a second alone, files in a directory of its own, the locks taken by hand; no other test
+    // holds which rounds a ping is given up for.
+    #[tokio::test]
+    async fn a_ping_is_given_up_beside_a_round_of_its_own_line_and_goes_on_beside_one_of_another() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round(dir.path());
+        let (_, beside) = engineer();
+        let words = &beside.cost.ping;
+        let ping = Ping {
+            work: round.work,
+            flow: round.flow.clone(),
+            line: "engineer".to_string(),
+            session: 0,
+            item: round.item.clone(),
+            kept: round.kept.clone(),
+        };
+        let why = |pinged: Result<Spent, (String, Spent)>| pinged.err().map(|(why, _)| why);
+        let reviewing = agents.inner.lock(round.work, "code_reviewer");
+        let held = reviewing.lock().await;
+        let no_round = flow::agents::fill(&words.no_round, &[("line", "engineer")]);
+        assert_eq!(
+            why(agents.inner.ping(&ping).await),
+            Some(no_round),
+            "a ping given up beside a round of another line"
+        );
+        drop(held);
+        let building = agents.inner.lock(round.work, "engineer");
+        let _held = building.lock().await;
+        assert_eq!(why(agents.inner.ping(&ping).await), Some(words.under_way.clone()));
     }
 
     // What the owner says to a round under way is put where the round's hook gives it, in the words of `said`; what the
