@@ -27,3 +27,9 @@ change is committed, and nothing is written onto changes not committed.
 Why: The file is the owner's own writing, with comments that say why each value is what it is, which writing it anew
 from the settings would drop. A commit over changes not committed would say the page made what the owner wrote by
 hand.
+
+### decision a-colour-of-ones-own-is-taken-as-the-picker-closes
+The Settings view takes a colour of the owner's own on the browser's `change`, which its colour picker sends as it
+closes, and not on each `input` while the owner drags in it.
+Why: Taken at each step of a drag, every step would draw the whole page again and say again why a colour is refused,
+the line coming and going as the drag crosses a bound.

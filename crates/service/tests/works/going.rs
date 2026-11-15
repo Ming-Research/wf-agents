@@ -1,6 +1,6 @@
 //! A work from its adding to its merge.
 
-use decide::{CallId, Cause, Decision, End, Waited, Who};
+use decide::{CallId, Cause, Decision, End, Waited};
 use engine::Event;
 use service::{Act, Script};
 use work::Given;
@@ -16,7 +16,7 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
     trial.act(work, Act::Resume).unwrap();
     assert!(matches!(trial.decision(work), Decision::Busy { cell, .. } if cell.as_str() == "plan"));
 
-    // The plan asks the owner, and waits for the answer.
+    // The plan asks the owner a question it waits for, and the work waits for the answer.
     trial.step().await.unwrap();
     let Decision::Wait { at, on } = trial.decision(work) else {
         panic!("the plan waits for the owner");
@@ -24,16 +24,17 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
     assert_eq!(at.as_str(), "plan");
     assert_eq!(
         on,
-        [Waited::Call {
-            call: CallId(2),
-            on: Some(Who::Owner)
+        [Waited::Answer {
+            question: "named".to_string()
         }]
     );
-    trial.answer(work, "Yes, by name.");
+    trial.answer(work, "By name, as the user likes.");
+    // The answer is kept, and writes the plan's block of an answer, which runs the plan again.
     let kept = trial.work(work);
-    assert_eq!(kept.results[&CallId(2)], "Yes, by name.");
+    assert_eq!(kept.records.answers.len(), 1);
+    assert!(kept.records.written.iter().any(|w| w.block.as_str() == "answered"));
 
-    // The build asks for the CI, which the tool answers.
+    // The build asks for a query, which the tool answers.
     trial
         .until(
             work,
@@ -43,26 +44,26 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
     let Decision::Wait { on, .. } = trial.decision(work) else {
         unreachable!()
     };
-    // The plan's first run, its call, its second run entered for the answer, the build's first run: the call is the
-    // fifth name.
+    // The plan's first run, its second run entered for the answer, the build's first run: the call is the fourth name.
     assert_eq!(
         on,
         [Waited::Call {
-            call: CallId(5),
+            call: CallId(4),
             on: None
         }]
     );
     trial.step().await.unwrap();
-    assert_eq!(trial.work(work).results[&CallId(5)], "Every check passed.");
+    assert_eq!(trial.work(work).results[&CallId(4)], r#"{"rows": []}"#);
 
     let end = trial.until(work, |d| matches!(d, Decision::Ended(_))).await;
     assert_eq!(end, Decision::Ended(End::Merged));
+    // The plan's first run, which asked the owner, did its cell's work: it handed in nothing beside its question.
     assert_eq!(
         trial.finished(work),
-        ["plan", "build", "review", "build", "review", "merge"]
+        ["plan", "plan", "build", "review", "build", "review", "merge"]
     );
 
-    // The third build, after the one entered for the CI's result, ran for what the review wrote, and was given its task
+    // The third build, after the one entered for the query's result, ran for what the review wrote, and was given its task
     // anew.
     let kept = trial.work(work);
     let second = kept

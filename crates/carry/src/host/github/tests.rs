@@ -497,8 +497,9 @@ async fn a_red_test_and_a_red_job_hold_the_work_and_are_said_with_what_the_test_
     );
     assert!(!failed.contains("tools::tests::a"), "what passed is left out: {failed}");
     assert!(
-        failed.ends_with("The jobs:\n- test: failed (failure) in 60 s https://github.example/checks/test"),
-        "{failed}"
+        failed
+            .contains("passed.\n\nThe jobs:\n- test: failed (failure) in 60 s https://github.example/checks/test\n\n"),
+        "the job comes before the test: {failed}"
     );
 }
 

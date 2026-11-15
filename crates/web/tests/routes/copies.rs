@@ -24,7 +24,7 @@ pub(crate) fn serving_with_handle(
     let path = dir.path().join("store.sqlite");
     let store = Store::open(&path).unwrap();
     let flow = flow::compile(
-        &flow::read(&trial_dir().join("flow")).unwrap(),
+        &flow::read(&trial_dir().join("trial")).unwrap(),
         &trial_has(&flow::Source::default()),
     )
     .unwrap();
@@ -32,13 +32,13 @@ pub(crate) fn serving_with_handle(
     let (service, inbox) = Service::open(
         Box::new(store),
         vec![flow],
-        Scripted::new(trial_script()).carriers(),
+        Scripted::new(trial_script(), crate::words()).carriers(),
         clock,
     )
     .unwrap();
     let handle = service.handle();
     tokio::spawn(service.run(inbox));
-    let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
+    let flows = Flows::dirs(trial_dir().join("trial"), Box::new(trial_has));
     let copies = Copies {
         store: path.clone(),
         keep,

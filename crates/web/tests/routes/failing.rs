@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use serde_json::{Value, json};
 use store::Store;
 
-use crate::{START, get_json, greeted, pass, post, running_scripted, trial_script};
+use crate::{START, get_json, greeted, named, pass, post, running_scripted, trial_script};
 use decide::run::Failure;
 
 const WHY: &str = "The agent's program could not start.";
@@ -18,16 +18,15 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
     failing.run = 2;
-    failing.asks = None;
+    (failing.hands_in, failing.questions) = (None, None);
     failing.took = Default::default();
     failing.fails = Some(WHY.to_string());
     plan.rounds.push(failing);
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
-        post(router, "/api/v1/works/1/acts", &answer).await,
+        post(router, "/api/v1/works/1/acts", &named()).await,
         (StatusCode::NO_CONTENT, Value::Null)
     );
     // The plan's second run, entered for the answer at 3 seconds, has its round fail a second and a half later.
@@ -39,10 +38,10 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     assert_eq!(page["summary"]["paused"], "engine");
     assert_eq!(
         page["summary"]["cells"][0],
-        json!({ "cell": "plan", "state": "failed", "finished": 1, "record": 1, "open": 3 })
+        json!({ "cell": "plan", "state": "failed", "finished": 1, "record": 1, "open": 2 })
     );
     let steps = page["steps"].as_array().unwrap();
-    let run = steps.iter().find(|s| s["kind"] == "run" && s["run"] == 3).unwrap();
+    let run = steps.iter().find(|s| s["kind"] == "run" && s["run"] == 2).unwrap();
     assert_eq!(run["end"], Value::Null);
     let rounds = run["rounds"].as_array().unwrap();
     assert_eq!(rounds.len(), 1);
@@ -61,11 +60,12 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     assert_eq!(items["items"][0]["work"]["now"], paused);
     // The round's own page has nothing handed in.
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/3/rounds/1").await["handed"],
+        get_json(router, "/api/v1/works/1/runs/2/rounds/1").await["handed"],
         json!([])
     );
 
-    // Let on, the plan's next round is given the answer again, and hands in the plan.
+    // Let on, the plan's next round is given what the failed one was, its task, the run starting from the owner's
+    // answer, and hands in the plan.
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await,
         (StatusCode::NO_CONTENT, Value::Null)
@@ -75,8 +75,8 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     assert_eq!(page["summary"]["now"]["round"], 2);
     assert_eq!(page["summary"]["cells"][0]["state"], "running");
     pass(1600).await;
-    let round = get_json(router, "/api/v1/works/1/runs/3/rounds/2").await;
-    assert_eq!(round["results"][0]["result"], "Yes, by name.");
+    let round = get_json(router, "/api/v1/works/1/runs/2/rounds/2").await;
+    assert_eq!(round["results"], json!([]));
     assert_eq!(round["handed"][0]["block"], "plan");
 }
 
@@ -86,27 +86,28 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let resets = START + 3_600_000;
     let mut script = trial_script();
+    // The script's times count from the start of the engine's clock.
+    script.start = Some(START);
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
     failing.run = 2;
-    failing.asks = None;
+    (failing.hands_in, failing.questions) = (None, None);
     failing.took = Default::default();
     failing.fails = Some("You've hit your limit".to_string());
     failing.failure = Some(Failure::UsageLimit);
-    failing.resets = Some(resets);
+    failing.resets = Some(3_600_000);
     plan.rounds.push(failing);
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
-    post(router, "/api/v1/works/1/acts", &answer).await;
+    post(router, "/api/v1/works/1/acts", &named()).await;
     pass(2000).await;
     let outage = json!({
         "service": "agents",
         "failure": "usageLimit",
         "why": "You've hit your limit",
         "work": 1,
-        "run": 3,
+        "run": 2,
         "round": 1,
         "since": START + 4500,
         "checked": null,

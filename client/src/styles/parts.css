@@ -315,7 +315,7 @@ textarea:disabled {
   padding: 0 var(--space-4);
 }
 
-/* A segmented switch: two or three choices side by side, the one chosen on the card, the rest on the ground. */
+/* A segmented switch: a few choices side by side, the one chosen on the card, the rest on the ground. */
 .switch {
   display: inline-flex;
   height: var(--control);

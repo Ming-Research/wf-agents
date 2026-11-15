@@ -1,6 +1,8 @@
 //! The test carriers: agents, engine acts and tools that do what a [`Script`] says, each round and each tool taking
 //! the time the script gives it, and saying as it goes where it stands where the script says so (the turn an act waits
-//! for, the CI run it runs as), so that the pages show works under way.
+//! for, the CI run it runs as), so that the pages show works under way; and the check of the agents' outside, which
+//! finds what the script says. The questions a round asks are read in the words beside the flows, as a real return's
+//! are, and what a round read is written where it differs from what its block says, as the real carriers write it.
 //!
 //! What they return depends on nothing but the round or the call, so that what was under way when the process stopped
 //! is answered again as it would have been. They answer each round and each call once: a round they hold is ended by
@@ -14,13 +16,15 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use decide::{CallId, RunId};
+use decide::{BlockId, CallId, RunId};
 use driver::{Along, Found};
+use flow::Kind;
+use flow::agents::Agents;
 use store::WorkNumber;
 
 use crate::carriers::{CallReply, Carriers, Network, Outside, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
-use crate::script::{Ends, Planned, Script};
-use work::Handed;
+use crate::script::{CHECK, Ends, MAIN, Planned, Read, Script, ToolAsk};
+use work::{Call, Handed, Work};
 
 /// Agents, engine acts and tools that follow a script.
 #[derive(Clone)]
@@ -30,6 +34,8 @@ pub struct Scripted {
 
 struct Inner {
     script: Script,
+    /// What is written beside the flows, in whose words the questions a round asks are read.
+    words: Agents,
     held: Mutex<Held>,
 }
 
@@ -42,10 +48,12 @@ struct Held {
 }
 
 impl Scripted {
-    pub fn new(script: Script) -> Self {
+    /// The carriers that follow the script, reading the questions its rounds ask in these words beside the flows.
+    pub fn new(script: Script, words: Agents) -> Self {
         Scripted {
             inner: Arc::new(Inner {
                 script,
+                words,
                 held: Mutex::new(Held::default()),
             }),
         }
@@ -64,24 +72,96 @@ impl Scripted {
     }
 
     /// What the round returns: the script's entry for it, as the cell's nth run in its work; a round of the act that
-    /// runs the tests hands in besides the result of each entry it gives ([`tested`]).
+    /// runs the tests hands in besides the result of each entry it gives ([`tested`]). What the engine asks as it ends
+    /// is named as the words beside the flows name the engine's question, and what is wrong with the questions it asks
+    /// is found with it, and what it read is kept only where it differs from what its block says; an act's
+    /// round reads what its entry says, or, where it says nothing, what the act reads by itself ([`taken_in`]).
     fn planned(&self, round: &Round) -> Planned {
-        // Runs are named in the order they started.
+        let nth = nth(&round.kept, round.run);
         let started = round.kept.records.started.iter();
-        let nth = (started.clone())
-            .filter(|s| s.cell == round.cell.id && s.run <= round.run)
-            .count();
         let basis = (started.clone().find(|s| s.run == round.run)).map(|s| s.basis.clone());
         let basis = basis.unwrap_or_default();
-        let mut planned = self
-            .inner
-            .script
-            .round(&round.flow, &round.cell, nth, round.number, &basis);
+        let mut planned = (self.inner.script).round(&round.flow, &round.cell, round.work.0, nth, round.number, &basis);
+        let new = |block: &BlockId, content: &str| says_now(&round.kept, block) != Some(content);
+        let entry = (self.inner.script).entry(
+            &round.flow.name,
+            round.cell.id.as_str(),
+            round.work.0,
+            nth,
+            round.number,
+        );
         if let Ends::Came(came) = &mut planned.ends {
             came.writes.extend(tested(round));
+            // What the engine asks as the round ends is its own question, named as the words beside the flows name it.
+            let protected = &self.inner.words.asks.protected.name;
+            let its_own = entry.and_then(|entry| entry.engine.as_ref()).into_iter().flatten();
+            came.engine = its_own.map(|question| question.question(protected)).collect();
+            came.found
+                .extend(engine::asked::unmet(&came.said.questions, &self.inner.words));
+            came.read.retain(|read| new(&read.block, &read.content));
         }
+        let reads = (planned.reads.take()).unwrap_or_else(|| taken_in(round, nth).into_iter().collect());
+        // A version for the round is put in where the block says it already, and none written; one from outside is
+        // not written again.
+        planned.reads = Some(
+            reads
+                .into_iter()
+                .filter(|r| r.for_round || new(&r.block, &r.content))
+                .collect(),
+        );
         planned
     }
+
+    /// The ask of the round that made the call: the call's run's last round, whose return asked for the run's calls in
+    /// the order it asked for them; none where the script says nothing of that round or of the call.
+    fn asked(&self, call: &ToolCall) -> Option<&ToolAsk> {
+        let records = &call.kept.records;
+        let started = records.started.iter().find(|s| s.run == call.run)?;
+        let number = records.rounds.iter().filter(|r| r.run == call.run).count();
+        let made = (records.called.iter())
+            .filter(|c| c.run == call.run && matches!(call.kept.calls.get(&c.call), Some(Call::Asked(_))));
+        let i = made.map(|c| c.call).position(|made| made == call.call)?;
+        let nth = nth(&call.kept, call.run);
+        let entry = (self.inner.script).entry(&call.flow.name, started.cell.as_str(), call.work.0, nth, number)?;
+        entry.asks.as_ref()?.get(i)
+    }
+}
+
+/// Which run of its cell the run is in the work, counted from one: runs are named in the order they started.
+fn nth(kept: &Work, run: RunId) -> usize {
+    let started = kept.records.started.iter();
+    let cell = (started.clone().find(|s| s.run == run)).map(|s| &s.cell);
+    started.filter(|s| Some(&s.cell) == cell && s.run <= run).count()
+}
+
+/// What the latest version of the block says, where it has one.
+fn says_now<'a>(kept: &'a Work, block: &BlockId) -> Option<&'a str> {
+    let latest = decide::versions(&kept.records).get(block)?.last()?.at;
+    kept.contents.get(&(block.clone(), latest)).map(String::as_str)
+}
+
+/// What the act that checks the work reads by itself for its round, the nth run of its cell: main as the work's block
+/// of main holds it, which it takes in and writes nothing of, as the real check takes the latest main in; or, where
+/// that block holds no version, one made up for the round. Nothing of another act's round, or of an agent's.
+fn taken_in(round: &Round, nth: usize) -> Option<Read> {
+    if round.cell.act.as_deref() != Some(CHECK) {
+        return None;
+    }
+    let (block, _) = (round.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(MAIN))?;
+    if decide::versions(&round.kept.records)
+        .get(block)
+        .is_some_and(|v| !v.is_empty())
+    {
+        return None;
+    }
+    Some(Read {
+        block: block.clone(),
+        content: format!(
+            "The main as {} took it in in its run {nth}, round {}.",
+            round.cell.id, round.number
+        ),
+        for_round: true,
+    })
 }
 
 impl Inner {
@@ -112,6 +192,7 @@ impl Rounds for Scripted {
         let planned = self.planned(&round);
         let key = (round.work, round.run, round.number);
         let saying = reply.saying(round.number);
+        let teller = reply.teller();
         {
             let mut held = self.inner.held();
             if held.rounds.contains_key(&key) {
@@ -119,6 +200,25 @@ impl Rounds for Scripted {
             }
             held.rounds.insert(key, Some(reply));
         }
+        // What an act read is written as its round begins, each as the script says: for the round, or from outside;
+        // what a round of a line that only reads read, from outside as it ends, before what comes back.
+        let reads = planned.reads.clone().unwrap_or_default();
+        let (ending, beginning): (Vec<Read>, Vec<Read>) =
+            reads.into_iter().partition(|_| round.cell.kind == Kind::Agent);
+        let write = move |reads: Vec<Read>| {
+            for Read {
+                block,
+                content,
+                for_round,
+            } in reads
+            {
+                match for_round {
+                    true => teller.outside_wrote_for_round(block, content),
+                    false => teller.outside_wrote(block, content),
+                }
+            }
+        };
+        write(beginning);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             // Where it stands as it goes: waiting for the turn for the first half of its time, then the CI run.
@@ -137,6 +237,7 @@ impl Rounds for Scripted {
             tokio::time::sleep(Duration::from_millis(planned.ms - waited)).await;
             let reply = inner.held().rounds.get_mut(&key).and_then(Option::take);
             if let Some(reply) = reply {
+                write(ending);
                 end(reply, planned);
             }
         });
@@ -177,17 +278,27 @@ impl Network for Scripted {
     }
 }
 
-/// The outside of the agents' rounds a script runs on is always well: what the script makes a round fail of passes
-/// once the engine checks it.
+/// The outside of the agents' rounds a script runs on is what the script says the engine's check of it finds, and else
+/// well: what the script makes a round fail of passes once the engine checks it, unless the script says the check finds
+/// it down.
 impl Outside for Scripted {
     fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-        Box::pin(async { Found::Well })
+        let script = &self.inner.script;
+        let found = match &script.outside.finds {
+            None => Found::Well,
+            Some(down) => Found::Down {
+                failure: down.failure,
+                why: down.why.clone(),
+                resets: down.resets.map(|ms| script.after_start(ms)),
+            },
+        };
+        Box::pin(async move { found })
     }
 }
 
 impl Tools for Scripted {
     fn call(&self, call: ToolCall, reply: CallReply) {
-        let (answer, ms) = self.inner.script.tool(&call.name, &call.input);
+        let (answer, ms) = (self.inner.script).tool(&call.name, &call.input, self.asked(&call));
         let at = (self.inner.script.tools.get(&call.name)).and_then(|tool| tool.at.clone());
         let key = (call.work, call.call);
         let saying = reply.saying();

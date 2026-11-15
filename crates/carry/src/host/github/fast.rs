@@ -702,9 +702,10 @@ impl<A: Api> GitHub<A> {
     }
 }
 
-/// What became of the runs, in words for the agent: a line of what they came to, the tests that did not pass, each
-/// job, and the tests that passed, so that what a cut result gives is what matters. A run whose results could not be
-/// read says no test's result is known.
+/// What became of the runs, in words for the agent: a line of what they came to, each job, the tests that did not pass
+/// and the tests that passed. What has a bound comes first, the line and each job a line, and then the tests, the
+/// failed before the passed, so that a result cut takes only tests away, however long what a failed one said. A run
+/// whose results could not be read says no test's result is known.
 fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: &Named, red_only: bool) -> String {
     let which = match role {
         Role::Fast(_) => &words.which_fast,
@@ -791,9 +792,6 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     );
     lines.push(head);
     lines.extend(unread);
-    if !tests.is_empty() {
-        lines.push(format!("{}\n{}", words.tests_title, tests.join("\n")));
-    }
     let missing: Vec<&String> = match role {
         Role::Fast(_) => (named.checks.iter())
             .filter(|c| !ran.iter().flat_map(|r| &r.jobs).any(|j| &j.name == *c))
@@ -812,6 +810,9 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     }));
     if !said_jobs.is_empty() {
         lines.push(format!("{}\n{}", words.jobs_title, said_jobs.join("\n")));
+    }
+    if !tests.is_empty() {
+        lines.push(format!("{}\n{}", words.tests_title, tests.join("\n")));
     }
     if !green.is_empty() {
         lines.push(format!("{}\n{}", words.passed_title, green.join("\n")));
