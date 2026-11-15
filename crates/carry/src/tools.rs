@@ -167,7 +167,13 @@ pub const KEPT_DAYS: u64 = 7;
 /// agents' command line is let read, and never of a worktree, so that nothing of it can be committed. The
 /// installation's tag keeps two installations of a machine apart.
 pub fn files_dir(temp: &Path, tag: &str, work: WorkNumber) -> PathBuf {
-    temp.join(format!("wf-agents-{tag}-results")).join(work.0.to_string())
+    results_root(temp, tag).join(work.0.to_string())
+}
+
+/// The directory each work's directory of whole results is in ([`files_dir`]), which every round's command line is let
+/// read.
+pub fn results_root(temp: &Path, tag: &str) -> PathBuf {
+    temp.join(format!("wf-agents-{tag}-results"))
 }
 
 /// The file the whole result of a call is kept in.

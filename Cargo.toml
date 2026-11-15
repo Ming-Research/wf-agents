@@ -42,3 +42,4 @@ opt-level = 3
 
 [profile.ci.package.flow]
 opt-level = 1
+

@@ -70,6 +70,9 @@ pub struct Fake {
     pub quiet_after_answer: bool,
     /// Whether the build, the first time it runs, asks for the tests in `run_tests`, all of them, dealing with nothing.
     pub asks_tests: bool,
+    /// Whether the build, in its first run, commits twice and asks for the tests on the first of the two commits, and,
+    /// in the run their result runs, asks for them on its head, each time dealing with nothing.
+    pub asks_named_tests: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
@@ -119,6 +122,7 @@ impl Default for Fake {
             question_first: false,
             quiet_after_answer: false,
             asks_tests: false,
+            asks_named_tests: false,
             plan_sleeps: 0,
             context: None,
             compacts: false,
@@ -199,6 +203,9 @@ pub enum On {
     /// The flow here, its build asking for tests in `run_tests`, which a cell of the act that runs them gives the
     /// result of, before the check.
     Tested,
+    /// The flow of `Tested`, with a review on a line of its own after the tests, given every result of them, which it
+    /// did not ask for.
+    Reviewed,
     /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
     Deliver,
     /// The trial flow with a plan that loads the engineer's session (`loading` here).
@@ -302,7 +309,7 @@ pub fn beside() -> flow::agents::Agents {
 fn compiled(on: On) -> Compiled {
     let dir = match on {
         On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out/trial"),
-        On::Acts | On::Tested => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
+        On::Acts | On::Tested | On::Reviewed => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
         On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
@@ -321,7 +328,7 @@ fn compiled(on: On) -> Compiled {
         *build = format!("tools = [\"query\"]\n{build}");
     }
     // The build asks for tests in a record, which runs the cell of the act that runs them, whose result runs the build.
-    if matches!(on, On::Tested) {
+    if matches!(on, On::Tested | On::Reviewed) {
         let build = source.cells.get_mut("build").expect("the flow has a build");
         *build = (build.replace(
             "inputs = [\"request\", \"place\", \"failures\"]",
@@ -340,6 +347,26 @@ fn compiled(on: On) -> Compiled {
         source
             .flow
             .push_str("\n[blocks.run_tests]\n\n[blocks.run_tests.shape]\ntype = \"object\"\n\n[blocks.build_tested]\n");
+    }
+    // The review is given every result of the tests the build asked for, each as the version of the build's block it
+    // came in.
+    if matches!(on, On::Reviewed) {
+        let review = "title = \"Review\"\nkind = \"agent\"\neffort = \"high\"\nline = \"reviewer\"\n\
+                      task = \"Review the code by the results of its tests.\"\nruns_on = [\"code\"]\n\
+                      given = [\"code\", \"build_tested\"]\noutputs = [\"verdict\"]\n\n[give.code]\nkind = \"latest\"\n\n\
+                      [give.build_tested]\nkind = \"all\"\n";
+        source.cells.insert("review".to_string(), review.to_string());
+        source.flow = (source
+            .flow
+            .replace("\"tests\", \"check\"", "\"tests\", \"review\", \"check\""))
+        .replace(
+            "[lines.engineer]\n",
+            "[lines.engineer]\n\n[lines.reviewer]\nreads_only = true\n",
+        );
+        // The owner's page shows the verdict, which no cell reads.
+        source
+            .flow
+            .push_str("\n[blocks.verdict]\nvalues = [\"yes\", \"no\"]\nshown = true\n");
     }
     // A build may ask the owner: the record of the work's questions, which the engine's source of answers writes, is
     // among its outputs, and the owner's answer and words run it by blocks of its own, as they run every cell that may
@@ -474,7 +501,21 @@ case "$first" in
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -qE '^- `(build_)?answered`' && answered=yes
-        if [ '{tests}' = yes ] && [ ! -f "$log/tested" ]; then
+        if [ '{named}' = yes ] && [ ! -f "$log/named-own" ]; then
+            # It commits twice and asks for the tests on the first of the two commits, leaving all that ran it for after
+            # their result.
+            touch "$log/named-own"
+            built
+            own=$(git rev-parse HEAD)
+            built
+            dealt=''
+            out="\"run_tests\":{{\"tests\":[],\"checks\":[],\"commit\":\"$own\"}}"
+        elif [ '{named}' = yes ] && [ ! -f "$log/named-head" ]; then
+            # Then on its head, leaving all that ran it for after their result again.
+            touch "$log/named-head"
+            dealt=''
+            out="\"run_tests\":{{\"tests\":[],\"checks\":[],\"commit\":\"$(git rev-parse HEAD)\"}}"
+        elif [ '{tests}' = yes ] && [ ! -f "$log/tested" ]; then
             # It asks for the tests, and leaves all that ran it for after their result.
             touch "$log/tested"
             dealt=''
@@ -553,6 +594,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         question = yes(fake.question_first),
         quiet = yes(fake.quiet_after_answer),
         tests = yes(fake.asks_tests),
+        named = yes(fake.asks_named_tests),
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
         compacts = yes(fake.compacts),

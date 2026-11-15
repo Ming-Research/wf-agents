@@ -41,6 +41,10 @@ struct Kept {
     queued: bool,
     /// Whether the runs by hand start and go on until they are finished or cancelled, as a run that takes minutes.
     going: bool,
+    /// Why the cancel of each of these runs is refused.
+    refuses_cancel: BTreeMap<u64, String>,
+    /// How many times the runs of a workflow were listed.
+    listed: usize,
     asked: Vec<Asked>,
 }
 
@@ -139,6 +143,16 @@ impl Fake {
     /// Refuses every run by hand, with these words.
     pub(crate) fn refuse_dispatch(&self, why: &str) {
         self.kept().refuses_dispatch = Some(why.to_string());
+    }
+
+    /// Refuses the cancel of this run, with these words.
+    pub(crate) fn refuse_cancel(&self, run: u64, why: &str) {
+        self.kept().refuses_cancel.insert(run, why.to_string());
+    }
+
+    /// How many times the runs of a workflow were listed.
+    pub(crate) fn listed(&self) -> usize {
+        self.kept().listed
     }
 
     /// Keeps every run by hand queued, never started, as with no runner online.
@@ -369,7 +383,8 @@ impl Api for Fake {
     }
 
     async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, Failed> {
-        let kept = self.kept();
+        let mut kept = self.kept();
+        kept.listed += 1;
         Ok((kept.runs.iter().rev())
             .filter(|d| d.workflow == workflow && d.branch == branch)
             .map(|d| d.run.clone())
@@ -421,6 +436,9 @@ impl Api for Fake {
     async fn cancel(&self, run: u64) -> Result<(), Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Cancel(run));
+        if let Some(why) = kept.refuses_cancel.get(&run) {
+            return Err(answered(why));
+        }
         for asked in (kept.runs.iter_mut()).filter(|d| d.run.id == run && !d.run.completed) {
             asked.run.completed = true;
             asked.run.cancelled = true;

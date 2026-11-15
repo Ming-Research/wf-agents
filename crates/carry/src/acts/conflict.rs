@@ -99,6 +99,7 @@ mod tests {
         let named = Named {
             tests: vec!["greets the user".to_string()],
             checks: vec!["lint".to_string()],
+            commit: None,
         };
         let (said, asked) = checked_with(&repo, named).await;
         assert!(

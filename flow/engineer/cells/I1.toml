@@ -9,8 +9,10 @@ task = '''
 Implement `plan_agent`, changing only what this work needs. Follow for each question in `q_and_a` the option the
 owner took, or else the one it recommends, and write into `design/` what `tree_edits` holds: an entry may follow
 main's tree in wording and place, not in meaning. Start from a test that shows what the change is for, red on the code
-before it: the research's, where it left one. Run each test you add or extend on the change and on the code before it;
-a test removed, skipped or weakened needs a technical reason. Where cost per operation or request can change, measure
+before it: the research's, where it left one. Run each test you add or extend on the change, and on the code before it
+by an entry of `run_tests` whose `commit` holds the tests without the change: committed first, with empty stubs where
+they need an interface, or with the change broken. Name those entries in `evidence`. A test removed, skipped or weakened
+needs a technical reason. Where cost per operation or request can change, measure
 what it can make slower as well as what it is for.
 
 Where the plan does not hold (its direction is wrong, or it needs a tree decision changed or a choice the owner has

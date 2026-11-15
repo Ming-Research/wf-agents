@@ -1,7 +1,8 @@
 //! The local repository as the host: main is its own main branch, the verdict is the project's check command run in
 //! the work's worktree, and the merge is made in its checkout. The tests a cell asks for run the same command on the
-//! worktree as it stands, what is not committed included, and say what it said, whether it passed or not; nothing of
-//! them goes on once their round is stopped, and nothing is found again.
+//! worktree as it stands, what is not committed included, or on a commit the entry names, in a worktree of its own that
+//! the act makes ([`crate::git::at_commit`]); they say first the commit they ran on, and then what the command said,
+//! whether it passed or not; nothing of them goes on once their round is stopped, and nothing is found again.
 
 use std::path::Path;
 
@@ -48,6 +49,16 @@ impl Local {
     fn words(&self) -> Result<&LocalWords, String> {
         (self.words.as_ref())
             .ok_or_else(|| "the words of run_tests (agents/acts/run_tests.toml) are not given".to_string())
+    }
+
+    /// What a run of the tests in the directory says first: the commit its working tree is at, and whether it has changes
+    /// not committed.
+    async fn ran_on(&self, dir: &Path) -> Result<String, String> {
+        let words = self.words()?;
+        let commit = git::git(dir, &["rev-parse", "--verify", "HEAD"]).await?;
+        let changed = !git::uncommitted(dir).await?.is_empty();
+        let said = if changed { &words.ran_on_changed } else { &words.ran_on };
+        Ok(fill(said, &[("commit", &commit)]))
     }
 
     /// Runs the check command in the directory, and says whether it passed with what it said; none where it was told
@@ -117,10 +128,16 @@ impl Host for Local {
         stop: &mut Stop,
     ) -> Result<Option<String>, Failed> {
         let words = self.words()?;
-        let ran = match git::worktree(branch.place) {
-            Ok(dir) => self.run(&dir, stop).await,
-            Err(why) => Err(why),
-        };
+        // Refused, as every act is, while the repository's configuration names a program git could run: the status of
+        // the worktree runs its filters, and the check before it lets a merge under way through unread.
+        let ran = async {
+            let dir = git::worktree(branch.place)?;
+            git::configuration(&self.project, branch.place).await?;
+            let first = self.ran_on(&dir).await?;
+            let said = self.run(&dir, stop).await?;
+            Ok::<_, String>(said.map(|said| format!("{first}\n{said}")))
+        }
+        .await;
         // What could not be run is said with the command, as what ran is.
         let check = &self.project.check;
         let said = ran.unwrap_or_else(|why| Some(fill(&words.could_not, &[("command", check), ("why", &why)])));
@@ -135,8 +152,12 @@ impl Host for Local {
     }
 
     /// A run of the tests here ends with its round: nothing of it is under way to cancel.
-    async fn cancel_tests(&self, _: &Branch<'_>, _: &[Asking]) -> Result<(), Failed> {
+    async fn cancel_tests(&self, _: &Branch<'_>, _: &[(Asking, Option<String>)]) -> Result<(), Failed> {
         Ok(())
+    }
+
+    fn runs_in_a_worktree(&self) -> bool {
+        true
     }
 
     /// The local repository holds nothing for a work beside its branch and its worktrees, which the acts let go.
