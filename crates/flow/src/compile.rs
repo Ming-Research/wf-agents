@@ -662,8 +662,6 @@ struct Parsed {
     triggers: Resolved,
     /// The blocks that stand only for the trigger that declares each.
     trigger_blocks: BTreeSet<String>,
-    /// The blocks a trigger declares that an act of the engine's writes, each with the act.
-    acted: BTreeMap<String, String>,
     /// Of a flow laid out one thing to a file, the names of the sets of rules a line may take, as
     /// [`crate::agents::RULES_FILE`] names them.
     rule_sets: BTreeSet<String>,
@@ -777,7 +775,6 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
                 places,
                 triggers,
                 trigger_blocks,
-                acted,
                 rule_sets,
                 trigger_files: files.triggers,
                 faults,
@@ -1394,8 +1391,6 @@ struct Definition<'a> {
     places: &'a Places,
     triggers: &'a Resolved,
     trigger_blocks: &'a BTreeSet<String>,
-    /// The blocks a trigger declares that an act of the engine's writes, each with the act.
-    acted: &'a BTreeMap<String, String>,
     rule_sets: &'a BTreeSet<String>,
     /// Where each cell of the order that has a file first stands.
     place: BTreeMap<&'a str, usize>,
@@ -1416,7 +1411,6 @@ impl<'a> Definition<'a> {
             places: &parsed.places,
             triggers: &parsed.triggers,
             trigger_blocks: &parsed.trigger_blocks,
-            acted: &parsed.acted,
             rule_sets: &parsed.rule_sets,
             place: first_places(&flow.order, cells),
             uses: BTreeMap::new(),
@@ -1822,9 +1816,12 @@ impl<'a> Definition<'a> {
         // A cell that asks for tests in a record is run by its result, which comes in a block of its own that the act
         // that runs the tests hands in; it waits for that result from each entry it writes.
         let asked_in = self.asked_in();
+        let gives = |writer: &str| {
+            (self.cells.get(writer)).is_some_and(|f| f.kind == Kind::Engine && f.act.as_deref() == Some(RUNS_TESTS))
+        };
         let results: Vec<BlockId> = (takes.runs_on.iter())
             .map(|r| r.block.clone())
-            .filter(|block| self.acted.get(block.as_str()).map(String::as_str) == Some(RUNS_TESTS))
+            .filter(|block| (self.uses.get(block.as_str())).is_some_and(|u| u.writers.iter().any(|&(_, w)| gives(w))))
             .collect();
         let mut asks = Vec::new();
         for (i, block) in file

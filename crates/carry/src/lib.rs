@@ -212,6 +212,7 @@ fn on<H: Host>(
 ) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch, String) {
     let main = host.kept_main();
     let host = Arc::new(host);
+    let as_a_tool = words.run_tests.as_a_tool.clone();
     let acts = Acts::new(
         host.clone(),
         project.clone(),
@@ -225,7 +226,7 @@ fn on<H: Host>(
         None => acts,
     };
     let watch = acts.watch(WATCH);
-    let tools = Tools::new(query, words.run_tests.as_a_tool.clone());
+    let tools = Tools::new(query, as_a_tool);
     (Arc::new(acts), Arc::new(tools), watch, main)
 }
 

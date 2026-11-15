@@ -210,32 +210,6 @@ fn a_block_of_a_shape_is_kept_as_the_json_it_holds() {
     assert_eq!((entry.value.as_ref(), entry.matters), (None, true));
 }
 
-// Each entry of a record is new: a return that names a record it writes in `meaning_unchanged`, the record of what is
-// said or that of the questions as any other, is found wanting, so that no rule reads the entry as no entry. Well under
-// a millisecond alone; no other test holds the reading to it.
-#[test]
-fn a_record_named_as_written_with_its_meaning_unchanged_is_found_wanting() {
-    let flow = flow();
-    let found = |r: &Value| came(r, &flow, cell(&flow), &words()).expect("it is read").came.found;
-    let mut r = work();
-    r["outcome"]["outputs"]["discussion"] = json!("An answer.");
-    r["outcome"]["meaning_unchanged"] = json!(["plan", "discussion"]);
-    assert_eq!(
-        found(&r),
-        [Unmet::EntryUnchanged {
-            block: "discussion".into()
-        }]
-    );
-    r["outcome"]["outputs"]["q_and_a"] = json!([]);
-    r["outcome"]["meaning_unchanged"] = json!(["q_and_a"]);
-    assert_eq!(
-        found(&r),
-        [Unmet::EntryUnchanged {
-            block: "q_and_a".into()
-        }]
-    );
-}
-
 #[test]
 fn a_return_that_deals_with_the_owners_words_and_gives_no_answer_to_them_is_found_wanting() {
     let flow = flow();

@@ -240,12 +240,10 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
         let (writes, asked) = writes(&outcome, flow, cell, &mut found);
         came.writes = writes;
         for name in &outcome.meaning_unchanged {
-            let block = BlockId(name.clone());
             if !outcome.outputs.contains_key(name) {
-                found.push(Unmet::UnchangedNotWritten { block });
-            } else if flow.flow.adds_entries(&block) {
-                // Each entry of a record is new: one the return said changed nothing would be no entry.
-                found.push(Unmet::EntryUnchanged { block });
+                found.push(Unmet::UnchangedNotWritten {
+                    block: BlockId(name.clone()),
+                });
             }
         }
         answered(&outcome, flow, cell, &mut found);

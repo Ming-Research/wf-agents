@@ -102,6 +102,31 @@ fn asking_for_tests(blocks: &[&str]) -> Spec {
     s
 }
 
+// Each entry of a record is new: a return that writes an entry of a record as changing nothing in meaning is sent back,
+// whatever the record, so that the run's check, which reads it as leaving its cell waiting, and the walk, which would
+// read it as no entry, never read it two ways. Well under a millisecond alone; no other test holds it.
+#[test]
+fn an_entry_written_as_changing_nothing_in_meaning_is_sent_back() {
+    let mut s = asking_for_tests(&[]);
+    let record = Standing {
+        told: None,
+        latest: None,
+        value: None,
+        added: true,
+    };
+    s.told.outputs.insert("tests".into(), record);
+    let entry = Write {
+        meaning_unchanged: true,
+        ..prose("tests")
+    };
+    let unmet = vec![Unmet::EntryUnchanged { block: "tests".into() }];
+    assert_eq!(step(vec![works(&[], vec![entry])], &s), send_back(unmet));
+    assert!(matches!(
+        step(vec![works(&[], vec![prose("tests")])], &s),
+        Step::Finish { .. }
+    ));
+}
+
 // A return that writes an entry in which its cell asks for tests leaves the cell waiting for the result, and so owes
 // nothing else: it may leave out what its cell must write, and deal with nothing (decision a-wait-holds-its-cell).
 #[test]

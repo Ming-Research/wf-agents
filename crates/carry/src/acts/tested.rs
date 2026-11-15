@@ -6,7 +6,7 @@
 //! run found, and what could not be run is said in the result once and not run again; the round fails only where the
 //! host could not be reached, which waits with every act until it can be.
 
-use decide::CellId;
+use decide::{BlockId, CellId};
 use flow::Compiled;
 use serde::Deserialize;
 use work::{Handed, Work};

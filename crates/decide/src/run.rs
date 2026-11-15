@@ -655,6 +655,10 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
                 version: *latest,
             });
         }
+        // Each entry of a record is new: one written as changing nothing would be no entry to every rule that reads it.
+        if write.meaning_unchanged && standing.is_some_and(|s| s.added) {
+            unmet.push(Unmet::EntryUnchanged { block: block() });
+        }
         let choice = requires.choices.contains_key(&write.block);
         let value = standing.and_then(|s| s.value.as_ref());
         if choice && write.meaning_unchanged && value != write.value.as_ref() {
