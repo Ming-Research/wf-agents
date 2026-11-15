@@ -1009,7 +1009,7 @@ impl History {
                 calls: Vec::new(),
             };
         }
-        let choice = |b: &BlockId| [CHOICE, VERDICT].contains(&b.as_str());
+        let choice = |b: &BlockId| [CHOICE, VERDICT, CHECKED].contains(&b.as_str());
         let write = |rng: &mut Rng, block: &BlockId, meets: bool| {
             let value = if choice(block) {
                 match rng.below(10) {

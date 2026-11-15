@@ -71,6 +71,17 @@ impl Hub {
         (head, self.main_on_github())
     }
 
+    /// The verdict of this round of the check on the commit, which holds main's head on GitHub: given again after the
+    /// engine started again, a round is the same one.
+    async fn verdict_of(&self, commit: &str, round: Asking) -> Option<Verdict> {
+        let (place, main) = (self.place(), self.main_on_github());
+        (self.host)
+            .verdict(&branch(&place), commit, &main, (round, &[]), &mut Stop::never())
+            .await
+            .map_err(String::from)
+            .expect("the check judges")
+    }
+
     /// The fast workflow on the commit passes the lint, and passes or fails `tools::tests::b`.
     fn fast_on(&self, commit: &str, passes: bool, lint: Outcome) {
         let test = if passes { passed("test") } else { check("test", red()) };
@@ -116,7 +127,8 @@ async fn a_check_given_again_finds_its_runs_again_and_asks_for_none_twice() {
     let (head, main) = hub.red_by_b().await;
     hub.fast_on(&head, false, Outcome::Passed);
     hub.fast_on(&main, false, Outcome::Passed);
-    let first = hub.verdict(&head).await.unwrap().expect("judged");
+    let round = hub.round();
+    let first = hub.verdict_of(&head, round).await.expect("judged");
     assert!(first.held.is_some(), "{first:?}");
     let asked = runs(&hub);
     assert_eq!(
@@ -124,9 +136,9 @@ async fn a_check_given_again_finds_its_runs_again_and_asks_for_none_twice() {
         3,
         "the full workflows, the run again and the run on main: {asked:?}"
     );
-    let again = hub.verdict(&head).await.unwrap().expect("judged");
-    assert_eq!((&again.held, &again.failed), (&first.held, &first.failed));
+    let again = hub.verdict_of(&head, round).await.expect("judged");
     assert_eq!(runs(&hub), asked, "nothing is asked for twice");
+    assert_eq!((&again.held, &again.failed), (&first.held, &first.failed));
 }
 
 // The test fails again on the commit, and on main's head too: the commit is held, not failed, saying which test fails
