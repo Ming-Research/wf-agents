@@ -68,6 +68,8 @@ pub struct Line {
     pub file: String,
     /// Its agents only read.
     pub reads_only: bool,
+    /// Its agents change only the project's tests.
+    pub tests_only: bool,
     /// Of a flow written before it was laid out one thing to a file, its `system`, as written.
     pub system: Vec<String>,
     /// Its `rules`, as written.
@@ -612,6 +614,7 @@ impl Flow {
                         levels_above: spec.levels_above,
                         file: written.map(|l| l.file.clone()).unwrap_or_default(),
                         reads_only: written.is_some_and(|l| l.reads_only),
+                        tests_only: written.is_some_and(|l| l.tests_only),
                         system: written.map(|l| l.system.clone()).unwrap_or_default(),
                         rules: written.map(|l| l.rules.clone()).unwrap_or_default(),
                     });

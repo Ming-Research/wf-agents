@@ -40,6 +40,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     "levelsAbove": 0,
                     "file": "flow.toml",
                     "readsOnly": false,
+                    "testsOnly": false,
                     "system": [],
                     "rules": [],
                 }],

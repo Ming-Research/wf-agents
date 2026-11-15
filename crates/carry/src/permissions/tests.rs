@@ -128,7 +128,7 @@ fn a_lock_command_is_the_settings_alone() {
         assert!(writes.refused.contains(&format!("Bash({heavy} *)")), "{heavy}");
     }
     assert_eq!(
-        writes.told(&words(), &[]),
+        writes.told(&words(), &[], None),
         "Make your changes there and commit them there."
     );
 }
@@ -273,22 +273,22 @@ fn the_permissions_are_given_as_the_command_line_s_lists_of_rules() {
 // it commits there and with which commands it updates a lock file; nothing of a lock command its line is not allowed.
 #[test]
 fn an_agent_is_told_what_its_line_may_do() {
-    let reads = of(true, &[]).told(&words(), &[]);
+    let reads = of(true, &[]).told(&words(), &[], None);
     assert_eq!(reads, "You only read it, and change no file.");
 
-    let writes = of(false, &[]).told(&words(), &[]);
+    let writes = of(false, &[]).told(&words(), &[], None);
     assert_eq!(
         writes,
         "Make your changes there and commit them there. Update a lock file with `cargo update`, `cargo add` or \
          `npm install --package-lock-only --ignore-scripts`, your arguments after it."
     );
-    let open = of(false, &args(&["--allowedTools", "Bash(cargo:*)"])).told(&words(), &[]);
+    let open = of(false, &args(&["--allowedTools", "Bash(cargo:*)"])).told(&words(), &[], None);
     assert_eq!(
         open,
         "Make your changes there and commit them there. Update a lock file with \
          `npm install --package-lock-only --ignore-scripts`, your arguments after it."
     );
-    let none = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &[]);
+    let none = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &[], None);
     assert_eq!(none, "Make your changes there and commit them there.");
 }
 
@@ -301,19 +301,42 @@ fn a_line_that_writes_is_told_the_paths_the_project_protects() {
         "flow/".to_string(),
         ".github/workflows/".to_string(),
     ];
-    let writes = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &protected);
+    let writes = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &protected, None);
     assert_eq!(
         writes,
         "Make your changes there and commit them there. The project protects `AGENTS.md`, `flow/` and \
          `.github/workflows/`: change what is there only where the work needs it."
     );
-    let one = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &protected[..1]);
+    let one = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &protected[..1], None);
     assert!(
         one.ends_with(" The project protects `AGENTS.md`: change what is there only where the work needs it."),
         "{one}"
     );
     assert_eq!(
-        of(true, &[]).told(&words(), &protected),
+        of(true, &[]).told(&words(), &protected, None),
+        "You only read it, and change no file."
+    );
+}
+
+// A line that changes only the project's tests is told their paths in place of the lock commands, a lock file being
+// none of them, and the paths the project protects after them; one that only reads is told it changes no file.
+#[test]
+fn a_line_that_changes_only_the_tests_is_told_their_paths_and_no_lock_command() {
+    let tests = args(&[":(glob)crates/**/tests/**", ":(glob)client/**/*.test.ts"]);
+    let protected = args(&["AGENTS.md"]);
+    let writes = of(false, &[]);
+    assert!(
+        !writes.locks.is_empty(),
+        "the line may run the lock commands as any line that writes"
+    );
+    assert_eq!(
+        writes.told(&words(), &protected, Some(&tests[..])),
+        "Make your changes there and commit them there. Change only the project's tests, the files \
+         `:(glob)crates/**/tests/**` or `:(glob)client/**/*.test.ts` match. The project protects `AGENTS.md`: change \
+         what is there only where the work needs it."
+    );
+    assert_eq!(
+        of(true, &[]).told(&words(), &protected, Some(&tests[..])),
         "You only read it, and change no file."
     );
 }

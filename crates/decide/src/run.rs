@@ -329,6 +329,10 @@ pub enum Unmet {
     /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking
     /// at the branch as the round ended.
     Unexplained { path: String },
+    /// The run's rounds changed the file of this path on the work's branch, as the work's own change, and it is none
+    /// of the project's tests, which are all the cell's line changes: as the engine found it, looking at the branch as
+    /// the round ended.
+    NotATest { path: String },
 }
 
 /// What a pause of the run's work holds back of its rounds.

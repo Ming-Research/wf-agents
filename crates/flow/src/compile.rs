@@ -55,6 +55,8 @@ pub struct Line {
     pub file: String,
     /// Its agents only read.
     pub reads_only: bool,
+    /// Its agents change only the project's tests.
+    pub tests_only: bool,
     /// How many levels above its item's its rounds run at.
     pub levels_above: u32,
     /// Of a flow written before it was laid out, its `system`, as written; none of a flow laid out.
@@ -123,6 +125,8 @@ pub struct CellSpec {
     pub line: Option<String>,
     /// The agents of the cell's line only read, as the line says; an engine cell's do not.
     pub reads_only: bool,
+    /// The agents of the cell's line change only the project's tests, as the line says; an engine cell's do not.
+    pub tests_only: bool,
     /// What an agent cell's agent is told to do; an engine cell has none.
     pub task: Option<String>,
     /// The file the task is written in, from the flow's directory, where it is not written in place.
@@ -578,6 +582,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 let line = Line {
                     file: parsed.places.file("lines", name),
                     reads_only: line.reads_only,
+                    tests_only: line.tests_only,
                     levels_above: line.levels_above,
                     system: if laid_out { Vec::new() } else { line.system.clone() },
                     rules: if laid_out { line.system.clone() } else { Vec::new() },
@@ -915,6 +920,7 @@ impl LaidOut {
             .map(|(path, line)| {
                 let line = LineFile {
                     reads_only: line.reads_only,
+                    tests_only: line.tests_only,
                     levels_above: line.levels_above,
                     system: line.rules.clone(),
                 };
@@ -1764,6 +1770,8 @@ impl<'a> Definition<'a> {
             line: file.line.clone(),
             reads_only: (file.line.as_ref())
                 .is_some_and(|line| self.flow.lines.get(line).is_some_and(|l| l.reads_only)),
+            tests_only: (file.line.as_ref())
+                .is_some_and(|line| self.flow.lines.get(line).is_some_and(|l| l.tests_only)),
             task: match &file.task {
                 Some(Task::Text(text)) => Some(text.clone()),
                 Some(Task::File(_)) => self.tasks.get(id).cloned(),

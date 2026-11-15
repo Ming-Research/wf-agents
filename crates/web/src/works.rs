@@ -893,6 +893,8 @@ pub enum Unmet {
     NotAnswerable { name: String },
     /// The work's branch changes this file the project protects, and nothing says why.
     Unexplained { path: String },
+    /// The run of a line that changes only the project's tests changed this file, which is none of them.
+    NotATest { path: String },
 }
 
 /// What came back at the end of a round.
@@ -2277,6 +2279,7 @@ impl Unmet {
             UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
+            UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
         }
     }
 }

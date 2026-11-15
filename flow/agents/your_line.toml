@@ -1,12 +1,15 @@
 # What the place `{your_line}` in `how_you_work_here.md` says: what the line may do in the worktree, which no rule says
 # by itself. A line that only reads (`reads_only` in its file) is told `reads_only`; a line that writes is told
 # `writes`, and, where the installation lets it update a lock file, `locks` after it, `{commands}` the commands it may
-# update one with, each between backticks, joined by commas and the last by `or`; and, where the project protects
-# paths (`[protected]` of `project.toml`), `protected` last, `{paths}` those paths, each between backticks, joined by
-# commas and the last by `and`.
+# update one with, each between backticks, joined by commas and the last by `or`; a line that changes only the
+# project's tests (`tests_only` in its file) is told `tests_only` in place of `locks`, `{paths}` the paths of its tests
+# (`[tests]` of `project.toml`), each between backticks, joined by commas and the last by `or`; and, where the project
+# protects paths (`[protected]` of `project.toml`), `protected` last, `{paths}` those paths, each between backticks,
+# joined by commas and the last by `and`.
 reads_only = "You only read it, and change no file."
 writes = "Make your changes there and commit them there."
 locks = " Update a lock file with {commands}, your arguments after it."
 or = " or "
+tests_only = " Change only the project's tests, the files {paths} match."
 protected = " The project protects {paths}: change what is there only where the work needs it."
 and = " and "

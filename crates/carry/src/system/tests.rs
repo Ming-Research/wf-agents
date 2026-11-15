@@ -79,7 +79,9 @@ fn of(line: &str) -> String {
     let (settings, beside, flow) = (settings(), beside(), engineer());
     let cell = cell(&flow, line);
     let protected = &beside.project.protected.paths;
-    let your_line = Permissions::of(cell.reads_only, &[], &Default::default()).told(&beside.your_line, protected);
+    let tests = cell.tests_only.then(|| crate::tests_only::paths(&beside.project));
+    let permissions = Permissions::of(cell.reads_only, &[], &Default::default());
+    let your_line = permissions.told(&beside.your_line, protected, tests);
     of_line(&beside, &filling(&settings, &beside), &flow, cell, &your_line, project).expect("it is made")
 }
 
@@ -130,6 +132,45 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
     let reviewer = of("code_reviewer");
     assert!(reviewer.contains("You only read it, and change no file."), "{reviewer}");
     assert!(!reviewer.contains("Make your changes there"), "{reviewer}");
+}
+
+// The tester's line changes only the project's tests, as its file says: its system prompt tells it so, with the paths
+// `project.toml` names for them, and the paths the project protects after them.
+#[test]
+fn the_testers_system_prompt_says_it_changes_only_the_projects_tests() {
+    let tester = of("tester");
+    let told = "Make your changes there and commit them there. Change only the project's tests, the files \
+                `:(glob)crates/**/tests/**`, ";
+    assert!(tester.contains(told), "{tester}");
+    assert!(
+        tester.contains("`:(glob)client/**/*.test.tsx` match. The project protects `AGENTS.md`, "),
+        "{tester}"
+    );
+    assert!(!of("engineer").contains("Change only the project's tests"));
+}
+
+// A line that changes only the project's tests is held to the paths its project's declaration names for them: a
+// declaration that names none keeps the engine from starting, said of the line.
+#[test]
+fn a_line_that_changes_only_the_tests_of_a_project_that_names_none_is_refused_as_the_engine_starts() {
+    let (beside, flow) = (beside(), engineer());
+    let fault = "flow engineer: the line tester changes only the project's tests, and project.toml names none in \
+                 [tests] paths";
+    for declared in [None, Some(Vec::new())] {
+        let mut beside = beside.clone();
+        match declared {
+            None => beside.project.tests = None,
+            Some(paths) => {
+                beside
+                    .project
+                    .tests
+                    .as_mut()
+                    .expect("the project declares its tests")
+                    .paths = paths
+            }
+        }
+        assert_eq!(faults(&settings(), &beside, &flow), [fault]);
+    }
 }
 
 // A session keeps the system prompt it began with: made and kept where it has none, and the kept one given whenever

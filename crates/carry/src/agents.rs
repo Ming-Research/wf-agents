@@ -40,7 +40,9 @@
 //! under the paths the project protects, and asks the owner by itself where it is a change not asked of yet, beside
 //! the return, each file with why the work says it is needed; where a file of it has no reason, it asks nothing, and a
 //! return that does the cell's work is found wanting for each such file, and so sent back
-//! ([`protected`](crate::protected)).
+//! ([`protected`](crate::protected)). As a round of a line that changes only the project's tests ends so, what its run
+//! changed on the branch since its first round began is held to the tests, and the return is found wanting for each
+//! file that is none of them; a look that cannot be made fails the round ([`tests_only`](crate::tests_only)).
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -83,7 +85,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::{Project, Settings};
-use crate::{acts, failure, git, kept, protected, returns, session, system, tools, tree};
+use crate::{acts, failure, git, kept, protected, returns, session, system, tests_only, tools, tree};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -307,6 +309,13 @@ impl Inner {
         } else {
             None
         };
+        // Where the run of a line that changes only the project's tests began, after main was taken in: what it changed
+        // from there is held to the tests as each of its rounds ends.
+        let began = if round.cell.tests_only {
+            Some(tests_only::began(&self.data, round.work, round.run, &place).await?)
+        } else {
+            None
+        };
         // The branch may have a new design tree where it took main in.
         let tree_dir = &of.project.tree;
         let mut looking = tree::Looking::of(flow, work, tree_dir);
@@ -393,7 +402,8 @@ impl Inner {
             // The system prompt is the one the session began with: made from the worktree as it begins, and kept.
             let made = || {
                 let read = |path: &str| system::read_within(&dir, path);
-                let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths);
+                let tests = round.cell.tests_only.then(|| tests_only::paths(&of.beside.project));
+                let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths, tests);
                 system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read)
             };
             let kept_at = system::kept_at(&self.data, session);
@@ -537,6 +547,25 @@ impl Inner {
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
                 came.found.extend(unexplained);
+                // A return that does the cell's work, which is the one that can say why of the protected files, is held
+                // to what its run changed; one that only asks for calls is not.
+                if let Some(began) = began.filter(|_| reading.protected.is_some()) {
+                    let tests = tests_only::paths(&of.beside.project);
+                    match tests_only::outside(&of.project, &place, &of.main, &began, tests).await {
+                        Ok(outside) => came
+                            .found
+                            .extend(outside.into_iter().map(|path| Unmet::NotATest { path })),
+                        // Nothing after it holds the line to the tests: the round fails, and the work waits.
+                        Err(why) => {
+                            return Ok(Carried::Failed(
+                                why,
+                                Failure::Other,
+                                failure::Said::default(),
+                                read.spent,
+                            ));
+                        }
+                    }
+                }
                 Ok(Carried::Came(came, read.spent))
             }
             Err(why) => Ok(Carried::Failed(

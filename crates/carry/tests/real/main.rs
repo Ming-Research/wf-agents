@@ -22,6 +22,7 @@ mod protected;
 mod query;
 mod sessions;
 mod stopping;
+mod testing;
 mod tree;
 
 use std::collections::BTreeSet;
@@ -86,6 +87,9 @@ pub struct Fake {
     pub build_changes_guide: bool,
     /// Whether the build, once, commits a file of the design tree to main.
     pub moves_main: bool,
+    /// Whether the build commits its file beside the project's tests until a round of it is told its return was sent
+    /// back for that, which takes the file back and commits one among the tests instead.
+    pub build_beside_tests: bool,
     /// The context each call ends with, in tokens, by the call's number, the first being one: each call then says, as
     /// its stream begins, that it took its message in, and that its one call to the model was sent this; a call past
     /// the last given ends with the last. None given, the calls say neither.
@@ -111,6 +115,7 @@ impl Default for Fake {
             design: false,
             build_changes_guide: false,
             moves_main: false,
+            build_beside_tests: false,
             contexts: &[],
         }
     }
@@ -180,6 +185,8 @@ pub enum On {
     Deliver,
     /// The trial flow with a plan that loads the engineer's session (`loading` here).
     Loading,
+    /// The trial flow with the engineer's line changing only the project's tests.
+    Testing,
 }
 
 /// What the fake was given in one call.
@@ -275,12 +282,17 @@ pub fn beside() -> flow::agents::Agents {
 /// The flow, compiled with what the real carriers have, its build, where it has one, asking for `query`.
 fn compiled(on: On) -> Compiled {
     let dir = match on {
-        On::Trial => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
+        On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
         On::Acts => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
         On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
     let mut source = flow::read(&dir).expect("the flow is read");
+    if let On::Testing = on {
+        let line = "[lines.engineer]\n";
+        assert!(source.flow.contains(line), "the trial flow has the engineer's line");
+        source.flow = source.flow.replacen(line, "[lines.engineer]\ntests_only = true\n", 1);
+    }
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");
     }
@@ -413,8 +425,14 @@ case "$first" in
             if [ '{changes_guide}' = yes ] && grep -q 'is a file the project protects' "$log/$n.stdin"; then
                 protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
             fi
-            echo "$n" >> built.txt
-            git add built.txt
+            built=built.txt
+            if [ '{beside_tests}' = yes ] && grep -q 'the only files your line changes' "$log/$n.stdin"; then
+                git rm -q built.txt
+                built=crates/greeting/tests/built.rs
+                mkdir -p crates/greeting/tests
+            fi
+            echo "$n" >> "$built"
+            git add "$built"
             git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Build the greeting'
             head=$(git rev-parse HEAD)
             out="\"code\":\"A greeting, in commit $head.\""
@@ -458,6 +476,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         design = yes(fake.design),
         changes_guide = yes(fake.build_changes_guide),
         moves = yes(fake.moves_main),
+        beside_tests = yes(fake.build_beside_tests),
         gave_up = GAVE_UP,
         name = NAMED,
         refused = refused.display(),

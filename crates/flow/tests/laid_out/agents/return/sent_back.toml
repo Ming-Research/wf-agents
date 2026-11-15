@@ -29,6 +29,7 @@ question_twice = "`{name}` is written twice."
 not_an_option = "`{name}` recommends no option."
 not_answerable = "`{name}` cannot be answered here."
 unexplained = "`{path}` is protected: say why, or take it back."
+not_a_test = "`{path}` is no test: take it back."
 
 [unread]
 not_of_its_form = "Not of its form: {error}"
