@@ -386,6 +386,62 @@ pub(crate) fn tail(output: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    /// The variable that has the test binary, run again, play a process of the engine running a program, in the
+    /// directory it gives, until it is killed.
+    const AN_ENGINE: &str = "WF_AGENTS_TEST_AN_ENGINE";
+
+    // Played by the test binary run again, and only so: runs a program that does not end, and ignores TERM, in a group
+    // of its own named in the directory the variable gives, as a process of the engine runs an agent's program.
+    #[tokio::test]
+    #[ignore = "run only by the test that kills it"]
+    async fn an_engine_running_a_program_until_it_is_killed() {
+        let Ok(dir) = std::env::var(AN_ENGINE) else {
+            return;
+        };
+        let file = Path::new(&dir).join("program.pgid");
+        let mut command = Command::new("sh");
+        command.args(["-c", "trap '' TERM; sleep 120 & wait"]);
+        let _ = run(command, None, Some(&file), &mut Stop::never()).await;
+    }
+
+    // However the process of the engine ends, a program it runs ends with it: killed, as by `kill -9` or a crash, it
+    // runs no handler, and the program's group is stopped all the same, what ignores TERM too, once the wait the stop
+    // gives it has passed. A few seconds alone, the program's group being killed after three; no other test holds what
+    // outlives the engine.
+    #[tokio::test]
+    async fn a_program_ends_with_the_process_of_the_engine_that_runs_it_however_that_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = std::env::current_exe().expect("the test binary");
+        let test = "process::tests::an_engine_running_a_program_until_it_is_killed";
+        let mut engine = std::process::Command::new(exe)
+            .args(["--exact", test, "--ignored", "--test-threads=1"])
+            .env(AN_ENGINE, dir.path())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the test binary runs again");
+        let file = dir.path().join("program.pgid");
+        let began = std::time::Instant::now();
+        let group = loop {
+            let named = std::fs::read_to_string(&file).ok();
+            if let Some(group) = named.and_then(|text| text.lines().next()?.trim().parse::<u32>().ok()) {
+                break group;
+            }
+            assert!(began.elapsed() < Duration::from_secs(20), "the engine ran no program");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        engine.kill().expect("the engine is killed");
+        let _ = engine.wait();
+        let began = std::time::Instant::now();
+        while alive(group).await {
+            if began.elapsed() > Duration::from_secs(15) {
+                signal(group, "KILL").await;
+                panic!("the program outlived the process of the engine that ran it");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     #[tokio::test]
     async fn a_left_group_is_stopped_though_its_first_process_has_ended() {
         let dir = tempfile::tempdir().unwrap();
