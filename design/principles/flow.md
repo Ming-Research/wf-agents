@@ -112,3 +112,8 @@ guide. The guide points to them as well, for the agents that work outside the fl
 Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an
 agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the
 guide.
+### principle an-agent-knows-only-its-task
+An agent works from its task and the data it is given, and knows nothing of the flow around it: not the cell it runs
+as, not the other cells, not who reads what it writes. A cell's words name no other cell.
+Why: Carrying what one cell writes to the next is the flow's work (principle mechanical-engine). Words that tell an
+agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
