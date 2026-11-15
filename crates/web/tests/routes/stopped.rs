@@ -66,6 +66,22 @@ impl Storage for Failing {
     fn everything_pauses(&self) -> Result<Vec<store::PauseOfEverything>, store::Fault> {
         self.store.everything_pauses()
     }
+
+    fn accounts_taken(&self) -> Result<Vec<store::AccountTaken>, store::Fault> {
+        self.store.accounts_taken()
+    }
+
+    fn take_account(&mut self, taken: &store::AccountTaken) -> Result<(), store::Fault> {
+        self.store.take_account(taken)
+    }
+
+    fn moving_on(&self) -> Result<Option<store::MovingOn>, store::Fault> {
+        self.store.moving_on()
+    }
+
+    fn set_moving_on(&mut self, on: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.set_moving_on(on, at)
+    }
 }
 
 #[tokio::test(start_paused = true)]

@@ -1,7 +1,8 @@
 //! The owner's pause of everything, as the store keeps it: set and lifted, the latest saying whether it holds, and
-//! kept across an opening; and a file made before the store kept it opens with none.
+//! kept across an opening; and a file made before the store kept it opens with none. And the other things of the
+//! installation it keeps: the accounts taken, and the switch that lets the engine move on.
 
-use store::{EverythingPaused, PauseOfEverything, SCHEMA_VERSION};
+use store::{AccountTaken, EverythingPaused, MovingOn, PauseOfEverything, SCHEMA_VERSION, Taker};
 
 use super::opening::{SCHEMA_1, columns, versions};
 use super::*;
@@ -112,4 +113,57 @@ fn a_file_made_before_the_pause_of_everything_was_kept_opens_with_none() {
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
+}
+
+#[test]
+fn every_account_taken_is_given_back_in_order_with_who_took_it_and_what_the_engine_left_across_an_opening() {
+    let db = Db::new();
+    let mut store = db.open();
+    assert_eq!(store.accounts_taken(), Ok(Vec::new()));
+    let kept = vec![
+        AccountTaken {
+            account: "/data/claude-second".to_string(),
+            by: Taker::Owner,
+            at: Time(START),
+            left: None,
+            resets: None,
+        },
+        AccountTaken {
+            account: "/data/claude".to_string(),
+            by: Taker::Engine,
+            at: Time(START + 1000),
+            left: Some("/data/claude-second".to_string()),
+            resets: Some(Time(START + 7 * 24 * 3_600_000)),
+        },
+        AccountTaken {
+            account: "/data/claude-third".to_string(),
+            by: Taker::Engine,
+            at: Time(START + 2000),
+            left: Some("/data/claude".to_string()),
+            resets: None,
+        },
+    ];
+    for taken in &kept {
+        store.take_account(taken).expect("it is kept");
+    }
+    assert_eq!(store.accounts_taken(), Ok(kept.clone()));
+    drop(store);
+    assert_eq!(db.open().accounts_taken(), Ok(kept));
+}
+
+#[test]
+fn the_switch_that_moves_on_is_off_until_set_and_stands_as_set_last_across_an_opening() {
+    let db = Db::new();
+    let mut store = db.open();
+    assert_eq!(store.moving_on(), Ok(None));
+    store.set_moving_on(true, Time(START)).expect("it is kept");
+    store.set_moving_on(false, Time(START + 1000)).expect("it is kept");
+    store.set_moving_on(true, Time(START + 2000)).expect("it is kept");
+    let last = Ok(Some(MovingOn {
+        on: true,
+        at: Time(START + 2000),
+    }));
+    assert_eq!(store.moving_on(), last);
+    drop(store);
+    assert_eq!(db.open().moving_on(), last);
 }

@@ -8,6 +8,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod accounts;
 mod adding;
 mod attention;
 mod changing;

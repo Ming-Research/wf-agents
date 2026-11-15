@@ -38,7 +38,7 @@ const KNOWN: [(&str, &[&str]); 4] = [
     ("owner", &["language"]),
     (
         "agents",
-        &["command", "slots", "args", "permissions", "levels", "config_dir"],
+        &["command", "slots", "args", "permissions", "levels", "accounts"],
     ),
     ("items", &["default_level", "highest_level", "title_max"]),
     ("sessions", &["context_limit"]),
@@ -351,63 +351,147 @@ fn where_git_keeps_the_file_a_change_is_committed_and_none_goes_onto_changes_not
     assert!(said.contains("has changes not committed"), "{said}");
 }
 
+/// The engine as it stands with these accounts, each in use or not and at a limit until when, and these taken.
+fn engine(accounts: &[(&Path, bool, Option<u64>)], taken: Vec<store::AccountTaken>, moving_on: bool) -> Engine {
+    Engine {
+        accounts: (accounts.iter())
+            .map(|(path, in_use, resets)| driver::AccountNow {
+                account: path.display().to_string(),
+                in_use: *in_use,
+                limited: resets.is_some(),
+                resets: resets.map(work::Time),
+            })
+            .collect(),
+        taken,
+        moving_on,
+    }
+}
+
 #[test]
-fn the_accounts_beside_the_one_named_are_shown_and_one_signed_in_is_switched_to() {
+fn the_accounts_are_shown_in_the_owners_order_with_the_one_in_use_the_ones_at_a_limit_and_those_taken() {
     let dir = tempfile::tempdir().unwrap();
     let agents = dir.path().join("agents");
-    for name in ["claude", "claude-second", "claude-third", "claudette", "other"] {
+    for name in ["claude", "claude-second", "claude-third"] {
         std::fs::create_dir_all(agents.join(name)).unwrap();
     }
     std::fs::write(agents.join("claude/account"), "owner@example.com").unwrap();
     std::fs::write(agents.join("claude-second/account"), "second@example.com").unwrap();
-    let named = agents.join("claude");
+    let [first, second, third] = ["claude", "claude-second", "claude-third"].map(|name| agents.join(name));
     let text = FILE.replace(
         "command = \"claude\"",
-        &format!("command = \"claude\"\nconfig_dir = \"{}\"", named.display()),
+        &format!(
+            "command = \"claude\"\naccounts = [\"{}\", \"{}\", \"{}\"]",
+            first.display(),
+            second.display(),
+            third.display()
+        ),
     );
     let install = install(dir.path(), &text);
-    let page = accounts_of(&install).map_err(|r| r.1).unwrap();
-    let names: Vec<(&str, Option<&str>, bool)> = (page.accounts.iter())
-        .map(|a| (a.name.as_str(), a.signed_in_as.as_deref(), a.named))
+    let moved = store::AccountTaken {
+        account: second.display().to_string(),
+        by: store::Taker::Engine,
+        at: work::Time(1_000),
+        left: Some(first.display().to_string()),
+        resets: Some(work::Time(9_000)),
+    };
+    // The engine runs with the first two: the third is in the file alone, taken as the engine starts again.
+    let running = engine(
+        &[(first.as_path(), false, Some(9_000)), (second.as_path(), true, None)],
+        vec![moved],
+        true,
+    );
+    let page = accounts_of(&install, &running).map_err(|r| r.1).unwrap();
+    /// An account as the table shows it: its name, who it is signed in as, in use, run with, and its limit's reset.
+    type Row<'a> = (&'a str, Option<&'a str>, bool, bool, Option<u64>);
+    let rows: Vec<Row> = (page.accounts.iter())
+        .map(|a| {
+            (
+                a.name.as_str(),
+                a.signed_in_as.as_deref(),
+                a.in_use,
+                a.running,
+                a.resets,
+            )
+        })
         .collect();
     assert_eq!(
-        names,
+        rows,
         [
-            ("claude", Some("owner@example.com"), true),
-            ("claude-second", Some("second@example.com"), false),
-            ("claude-third", None, false),
+            ("claude", Some("owner@example.com"), false, true, Some(9_000)),
+            ("claude-second", Some("second@example.com"), true, true, None),
+            ("claude-third", None, false, false, None),
         ]
     );
-    let (status, said) = refusal(chosen(
-        &install,
-        &AccountChoice {
-            base: page.base.clone(),
-            name: "claude-third".to_string(),
-        },
-    ));
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(page.accounts[0].limited);
+    assert!(page.moving_on);
+    assert_eq!(page.dir.as_deref(), Some(agents.display().to_string().as_str()));
     assert_eq!(
-        said,
-        format!(
-            "claude-third is not signed in: run `CLAUDE_CONFIG_DIR={} claude` and type /login there first",
-            agents.join("claude-third").display()
+        page.taken,
+        [Taken {
+            name: "claude-second".to_string(),
+            path: second.display().to_string(),
+            by: TakenBy::Engine,
+            at: 1_000,
+            left: Some("claude".to_string()),
+            resets: Some(9_000),
+        }]
+    );
+    // One not signed in is not taken: the owner is given the command that signs it in.
+    let third = third.display().to_string();
+    let said = not_signed_in(&install, &third).map_err(|r| r.1).unwrap();
+    assert_eq!(
+        said.as_deref(),
+        Some(
+            format!(
+                "claude-third is not signed in: run `CLAUDE_CONFIG_DIR={third} claude` and type /login there first"
+            )
+            .as_str()
         )
     );
-    let saved = chosen(
-        &install,
-        &AccountChoice {
-            base: page.base,
-            name: "claude-second".to_string(),
-        },
-    )
-    .map_err(|r| r.1)
-    .unwrap();
-    assert!(saved.said.starts_with("agents.config_dir = "), "{}", saved.said);
-    let page = accounts_of(&install).map_err(|r| r.1).unwrap();
-    assert!(
-        page.accounts.iter().any(|a| a.name == "claude-second" && a.named),
-        "{page:?}"
+    assert_eq!(
+        not_signed_in(&install, &second.display().to_string())
+            .map_err(|r| r.1)
+            .unwrap(),
+        None
     );
+}
+
+#[test]
+fn a_new_account_signed_in_is_added_after_those_the_file_lists_and_one_not_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents");
+    std::fs::create_dir_all(agents.join("claude")).unwrap();
+    let first = agents.join("claude");
+    let text = FILE.replace(
+        "command = \"claude\"",
+        &format!("command = \"claude\"\naccounts = [\"{}\"]", first.display()),
+    );
+    let install = install(dir.path(), &text);
+    let base = digest(&text);
+    let (status, said) = refusal(added(&install, &base, "fourth"));
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        said.starts_with("claude-fourth is not signed in: run `CLAUDE_CONFIG_DIR="),
+        "{said}"
+    );
+    let (_, said) = refusal(added(&install, &base, "Fourth Account"));
+    assert!(said.contains("is no name of an account"), "{said}");
+    std::fs::create_dir_all(agents.join("claude-fourth")).unwrap();
+    std::fs::write(agents.join("claude-fourth/account"), "fourth@example.com").unwrap();
+    let saved = added(&install, &base, "fourth").map_err(|r| r.1).unwrap();
+    assert!(saved.said.starts_with("agents.accounts = "), "{}", saved.said);
+    let written = std::fs::read_to_string(&install.file).unwrap();
+    let doc: DocumentMut = written.parse().unwrap();
+    assert_eq!(
+        listed(&doc),
+        [
+            first.display().to_string(),
+            agents.join("claude-fourth").display().to_string()
+        ]
+    );
+    // Against the file as it was read before, it is refused: the file changed since.
+    let (status, _) = refusal(added(&install, &base, "fifth"));
+    assert_eq!(status, StatusCode::CONFLICT);
 }
 
 #[test]
