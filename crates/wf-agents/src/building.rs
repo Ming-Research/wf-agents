@@ -833,8 +833,8 @@ mod tests {
     }
 
     // The build names no cell, block or trigger: the engineer's flow with every one of them renamed alike gives the
-    // same states, their paths, acts and rounds the same, their names following. Ten seconds or so alone, at the bound
-    // the exploration's own renaming property explores at.
+    // same states, their paths, acts and rounds the same, their names following. Ten to twenty seconds alone in CI,
+    // at the bound the exploration's own renaming property explores at.
     #[test]
     fn the_flow_renamed_gives_the_same_states_its_names_following() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
