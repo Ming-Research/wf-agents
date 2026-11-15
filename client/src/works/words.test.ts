@@ -46,12 +46,19 @@ describe('what a work does now, in words', () => {
     expect(nowWords({ kind: 'paused', by: 'owner', why: null })).toBe(
       'Paused: only a note to a cell is answered until it is let on',
     );
+    // What waits on the owner, as `waitsOf` says, waits for you.
     expect(nowWords({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe(
-      'Paused by the engine: The agent could not start.',
+      'Waiting for you, paused by the engine: The agent could not start.',
+    );
+    expect(nowWords({ kind: 'everything', by: 'engine' })).toBe(
+      'Waiting for you, held back by the pause of everything, set as the engine started again',
     );
     expect(nowWords({ kind: 'waits', at: 'merge', on: [precondition, { kind: 'limit', runs: 3 }] })).toBe(
-      'Waits at merge for The owner approved the merge, which the owner can make hold; ' +
+      'Waiting for you at merge: The owner approved the merge, which the owner can make hold; ' +
         'the owner to let the cell go on: its last 3 runs in a row were each a way round',
+    );
+    expect(nowWords({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] })).toBe(
+      'Waits at plan for a free slot, which the engine gives in its order',
     );
     expect(nowWords({ kind: 'next', cell: 'plan' })).toBe('About to go on at plan');
   });
@@ -104,9 +111,13 @@ describe('what a work does now, in words', () => {
     expect(nowTone({ kind: 'waits', at: 'M2', on: [main] })).toBe('quiet');
   });
 
-  it("gives the engine's pause the tone of what failed, and the owner's a quiet one", () => {
-    expect(nowTone({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe('failed');
+  it("gives the engine's pause and its hold the owner's tone, a fault and a stall the tone of what failed, and the owner's pause a quiet one", () => {
+    expect(nowTone({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe('owner');
+    expect(nowTone({ kind: 'everything', by: 'engine' })).toBe('owner');
+    expect(nowTone({ kind: 'fault', words: 'Two entries at place 3' })).toBe('failed');
+    expect(nowTone({ kind: 'stalled', at: 'M2', on: [], by: [] })).toBe('failed');
     expect(nowTone({ kind: 'paused', by: 'owner', why: null })).toBe('quiet');
+    expect(nowTone({ kind: 'everything', by: 'owner' })).toBe('quiet');
     expect(pauseWords('engine', 'The agent could not start.')).toBe('the engine paused the work: The agent could not start.');
     expect(pauseWords('owner', null)).toBe('the owner paused the work');
   });

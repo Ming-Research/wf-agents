@@ -175,7 +175,9 @@ describe('the list of works', () => {
     // The work the engine paused waits for the owner, as `waitsOf` says, and the fault comes after.
     expect(rows.map((r) => Number(r.dataset.work))).toEqual([50, 43, 44, 45, 41, 49, 42, 46, 47, 48]);
     expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([true, true, true, true, true, false, false, false, false, false]);
-    expect(rows[1].querySelector('.now-words')?.textContent).toBe("Waits at plan for the owner's answer to a question");
+    expect(rows[1].querySelector('.now-words')?.textContent).toBe(
+      "Waiting for you at plan: the owner's answer to a question",
+    );
     expect(rows[1].querySelectorAll('.strip .state-mark')).toHaveLength(6);
     await click(rows[4]);
     expect(window.location.hash).toBe('#/works/41');
@@ -221,13 +223,16 @@ describe('the list of works', () => {
     expect(listed(page)).toHaveLength(10);
   });
 
-  it('says why the engine paused a work, in the tone of what failed', () => {
+  it("says that a work the engine paused waits for you, and why, in the owner's tone, and a fault in the tone of what failed", () => {
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     const row = page.querySelector('[data-work="50"]') as HTMLElement;
-    expect(row.querySelector('.now-words')?.textContent).toBe(`Paused by the engine: ${FAILED}`);
-    expect(row.querySelector('.now')?.className).toContain('now-failed');
+    expect(row.querySelector('.now-words')?.textContent).toBe(`Waiting for you, paused by the engine: ${FAILED}`);
+    expect(row.querySelector('.now')?.className).toContain('now-owner');
     expect(row.querySelector('.now-paused')).toBeNull();
     expect(row.querySelectorAll('.strip .state-failed')).toHaveLength(1);
+    const fault = page.querySelector('[data-work="49"]') as HTMLElement;
+    expect(fault.querySelector('.now-words')?.textContent).toBe('Fault: Two entries of the work at place 3');
+    expect(fault.querySelector('.now')?.className).toContain('now-failed');
   });
 
   it('says a work is paused only where what it does now says something else', () => {

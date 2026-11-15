@@ -27,6 +27,7 @@ import type {
   Waited,
   Writer,
 } from '../works-api';
+import { waitsOf, waitsOnOwner } from './waiting';
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -310,8 +311,15 @@ export function waitedWords(waited: Waited): string {
   }
 }
 
-/// What a work does now, in a line.
+/// What a work does now, in a line. Whatever the one definition of what waits on the owner counts (`waitsOf`) is said
+/// to wait for you, with what it waits for: at a cell, each thing it waits for there; else in the words of its card.
 export function nowWords(now: Now): string {
+  const owners = waitsOf(now);
+  if (owners.length > 0) {
+    return now.kind === 'waits'
+      ? `Waiting for you at ${now.at}: ${now.on.map(waitedWords).join('; ')}`
+      : `Waiting for you, ${owners.map((w) => w.words).join('; ')}`;
+  }
   switch (now.kind) {
     case 'fault':
       return `Fault: ${now.words}`;
@@ -321,10 +329,9 @@ export function nowWords(now: Now): string {
       return 'Cancelled';
     case 'round':
       return `Running ${now.cell}, round ${now.round} of run ${now.run}, since ${clock(now.since)}`;
+    // The owner's own pause: the engine's waits for the owner, above.
     case 'paused':
-      return now.by === 'engine'
-        ? `Paused by the engine: ${now.why ?? 'it gave no reason'}`
-        : 'Paused: only a note to a cell is answered until it is let on';
+      return 'Paused: only a note to a cell is answered until it is let on';
     case 'everything':
       return 'Paused with every work: only a note to a cell is answered until everything is let on';
     case 'waits':
@@ -360,23 +367,20 @@ export function stalledWords(now: Extract<Now, { kind: 'stalled' }>): string {
 /// The word of what a work does now, for its tag, and the tone the tag takes.
 export type Tone = 'running' | 'owner' | 'quiet' | 'done' | 'failed';
 
-/// A work the engine paused, as for a round that failed, is in the tone of what failed, as a fault is: the owner looks
-/// before it goes on.
+/// Whatever the one definition of what waits on the owner counts (`waitsOf`) is in the owner's tone; a fault, and a
+/// stalled work, which is shown as a fault is, in the tone of what failed; the rest as it stands.
 export function nowTone(now: Now): Tone {
+  if (waitsOnOwner(now)) return 'owner';
   switch (now.kind) {
     case 'fault':
+    case 'stalled':
       return 'failed';
-    case 'paused':
-      return now.by === 'engine' ? 'failed' : 'quiet';
     case 'merged':
       return 'done';
     case 'round':
       return 'running';
+    case 'paused':
     case 'waits':
-      return now.on.some(waitsForOwner) ? 'owner' : 'quiet';
-    // A stalled work is shown as a fault is.
-    case 'stalled':
-      return 'failed';
     case 'cancelled':
     case 'everything':
     case 'next':
