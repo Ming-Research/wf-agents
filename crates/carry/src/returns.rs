@@ -1,20 +1,21 @@
-//! What an agent returns at the end of a round, read against the cell it was entered for. Every return of a flow is in
+//! What an agent returns at the end of a round, read against the cell it was entered for. Every return of a line is in
 //! one form, made of the flow and of what is written beside it ([`flow::form`]), which the agents' program is given
-//! with every call: one of two kinds, a return that asks the engine for calls or one that does the cell's work (design
-//! document `data-and-context`, 30 and 31). A return is put into the form's shape where it is not in it but means it,
-//! as the old engine read one, and then read: what it dealt with, by the names of the cell's triggers, each worked out
-//! to the block it stands on, a group's trigger to its group's name (9); each block it writes in `outputs`, a choice
-//! with its value and its line of why kept as its content (50); the calls it asks for, each request of a tool one call;
-//! and what it says beside its work, its questions, observations and reply, which are kept with it, its questions
-//! becoming data of their own once its run finishes (32 to 36); and why it says the work changes each file the project
-//! protects, which the engine's look at the work's branch takes as the round ends and asks the owner with, and which
-//! is not kept with the return ([`crate::protected`]). What only its reading can see wrong with it against the
-//! cell is found as it is read and kept with it: a return of both kinds, a name in `dealt_with` that is none of the
-//! cell's triggers, a tool the cell may not ask for, a name in `meaning_unchanged` it does not write, a block it writes
-//! in `outputs` that the cell does not write there or in a shape it does not take, and a question that recommends none
-//! of its options, that has the name of a question the engine itself asks, or that the cell asks where no answer runs
-//! it. The run's check names these with everything else wrong with the return, in one send-back (crate `decide`, module
-//! `run`). Why what came back cannot be read at all is said in the words of `agents/return/sent_back.toml`.
+//! with every call: one of two kinds, a return that asks the engine for tools or one that does the cell's work. A
+//! return is put into the form's shape where it is not in it but means it, as the old engine read one, and then read:
+//! what it dealt with, by the names of the cell's triggers, each worked out to the block it stands on, a group's
+//! trigger to its group's name; each block it writes in `outputs`, a choice with its value and its line of why kept as
+//! its content, and the block the engine keeps as the work's questions ([`flow::QUESTIONS`]) read as its questions,
+//! which are kept with it and become data of their own once its run finishes; the tools it asks for, each request of a
+//! tool one call; what it says beside its work, its observations, which are kept with it; and why it says the work
+//! changes each file the project protects, which the engine's look at the work's branch takes as the round ends and
+//! asks the owner with, and which is not kept with the return ([`crate::protected`]). What only its reading can see
+//! wrong with it against the cell is found as it is read and kept with it: a return of both kinds, a name in
+//! `dealt_with` that is none of the cell's triggers, a tool the cell may not ask for, a name in `meaning_unchanged` it
+//! does not write, a block it writes in `outputs` that is not among the cell's outputs or in a shape it does not take,
+//! the owner's words named as dealt with and not answered in the record of what is said, and a question that
+//! recommends none of its options or has the name of a question the engine itself asks. The run's check names these
+//! with everything else wrong with the return, in one send-back (crate `decide`, module `run`). Why what came back
+//! cannot be read at all is said in the words of `agents/return/sent_back.toml`.
 
 use std::collections::BTreeMap;
 
@@ -28,7 +29,7 @@ use serde_json::{Map, Value};
 use work::{Ask, Handed, Question, Said, Way};
 
 /// The fields of the kind that does the cell's work that are lists, as the engine reads them.
-const LISTS: [&str; 4] = ["dealt_with", "meaning_unchanged", "questions", "observations"];
+const LISTS: [&str; 3] = ["dealt_with", "meaning_unchanged", "observations"];
 
 /// The field that holds the blocks a cell writes, as the engine reads it.
 const OUTPUTS: &str = flow::agents::OUTPUTS;
@@ -44,7 +45,7 @@ const QUESTION_FIELDS: [&str; 6] = ["name", "waits", "recommends", "ask", "optio
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Return {
-    calls: Option<Map<String, Value>>,
+    tools: Option<Map<String, Value>>,
     outcome: Option<Outcome>,
 }
 
@@ -54,16 +55,14 @@ struct Return {
 struct Outcome {
     dealt_with: Vec<String>,
     meaning_unchanged: Vec<String>,
-    questions: Vec<QuestionIn>,
     observations: Vec<String>,
     protected_changes: BTreeMap<String, String>,
-    reply: Option<String>,
     outputs: Map<String, Value>,
 }
 
 /// What came back, as its reading finds it: what the engine takes of it, and, of a return that does the cell's work,
 /// why it says the work changes each file the project protects, by the file's path, which the engine's look at the
-/// work's branch as the round ends takes ([`crate::protected`]); none of a return that only asks for calls, which
+/// work's branch as the round ends takes ([`crate::protected`]); none of a return that only asks for tools, which
 /// cannot say it.
 #[derive(Debug)]
 pub struct Reading {
@@ -136,14 +135,23 @@ fn table_of(value: Option<Value>) -> Value {
     }
 }
 
+/// The blocks of the flow the engine keeps as the work's questions ([`flow::QUESTIONS`]), by name.
+fn questions_blocks(flow: &Compiled) -> Vec<&str> {
+    (flow.blocks.iter())
+        .filter(|(_, b)| b.kept.as_deref() == Some(flow::QUESTIONS))
+        .map(|(name, _)| name.as_str())
+        .collect()
+}
+
 /// A return put into the shape of the form when it is not in it but means it, as the old engine read one
 /// (`as_taken`): the whole form, or the one object that wraps it, written as a string; the form wrapped one level in an
 /// object of one key that is no kind of return; a kind, or the blocks a cell writes, written as a string; a kind left
-/// out or null; a list left out, null or written as a string; and, in a question, the null fields of the other shape. A
-/// content is never changed and a field the form requires of an item never made up, so what this does not reach fails
-/// as it is read. The record of the round keeps the return as the command line printed it (`kept`), before this.
-fn normalised(structured: &Value) -> Value {
-    let kinds = [ReturnKind::Calls.name(), ReturnKind::Outcome.name()];
+/// out or null; a list left out, null or written as a string, the questions among the blocks included; and, in a
+/// question, the null fields of the other shape. The questions are those of the blocks of `questions`. A content is
+/// never changed and a field the form requires of an item never made up, so what this does not reach fails as it is
+/// read. The record of the round keeps the return as the command line printed it (`kept`), before this.
+fn normalised(structured: &Value, questions: &[&str]) -> Value {
+    let kinds = [ReturnKind::Tools.name(), ReturnKind::Outcome.name()];
     let mut form = match structured {
         Value::String(text) => object_of(text).unwrap_or_else(|| structured.clone()),
         other => other.clone(),
@@ -168,8 +176,8 @@ fn normalised(structured: &Value) -> Value {
             }
         }
     }
-    if let Some(Value::Object(calls)) = o.get_mut(ReturnKind::Calls.name()) {
-        for requests in calls.values_mut() {
+    if let Some(Value::Object(tools)) = o.get_mut(ReturnKind::Tools.name()) {
+        for requests in tools.values_mut() {
             *requests = list_of(Some(requests.take()));
         }
     }
@@ -182,14 +190,16 @@ fn normalised(structured: &Value) -> Value {
             let table = table_of(outcome.remove(name));
             outcome.insert(name.to_string(), table);
         }
-        if outcome.get("reply").is_some_and(Value::is_null) {
-            outcome.remove("reply");
-        }
-        if let Some(Value::Array(questions)) = outcome.get_mut("questions") {
-            for question in questions {
-                if let Value::Object(question) = question {
-                    // Only the fields of the two shapes; a null of any other name is an unknown field and fails.
-                    question.retain(|name, v| !v.is_null() || !QUESTION_FIELDS.contains(&name.as_str()));
+        if let Some(Value::Object(outputs)) = outcome.get_mut(OUTPUTS) {
+            for name in questions {
+                let Some(asked) = outputs.get_mut(*name) else { continue };
+                *asked = list_of(Some(asked.take()));
+                let Value::Array(asked) = asked else { continue };
+                for question in asked {
+                    if let Value::Object(question) = question {
+                        // Only the fields of the two shapes; a null of any other name is an unknown field and fails.
+                        question.retain(|name, v| !v.is_null() || !QUESTION_FIELDS.contains(&name.as_str()));
+                    }
                 }
             }
         }
@@ -201,23 +211,24 @@ fn normalised(structured: &Value) -> Value {
 /// what is written beside the flows; or why it is not one of the form's, in those words.
 pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents) -> Result<Reading, String> {
     let unread = &words.sent_back.unread;
-    let r: Return = serde_json::from_value(normalised(structured))
-        .map_err(|e| fill(&unread.not_of_its_form, &[("error", &e.to_string())]))?;
+    let not_of_its_form = |e: serde_json::Error| fill(&unread.not_of_its_form, &[("error", &e.to_string())]);
+    let r: Return = serde_json::from_value(normalised(structured, &questions_blocks(flow))).map_err(not_of_its_form)?;
     let mut found = Vec::new();
     let mut came = Came {
-        // A return that asks for calls and does no work deals with nothing.
+        // A return that asks for tools and does no work deals with nothing.
         dealt_with: Some(Vec::new()),
         ..Came::default()
     };
     // A return is of one kind, never both, whatever each holds.
-    let both = r.calls.is_some() && r.outcome.is_some();
+    let both = r.tools.is_some() && r.outcome.is_some();
     let mut protected = None;
     if let Some(mut outcome) = r.outcome {
         protected = Some(std::mem::take(&mut outcome.protected_changes));
         let (dealt_with, none) = cell.dealt_with(&outcome.dealt_with);
         found.extend(none.into_iter().map(|name| Unmet::NotATrigger { name }));
         came.dealt_with = Some(dealt_with);
-        came.writes = writes(&outcome, flow, cell, &mut found);
+        let (writes, asked) = writes(&outcome, flow, cell, &mut found);
+        came.writes = writes;
         for name in &outcome.meaning_unchanged {
             if !outcome.outputs.contains_key(name) {
                 found.push(Unmet::UnchangedNotWritten {
@@ -226,11 +237,19 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
             }
         }
         answered(&outcome, flow, cell, &mut found);
-        came.said = said(outcome);
-        questions(&came.said.questions, flow, cell, words, &mut found);
+        let mut questions = Vec::new();
+        for value in asked {
+            let asked: Vec<QuestionIn> = serde_json::from_value(value).map_err(not_of_its_form)?;
+            questions.extend(asked.into_iter().map(question));
+        }
+        came.said = Said {
+            questions,
+            observations: outcome.observations,
+        };
+        self::questions(&came.said.questions, words, &mut found);
     }
-    if let Some(calls) = r.calls {
-        came.asks = asks(calls, cell, &mut found, words)?;
+    if let Some(tools) = r.tools {
+        came.asks = asks(tools, cell, &mut found, words)?;
     }
     if both {
         found.push(Unmet::AsksAndWorks);
@@ -240,29 +259,27 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
 }
 
 /// Of each trigger of the owner's words the return names as dealt with, in the order it names them, once each, where
-/// the return gives no words in `reply`: the owner's words are answered there (design document `data-and-context`,
-/// 38).
+/// the return writes no words in `outputs` into a record of what is said that the trigger has its agent read: the
+/// owner's words are answered there (design document `data-and-context`, 38).
 fn answered(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) {
-    if outcome.reply.as_deref().is_some_and(|r| !r.trim().is_empty()) {
-        return;
-    }
+    let words =
+        |block: &BlockId| matches!(outcome.outputs.get(block.as_str()), Some(Value::String(w)) if !w.trim().is_empty());
     for (i, name) in outcome.dealt_with.iter().enumerate() {
         if outcome.dealt_with[..i].contains(name) {
             continue;
         }
-        let words = (cell.triggers.iter()).any(|t| &t.name == name && t.of_source(flow, flow::WORDS).is_some());
-        if words {
+        let Some(trigger) = (cell.triggers.iter()).find(|t| &t.name == name) else {
+            continue;
+        };
+        if trigger.of_source(flow, flow::WORDS).is_some() && !trigger.said_in(flow).any(words) {
             found.push(Unmet::NotAnswered { name: name.clone() });
         }
     }
 }
 
 /// What is wrong with the questions the return asks that its reading sees, in the order it wrote them: one that
-/// recommends none of its options, or has none; one with the name of the question the engine itself asks; and, of a
-/// cell that no answer runs, every question, which no answer could bring back to it.
-fn questions(asked: &[Question], flow: &Compiled, cell: &CellSpec, words: &Agents, found: &mut Vec<Unmet>) {
-    let answered = (cell.triggers.iter().flat_map(|t| t.blocks()))
-        .any(|b| flow.blocks.get(b).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER));
+/// recommends none of its options, or has none; and one with the name of the question the engine itself asks.
+fn questions(asked: &[Question], words: &Agents, found: &mut Vec<Unmet>) {
     for question in asked {
         let name = || question.name().to_string();
         if question.name() == words.asks.protected.name {
@@ -278,17 +295,15 @@ fn questions(asked: &[Question], flow: &Compiled, cell: &CellSpec, words: &Agent
         if !recommends.is_some_and(|r| r >= 1 && r <= options.len() as u64) {
             found.push(Unmet::NotAnOption { name: name() });
         }
-        if !answered {
-            found.push(Unmet::NotAnswerable { name: name() });
-        }
     }
 }
 
 /// Each block the return writes, in the order the cell writes them, then any other in the order of its name: one the
 /// cell writes there, as a string or as a choice's value with its line of why, which is kept as its content. A block
-/// the cell does not write in `outputs`, as one it writes through a field of its own, and one in a shape neither a
-/// block nor a choice has, is found.
-fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) -> Vec<Handed> {
+/// that is not among the cell's outputs, and one in a shape neither a block nor a choice has, is found. Beside them,
+/// what the return writes of a block the engine keeps as the work's questions, which is read as them, and is no
+/// version of the block.
+fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) -> (Vec<Handed>, Vec<Value>) {
     let place = flow.flow.place(&cell.id);
     let outputs = place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]);
     let mut names: Vec<&String> = outcome.outputs.keys().collect();
@@ -297,12 +312,16 @@ fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<U
         (at.unwrap_or(usize::MAX), name.as_str())
     });
     let mut handed = Vec::new();
+    let mut asked = Vec::new();
     for name in names {
         let block = BlockId(name.clone());
-        let declared = flow.blocks.get(&block);
-        let through_a_field = declared.is_some_and(|d| d.field.is_some());
-        if !outputs.contains(&block) || through_a_field {
+        if !outputs.contains(&block) {
             found.push(Unmet::NotAnOutput { block });
+            continue;
+        }
+        let declared = flow.blocks.get(&block);
+        if declared.is_some_and(|d| d.kept.as_deref() == Some(flow::QUESTIONS)) {
+            asked.push(outcome.outputs[name].clone());
             continue;
         }
         let matters = !outcome.meaning_unchanged.contains(name);
@@ -327,7 +346,7 @@ fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<U
             value,
         });
     }
-    handed
+    (handed, asked)
 }
 
 /// What is wrong with a block written in a shape neither a block nor a choice has: a choice is not written as its value
@@ -344,12 +363,12 @@ fn misshapen(choice: bool, block: BlockId) -> Unmet {
 /// other in the order of its name; a tool the cell may not ask for is found. Or why they are not of the form: a tool's
 /// requests that are no list.
 fn asks(
-    calls: Map<String, Value>,
+    tools: Map<String, Value>,
     cell: &CellSpec,
     found: &mut Vec<Unmet>,
     words: &Agents,
 ) -> Result<Vec<Ask>, String> {
-    let mut tools: Vec<(String, Value)> = calls.into_iter().collect();
+    let mut tools: Vec<(String, Value)> = tools.into_iter().collect();
     tools.sort_by_key(|(name, _)| {
         let at = cell.tools.iter().position(|t| t == name);
         (at.unwrap_or(usize::MAX), name.clone())
@@ -372,34 +391,27 @@ fn asks(
     Ok(asks)
 }
 
-/// What the return says beside its work.
-fn said(outcome: Outcome) -> Said {
-    let questions = (outcome.questions.into_iter())
-        .map(|q| match q {
-            QuestionIn::Asked(q) => Question::Asked {
-                name: q.name,
-                waits: q.waits,
-                recommends: Some(q.recommends),
-                ask: q.ask,
-                options: (q.options.into_iter())
-                    .map(|o| Way {
-                        does: o.does,
-                        follows: o.follows,
-                    })
-                    .collect(),
-                about: None,
-                reasons: BTreeMap::new(),
-            },
-            QuestionIn::Withdrawn(q) => Question::Withdrawn {
-                name: q.name,
-                why: q.withdrawn,
-            },
-        })
-        .collect();
-    Said {
-        questions,
-        observations: outcome.observations,
-        reply: outcome.reply,
+/// A question as the return writes it, as the engine keeps it.
+fn question(q: QuestionIn) -> Question {
+    match q {
+        QuestionIn::Asked(q) => Question::Asked {
+            name: q.name,
+            waits: q.waits,
+            recommends: Some(q.recommends),
+            ask: q.ask,
+            options: (q.options.into_iter())
+                .map(|o| Way {
+                    does: o.does,
+                    follows: o.follows,
+                })
+                .collect(),
+            about: None,
+            reasons: BTreeMap::new(),
+        },
+        QuestionIn::Withdrawn(q) => Question::Withdrawn {
+            name: q.name,
+            why: q.withdrawn,
+        },
     }
 }
 

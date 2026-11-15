@@ -507,8 +507,7 @@ impl<'a> Reach<'a> {
             .collect();
         let place = self.flow.flow.place(&before.id);
         let outputs = place.map_or(&[][..], |p| &self.flow.flow.cells()[p].outputs[..]);
-        let field = |b: &BlockId| self.flow.blocks.get(b).is_some_and(|d| d.field.is_some());
-        (alike, outputs.iter().any(|b| !field(b)))
+        (alike, !outputs.is_empty())
     }
 
     /// The other things a round may be given, each alone, on a later entry run by the first trigger that runs one.

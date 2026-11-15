@@ -66,11 +66,15 @@ fn the_engine_s_own_data_a_flow_names_are_its_blocks_as_defined_beside_the_flows
     );
     let compiled = compiled(&source);
     let discussion = &compiled.blocks[&BlockId::from("discussion")];
-    assert_eq!(discussion.field.as_deref(), Some("reply"));
     assert_eq!(
         discussion.what.as_deref(),
         Some("What the owner says to the work and what its cells answer.")
     );
+    assert_eq!(
+        discussion.words.as_deref(),
+        Some("`discussion`: your answer to what the owner said to the cell.")
+    );
+    assert_eq!((&discussion.kept, &discussion.shape), (&None, &None));
     assert!(discussion.writers.people && discussion.readers.shown && !discussion.trigger);
     // A datum beside the flows that a flow does not name is none of its blocks.
     assert!(
@@ -160,7 +164,31 @@ fn who_writes_a_block_from_outside_the_cells_is_said_by_from_the_owner_or_a_sour
 }
 
 #[test]
-fn a_datum_is_written_only_through_a_field_of_a_return_the_engine_has() {
+fn a_datum_kept_as_data_of_its_own_and_its_shape_are_as_its_file_says_them() {
+    let source = edit(
+        laid_out(),
+        FLOW_FILE,
+        "data = [\"request\"]",
+        "data = [\"request\", \"questions\"]",
+    );
+    // People write it here, so that no cell asks, which would need what runs a cell that asks.
+    let source = edit(
+        source,
+        "../data/questions.toml",
+        "shown = true",
+        "shown = true\nfrom = \"owner\"",
+    );
+    let compiled = compiled(&source);
+    let questions = &compiled.blocks[&BlockId::from("questions")];
+    assert_eq!(questions.kept.as_deref(), Some(flow::QUESTIONS));
+    let Some(flow::Shape(shape)) = &questions.shape else {
+        panic!("the questions have a shape of their own");
+    };
+    assert_eq!(shape["type"].as_str(), Some("array"));
+}
+
+#[test]
+fn a_datum_is_kept_as_data_of_its_own_only_as_what_the_engine_keeps() {
     let source = edit(
         laid_out(),
         FLOW_FILE,
@@ -170,11 +198,11 @@ fn a_datum_is_written_only_through_a_field_of_a_return_the_engine_has() {
     let source = edit(
         source,
         "../data/discussion.toml",
-        "field = \"reply\"",
-        "field = \"words\"",
+        "shown = true",
+        "shown = true\nkept = \"answers\"",
     );
-    let what = UnknownReturnField { field: "words".into() };
-    assert_eq!(faults(&source), [at("../data/discussion.toml", "field", what)]);
+    let what = UnknownKept { kept: "answers".into() };
+    assert_eq!(faults(&source), [at("../data/discussion.toml", "kept", what)]);
 }
 
 #[test]

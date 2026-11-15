@@ -534,7 +534,7 @@ fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own(
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        fields: names(&["questions", "reply"]),
+        kept: names(&["questions"]),
         details: names(&["files"]),
         ..Default::default()
     };

@@ -1,13 +1,16 @@
-//! The form of a return of a flow: the shape alone, which the agents' program is given with every call of an agent cell
-//! of the flow, and so the same bytes on every call of a session (design document `data-and-context`, 30 and 31). It is
-//! made of the definitions alone: the engine's fields as `agents/return/` defines them, which every agent cell has
-//! alike, and the tools the flow names, each shaped as `agents/tools/` defines it. The blocks a cell writes go in the
-//! field `outputs`, under their names, which the form does not list: the engine checks what a return writes against
-//! the cell it was entered for, once it is read. The rules here name no cell, no datum, no field and no tool.
+//! The form of a return of a line: the shape alone, which the agents' program is given with every call of an agent
+//! cell of the line, and so the same bytes on every call of a session, which is a line's (decision
+//! `one-form-for-a-line`). It is made of the definitions alone, in three parts: the engine's fields as `agents/return/`
+//! defines them, which every agent cell has alike; the blocks the line's cells write, each a field of `outputs` under
+//! its name, in its own shape; and the tools the flow names, each shaped as `agents/tools/` defines it, which the kind
+//! of return that asks for tools holds and nothing else. The engine checks each return against the cell it was entered
+//! for, once it is read. The rules here name no cell, no datum and no tool, and of the engine's fields only the one that
+//! holds the blocks.
 
-use crate::agents::{Agents, Group, InForm, ReturnKind};
-use crate::compile::Compiled;
+use crate::agents::{Agents, OUTPUTS, ReturnKind};
+use crate::compile::{Block, Compiled, Shape};
 use crate::source::Kind;
+use decide::BlockId;
 
 /// The engine's tools the flow's agent cells may ask for, each once, in the order the cells name them: the tools the
 /// flow names, which every agent cell of it has.
@@ -23,15 +26,115 @@ pub fn tools(flow: &Compiled) -> Vec<&str> {
     tools
 }
 
-/// The form of a return of the flow, as JSON, its members in the order the files give them and two spaces to a level:
-/// one of two kinds, never both nor neither, each holding the fields `agents/return/return.toml` gives it in its order,
-/// with a field there only where its own file says it is one of that kind's. The kind that asks for calls holds each
-/// tool of the flow as a list of its requests, and is left out where the flow names no tool. Or why it cannot be made:
-/// the flow names a tool that `agents/tools/` does not define.
-pub fn form(flow: &Compiled, agents: &Agents) -> Result<String, String> {
-    let tools = tools(flow);
-    let mut requests = Vec::new();
-    for tool in &tools {
+/// The blocks the agent cells of the line write, each once, in the order of the walk, and those of a cell in the order
+/// its outputs name them.
+pub fn blocks<'f>(flow: &'f Compiled, line: &str) -> Vec<&'f BlockId> {
+    let mut blocks: Vec<&BlockId> = Vec::new();
+    let of_line = (flow.cells.iter()).filter(|c| c.kind == Kind::Agent && c.line.as_deref() == Some(line));
+    for cell in of_line {
+        let Some(place) = flow.flow.place(&cell.id) else {
+            continue;
+        };
+        for block in &flow.flow.cells()[place].outputs {
+            if !blocks.contains(&block) {
+                blocks.push(block);
+            }
+        }
+    }
+    blocks
+}
+
+/// The form of a return of the line's cells, as JSON, its members in the order the files give them and two spaces to
+/// a level: one of two kinds, never both nor neither. The kind that does the cell's work holds the fields
+/// `agents/return/return.toml` gives it, in its order, with `outputs` holding each block of the line ([`blocks`]) in its
+/// own shape; the kind that asks for tools holds each tool of the flow as a list of its requests, and is left out where
+/// the flow names no tool. Or why it cannot be made: the flow names a tool that `agents/tools/` does not define.
+pub fn form(flow: &Compiled, agents: &Agents, line: &str) -> Result<String, String> {
+    let made = made(flow, agents, line)?;
+    let tools = made.tools.as_ref().map(|tools| kind(tools.clone(), Vec::new()));
+    let outcome = made.outcome(Some(&made.blocks));
+    Ok(json(&top(tools, outcome), 0))
+}
+
+/// The form of a return of the line's cells, in its three parts, each as JSON as [`form`] writes it: together they are
+/// the form, and nothing is in two of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Parts {
+    /// The engine's fields: the form with `outputs` as its own file shapes it, holding no block, and the kind that asks
+    /// for tools, where the flow names any, holding no tool.
+    pub fields: String,
+    /// The blocks of the line, as `outputs` holds them; none where the form has no `outputs`.
+    pub blocks: Option<String>,
+    /// The tools of the flow, as the kind that asks for tools holds them; none where the flow names no tool.
+    pub tools: Option<String>,
+}
+
+/// The form of a return of the line's cells in its three parts, or why it cannot be made, as [`form`] says.
+pub fn parts(flow: &Compiled, agents: &Agents, line: &str) -> Result<Parts, String> {
+    let made = made(flow, agents, line)?;
+    let empty = made.tools.as_ref().map(|_| kind(toml::Table::new(), Vec::new()));
+    let has_outputs = made.fields.iter().any(|(name, _)| name == OUTPUTS);
+    Ok(Parts {
+        fields: json(&top(empty, made.outcome(None)), 0),
+        blocks: has_outputs.then(|| json(&made.outputs(Some(&made.blocks)), 0)),
+        tools: made.tools.map(|tools| json(&kind(tools, Vec::new()), 0)),
+    })
+}
+
+/// What the form is made of: the engine's fields of the kind that does the cell's work, in their order, each as its
+/// file shapes it, and those every return of it holds; the blocks of the line, each under its name in its shape; and
+/// each tool of the flow as a list of its requests, none where it names none.
+struct Made {
+    fields: Vec<(String, toml::Value)>,
+    required: Vec<toml::Value>,
+    blocks: toml::Table,
+    tools: Option<toml::Table>,
+}
+
+impl Made {
+    /// The kind that does the cell's work, `outputs` holding these blocks, or none where it is to hold none.
+    fn outcome(&self, blocks: Option<&toml::Table>) -> toml::Value {
+        let mut properties = toml::Table::new();
+        for (name, shape) in &self.fields {
+            let shape = if name == OUTPUTS {
+                self.outputs(blocks)
+            } else {
+                shape.clone()
+            };
+            properties.insert(name.clone(), shape);
+        }
+        kind(properties, self.required.clone())
+    }
+
+    /// The shape of `outputs` as its file gives it, holding these blocks under `properties` after its `type`, or none.
+    fn outputs(&self, blocks: Option<&toml::Table>) -> toml::Value {
+        let shape = (self.fields.iter())
+            .find(|(name, _)| name == OUTPUTS)
+            .map(|(_, shape)| shape);
+        let Some(toml::Value::Table(shape)) = shape else {
+            return shape.cloned().unwrap_or_else(|| toml::Value::Table(toml::Table::new()));
+        };
+        let Some(blocks) = blocks else {
+            return toml::Value::Table(shape.clone());
+        };
+        let mut with = toml::Table::new();
+        if !shape.contains_key("type") {
+            with.insert("properties".into(), toml::Value::Table(blocks.clone()));
+        }
+        for (key, value) in shape {
+            with.insert(key.clone(), value.clone());
+            if key == "type" {
+                with.insert("properties".into(), toml::Value::Table(blocks.clone()));
+            }
+        }
+        toml::Value::Table(with)
+    }
+}
+
+fn made(flow: &Compiled, agents: &Agents, line: &str) -> Result<Made, String> {
+    let names = tools(flow);
+    let mut tools = toml::Table::new();
+    for tool in &names {
         let Some(defined) = agents.tools.get(*tool) else {
             let file = agents.source("agents/tools/");
             return Err(format!(
@@ -39,58 +142,80 @@ pub fn form(flow: &Compiled, agents: &Agents) -> Result<String, String> {
                 flow.name
             ));
         };
-        requests.push((*tool, &defined.request));
+        let list = table([("type", "array".into()), ("items", defined.request.clone())]);
+        tools.insert(tool.to_string(), list);
     }
-    let kind = |kind: ReturnKind, order: &[InForm]| {
-        let mut properties = toml::Table::new();
-        let mut required = Vec::new();
-        for place in order {
-            match place {
-                InForm::Group(Group::Tools) => {
-                    for (tool, request) in &requests {
-                        let list = table([("type", "array".into()), ("items", (*request).clone())]);
-                        properties.insert(tool.to_string(), list);
-                    }
-                }
-                InForm::Field(name) => {
-                    let Some(field) = agents.fields.get(name).filter(|f| f.kinds.contains(&kind)) else {
-                        continue;
-                    };
-                    properties.insert(name.clone(), field.shape.clone());
-                    if field.required {
-                        required.push(toml::Value::String(name.clone()));
-                    }
-                }
-            }
+    let mut fields = Vec::new();
+    let mut required = Vec::new();
+    for name in &agents.returns.form.outcome {
+        let Some(field) = agents.fields.get(name) else { continue };
+        fields.push((name.clone(), field.shape.clone()));
+        if field.required {
+            required.push(toml::Value::String(name.clone()));
         }
-        let mut object = toml::Table::new();
-        object.insert("type".into(), "object".into());
-        object.insert("properties".into(), toml::Value::Table(properties));
-        if !required.is_empty() {
-            object.insert("required".into(), toml::Value::Array(required));
+    }
+    let mut blocks = toml::Table::new();
+    for block in self::blocks(flow, line) {
+        if let Some(declared) = flow.blocks.get(block) {
+            blocks.insert(block.as_str().to_string(), shape(declared));
         }
-        object.insert("additionalProperties".into(), false.into());
-        toml::Value::Table(object)
+    }
+    Ok(Made {
+        fields,
+        required,
+        blocks,
+        tools: (!names.is_empty()).then_some(tools),
+    })
+}
+
+/// The shape a return holds the block to: the one its file gives; of a choice, its value, one of its values, and a line
+/// of why; of any other, a text.
+fn shape(block: &Block) -> toml::Value {
+    if let Some(Shape(shape)) = &block.shape {
+        return shape.clone();
+    }
+    let Some(values) = &block.values else {
+        return table([("type", "string".into())]);
     };
-    let form = &agents.returns.form;
-    let mut kinds = toml::Table::new();
-    if !tools.is_empty() {
-        kinds.insert(ReturnKind::Calls.name().into(), kind(ReturnKind::Calls, &form.calls));
+    let values = toml::Value::Array(values.iter().cloned().map(toml::Value::String).collect());
+    let value = table([("type", "string".into()), ("enum", values)]);
+    let why = table([("type", "string".into())]);
+    let required = toml::Value::Array(vec!["value".into(), "why".into()]);
+    table([
+        ("type", "object".into()),
+        ("properties", table([("value", value), ("why", why)])),
+        ("required", required),
+        ("additionalProperties", false.into()),
+    ])
+}
+
+/// A kind of return: an object of these properties, and no other, those required where any is.
+fn kind(properties: toml::Table, required: Vec<toml::Value>) -> toml::Value {
+    let mut object = toml::Table::new();
+    object.insert("type".into(), "object".into());
+    object.insert("properties".into(), toml::Value::Table(properties));
+    if !required.is_empty() {
+        object.insert("required".into(), toml::Value::Array(required));
     }
-    kinds.insert(
-        ReturnKind::Outcome.name().into(),
-        kind(ReturnKind::Outcome, &form.outcome),
-    );
-    // One of the two kinds, never both nor neither: the service refuses a choice at the top of a form, so the kinds
-    // are two properties of which the form takes exactly one.
-    let top = table([
+    object.insert("additionalProperties".into(), false.into());
+    toml::Value::Table(object)
+}
+
+/// The top of the form: one of the two kinds, never both nor neither. The service refuses a choice at the top of a form,
+/// so the kinds are two properties of which the form takes exactly one.
+fn top(tools: Option<toml::Value>, outcome: toml::Value) -> toml::Value {
+    let mut kinds = toml::Table::new();
+    if let Some(tools) = tools {
+        kinds.insert(ReturnKind::Tools.name().into(), tools);
+    }
+    kinds.insert(ReturnKind::Outcome.name().into(), outcome);
+    table([
         ("type", "object".into()),
         ("properties", toml::Value::Table(kinds)),
         ("minProperties", 1.into()),
         ("maxProperties", 1.into()),
         ("additionalProperties", false.into()),
-    ]);
-    Ok(json(&top, 0))
+    ])
 }
 
 fn table<const N: usize>(entries: [(&str, toml::Value); N]) -> toml::Value {

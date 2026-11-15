@@ -165,8 +165,8 @@ run next all the same, and the note would be filled, since the new session lacks
     question has both the datum an answer writes (26) and its own `{cell}_spoken_to`. A flow without them is refused as
     it loads.
 
-34. The cell answers at once and goes on with its work. It hands in its answer as it hands in anything, in `reply`,
-    and the answer is added to the record; with it the round says that it has dealt with the owner's words. What else
+34. The cell answers at once and goes on with its work. It hands in its answer as it hands in any block, as the
+    record's, and the answer is added to the record; with it the round says that it has dealt with the owner's words. What else
     ran the cell is still new, so the cell is entered again and goes on with the rest (9). No tool is needed for
     answering.
 

@@ -1074,7 +1074,7 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
-    /// It deals with the owner's words, by this trigger, and gives no answer in `reply`.
+    /// It deals with the owner's words, by this trigger, and writes no answer in the record of what is said.
     NotAnswered { name: String },
     /// The work's branch changes this file the project protects, and nothing says why.
     Unexplained { path: String },

@@ -335,10 +335,12 @@ pub enum Unmet {
     QuestionTwice { name: String },
     /// The question of this name recommends none of its options, or has none.
     NotAnOption { name: String },
-    /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it.
+    /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it. Returns
+    /// read before a cell could ask only where it writes the work's questions were sent back so; a question of a cell
+    /// that does not write them is now a block that is not among its outputs.
     NotAnswerable { name: String },
-    /// The return names as dealt with the owner's words, by this trigger, and gives no answer in `reply`, which the
-    /// record of what is said is written through (design document `data-and-context`, 38).
+    /// The return names as dealt with the owner's words, by this trigger, and writes no answer in the record of what is
+    /// said that the trigger has its agent read (design document `data-and-context`, 38).
     NotAnswered { name: String },
     /// The work's branch, as the round left it, changes the file of this path, which the project protects, and neither
     /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking

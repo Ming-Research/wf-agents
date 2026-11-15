@@ -369,9 +369,13 @@ pub struct BlockFile {
     /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
     /// each cell that reads or writes it.
     pub what: Option<String>,
-    /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
-    /// under the block's name: a name of a field of the engine's.
-    pub field: Option<String>,
+    /// What the engine keeps what a cell writes in the block as, where it keeps it as data of its own and not as the
+    /// block's versions: a name of a kind the engine keeps.
+    pub kept: Option<String>,
+    /// What a cell that writes the block is told of writing it, after the list of what it returns.
+    pub words: Option<String>,
+    /// The shape a return holds the block to, where it is neither a text nor a choice.
+    pub shape: Option<toml::Value>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
     /// `{name}` in it a place the engine fills in a run.
     #[serde(default)]
@@ -401,9 +405,13 @@ pub struct LaidOutBlockFile {
     /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
     /// each cell that reads or writes it.
     pub what: Option<String>,
-    /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
-    /// under the block's name: a name of a field of the engine's.
-    pub field: Option<String>,
+    /// What the engine keeps what a cell writes in the block as, where it keeps it as data of its own and not as the
+    /// block's versions: a name of a kind the engine keeps.
+    pub kept: Option<String>,
+    /// What a cell that writes the block is told of writing it, after the list of what it returns.
+    pub words: Option<String>,
+    /// The shape a return holds the block to, where it is neither a text nor a choice.
+    pub shape: Option<toml::Value>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
     /// `{name}` in it a place the engine fills in a run. The words are the flow's, so the code holds none of them.
     #[serde(default)]
@@ -431,7 +439,9 @@ impl From<LaidOutBlockFile> for BlockFile {
             shown: block.shown,
             default: block.default,
             what: block.what,
-            field: block.field,
+            kept: block.kept,
+            words: block.words,
+            shape: block.shape,
             writes: block.writes,
         }
     }

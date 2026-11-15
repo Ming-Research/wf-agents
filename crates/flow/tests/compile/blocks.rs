@@ -203,7 +203,7 @@ fn a_choice_has_values_each_given_once() {
 
 #[test]
 fn a_cell_that_writes_the_work_s_questions_is_run_by_the_owner_s_answer_and_by_the_owner_s_words() {
-    let asks = "[blocks.plan]\n\n[blocks.asks]\nfield = \"questions\"\nshown = true\n";
+    let asks = "[blocks.plan]\n\n[blocks.asks]\nkept = \"questions\"\nshown = true\n";
     let source = edit(valid(), FLOW_FILE, "[blocks.plan]\n", asks);
     let outputs = r#"outputs = ["plan", "asks"]"#;
     let source = edit(source, "plan.toml", r#"outputs = ["plan"]"#, outputs);
@@ -260,7 +260,7 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        fields: names(&["questions", "reply"]),
+        kept: names(&["questions"]),
         details: names(&["files"]),
         ..Default::default()
     };

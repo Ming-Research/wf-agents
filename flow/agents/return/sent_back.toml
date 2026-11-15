@@ -16,7 +16,7 @@ again = "Return again: everything this return is to say, in one return."
 # choice, each between backticks, joined by `between`; `{version}` a version's number; `{why}` why what came back could
 # not be read; `{path}` a file's path.
 [faults]
-# The block is not one the cell writes in `outputs`: no block of the cell's, or one it writes through a field of its own.
+# The block is not one the cell writes in `outputs`: no block of the cell's.
 not_an_output = "`{block}` is not a block this cell writes in `outputs`."
 written_twice = "`{block}` is written twice."
 # A choice not written as `value` and `why`.
@@ -40,9 +40,11 @@ question_taken = "`{name}` is the name of a question this cell did not ask: give
 no_such_question = "`{name}` is withdrawn, and no question of this cell of that name stands."
 question_twice = "`{name}` is written twice in `questions`."
 not_an_option = "The question `{name}` recommends none of its options: `recommends` counts them from 1."
-# A return that names the owner's words in `dealt_with` and gives nothing in `reply`, which they are answered in.
-not_answered = "`{name}` is named in `dealt_with`, and the return gives no `reply`: answer there what the owner said."
-# The cell has no trigger an answer runs, so an answer could not reach it.
+# A return that names the owner's words in `dealt_with` and writes no words in `outputs` of the record they are
+# answered in, which the trigger of the owner's words has its agent read.
+not_answered = "`{name}` is named in `dealt_with`, and the return gives no `discussion`: answer there what the owner said."
+# Of a return read before a cell could ask only where it writes the work's questions, which asked from a cell no answer
+# runs.
 not_answerable = "The question `{name}` cannot be asked from this cell: no answer runs it again, so none could reach you. Decide it yourself."
 # A file the project protects, `{path}`, that the work's branch changes as the round left it, and of which neither the
 # return nor the engine's question that stands of the file as it is says why.

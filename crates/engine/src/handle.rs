@@ -750,8 +750,9 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
 }
 
 /// Takes the run's return, which met everything the flow requires: the calls it asks for are made, and the run
-/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish, and
-/// then the questions it asks, asks anew or withdraws, each a version of its own of its cell. A return of the form
+/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish, of a
+/// record of what is said the cell's entry of it ([`spoken::entry`]), and then the questions it asks, asks anew or
+/// withdraws, each a version of its own of its cell. A return of the form
 /// before a return that asks ended its run made all its calls at once as it was taken, and its run rested at them,
 /// unless the owner's word at the limit of calls was asked for first: such a run finishes making none again, or all it
 /// asked for where it made none, and its cell is owed those it made. The run keeps, as it finishes, the observations
@@ -761,15 +762,13 @@ fn finish(
     work: &mut Work,
     run: RunId,
     dealt_with: Vec<BlockId>,
-    mut writes: Vec<Write>,
+    writes: Vec<Write>,
     effects: &mut Vec<Effect>,
 ) {
     let mut questions = Vec::new();
-    let mut reply = None;
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
         Some(Back::Returned { handed, asks, said, .. }) => {
             questions = said.questions.clone();
-            reply = said.reply.clone();
             (handed.clone(), asks.clone())
         }
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
@@ -794,21 +793,12 @@ fn finish(
     }
     let at = work.tick();
     for h in handed {
-        work.contents.insert((h.block, at), h.content);
+        let content = spoken::entry(flow, &h.block, h.content);
+        work.contents.insert((h.block, at), content);
     }
-    // The cell's answer to the owner is its entry of the record of what is said, a version of its run's as any block it
-    // writes.
     let cell = (work.records.started.iter())
         .find(|s| s.run == run)
         .map(|s| s.cell.clone());
-    if let Some((block, entry)) = cell.as_ref().and_then(|c| spoken::reply(flow, c, reply.as_deref())) {
-        work.contents.insert((block.clone(), at), entry);
-        writes.push(Write {
-            block,
-            meaning_unchanged: false,
-            value: None,
-        });
-    }
     work.records.finished.push(Finished {
         run,
         at,

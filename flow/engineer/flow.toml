@@ -9,7 +9,7 @@ order = ["S1", "R0", "R1", "R2", "D1", "D2", "D3", "D4", "I1", "T1", "T2", "M1",
 data = ["background", "dependencies", "questions", "answers", "asked", "discussion", "tree"]
 
 # The engine's tools every agent cell of the flow may ask for, each defined once in `../agents/tools/`. The form of a
-# return holds them, the same for every cell of the flow (`../agents/return/return.toml`).
+# return holds them, the same for every line of the flow (`../agents/return/return.toml`).
 tools = ["query", "run_tests"]
 
 # The blocks of the plan, which a cell that reviews or rethinks the plan is run by as one: a new version of any of them

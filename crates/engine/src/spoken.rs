@@ -13,9 +13,9 @@
 //! the cell while it waits, as the owner turning to a cell does. Where a round of the cell is under way, its carrier is
 //! given the entry to hand to the round after its next use of a tool ([`Effect::Tell`]); only once it says the round
 //! was given it ([`Event::SaidToRound`]) are the two versions put into the round, so that a round consumes only words
-//! that reached it and a session is not given again what its round was told. A cell answers in its return's field
-//! `reply`, and the answer is its entry of the record as its run finishes, in the words of that datum's `reply`
-//! (`handle`), which name no cell either: the run that wrote it is the cell's.
+//! that reached it and a session is not given again what its round was told. A cell answers by writing the record in
+//! its return's `outputs`, as it writes any block, and the answer is its entry of the record as its run finishes, in
+//! the words of that datum's `reply` ([`entry`]), which name no cell either: the run that wrote it is the cell's.
 //!
 //! [`Event::SaidToRound`]: crate::Event::SaidToRound
 
@@ -32,8 +32,6 @@ use crate::event::{Effect, Refused};
 pub const OWNER: &str = "owner";
 /// The text of the record of what is said that is a cell's answer: `{reply}` its answer.
 pub const REPLY: &str = "reply";
-/// The field of a return that holds the cell's answer to the owner, which the record of what is said is written through.
-pub const REPLY_FIELD: &str = "reply";
 
 /// What the owner said to a round under way, as its carrier is to hand it in ([`Effect::Tell`]): the owner's entry of
 /// the record of what is said, the record and the entry's version, the trigger of the cell's it is new to the round as
@@ -149,14 +147,8 @@ pub(crate) fn said(
     let (trigger, own) = trigger(flow, spec).expect("the receiver is one the owner's words run");
     let mut put_in = Vec::new();
     let mut told = None;
-    for block in trigger.read.iter().filter(|b| *b != own) {
-        let Some(record) = flow
-            .blocks
-            .get(block)
-            .filter(|b| b.writers.outside.as_deref() == Some(flow::WORDS))
-        else {
-            continue;
-        };
+    for block in trigger.said_in(flow) {
+        let record = &flow.blocks[block];
         let entry = fill(
             record.writes.get(OWNER).unwrap_or_default(),
             &[("words", words.as_str())],
@@ -237,10 +229,8 @@ pub fn carry(flow: &Compiled, work: &mut Work) -> bool {
             .filter(|words| !words.trim().is_empty())
             .cloned()
             .collect();
-        let records = (trigger.read.iter().filter(|b| *b != own))
-            .filter_map(|b| (flow.blocks.get(b)).map(|declared| (b, declared)))
-            .filter(|(_, declared)| declared.writers.outside.as_deref() == Some(flow::WORDS));
-        for (block, record) in records {
+        for block in trigger.said_in(flow) {
+            let record = &flow.blocks[block];
             for words in &said {
                 let entry = fill(
                     record.writes.get(OWNER).unwrap_or_default(),
@@ -291,13 +281,15 @@ fn write(work: &mut Work, block: &BlockId, content: String, said_to: Option<&Cel
     at
 }
 
-/// The cell's answer to the owner, as its entry of the record of what is said: in the words of that datum's `reply`,
-/// where the cell writes the datum the field `reply` is written through and the answer has words; none otherwise. The
-/// cell is the one whose run writes it.
-pub(crate) fn reply(flow: &Compiled, cell: &CellId, reply: Option<&str>) -> Option<(BlockId, String)> {
-    let reply = reply.filter(|r| !r.trim().is_empty())?;
-    let (block, declared) = (flow.blocks.iter()).find(|(_, b)| b.field.as_deref() == Some(REPLY_FIELD))?;
-    let writes = (flow.flow.cells().iter()).any(|c| c.id == *cell && c.outputs.contains(block));
-    let entry = fill(declared.writes.get(REPLY).unwrap_or_default(), &[("reply", reply)]);
-    writes.then(|| (block.clone(), entry))
+/// What a cell's run writes of a block it hands in, as its content: of a record of what is said, which the owner's
+/// words write ([`flow::WORDS`]), the cell's answer as its entry, in the words of that datum's `reply`; of any other
+/// block, what it handed in. The cell is the one whose run writes it.
+pub(crate) fn entry(flow: &Compiled, block: &BlockId, content: String) -> String {
+    match flow.blocks.get(block) {
+        Some(record) if record.writers.outside.as_deref() == Some(flow::WORDS) => fill(
+            record.writes.get(REPLY).unwrap_or_default(),
+            &[("reply", content.as_str())],
+        ),
+        _ => content,
+    }
 }

@@ -5,8 +5,8 @@
 // From the engine, with the mocks off:
 // - The body, from the work's blocks, the current version of each: Background is `background`; Plan is `plan_owner`,
 //   and under it `questions`; there is no Problem. For an item of the `deliver` flow, Plan is `delivered`.
-// - The messages: of the record of what is said (the block the engine's source of the owner's words writes and the
-//   cells write through the return's field `reply`), each of the owner's entries is the owner's, to the cell the
+// - The messages: of the record of what is said (a block the engine's source of the owner's words writes that no
+//   trigger stands on, which the cells write in their returns), each of the owner's entries is the owner's, to the cell the
 //   version is said to, and each a cell wrote is its reply, to the owner, its cell the run's that wrote it; each with
 //   the words alone, read back out of the entry by the record's `owner` or `reply` text; of a flow before that record,
 //   each version of a block people write as a note to one cell (one people write, with no fixed values, that one cell
@@ -117,7 +117,9 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
   // The owner's notes of a flow before the record, each to the one cell that reads it.
   const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && b.readBy.cells.length === 1);
   // The record of what is said.
-  const record = page.flow.blocks.find((b) => b.field === 'reply' && b.writtenBy.outside === WORDS);
+  const stoodOn = (block: string) =>
+    page.flow.cells.some((c) => c.triggers.some((t) => t.block === block || t.group.includes(block)));
+  const record = page.flow.blocks.find((b) => b.writtenBy.outside === WORDS && !stoodOn(b.name));
   const text = (name: string) => record?.writes?.find(([n]) => n === name)?.[1];
   const entries = record === undefined ? [] : versionsOf(page, record.name).map((v) => ({ v, block: record.name }));
   const said = await Promise.all([

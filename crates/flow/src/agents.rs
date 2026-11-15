@@ -66,8 +66,9 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
 /// The file, in `agents/`, of the questions the engine itself asks the owner.
 pub const ASKS_FILE: &str = "asks.toml";
 
-/// The field of a return that holds the blocks a cell writes, each under its name. The form does not list them: the
-/// cell is told its own with its task, and the engine checks what it writes against them.
+/// The field of a return that holds the blocks a cell writes, each under its name, in its own shape. The form of a
+/// line lists the blocks of the line's cells there; the cell is told its own with its task, and the engine sends back
+/// a block that is not among them.
 pub const OUTPUTS: &str = "outputs";
 
 /// All of it, read from the directory that holds the flows.
@@ -498,32 +499,14 @@ pub struct AskOption {
     pub follows: String,
 }
 
-/// The form: the order of the fields of each kind of return, the same for every cell of a flow. The blocks a cell
-/// writes go in the field [`OUTPUTS`], under their names, which the form does not list.
+/// The form: the fields of the kind of return that does the cell's work, in their order, the same for every cell of
+/// a line; the blocks of the line's cells go in the field [`OUTPUTS`]. The kind that asks for tools holds each tool
+/// the flow names, and nothing else.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Form {
-    /// What a return that asks for calls holds, in order.
-    pub calls: Vec<InForm>,
-    /// What a return that does the cell's work holds, in order.
-    pub outcome: Vec<InForm>,
-}
-
-/// What stands at a place of the form: a group the form makes of what the flow has, or a field of the engine's by its
-/// name.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
-pub enum InForm {
-    Group(Group),
-    Field(String),
-}
-
-/// A group the form makes of what the flow has.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Group {
-    /// Each tool the flow names.
-    Tools,
+    /// The engine's fields a return that does the cell's work holds, by name, in order.
+    pub outcome: Vec<String>,
 }
 
 /// What holds together the part on returning of a line's system prompt, the same for every cell of the flow.
@@ -544,8 +527,10 @@ pub struct Told {
     /// The fields the owner reads, in the order `owner_reads` names them.
     pub reads: Vec<String>,
     pub and: String,
-    pub calls: String,
+    /// The kind of return that asks for tools, where the flow names any.
     pub tools: String,
+    /// What heads the tools, and how each is asked for, where the flow names any.
+    pub requests: String,
 }
 
 /// What a cell is told it writes, with its task: its blocks, each on a line after the heading.
@@ -563,14 +548,12 @@ pub struct Outputs {
     pub none: String,
 }
 
-/// A field of a return that is the engine's, which every agent cell has: `agents/return/fields/<name>.toml`.
+/// A field of a return that is the engine's, which every agent cell has: `agents/return/fields/<name>.toml`. It is a
+/// field of the kind of return that does the cell's work.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Field {
-    /// The kinds of return it is a field of.
-    #[serde(rename = "in")]
-    pub kinds: Vec<ReturnKind>,
-    /// Every return of those kinds holds it.
+    /// Every return of that kind holds it.
     #[serde(default)]
     pub required: bool,
     pub told: ToldAs,
@@ -581,11 +564,10 @@ pub struct Field {
 }
 
 /// A kind of return.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReturnKind {
-    /// A return that asks the engine for calls.
-    Calls,
+    /// A return that asks the engine for tools.
+    Tools,
     /// A return that does the cell's work.
     Outcome,
 }
@@ -594,7 +576,7 @@ impl ReturnKind {
     /// Its name, as the files write it, which is its field in a return.
     pub fn name(self) -> &'static str {
         match self {
-            ReturnKind::Calls => "calls",
+            ReturnKind::Tools => "tools",
             ReturnKind::Outcome => "outcome",
         }
     }
@@ -661,6 +643,7 @@ pub struct SentBackFaults {
     pub no_such_question: String,
     pub question_twice: String,
     pub not_an_option: String,
+    /// Of a return read before a cell could ask only where it writes the work's questions.
     pub not_answerable: String,
     pub not_answered: String,
     /// `{path}` a file the project protects that the work changes, and of which it says not why.
@@ -1163,13 +1146,9 @@ pub fn read(root: &Path) -> Result<Agents, String> {
     let return_file = at.join("return").join("return.toml");
     let returns: Return = file(&return_file)?;
     let fields: BTreeMap<String, Field> = each(&at.join("return").join("fields"))?;
-    let in_form = (returns.form.calls.iter()).chain(&returns.form.outcome);
-    let named = (in_form.filter_map(|f| match f {
-        InForm::Field(name) => Some(name),
-        InForm::Group(_) => None,
-    }))
-    .chain(&returns.how_you_return.listed)
-    .chain(&returns.how_you_return.reads);
+    let named = (returns.form.outcome.iter())
+        .chain(&returns.how_you_return.listed)
+        .chain(&returns.how_you_return.reads);
     for name in named {
         if !fields.contains_key(name) {
             let what = format!("names the field {name}, which return/fields/ does not have");

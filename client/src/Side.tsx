@@ -182,16 +182,15 @@ function sizeOf(part: SentPart): number {
 }
 
 /// Everything an agent's cell is sent, numbered in the order sent, in three sections by the way it reaches the agent:
-/// the program's own with the form, which the program makes a tool of; the system prompt; the message. Each part shows
-/// its key in the files, its attributes, the file its words come from, and its text in each form it is sent in: as
-/// written, `whole`, `held`, `held_new`, and each item of a list by its key; a text every cell of the line is sent alike, or a long
-/// one, is folded.
+/// the program's own with the form, which the program makes a tool of, in the form's three parts, each drawn as a
+/// tree; the system prompt; the message. Each part shows its key in the files, its attributes, the file its words come
+/// from, and its text in each form it is sent in: as written, `whole`, `held`, `held_new`, and each item of a list by
+/// its key; a text every cell of the line is sent alike, or a long one, is folded.
 function AgentSent({
   parts,
   line,
   cells,
   unknown,
-  tools,
   taskFile,
   onChoose,
 }: {
@@ -199,8 +198,6 @@ function AgentSent({
   line: string;
   cells: string[];
   unknown: Unknown[];
-  /// The flow's tools, which the form's tree draws apart from the fields.
-  tools: string[];
   /// The file the cell's task is written in, where it is not written in place.
   taskFile: string | null;
   onChoose: (c: Chosen) => void;
@@ -227,7 +224,7 @@ function AgentSent({
             <span className="muted">{charactersWords(sizeOf(part))}</span>
             <Folded label="the text">
               {part.what === 'form' ? (
-                <FormTree text={textOf(part.pieces)} tools={tools} />
+                <FormTree text={textOf(part.pieces)} part={part.name} />
               ) : (
                 <SentText pieces={part.pieces} />
               )}
@@ -316,15 +313,13 @@ export function CellPanel(props: {
   /// What the cell's agent is sent as the cell is entered, part by part in the order sent; none for an engine's
   /// cell, and where the page was not given it.
   sent?: SentPart[];
-  /// The flow's tools, as what an agent is sent names them; none where the page was not given them.
-  tools?: string[];
   /// What an engine's cell's act writes; none for an agent's cell, and where the page was not given it.
   act?: ActWords;
   /// The names a text sent to an agent gives that nothing defines.
   unknown?: Unknown[];
   onChoose: (c: Chosen) => void;
 }) {
-  const { cell, flow, sent, tools, act, unknown, onChoose } = props;
+  const { cell, flow, sent, act, unknown, onChoose } = props;
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const onLine = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []) : [];
   const sharing = onLine.filter((c) => c !== cell.id);
@@ -385,7 +380,6 @@ export function CellPanel(props: {
             line={cell.line ?? ''}
             cells={onLine}
             unknown={unknown ?? []}
-            tools={tools ?? []}
             taskFile={cell.taskFile}
             onChoose={onChoose}
           />

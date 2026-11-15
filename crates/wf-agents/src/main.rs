@@ -672,18 +672,9 @@ const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 /// words beside the flows (`agents/tools/`), while the form of the return does not hold them yet.
 const TOOLS: [&str; 2] = ["query", "run_tests"];
 
-/// The names of the fields of a return that are the engine's, as the design of data and context settles them: what a
-/// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions, why the
-/// work changes each file the project protects, and its answer to the owner. A datum may be written through
-/// `questions` or `reply`.
-const FIELDS: [&str; 6] = [
-    "dealt_with",
-    "meaning_unchanged",
-    "observations",
-    "questions",
-    "protected_changes",
-    "reply",
-];
+/// What the engine keeps of what a cell writes in a block as data of its own, not as the block's versions: `questions`,
+/// the questions put to the owner, each a version of its own under its name, which the owner answers.
+const KEPT: [&str; 1] = [flow::QUESTIONS];
 
 /// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
 /// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
@@ -703,7 +694,7 @@ fn has(dir: &Path) -> Has {
         acts: names(&ACTS),
         tools: names(&TOOLS),
         system: system.into_iter().flatten().collect(),
-        fields: names(&FIELDS),
+        kept: names(&KEPT),
         details: names(&DETAILS),
     }
 }
@@ -826,7 +817,7 @@ fn words(what: &FaultKind, field: &str) -> String {
             "the cell names triggered_by and context, which only a flow laid out one thing to a file has".to_string()
         }
         F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
-        F::UnknownReturnField { field } => format!("the engine's return has no field named \"{field}\""),
+        F::UnknownKept { kept } => format!("the engine keeps nothing as \"{kept}\""),
         F::AsksWithNoAnswer { block } => {
             format!(
                 "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"

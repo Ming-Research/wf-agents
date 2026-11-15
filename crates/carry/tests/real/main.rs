@@ -284,6 +284,20 @@ fn compiled(on: On) -> Compiled {
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");
     }
+    // A build the owner's answer runs may ask the owner: the work's questions are among its outputs, and the owner's
+    // words run it as well, as they run every cell that may ask.
+    if let Some(build) = source
+        .cells
+        .get_mut("build")
+        .filter(|build| build.contains("\"answered\"]"))
+    {
+        *build = (build.replace("\"answered\"]", "\"answered\", \"build_spoken_to\"]"))
+            .replace("outputs = [\"code\"]", "outputs = [\"code\", \"questions\"]");
+        source.flow.push_str(
+            "\n[blocks.questions]\nkept = \"questions\"\nshown = true\n\n[blocks.questions.shape]\ntype = \"array\"\n\n\
+             [blocks.build_spoken_to]\noutside = \"words\"\n",
+        );
+    }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
         sources: names(&[
@@ -291,6 +305,7 @@ fn compiled(on: On) -> Compiled {
             driver::SESSION,
             carry::tree::TREE,
             flow::ANSWER,
+            flow::WORDS,
             "main",
         ]),
         acts: names(&["start", "check", "merge", "deliver"]),
@@ -298,6 +313,7 @@ fn compiled(on: On) -> Compiled {
         // the tree.
         details: names(&["files"]),
         tools: names(&["query"]),
+        kept: names(&[flow::QUESTIONS]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the flow compiles")
@@ -357,7 +373,6 @@ dealt=$(printf '%s\n' "$text" | sed -n '/^## Why you are run$/,$p' | sed -n 's/^
 calls=''
 out=''
 unchanged=''
-asked=''
 protected=''
 case "$first" in
     Plan)
@@ -383,7 +398,7 @@ case "$first" in
         if [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
             # It leaves all that ran it for after the answer.
             dealt=''
-            asked='{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}'
+            out='"questions":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
         elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
             calls='"query":[{{"sql":"select the check"}}]'
         else
@@ -426,9 +441,9 @@ case "$first" in
     Review) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
 if [ -n "$calls" ]; then
-    structured="{{\"calls\":{{$calls}}}}"
+    structured="{{\"tools\":{{$calls}}}}"
 else
-    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],\"questions\":[$asked],$protected\"outputs\":{{$out}}}}}}"
+    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],$protected\"outputs\":{{$out}}}}}}"
 fi
 contexts='{contexts}'
 iterations='{iterations}'
@@ -698,9 +713,9 @@ impl Real {
         std::fs::read_to_string(self.calls.join(format!("{n}.schema"))).expect("the form given is kept")
     }
 
-    /// The form of return of the flow, as what is beside the flows makes it.
-    pub fn form(&self) -> String {
-        flow::form::form(&self.flow, &beside()).expect("the form is made")
+    /// The form of return of the line, as what is beside the flows makes it.
+    pub fn form(&self, line: &str) -> String {
+        flow::form::form(&self.flow, &beside(), line).expect("the form is made")
     }
 
     /// The work's place, as the installation names it.

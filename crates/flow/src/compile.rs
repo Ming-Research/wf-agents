@@ -84,8 +84,10 @@ pub const WORDS: &str = "words";
 /// engine writes it as the owner answers.
 pub const ANSWER: &str = "answer";
 
-/// The field of a return through which a cell asks the owner its questions, asks them anew or withdraws them (design
-/// document `data-and-context`, 32): a block written through it is the work's questions.
+/// What the engine keeps the work's questions as, which a cell asks the owner, asks anew or withdraws in a block it
+/// writes (design document `data-and-context`, 26): each a version of its own under its name, not a version of the
+/// block. A block a cell writes that is kept so ([`Block::kept`]) is the work's questions, and the cells that write it
+/// are those that may ask.
 pub const QUESTIONS: &str = "questions";
 
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
@@ -105,8 +107,9 @@ pub struct Has {
     /// The parts that the engine places in the system prompt of every line's session itself. A line names none of
     /// them, and no set of the flow's rules has the name of one.
     pub system: BTreeSet<String>,
-    /// The fields of a return that are the engine's: a block written through a field names one of them.
-    pub fields: BTreeSet<String>,
+    /// What the engine keeps of what a cell writes in a block as data of its own, not as the block's versions: a block
+    /// that is kept so names one of them.
+    pub kept: BTreeSet<String>,
     /// The places the engine fills in a run with what happened: a trigger that says what happened names one of them.
     pub details: BTreeSet<String>,
 }
@@ -206,6 +209,15 @@ impl Trigger {
         let writes = |b: &&BlockId| flow.blocks.get(*b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
         self.blocks().iter().find(writes)
     }
+
+    /// Of the trigger of the owner's words, the records of what is said that its agent reads for it: each datum it
+    /// reads that the owner's words write ([`WORDS`]), but the block it stands on. The owner's words are written there
+    /// as the owner's entry, and the cell answers them there. None of another trigger.
+    pub fn said_in<'f>(&'f self, flow: &'f Compiled) -> impl Iterator<Item = &'f BlockId> + 'f {
+        let own = self.of_source(flow, WORDS);
+        let words = |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref()) == Some(WORDS);
+        (self.read.iter()).filter(move |b| own.is_some_and(|own| *b != own) && words(*b))
+    }
 }
 
 impl CellSpec {
@@ -267,8 +279,14 @@ pub struct Block {
     pub default: Option<String>,
     /// What the block is, in a sentence, where the definition says it.
     pub what: Option<String>,
-    /// The field of a return that a cell writes the block through, where it writes it through one.
-    pub field: Option<String>,
+    /// What the engine keeps what a cell writes in the block as, where it keeps it as data of its own and not as the
+    /// block's versions, as [`QUESTIONS`].
+    pub kept: Option<String>,
+    /// What a cell that writes the block is told of writing it, after the list of what it returns; none where its
+    /// file says nothing.
+    pub words: Option<String>,
+    /// The shape a return holds the block to, where its file gives one: neither a text nor a choice.
+    pub shape: Option<Shape>,
     /// The block stands only for a trigger, which declares it: no cell is given it, writes it or describes the work by
     /// it. A source of the engine's that fires the trigger may write words into it, as its `writes` give them.
     pub trigger: bool,
@@ -280,6 +298,18 @@ pub struct Block {
     /// Who reads it.
     pub readers: Readers,
 }
+
+/// The shape a return holds a block to, as its file gives it. Two are the same where they are written the same.
+#[derive(Clone, Debug)]
+pub struct Shape(pub toml::Value);
+
+impl PartialEq for Shape {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_string() == other.0.to_string()
+    }
+}
+
+impl Eq for Shape {}
 
 /// Who writes a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -415,8 +445,8 @@ pub enum FaultKind {
     /// A value of a file beside the flows that stands for each cell, each datum or each group does not hold the name
     /// that stands for it, `{cell}`, `{datum}` or `{group}`.
     MissingPlaceholder { placeholder: String },
-    /// The block is written through a field of a return that the engine does not have.
-    UnknownReturnField { field: String },
+    /// The block is kept as data of a kind the engine does not keep.
+    UnknownKept { kept: String },
     /// The cell writes the block, which holds the work's questions ([`QUESTIONS`]), and no block of the source
     /// [`ANSWER`] runs it: the owner's answer to a question it asks would run no cell.
     AsksWithNoAnswer { block: String },
@@ -1431,8 +1461,8 @@ impl<'a> Definition<'a> {
             || !uses.tests.is_empty()
     }
 
-    /// The faults of the declared blocks: values that make no choice, a source or a field of a return the engine does
-    /// not have, a block with no writer, and one with no reader.
+    /// The faults of the declared blocks: values that make no choice, a source or a kind of data kept that the engine
+    /// does not have, a block with no writer, and one with no reader.
     fn check_blocks(&self, has: &Has, faults: &mut Vec<Fault>) {
         for (name, block) in &self.flow.blocks {
             let at = |field: &str, what| self.places.fault("blocks", name, field, what);
@@ -1475,8 +1505,8 @@ impl<'a> Definition<'a> {
                 // Laid out one thing to a file, who writes a block from outside the cells is said by `from`.
                 faults.push(at(if self.places.laid_out { "from" } else { "outside" }, what));
             }
-            if let Some(field) = block.field.as_ref().filter(|f| !has.fields.contains(*f)) {
-                faults.push(at("field", FaultKind::UnknownReturnField { field: field.clone() }));
+            if let Some(kept) = block.kept.as_ref().filter(|k| !has.kept.contains(*k)) {
+                faults.push(at("kept", FaultKind::UnknownKept { kept: kept.clone() }));
             }
             if !self.written(name) {
                 let what = FaultKind::NoWriter { block: name.clone() };
@@ -1740,7 +1770,7 @@ impl<'a> Definition<'a> {
         let (answered, spoken_to) = (run_by(ANSWER), run_by(WORDS));
         if !unread_triggers {
             for (i, block) in file.outputs.iter().enumerate() {
-                if self.flow.blocks.get(block).and_then(|b| b.field.as_deref()) != Some(QUESTIONS) {
+                if self.flow.blocks.get(block).and_then(|b| b.kept.as_deref()) != Some(QUESTIONS) {
                     continue;
                 }
                 if !answered {
@@ -2225,7 +2255,9 @@ impl<'a> Definition<'a> {
                     values: declared.values.clone(),
                     default: declared.default.clone(),
                     what: declared.what.clone(),
-                    field: declared.field.clone(),
+                    kept: declared.kept.clone(),
+                    words: declared.words.clone(),
+                    shape: declared.shape.clone().map(Shape),
                     trigger: self.trigger_blocks.contains(name),
                     writes: declared.writes.clone(),
                     writers: Writers {

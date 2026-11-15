@@ -160,8 +160,8 @@ export function faultWords(fault: Fault): string {
       return 'The cell names triggered_by and context, which only a flow laid out one thing to a file has.';
     case 'missingPlaceholder':
       return `This must hold ${w.placeholder}.`;
-    case 'unknownReturnField':
-      return `The engine's return has no field named "${w.field}".`;
+    case 'unknownKept':
+      return `The engine keeps nothing as "${w.kept}".`;
     case 'asksWithNoAnswer':
       return `The cell writes ${w.block}, the work's questions, but no answer runs it: the owner's answer would run no cell.`;
     case 'asksAndCannotBeSpokenTo':

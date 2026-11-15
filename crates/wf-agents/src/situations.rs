@@ -41,7 +41,6 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
     })?;
     let root = (asked.dir.parent()).ok_or_else(|| shown(&"the flows' directory holds it, and it has none"))?;
     let beside = flow::agents::read(root)?;
-    let form = flow::form::form(&compiled, &beside)?;
     let cells: Vec<&CellSpec> = (compiled.cells.iter())
         .filter(|c| c.kind == Kind::Agent && asked.cell.is_none_or(|id| c.id.as_str() == id))
         .collect();
@@ -58,6 +57,7 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
             return Err(format!("{} holds files already", at.display()));
         }
         std::fs::create_dir_all(&at).map_err(|e| format!("{}: {e}", at.display()))?;
+        let form = flow::form::form(&compiled, &beside, cell.line.as_deref().unwrap_or_default())?;
         let system = system(&beside, &compiled, cell, asked.project, &named)?;
         let all = situations::situations(&compiled, &beside, cell, driver::sessions::SESSION);
         for (n, situation) in all.iter().enumerate() {

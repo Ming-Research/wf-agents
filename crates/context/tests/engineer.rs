@@ -39,7 +39,7 @@ fn engineer() -> Compiled {
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         system: flow::system::reserved(&beside).into_iter().collect(),
-        fields: names(&["dealt_with", "meaning_unchanged", "observations", "questions", "reply"]),
+        kept: names(&["questions"]),
         details: names(&["files"]),
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")
@@ -260,15 +260,17 @@ fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_und
     );
     assert!(entered.text.contains("- `on_spoken`"), "{}", entered.text);
 
-    // R2 answers in `reply`, held to nothing its cell must write while its question waits; the answer is its entry of
-    // the record.
+    // R2 answers in `discussion`, held to nothing its cell must write while its question waits; the answer is its
+    // entry of the record.
     sim.tries(&round, 1, entered.fills);
     let came = Came {
         dealt_with: Some(vec![BlockId::from("r2_spoken_to")]),
-        said: Said {
-            reply: Some("The item gives none: the first name it is.".to_string()),
-            ..Said::default()
-        },
+        writes: vec![Handed {
+            block: BlockId::from("discussion"),
+            content: "The item gives none: the first name it is.".to_string(),
+            matters: true,
+            value: None,
+        }],
         ..Came::default()
     };
     sim.returns(&round, came, 0);
@@ -326,16 +328,20 @@ fn words_a_round_under_way_was_told_are_consumed_by_its_return() {
     });
     // It deals with everything that ran it, the words put into it among them.
     let came = Came {
-        writes: vec![Handed {
-            block: BlockId::from("code"),
-            content: "abc".to_string(),
-            matters: true,
-            value: None,
-        }],
-        said: Said {
-            reply: Some("Kept short.".to_string()),
-            ..Said::default()
-        },
+        writes: vec![
+            Handed {
+                block: BlockId::from("code"),
+                content: "abc".to_string(),
+                matters: true,
+                value: None,
+            },
+            Handed {
+                block: BlockId::from("discussion"),
+                content: "Kept short.".to_string(),
+                matters: true,
+                value: None,
+            },
+        ],
         ..Came::default()
     };
     sim.returns(&round, came, 0);
@@ -446,4 +452,30 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
         "{given:?}"
     );
     assert!(entered.text.contains("- `on_spoken`"), "{}", entered.text);
+}
+
+// A cell is told how to write a block, in the words of the block's own file, after the list of what it returns, only
+// where the block is among its outputs: the research, which may ask the owner and answer what the owner says to it, is
+// told how to do both; the code review, which does neither, is told neither.
+#[test]
+fn a_cell_is_told_how_to_write_a_block_only_where_it_writes_it() {
+    let words = |sim: &Sim, block: &str| {
+        let declared = &sim.flow.blocks[&BlockId::from(block)];
+        declared.words.clone().expect("the block's file says how it is written")
+    };
+    let (sim, research) = until("R1");
+    let (questions, discussion) = (words(&sim, "questions"), words(&sim, "discussion"));
+    let entered = sim.enter(&research, sim.begins(&research));
+    for told in [&questions, &discussion] {
+        assert!(
+            entered.text.contains(told.trim()),
+            "{told} is not in:\n{}",
+            entered.text
+        );
+    }
+    let (sim, review) = until("T1");
+    let entered = sim.enter(&review, sim.begins(&review));
+    for told in [&questions, &discussion] {
+        assert!(!entered.text.contains(told.trim()), "{told} is in:\n{}", entered.text);
+    }
 }

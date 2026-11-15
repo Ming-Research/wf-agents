@@ -276,9 +276,6 @@ pub struct Block {
     pub default: Option<String>,
     /// What the block is, in a sentence; none where the definition does not say.
     pub what: Option<String>,
-    /// The field of a return a cell writes it through, where it is not written as a block; none where it is.
-    #[serde(default)]
-    pub field: Option<String>,
     /// It stands only for a trigger: no cell is given it, writes it or describes the work by it.
     #[serde(default)]
     pub trigger: bool,
@@ -442,9 +439,9 @@ pub enum What {
     MissingPlaceholder {
         placeholder: String,
     },
-    /// The block is written through a field of a return the engine does not have.
-    UnknownReturnField {
-        field: String,
+    /// The block is kept as data of a kind the engine does not keep.
+    UnknownKept {
+        kept: String,
     },
     /// The cell writes the work's questions, and no answer of the owner's runs it.
     AsksWithNoAnswer {
@@ -684,7 +681,6 @@ impl Flow {
                 values: block.values.clone(),
                 default: block.default.clone(),
                 what: block.what.clone(),
-                field: block.field.clone(),
                 trigger: block.trigger,
                 writes: (block.writes.0.iter())
                     .map(|(name, text)| (name.clone(), flow::system::with_slots(text)))
@@ -820,7 +816,7 @@ impl What {
             F::TriggerOnly { block } => What::TriggerOnly { block },
             F::NotLaidOut => What::NotLaidOut,
             F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
-            F::UnknownReturnField { field } => What::UnknownReturnField { field },
+            F::UnknownKept { kept } => What::UnknownKept { kept },
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
             F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
             F::TriggerNeverRuns {
