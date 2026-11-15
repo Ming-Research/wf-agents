@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Drawer } from '../parts';
 import type { Items, WorkPage } from '../works-api';
+import { useSource } from '../works/source';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
 import { type Shown, shownTree, standingOf } from './items';
@@ -26,7 +27,8 @@ import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
 import { type Heard, type Source, inOrder, pageSource } from './source';
 
-export function ConsolePage({ source: given, named }: { source?: Source; named?: number } = {}) {
+export function ConsolePage({ source: given, named, wait }: { source?: Source; named?: number; wait?: string } = {}) {
+  const works = useSource();
   const source = useMemo(() => given ?? pageSource(), [given]);
   const panel = useRef<HTMLElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -204,6 +206,8 @@ export function ConsolePage({ source: given, named }: { source?: Source; named?:
             act={source.act}
             loadVersion={source.loadVersion}
             waitsFor={waitsFor}
+            wait={wait}
+            actEngine={works.actOnEngine}
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
             open={open}
             onRead={() => latestData.current !== undefined && scene.current?.show(shownTree(latestData.current))}

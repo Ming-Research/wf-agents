@@ -9,7 +9,8 @@ import { Fragment, type ReactNode, Suspense, useCallback, useEffect, useMemo, us
 import { type Definition, type Flow, type Given, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
-import { type BarItems, Engine, useBarItems, waitsForOwner } from './Engine';
+import { type BarItems, Engine, useBarItems } from './Engine';
+import { waitsOnOwner } from './works/waiting';
 import { LazyFlowChart } from './graph/lazy';
 import { GraphLegend } from './graph/legend';
 import { chartOf } from './graph/model';
@@ -73,7 +74,7 @@ export function Views({
           {route.view === 'console' && (
             // The console's drawing library is large: it is read only once the console is first shown.
             <Suspense fallback={<p className="message muted">Reading the console</p>}>
-              <LazyConsolePage named={'item' in route ? route.item : undefined} />
+              <LazyConsolePage named={'item' in route ? route.item : undefined} wait={'item' in route ? route.wait : undefined} />
             </Suspense>
           )}
           {route.view === 'works' && <WorksList />}
@@ -141,7 +142,7 @@ export function Shell({ route, serves = 'all', children }: {
   const [bar, setBar] = useState<BarItems>({ items: null, failed: null });
   // The questions that hold a work, told of by the browser as they come, on the engine's own page only.
   useNotifications(bar.items, serves === 'all' && !usesFixtures(window.location.search));
-  const waiting = bar.items?.items.filter((i) => waitsForOwner(i.work.now)).length ?? 0;
+  const waiting = bar.items?.items.filter((i) => waitsOnOwner(i.work.now)).length ?? 0;
   const views = TABS.map((t) =>
     t.href === '#/console' ? { ...t, count: waiting, countTitle: `${waiting} waiting for you` } : t,
   );

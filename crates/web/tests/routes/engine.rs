@@ -69,7 +69,7 @@ async fn the_pause_of_everything_holds_back_a_work_added_and_lifted_lets_it_on()
     add_let_on(router, "First", 1).await;
     assert_eq!(
         get_json(router, "/api/v1/works/1").await["summary"]["now"],
-        json!({ "kind": "everything" })
+        json!({ "kind": "everything", "by": "owner" })
     );
     pass(1000).await;
     assert_eq!(
@@ -152,6 +152,11 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
         attention["lines"][0],
         json!({ "kind": "everything", "since": START, "by": "engine" }),
         "{attention}"
+    );
+    // A work the engine's pause holds says so, by who set it, for the page to count it as the owner's to let on.
+    assert_eq!(
+        get_json(router, "/api/v1/works/1").await["summary"]["now"],
+        json!({ "kind": "everything", "by": "engine" })
     );
     assert_eq!(
         post(router, "/api/v1/engine/acts", &json!({ "kind": "resume" })).await,

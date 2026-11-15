@@ -202,7 +202,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 // A work let on that the pause of everything holds back is said to be held, not to go on.
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 Ok(match page.summary.now {
-                    Now::Everything {} => format!(
+                    Now::Everything { .. } => format!(
                         "Work {work} is let on, and held back by the pause of everything until `wf-agents resume --all`."
                     ),
                     _ => done,
@@ -1492,7 +1492,7 @@ fn now(now: &Now) -> String {
             by: Pauser::Engine,
             why: None,
         } => "paused by the engine, which gave no reason".to_string(),
-        Now::Everything {} => "held back by the pause of everything".to_string(),
+        Now::Everything { .. } => "held back by the pause of everything".to_string(),
         Now::Waits { at, on } => {
             let on: Vec<String> = on.iter().map(waited).collect();
             format!("waits at {at} for {}", on.join("; and for "))

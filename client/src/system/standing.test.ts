@@ -32,7 +32,7 @@ describe('where a work stands', () => {
     const question = { kind: 'call', call: 2, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } } as const;
     expect(standingOf(work({ kind: 'waits', at: 'plan', on: [question, { kind: 'slot' }] }))).toBe('owner');
     expect(standingOf(work({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }))).toBe('due');
-    expect(standingOf(work({ kind: 'everything' }))).toBe('due');
+    expect(standingOf(work({ kind: 'everything', by: 'owner' }))).toBe('due');
     expect(standingOf(work({ kind: 'next', cell: 'plan' }))).toBe('due');
     const tool = { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } } as const;
     expect(standingOf(work({ kind: 'waits', at: 'build', on: [tool] }))).toBe('others');

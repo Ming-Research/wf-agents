@@ -10,6 +10,7 @@
 
 import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
 import { mocksShown } from '../mock-data';
+import { waitsOf } from '../works/waiting';
 import { outageDown } from '../works/words';
 import { itemOf } from './real';
 
@@ -81,8 +82,7 @@ export function whoGives(w: Waited): 'owner' | 'architect' | null {
 }
 
 /// How many of the things a work waits for the owner gives.
-export const asksOf = (now: Now): number =>
-  now.kind === 'waits' ? now.on.filter((w) => whoGives(w) === 'owner').length : 0;
+export const asksOf = (now: Now): number => waitsOf(now).length;
 
 /// Whether a work has begun: a round is under way, or a cell of it has run.
 export const started = (w: Summary): boolean =>

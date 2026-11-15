@@ -17,7 +17,7 @@ export type Period = (typeof PERIODS)[number];
 /// work, with one of its runs chosen where the address names it.
 export type Route =
   | { view: Plain }
-  | { view: 'console'; item: number }
+  | { view: 'console'; item: number; wait?: string }
   | { view: 'system'; period: Period }
   | { view: 'work'; work: number; run?: number };
 
@@ -34,8 +34,12 @@ function named(hash: string): Route | null {
       ? { view: 'work', work: Number(work[1]) }
       : { view: 'work', work: Number(work[1]), run: Number(work[2]) };
   }
-  const item = /^\/console\/items\/(\d+)$/.exec(path);
-  if (item) return { view: 'console', item: Number(item[1]) };
+  const item = /^\/console\/items\/(\d+)(?:\/waits\/([a-z0-9]+))?$/.exec(path);
+  if (item) {
+    return item[2] === undefined
+      ? { view: 'console', item: Number(item[1]) }
+      : { view: 'console', item: Number(item[1]), wait: item[2] };
+  }
   const period = PERIODS.find((p) => p !== 'week' && path === `/system/${p}`);
   return period ? { view: 'system', period } : null;
 }
@@ -56,7 +60,9 @@ export function hashOf(route: Route): string {
   if (route.view === 'work') {
     return route.run === undefined ? `#/works/${route.work}` : `#/works/${route.work}/runs/${route.run}`;
   }
-  if ('item' in route) return `#/console/items/${route.item}`;
+  if ('item' in route) {
+    return route.wait === undefined ? `#/console/items/${route.item}` : `#/console/items/${route.item}/waits/${route.wait}`;
+  }
   if ('period' in route && route.period !== 'week') return `#/system/${route.period}`;
   return `#/${route.view}`;
 }

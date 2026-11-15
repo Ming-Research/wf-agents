@@ -30,7 +30,8 @@ import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle }
 
 import { MARK, MARKS } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { type Shown, type ShownWork, whoGives } from './items';
+import { waitsOnOwner } from '../works/waiting';
+import { type Shown, type ShownWork } from './items';
 import { indexTree, type Tree } from './tree';
 
 export const NODE_W = 300;
@@ -305,9 +306,9 @@ export function moodOf(w: Pick<ShownWork, 'now'>): Mood {
   const now = w.now;
   if (now.kind === 'round' || now.kind === 'next') return 'running';
   if (now.kind === 'fault') return 'halted';
+  if (waitsOnOwner(now)) return 'owner';
   if (now.kind === 'paused') return now.by === 'engine' ? 'halted' : 'paused';
   if (now.kind === 'everything') return 'paused';
-  if (now.kind === 'waits' && now.on.some((o) => whoGives(o) === 'owner')) return 'owner';
   return 'waiting';
 }
 

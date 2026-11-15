@@ -38,6 +38,7 @@ import { Attr, Button, Confirm, PanelPart, Switch } from '../parts';
 import { mocksShown } from '../mock-data';
 import {
   type Act,
+  type EngineAct,
   type Item,
   loadVersion as loadVersionOf,
   type Summary,
@@ -45,6 +46,7 @@ import {
   type WorkPage,
 } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
+import { type Wait, waitsOf } from '../works/waiting';
 import { LetGoAgain } from '../works/Boxes';
 import { CANCEL_DOES, CANCEL_WHY, callWords, letGoFailed, outageWords, stalledWords } from '../works/words';
 import { type ItemStanding, standingOf, whoGives } from './items';
@@ -169,17 +171,6 @@ function lineWords(w: Waited, cell: string): string {
     case 'answer':
       return `at ${cell}, for your answer to ${w.question}`;
   }
-}
-
-/// The act that lets a work go on past a limit it waits at, as the works page sends it: the run's call answered, or
-/// the cell let go; none where it waits at no limit.
-function goOnOf(now: Summary['now']): Act | null {
-  if (now.kind !== 'waits') return null;
-  for (const w of now.on) {
-    if (w.kind === 'call' && w.what.kind === 'atLimit') return { kind: 'result', call: w.call, result: 'go on' };
-    if (w.kind === 'limit' || w.kind === 'calls') return { kind: 'letGo', cell: now.at };
-  }
-  return null;
 }
 
 /// What the work does now, as a word and the facts after it.
@@ -326,6 +317,11 @@ export type ItemPanelProps = {
   onRead?: () => void;
   /// Brings the item into view in the tree.
   onTitle: () => void;
+  /// The card of what the work waits for that the window is to show, by its key (`Wait.key`), where the address names
+  /// one.
+  wait?: string;
+  /// What the owner does to the engine as a whole, where the page has an engine.
+  actEngine?: (what: EngineAct) => Promise<unknown>;
 };
 
 /// The window's item. Its lines and its body are the item's own: what one item was sending, or was refused, is not
@@ -344,6 +340,8 @@ function ItemView({
   open = true,
   onRead,
   onTitle,
+  wait,
+  actEngine,
 }: ItemPanelProps) {
   const work = item.work;
   const read = pageIn(page);
@@ -388,6 +386,15 @@ function ItemView({
     box.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     box.current?.focus({ preventScroll: true });
   }, [discussed]);
+  // The card the address names is brought into view once it is drawn, once.
+  const shownWait = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (wait === undefined || shownWait.current === wait) return;
+    const card = inner.current?.querySelector(`[data-wait="${wait}"]`);
+    if (!card) return;
+    shownWait.current = wait;
+    card.scrollIntoView({ block: 'center' });
+  });
   // A question taken to the discussion: quoted into the box, which goes to the cell that asked it, or for a question of
   // the plan to the cell that wrote the plan. Nothing else changes: the work is not paused.
   const discuss = (c: Choice) => {
@@ -516,8 +523,13 @@ function ItemView({
       <ItemLine item={item} waitsFor={waitsFor} goal={goal} tier={mock.tier} />
       <WorkLine w={work} page={read} />
       {!ended(work) && (
-        <Acts paused={work.paused || work.now.kind === 'paused'} goOn={goOnOf(work.now)} act={send} />
+        <Acts paused={work.paused || work.now.kind === 'paused'} act={send} />
       )}
+      <WaitCards
+        waits={waitsOf(work.now).filter((w) => !drawnInBody(w))}
+        act={send}
+        actEngine={actEngine}
+      />
       {letGoFailedNow !== null && (
         <div className="cw-acts">
           <LetGoAgain why={letGoFailedNow} send={(what) => send(what).then(() => null, refusal)} />
@@ -685,17 +697,12 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
 /// What the owner does to a work that goes on: let it go on past a limit it waits at; start it or pause it, with one
 /// switch whose pressed choice says which it is in; cancel it, once they confirm and say why. While one is under way,
 /// none takes effect.
-function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (what: Act) => Promise<unknown> }) {
+function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<unknown> }) {
   const { waiting, refused, send } = useSending(act);
   const [asking, setAsking] = useState(false);
   const [why, setWhy] = useState('');
   return (
     <div className="acts cw-acts">
-      {goOn !== null && (
-        <Button primary title="Let the work go on past its limit" disabled={waiting} onClick={() => void send(goOn)}>
-          Let it go on
-        </Button>
-      )}
       {/* Going on and paused exclude each other, so they are one switch that shows which the work is in: pressing the
           other choice starts or pauses it. */}
       <Switch<'on' | 'paused'>
@@ -743,6 +750,57 @@ function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (
       )}
       {refused !== null && <span className="failed small">{refused}</span>}
     </div>
+  );
+}
+
+/// Whether the body of the panel draws what a work waits for as its own card: a question a call put, as a choice at the
+/// plan's end, and a precondition the owner makes hold, as the ruling on the block that keeps it.
+export const drawnInBody = (w: Wait): boolean => w.key.startsWith('q') || w.kind === 'precondition';
+
+/// What a work waits for from the owner that is not a question drawn in the plan or a ruling: a card for each, in the
+/// words of `waitsOf`, with the button that lets the work on where there is one.
+function WaitCards({ waits, act, actEngine }: {
+  waits: Wait[];
+  act: (what: Act) => Promise<unknown>;
+  actEngine?: (what: EngineAct) => Promise<unknown>;
+}) {
+  const [waiting, setWaiting] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const send = (w: NonNullable<Wait['act']>) => {
+    if (waiting) return;
+    setWaiting(true);
+    setRefused(null);
+    const sent = w.on === 'work' ? act(w.act) : (actEngine?.(w.act) ?? Promise.reject(new Error('The page has no engine')));
+    sent.then(
+      () => setWaiting(false),
+      (e: unknown) => {
+        setWaiting(false);
+        setRefused(refusal(e));
+      },
+    );
+  };
+  if (waits.length === 0) return null;
+  return (
+    <div className="cw-waits">
+      {waits.map((w) => (
+        <div className="cw-part" key={w.key}>
+          <div className="cw-choice" data-wait={w.key}>
+            <p className="cw-choice-stops">The work waits for you: {w.words}</p>
+          </div>
+          <WaitButton todo={w.act} waiting={waiting} send={send} />
+        </div>
+      ))}
+      {refused !== null && <p className="failed small">{refused}</p>}
+    </div>
+  );
+}
+
+function WaitButton({ todo, waiting, send }: { todo: Wait['act']; waiting: boolean; send: (w: NonNullable<Wait['act']>) => void }) {
+  if (todo === null) return null;
+  return (
+    <Button primary disabled={waiting} onClick={() => send(todo)}>
+      {todo.label}
+    </Button>
   );
 }
 
@@ -880,7 +938,10 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   jump?: (at: number) => void;
 }) {
   return (
-    <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}>
+    <div
+      className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}
+      data-wait={p.asks === undefined ? undefined : `q${p.asks.call}`}
+    >
       <p className="cw-choice-q">{p.question}</p>
       {p.asks !== undefined && <p className="cw-choice-stops">The work waits for this answer</p>}
       {p.options.length === 0 && p.asks !== undefined ? (
@@ -957,7 +1018,7 @@ function RulingBox({ ruling, page, act }: {
   return (
     <>
       <div className="cw-part">
-        <div className="cw-choice">
+        <div className="cw-choice" data-wait="precondition">
           <p className="cw-choice-q">{who}</p>
           <p className="cw-choice-stops">The work waits for this ruling</p>
           {ruling.text.trim() !== '' && <Markdown text={ruling.text} />}

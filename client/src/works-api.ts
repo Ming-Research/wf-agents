@@ -131,8 +131,9 @@ export type Now =
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
   /// for this one.
   | { kind: 'paused'; by: Pauser; why: string | null }
-  /// The owner's pause of everything holds it back, and what it would do next is begin a round; its own pause does not.
-  | { kind: 'everything' }
+  /// The pause of everything holds it back, and what it would do next is begin a round; its own pause does not. `by` is
+  /// who set it: the owner, or the engine as it started again with works going on.
+  | { kind: 'everything'; by: Pauser }
   /// It waits at this cell, for each of these.
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.

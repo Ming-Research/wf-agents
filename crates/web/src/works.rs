@@ -278,9 +278,10 @@ pub enum Now {
     /// It is paused, and what it would do next is begin a round: by the owner, or by the engine itself for this
     /// reason, as when a round failed.
     Paused { by: Pauser, why: Option<String> },
-    /// The owner's pause of everything holds it back, and what it would do next is begin a round; its own pause does
-    /// not hold it.
-    Everything {},
+    /// The pause of everything holds it back, and what it would do next is begin a round; its own pause does not hold
+    /// it. `by` is who set it: the owner, or the engine as it started with works going on, which holds every work until
+    /// the owner lifts it.
+    Everything { by: Pauser },
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
     /// It is about to do something at this cell. A work is never left so between two things that happen to it.
@@ -1715,7 +1716,7 @@ impl Now {
         outages: &Outages,
     ) -> Result<Now, Broken> {
         let work = kept.work;
-        let everything = Now::Everything {};
+        let everything = Now::Everything { by: outages.everything };
         // The wait that holds the rounds of a cell now: the agents' for an agent's, the host's for an act's.
         let holding = |cell: &CellId| {
             let agent = (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
@@ -2607,10 +2608,12 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
 }
 
 /// The waits every work shares, as they stand: the agents' service's, and the host's the acts reach.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Outages {
     pub agents: Option<Outage>,
     pub host: Option<Outage>,
+    /// Who set the pause of everything, while it holds.
+    pub everything: Pauser,
 }
 
 impl Outages {
@@ -2621,6 +2624,9 @@ impl Outages {
         Outages {
             agents: driver.outage().map(|outage| Outage::of(&outage, agents)),
             host: driver.host_outage().map(|outage| Outage::of(&outage, host)),
+            everything: driver
+                .everything_paused()
+                .map_or(Pauser::Owner, |paused| Pauser::of(paused.by)),
         }
     }
 }
