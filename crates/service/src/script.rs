@@ -1107,6 +1107,8 @@ impl RoundScript {
             questions,
             engine,
             reads,
+            dealt_with,
+            waits_for,
             fails,
             failure,
             resets,
@@ -1115,6 +1117,8 @@ impl RoundScript {
         } = self;
         took.says()
             || hands_in.is_some()
+            || dealt_with.is_some()
+            || waits_for.is_some()
             || asks.is_some()
             || observations.is_some()
             || questions.is_some()
