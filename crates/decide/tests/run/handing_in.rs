@@ -91,6 +91,61 @@ fn a_return_that_deals_with_only_part_of_what_ran_its_round_is_still_held_to_wha
     assert_eq!(step(vec![partial], &s), finish);
 }
 
+/// The same cell, which must hand in these blocks each time, and asks for tests in `tests`.
+fn asking_for_tests(blocks: &[&str]) -> Spec {
+    let mut s = must_write(blocks);
+    s.outputs.push("tests".into());
+    s.asking = vec![Asks {
+        record: "tests".into(),
+        result: "tested".into(),
+    }];
+    s
+}
+
+// A return that writes an entry in which its cell asks for tests leaves the cell waiting for the result, and so owes
+// nothing else: it may leave out what its cell must write, and deal with nothing (decision a-wait-holds-its-cell).
+#[test]
+fn a_return_that_asks_for_tests_leaves_its_cell_waiting_and_owes_nothing_else() {
+    let s = asking_for_tests(&["verdict", "plan"]);
+    let finish = Step::Finish {
+        dealt_with: vec![],
+        writes: vec![prose("tests")],
+    };
+    assert_eq!(step(vec![works(&[], vec![prose("tests")])], &s), finish);
+    // One that asks for nothing is held to them as before.
+    let unmet = vec![
+        Unmet::DealtWithNothing,
+        Unmet::NotHandedIn {
+            block: "verdict".into(),
+        },
+        Unmet::NotHandedIn { block: "plan".into() },
+    ];
+    assert_eq!(step(vec![works(&[], vec![])], &s), send_back(unmet));
+}
+
+// What an act after the cell said to it and the cell dealt with must leave something new that runs the act again; a
+// return that leaves the cell waiting owes nothing of it either, as it comes back to the cell once its result is in.
+#[test]
+fn a_return_that_asks_for_tests_owes_no_answer_to_an_act_s_block_it_dealt_with() {
+    let mut s = asking_for_tests(&[]);
+    s.told.ran_by = vec!["check".into()];
+    s.answered_by = BTreeMap::from([(
+        "check".into(),
+        Answer {
+            runs: vec!["head".into()],
+            question: false,
+        },
+    )]);
+    let asks = works(&["check"], vec![prose("tests")]);
+    let finish = Step::Finish {
+        dealt_with: vec!["check".into()],
+        writes: vec![prose("tests")],
+    };
+    assert_eq!(step(vec![asks], &s), finish);
+    let unanswered = vec![Unmet::Unanswered { block: "check".into() }];
+    assert_eq!(step(vec![works(&["check"], vec![])], &s), send_back(unanswered));
+}
+
 #[test]
 fn a_return_with_a_question_that_waits_is_held_to_no_block_its_cell_must_write_and_may_deal_with_nothing() {
     let s = must_write(&["verdict", "plan"]);

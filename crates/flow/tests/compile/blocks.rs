@@ -258,11 +258,12 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
             "session",
             "start",
             "head",
+            "tested",
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -271,7 +272,7 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
         .filter(|b| compiled.flow.adds_entries(b))
         .map(|b| b.as_str())
         .collect();
-    assert_eq!(records, ["discussion", "q_and_a"]);
+    assert_eq!(records, ["discussion", "q_and_a", "run_tests"]);
 }
 
 #[test]
@@ -288,11 +289,12 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
             "session",
             "start",
             "head",
+            "tested",
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };

@@ -130,6 +130,10 @@ const ROUNDS: usize = 3;
 /// How often a return of any cell may be sent back before the owner is asked.
 const RETURNS: u32 = 2;
 
+/// How many times in a row an agent asks for calls before it hands in its work: what the engine's line of its history
+/// allows in these histories, which the walk does not count.
+const ASKING: usize = 3;
+
 /// A small deterministic generator (xorshift), so that a seed gives the same history every time.
 struct Rng(u64);
 
@@ -237,8 +241,9 @@ fn draw_cells(rng: &mut Rng, shape: Option<usize>) -> Vec<Cell> {
         cells.push(c);
     }
     for c in &mut cells {
-        c.limit = 1 + rng.below(2) as u32;
-        c.calls = 1 + rng.below(3) as u32;
+        c.again = 1 + rng.below(2) as u32;
+        // The draw the limit of calls took, kept so that what follows it draws as before.
+        let _ = rng.below(3);
     }
     if rng.chance(25) {
         let i = rng.below(cells.len());
@@ -322,7 +327,7 @@ impl History {
         }
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
-            judge.limit = 2;
+            judge.again = 2;
             cells.push(judge);
             let mut merge = gate();
             merge.requires.push(UNREFUSED.into());
@@ -620,9 +625,19 @@ impl History {
             })
             .collect();
         let rounds_ended_before = |at: Seq| ended.iter().filter(|e| **e < at).count();
+        // The owner's word at the run's limit, and the owner letting its cell go on, which the word records too.
+        let cell = &self
+            .w
+            .records
+            .started
+            .iter()
+            .find(|s| s.run == run)
+            .expect("the run started")
+            .cell;
         let let_go = (r.called.iter())
             .filter(|c| c.run == run && self.at_limit.contains(&c.call))
             .filter_map(|c| done(c.call))
+            .chain(r.let_go.iter().filter(|l| &l.cell == cell).map(|l| l.at))
             .max()
             .map_or(0, rounds_ended_before);
         let let_on = (r.pauses.iter())
@@ -630,7 +645,28 @@ impl History {
             .map(|p| p.at)
             .max()
             .map_or(0, rounds_ended_before);
-        Log { rounds, let_go, let_on }
+        // The returns of the cell's other runs the engine sent back since its counts last began anew: each the round
+        // after one that came back, as the engine's loop counts them.
+        let from = decide::again_from(&self.w.flow, r, cell);
+        let before = (r.started.iter())
+            .filter(|s| s.run != run && &s.cell == cell)
+            .map(|s| {
+                let began: Vec<Seq> = r.rounds.iter().filter(|e| e.run == s.run).map(|e| e.at).collect();
+                let backs = self.backs.get(&s.run).map_or(&[][..], Vec::as_slice);
+                (backs.iter().enumerate())
+                    .filter(|(k, back)| {
+                        matches!(back, Some(Back::Came { .. }))
+                            && began.get(k + 1).is_some_and(|at| from.is_none_or(|from| *at > from))
+                    })
+                    .count() as u32
+            })
+            .sum();
+        Log {
+            rounds,
+            before,
+            let_go,
+            let_on,
+        }
     }
 
     /// Does what the run does next, as the engine's loop does, until a round of it begins or it rests: takes a return
@@ -656,8 +692,9 @@ impl History {
             outputs: &cell.outputs,
             groups: &cell.groups,
             must_write: &[],
+            asking: &cell.asks,
             choices: &choices,
-            returns: RETURNS,
+            again: RETURNS,
             told: &told,
             // No act of the engine's is in these flows.
             answered_by: &BTreeMap::new(),
@@ -823,10 +860,25 @@ impl History {
             return;
         }
         let told = decide::told(&self.w.flow, &self.w.records, run).expect("the run started");
-        let back = self.draw_return(&spec, &told, is_merge || rounds >= ROUNDS);
+        // An agent that asked as often in a row as its kind's history allows hands in its work: the engine would pause
+        // the work otherwise, which these histories leave to the engine's own tests.
+        let asked = self.asked_in_a_row(&spec.id) >= ASKING;
+        let back = self.draw_return(&spec, &told, is_merge || rounds >= ROUNDS || asked);
         self.note(format!("{cell} returns {back:?}"));
         self.set_back(run, back);
         self.engine(run);
+    }
+
+    /// How many of the cell's last finished runs in a row each asked for calls and dealt with nothing.
+    fn asked_in_a_row(&self, cell: &CellId) -> usize {
+        let r = &self.w.records;
+        let mut finished: Vec<&Finished> = (r.finished.iter())
+            .filter(|f| r.started.iter().any(|s| s.run == f.run && &s.cell == cell))
+            .collect();
+        finished.sort_by_key(|f| f.at);
+        (finished.iter().rev())
+            .take_while(|f| f.dealt_with.as_ref().is_some_and(Vec::is_empty) && r.called.iter().any(|c| c.run == f.run))
+            .count()
     }
 
     fn set_back(&mut self, run: RunId, back: Back) {
@@ -1002,9 +1054,17 @@ impl History {
                 Waited::Call { call, on: Some(_) } if self.rng.chance(60) => {
                     self.note(format!("a person answers the call {call:?}"));
                     self.w.done(*call);
+                    // The owner's word at a run's limit lets its cell go on, as the engine records it.
+                    if self.at_limit.contains(call)
+                        && let Some(c) = self.w.records.called.iter().find(|c| c.call == *call)
+                        && let Some(s) = self.w.records.started.iter().find(|s| s.run == c.run)
+                    {
+                        let cell = s.cell.clone();
+                        self.w.let_go(cell.as_str());
+                    }
                     return;
                 }
-                Waited::Limit { .. } | Waited::Calls { .. } if self.rng.chance(60) => {
+                Waited::Limit { .. } if self.rng.chance(60) => {
                     let at = at.expect("a limit is waited for at a cell").clone();
                     self.note(format!("the owner lets {at} go on"));
                     self.w.let_go(at.as_str());
@@ -1122,15 +1182,18 @@ impl History {
 
     /// How many steps, once people stop, the work may take before it must wait, rest or end (property
     /// a-work-comes-to-rest). Once people stop, a cell runs again only for what cells write, the results of its calls
-    /// or what was new when they stopped; its ways round are bounded by its limit, its entries for results by its
-    /// limit of calls, and a run's rounds by the limit of returns, at which it waits for the owner. A generous bound
-    /// of the same shape as before: each cell at place `i`, of limits `L_i` and `C_i` and `n_i` blocks that run it,
-    /// starts at most `S_i = (L_i + C_i + 3) * (3 + n_i + S_0 + ... + S_(i-1))` runs, and a run takes at most
-    /// `6 * ROUNDS` steps.
+    /// or what was new when they stopped; what each cell after it sends it back is bounded by its limit, its entries
+    /// for results by how often its agent asks in a row, and a run's rounds by the limit of returns, at which it waits
+    /// for the owner. A generous bound of the same shape as before: each cell at place `i`, of limit `L_i`, `a_i` cells
+    /// after it and `n_i` blocks that run it, starts at most `S_i = (L_i * (a_i + 1) + ASKING + 3) * (3 + n_i + S_0 +
+    /// ... + S_(i-1))` runs, and a run takes at most `6 * ROUNDS` steps.
     fn bound(&self) -> u64 {
         let mut before: u64 = 0;
-        for c in self.w.flow.cells() {
-            let s = (u64::from(c.limit) + u64::from(c.calls) + 3).saturating_mul(3 + c.runs_on.len() as u64 + before);
+        let cells = self.w.flow.cells();
+        for (i, c) in cells.iter().enumerate() {
+            let after = (cells.len() - i) as u64;
+            let s =
+                (u64::from(c.again) * after + ASKING as u64 + 3).saturating_mul(3 + c.runs_on.len() as u64 + before);
             before = before.saturating_add(s);
         }
         (before + 1).saturating_mul(6 * ROUNDS as u64)

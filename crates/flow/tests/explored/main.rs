@@ -87,7 +87,7 @@ fn engineer() -> Compiled {
             "words",
         ]),
         acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };

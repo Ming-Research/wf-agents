@@ -26,11 +26,12 @@ fn engineer() -> Compiled {
             "session",
             "start",
             "head",
+            "tested",
             "tree",
             "words",
         ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query", "run_tests"]),
+        acts: names(&["start", "check", "merge", "deliver", "run_tests"]),
+        tools: names(&["query"]),
         details: names(&["files"]),
         ..Default::default()
     };
@@ -168,7 +169,7 @@ fn how_you_return_holds_each_fields_and_each_flow_tools_words() {
         assert!(told.contains(field.words.trim_end()), "{name}:\n{told}");
     }
     let tools = flow::form::tools(&flow);
-    assert_eq!(tools, ["query", "run_tests"]);
+    assert_eq!(tools, ["query"]);
     for name in tools {
         assert!(told.contains(agents.tools[name].words.trim_end()), "{name}:\n{told}");
     }
@@ -178,6 +179,7 @@ fn how_you_return_holds_each_fields_and_each_flow_tools_words() {
         .filter_map(|(name, b)| b.words.as_deref().map(|w| (name.as_str(), w)))
         .collect();
     assert!(words.iter().any(|(name, _)| *name == "q_and_a"), "{words:?}");
+    assert!(words.iter().any(|(name, _)| *name == "run_tests"), "{words:?}");
     for (name, words) in words {
         assert!(!told.contains(words.trim()), "{name}:\n{told}");
     }
@@ -192,8 +194,9 @@ fn a_setting_the_texts_name_with_no_value_makes_no_prompt() {
     let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project).unwrap();
     let fills = |name: &str| ["your_line", "store", "named_checks"].contains(&name);
     assert_eq!(system::check(&parts, &settings(&agents), fills), Vec::<String>::new());
-    // The way the project names its tests, which the words of `run_tests` name, given as the installation's here, with
-    // no value; and the subagents an agent may start.
+    // The way the project names its tests, given as the installation's here, with no value, which no text the line
+    // shares names, the words of `run_tests` being told to a cell that writes it; and the subagents an agent may
+    // start.
     agents.project.project.remove("test_names");
     agents.installation.names.push("project.test_names".to_string());
     let lacking = Settings::of(&agents.project, &agents.installation, |name| {
@@ -203,44 +206,31 @@ fn a_setting_the_texts_name_with_no_value_makes_no_prompt() {
     let wrong = system::prompt(&parts, &lacking, fill).unwrap_err();
     assert_eq!(
         wrong,
-        [
-            "flow/agents/rules/general.md: names the setting `agents.subagents.most`, which has no value",
-            "flow/agents/return/return.toml: names the setting `project.test_names`, which has no value"
-        ]
+        ["flow/agents/rules/general.md: names the setting `agents.subagents.most`, which has no value"]
     );
     assert_eq!(
         system::check(&parts, &lacking, fills),
-        [
-            "flow/agents/rules/general.md: names the setting `agents.subagents.most`, which has no value",
-            "flow/agents/tools/run_tests.toml: names the setting `project.test_names`, which has no value"
-        ]
+        ["flow/agents/rules/general.md: names the setting `agents.subagents.most`, which has no value"]
     );
 }
 
-// What fills the place of a tool's words is the tool's own words for each way the installation runs it, which the
-// start checks with the tool's file: the words of `run_tests` say which checks an agent may name by a place, not by a
-// setting.
+// What fills the place of the words of the record a cell asks for tests in is the act's own words for each way the
+// installation runs the tests: the words of `run_tests` say which checks a cell may name by a place, not by a setting,
+// and the line's system prompt holds neither.
 #[test]
-fn a_tools_place_is_filled_from_its_own_file() {
+fn the_place_of_the_words_of_run_tests_is_filled_from_the_acts_file() {
     let (flow, agents) = (engineer(), beside());
-    let run_tests = &agents.tools["run_tests"];
-    assert!(
-        run_tests.words.contains("checks among {named_checks};"),
-        "{}",
-        run_tests.words
-    );
-    let ways: Vec<&str> = run_tests.places["named_checks"].keys().map(String::as_str).collect();
+    let words = (flow.blocks.get(&"run_tests".into()))
+        .and_then(|b| b.words.as_deref())
+        .expect("the record has words");
+    assert!(words.contains("checks among {named_checks};"), "{words}");
+    let ways: Vec<&str> = agents.acts.run_tests.places["named_checks"]
+        .keys()
+        .map(String::as_str)
+        .collect();
     assert_eq!(ways, ["named", "none_named", "whole"]);
     assert!(!agents.installation.names.iter().any(|n| n.starts_with("github.")));
     let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project).unwrap();
     let returns = parts.iter().find(|p| p.of == Of::Returns).expect("how a cell returns");
-    for words in run_tests.places["named_checks"].values() {
-        assert!(
-            returns
-                .texts
-                .iter()
-                .any(|t| t.source == "flow/agents/tools/run_tests.toml" && &t.text == words),
-            "{words}"
-        );
-    }
+    assert!(!returns.texts.iter().any(|t| t.text.contains("{named_checks}")));
 }

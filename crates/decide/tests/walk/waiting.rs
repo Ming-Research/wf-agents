@@ -82,19 +82,20 @@ fn a_run_given_the_results_that_is_abandoned_leaves_them_to_the_next() {
     );
 }
 
+// How often a cell asks before it hands in its work is judged by the history of its kind, which the walk does not
+// read: the walk counts no runs that ask, and enters the cell again for the results of each.
 #[test]
-fn a_cell_entered_again_and_again_only_to_ask_for_calls_waits_for_the_owner_at_its_limit_of_calls() {
-    let mut researching = cell("research", &["brief"], &["plan"]);
-    researching.calls = 2;
-    let mut w = World::with_gate(vec![researching]);
+fn a_cell_entered_again_and_again_only_to_ask_for_calls_is_entered_each_time_for_their_results() {
+    let mut w = World::with_gate(vec![cell("research", &["brief"], &["plan"])]);
     w.person_writes("brief");
     w.start("research");
-    let first_call = w.asks("research", None);
-    w.done(first_call);
-    w.start("research");
-    let second_call = w.asks("research", None);
-    w.done(second_call);
-    assert_eq!(w.decide(), wait("research", vec![Waited::Calls { runs: 2 }]));
-    w.let_go("research");
-    assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "research"));
+    for _ in 0..10 {
+        let call = w.asks("research", None);
+        w.done(call);
+        assert_eq!(
+            reasons(&w.decide()),
+            ("research".into(), vec![("results".into(), false)])
+        );
+        w.start("research");
+    }
 }

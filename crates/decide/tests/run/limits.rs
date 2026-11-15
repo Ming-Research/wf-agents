@@ -52,6 +52,29 @@ fn a_return_handed_in_unmet_and_one_dealing_with_nothing_are_counted_together_as
     );
 }
 
+// The engine is one sender of the cell: the returns of the cell's other runs it sent back since the cell's counts last
+// began anew count with this run's own (decision the-same-sender-again).
+#[test]
+fn the_returns_of_the_cells_other_runs_the_engine_sent_back_count_with_the_runs_own() {
+    let s = spec();
+    let with_before = |rounds: Vec<Round>, before: u32| {
+        let log = Log {
+            rounds,
+            before,
+            ..Log::default()
+        };
+        next(&log, s.requires(), Hold::Nothing)
+    };
+    assert_eq!(with_before(vec![wanting()], 1), send_back(wanting_unmet()));
+    assert_eq!(with_before(vec![wanting(), wanting()], 1), returns_limit(2));
+    assert_eq!(with_before(vec![wanting()], 2), returns_limit(2));
+    // A return that meets everything finishes the run whatever was sent back before.
+    assert_eq!(
+        with_before(vec![handed_in(vec![prose("plan")])], 2),
+        finish(vec![prose("plan")])
+    );
+}
+
 #[test]
 fn a_limit_of_no_returns_sends_none_back() {
     let s = limited(0);
@@ -66,7 +89,7 @@ fn letting_the_run_go_on_at_its_limit_of_returns_sends_the_return_back_and_start
     let mut log = Log {
         rounds: vec![wanting(), wanting(), wanting()],
         let_go: 3,
-        let_on: 0,
+        ..Log::default()
     };
     assert_eq!(next(&log, s.requires(), Hold::Nothing), send_back(wanting_unmet()));
     log.rounds.push(wanting());
