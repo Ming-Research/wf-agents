@@ -1455,9 +1455,12 @@ mod tests {
         tokio::time::timeout(Duration::ZERO, taking).await.unwrap_or(false)
     }
 
-    /// Lets the checks that wait look at the turn.
+    /// Lets the checks that wait look at the turn: on the test's one thread, each that was woken runs before the test
+    /// goes on, and a few yields let those that one wakes run too, with no time spent waiting.
     async fn settle() {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
     }
 
     // The turn goes to the works in the order their checks began to wait for it, and a check that comes as it frees
