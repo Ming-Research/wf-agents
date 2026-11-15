@@ -1242,11 +1242,16 @@ fn pinged(spent: Spent, failed: Option<&str>) -> Event {
 /// The sessions of the work's lines that are kept warm, as the policy keeps them.
 fn kept_warm(s: &S) -> Vec<driver::warm::Kept> {
     let held = s.driver.work(s.work).expect("the work");
+    // The policy as the driver holds it: with the account in use.
+    let policy = Policy {
+        account: s.driver.account(),
+        ..warm("opus")
+    };
     driver::warm::kept(
         held.flow,
         held.work,
         held.item,
-        &warm("opus"),
+        &policy,
         &Default::default(),
         Time(s.clock),
     )
@@ -1291,6 +1296,34 @@ fn a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often
     s.driver.happened(Time(s.clock), s.work, pinged(read, None)).unwrap();
     // Two pings were sent in the wait, as many as it is worth: the line's session is pinged no more.
     assert!(kept_warm(&s).is_empty(), "no more pings in this wait");
+}
+
+#[test]
+fn a_session_begun_under_another_account_than_the_one_in_use_is_not_pinged() {
+    let mut s = S::with(
+        Policy {
+            accounts: vec!["first".to_string(), "second".to_string()],
+            ..warm("opus")
+        },
+        Some("first"),
+    );
+    s.hands_in(100, true);
+    s.asks(100);
+    assert_eq!(
+        kept_warm(&s).len(),
+        1,
+        "the build's session waits warm under the account in use"
+    );
+    // Another account is taken while the build waits: its next round begins anew under it, so the session is let go.
+    s.take("second");
+    assert!(kept_warm(&s).is_empty(), "a session of an account not in use is pinged");
+    assert!(
+        s.sessions().is_empty(),
+        "nothing is begun anew before the line runs again"
+    );
+    // Taken back, the session is kept warm again.
+    s.take("first");
+    assert_eq!(kept_warm(&s).len(), 1);
 }
 
 #[test]
