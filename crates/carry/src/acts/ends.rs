@@ -197,6 +197,7 @@ fn written(blocks: &[(&str, &str)]) -> Work {
             by: Outsider::Person,
             matters: true,
             value: None,
+            said_to: None,
             at,
         });
         work.contents.insert(((*block).into(), at), (*content).to_string());

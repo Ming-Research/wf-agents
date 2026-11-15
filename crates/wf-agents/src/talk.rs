@@ -19,8 +19,8 @@ use web::system::{Past, System, UnderWay};
 use web::works::{
     Act, Added, Against, Back, Call, CellKey, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, Found,
     ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser,
-    Person, QuestionPage, Refusal, Run, SessionWhy, Spent, Stalling, Step, Unrun, Until, VersionPage, Waited, WorkPage,
-    Writer,
+    Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Stalling, Step, Unrun, Until, VersionPage,
+    Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -193,9 +193,10 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
             }
             Asked::Act(work, act) => {
                 let resumed = act == Act::Resume {};
-                let done = done(work, &act);
                 let path = format!("/api/v1/works/{work}/acts");
-                send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
+                // Words said answer with the cell the engine gave them to; every other act with nothing.
+                let said: Option<Said> = send(address, Method::POST, &path, Some(&act)).await?;
+                let done = done(work, &act, said.as_ref());
                 if !resumed {
                     return Ok(done);
                 }
@@ -489,8 +490,9 @@ fn question(q: &QuestionPage) -> Vec<String> {
     lines
 }
 
-/// What a command that acts says once it is done.
-fn done(work: u64, act: &Act) -> String {
+/// What a command that acts says once it is done, with what the engine answered: of words said, the cell it gave them
+/// to.
+fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
     match act {
         Act::Write { block, .. } => format!("Wrote {block} for work {work}."),
         Act::LetGo { cell } => format!("Cell {cell} of work {work} goes on."),
@@ -505,6 +507,13 @@ fn done(work: u64, act: &Act) -> String {
             ..
         } => format!("Version {version} of the question {question} of work {work} is answered with option {option}."),
         Act::NewSession { line } => format!("The line {line} of work {work} begins a new session at its next round."),
+        Act::Say { to, .. } => {
+            let cell = said.map_or("the cell the engine chose", |s| s.reached.as_str());
+            match to {
+                SpokenTo::Line { line } => format!("Said to {cell} of work {work}, where the line {line} stands."),
+                SpokenTo::Question { name } => format!("Said to {cell} of work {work}, about the question {name}."),
+            }
+        }
     }
 }
 
@@ -2144,6 +2153,7 @@ mod tests {
             blocks: Vec::new(),
             steps,
             questions,
+            speaking: Vec::new(),
         }
     }
 

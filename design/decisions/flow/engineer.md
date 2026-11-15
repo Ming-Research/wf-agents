@@ -15,7 +15,7 @@ Why: Fixing them once the first design is made is too strict.
 
 ### decision opinions-are-inputs
 What someone has to say to a cell about what it did is written into a block that cell reads: the owner's words into
-the record of what is said to the work (data-and-context 30 to 39), a judging cell's findings into a block for that
+the record of what is said to the work (data-and-context 30 to 38), a judging cell's findings into a block for that
 pair. The flow has no cell for fixing
 and none for checking a fix: what was objected to is fixed by its cell running again, and the fix is looked at by the
 judging cell running again, because what it judged changed.

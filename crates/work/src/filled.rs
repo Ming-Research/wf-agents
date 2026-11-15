@@ -111,6 +111,7 @@ mod tests {
                 by: Outsider::Person,
                 matters: true,
                 value: None,
+                said_to: None,
                 at: Seq(at),
             });
         }

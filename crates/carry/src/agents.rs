@@ -68,10 +68,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::run::{Failure, Unmet};
-use decide::{Pauser, RunId};
+use decide::{BlockId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
-use service::{Clock, Doing, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Told};
+use service::{Clock, Doing, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::oneshot;
@@ -112,6 +112,21 @@ struct Inner {
     /// A lock for each work, so that a keep-warm ping of a work never runs beside a round of it: a round waits for a
     /// ping of its work to end, and a ping that finds a round of its work under way is given up.
     in_work: std::sync::Mutex<BTreeMap<WorkNumber, Arc<tokio::sync::Mutex<()>>>>,
+    /// What the owner said to each round given and not yet ended that its hook is to give it, by the round; one
+    /// telling of a round, or its end, at a time, so that what waits for its hook is known.
+    said: std::sync::Mutex<Tellings>,
+}
+
+/// What the owner said to each round, by the round, each behind a lock of its own.
+type Tellings = BTreeMap<(WorkNumber, RunId, usize), Arc<tokio::sync::Mutex<Said>>>;
+
+/// What the owner said to a round, as its hook gave it: the versions of what waits in the round's file of words, and
+/// of what the hook gave; and whether the round's program has ended, which hears nothing more.
+#[derive(Default)]
+struct Said {
+    waiting: Vec<(BlockId, Seq)>,
+    given: Vec<(BlockId, Seq)>,
+    ended: bool,
 }
 
 /// What the rounds of the works of a project's items are run with.
@@ -177,6 +192,7 @@ impl Agents {
                 held: Held::new(),
                 clock,
                 in_work: std::sync::Mutex::new(BTreeMap::new()),
+                said: std::sync::Mutex::new(BTreeMap::new()),
             }),
         }
     }
@@ -190,9 +206,13 @@ impl Rounds for Agents {
         let Some(mut stop) = self.inner.held.hold(key, reply) else {
             return;
         };
+        (self.inner.said.lock().expect("the tellings' lock")).insert(key, Arc::default());
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let carried = inner.carry(&round, &teller, &mut stop).await;
+            // What the owner said that the round's hook gave it is said before the round's end, so that the round
+            // consumes it and its session is not given it again.
+            inner.heard(&round, &teller).await;
             match carried {
                 Ok(Carried::Came(came, spent)) => {
                     let Some(reply) = inner.held.take(key) else {
@@ -247,6 +267,11 @@ impl Rounds for Agents {
                 reply.ended(Came::hands_in(Vec::new()), Spent::default());
             });
         }
+    }
+
+    fn tell(&self, round: Round, told: Telling) {
+        let inner = self.inner.clone();
+        tokio::spawn(async move { inner.tell(&round, told).await });
     }
 
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
@@ -372,10 +397,7 @@ impl Inner {
         // It is the hook's while the program runs, and is not kept past the round's tries, however they end.
         let again = Removed(compacted.again.clone());
         // What the owner says to the round while it runs waits beside it, for the hook after the next use of a tool.
-        let words = Words {
-            waiting: base.with_extension("words.json"),
-            delivered: base.with_extension("delivered"),
-        };
+        let words = words(&base);
         let mut tried = false;
         // The session the program lost is begun again under its id, and that is recorded once for the round.
         let at = work::sessions::began_at(work, round.run, round.number);
@@ -643,6 +665,68 @@ impl Inner {
     /// Where what the round was told and returned are kept, without the extension.
     fn kept(&self, round: &Round) -> PathBuf {
         kept::base(&self.data, round.work, round.run, round.number)
+    }
+
+    /// Puts what the owner said where the round's hook gives it to the round's session after its program's next use
+    /// of a tool, in the words of `said` in the message's file; and keeps which versions wait there, and which the
+    /// hook gave. Once the round's program has ended, nothing is put: the words stay new to the cell, which runs again
+    /// for them. What cannot be put is said on the standard error, and the words stay new to the cell all the same.
+    async fn tell(&self, round: &Round, told: Telling) {
+        let failed = |why: String| {
+            eprintln!(
+                "work {}: what the owner said was not handed to its round: {why}",
+                round.work.0
+            )
+        };
+        let said = match crate::projects::of(&self.projects, &round.item) {
+            Ok(of) => said(&of.beside, &told),
+            Err(why) => return failed(why),
+        };
+        let key = (round.work, round.run, round.number);
+        let Some(state) = (self.said.lock().expect("the tellings' lock")).get(&key).cloned() else {
+            return;
+        };
+        let mut state = state.lock().await;
+        if state.ended {
+            return;
+        }
+        match words(&self.kept(round)).put(&said).await {
+            Ok(took_back) => {
+                if !took_back {
+                    let given = std::mem::take(&mut state.waiting);
+                    state.given.extend(given);
+                }
+                state.waiting.extend(told.versions);
+            }
+            Err(why) => failed(why),
+        }
+    }
+
+    /// As the round's program has ended, takes back what waits for its hook, and says what the hook gave the round:
+    /// those versions are put into it. What waited and was never given stays new to the cell.
+    async fn heard(&self, round: &Round, teller: &Teller) {
+        let key = (round.work, round.run, round.number);
+        let Some(state) = (self.said.lock().expect("the tellings' lock")).remove(&key) else {
+            return;
+        };
+        let mut state = state.lock().await;
+        state.ended = true;
+        let mut given = std::mem::take(&mut state.given);
+        let waiting = std::mem::take(&mut state.waiting);
+        if waiting.is_empty() && given.is_empty() {
+            return;
+        }
+        match words(&self.kept(round)).take_back().await {
+            Ok(true) => {}
+            Ok(false) => given.extend(waiting),
+            Err(why) => eprintln!(
+                "work {}: what waits for the round's hook could not be read: {why}",
+                round.work.0
+            ),
+        }
+        if !given.is_empty() {
+            teller.said_to_round(given);
+        }
     }
 
     /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, or
@@ -1128,6 +1212,35 @@ impl Keeping {
 }
 
 /// Writes the file, making its directory where there is none.
+/// Where what the owner says to the round of this base waits for its hook, and where the hook moves what it gave: the
+/// one place the round's command line is given and the telling puts the words.
+fn words(base: &Path) -> Words {
+    Words {
+        waiting: base.with_extension("words.json"),
+        delivered: base.with_extension("delivered"),
+    }
+}
+
+/// What the owner said to a round under way, as its session is given it: in the words of `said` in the message's
+/// file, with what the cell does for the trigger as the part of the triggers says it.
+fn said(beside: &Beside, told: &Telling) -> String {
+    let message = &beside.message;
+    let part = message.parts.iter().find(|p| p.part == flow::agents::Part::Triggers);
+    let does = match (&told.does, part.and_then(|p| p.does.as_deref())) {
+        (Some(does), Some(text)) => flow::agents::fill(text, &[("do", does.trim())]),
+        _ => String::new(),
+    };
+    let number = told.number.0.to_string();
+    let places = [
+        ("entry", told.entry.as_str()),
+        ("block", told.block.as_str()),
+        ("number", number.as_str()),
+        ("trigger", told.trigger.as_str()),
+        ("do", does.as_str()),
+    ];
+    flow::agents::fill(&message.said, &places)
+}
+
 async fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         tokio::fs::create_dir_all(dir)

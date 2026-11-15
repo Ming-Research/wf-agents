@@ -662,6 +662,7 @@ pub struct SentBackFaults {
     pub question_twice: String,
     pub not_an_option: String,
     pub not_answerable: String,
+    pub not_answered: String,
     /// `{path}` a file the project protects that the work changes, and of which it says not why.
     pub unexplained: String,
 }
@@ -826,6 +827,10 @@ pub struct Message {
     pub parts: Vec<MessagePart>,
     /// What a session compacted during a round is told before the round's message is given again, whole.
     pub compacted: String,
+    /// What the owner says to a round while it runs, as its session is given it after its next use of a tool: `{entry}`
+    /// the owner's entry of the record of what is said, `{block}` the record's name, `{number}` the entry's version,
+    /// `{trigger}` the trigger it is new to the round as, `{do}` what the cell does for it.
+    pub said: String,
 }
 
 /// A part of a message.

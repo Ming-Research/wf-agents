@@ -25,6 +25,7 @@ import type {
   Items,
   Projects,
   RoundPage,
+  Said,
   SystemPage,
   ToldPage,
   VersionPage,
@@ -43,7 +44,9 @@ export interface Source {
   loadDoing(work: number, run: number, round: number): Promise<DoingPage>;
   loadSystem(work: number, line: string, session: number): Promise<SystemPage>;
   loadCall(work: number, call: number): Promise<CallPage>;
-  act(work: number, what: Act): Promise<null>;
+  /// What the owner does to a work: words said answer with the cell the engine gave them to, every other act with
+  /// nothing.
+  act(work: number, what: Act): Promise<Said | null>;
   /// How the engine stands as a whole, and the owner's pause of everything; a source that has no engine has neither.
   loadEngine?(): Promise<Engine>;
   actOnEngine?(what: EngineAct): Promise<null>;

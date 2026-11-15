@@ -202,22 +202,86 @@ fn a_choice_has_values_each_given_once() {
 }
 
 #[test]
-fn a_cell_that_writes_the_work_s_questions_is_run_by_the_owner_s_answer() {
+fn a_cell_that_writes_the_work_s_questions_is_run_by_the_owner_s_answer_and_by_the_owner_s_words() {
     let asks = "[blocks.plan]\n\n[blocks.asks]\nfield = \"questions\"\nshown = true\n";
     let source = edit(valid(), FLOW_FILE, "[blocks.plan]\n", asks);
     let outputs = r#"outputs = ["plan", "asks"]"#;
     let source = edit(source, "plan.toml", r#"outputs = ["plan"]"#, outputs);
     let mut has = has();
     has.sources.insert("answer".to_string());
-    let what = AsksWithNoAnswer {
+    has.sources.insert("words".to_string());
+    let no_answer = AsksWithNoAnswer {
         block: "asks".to_string(),
     };
-    assert_eq!(faults_with(&source, &has), [at("plan.toml", "outputs[1]", what)]);
+    let not_spoken_to = AsksAndCannotBeSpokenTo {
+        block: "asks".to_string(),
+    };
+    assert_eq!(
+        faults_with(&source, &has),
+        [
+            at("plan.toml", "outputs[1]", no_answer),
+            at("plan.toml", "outputs[1]", not_spoken_to.clone()),
+        ]
+    );
 
+    // Run by the answer alone, it can ask and cannot be spoken to about what it asks: refused still.
     let answered = format!("{asks}\n[blocks.answered]\noutside = \"answer\"\n");
     let source = edit(source, FLOW_FILE, asks, &answered);
     let inputs = r#"inputs = ["request", "opinions", "answered"]"#;
     let source = edit(source, "plan.toml", PLAN_INPUTS, inputs);
+    assert_eq!(
+        faults_with(&source, &has),
+        [at("plan.toml", "outputs[1]", not_spoken_to)]
+    );
+
+    let spoken = format!("{answered}\n[blocks.spoken_to]\noutside = \"words\"\n");
+    let source = edit(source, FLOW_FILE, &answered, &spoken);
+    let inputs_spoken = r#"inputs = ["request", "opinions", "answered", "spoken_to"]"#;
+    let source = edit(source, "plan.toml", inputs, inputs_spoken);
     let compiled = flow::compile(&source, &has);
     assert!(compiled.is_ok(), "{:?}", compiled.err());
+}
+
+#[test]
+fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+    let mut source = flow::read(&dir).expect("the engineer's flow is read");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge"]),
+        tools: names(&["query", "run_tests"]),
+        fields: names(&["questions", "reply"]),
+        details: names(&["files"]),
+        ..Default::default()
+    };
+    let compiled = flow::compile(&source, &has);
+    assert!(compiled.is_ok(), "{:?}", compiled.err());
+    // R2, which may ask the owner and wait, as the work-4 case: without the owner's words among its triggers.
+    let r2 = source.cells.get_mut("R2").expect("the flow has R2");
+    let (with, without) = (r#""on_plan", "on_spoken", "on_answer""#, r#""on_plan", "on_answer""#);
+    assert!(r2.contains(with), "{r2}");
+    *r2 = (r2.lines())
+        .filter(|line| !line.starts_with("on_spoken = "))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace(with, without);
+    let refused = flow::compile(&source, &has).expect_err("R2 asks and cannot be spoken to");
+    let what = AsksAndCannotBeSpokenTo {
+        block: "questions".to_string(),
+    };
+    assert!(
+        refused.iter().any(|f| f.file == "cells/R2.toml" && f.what == what),
+        "{refused:?}"
+    );
+    assert_eq!(refused.len(), 1, "{refused:?}");
 }
