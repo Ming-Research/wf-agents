@@ -4,7 +4,7 @@
 // `barSpans`); the stretches waited through are the engine's (`Summary.bar`).
 
 import type { WorkPage } from '../works-api';
-import { STATE, waitingFor } from '../works/words';
+import { STATE } from '../works/words';
 
 /// What a stretch of a work's time was: a model at work, the tools running, or no round running while the work waited
 /// for the owner, was paused, waited for the items its item depends on, or for anything else.
@@ -30,7 +30,7 @@ export const TRACK_WORDS: Record<TrackKind, string> = {
   tool: "The tools or the engine's acts ran",
   owner: STATE.owner,
   paused: STATE.paused,
-  items: waitingFor('the items it depends on'),
+  items: STATE.items,
   gap: 'Nothing ran',
 };
 

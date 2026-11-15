@@ -251,14 +251,11 @@ pub fn running_carried(
     dir: tempfile::TempDir,
     carriers: service::Carriers,
 ) -> Running {
-    let mut flow = flow::compile(
+    let flow = flow::compile(
         &flow::read(&trial_dir().join("flow")).unwrap(),
         &trial_has(&Source::default()),
     )
     .unwrap();
-    // The trial flow is written as flows were before they were laid out, with no words beside it: it takes those
-    // beside the repository's flows, as the engine says them to the owner.
-    flow.waits = flow::agents::Waits::of(include_str!("../../../../flow/agents/waits.toml")).unwrap();
     let clock = Arc::new(TokioClock::new(work::Time(START)));
     let (service, inbox) = Service::open(store, vec![flow], carriers, clock).unwrap();
     let handle = service.handle();

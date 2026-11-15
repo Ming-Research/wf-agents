@@ -21,7 +21,6 @@ import type {
   SessionWhy,
   Spent,
   Stalling,
-  Step,
   Summary,
   Unmet,
   Waited,
@@ -288,7 +287,15 @@ export function waitedWords(waited: Waited): string {
       return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
     case 'turn':
       return `the project's turn to check and merge, which W${waited.holder} holds`;
+    case 'items':
+      return itemsWords(waited.items);
   }
+}
+
+/// Items by their numbers, as a line names them: `#5`, `#5 and #7`, `#5, #6 and #7`.
+export function itemsWords(items: number[]): string {
+  const named = items.map((n) => `#${n}`);
+  return named.length < 2 ? named.join('') : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
 }
 
 /// The words of a work's state, the one catalogue every view names one from: the item's state line in the console, a
@@ -301,6 +308,8 @@ export const STATE = {
   running: 'Running',
   merged: 'Merged',
   cancelled: 'Cancelled',
+  /// Waiting for the items the work's item depends on to merge.
+  items: 'Waiting for the items it depends on',
   /// Waiting, where nothing the engine gives names who gives it.
   waiting: 'Waiting',
 } as const;
@@ -312,12 +321,34 @@ export const waitingFor = (who: string): string => `Waiting for ${who}`;
 export const ENDS_WORDS = {
   goOn: { label: 'Let it go on', title: 'Give the run its next round past its limit' },
   letGo: { label: 'Let it go on', title: 'Run the cell again past its limit' },
-  resume: { label: 'Start', title: 'Let the work go on' },
-  resumeEverything: { label: 'Start all', title: 'Let every work go on' },
+  resume: { label: 'Resume', title: "Lift the engine's pause and let the work go on" },
+  resumeEverything: { label: 'Resume all', title: "Lift the engine's pause of every work and let every work go on" },
 } as const;
 
+/// What the card of a block the owner may write says on its button, which writes the value picked, and on pointing at
+/// it, before a value is picked and once one is.
+export const WRITE_WORDS = {
+  label: 'Confirm',
+  none: 'Pick a value to write',
+  writes: (block: string, value: string): string => `Write ${block} = ${value}`,
+} as const;
+
+/// Why what the owner pressed to act on the engine as a whole was not sent: the page was drawn with no engine to send
+/// it to.
+export const NO_ENGINE = 'The page has no engine to send it to';
+
+/// What the switch that pauses a work is: the owner's own pause of it, which the engine's pause is not.
+export const OWN_PAUSE = {
+  label: 'Your own pause of the work',
+  on: { name: 'Start', title: 'Lift your pause and let the work go on' },
+  paused: { name: 'Pause', title: 'Nothing of the work goes on by itself; what you write to it is still answered' },
+} as const;
+
+/// What a count of the things that wait for the owner counts, after the number.
+export const waitCounted = (n: number): string => `${n === 1 ? 'thing waits' : 'things wait'} for you`;
+
 /// How many things wait for the owner, the one count, said one way wherever it is said.
-export const waitCount = (n: number): string => `${n} ${n === 1 ? 'thing waits' : 'things wait'} for you`;
+export const waitCount = (n: number): string => `${n} ${waitCounted(n)}`;
 
 /// Who gives what a work waits for that is not the owner's: the architect for a question put to them, the engine for a
 /// call it makes, a slot and the wait every work shares, the source outside the work, or else the cells, for a
@@ -336,6 +367,8 @@ function whoGives(w: Waited): string | null {
     case 'slot':
     case 'agents':
       return 'the engine';
+    case 'items':
+      return 'the items it depends on';
     case 'outside':
       return w.source;
     case 'turn':
@@ -373,6 +406,7 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
     case 'waits': {
       if (s.cells.some((c) => c.cell === now.at && c.state === 'calling'))
         return { tone: 'running', word: STATE.running, cell: at };
+      if (now.on.length > 0 && now.on.every((w) => w.kind === 'items')) return { tone: 'quiet', word: STATE.items, cell: at };
       const who = [...new Set(now.on.flatMap((w) => whoGives(w) ?? []))];
       return { tone: 'quiet', word: who.length > 0 ? waitingFor(who.join(' and ')) : STATE.waiting, cell: at };
     }
@@ -393,16 +427,27 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
 /// The first line of a text, for a line of a list or a notification.
 export const firstLine = (text: string): string => text.trim().split('\n')[0] ?? '';
 
+/// A text as a sentence: as it is where it ends as one does, else with a full stop; so that reasons said one after
+/// another each read as one.
+export function sentence(text: string): string {
+  const t = text.trim();
+  return t === '' || /[.?!]$/.test(t) ? t : `${t}.`;
+}
+
+/// A reason as a line of words says it, where no name can be set in the monospace: its names and values without the
+/// backticks that mark them (the cards draw them in the monospace, `Coded`).
+export const plain = (text: string): string => text.replace(/`/g, '');
+
 /// What a work does now, in a line of the Works list: its state's word, the cell where the state names one, and why:
-/// for what waits on the owner, the engine's reasons; for a fault or a stall, what is wrong; for what waits on another,
-/// what it waits for.
+/// for what waits on the owner, the engine's reasons, each a sentence, which name a cell where it matters, so that the
+/// line names none of its own; for a fault or a stall, what is wrong; for what waits on another, what it waits for.
 export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
   const { word, cell } = stateOf(s);
   const now = s.now;
   const waits = waitsOf(s);
   const why =
     waits.length > 0
-      ? waits.map((w) => firstLine(w.why)).join(' ')
+      ? waits.map((w) => sentence(firstLine(w.why))).join(' ')
       : now.kind === 'fault'
         ? now.words
         : now.kind === 'stalled'
@@ -410,28 +455,33 @@ export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
           : now.kind === 'waits' && word !== STATE.running
             ? now.on.map(waitedWords).join('; ')
             : null;
-  return [word, cell, why].filter((x) => x !== null && x !== '').join(' · ');
+  return [word, waits.length > 0 ? null : cell, why === null ? null : plain(why)]
+    .filter((x) => x !== null && x !== '')
+    .join(' · ');
 }
 
-/// What a stalled work waits for, which cells write it and why none of them runs, in a line.
+/// What a stalled work waits for, which cells write it and why none of them runs, in one sentence, names and values
+/// marked as such: `It waits for `checked = yes`, which only `M1` can make hold, and `M1` does not run, as nothing new
+/// runs it.`
 export function stalledWords(now: Extract<Now, { kind: 'stalled' }>): string {
-  const keys = (keys: CellKey[]) => keys.map((k) => k.words).join(' and ');
-  const writers = now.by.length === 0 ? 'no cell' : `only ${now.by.map((s) => `cell ${s.cell}`).join(' or ')}`;
+  const keys = (keys: CellKey[]) => keys.map((k) => `\`${k.words}\``).join(' and ');
+  const cell = (id: string) => `\`${id}\``;
+  const writers = now.by.length === 0 ? 'no cell' : `only ${now.by.map((s) => cell(s.cell)).join(' or ')}`;
   const waits =
     now.on.length > 0
-      ? `it waits for ${keys(now.on)}, which ${writers} can make hold`
-      : `nothing new runs this last cell, and what runs it ${writers} can write`;
+      ? `It waits for ${keys(now.on)}, which ${writers} can make hold`
+      : `Nothing new runs ${cell(now.at)}, its last cell, and ${writers} can write what runs it`;
   const why = (s: Stalling) => {
     switch (s.why.kind) {
       case 'skipped':
-        return `it is skipped, ${keys(s.why.on)} not holding`;
+        return `it is skipped while ${keys(s.why.on)} does not hold`;
       case 'nothingNew':
         return 'nothing new runs it';
       case 'held':
-        return `${now.at} holds it`;
+        return `${cell(now.at)} holds it`;
     }
   };
-  return [waits, ...now.by.map((s) => `cell ${s.cell} does not run: ${why(s)}`)].join('; ');
+  return sentence([waits, ...now.by.map((s) => `${cell(s.cell)} does not run, as ${why(s)}`)].join(', and '));
 }
 
 /// The tone of what a work does now, as its state takes it (`stateOf`).
@@ -599,10 +649,3 @@ export function hasEnded(summary: Pick<Summary, 'now'>): boolean {
   return summary.now.kind === 'merged' || summary.now.kind === 'cancelled';
 }
 
-/// Why letting go of what an ended work held failed, where the engine paused the work for it and it is not let on
-/// since: letting it on tries again. None otherwise.
-export function letGoFailed(summary: Pick<Summary, 'now' | 'paused'>, steps: Step[]): string | null {
-  if (!hasEnded(summary) || !summary.paused) return null;
-  const last = [...steps].reverse().find((s) => s.kind === 'paused' || s.kind === 'resumed');
-  return last?.kind === 'paused' && last.by === 'engine' ? (last.why ?? 'the engine gave no reason') : null;
-}

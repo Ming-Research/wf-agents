@@ -52,13 +52,14 @@ export function StateLegend() {
   );
 }
 
-/// Whether a work's pause is to be said beside its state: only where the state says something else, a round still
-/// under way or something it waits for; a work that has ended, or whose state is the pause or what waits on the owner,
-/// needs no more.
+/// Whether the owner's pause of a work is to be said beside its state: wherever it holds the work and the state says
+/// something else, a round still under way or whatever it waits for, what waits on the owner among it, so that the head
+/// says each thing that holds it (principle the-head-says-what-holds-it). The engine's pause is said by the state
+/// itself, as what waits on the owner, and a work that has ended is held by no pause of the owner's.
 export function pauseDiffers(work: Pick<Summary, 'now' | 'cells' | 'waits' | 'paused'>): boolean {
   const { word } = stateOf(work);
   const ended = work.now.kind === 'merged' || work.now.kind === 'cancelled';
-  return work.paused !== null && !ended && word !== STATE.paused && word !== STATE.owner;
+  return work.paused === 'owner' && !ended && word !== STATE.paused;
 }
 
 /// What a work does now: a dot in its tone, its state's words, the state's word first, from the one catalogue; and its

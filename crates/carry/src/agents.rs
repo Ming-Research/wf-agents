@@ -814,7 +814,6 @@ impl Inner {
             flow::agents::fill(
                 said,
                 &[
-                    ("work", &round.work.0.to_string()),
                     ("value", &unit.say(value)),
                     ("line", &unit.say(line.value)),
                     ("works", &line.samples.to_string()),
@@ -843,12 +842,8 @@ impl Inner {
         let dollars = |micros: u64| format!("{:.2}", micros as f64 / 1_000_000.0);
         let of = crate::projects::of(&self.projects, &round.item).ok()?;
         (total > budget).then(|| {
-            let (work, value, budget) = (round.work.0.to_string(), dollars(total), dollars(budget));
-            let places = [
-                ("work", work.as_str()),
-                ("value", value.as_str()),
-                ("budget", budget.as_str()),
-            ];
+            let (value, budget) = (dollars(total), dollars(budget));
+            let places = [("value", value.as_str()), ("budget", budget.as_str())];
             flow::agents::fill(&of.beside.cost.work.budget, &places)
         })
     }

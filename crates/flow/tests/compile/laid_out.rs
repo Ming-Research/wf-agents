@@ -64,14 +64,6 @@ fn a_flow_laid_out_one_thing_to_a_file_compiles_to_what_its_twin_written_before_
 }
 
 #[test]
-fn a_flow_laid_out_one_thing_to_a_file_without_the_words_beside_the_flows_is_refused() {
-    let mut source = laid_out();
-    source.files.remove(&flow::waits_file());
-    let faults = flow::compile(&source, &crate::support::has()).expect_err("it is refused");
-    assert!(faults.iter().any(|f| f.file == flow::waits_file()), "{faults:#?}");
-}
-
-#[test]
 fn the_engine_s_own_data_a_flow_names_are_its_blocks_as_defined_beside_the_flows() {
     let source = edit(
         laid_out(),

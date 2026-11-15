@@ -79,14 +79,8 @@ pub struct Waits {
     pub owner: OwnerWords,
 }
 
-impl Waits {
-    /// The words as the file's text writes them, or why they cannot be read.
-    pub fn of(text: &str) -> Result<Waits, String> {
-        toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())
-    }
-}
-
-/// Why the engine paused a work as a round of it failed, each with `{why}`, what carried the round out said.
+/// Why the engine paused a work, each with `{why}`, what carried the round out, or the act that lets go of what the
+/// work held, said.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PausedWords {
@@ -98,9 +92,12 @@ pub struct PausedWords {
     pub outside: String,
     /// The service's safety check flagged the round again, in the new session of its line.
     pub flagged_again: String,
+    /// Letting go of what an ended work held failed.
+    pub let_go: String,
 }
 
-/// Why a work waits on the owner, a sentence for each thing it waits for; a question is said by what it asks.
+/// Why a work waits on the owner, a sentence for each thing it waits for; a question the work waits for at its cell is
+/// said by what it asks, and one a cell's precondition waits for, by `answer`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OwnerWords {
@@ -109,6 +106,8 @@ pub struct OwnerWords {
     pub returns: String,
     pub made: String,
     pub ruling: String,
+    /// A question that stands without the owner's answer, which a cell's precondition waits for.
+    pub answer: String,
     pub paused: String,
     pub no_reason: String,
     pub held: String,
@@ -161,6 +160,7 @@ pub struct Agents {
 #[serde(deny_unknown_fields)]
 pub struct Cost {
     pub program: ProgramWords,
+    pub check: CheckWords,
     pub ping: PingWords,
     pub guard: GuardWords,
     pub work: WorkWords,
@@ -175,6 +175,16 @@ pub struct ProgramWords {
     pub exited: String,
     /// A signal ended it.
     pub signal: String,
+}
+
+/// What the engine's check of the outside of the agents' rounds found down, where it says it itself.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckWords {
+    /// The command line is not signed in, as `{command} auth status` says.
+    pub signed_out: String,
+    /// The network does not reach the agents' service.
+    pub offline: String,
 }
 
 /// What a keep-warm ping sends, and why one failed.

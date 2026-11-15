@@ -1,0 +1,40 @@
+# What the engine says to the owner of why a work waits on them, a sentence for each thing it waits for, which the
+# page shows on the card the owner acts on and in the browser's notifications, and `wf-agents wait` says; and why the
+# engine paused a work, which the pause keeps and its card says. Read with each flow. A name or a value in backticks is
+# shown as one.
+
+# Why the engine paused a work, each a sentence of its own before `{why}`, what carried the round out, or the act that
+# lets go of what the work held, said as it said it: `too_long` where the prompt is too long for the model; `passing`
+# where the round failed in passing `{failed}` times in a row; `outside` where it failed `{failed}` times in a row for a
+# cause outside every work; `flagged_again` where the service's safety check flagged it again, in the new session its
+# line was given; `let_go` where letting go of what an ended work held failed. Any other cause is said by what carried
+# the round out alone.
+[paused]
+too_long = "Running the round again cannot help. {why}"
+passing = "The round failed in passing {failed} times in a row, and running it again has not helped. {why}"
+outside = "The round failed {failed} times in a row for a cause outside every work, tried again each time the engine's check found the outside well. {why}"
+flagged_again = "The service's safety check flagged the round again, in the new session its line was given. {why}"
+let_go = "Letting go of what the work held failed. {why}"
+
+# Why a work waits on the owner, by what it waits for; a question put to the owner that the work waits for at its cell
+# is said by what it asks. Filled in a run: `{cell}` the cell by its id; `limit` and `calls`, the cell's last `{runs}`
+# runs in a row, each for what a cell after it wrote, or each asking for calls and dealing with nothing; `returns` and
+# `made`, its run at its limit of `{sent_back}` returns sent back or of `{made}` calls made; `ruling`, a block the owner
+# may write, `{block}`, keeping the cell's `requires` key `{key}` from holding; `answer`, a question that stands without
+# the owner's answer, which the cell's precondition waits for, said on its card under what it asks; `paused`, the
+# engine's pause, `{why}` its reason, and `no_reason`
+# where it gave none; `held`, the pause of every work the engine set as it started again; `agents`, the agents' command
+# line that cannot run, `{why}` what its check or its round found, and `mend`, what the owner does about it, which the
+# page has no control for.
+[owner]
+limit = "{cell} ran {runs} times in a row for what a cell after it wrote, its limit."
+calls = "{cell} ran {runs} times in a row asking for calls and dealing with nothing, its limit."
+returns = "The run of {cell} had {sent_back} returns sent back, its limit."
+made = "The run of {cell} made {made} calls, its limit."
+ruling = "`{cell}` requires `{key}`, which `{block}` keeps from holding."
+answer = "The merge waits for this answer."
+paused = "The engine paused the work. {why}"
+no_reason = "The engine paused the work and gave no reason."
+held = "The engine paused every work as it started again."
+agents = "The agents' command line cannot run. {why}"
+mend = "Sign it in again or install it; the engine lets the work go on once its check finds it runs."

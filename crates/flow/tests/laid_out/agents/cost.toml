@@ -9,6 +9,13 @@
 exited = "{command} exited with code {code}: {said}"
 signal = "{command} was ended by signal {signal}: {said}"
 
+# What the engine's check of the outside of the agents' rounds found down, where it says it itself, a sentence each:
+# `signed_out` where the command line, `{command}`, says it is not signed in; `offline` where the network does not reach
+# the agents' service.
+[check]
+signed_out = "It is not signed in, as `{command} auth status` says."
+offline = "The network does not reach the agents' service."
+
 # Why the run guard stopped a round, as the round's failure says it: `growth` where its context grew past the line of
 # its history both in all and for each call, `jump` where its first prompt rose past the session's last by more than
 # the line both in all and for each character of the message it was given; `again`, with `{stopped}` one of those,
@@ -33,16 +40,16 @@ line = "of its line"
 
 # Why the engine paused a work whose spend or time, since it started or was last let on after the engine paused it,
 # is past the line the flow's other works give, `spent` and `time`; or whose spend is over the budget the settings
-# give, `budget`. Filled in a run: `{work}` the work's number, `{value}` its spend in dollars or its time in minutes,
-# `{line}` the line, `{works}` how many works gave it, `{since}` the words below of since when, `{budget}` the budget
-# in dollars; `between` between two reasons it waits for.
+# give, `budget`; each a sentence, said beside its work. Filled in a run: `{value}` its spend in dollars or its time in
+# minutes, `{line}` the line, `{works}` how many works gave it, `{since}` the words below of since when, `{budget}`
+# the budget in dollars; `between` between two reasons it waits for, or a reason and why its round failed.
 [work]
-spent = "work W{work} has spent ${value} since {since}, past the line of ${line} that {works} other works of its flow give"
-time = "work W{work} has taken {value} minutes in its rounds since {since}, past the line of {line} that {works} other works of its flow give"
-budget = "work W{work} has spent ${value}, over its budget of ${budget}"
+spent = "It has spent ${value} since {since}, past the line of ${line} that {works} other works of its flow give."
+time = "It has taken {value} minutes in its rounds since {since}, past the line of {line} that {works} other works of its flow give."
+budget = "It has spent ${value}, over its budget of ${budget}."
 started = "it started"
 let_on = "it was last let on"
-between = "; and "
+between = " "
 
 # What a keep-warm ping sends a session whose line waits, so that the prompt cache does not let the session go: the
 # whole message, `message`, whose answer is not read. Why one failed, kept with the ping: `under_way`, a round of its

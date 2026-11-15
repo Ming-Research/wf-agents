@@ -170,7 +170,7 @@ pub fn carry(
         of.insert(name, agents::Of::new(&settings, project, beside, main));
     }
     let slots = settings.agents.slots;
-    let outside = outside::Check::of(&settings, beside.cost.program.clone())?;
+    let outside = outside::Check::of(&settings, &beside.cost)?;
     let carriers = Carriers {
         slots,
         agents: Arc::new(Agents::new(settings, data.clone(), installation, of)),

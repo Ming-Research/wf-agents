@@ -20,3 +20,9 @@ An item stands whole in one place, under the first by number of the items that d
 that depends on it, it is only a line that points there.
 Why: Shown whole in several places, an item would be counted, read and answered more than once, and each thing has one
 place (Article 8).
+
+### decision a-works-age-is-red-past-an-hour
+A card gives its work's age in three colours and no more: grey under half an hour, amber from half an hour to an hour,
+and red past an hour, however long.
+Why: The owner ruled that red says a problem, and a work not done within an hour is one, so its standing out is right;
+a violet past a day was dropped, and a line from the work's own history was put to the owner and not chosen.

@@ -206,10 +206,11 @@ fn at_cell(
                     push(waits, format!("write-{block}"), fill(&words.ruling, &places), ends);
                 } else if outsiders.by_owner {
                     // What its source writes changes as the owner answers the work's questions: each that stands
-                    // without the owner's answer to its latest version.
+                    // without the owner's answer to its latest version, which the cell waits for.
+                    let why = fill(&words.answer, &[("cell", cell)]);
                     for (name, standing) in questions::questions(records) {
                         if standing.unanswered() {
-                            question(kept, name, &standing, waits);
+                            question(name, &standing, why.clone(), waits);
                         }
                     }
                 }
@@ -227,19 +228,19 @@ fn at_cell(
         }
         Waited::Answer { question: name } => {
             if let Some(standing) = questions::questions(records).get(name.as_str()) {
-                question(kept, name, standing, waits);
+                let why = match kept.work.question(standing.latest) {
+                    Some(work::Question::Asked { ask, .. }) => ask.clone(),
+                    _ => name.to_string(),
+                };
+                question(name, standing, why, waits);
             }
         }
         Waited::Precondition { .. } | Waited::Slot | Waited::Outside { .. } => {}
     }
 }
 
-/// The wait for the owner's answer to the latest version of a question of the work, said by what it asks.
-fn question(kept: &Kept<'_>, name: &str, standing: &Standing<'_>, waits: &mut Vec<Waiting>) {
-    let why = match kept.work.question(standing.latest) {
-        Some(work::Question::Asked { ask, .. }) => ask.clone(),
-        _ => name.to_string(),
-    };
+/// The wait for the owner's answer to the latest version of a question of the work, said by `why`.
+fn question(name: &str, standing: &Standing<'_>, why: String, waits: &mut Vec<Waiting>) {
     let ends = Ends::Answer {
         question: name.to_string(),
         version: standing.latest.at,
@@ -355,6 +356,11 @@ mod tests {
                 .iter()
                 .map(|(id, text)| (id.to_string(), text.to_string()))
                 .collect(),
+            files: [(
+                flow::waits_file(),
+                include_str!("../../../flow/agents/waits.toml").to_string(),
+            )]
+            .into(),
             ..Source::default()
         };
         let has = Has {
@@ -362,9 +368,7 @@ mod tests {
             acts: ["merge".to_string()].into(),
             ..Has::default()
         };
-        let mut flow = compile(&source, &has).expect("the definition compiles");
-        flow.waits = flow::agents::Waits::of(include_str!("../../../flow/agents/waits.toml")).expect("the words");
-        flow
+        compile(&source, &has).expect("the definition compiles")
     }
 
     fn head() -> WorkHead {
@@ -541,7 +545,7 @@ mod tests {
         );
         let waits = of(&work, &decision);
         assert_eq!(keys(&waits), ["answer-a", "answer-b"]);
-        assert_eq!(waits[1].why, "Which way for b?");
+        assert_eq!(waits[1].why, "The merge waits for this answer.");
     }
 
     #[test]
@@ -562,7 +566,7 @@ mod tests {
             of(&work, &decision),
             [Waiting {
                 key: "write-verdict".to_string(),
-                why: "merge requires verdict = yes, which verdict keeps from holding.".to_string(),
+                why: "`merge` requires `verdict = yes`, which `verdict` keeps from holding.".to_string(),
                 ends,
             }]
         );
@@ -630,10 +634,10 @@ mod tests {
     #[test]
     fn the_engines_pause_is_the_owners_with_its_reason_and_the_owners_own_is_not() {
         let mut work = Work::default();
-        paused(&mut work, Pauser::Engine, Some("it spent more than it may"));
+        paused(&mut work, Pauser::Engine, Some("It spent more than it may."));
         let waits = of(&work, &Decision::Paused);
         assert_eq!(keys(&waits), [PAUSE]);
-        assert_eq!(waits[0].why, "The engine paused the work: it spent more than it may");
+        assert_eq!(waits[0].why, "The engine paused the work. It spent more than it may.");
         assert_eq!(waits[0].ends, Ends::Resume);
         // Its round under way goes on, and the pause holds the work once it ends.
         let busy = Decision::Busy {
@@ -673,11 +677,14 @@ mod tests {
         let work = Work::default();
         let cannot = Shared {
             everything: None,
-            cannot_run: Some("it is not signed in"),
+            cannot_run: Some("It is not signed in."),
         };
         let waits = of_with(&work, &going("write"), None, cannot);
         assert_eq!(keys(&waits), [AGENTS]);
-        assert_eq!(waits[0].why, "The agents' command line cannot run: it is not signed in");
+        assert_eq!(
+            waits[0].why,
+            "The agents' command line cannot run. It is not signed in."
+        );
         let mend = "Sign it in again or install it; the engine lets the work go on once its check finds it runs.";
         assert_eq!(waits[0].ends, Ends::Outside { what: mend.to_string() });
         assert_eq!(

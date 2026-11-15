@@ -17,7 +17,7 @@ use web::attention::{Attention, Line, Stuck};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::system::{Past, System, UnderWay};
 use web::works::{
-    Act, Added, Against, Back, Call, CellKey, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, Found,
+    Act, Added, Against, Back, Call, CellKey, CellState, ChangeAsked, Checked, Ends, Engine, EngineAct, Failure, Found,
     ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser,
     Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Stalling, Step, Unrun, Until, VersionPage,
     Waited, WorkPage, Writer,
@@ -530,8 +530,8 @@ fn standing(engine: &Engine) -> String {
 }
 
 /// What the engine's own pause of everything, as it started with works going on, is, in words.
-const STARTED_HELD: &str = "The engine started with works going on and holds every work until you have looked: none \
-                            begins a round but to answer a note, until `wf-agents resume --all`";
+const STARTED_HELD: &str = "The engine started with works going on and holds every work until the owner has looked: \
+                            none begins a round but to answer a note, until `wf-agents resume --all`";
 
 /// The most items `list` gives in one answer, and the most entries of a part of a work `show` gives alone.
 const LISTED: usize = 100;
@@ -1361,9 +1361,9 @@ fn attention(answer: &Attention, marked: bool, now: u64) -> String {
     if answer.lines.is_empty() {
         lines.push(
             if marked {
-                "Nothing for you since the mark."
+                "Nothing for the owner since the mark."
             } else {
-                "Nothing waits for you."
+                "Nothing waits for the owner."
             }
             .to_string(),
         );
@@ -1407,11 +1407,30 @@ fn heed(line: &Line, now: u64) -> String {
             of,
             format!("{}, for {}", self::now(is), duration(now.saturating_sub(*since))),
         ),
-        // What it waits on the owner for, each by why, a question by the first line of what it asks.
-        Line::ForAPerson { of, since, waits, .. } => {
-            let why: Vec<String> = waits.iter().map(|wait| first_line(&wait.why)).collect();
+        // What it waits on the owner for, at the cell it stands at, each by why, a question by the first line of what
+        // it asks, each a sentence, then what the owner does where no act of the engine does it, in the engine's words.
+        Line::ForAPerson {
+            of,
+            since,
+            waits,
+            now: is,
+        } => {
+            let at = match is {
+                Now::Waits { at, .. } | Now::Stalled { at, .. } => format!(" at {at}"),
+                Now::Round { cell, .. } | Now::Next { cell } => format!(" at {cell}"),
+                _ => String::new(),
+            };
+            let why: Vec<String> = (waits.iter())
+                .flat_map(|wait| {
+                    let does = match &wait.ends {
+                        Ends::Outside { what } => Some(sentence(what)),
+                        _ => None,
+                    };
+                    std::iter::once(sentence(&first_line(&wait.why))).chain(does)
+                })
+                .collect();
             let waited = duration(now.saturating_sub(*since));
-            (of, format!("waits for you: {}, for {waited}", why.join(" ")))
+            (of, format!("waits for the owner{at} for {waited}: {}", why.join(" ")))
         }
         Line::Idle {
             of,
@@ -1451,7 +1470,16 @@ fn heed(line: &Line, now: u64) -> String {
     } else {
         of.title.clone()
     };
-    format!("Item {} \"{title}\", work {}: {said}.", of.item, of.work)
+    format!("Item {} \"{title}\", work {}: {}", of.item, of.work, sentence(&said))
+}
+
+/// A text as a sentence: as it is where it ends as one does, else with a full stop.
+fn sentence(text: &str) -> String {
+    let text = text.trim_end();
+    match text.ends_with(['.', '?', '!']) {
+        true => text.to_string(),
+        false => format!("{text}."),
+    }
 }
 
 /// The first line of a text, cut to a paragraph's length.
@@ -1468,7 +1496,7 @@ fn first_line(text: &str) -> String {
 fn stuck(why: Stuck) -> &'static str {
     match why {
         Stuck::Paused => "paused",
-        Stuck::ForAPerson => "waiting for you",
+        Stuck::ForAPerson => "waiting for the owner",
         Stuck::Stalled => "stalled",
         Stuck::Idle => "waiting in turn for items none of which is going on",
         Stuck::Cancelled => "cancelled",
@@ -1596,6 +1624,17 @@ fn waited(waited: &Waited) -> String {
         Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again: {}", outage(o)),
         Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
+        Waited::Items { items } => format!("the items it depends on to merge: {}", numbers(items)),
+    }
+}
+
+/// Items by their numbers: item 5, items 5 and 7, items 5, 6 and 7.
+fn numbers(items: &[u64]) -> String {
+    let items: Vec<String> = items.iter().map(u64::to_string).collect();
+    match items.as_slice() {
+        [] => "none".to_string(),
+        [one] => format!("item {one}"),
+        [rest @ .., last] => format!("items {} and {last}", rest.join(", ")),
     }
 }
 
@@ -1611,7 +1650,7 @@ fn outage(outage: &Outage) -> String {
     };
     let cause = |failure: Failure| match failure {
         Failure::UsageLimit => "the account's usage limit was reached",
-        Failure::CannotRun => "the agents' command line cannot run; sign it in again or install it",
+        Failure::CannotRun => "the agents' command line cannot run",
         Failure::Offline => "the network cannot be reached",
         Failure::Unavailable => "the agents' service is down, overloaded or not answering",
         _ if down.is_some() => "the engine's check of the outside failed",

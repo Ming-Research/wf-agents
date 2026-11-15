@@ -14,6 +14,7 @@ import type { Copies, Engine, Item, Items, Spent } from '../works-api';
 import { copiesTone, copiesWords } from '../works/Copies';
 import { NowLine } from '../works/marks';
 import { useChanges, useItems, useReading, useSource } from '../works/source';
+import { waitingCount } from '../works/waiting';
 import {
   allTokens,
   clock,
@@ -24,6 +25,7 @@ import {
   outageWords,
   tokens,
   tokensWords,
+  waitCounted,
 } from '../works/words';
 import { type RanOn, type System, useSystemSource } from './api';
 import { ItemName, Tile, Tiles, ViewTable, WorkLink } from './parts';
@@ -190,16 +192,20 @@ function NowPart({ items, engine, copies, copiesFailed }: {
         </dd>
       </dl>
       <Tiles>
-        {by.map(({ standing, list }) => (
-          <Tile
-            key={standing}
-            value={list.length}
-            label={STANDING_WORDS[standing].name}
-            title={STANDING_WORDS[standing].title}
-            open={open === standing}
-            onOpen={list.length > 0 ? () => setOpen(open === standing ? null : standing) : undefined}
-          />
-        ))}
+        {by.map(({ standing, list }) => {
+          // What waits for the owner is counted by the one count, the things that wait, not the works they wait in.
+          const waiting = standing === 'owner' ? waitingCount(list.map((item) => item.work)) : null;
+          return (
+            <Tile
+              key={standing}
+              value={waiting ?? list.length}
+              label={waiting === null ? STANDING_WORDS[standing].name : waitCounted(waiting)}
+              title={STANDING_WORDS[standing].title}
+              open={open === standing}
+              onOpen={list.length > 0 ? () => setOpen(open === standing ? null : standing) : undefined}
+            />
+          );
+        })}
       </Tiles>
       {opened !== undefined && opened.list.length > 0 && (
         <ViewTable heads={['Work', 'Item', 'Now', 'Last']} label={STANDING_WORDS[opened.standing].name}>

@@ -221,6 +221,7 @@ export type What =
   /// A cell's `when` or `requires` has no keys.
   | { kind: 'emptyCondition' }
   | { kind: 'noteNotByPeople'; block: string }
+  | { kind: 'changedByWithoutSource'; block: string }
   | { kind: 'noteIsAChoice'; block: string }
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.

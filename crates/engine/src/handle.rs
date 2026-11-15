@@ -558,7 +558,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 paused: true,
                 at,
                 by: Pauser::Engine,
-                why: Some(why),
+                why: Some(flow::agents::fill(&flow.waits.paused.let_go, &[("why", why.as_str())])),
             });
         }
         Event::Released => {

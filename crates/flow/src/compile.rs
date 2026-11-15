@@ -46,8 +46,8 @@ pub struct Compiled {
     /// The text of each of the flow's sets of rules for the agents, by name: each one a line names.
     pub rules: BTreeMap<String, String>,
     /// What the engine says to the owner of why a work waits on them and why it paused a work, as the file beside the
-    /// flows says it ([`crate::agents::WAITS_FILE`]); of a flow written before it was laid out, which has no such file,
-    /// every text empty.
+    /// flows says it ([`crate::agents::WAITS_FILE`]); every text empty where there is no such file, a flow the engine
+    /// refuses to run (crate `driver`, `faults`).
     pub waits: Waits,
 }
 
@@ -414,6 +414,8 @@ pub enum FaultKind {
     NoteNotByPeople { block: String },
     /// The block is a note, and a choice: a note is words to a cell, which a choice is not.
     NoteIsAChoice { block: String },
+    /// The block says who changes what a source outside the work writes of it, and no such source writes it.
+    ChangedByWithoutSource { block: String },
     /// The block is not declared in `flow.toml`.
     NoSuchBlock { block: String },
     /// The cell must write the block each time, and it is not among its outputs.
@@ -610,7 +612,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 people: b.people,
                 note: b.note,
                 outside: b.outside.clone(),
-                by_owner: b.outside.is_some() && b.changed_by == Some(ChangedBy::Owner),
+                by_owner: b.changed_by == Some(ChangedBy::Owner),
                 interrupts: b.outside.as_deref().is_some_and(|source| TURNING.contains(&source)),
                 entries: b.outside.as_deref().is_some_and(|source| record(name, source)),
             };
@@ -675,7 +677,7 @@ struct Parsed {
     /// The triggers beside the flows, by their files, each with whose own it is.
     trigger_files: Vec<(String, TriggerFile, Whose)>,
     /// What the engine says to the owner of why a work waits on them, as the file beside the flows says it; every
-    /// text empty for a flow written before it was laid out.
+    /// text empty where there is none.
     waits: Waits,
     /// What is wrong with how the files make one definition, found as they are gathered: a thing defined twice, a
     /// datum of the engine's the flow names that is not there, and a file beside the flows that lacks the name that
@@ -759,18 +761,15 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
     let parsed = if source.laid_out {
         let flow = shape::<LaidOutFlowFile>(FLOW_FILE, &source.flow, &mut faults);
         let files = LaidOut::parse(&source.files, &mut faults);
-        // The words a laid-out flow's works are shown and paused with are beside the flows, and a flow lacking them
-        // would show its waits on the owner with no reason.
-        if !source.files.contains_key(&waits_file()) {
-            let what = FaultKind::Unreadable {
-                message: "there is no such file".to_string(),
-            };
-            faults.push(fault(&waits_file(), "", what));
-        }
         flow.map(|flow| (flow.data.clone(), flow.tools.clone(), FlowFile::from(flow), files))
     } else {
         let flow = shape::<FlowFile>(FLOW_FILE, &source.flow, &mut faults);
-        flow.map(|flow| (Vec::new(), Vec::new(), flow, LaidOut::default()))
+        // A flow written before it was laid out takes from beside the flows only the words the engine says to the owner.
+        let files = LaidOut {
+            waits: (source.files.get(&waits_file())).and_then(|text| shape(&waits_file(), text, &mut faults)),
+            ..LaidOut::default()
+        };
+        flow.map(|flow| (Vec::new(), Vec::new(), flow, files))
     };
     match parsed {
         Some((data, tools, mut flow, files)) if faults.is_empty() => {
@@ -1521,6 +1520,12 @@ impl<'a> Definition<'a> {
                 faults.push(at("note", FaultKind::NoteNotByPeople { block: name.clone() }));
             } else if block.note && block.values.is_some() {
                 faults.push(at("note", FaultKind::NoteIsAChoice { block: name.clone() }));
+            }
+            if block.changed_by.is_some() && block.outside.is_none() {
+                faults.push(at(
+                    "changed_by",
+                    FaultKind::ChangedByWithoutSource { block: name.clone() },
+                ));
             }
             if let Some(source) = &block.outside
                 && !has.sources.contains(source)

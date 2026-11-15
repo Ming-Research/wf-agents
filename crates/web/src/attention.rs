@@ -133,6 +133,7 @@ impl Attention {
                 driver.held(work),
                 &outages,
                 &driver.along_of(work),
+                &(driver.unmerged(work).iter()).map(|item| item.0).collect::<Vec<_>>(),
             )?;
             Ok((of, now))
         };

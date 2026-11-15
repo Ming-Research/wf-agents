@@ -23,6 +23,15 @@ export type Route =
 
 const pathOf = (hash: string): string => hash.replace(/^#/, '').replace(/\/+$/, '');
 
+/// A part of an address as it was before it was encoded, or none where it is not one encoded.
+function decoded(part: string): string | null {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return null;
+  }
+}
+
 /// The view an address's hash names, if it names one.
 function named(hash: string): Route | null {
   const path = pathOf(hash);
@@ -34,11 +43,12 @@ function named(hash: string): Route | null {
       ? { view: 'work', work: Number(work[1]) }
       : { view: 'work', work: Number(work[1]), run: Number(work[2]) };
   }
-  const item = /^\/console\/items\/(\d+)(?:\/waits\/([\w-]+))?$/.exec(path);
+  // The key of what waits holds the name of a question, which may hold any character: the address carries it encoded.
+  const item = /^\/console\/items\/(\d+)(?:\/waits\/([^/]+))?$/.exec(path);
   if (item) {
-    return item[2] === undefined
-      ? { view: 'console', item: Number(item[1]) }
-      : { view: 'console', item: Number(item[1]), wait: item[2] };
+    if (item[2] === undefined) return { view: 'console', item: Number(item[1]) };
+    const wait = decoded(item[2]);
+    return wait === null ? null : { view: 'console', item: Number(item[1]), wait };
   }
   const period = PERIODS.find((p) => p !== 'week' && path === `/system/${p}`);
   return period ? { view: 'system', period } : null;
@@ -61,7 +71,9 @@ export function hashOf(route: Route): string {
     return route.run === undefined ? `#/works/${route.work}` : `#/works/${route.work}/runs/${route.run}`;
   }
   if ('item' in route) {
-    return route.wait === undefined ? `#/console/items/${route.item}` : `#/console/items/${route.item}/waits/${route.wait}`;
+    return route.wait === undefined
+      ? `#/console/items/${route.item}`
+      : `#/console/items/${route.item}/waits/${encodeURIComponent(route.wait)}`;
   }
   if ('period' in route && route.period !== 'week') return `#/system/${route.period}`;
   return `#/${route.view}`;

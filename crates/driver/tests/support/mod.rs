@@ -48,20 +48,22 @@ pub fn has() -> Has {
     }
 }
 
-/// A flow compiled from the text of its files, written as flows were before they were laid out, with the words beside
-/// the repository's flows, which it has none of its own beside it.
+/// A flow compiled from the text of its files, beside it the words the engine says to the owner, as beside the
+/// repository's flows.
 pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
     let source = Source {
         flow: flow.to_string(),
         cells: (cells.iter())
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        files: [(
+            flow::waits_file(),
+            include_str!("../../../../flow/agents/waits.toml").to_string(),
+        )]
+        .into(),
         ..Default::default()
     };
-    let mut flow = compile(&source, &has()).expect("the definition compiles");
-    flow.waits =
-        flow::agents::Waits::of(include_str!("../../../../flow/agents/waits.toml")).expect("the words are read");
-    flow
+    compile(&source, &has()).expect("the definition compiles")
 }
 
 /// The block the driver writes as the owner starts a work, which runs the first cell of each flow.
@@ -445,6 +447,10 @@ impl Storage for Failing {
     fn pause_everything(&mut self, paused: bool, by: Pauser, at: Time) -> Result<(), store::Fault> {
         self.call(Op::PauseEverything)?;
         self.store.pause_everything(paused, by, at)
+    }
+
+    fn everything_pauses(&self) -> Result<Vec<store::PauseOfEverything>, store::Fault> {
+        self.store.everything_pauses()
     }
 }
 

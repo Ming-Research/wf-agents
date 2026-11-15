@@ -88,9 +88,10 @@
   /* The shadow of the window that floats over a view: Primer's overlay shadow, as the console drew it. */
   --window-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
 
-  /* The meanings, and only these: done; a change of a block's meaning; running; a stop, for the owner or because
-     something failed; the way back; a call under way. A mark or a tag takes the colour itself; small text takes its text step, a darker step
-     where the colour does not read on white; a fill takes its tint. */
+  /* The meanings, and only these: done; a change of a block's meaning; running; a problem, red: a stop, for the owner
+     or because something failed, or a work not done within an hour; the way back; a call under way. A mark or a tag
+     takes the colour itself; small text takes its text step, a darker step where the colour does not read on white; a
+     fill takes its tint. */
   --green: #2f9e6e;
   --orange: #f5840c;
   --running: #8b5cf6;
@@ -191,6 +192,9 @@
   --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
   --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));
   --running-tint: color-mix(in srgb, var(--running) 10%, var(--card));
+  /* An option picked: a deeper tint of the accent than a card that waits for an answer is filled with, so that the
+     option stands out on that card as on any other. */
+  --accent-picked: color-mix(in srgb, var(--accent) 24%, var(--card));
   /* The flowchart's arrows a write runs: the muted colour a step towards the ground, so that they stand behind the main
      path, which is in the text's colour. */
   --chart-data: color-mix(in srgb, var(--muted) 70%, var(--ground));

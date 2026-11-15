@@ -396,6 +396,10 @@ pub enum What {
     NoteNotByPeople {
         block: String,
     },
+    /// The block says who changes what a source outside the work writes of it, and no such source writes it.
+    ChangedByWithoutSource {
+        block: String,
+    },
     /// The block is a note, and a choice.
     NoteIsAChoice {
         block: String,
@@ -811,6 +815,7 @@ impl What {
             F::UnusedRules { name } => What::UnusedRules { name },
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
+            F::ChangedByWithoutSource { block } => What::ChangedByWithoutSource { block },
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },

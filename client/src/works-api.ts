@@ -127,7 +127,10 @@ export type Waited =
   | { kind: 'outside'; source: string; cell: string; why: string }
   /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
   /// time, waits for it. The works of a project check and merge one at a time.
-  | { kind: 'turn'; holder: number; since: number };
+  | { kind: 'turn'; holder: number; since: number }
+  /// The items the work's item depends on that have not merged, by their numbers: a precondition only they make hold,
+  /// as they merge.
+  | { kind: 'items'; items: number[] };
 
 /// What a work does now.
 export type Now =
@@ -218,7 +221,7 @@ export interface Summary {
   /// Where its time went, from its first round's begin to the end of its last round or tool's call, cut into equal
   /// cells, one character each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls; where neither
   /// ran, what the work waited for: `o` the owner, as the engine's one definition of what waits on the owner says, `p` a
-  /// pause, `w` the items its item depends on, `.` anything else. Empty with no round; absent from an engine that does
+  /// pause, its own or the owner's pause of everything, `w` the items its item depends on, `.` anything else. Empty with no round; absent from an engine that does
   /// not give it yet.
   bar?: string;
   /// How many of its rounds were given back what the round before handed in; absent from an engine that does not give

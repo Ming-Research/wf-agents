@@ -62,6 +62,10 @@ impl Storage for Failing {
         self.store.pause_everything(paused, by, at)
     }
 
+    fn everything_pauses(&self) -> Result<Vec<store::PauseOfEverything>, store::Fault> {
+        self.store.everything_pauses()
+    }
+
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), store::Fault> {
         let mut saves = self.saves.lock().expect("the count of saves");
         match saves.as_mut() {

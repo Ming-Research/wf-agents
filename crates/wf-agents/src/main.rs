@@ -343,10 +343,10 @@ enum Command {
         at: At,
     },
     /// Waits for what needs whoever plans the work and says it, a line each, most pressing first: a work that ended,
-    /// one that rests for a person (a cell's question, a ruling only a person can give, a limit, a pause the engine
-    /// made with its reason), one that waits for items none of which is going on. It answers as soon as there is
-    /// something since the mark, and says the mark to give next time; nothing that happens between two calls is lost.
-    /// With no mark, it gives what stands now, the works that ended being taken as read.
+    /// one that waits on the owner, each thing it waits on them for by why, as the engine's one list of what waits on
+    /// the owner says, one that waits for items none of which is going on. It answers as soon as there is something
+    /// since the mark, and says the mark to give next time; nothing that happens between two calls is lost. With no
+    /// mark, it gives what stands now, the works that ended being taken as read.
     Wait {
         /// The mark the last call gave.
         #[arg(long)]
@@ -782,6 +782,9 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),
         F::NoteIsAChoice { block } => format!("{block} is a note, but it is a choice, and a note is words to a cell"),
+        F::ChangedByWithoutSource { block } => {
+            format!("{block} says who changes what its source writes, but no source outside the work writes it")
+        }
         F::NoSuchBlock { block } => format!("the block {block} is not declared in flow.toml"),
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")

@@ -85,8 +85,8 @@ pub struct Source {
 /// Reads the flow in this directory. Laid out one thing to a file where it has `cells/`: `flow.toml`; each `.toml` file
 /// directly in `cells/`, `lines/` and `tests/`; each in `blocks/`, `../data/` and `../triggers/` or in a directory in
 /// them; [`rules_file`] and [`waits_file`]. Else as it was written before: `flow.toml`, every other `.toml` file
-/// directly in it as the file of the cell its name gives, and every `.md` file directly in its `rules/`, where it has
-/// one, as the set of rules its name gives. Other files and directories are not read.
+/// directly in it as the file of the cell its name gives, every `.md` file directly in its `rules/`, where it has one,
+/// as the set of rules its name gives, and [`waits_file`]. Other files and directories are not read.
 pub fn read(dir: &Path) -> io::Result<Source> {
     let mut source = Source {
         laid_out: dir.join(CELLS_DIR).is_dir(),
@@ -128,6 +128,10 @@ pub fn read(dir: &Path) -> io::Result<Source> {
         for (name, text) in files(&rules_dir, "md", false)? {
             source.add(&format!("{RULES_DIR}/{name}"), text);
         }
+    }
+    let waits = dir.join(waits_file());
+    if waits.is_file() {
+        source.add(&waits_file(), fs::read_to_string(waits)?);
     }
     Ok(source)
 }
@@ -233,13 +237,14 @@ fn laid_out(path: &str) -> Option<Kept<'_>> {
 }
 
 /// What a file of a flow written before it was laid out one thing to a file is kept as, by its path from the flow's
-/// directory: every `.toml` file directly in it but `flow.toml` as a cell's, and every `.md` file directly in `rules/`
-/// as a set of rules; none where it is none that the flow is made of.
+/// directory: every `.toml` file directly in it but `flow.toml` as a cell's, every `.md` file directly in `rules/` as
+/// a set of rules, and [`waits_file`] beside the flows as it is; none where it is none that the flow is made of.
 fn written_before(path: &str) -> Option<Kept<'_>> {
     match path.split_once('/') {
         None if path == FLOW_FILE => None,
         None => path.strip_suffix(".toml").map(Kept::Cell),
         Some((RULES_DIR, name)) if !name.contains('/') => name.strip_suffix(".md").map(Kept::Rules),
+        Some(_) if path == waits_file() => Some(Kept::File),
         Some(_) => None,
     }
 }

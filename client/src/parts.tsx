@@ -345,8 +345,8 @@ export function Drawer({
   );
 }
 
-/// The colours a status line's dot takes: none; green for done; red for failed; orange for a change of a block's
-/// meaning or for waiting for the owner; blue for running; the way back's purple.
+/// The colours a status line's dot takes: none; green for done; red for a stop, for the owner or because something
+/// failed; orange for a change of a block's meaning; the running colour for running; the way back's violet.
 export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
 
 /// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.

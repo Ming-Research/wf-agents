@@ -125,8 +125,9 @@ pub const START: &str = "start";
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
 /// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`], and each record
 /// a trigger of the owner's words or of an answer has its agent read, which that source writes entries of
-/// ([`flow::Trigger::records`]), gives in its `writes` each text the engine fills, so that none is written empty. A
-/// flow with any of these is not run.
+/// ([`flow::Trigger::records`]), gives in its `writes` each text the engine fills, so that none is written empty; and
+/// the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner. A flow with any of
+/// these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
@@ -169,6 +170,39 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
             ));
         }
     }
+    // What the engine says to the owner of why a work waits on them, and why it paused one, is beside the flows: a flow
+    // run without it would show every such reason empty (principle nothing-passes-for-normal).
+    let waits = &flow.waits;
+    let words = [
+        ("paused.too_long", &waits.paused.too_long),
+        ("paused.passing", &waits.paused.passing),
+        ("paused.outside", &waits.paused.outside),
+        ("paused.flagged_again", &waits.paused.flagged_again),
+        ("paused.let_go", &waits.paused.let_go),
+        ("owner.limit", &waits.owner.limit),
+        ("owner.calls", &waits.owner.calls),
+        ("owner.returns", &waits.owner.returns),
+        ("owner.made", &waits.owner.made),
+        ("owner.ruling", &waits.owner.ruling),
+        ("owner.answer", &waits.owner.answer),
+        ("owner.paused", &waits.owner.paused),
+        ("owner.no_reason", &waits.owner.no_reason),
+        ("owner.held", &waits.owner.held),
+        ("owner.agents", &waits.owner.agents),
+        ("owner.mend", &waits.owner.mend),
+    ];
+    let empty: Vec<&str> = (words.iter())
+        .filter(|(_, text)| text.trim().is_empty())
+        .map(|(key, _)| *key)
+        .collect();
+    if !empty.is_empty() {
+        faults.push(format!(
+            "the flow {}, {}: the words beside the flows must give {}",
+            flow.name,
+            flow::waits_file(),
+            empty.join(", ")
+        ));
+    }
     faults
 }
 
@@ -183,6 +217,8 @@ pub struct Driver {
     slots: usize,
     /// The pause of everything, while it holds, as the store keeps it.
     paused: Option<EverythingPaused>,
+    /// Every stretch the pause of everything held, in order, as the store keeps them.
+    spans: Vec<Span>,
     /// What stopped the driver, once something has.
     fault: Option<Fault>,
     /// When a line begins a new session; with none, only what others record of sessions is followed.
@@ -204,6 +240,44 @@ pub struct Driver {
     /// Where each round or call under way stands, of a work, as what carries it out last said ([`along`]). What the
     /// outside says at a moment, kept only in memory: lost in a stop, it is said again as what is given again goes on.
     along: BTreeMap<(WorkNumber, Under), Along>,
+}
+
+/// A stretch the pause of everything held: from when it was set and by whom, to when it was lifted; none while it holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Span {
+    pub from: Time,
+    pub until: Option<Time>,
+    pub by: Pauser,
+}
+
+/// The stretches the pause of everything held, as the store keeps each pause set and lifted, in order.
+fn spans_of(pauses: &[store::PauseOfEverything]) -> Vec<Span> {
+    let mut spans: Vec<Span> = Vec::new();
+    for pause in pauses {
+        add_span(&mut spans, pause.paused, pause.by, pause.at);
+    }
+    spans
+}
+
+/// The stretches with a pause of everything set, or lifted, by this pauser at this time: one set while another holds
+/// ends it and holds from then, by its own pauser; one lifted while none holds changes nothing.
+fn add_span(spans: &mut Vec<Span>, paused: bool, by: Pauser, at: Time) {
+    let open = spans.last_mut().filter(|span| span.until.is_none());
+    match (paused, open) {
+        (false, Some(open)) => open.until = Some(at),
+        (false, None) => {}
+        (true, Some(open)) if open.by == by => {}
+        (true, open) => {
+            if let Some(open) = open {
+                open.until = Some(at);
+            }
+            spans.push(Span {
+                from: at,
+                until: None,
+                by,
+            });
+        }
+    }
 }
 
 /// When the driver is to be told the time again: where `check`, the outside of the agents' rounds is to be checked
@@ -394,6 +468,7 @@ impl Driver {
             }
         }
         let paused = store.everything_paused().map_err(Fault::Store)?;
+        let spans = spans_of(&store.everything_pauses().map_err(Fault::Store)?);
         let mut driver = Driver {
             store,
             flows: by_name,
@@ -401,6 +476,7 @@ impl Driver {
             of_item: BTreeMap::new(),
             slots,
             paused,
+            spans,
             fault: None,
             policy,
             checked: None,
@@ -459,6 +535,7 @@ impl Driver {
                 since: now,
                 by: Pauser::Engine,
             });
+            add_span(&mut driver.spans, true, Pauser::Engine, now);
         }
         // What was to be done is worked out before the works are looked at: looking adds to it.
         let mut todos = driver.pending();
@@ -855,6 +932,7 @@ impl Driver {
             since: now,
             by: Pauser::Owner,
         });
+        add_span(&mut self.spans, paused, Pauser::Owner, now);
         if paused {
             return Ok(Vec::new());
         }
@@ -1417,6 +1495,26 @@ impl Driver {
     /// The pause of everything, while it holds: when it began, and who set it.
     pub fn everything_paused(&self) -> Option<EverythingPaused> {
         self.paused
+    }
+
+    /// Every stretch the pause of everything held, in order, the one that holds now last.
+    pub fn everything_spans(&self) -> &[Span] {
+        &self.spans
+    }
+
+    /// The items the work's item depends on whose works have not merged, in the order the item names them; none where
+    /// there is no such work.
+    pub fn unmerged(&self, number: WorkNumber) -> Vec<ItemNumber> {
+        let Some(held) = self.works.get(&number) else {
+            return Vec::new();
+        };
+        (held.item.depends_on.iter())
+            .filter(|on| {
+                let work = self.of_item.get(on).and_then(|work| self.works.get(work));
+                !work.is_some_and(|held| held.standing == Standing::Ended(End::Merged))
+            })
+            .copied()
+            .collect()
     }
 
     /// What stopped the driver, once something has.

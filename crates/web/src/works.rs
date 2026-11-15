@@ -250,9 +250,9 @@ pub struct Summary {
     /// counted to now), cut into [`BAR_CELLS`] equal cells, one character each in order: `m` where an agent's rounds
     /// ran most of the cell, `t` where an engine cell's rounds or the tools' calls did; where less than half of it was
     /// run by either, what the work waited for at the cell's middle, on the records as they stood then: `o` where it
-    /// waited on the owner, as the one definition of that says ([`driver::owner`]), `p` where only its own pause held
-    /// it, `w` where it waited for the items its item depends on, and `.` anything else, a stalled work among it;
-    /// empty for a work with no round or a span with no length.
+    /// waited on the owner, as the one definition of that says ([`driver::owner`]), `p` where a pause held it, its own
+    /// or the owner's pause of everything, `w` where it waited for the items its item depends on, and `.` anything
+    /// else, a stalled work among it; empty for a work with no round or a span with no length.
     #[serde(default)]
     pub bar: String,
     /// How many of its rounds were given back what the round before handed in, sent back as it did not do.
@@ -440,6 +440,9 @@ pub enum Waited {
     /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
     /// time, waits for it, as the act says. The works of a project check and merge one at a time.
     Turn { holder: u64, since: u64 },
+    /// The items the work's item depends on that have not merged, by their numbers: a precondition only they make
+    /// hold, as they merge.
+    Items { items: Vec<u64> },
 }
 
 /// A person who can give what a work waits for.
@@ -1778,7 +1781,8 @@ impl Summary {
                 matches!(under, Under::Round { run: of, .. } if *of == run) && matches!(said, Along::Turn { .. })
             })
         };
-        let now = Now::of(kept, &view.decision, held, outages, along)?;
+        let unmerged: Vec<u64> = (driver.unmerged(number).iter()).map(|item| item.0).collect();
+        let now = Now::of(kept, &view.decision, held, outages, along, &unmerged)?;
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
             Now::Waits { at, on } => (on.iter())
@@ -1839,11 +1843,12 @@ impl Summary {
     }
 }
 
-/// What holds every work at once, as the bar reads it at a moment: the pause of everything, from when and by whom; and
-/// the agents' wait where their command line cannot run, from when, with what it said. The engine keeps only those that
-/// stand now, so a stretch one that ended held is read as if nothing outside the work held it.
+/// What holds every work at once, as the bar reads it at a moment: each stretch the pause of everything held, from the
+/// store's record of every pause set and lifted; and the agents' wait where their command line cannot run, from when,
+/// with what it said. Whether that wait held at a moment before is not kept: the engine's checks of the outside, which
+/// end it, are no records, so only the one that stands now is read, from when it began.
 struct HeldAll {
-    everything: Option<(Time, PauserOf)>,
+    everything: Vec<driver::Span>,
     cannot_run: Option<(Time, String)>,
 }
 
@@ -1851,12 +1856,19 @@ impl HeldAll {
     fn of(driver: &Driver) -> HeldAll {
         let outage = driver.outage().filter(driver::Outage::holds);
         HeldAll {
-            everything: driver.everything_paused().map(|paused| (paused.since, paused.by)),
+            everything: driver.everything_spans().to_vec(),
             cannot_run: outage.and_then(|outage| {
                 let (failure, why) = outage.down();
                 (failure == FailureOf::CannotRun).then(|| (outage.since, why.to_string()))
             }),
         }
+    }
+
+    /// Who set the pause of everything that held at this time, where one did.
+    fn everything_at(&self, at: u64) -> Option<PauserOf> {
+        (self.everything.iter())
+            .find(|span| span.from.0 <= at && span.until.is_none_or(|until| at < until.0))
+            .map(|span| span.by)
     }
 }
 
@@ -1919,16 +1931,17 @@ fn bar(kept: Kept<'_>, runs: &[Run], all: &HeldAll, now: Time) -> String {
     // What the work waited for in a cell, by the place of the first entry after the cell's middle: the records as they
     // stood then are those before it; and by whether what holds every work at once held then. The idle cells of one
     // wait share these, and each is decided once.
-    let mut decided: BTreeMap<(Option<Seq>, bool, bool), char> = BTreeMap::new();
+    // Who set the pause of everything is part of what is decided once, as whether it was the engine's.
+    let mut decided: BTreeMap<(Option<Seq>, Option<bool>, bool), char> = BTreeMap::new();
     let mut waited_in = |i: u64| {
         let middle = from + (span * (2 * i + 1)) / (2 * BAR_CELLS);
         let place = (kept.work.moments.iter()).find(|m| m.at.0 > middle).map(|m| m.from);
-        let everything = all.everything.filter(|(since, _)| since.0 <= middle);
+        let everything = all.everything_at(middle);
         let cannot_run = (all.cannot_run.as_ref()).filter(|(since, _)| since.0 <= middle);
-        let key = (place, everything.is_some(), cannot_run.is_some());
+        let key = (place, everything.map(|by| by == PauserOf::Engine), cannot_run.is_some());
         *decided.entry(key).or_insert_with(|| {
             let then = driver::owner::Shared {
-                everything: everything.map(|(_, by)| by),
+                everything,
                 cannot_run: cannot_run.map(|(_, why)| why.as_str()),
             };
             match place {
@@ -1963,10 +1976,7 @@ fn waited(kept: Kept<'_>, records: &Records, then: driver::owner::Shared<'_>) ->
     if !driver::owner::waits(&kept, records, &decision, held, then).is_empty() {
         return 'o';
     }
-    let items = |waited: &WaitedOf| {
-        matches!(waited, WaitedOf::Precondition { by, .. }
-            if by.iter().any(|maker| matches!(maker, MakerOf::Outside { source } if source == driver::DEPENDENCIES)))
-    };
+    let items = |waited: &WaitedOf| on_items(waited);
     match decision {
         Decision::Paused => 'p',
         Decision::Stalled { .. } | Decision::Run { .. } | Decision::GoOn { .. } if paused => 'p',
@@ -1974,6 +1984,13 @@ fn waited(kept: Kept<'_>, records: &Records, then: driver::owner::Shared<'_>) ->
         Decision::Wait { on, .. } if on.iter().any(items) => 'w',
         _ => '.',
     }
+}
+
+/// Whether this is a wait for the items the work's item depends on: a precondition only they make hold, as they merge.
+fn on_items(waited: &WaitedOf) -> bool {
+    matches!(waited, WaitedOf::Precondition { by, .. }
+        if !by.is_empty()
+            && by.iter().all(|maker| matches!(maker, MakerOf::Outside { source } if source == driver::DEPENDENCIES)))
 }
 
 impl Now {
@@ -1986,9 +2003,14 @@ impl Now {
         held: Option<Holder>,
         outages: &Outages,
         along: &[(Under, &Along)],
+        unmerged: &[u64],
     ) -> Result<Now, Broken> {
         let work = kept.work;
-        let everything = Now::Everything { by: outages.everything };
+        // Held by the pause of everything, which holds while the driver says it holds the work.
+        let everything = || -> Result<Now, Broken> {
+            let by = (outages.everything).ok_or_else(|| Broken("the pause of everything holds no work".to_string()))?;
+            Ok(Now::Everything { by })
+        };
         // The wait that holds the rounds of a cell now: the agents' for an agent's, the host's for an act's.
         let holding = |cell: &CellId| {
             let agent = (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
@@ -2038,12 +2060,12 @@ impl Now {
                     },
                 }
             }
-            Decision::Paused if held == Some(Holder::Everything) => everything,
+            Decision::Paused if held == Some(Holder::Everything) => everything()?,
             Decision::Paused => Now::paused(work)?,
             // A run at rest that goes on holds its next round while something holds it back: the engine leaves a work
             // so only then, as when the run's last round failed and the work was paused.
             Decision::GoOn { .. } if held == Some(Holder::Pause) => Now::paused(work)?,
-            Decision::GoOn { .. } if held == Some(Holder::Everything) => everything,
+            Decision::GoOn { .. } if held == Some(Holder::Everything) => everything()?,
             // A cell that would run or go on, and does not, is held by the wait every work shares, where it holds now
             // and holds the cell's rounds: the engine leaves a work so only then. It is said before a slot.
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if shared(cell) => waits_shared(cell),
@@ -2067,6 +2089,10 @@ impl Now {
                                         .find(|(under, _)| *under == Under::Call(*call))
                                         .map(|(_, said)| *said),
                                 ),
+                            },
+                            // The work waits for those of the items its item depends on that have not merged.
+                            waited if on_items(waited) => Waited::Items {
+                                items: unmerged.to_vec(),
                             },
                             WaitedOf::Precondition { on, by } => {
                                 let CellKey { test, words } = key_of(&kept, on)?;
@@ -2951,8 +2977,8 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
 pub struct Outages {
     pub agents: Option<Outage>,
     pub host: Option<Outage>,
-    /// Who set the pause of everything, while it holds.
-    pub everything: Pauser,
+    /// Who set the pause of everything, where it holds; none where it does not.
+    pub everything: Option<Pauser>,
 }
 
 impl Outages {
@@ -2963,9 +2989,7 @@ impl Outages {
         Outages {
             agents: driver.outage().map(|outage| Outage::of(&outage, agents)),
             host: driver.host_outage().map(|outage| Outage::of(&outage, host)),
-            everything: driver
-                .everything_paused()
-                .map_or(Pauser::Owner, |paused| Pauser::of(paused.by)),
+            everything: driver.everything_paused().map(|paused| Pauser::of(paused.by)),
         }
     }
 }
@@ -3019,5 +3043,137 @@ impl Failure {
             FailureOf::NoModel => Failure::NoModel,
             FailureOf::Other => Failure::Other,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! What a stretch of a work's bar no round ran in says it waited for, on the records as they stood then, with what
+    //! held every work at once then.
+
+    use decide::{Outsider, Pause, Written};
+    use flow::{Has, Source, compile};
+    use store::{First, Item, ItemNumber, WorkHead, WorkNumber};
+
+    use super::*;
+
+    /// A writer the owner's request runs, and the merge.
+    fn flow() -> flow::Compiled {
+        let text = r#"
+            name = "small"
+            order = ["write", "merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [blocks.request]
+            people = true
+            [blocks.text]
+            [blocks.merged]
+            shown = true
+        "#;
+        let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
+                     inputs = [\"request\"]\noutputs = [\"text\"]\n";
+        let merge =
+            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\noutputs = [\"merged\"]\n";
+        let source = Source {
+            flow: text.to_string(),
+            cells: [("write", write), ("merge", merge)]
+                .iter()
+                .map(|(id, text)| (id.to_string(), text.to_string()))
+                .collect(),
+            ..Source::default()
+        };
+        let has = Has {
+            acts: ["merge".to_string()].into(),
+            ..Has::default()
+        };
+        compile(&source, &has).expect("the definition compiles")
+    }
+
+    /// The character the bar gives a work on these records, with what held every work at once then.
+    fn waited_on(work: &Work, everything: Option<PauserOf>) -> char {
+        let flow = flow();
+        let head = WorkHead {
+            number: WorkNumber(1),
+            item: ItemNumber(1),
+            flow: "small".to_string(),
+            added: Time(0),
+        };
+        let first = First {
+            title: "Greet".to_string(),
+            level: None,
+            project: None,
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+        };
+        let item = Item::new(ItemNumber(1), Time(0), first, Vec::new());
+        let kept = Kept {
+            head: &head,
+            item: &item,
+            flow: &flow,
+            work,
+        };
+        let then = driver::owner::Shared {
+            everything,
+            cannot_run: None,
+        };
+        waited(kept, &work.records, then)
+    }
+
+    /// A work the owner's request runs the writer of, paused by this pauser where one is given.
+    fn requested(paused: Option<PauserOf>) -> Work {
+        let mut work = Work::default();
+        work.records.written.push(Written {
+            block: "request".into(),
+            by: Outsider::Person,
+            matters: true,
+            value: None,
+            empty: false,
+            said_to: None,
+            at: Seq(1),
+        });
+        if let Some(by) = paused {
+            work.records.pauses.push(Pause {
+                paused: true,
+                at: Seq(2),
+                by,
+                why: Some("it spent more than it may".to_string()),
+            });
+        }
+        work
+    }
+
+    #[test]
+    fn a_pause_the_engine_made_is_the_owners_and_a_stalled_work_is_nobodys() {
+        assert_eq!(waited_on(&requested(Some(PauserOf::Engine)), None), 'o');
+        assert_eq!(waited_on(&requested(Some(PauserOf::Owner)), None), 'p');
+        // Nothing runs a cell of a work nothing was written to: it is stalled, which waits on no one.
+        assert_eq!(waited_on(&Work::default(), None), '.');
+    }
+
+    #[test]
+    fn the_pause_of_every_work_the_engine_set_is_the_owners_and_the_owners_own_is_a_pause() {
+        assert_eq!(waited_on(&requested(None), Some(PauserOf::Engine)), 'o');
+        assert_eq!(waited_on(&requested(None), Some(PauserOf::Owner)), 'p');
+        assert_eq!(waited_on(&requested(None), None), '.');
+    }
+
+    #[test]
+    fn the_pause_of_everything_holds_the_stretches_it_held_as_the_store_keeps_them() {
+        let span = |from: u64, until: Option<u64>, by: PauserOf| driver::Span {
+            from: Time(from),
+            until: until.map(Time),
+            by,
+        };
+        let all = HeldAll {
+            everything: vec![span(10, Some(20), PauserOf::Engine), span(30, None, PauserOf::Owner)],
+            cannot_run: None,
+        };
+        assert_eq!(all.everything_at(5), None);
+        assert_eq!(all.everything_at(15), Some(PauserOf::Engine));
+        assert_eq!(all.everything_at(20), None);
+        assert_eq!(all.everything_at(35), Some(PauserOf::Owner));
     }
 }

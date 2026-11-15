@@ -54,13 +54,14 @@ import {
 } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
 import { type Wait, type WaitAct, actOf, drawnInBody, waitsOf } from '../works/waiting';
-import { LetGoAgain } from '../works/Boxes';
 import {
   CANCEL_DOES,
   CANCEL_WHY,
   ENDS_WORDS,
+  NO_ENGINE,
+  OWN_PAUSE,
   type Tone as WorkTone,
-  letGoFailed,
+  WRITE_WORDS,
   stalledWords,
   stateOf,
 } from '../works/words';
@@ -113,15 +114,22 @@ const titleOf = (page: WorkPage | null, cell: string) => page?.flow.cells.find((
 const asked = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { kind: 'question' } } =>
   w.kind === 'call' && w.what.kind === 'question';
 
+/// What a question's card says of the engine's wait for its answer, where the engine's list names one: that it holds
+/// the work, and the wait's one sentence of why where that is not what the question asks, which the card shows already.
+function holding(s: Summary, key: string, asks: string): Pick<Choice, 'holds' | 'why'> {
+  const wait = waitsOf(s).find((w) => w.key === key);
+  if (wait === undefined) return { holds: false };
+  return wait.why.trim() === asks.trim() ? { holds: true } : { holds: true, why: wait.why };
+}
+
 /// The questions a cell asked the owner as a call the work waits at, as choices at the plan's end, each holding the work
 /// where the engine's list names it.
 function askedOf(s: Summary): Choice[] {
   const now = s.now;
   if (now.kind !== 'waits') return [];
-  const keys = new Set(waitsOf(s).map((w) => w.key));
   return now.on.flatMap((w) =>
     asked(w) && w.who === 'owner'
-      ? [{ ...askedChoice(w.what.question, w.call, now.at), holds: keys.has(callKey(w.call)) }]
+      ? [{ ...askedChoice(w.what.question, w.call, now.at), ...holding(s, callKey(w.call), w.what.question) }]
       : [],
   );
 }
@@ -134,10 +142,10 @@ const answerKey = (question: string) => `answer-${question}`;
 /// it asks, its options, the one it recommends, and the owner's answer to its latest version, which confirms it. One
 /// the engine's list names holds the work, at its cell or at the merge.
 function questionsStanding(questions: Question[] | undefined, s: Summary): Choice[] {
-  const keys = new Set(waitsOf(s).map((w) => w.key));
   return (questions ?? []).flatMap((q): Choice[] => {
     if (q.withdrawn !== null || q.ask === null) return [];
     const answered = q.answer !== null;
+    const held = answered ? { holds: false } : holding(s, answerKey(q.name), q.ask);
     return [
       {
         kind: 'choice',
@@ -147,7 +155,7 @@ function questionsStanding(questions: Question[] | undefined, s: Summary): Choic
         chosen: q.answer === null ? null : q.answer.option - 1,
         confirmed: answered,
         asks: { cell: q.cell, question: q.name, version: q.version },
-        holds: !answered && keys.has(answerKey(q.name)),
+        ...held,
       },
     ];
   });
@@ -354,7 +362,7 @@ function ItemView({
   const shownWait = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (wait === undefined || shownWait.current === wait) return;
-    const card = inner.current?.querySelector(`[data-wait="${wait}"]`);
+    const card = [...(inner.current?.querySelectorAll<HTMLElement>('[data-wait]') ?? [])].find((c) => c.dataset.wait === wait);
     if (!card) return;
     shownWait.current = wait;
     card.scrollIntoView({ block: 'center' });
@@ -482,8 +490,6 @@ function ItemView({
     setBody((was) => ({ ...was, messages: [...was.messages, message] }));
     setQuote(null);
   };
-  // An ended work whose letting go of what it held failed is tried again from here.
-  const letGoFailedNow = read === null ? null : letGoFailed(work, read.steps);
   return (
     <div className="cw-item" ref={inner}>
       <header className="drawer-head">
@@ -499,11 +505,6 @@ function ItemView({
       <WorkLine w={work} page={read} />
       {!ended(work) && <Acts paused={work.paused === 'owner'} act={send} />}
       <StopCards work={work} act={send} actEngine={actEngine} />
-      {letGoFailedNow !== null && (
-        <div className="cw-acts">
-          <LetGoAgain why={letGoFailedNow} send={(what) => send(what).then(() => null, refusal)} />
-        </div>
-      )}
       <div className="drawer-body">
         <div className="cw-tabs">
           <Switch
@@ -665,9 +666,9 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   );
 }
 
-/// What the owner does to a work that goes on: start it or pause it, with one switch whose pressed choice says whether
-/// the owner's own pause holds it, the engine's being let on from its card; cancel it, once they confirm and say why.
-/// While one is under way, none takes effect.
+/// What the owner does to a work that goes on: start it or pause it, with one switch, named the owner's own pause, whose
+/// pressed choice says whether that pause holds it, the engine's being let on from its card alone; cancel it, once they
+/// confirm and say why. While one is under way, none takes effect.
 function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<unknown> }) {
   const { waiting, refused, send } = useSending(act);
   const [asking, setAsking] = useState(false);
@@ -677,14 +678,10 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
       {/* Going on and paused exclude each other, so they are one switch that shows which the work is in: pressing the
           other choice starts or pauses it. */}
       <Switch<'on' | 'paused'>
-        label="Whether the work goes on"
+        label={OWN_PAUSE.label}
         choices={[
-          { value: 'on', name: 'Start', title: 'Let the work go on' },
-          {
-            value: 'paused',
-            name: 'Pause',
-            title: 'Nothing of the work goes on by itself; what you write to it is still answered',
-          },
+          { value: 'on', ...OWN_PAUSE.on },
+          { value: 'paused', ...OWN_PAUSE.paused },
         ]}
         value={paused ? 'paused' : 'on'}
         onChange={(to) => {
@@ -738,7 +735,7 @@ function StopCards({ work, act, actEngine }: {
     if (waiting) return;
     setWaiting(true);
     setRefused(null);
-    const sent = w.on === 'work' ? act(w.act) : (actEngine?.(w.act) ?? Promise.reject(new Error('The page has no engine')));
+    const sent = w.on === 'work' ? act(w.act) : (actEngine?.(w.act) ?? Promise.reject(new Error(NO_ENGINE)));
     sent.then(
       () => setWaiting(false),
       (e: unknown) => {
@@ -764,13 +761,15 @@ function StopCards({ work, act, actEngine }: {
   );
 }
 
-/// A stop of a work, the one look of every stop: on the red tint, framed in red; its reason, then what stands under it
-/// and the buttons that end it, inside the card.
-function StopCard({ wait, why, children }: { wait?: string; why: ReactNode; children?: ReactNode }) {
+/// A stop of a work, the one look of every stop: on the red tint, framed in red; its reason, its names and values in
+/// the monospace, then what stands under it and the buttons that end it, inside the card.
+function StopCard({ wait, why, children }: { wait?: string; why: string; children?: ReactNode }) {
   return (
     <div className="cw-part">
       <div className="cw-choice cw-choice-holds" data-wait={wait}>
-        <div className="cw-choice-q">{why}</div>
+        <div className="cw-choice-q">
+          <Markdown text={why} />
+        </div>
         {children}
       </div>
     </div>
@@ -919,11 +918,13 @@ function Section({
 /// The options of a card that offers them, drawn as choices and told apart by shape from what stands above them: under
 /// a hairline, each a frame in the accent with a radio mark at its left, filled once picked, the one picked on the
 /// accent's tint; the one recommended tagged.
-function Options({ options, chosen, recommended = null, pick }: {
+function Options({ options, chosen, recommended = null, pick, code = false }: {
   options: { label: string; detail: string }[];
   chosen: number | null;
   recommended?: number | null;
   pick?: (option: number) => void;
+  /// Whether each label is a key and its value, set in the monospace as the files write it.
+  code?: boolean;
 }) {
   return (
     <div className="cw-options" role="radiogroup">
@@ -941,7 +942,7 @@ function Options({ options, chosen, recommended = null, pick }: {
           <span className="cw-radio" aria-hidden="true" />
           <span className="cw-option-text">
             <span className="cw-option-label">
-              {o.label}
+              {code ? <code>{o.label}</code> : o.label}
               {recommended === i ? <span className="tag cw-tag">Recommended</span> : null}
             </span>
             {o.detail !== '' && <span className="cw-option-detail">{o.detail}</span>}
@@ -956,7 +957,8 @@ function Options({ options, chosen, recommended = null, pick }: {
 /// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are
 /// about it, which brings the first into view. A question with no options is answered in words, in a box in their
 /// place. A question the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in
-/// red, the look of every stop, with no line that says so.
+/// red, the look of every stop, and under what it asks the engine's one sentence of why where that is not what it asks,
+/// as for a question the merge waits for.
 function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   p: Choice;
   pick?: (option: number) => void;
@@ -973,6 +975,7 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
       <div className="cw-choice-q">
         <Markdown text={p.question} />
       </div>
+      {p.holds === true && p.why !== undefined && <p className="cw-choice-stops">{p.why}</p>}
       {p.options.length === 0 && p.asks !== undefined ? (
         <textarea
           rows={3}
@@ -1034,7 +1037,7 @@ function RulingBox({ ruling, act }: { ruling: Ruling; act: (what: Act) => Promis
       <div className="cw-part">
         <div className="cw-choice cw-choice-holds" data-wait={ruling.key}>
           <div className="cw-choice-q">
-            <p>{ruling.why}</p>
+            <Markdown text={ruling.why} />
             {ruling.text.trim() !== '' && <Markdown text={ruling.text} />}
           </div>
           {options.length > 0 && (
@@ -1042,19 +1045,20 @@ function RulingBox({ ruling, act }: { ruling: Ruling; act: (what: Act) => Promis
               options={options.map((v) => ({ label: `${ruling.block} = ${v}`, detail: '' }))}
               chosen={chosen}
               pick={(o) => setChosen((was) => (was === o ? null : o))}
+              code
             />
           )}
           {options.length > 0 && (
             <div className="cw-stop-acts">
               <Button
                 primary
-                title={value === null ? 'Pick a value to write' : `Write ${ruling.block} = ${value}`}
+                title={value === null ? WRITE_WORDS.none : WRITE_WORDS.writes(ruling.block, value)}
                 disabled={waiting || value === null}
                 onClick={() => {
                   if (value !== null) void send({ kind: 'write', block: ruling.block, content: '', value });
                 }}
               >
-                Confirm
+                {WRITE_WORDS.label}
               </Button>
             </div>
           )}

@@ -14,10 +14,11 @@
 // the first item under it and the last. Two items are lit, each with the way from it to its root, and from each of its
 // shadows to theirs, by rings and by ribbons joining each to the one above: the item under the pointer in blue, faded
 // out once the pointer leaves, and the item selected by a click in purple, until it is let go; a click on a shadow
-// selects the item it points to and brings it to the middle of the screen. The mark of a cell running pulses. Every
-// column fades out into the page near the top and the bottom of the screen; at those two edges the column under the
-// pointer has a line of blue, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and how
-// fast is kept in `stats`. A call the engine carries out for a cell, a tool's or an act of its own, keeps its card
+// selects the item it points to and brings it to the middle of the screen. A card that needs the owner has rings of
+// red round it, which stand still; one whose work runs has a light going round its edge. The mark of a cell running
+// pulses. Every column fades out into the page near the top and the bottom of the screen; at those two edges the
+// column under the pointer has a line of blue, faded in as the pointer comes. Only what is on the screen is drawn. What
+// it draws and how fast is kept in `stats`. A call the engine carries out for a cell, a tool's or an act of its own, keeps its card
 // running as a round does, and its cell's mark, in the yellow of a call, pulses as a running cell's does.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
@@ -31,7 +32,7 @@ import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle }
 
 import { MARK, MARKS } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { waitsOnOwner } from '../works/waiting';
+import { STATE, stateOf } from '../works/words';
 import { type Shown, type ShownWork } from './items';
 import { BAR_KINDS, TRACK_WORDS } from './track';
 import { indexTree, type Tree } from './tree';
@@ -111,7 +112,7 @@ const LINK_EASE = 0.2;
 export const PACE = 1.5;
 
 /// The console's colours: words, marks and lines in greys; one accent for what runs; red for a stop, what waits for the
-/// owner or what the engine halted; and for a work's age amber, red and violet as it goes on longer. These are the
+/// owner or what the engine halted; and for a work's age amber, then red past an hour. These are the
 /// console's own, in light; `themed` gives those the page's tokens came from as the tokens say, light or dark.
 const LIGHT = {
   ink: '#1f2937',
@@ -141,7 +142,6 @@ const LIGHT = {
   waiting: '#e8cc6a',
   amber: '#d97706',
   red: '#e5484d',
-  violet: '#8b5cf6',
   green: '#2f9e6e',
   /// The item under the pointer, and those above it, ringed; the lines at the edges of the column under it.
   over: '#a78bfa',
@@ -210,7 +210,6 @@ export function themed(): typeof LIGHT {
     mapBar: between(t.card, LIGHT.over, 0.6),
     paused: t.muted,
     amber: token('--orange-text', LIGHT.amber),
-    violet: t.chosen,
     other: '#656c76',
     otherAlpha: 0.85 * (0x33 / 255),
     // The ground of where a work's time went, as the track in the item's window has it in dark.
@@ -271,11 +270,11 @@ function vertical(colour: string, from: number, to: number): FillGradient {
 /// A node's height in pixels, of `rows` rows.
 const high = (rows: number) => rows * ROW - (ROW - NODE_H);
 
-/// How long a work has gone on, as a short label and the tone of its age: under half an hour, under an hour, under a
-/// day, or longer.
+/// How long a work has gone on, as a short label and the tone of its age: under half an hour, under an hour, or an
+/// hour and more, however much more.
 export function age(ms: number): {
   label: string;
-  tone: 'success' | 'attention' | 'danger' | 'done';
+  tone: 'success' | 'attention' | 'danger';
 } {
   const minutes = ms / 60000;
   if (minutes < 60)
@@ -285,15 +284,16 @@ export function age(ms: number): {
     };
   const hours = minutes / 60;
   if (hours < 24) return { label: `${Math.round(hours * 10) / 10}h`, tone: 'danger' };
-  return { label: `${Math.round((hours / 24) * 10) / 10}d`, tone: 'done' };
+  return { label: `${Math.round((hours / 24) * 10) / 10}d`, tone: 'danger' };
 }
 
-/// The colour of a work's age: grey under half an hour, amber under an hour, red under a day, violet longer.
+/// The colour of a work's age, three and no more: grey under half an hour, amber from half an hour to an hour, and red
+/// past an hour, however long, since a work not done within an hour is a problem, which red says (decision
+/// a-works-age-is-red-past-an-hour).
 const TONE = () => ({
   success: PALETTE.muted,
   attention: PALETTE.amber,
   danger: PALETTE.red,
-  done: PALETTE.violet,
 });
 
 /// Where a card draws its work's time: how wide the line is, where it begins from the card's left, and how far above
@@ -309,18 +309,16 @@ const workRow = (h: number) => -h / 2 + h - (WORK_ROW * ROW) / 2 - 3;
 /// waiting for something else.
 export type Mood = 'running' | 'owner' | 'paused' | 'halted' | 'waiting';
 
-/// A work that waits on the owner, as the engine's one list of it says, waits for the owner; a round under way or about
-/// to begin is running; a fault halts it, and so does a stall, no cell able to move it on; the owner's pause and the
-/// owner's pause of everything pause it; one that waits while the engine carries out a call for one of its cells, a
-/// tool's, runs, as a round under way does.
+/// A work's mood, from its state as every view names it (`stateOf`): one that waits for the owner, as the engine's one
+/// list of it says, waits for the owner; one running, a call the engine carries out for its cell among it, runs; a
+/// halted one, at a fault or stalled, is halted; one paused, by the owner's pause or the owner's pause of everything,
+/// is paused; any other waits.
 export function moodOf(w: Pick<ShownWork, 'now' | 'cells' | 'waits'>): Mood {
-  const now = w.now;
-  if (waitsOnOwner(w)) return 'owner';
-  if (now.kind === 'round' || now.kind === 'next') return 'running';
-  if (now.kind === 'fault' || now.kind === 'stalled') return 'halted';
-  if (now.kind === 'paused' || now.kind === 'everything') return 'paused';
-  if (w.cells.some((c) => c.state === 'calling')) return 'running';
-  return 'waiting';
+  const { tone, word } = stateOf(w);
+  if (tone === 'owner') return 'owner';
+  if (tone === 'running') return 'running';
+  if (tone === 'failed') return 'halted';
+  return word === STATE.paused ? 'paused' : 'waiting';
 }
 
 /// The cell a work is at, and the colour its mark takes: red while the work is stopped for the owner or by the
@@ -411,15 +409,17 @@ const EDGE_RUNNING = 0.9;
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
 const CARD_INSET = 10;
-/// The glow of a card that needs the owner or runs: how far out each ring stands and how strong it is.
+/// The glow of a card that needs the owner or runs: how far out each ring stands and how strong it is. A red card's
+/// rings stand still; a running card's light goes round its edge.
 const CARD_GLOW: [number, number][] = [
   [1, 0.34],
   [2.5, 0.2],
   [4, 0.11],
   [5.5, 0.05],
 ];
-/// How a glow moves: how long a breath of its rings takes and how faint they are at its low point; how long the
-/// light on a running card's edge takes to go round, and the light's length as so many parts of so many pixels.
+/// How a glow moves: how long a breath of a running card's rings takes, where it has them, and how faint they are at its
+/// low point; how long the light on a running card's edge takes to go round, and the light's length as so many parts
+/// of so many pixels.
 const BREATH_MS = 2600;
 const BREATH_LOW = 0.35;
 const TRAIL_MS = 3200;
@@ -427,6 +427,12 @@ const TRAIL_PARTS = 16;
 const TRAIL_PART = 7;
 /// TRIAL: whether a running card has the glowing rings as well as the light going round its edge.
 const RUNNING_RINGS = false;
+
+/// How strong a card's rings are drawn at the time `now`: a running card's, where it has them, breathe; those of a card
+/// that needs the owner stand still, at their full strength.
+export function ringsAlpha(running: boolean, now: number): number {
+  return running ? BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * ((now / BREATH_MS) % 1)) ** 2 : 1;
+}
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
 /// The height of the line under a deliverable, which has no card.
@@ -552,8 +558,8 @@ export class SnapScene {
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
-  /// The glow of each card that runs or needs the owner, to move it each frame: the rings that breathe, and for a
-  /// card whose work runs the light that goes round its edge.
+  /// The glow of each card that runs or needs the owner: its rings, which stand still on a card that needs the owner,
+  /// and for a card whose work runs the light that goes round its edge, moved each frame.
   private glows = new Map<number, { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string }>();
   /// The same for the glow around the item under the pointer itself, which those lit with it do not have.
   private haloed = new Map<number, number>();
@@ -1043,25 +1049,23 @@ export class SnapScene {
     return view;
   }
 
-  /// Moves a card's glow on by a frame. A card that needs the owner has rings that breathe, slowly. A card whose work
-  /// runs has a short light going round its edge, bright at its head and fading behind it, in step on every such
-  /// card, so that what is being worked on is seen moving.
+  /// Moves a card's glow on by a frame. A card that needs the owner has rings that stand still: a breath of them could
+  /// hardly be seen. A card whose work runs has a short light going round its edge, bright at its head and fading
+  /// behind it, in step on every such card, so that what is being worked on is seen moving.
   private moveGlow(
     glow: { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string },
     now: number,
-    k: number,
   ) {
     const trail = glow.trail;
     if (trail === null) {
-      // A card that needs the owner: its rings breathe, each card a little out of step with the others.
-      const phase = (now / BREATH_MS + k * 0.37) % 1;
-      glow.rings.alpha = BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * phase) ** 2;
+      // A card that needs the owner: its rings stand still.
+      glow.rings.alpha = ringsAlpha(false, now);
       return;
     }
     // A card whose work runs: its rings are off for now (TRIAL: the owner is trying it without them), and the light
     // on its edge goes round in step with every other running card's.
     glow.rings.visible = RUNNING_RINGS;
-    if (RUNNING_RINGS) glow.rings.alpha = BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * ((now / BREATH_MS) % 1)) ** 2;
+    if (RUNNING_RINGS) glow.rings.alpha = ringsAlpha(true, now);
     const [w, h, top] = [NODE_W, glow.high, glow.top];
     const round = 2 * (w + h);
     // A point of the card's edge, by how far round it from its top left corner, clockwise.
@@ -1518,7 +1522,7 @@ export class SnapScene {
         const p = this.pulses.get(item);
         if (p !== undefined) p.alpha = pulse;
         const glow = this.glows.get(item);
-        if (glow !== undefined) this.moveGlow(glow, now, item);
+        if (glow !== undefined) this.moveGlow(glow, now);
         this.age(item);
         nowShown.add(view);
         drawn.push(item);
