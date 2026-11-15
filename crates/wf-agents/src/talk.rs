@@ -568,11 +568,10 @@ fn list(items: &Items, listing: &Listing) -> String {
             false => format!(" It waits for good on {}, cancelled.", on.join(", ")),
         };
         lines.push(format!(
-            "#{} \"{}\" at {}, {}, W{} on {}{after}{tags}: {}{good}",
+            "#{} \"{}\" at {}, W{} on {}{after}{tags}: {}{good}",
             item.number,
             item.title,
             level(item.level.as_deref()),
-            project(item.project.as_deref()),
             work.number,
             work.flow,
             now(&work.now)
@@ -609,12 +608,11 @@ fn show(page: &WorkPage) -> String {
     let summary = &page.summary;
     let mut lines = vec![
         format!(
-            "Work {} of item {} \"{}\" at {}, {}, on the flow {}.",
+            "Work {} of item {} \"{}\" at {}, on the flow {}.",
             summary.number,
             summary.item,
             page.title,
             level(page.level.as_deref()),
-            project(page.project.as_deref()),
             summary.flow
         ),
         format!("Now: {}.", now(&summary.now)),
@@ -817,6 +815,7 @@ fn level(level: Option<&str>) -> String {
 }
 
 /// An item's project, in words: the name the installation's settings give it.
+#[allow(dead_code)]
 fn project(project: Option<&str>) -> String {
     match project {
         Some(project) => format!("project {project}"),
