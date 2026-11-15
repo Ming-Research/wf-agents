@@ -62,8 +62,8 @@ import {
   OWN_PAUSE,
   type Tone as WorkTone,
   WRITE_WORDS,
-  itemsWaited,
   stateOf,
+  waitedWords,
 } from '../works/words';
 import { type ItemStanding, standingOf } from './items';
 import { Markdown } from './markdown';
@@ -279,8 +279,6 @@ export type ItemPanelProps = {
   act: (work: number, what: Act) => Promise<unknown>;
   /// Reads the content of a version of a block of its work, for its body and messages.
   loadVersion?: LoadVersion;
-  /// The items it depends on that are not merged yet.
-  waitsFor: number[];
   /// Whether it is a goal (mock).
   goal?: boolean;
   /// Whether the window is out, which lets R mark the item read.
@@ -307,7 +305,6 @@ function ItemView({
   page,
   act,
   loadVersion = loadVersionOf,
-  waitsFor,
   goal = false,
   open = true,
   onRead,
@@ -501,7 +498,7 @@ function ItemView({
         </h2>
         {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
       </header>
-      <ItemLine item={item} waitsFor={waitsFor} goal={goal} tier={mock.tier} />
+      <ItemLine item={item} goal={goal} tier={mock.tier} />
       <WorkLine w={work} page={read} />
       {!ended(work) && <Acts paused={work.paused === 'owner'} act={send} />}
       <StopCards work={work} act={send} actEngine={actEngine} />
@@ -627,34 +624,34 @@ function CrossSign() {
   );
 }
 
-function ItemLine({ item, waitsFor, goal, tier }: {
-  item: Item;
-  waitsFor: number[];
-  goal: boolean;
-  tier: string | null;
-}) {
+/// The item's line: where it stands, and when it was added. The items it waits for are said once, on its work's line.
+function ItemLine({ item, goal, tier }: { item: Item; goal: boolean; tier: string | null }) {
   const standing = standingOf(item);
-  // Of those it waits for, the ones that were cancelled, as the engine says it, which it waits for for good.
-  const now = item.work.now;
-  const cancelled = now.kind === 'waits' ? now.on.flatMap((w) => (w.kind === 'items' ? (w.cancelled ?? []) : [])) : [];
   return (
     <Line tone={standing} word={STANDING_WORDS[standing]}>
       {goal ? <span className="muted">Goal</span> : null}
       {tier !== null ? <span className="muted">Tier {tier}</span> : null}
       <span className="muted">Added {ago(item.added)} ago</span>
-      {waitsFor.length > 0 && <span className="muted">{itemsWaited(waitsFor, cancelled)}</span>}
     </Line>
   );
 }
 
 /// The work's state line, one line, the same part for every state: its dot and the word of its state, the cell it
-/// stands at where the engine's state names one, as a cell is shown everywhere, the work, and at the right how far it
-/// has come and where its time went.
+/// stands at where the engine's state names one, as a cell is shown everywhere; where it waits for the items its item
+/// depends on, which, as the engine gives them, those cancelled said so; the work, and at the right how far it has
+/// come and where its time went.
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   const { tone, word, cell } = stateOf(w);
+  const now = w.now;
+  const items = now.kind === 'waits' ? now.on.filter((x) => x.kind === 'items') : [];
   return (
     <Line tone={tone} word={word}>
       {cell !== null && <CellName cell={cell} page={page} />}
+      {items.map((x, i) => (
+        <span key={i} className="muted">
+          {waitedWords(x)}
+        </span>
+      ))}
       <a href={`#/works/${w.number}`} className="link mono" title={`Open work ${w.number}`}>
         W{w.number}
       </a>

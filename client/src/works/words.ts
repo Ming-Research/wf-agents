@@ -464,10 +464,7 @@ export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
   return [word, cell, why === null ? null : plain(why)].filter((x) => x !== null && x !== '').join(' · ');
 }
 
-/// The items an item depends on that have not merged, as its line in the console says them, in the state's own word,
-/// and those of them that were cancelled, for which it waits for good.
-export const itemsWaited = (items: number[], cancelled: number[] = []): string =>
-  [`${STATE.items}: ${itemsWords(items)}`, cancelledWords(cancelled)].filter((x) => x !== '').join('; ');
+
 
 /// The tone of what a work does now, as its state takes it (`stateOf`).
 export const nowTone = (s: Pick<Summary, 'now' | 'cells' | 'waits'>): Tone => stateOf(s).tone;

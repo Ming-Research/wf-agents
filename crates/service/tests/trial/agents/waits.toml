@@ -20,12 +20,12 @@ let_go = "Letting go of what the work held failed. {why}"
 # a question put to the owner is said by what it asks. Filled in a run: `{cell}` the cell by its id, given to each;
 # `limit` and `calls`, the cell's last `{runs}` runs in a row, each for what a cell after it wrote, or each asking for
 # calls and dealing with nothing; `returns` and `made`, its run at its limit of `{sent_back}` returns sent back or of
-# `{made}` calls made; `ruling`, a block the owner may write, `{block}`, keeping the cell's `requires` key `{key}` from holding;
-# `answer`, why a cell's precondition waits for a question that stands without the owner's answer, said on its card
-# alone, under what it asks; `paused`, the engine's pause, `{why}` its reason, and `no_reason` where it gave none;
-# `held`, the pause of every work the engine set as it started again; `agents`, the agents' command line that cannot
-# run, `{why}` what its check or its round found, and `mend`, what the owner does about it, which the page has no
-# control for.
+# `{made}` calls made; `ruling`, a block the owner may write, `{block}`, keeping the cell's `requires` key `{key}` from
+# holding; `answer`, why a cell's precondition waits for a question that stands without the owner's answer, said on
+# its card alone, under what it asks; `paused`, the engine's pause, `{why}` its reason, and `no_reason` where it gave
+# none; `held`, the pause of every work the engine set as it started again; `agents`, the agents' command line that
+# cannot run, `{why}` what its check or its round found, and `mend`, what the owner does about it, which the page has
+# no control for.
 [owner]
 limit = "The cell ran {runs} times in a row for what a cell after it wrote, its limit."
 calls = "The cell ran {runs} times in a row asking for calls and dealing with nothing, its limit."

@@ -546,17 +546,13 @@ pub struct Listing {
 }
 
 /// Every item a list gives, a line each, with what its work does now, at most [`LISTED`]: how many more there are, and
-/// how to see them, is said, and how many ended are left out. An item that waits for good for a cancelled item is
-/// marked so.
+/// how to see them, is said, and how many ended are left out. An item that waits for good for a cancelled item says
+/// so in what its work does now, as the engine gives it.
 fn list(items: &Items, listing: &Listing) -> String {
     if items.items.is_empty() {
         return "No items.".to_string();
     }
     let (tag, from) = (listing.tag.as_deref(), listing.from);
-    let cancelled: Vec<u64> = (items.items.iter())
-        .filter(|item| item.work.now == Now::Cancelled)
-        .map(|item| item.number)
-        .collect();
     let mut lines: Vec<String> = (items.outage.iter())
         .filter(|o| o.holds)
         .map(|o| format!("No agent's round of any work begins. {}", outage(o)))
@@ -590,18 +586,10 @@ fn list(items: &Items, listing: &Listing) -> String {
             true => String::new(),
             false => format!(", tagged {}", item.tags.join(", ")),
         };
+        // What it does now says which items it waits for, those that were cancelled among them, as the engine says.
         let work = &item.work;
-        let ended = matches!(work.now, Now::Merged | Now::Cancelled);
-        let on: Vec<String> = (item.depends_on.iter())
-            .filter(|on| !ended && cancelled.contains(on))
-            .map(|on| format!("#{on}"))
-            .collect();
-        let good = match on.is_empty() {
-            true => String::new(),
-            false => format!(" It waits for good on {}, cancelled.", on.join(", ")),
-        };
         lines.push(format!(
-            "#{} \"{}\" at {}, {}, W{} on {}{after}{tags}: {}{good}",
+            "#{} \"{}\" at {}, {}, W{} on {}{after}{tags}: {}",
             item.number,
             item.title,
             level(item.level.as_deref()),
@@ -1583,11 +1571,11 @@ fn waited(waited: &Waited) -> String {
         Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),
         Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
-        // Where one was cancelled the work waits for it for good, which is said.
+        // Where one was cancelled the work waits for it for good, which is said in the page's words.
         Waited::Items { items, cancelled } => match cancelled.is_empty() {
             true => format!("the items it depends on to merge: {}", numbers(items)),
             false => format!(
-                "the items it depends on to merge: {}, of which {} cancelled, so that it waits for good",
+                "the items it depends on to merge: {}; it waits for good on {}, cancelled",
                 numbers(items),
                 numbers(cancelled)
             ),

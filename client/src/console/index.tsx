@@ -22,7 +22,7 @@ import type { Items, WorkPage } from '../works-api';
 import { useSource } from '../works/source';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
-import { type Shown, shownTree, standingOf } from './items';
+import { type Shown, shownTree } from './items';
 import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
 import { type Heard, type Source, inOrder, pageSource } from './source';
@@ -173,9 +173,6 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
   const shownPage = page !== null && page.work === work ? page.state : null;
 
   const fold = () => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true }));
-  const byNumber = new Map((data?.items ?? []).map((i) => [i.number, i]));
-  const waitsFor =
-    item === undefined ? [] : item.dependsOn.filter((d) => byNumber.has(d) && standingOf(byNumber.get(d)) !== 'done');
 
   return (
     <div className="console">
@@ -205,7 +202,6 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
             page={shownPage}
             act={source.act}
             loadVersion={source.loadVersion}
-            waitsFor={waitsFor}
             wait={wait}
             actEngine={works.actOnEngine}
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}

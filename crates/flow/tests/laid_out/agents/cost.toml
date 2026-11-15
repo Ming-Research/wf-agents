@@ -18,9 +18,9 @@ offline = "The network does not reach the agents' service."
 
 # Why the run guard stopped a round, as the round's failure says it, in sentences: `stopped` that it stopped the round,
 # or `again` where it stopped the run's round before too, in the new session its line was given; then, after `then`,
-# what it measured, `growth` where its context grew past the line of its history both in all and for each call, `jump` where
-# its first prompt rose past the session's last by more than the line both in all and for each character of the
-# message it was given. Filled in a run: `{value}` and `{line}` the first measure and its line, `{per}` and
+# what it measured, `growth` where its context grew past the line of its history both in all and for each call,
+# `jump` where its first prompt rose past the session's last by more than the line both in all and for each character
+# of the message it was given. Filled in a run: `{value}` and `{line}` the first measure and its line, `{per}` and
 # `{per_line}` the second; `{from}` how many values gave the lines and of what, in `from` below, `{scope}` one of
 # `[guard.scope]`; `{tools}` the last tools the round used, each as `tool`, `between` between two, and `no_tools` where
 # it used none.
