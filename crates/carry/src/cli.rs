@@ -1429,6 +1429,9 @@ mod tests {
         assert_eq!(Begin::New.other(), Begin::Resume);
     }
 
+    // A round's command line is given of the engine's environment what is kept and what the settings name, then the
+    // carrier's own variables, which are the agents' program's: none of a project's toolchain, which its declaration
+    // names. Well under a millisecond alone; no other test holds what a round's command line is given.
     #[test]
     fn the_environment_is_built_from_what_is_kept_and_named_and_the_carriers_own() {
         let engine = [
@@ -1448,7 +1451,6 @@ mod tests {
                 ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
                 ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
                 ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
-                ("RUSTUP_AUTO_INSTALL", "0"),
             ]
             .map(|(n, v)| (n.to_string(), v.to_string()))
         );
