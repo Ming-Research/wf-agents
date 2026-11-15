@@ -1,6 +1,7 @@
 //! GitHub as the host: main is the repository's main branch on GitHub, fetched into the local repository; the verdict
 //! on a commit is the project's full workflows run by hand on it, once, and judged by the JUnit they upload and by
-//! their jobs' conclusions, never by the pull request's checks or a log; the work's pull request, which the check
+//! their jobs' conclusions, never by the pull request's checks or a log, where only tests failed the fast workflow
+//! running them again, on the commit and on main's head; the work's pull request, which the check
 //! pushes the commit to and opens where the branch has none, as a draft whose title it keeps to the name of the work's
 //! merge and whose body to what the work says of itself, is what is merged, by GitHub once it is made ready, in a
 //! commit of that name. A work that has ended has, where it did not merge, its pull request closed.
@@ -345,6 +346,7 @@ impl<A: Api> Host for GitHub<A> {
         &self,
         branch: &Branch<'_>,
         commit: &str,
+        main: &str,
         asking: Asking,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
@@ -355,7 +357,7 @@ impl<A: Api> Host for GitHub<A> {
             commit,
             asking,
         };
-        self.judge_full(request, stop).await
+        self.judge_full(request, main, stop).await
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {

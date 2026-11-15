@@ -3,9 +3,11 @@
 //! - `ends`: the pull request's text and draft, the checks that hold no work, main red, and the end of a work.
 //! - `again`: a check or a call of `run_tests` given again after the engine started again, which finds the runs it
 //!   asked for.
+//! - `red`: a check whose full workflows failed tests alone, which are run again on the commit and on main's head.
 
 mod again;
 mod ends;
+mod red;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -144,12 +146,18 @@ impl Hub {
         self.failing(commit).await.map_err(String::from)
     }
 
-    /// The verdict on the commit, or why there is none, of the kind the host told.
+    /// The verdict on the commit, which holds main's head on GitHub, or why there is none, of the kind the host told.
     async fn failing(&self, commit: &str) -> Result<Option<Verdict>, Failed> {
         let place = self.place();
+        let main = self.main_on_github();
         self.host
-            .verdict(&branch(&place), commit, self.round(), &mut Stop::never())
+            .verdict(&branch(&place), commit, &main, self.round(), &mut Stop::never())
             .await
+    }
+
+    /// The head of main on GitHub.
+    fn main_on_github(&self) -> String {
+        run(&self.github().bare, &["rev-parse", "main"])
     }
 
     /// Merges the commit the check passed; a refusal but for a moved main in the host's words.
@@ -312,6 +320,7 @@ async fn the_check_pushes_the_head_opens_a_pull_request_into_main_and_passes_onc
                  - test: passed in 60 s https://github.example/checks/test"
                     .to_string()
             ],
+            ..Verdict::default()
         }
     );
     assert_eq!(hub.pushed(), head);
@@ -464,6 +473,11 @@ async fn a_red_test_and_a_red_job_hold_the_work_and_are_said_with_what_the_test_
     hub.github().fast(&head, jobs, Some(("test-results", fast::junit())));
     let verdict = hub.verdict(&head).await.unwrap().unwrap();
     let failed = verdict.failed.expect("it failed");
+    // What the full workflows found comes first, before what the test run again found.
+    let (failed, again) = failed
+        .split_once("\n\nWhat failed was run again")
+        .expect("it is run again");
+    assert!(again.contains("tools::tests::b"), "{again}");
     // The job that did not pass is said where it failed, and the job that passed in the note: no job is told twice.
     assert_eq!(
         verdict.notes,
@@ -663,8 +677,11 @@ async fn a_stopped_wait_gives_nothing() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         held.stop(1, ());
     };
-    let branch = branch(&place);
-    let (verdict, ()) = tokio::join!(hub.host.verdict(&branch, &head, hub.round(), &mut stop), stopping);
+    let (branch, main) = (branch(&place), hub.main_on_github());
+    let (verdict, ()) = tokio::join!(
+        hub.host.verdict(&branch, &head, &main, hub.round(), &mut stop),
+        stopping
+    );
     assert_eq!(verdict, Ok(None));
 }
 

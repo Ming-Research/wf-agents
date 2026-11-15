@@ -22,7 +22,7 @@ Why: Asked on the work's branch, the branch's own file would choose what runs on
 Tests that could not be run, because their CI never started, took too long or the host could not be reached, say why in the result of `run_tests` once and are not run again by the engine; the agent may ask again.
 Why: Its CI does not start because it is waited for again, and three tries of such a wait once spent half an hour for nothing; the agent who asked can tell whether to ask again, within the calls its run is allowed.
 
-A check that ran and failed is not run again either: see the host's decision the-check-before-the-merge-is-the-full-workflows-once.
+A `run_tests` that ran and failed is not run again either; the check before the merge runs again only tests that failed alone, in runs of their own: see the host's decisions the-check-before-the-merge-is-the-full-workflows-once and a-red-the-change-did-not-make-is-not-sent-back.
 
 ### decision a-query-is-refused-writes-by-the-connection
 The engine runs an agent's `query` on a connection to the store that refuses every write itself: opened read-only, with `query_only` on, and with an authorizer that allows only a select, the reading of what is not hidden from agents, and functions; nothing may be attached. A query is bounded in rows, in time, in bytes (a row may not take more than the bytes a result is kept with, the first included, and one over it is refused), and in the length of any value, however it is made. A query withdrawn is interrupted.

@@ -1,7 +1,9 @@
 # What the engine's act `check` writes: into its choice, `first`, then `passed` or `failed`; into each other block it
-# writes, where the work did not pass, `first`, then `why`. After either, `took_in` where the engine took main in for
-# the check, and `notes` where the host said more. The parts are joined by a blank line. The act `merge` reads back the
-# commit it is to merge from the first line of the choice, after what `first` writes before `{commit}`.
+# writes, where the work did not pass, `first`, then `why`. Where what failed fails on the head of main as well, so
+# that the work's change is not what fails it, the check writes its choice alone, `first`, then `held`, and the work
+# waits for main to pass it, the check running again as main moves. After any of them, `took_in` where the engine took
+# main in for the check, and `notes` where the host said more. The parts are joined by a blank line. The act `merge`
+# reads back the commit it is to merge from the first line of the choice, after what `first` writes before `{commit}`.
 #
 # Filled in a run: `{commit}` the commit checked; `{main}` the main branch's name; `{head}` the head of main it was
 # checked against; `{checked}` what `checked` says, `{by}` in it what `by` says where the host says what judged it and
@@ -13,6 +15,7 @@ by = " by {by}"
 passed = "{checked}: it passed."
 failed = "{checked}: it did not pass."
 why = "{checked}. {why}"
+held = "{checked}: it did not pass, by what fails on {main} as well, which the work's change is not what fails: the work waits for {main} to pass it, and is checked again as {main} moves.\n\n{why}"
 took_in = "The engine merged {main} at {head} into the work's branch for the check, as the commit {commit}, which the worktree holds."
 notes = "Also:{notes}"
 note = "\n- {note}"
