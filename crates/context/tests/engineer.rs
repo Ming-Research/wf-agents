@@ -10,7 +10,7 @@ use std::path::Path;
 use context::Stands;
 use decide::{BlockId, CellId, Outsider};
 use engine::spoken::{self, NoOne, To};
-use engine::{Ask, Came, Effect, Event, Fill, Handed};
+use engine::{Came, Effect, Event, Fill, Handed, Tool};
 use flow::{Compiled, Has};
 use support::Sim;
 use work::{Question, Said, Way};
@@ -739,7 +739,7 @@ fn a_datum_with_no_version_is_said_to_have_none_once_a_session() {
     }
     // It asks for a tool, and is entered again for the result, by a run of its own, in the same session.
     sim.tries(&round, 1, entered.fills);
-    let ask = Ask::Tool {
+    let ask = Tool {
         name: "query".to_string(),
         input: "{\"sql\": \"select 1\"}".to_string(),
     };
