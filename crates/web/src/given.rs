@@ -414,6 +414,7 @@ impl<'a> Build<'a> {
             PartIs::Results => (What::Message, self.source("agents/message/results.toml")),
             PartIs::SentBack => (What::Message, self.source("agents/return/sent_back.toml")),
             PartIs::Taken
+            | PartIs::CutOff
             | PartIs::Heading
             | PartIs::Work
             | PartIs::Main
