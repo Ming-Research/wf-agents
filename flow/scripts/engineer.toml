@@ -1,9 +1,15 @@
 # What the agents, the engine's acts and the tools do when the engineer's flow is tried with no agent behind it
-# (`wf-agents run --script`). One work goes through every cell: the research asks the owner a question, answers it and
+# (`wf-agents run --script`), and the case it plays (`wf-agents play`). One work goes through every cell but R2, which
+# looks for a better way only where the research has the plan: the research asks the owner a question, answers it and
 # sends the work to deep research; a better way is looked for and none found, the plan's review objects to the plan
-# once, and the review against the tree is content; the implementation records a decision of its own; the review objects once and then asks for adversarial testing, which finds a fault; after the fix the
-# review keeps asking for it and the testing is content; the check before the merge fails once, and after the fix the
-# review, the testing and the check look again and pass.
+# once, and the review against the tree is content; the implementation records a decision of its own; the review
+# objects once and then asks for adversarial testing, which finds a fault; after the fix the review keeps asking for it
+# and the testing is content; the check before the merge fails once, and after the fix the review and the check look
+# again and pass.
+
+# The time the script's play starts at (`wf-agents play`), every other time it names being after it: 2026-11-10, at
+# midnight.
+start = 1794268800000
 
 [took]
 ms = 4000
@@ -17,14 +23,12 @@ output_tokens = 3200
 cell = "R0"
 hands_in = []
 
-# Research: what it found so far, which needs deep research, and a question to the owner that it waits for; then,
-# entered again for the answer, what it found, and its answer to the owner.
+# Research: a question to the owner that it waits for, and nothing else, since a return that leaves its cell waiting
+# owes nothing; then, entered again for the answer, what it found, which needs deep research, and its answer to the
+# owner.
 [[flows.engineer.rounds]]
 cell = "R1"
-hands_in = [
-    { block = "deep_needed", value = "yes" },
-    { block = "found", content = "The rounds keep their cost; the calls keep none. Whether a call's should be kept is open." },
-]
+hands_in = []
 
 [[flows.engineer.rounds.questions]]
 name = "call_cost"
@@ -165,7 +169,15 @@ hands_in = [
     { block = "needs_testing", value = "yes" },
 ]
 
-# Adversarial testing: finds one fault, then none on its fix and none on the fix for the check.
+[[flows.engineer.rounds]]
+cell = "T1"
+run = 5
+hands_in = [
+    { block = "review_ok", value = "yes" },
+    { block = "needs_testing", value = "yes" },
+]
+
+# Adversarial testing: finds one fault, then none on its fix.
 [[flows.engineer.rounds]]
 cell = "T2"
 hands_in = [
@@ -179,14 +191,6 @@ cell = "T2"
 run = 2
 hands_in = [
     { block = "tests", content = "Four tests, all passing on the fix; the one that failed fails on the commit before it." },
-    { block = "testing_ok", value = "yes" },
-]
-
-[[flows.engineer.rounds]]
-cell = "T2"
-run = 3
-hands_in = [
-    { block = "tests", content = "The same four tests, all passing with the latest main taken in." },
     { block = "testing_ok", value = "yes" },
 ]
 
@@ -208,3 +212,44 @@ hands_in = [{ block = "checked", value = "yes" }]
 [[flows.engineer.rounds]]
 cell = "M2"
 took = { ms = 1000 }
+
+# The case the script plays: one item. The research asks the owner a question and waits for the answer; the owner takes
+# the option recommended, and the research, entered again for it, sends the work to deep research.
+[[items]]
+title = "Keep what each call of a tool cost"
+flow = "engineer"
+writes = [{ block = "background", content = "A round's cost is kept, and a call's is not." }]
+acts = [
+    { at = { waits = "R1", for = "answer", question = "call_cost" }, do = "answer", question = "call_cost", option = 1 },
+]
+path = [
+    { runs = "S1" },
+    { runs = "R0" },
+    { runs = "R1" },
+    { waits = "R1", for = "answer", question = "call_cost" },
+    { runs = "R1" },
+    { runs = "D1" },
+    { runs = "D2" },
+    { runs = "D3" },
+    { runs = "D1" },
+    { runs = "D2" },
+    { runs = "D3" },
+    { runs = "D4" },
+    { runs = "I1" },
+    { runs = "T3" },
+    { runs = "I1" },
+    { runs = "T1" },
+    { runs = "I1" },
+    { runs = "T1" },
+    { runs = "T2" },
+    { runs = "I1" },
+    { runs = "T1" },
+    { runs = "T2" },
+    { runs = "T1" },
+    { runs = "M1" },
+    { runs = "I1" },
+    { runs = "T1" },
+    { runs = "M1" },
+    { runs = "M2" },
+    { ends = "merged" },
+]
