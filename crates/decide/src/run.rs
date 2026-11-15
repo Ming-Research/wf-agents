@@ -717,8 +717,14 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             }
         }
     }
-    // The rule a-return-that-waits-keeps-its-cell is not yet held: its tests come first.
-    let _ = skips;
+    // A return that asks to wait, by a question that waits or an entry of a record its cell asks in, and whose writes
+    // leave its cell no longer applying, contradicts itself: the wait of a cell that does not apply is put away and
+    // holds nothing (decision a-return-that-waits-keeps-its-cell). A round entered for the owner while its cell waits,
+    // asking nothing itself, may leave the cell: what the owner said may have turned it.
+    let asks_to_wait = waits || (writes.iter()).any(|w| requires.asking.iter().any(|a| a.record == w.block));
+    if asks_to_wait {
+        unmet.extend(skips.iter().map(|block| Unmet::SkipsItsWait { block: block.clone() }));
+    }
     // A question is one cell's: its agent alone writes it anew or withdraws it, under a name no other question has.
     for (i, q) in questions.iter().enumerate() {
         let name = || q.name.clone();
