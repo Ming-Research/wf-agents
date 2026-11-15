@@ -761,7 +761,14 @@ impl Random {
                     handed_in.push(handed(b, cell, true, None));
                 }
             } else if d.rng.chance(80) {
-                let matters = d.rng.chance(70);
+                // A cell asks for tests in one of five of the returns that may: each asks for a round of T3, and the
+                // histories still reach the check and the merge.
+                let asks = (d.flow.flow.cells()[i].asks.iter()).any(|a| &a.record == b);
+                if asks && !d.rng.chance(20) {
+                    continue;
+                }
+                // An entry of a record is new whoever writes it.
+                let matters = d.flow.flow.adds_entries(b) || d.rng.chance(70);
                 let mut h = handed(b, cell, matters, None);
                 // A block a test of content reads is at times handed in holding nothing.
                 if self.roles.contents.contains(b) && d.rng.chance(30) {

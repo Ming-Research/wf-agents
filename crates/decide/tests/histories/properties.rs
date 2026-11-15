@@ -119,18 +119,15 @@ pub const RESULTS: &str = "a result is handed in only for an entry that waits fo
 const WAITED_FOR_A_RESULT: &str = "a cell runs that gives the result a cell before it waits for";
 const RESULT_GIVEN: &str = "the result of an entry is handed in";
 const ENTRY_PUT_AWAY: &str = "the entry of a cell skipped is put away while a cell that gives results runs";
+/// Not required: that the asking cell is skipped while the round that gives results is under way, and applies again
+/// after, takes a row of acts the histories all but never reach; the walk's own test of it holds the rule
+/// (`tests/walk/asking.rs`).
 const ENTRY_TAKEN_UP: &str = "a cell that gives results runs for an entry it put away, its cell applying again";
 const WAITING_HOLDS_A_STOP: &str = "the owner turns to a cell a waiting cell holds back while a round is under way";
 
 /// What the histories that draw a cell asking for tests must reach (decisions a-wait-holds-its-cell,
 /// a-wait-of-a-skipped-cell-is-put-away).
-pub const WAITS_REACHED: &[&str] = &[
-    WAITED_FOR_A_RESULT,
-    RESULT_GIVEN,
-    ENTRY_PUT_AWAY,
-    ENTRY_TAKEN_UP,
-    WAITING_HOLDS_A_STOP,
-];
+pub const WAITS_REACHED: &[&str] = &[WAITED_FOR_A_RESULT, RESULT_GIVEN, ENTRY_PUT_AWAY, WAITING_HOLDS_A_STOP];
 /// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
@@ -700,6 +697,20 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         let entering = reading.entering(flow, cell, now);
         let owed_open = reading.owed(&cell.id, now).iter().any(|c| !reading.done(*c, now));
         let unmet = cell.requires.iter().any(|key| !reading.key_holds(flow, key, j));
+        // A cell that waits for a result the cell entered gives holds the work behind it, whatever else it waits for:
+        // only the owner turning to it, or its run at rest, comes first (decision a-wait-holds-its-cell).
+        let gives = (cell.asks.iter()).any(|asks| flow.cells()[i].runs_on.contains(&asks.record));
+        if reading.pending(flow, cell, now) && gives {
+            if at_rest || !entering.is_empty() {
+                let what = format!(
+                    "the walk passes {} to {}, which gives what it waits for",
+                    cell.id,
+                    flow.cells()[i].id
+                );
+                v.fail(FIRST, what);
+            }
+            return;
+        }
         if at_rest || !entering.is_empty() || owed_open || unmet {
             v.fail(
                 FIRST,
@@ -1098,8 +1109,12 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
     let reading = Reading::of_flow(flow, &then);
     let now = Seq(u64::MAX);
     for (i, cell) in cells[..exempt_from].iter().enumerate() {
-        // A cell that waits for a result is reached once the wait is over (decision a-wait-holds-its-cell).
-        if !reading.applies(flow, i) || reading.pending(flow, cell, now) {
+        // A cell that waits for a result, and every cell after it, is reached once the wait is over (decision
+        // a-wait-holds-its-cell).
+        if reading.applies(flow, i) && reading.pending(flow, cell, now) {
+            break;
+        }
+        if !reading.applies(flow, i) {
             continue;
         }
         for block in &cell.runs_on {
