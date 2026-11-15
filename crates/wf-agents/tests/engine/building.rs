@@ -26,34 +26,34 @@ const START: u64 = 1_794_268_800_000;
 /// it makes: a state a change of a flow or of the build makes or no longer makes changes its count here in the same
 /// change.
 const KINDS: &[(&str, usize)] = &[
-    ("under way", 0),
-    ("waits for an answer", 0),
-    ("waits for a tool", 0),
-    ("waits for a precondition", 0),
-    ("waits for an item it depends on", 0),
-    ("waits for the owner at a limit", 0),
-    ("waits for the outside", 0),
-    ("waits for the engine's own question", 0),
-    ("waits for a slot", 0),
-    ("waits for the turn", 0),
-    ("waits for what every work shares", 0),
-    ("merged", 0),
-    ("cancelled", 0),
-    ("paused by the owner", 0),
-    ("stalled", 0),
-    ("never let on", 0),
-    ("everything paused", 0),
-    ("fails passing", 0),
-    ("fails unread", 0),
-    ("fails flagged", 0),
-    ("fails guarded", 0),
-    ("fails usage_limit", 0),
-    ("fails cannot_run", 0),
-    ("fails offline", 0),
-    ("fails unavailable", 0),
-    ("fails prompt_too_long", 0),
-    ("fails no_model", 0),
-    ("fails other", 0),
+    ("under way", 19),
+    ("waits for an answer", 5),
+    ("waits for a tool", 6),
+    ("waits for a precondition", 7),
+    ("waits for an item it depends on", 2),
+    ("waits for the owner at a limit", 16),
+    ("waits for the outside", 1),
+    ("waits for the engine's own question", 7),
+    ("waits for a slot", 1),
+    ("waits for the turn", 1),
+    ("waits for what every work shares", 4),
+    ("merged", 59),
+    ("cancelled", 19),
+    ("paused by the owner", 2),
+    ("stalled", 1),
+    ("never let on", 6),
+    ("everything paused", 1),
+    ("fails passing", 1),
+    ("fails unread", 1),
+    ("fails flagged", 1),
+    ("fails guarded", 1),
+    ("fails usage_limit", 1),
+    ("fails cannot_run", 1),
+    ("fails offline", 1),
+    ("fails unavailable", 1),
+    ("fails prompt_too_long", 1),
+    ("fails no_model", 1),
+    ("fails other", 1),
 ];
 
 /// Why a state is not brought about, each a reason the build gives: every state its list says it did not make gives
@@ -62,8 +62,14 @@ const NOT_MADE: &[&str] = &[
     "an act waits for no such state",
     "the engine's wait before a round is tried again",
     "no case of the exploration waits for an answer",
-    "no case of the exploration has a round of the flow's first agent's cell",
+    "the flow has no agent's cell",
+    // The engineer's merge after a commit no round made moved the work's head, which the review reads: read by the
+    // check, as the real carriers read it, the review does not run on it, and no other way of that state is taken.
+    "played as a play adds its item, it ran S1 R0 R1, where the exploration ran S1 R0 R1 T1 M1 M2",
 ];
+
+/// How many states the build does not bring about, each for one of those reasons.
+const UNMADE: usize = 6;
 
 /// An items file of the installation's data, made up: enough items of each flow, every fifth depending on the one
 /// before it.
@@ -225,12 +231,16 @@ fn every_state_the_build_lists_is_reached_and_every_kind_has_one() {
         .skip_while(|line| *line != "## Not brought about")
         .skip(1)
         .take_while(|line| !line.starts_with("# "))
-        .filter(|line| line.starts_with("- ") && !NOT_MADE.iter().any(|why| line.contains(why)))
+        .filter(|line| line.starts_with("- "))
+        .collect();
+    let unknown: Vec<&&str> = (unmade.iter())
+        .filter(|line| !NOT_MADE.iter().any(|why| line.contains(why)))
         .collect();
     assert!(
-        unmade.is_empty(),
-        "not brought about for no reason the build gives: {unmade:#?}"
+        unknown.is_empty(),
+        "not brought about for no reason the build gives: {unknown:#?}"
     );
+    assert_eq!(unmade.len(), UNMADE, "{unmade:#?}");
     println!("built in {:?}", started.elapsed());
     served(&built);
 }
