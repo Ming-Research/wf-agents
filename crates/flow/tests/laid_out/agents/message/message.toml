@@ -1,6 +1,6 @@
 # A message of the tests, its parts in this order: one written anew each time, one sent only after a round that had
-# nothing it returned taken, one sent only to a cell that takes main in, the data by the cell's kinds, what the cell writes and its task as the session keeps them, the results and
-# what was sent back, and the triggers.
+# nothing it returned taken, one sent only to a cell that takes main in, the data by the cell's kinds, what the cell
+# writes and its task as the session keeps them, the results and what was sent back, and the triggers.
 compacted = "Compacted: the round again."
 said = "Said: {entry} ({trigger}{do})"
 

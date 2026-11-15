@@ -84,10 +84,13 @@ pub struct Fake {
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
     /// How many seconds the plan's first call sleeps once it has said, as its stream begins, that it took its message
-    /// in, and has made one call to the model, before it answers.
+    /// in, and has made one call to the model, its start and its whole message printed, before it answers.
     pub plan_sleeps_once_begun: u32,
     /// How many seconds the plan's first call sleeps once it has printed its result, before it ends.
     pub plan_sleeps_once_returned: u32,
+    /// How many seconds the build's first call sleeps once it has said, as its stream begins, that it took its message
+    /// in, made one call to the model and committed a file of the design tree, before it answers.
+    pub build_sleeps_once_committed: u32,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
     /// says no call.
     pub context: Option<u64>,
@@ -140,6 +143,7 @@ impl Default for Fake {
             plan_sleeps: 0,
             plan_sleeps_once_begun: 0,
             plan_sleeps_once_returned: 0,
+            build_sleeps_once_committed: 0,
             context: None,
             compacts: false,
             plan_again_unchanged: false,
@@ -538,6 +542,7 @@ case "$first" in
         if [ '{begun_sleeps}' != 0 ] && [ ! -f "$log/begun" ]; then
             touch "$log/begun"
             printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
+            printf '%s\n' '{{"type":"stream_event","event":{{"type":"message_start","message":{{"usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000}}}}}},"parent_tool_use_id":null}}'
             printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
             sleep '{begun_sleeps}'
         fi
@@ -550,6 +555,16 @@ case "$first" in
         fi
         out='"plan":"Greet by name."' ;;
     Build)
+        if [ '{committed_sleeps}' != 0 ] && [ ! -f "$log/committed" ]; then
+            touch "$log/committed"
+            printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
+            printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+            mkdir -p design
+            echo built > design/built.md
+            git add design/built.md
+            git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Build the design'
+            sleep '{committed_sleeps}'
+        fi
         results=no
         grep -q 'The results of what you asked for' "$log/$n.stdin" && results=yes
         checked=no
@@ -680,6 +695,7 @@ fi
         sleeps = fake.plan_sleeps,
         begun_sleeps = fake.plan_sleeps_once_begun,
         returned_sleeps = fake.plan_sleeps_once_returned,
+        committed_sleeps = fake.build_sleeps_once_committed,
         cost = fake.cost,
         compacts = yes(fake.compacts),
         unchanged = yes(fake.plan_again_unchanged),

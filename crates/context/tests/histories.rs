@@ -11,7 +11,8 @@
 //! - nothing is filled that the cell is not given, its own outputs among them, and a datum with no version is never
 //!   sent;
 //! - a session that holds nothing is filled from the top, and the task is filled once a session;
-//! - what the last return in the session handed in is what the message says it is kept as;
+//! - what the last return in the session handed in is what the message says it is kept as, said where no round since
+//!   had nothing it returned taken;
 //! - a round is told that nothing the last round in its session returned was taken where that round put its message
 //!   into the session and ended with no return taken, and only there;
 //! - entered again, before its try or after it, the round is sent the same bytes;
@@ -269,7 +270,11 @@ impl History {
                 let held = self.lines.entry(line.clone()).or_default();
                 held.fill(round.run, &used.fills);
                 held.cut = true;
-                self.sim.fails_as(round, decide::run::Failure::UsageLimit, true);
+                let failure = match self.rng.chance(50) {
+                    true => decide::run::Failure::UsageLimit,
+                    false => decide::run::Failure::Passing,
+                };
+                self.sim.fails_as(round, failure, true);
                 reached.wrote += 1;
             } else {
                 self.sim.fails(round);
@@ -649,7 +654,7 @@ impl History {
             entered.text
         );
         reached.cut += usize::from(told);
-        assert_eq!(entered.situation.after_hand_in, !held.taken.is_empty());
+        assert_eq!(entered.situation.after_hand_in, !held.taken.is_empty() && !held.cut);
         // What the page shows for the situation, its places open, is what the engine sends in it.
         let open = context::message(
             &sim.flow,

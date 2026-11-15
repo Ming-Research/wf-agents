@@ -8,8 +8,9 @@
 # cell is given has (`given.toml`): it is sent where the session lacks its latest version, and again when it changes;
 # `context` is each datum of the cell's context, by the kind the cell gives it in. A part with no kind is written anew
 # each time the cell is entered; `only` names when it is sent at all: `after_hand_in`, after a return that handed in
-# blocks; `after_cut_off`, after a round that put its message into the session and had nothing it returned taken;
-# `takes_main`, to a cell that takes main in; `part`, to a round its script gives a part to play. `outputs` is
+# blocks, where no round since had nothing it returned taken; `after_cut_off`, after a round that put its message into
+# the session and had nothing it returned taken; `takes_main`, to a cell that takes main in; `part`, to a round its
+# script gives a part to play. `outputs` is
 # the blocks the cell writes, as `[outputs]` in `../return/return.toml` says, where it writes any; how every cell
 # returns is in the system prompt. A part with a kind may say in `held` what is sent in its place where the session
 # holds it already. The data come before what the cell is to do with them, and what ran it, with what to do for each,
@@ -36,7 +37,8 @@ between = "; "
 
 # Where the last round that put its message into the session had nothing it returned taken: it failed for a cause other
 # than a return that could not be read, as a crash, a limit or the engine ending while it ran, or its run was given up.
-# The session holds that round's work, and its return where it made one.
+# The session holds that round's work, and its return where it made one; it was told what the return before it handed
+# in, which is not said again.
 [[parts]]
 part = "cut_off"
 only = "after_cut_off"

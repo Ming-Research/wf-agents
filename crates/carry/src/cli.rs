@@ -494,8 +494,9 @@ const ON: usize = 160;
 
 impl Stream {
     /// Takes one line of the stream, without its newline, and says whether the line is kept with the round: every
-    /// line is but a partial message, which is kept only where it rebuilds an attempt at a return, so that what is
-    /// kept rebuilds the attempts again and holds each token of the model's once.
+    /// line is but a partial message, which is kept only where it rebuilds an attempt at a return or starts a call of
+    /// the session's own agent, so that what is kept rebuilds the attempts and the calls again, as a try its engine did
+    /// not see end is read, and holds each token of the model's once.
     pub fn line(&mut self, line: &[u8]) -> bool {
         self.any = true;
         let Ok(text) = std::str::from_utf8(line) else {
@@ -513,13 +514,14 @@ impl Stream {
         self.called(&v);
         match v["type"].as_str() {
             Some("stream_event") => {
-                if starts && v["parent_tool_use_id"].is_null() {
+                let own = starts && v["parent_tool_use_id"].is_null();
+                if own {
                     let usage = &v["event"]["message"]["usage"];
                     let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
                     let (fresh, read) = (tokens("input_tokens"), tokens("cache_read_input_tokens"));
                     self.own.take(fresh, read, tokens("cache_creation_input_tokens"));
                 }
-                return self.attempts.event(&v);
+                return self.attempts.event(&v) || own;
             }
             Some("result") => self.result = Some(v),
             Some("user") if v["parent_tool_use_id"].is_null() => self.refusals.extend(refusals(&v)),
@@ -969,19 +971,25 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_message_is_kept_only_where_it_rebuilds_an_attempt_at_a_return() {
+    fn a_partial_message_is_kept_only_where_it_rebuilds_an_attempt_at_a_return_or_starts_an_agents_call() {
         let mut stream = Stream::default();
         let kept: Vec<&str> = (STREAM.lines()).filter(|line| stream.line(line.as_bytes())).collect();
         let partial = kept.iter().filter(|line| line.starts_with(PARTIAL)).count();
-        // The pieces of the thinking and of the other tool's input, and the messages' starts and ends, are passed
-        // over; the return's start, its eleven pieces and its stop are kept, and every other line.
-        assert_eq!(partial, 13, "{kept:#?}");
+        // The pieces of the thinking and of the other tool's input, and the messages' ends, are passed over; the
+        // messages' starts, which say each call's prompt, the return's start, its eleven pieces and its stop are kept,
+        // and every other line.
+        assert_eq!(partial, 15, "{kept:#?}");
         assert_eq!(kept.len() - partial, 14);
-        // What is kept rebuilds the same attempts, and only the attempts.
+        // What is kept rebuilds the same attempts, and only the attempts, and the same calls of the session's own
+        // agent: a try its engine did not see end is read from it (decision
+        // a-try-its-engine-did-not-see-end-ends-as-its-stream-says).
         let mut again = Stream::default();
         for line in &kept {
             assert!(again.line(line.as_bytes()), "{line}");
         }
+        assert_eq!(again.own, stream.own);
+        assert_eq!(again.priced(), stream.priced());
+        assert_eq!((again.began(), again.has_result()), (true, true));
         assert_eq!(again.attempts.done.len(), 1);
         let raw = again.attempts.last().map(|(_, raw)| raw).expect("an attempt");
         assert_eq!(

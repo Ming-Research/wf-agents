@@ -724,6 +724,75 @@ fn a_round_after_one_that_took_its_message_in_and_had_nothing_it_returned_taken_
     assert!(!told(&entered), "after a return: {}", entered.text);
 }
 
+// The words that nothing the last round returned was taken stand in place of what the return before it handed in,
+// which that round was told; a compaction during the round leaves them said, a return that could not be read is sent
+// back and says why itself, and a session lost since holds nothing of the round. Well under a millisecond alone; no
+// other test holds these.
+#[test]
+fn what_is_said_of_a_round_with_nothing_taken_follows_what_the_session_holds_of_it() {
+    use decide::run::Failure;
+    let told = |entered: &Entered| entered.sent.iter().any(|s| s.part == "cut_off");
+    let kept = |entered: &Entered| entered.sent.iter().any(|s| s.part == "taken");
+    // After the build handed in its code, the plan's round fails, the plan's session having it.
+    let mut sim = reviewed();
+    let round = sim.round().expect("the plan is entered again after the review");
+    let entered = sim.enter(&round, sim.begins(&round));
+    assert!(kept(&entered), "{}", entered.text);
+    sim.tries(&round, 1, entered.fills.clone());
+    sim.fails_as(&round, Failure::Passing, true);
+    let wait = *sim.calls().last().expect("the wait before it is tried again");
+    sim.done(wait, "over");
+    let again = sim.round().expect("the plan's round is tried again");
+    let entered = sim.enter(&again, sim.begins(&again));
+    assert!(told(&entered) && !kept(&entered), "{}", entered.text);
+
+    // Compacted during the round that failed, the session is told it all the same.
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
+    let first = sim.enter(&round, true);
+    sim.tries(&round, 1, first.fills.clone());
+    let line = sim.line(&round);
+    sim.anew(&line, Why::Compacted);
+    sim.fails_as(&round, Failure::Passing, true);
+    let wait = *sim.calls().last().expect("the wait before it is tried again");
+    sim.done(wait, "over");
+    let again = sim.round().expect("the plan's round is tried again");
+    let entered = sim.enter(&again, sim.begins(&again));
+    assert!(told(&entered), "{}", entered.text);
+
+    // A return that could not be read is sent back, with why.
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
+    let first = sim.enter(&round, true);
+    sim.tries(&round, 1, first.fills.clone());
+    sim.fails_as(&round, Failure::Unread, true);
+    let again = sim.round().expect("the plan's round is sent back");
+    let entered = sim.enter(&again, sim.begins(&again));
+    assert!(!told(&entered), "{}", entered.text);
+
+    // Lost by the program in the round after, whose program then reached nothing, the session holds nothing of it.
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
+    let first = sim.enter(&round, true);
+    sim.tries(&round, 1, first.fills.clone());
+    sim.fails_as(&round, Failure::Passing, true);
+    let wait = *sim.calls().last().expect("the wait before it is tried again");
+    sim.done(wait, "over");
+    let second = sim.round().expect("the plan's round is tried again");
+    let (going_on, anew) = (sim.enter(&second, false), sim.enter(&second, true));
+    assert!(told(&going_on) && !told(&anew));
+    sim.tries(&second, 1, going_on.fills);
+    sim.anew(&line, Why::Lost);
+    sim.tries(&second, 2, anew.fills);
+    sim.fails(&second);
+    let third = sim.round().expect("the plan's round is tried again once let on");
+    let entered = sim.enter(&third, sim.begins(&third));
+    assert!(!told(&entered), "{}", entered.text);
+}
+
 #[test]
 fn a_version_that_says_what_an_earlier_one_said_is_new_and_sent_and_no_repeat() {
     let mut sim = reviewed();

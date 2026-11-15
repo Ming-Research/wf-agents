@@ -19,7 +19,8 @@
 //! `testing`, 12). A datum with no version yet is left out, and so is one the session holds, but for the line that
 //! says so where it is new to the cell. Where the last round that put its message into the session had nothing it
 //! returned taken, as one that failed for any cause but a return that could not be read, or one of a run given up, the
-//! round is told so before the rest: the session holds that round's work, and its return where it made one.
+//! round is told so, in place of what the return before that round handed in, which that round was told: the session
+//! holds that round's work, and its return where it made one.
 //!
 //! What changed in a datum given `last_and_latest` is what differs in its text, but for a datum whose versions the
 //! carrier compares itself, as git compares the versions of the design tree: the carrier gives what changed from each
@@ -115,7 +116,8 @@ pub fn enter(
     let versions = decide::versions(&records);
     let own = |v: &VersionView| matches!(v.by, Writer::Run(r) if of_cell(&records, r, cell));
     let mut situation = Situation {
-        after_hand_in: !held.taken.is_empty(),
+        // What the last return handed in was told the round after it, which a round cut off since was.
+        after_hand_in: !held.taken.is_empty() && !held.cut_off,
         after_cut_off: held.cut_off,
         ..Situation::default()
     };

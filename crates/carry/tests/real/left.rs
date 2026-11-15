@@ -4,10 +4,11 @@
 use std::os::unix::fs::MetadataExt;
 
 use decide::run::Failure;
+use decide::{Decision, Outsider};
 use service::Act;
 use work::Back;
 
-use crate::{Fake, Real, ended};
+use crate::{Fake, On, Real, ended, git_in};
 
 #[tokio::test]
 async fn a_round_left_running_by_an_engine_that_stopped_is_stopped_before_it_runs_again() {
@@ -84,6 +85,11 @@ async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails
     }
     let measures = work::measured::of_round(&kept.measured, plan, 1).expect("the try is measured");
     assert!(measures.received, "its program took its message in");
+    assert_eq!(
+        (measures.calls, measures.first_context),
+        (1, Some(1_100)),
+        "its call, as the start of it kept with its stream says"
+    );
     // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, its one call at its price.
     assert_eq!(kept.spent[&(plan, 1)].usd_micros, 400 + 200 + 200);
 }
@@ -121,6 +127,47 @@ async fn a_return_printed_before_its_engine_ended_is_taken_and_its_round_not_run
         .map(|h| (h.block.0.as_str(), h.content.as_str()))
         .collect();
     assert_eq!(handed, [("plan", "Greet by name.")]);
+}
+
+// What a try its engine did not see end committed is the round's: the round of the build, which takes main in, given
+// again, reads nothing of the branch as it begins, which would write the try's commit as the outside's. Under two
+// seconds alone; no other test holds the branch at a round given so.
+#[tokio::test]
+async fn what_a_try_its_engine_did_not_see_end_committed_is_not_read_as_the_outsides() {
+    let fake = Fake {
+        build_sleeps_once_committed: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::open(On::Acts, fake, None, "true");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| matches!(real.decision(work), Decision::Busy { cell, .. } if cell.as_str() == "build"))
+        .await;
+    real.wait(|real| real.calls().iter().any(|call| call.of("Build"))).await;
+    let build = real.run_of(work, "build");
+    let stream = real.data.join(format!("rounds/{}/{}-1.stream.jsonl", work.0, build.0));
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"assistant""#)))
+        .await;
+    let place = real.place(work);
+    real.wait(|_| git_in(&place.dir, &["log", "-1", "--format=%s"]) == "Build the design")
+        .await;
+    let outside = |real: &Real| {
+        (real.work(work).records.written.iter())
+            .filter(|w| w.block.as_str() == "tree" && w.by == Outsider::Outside)
+            .count()
+    };
+    let before = outside(&real);
+
+    real.restart();
+    let calls = real.calls().len();
+    real.until(|real| real.failures == 1 || real.calls().len() > calls)
+        .await;
+    assert_eq!(
+        real.calls().len(),
+        calls,
+        "the build's program was not given its message again"
+    );
+    assert_eq!(outside(&real), before, "the try's commit was read as the outside's");
 }
 
 #[tokio::test]

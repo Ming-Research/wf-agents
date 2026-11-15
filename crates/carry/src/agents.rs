@@ -41,11 +41,11 @@
 //!
 //! A round given again after the process of the engine that gave it ended while a try of it ran goes on from that
 //! try, where its program said it began, reached the service or printed its result: what the try kept of its stream is
-//! read as the end of a try that ended by itself, a return there taken as any, and a stream with none a crash, which
-//! fails the round in passing, saying the program was cut off; its calls and compactions are told as any try's, and
-//! nothing is given the session again, taken in from main or read of the branch for it, what the try committed being
-//! the round's. Only a try whose program said none of these, as one the engine ended before it read its message, is
-//! given again, told the same.
+//! read as the end of a try that ended by itself, a return there taken as any, one past the run guard's lines failed
+//! for it, and any other a crash, which fails the round in passing, saying the program was cut off; its calls and
+//! compactions are told once, as any try's, and nothing is given the session again, taken in from main or read of the
+//! branch as the round begins, what the try committed being the round's. Only a try whose program said none of these,
+//! as one the engine ended before it read its message, is given again, told the same.
 //!
 //! As a round of a line that may change the work ends with a return, the engine looks at what the work's branch changes
 //! under the paths the project protects, and asks the owner by itself where it is a change not asked of yet, beside
@@ -362,8 +362,9 @@ impl Inner {
         let on = (self.settings).ran_on(round.item.level.as_deref(), &round.cell, round.account.as_deref())?;
         let dir = git::worktree(&place)?;
         // A round given again after the process of the engine that gave it ended while a try of it ran goes on from
-        // that try, where its program printed anything: what it kept of the stream says what came of it. Nothing is
-        // taken in or read of the branch for it: what that try committed is the round's.
+        // that try, where its program said it began, reached the service or printed its result: what the try kept of
+        // its stream says what came of it. Nothing is taken in or read of the branch for it as it begins: what that try
+        // committed is the round's, read as it ends.
         let left = left_try(&base).await;
         let main = if round.cell.takes_main && left.is_none() {
             self.caught_up(round, &place, of).await?
@@ -428,16 +429,17 @@ impl Inner {
             marks: base.with_extension("compacted"),
             again: base.with_extension("again.md"),
         };
+        // The session the program lost is begun again under its id, and that is recorded once for the round.
+        let round_at = work::sessions::began_at(work, round.run, round.number);
+        let recorded =
+            (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && round_at.is_some_and(|a| a < s.at));
         let (status, stream, stderr, compactions) = match left {
             // The try the engine that ended left: what came of it is read from what it kept, as of a try that ended by
-            // itself, but for how its program ended, which no process of the engine saw. What its calls came to and its
-            // compactions are told as any try's are; nothing is given the session again.
+            // itself, but for how its program ended, which no process of the engine saw. Its compactions and what its
+            // calls came to are told as any try's are, once: an engine that told them and ended before the round's end
+            // was recorded left them in the records. Nothing is given the session again.
             Some((n, stream)) => {
                 let compactions = marked(&compacted.marks).await;
-                for _ in 0..compactions {
-                    teller.session_began(line.to_string(), Why::Compacted);
-                }
-                let _ = tokio::fs::remove_file(&compacted.marks).await;
                 let _ = tokio::fs::remove_file(&compacted.again).await;
                 let told = tokio::fs::read_to_string(kept::at(&base, n).0)
                     .await
@@ -446,10 +448,33 @@ impl Inner {
                 let ran = (work.ran.iter()).rfind(|r| r.run == round.run && r.round == round.number && r.attempt == n);
                 let (system, form) = begun_with()?;
                 let before = self.before_messages(ran.map_or(&on, |r| &r.on), &system, &form, &permissions);
-                let crossed = (Guard::new(round.lines.clone(), last, given, waived).judge(&stream.own)).is_some();
-                let priced = !stream.has_result() && stream.priced().is_some();
-                if let Some(measures) = measures(&stream, given, before, crossed, priced) {
-                    teller.measured(n, measures);
+                let mut guard = Guard::new(round.lines.clone(), last, given, waived);
+                let crossing = guard.judge(&stream.own);
+                let halted = crossing.is_some() && guard.stops() && !stream.has_result();
+                let told_before =
+                    (work.measured.iter()).any(|m| m.run == round.run && m.round == round.number && m.attempt == n);
+                if !told_before {
+                    for _ in 0..compactions {
+                        teller.session_began(line.to_string(), Why::Compacted);
+                    }
+                    let priced = !stream.has_result() && stream.priced().is_some();
+                    if let Some(measures) = measures(&stream, given, before, crossing.is_some(), priced) {
+                        teller.measured(n, measures);
+                    }
+                }
+                // A try past a signal the run guard stops a round on, which printed no result, failed for it, as the
+                // engine that ended would have stopped it.
+                if let Some(crossing) = crossing.filter(|_| halted) {
+                    let why = crossing.words(&of.beside.cost.guard, &stream.tools, guarded_before);
+                    let spent = Spent {
+                        compactions,
+                        ..stream.priced().unwrap_or_default()
+                    };
+                    return Ok(Carried::Failed(why, Failure::Guarded, failure::Said::default(), spent));
+                }
+                // A try after one that found the session lost began it again under its id, as the records say.
+                if recorded {
+                    begin = Begin::New;
                 }
                 (None, stream, String::new(), compactions)
             }
@@ -502,10 +527,6 @@ impl Inner {
                 // tool.
                 let words = words(&base);
                 let mut tried = false;
-                // The session the program lost is begun again under its id, and that is recorded once for the round.
-                let at = work::sessions::began_at(work, round.run, round.number);
-                let recorded =
-                    (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && at.is_some_and(|a| a < s.at));
                 let ran = loop {
                     // A session begun under its id holds nothing: it is sent everything from the top.
                     let entered = if begin == Begin::New { &anew } else { &going_on };
