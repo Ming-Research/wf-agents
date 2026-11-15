@@ -202,7 +202,7 @@ async fn the_loop_judges_a_round_by_the_line_of_its_history_and_nothing_where_it
     let mut script = trial_script();
     let plan = &mut script.flows.get_mut("trial").unwrap().rounds[0];
     (plan.hands_in, plan.questions) = (None, None);
-    let mut carriers = service::Scripted::new(script).carriers();
+    let mut carriers = service::Scripted::new(script, crate::words()).carriers();
     carriers.agents = std::sync::Arc::new(Judging(carriers.agents));
     let running = running_carried(Box::new(store), dir, carriers);
     let router = &running.router;

@@ -715,11 +715,10 @@ async fn a_merge_that_cannot_read_the_checks_result_fails_and_keeps_no_turn() {
 }
 
 // A merge refused for a moved main keeps the work's turn, for its check on main's new head, as after a check that
-// passed; and a merge whose work gave its turn up since its check passed waits for the turn again before it merges, so
-// that no other work's check runs while it merges. Well under a second alone: a repository on disk and the fake host;
-// no other test holds the merge to the turn.
+// passed. Well under a second alone: a repository on disk and the fake host; no other test holds a refused merge to
+// the turn.
 #[tokio::test]
-async fn a_merge_takes_the_turn_before_it_merges_and_one_refused_for_a_moved_main_keeps_it() {
+async fn a_merge_refused_for_a_moved_main_keeps_the_turn() {
     let repo = Repo::new("true");
     started(&repo).await;
     let place = repo.place(WORK);
@@ -741,7 +740,19 @@ async fn a_merge_takes_the_turn_before_it_merges_and_one_refused_for_a_moved_mai
         Some((WORK, true)),
         "the work keeps its turn, as after a check that passed"
     );
-    // Another work has the turn: the merge waits for it, and merges once it is let go.
+}
+
+// A merge whose work gave its turn up since its check passed waits for the turn again before it merges, so that no
+// other work's check runs while it merges: another work has the turn, and the merge merges once it is let go. Well
+// under a second alone: a repository on disk and the fake host; no other test holds the merge to the turn.
+#[tokio::test]
+async fn a_merge_takes_the_turn_before_it_merges() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let place = repo.place(WORK);
+    let checked = run(&repo.project.repo, &["rev-parse", &place.reference()]);
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let round = merging_checked(&checked);
     let waiting = acts(&repo, Fake::new(&main));
     let other = WorkNumber(2);
     waiting.inner.turn().holder = Some((other, None));

@@ -152,8 +152,9 @@ fn said_down(mut from: mpsc::UnboundedReceiver<Message>) -> Vec<Event> {
 #[test]
 fn a_pause_of_a_work_is_told_to_the_carriers_of_every_project() {
     let (one, two) = (Arc::new(Reached::default()), Arc::new(Reached::default()));
-    let all = ByProject {
-        of: [("one".to_string(), one.clone()), ("two".to_string(), two.clone())].into(),
+    let rounds = |reached: &Arc<Reached>| -> Arc<dyn Rounds> { reached.clone() };
+    let all: ByProject<dyn Rounds> = ByProject {
+        of: [("one".to_string(), rounds(&one)), ("two".to_string(), rounds(&two))].into(),
         said: said(),
     };
     all.paused(WORK, true);
