@@ -550,7 +550,7 @@ mod tests {
         for named in [&tests, &fork, &change] {
             let said = on_commit(&repo, Some(named), &mut stop).await.unwrap().expect("run");
             assert!(said.starts_with(&format!("On the commit {named}:\n")), "{said}");
-            assert!(said.ends_with(&format!("{named}\n")), "{said}");
+            assert!(said.ends_with(&format!("\n{named}\n```")), "{said}");
             assert_eq!(commits.parent(), place.dir.parent(), "beside the work's worktree");
             assert!(!commits.starts_with(&place.dir), "never in it");
         }
@@ -662,7 +662,7 @@ mod tests {
         std::fs::write(&lock, "").unwrap();
         let said = on_commit(&repo, Some(&change), &mut stop).await.unwrap().expect("run");
         assert!(said.starts_with(&format!("On the commit {change}:\n")), "{said}");
-        assert!(said.ends_with(&format!("{change}\n")), "{said}");
+        assert!(said.ends_with(&format!("\n{change}\n```")), "{said}");
         assert!(!std::path::Path::new(&lock).exists(), "made again");
     }
 
