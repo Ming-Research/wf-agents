@@ -282,10 +282,10 @@ fn made(list: &str, kind: &str) -> usize {
 
 // Every state the build lists as made was reached by the item it names, each kind of state was made as often as the
 // flows give it, and each state not brought about is so for a reason the build gives; each store, served as its notes
-// say, starts as they say. The build is the product's command, and builds here what the test installation builds,
-// exploring the engineer's flow at the bound its own tests explore it at: built at a smaller one, the page's states
-// would be other ones (Article 3). A minute and a half or so alone, the main store's play the most of it; the only
-// test that builds the repository's flows.
+// say, starts as they say, and a check its build had wait for the turn says so, of a work whose check or merge is
+// under way. The build is the product's command, and builds here what the test installation builds, exploring the
+// engineer's flow at the bound its own tests explore it at: built at a smaller one, the page's states would be other
+// ones (Article 3). A minute and a half to two minutes alone in CI; the only test that builds the repository's flows.
 #[test]
 fn every_state_the_build_lists_is_reached_and_every_kind_has_one() {
     let started = Instant::now();
