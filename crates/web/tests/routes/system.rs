@@ -150,12 +150,20 @@ async fn a_round_that_failed_is_given_with_its_cause() {
 }
 
 /// The script's agents, with a policy for the loop as the real carriers give it: a line of history is worked out from
-/// two values at least, and every round runs on [`opus`], which its first try says, as a real carrier's does.
+/// two values at least; and every round's first try says that it runs on [`opus`] and what its calls measured, as a
+/// real carrier's does, which a round of history needs.
 struct Judging(std::sync::Arc<dyn service::Rounds>);
 
 impl service::Rounds for Judging {
     fn give(&self, round: service::Round, reply: service::RoundReply) {
-        reply.teller().ran_on(1, opus());
+        let teller = reply.teller();
+        teller.ran_on(1, opus());
+        let measures = work::Measures {
+            calls: 3,
+            added: 100,
+            ..work::Measures::default()
+        };
+        teller.measured(1, measures);
         self.0.give(round, reply);
     }
 

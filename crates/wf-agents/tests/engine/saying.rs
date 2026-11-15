@@ -75,8 +75,8 @@ fn words_to_a_line_are_said_to_the_cell_the_engine_gave_them_to_and_refused_wher
         "Said to build of work 1, where the line engineer stands.\n"
     );
     let refused = engine.refuses(&["say", "1", "Keep it short.", "--line", "reviewer"]);
-    assert!(
-        refused.contains("the owner's words run no cell of the line reviewer"),
-        "{refused}"
+    assert_eq!(
+        refused.trim_end(),
+        "The owner's words run no cell of the line reviewer."
     );
 }
