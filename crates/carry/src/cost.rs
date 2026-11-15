@@ -114,6 +114,18 @@ impl Tokens {
     }
 }
 
+/// How many keep-warm pings one wait of a session on the model is worth: as many as cost, each reading the session from
+/// the cache, no more than writing it to the cache for an hour would beyond reading it, which a ping saves where the
+/// session's next round comes before the cache lets it go. None for a model with no prices here, whose worth is not
+/// known; the ratio of the prices is the same over Haiku's bound on a prompt.
+pub fn pings_worth(model: &str) -> Option<u32> {
+    let id = model.split('[').next().unwrap_or(model);
+    let (_, p, _) = MODELS.iter().find(|(name, ..)| *name == id)?;
+    // The small margin keeps a ratio such as (4.0 - 0.1) / 0.1, which floating point makes 38.99..., at 39.
+    let pings = (p.write_1h - p.read) / p.read + 1e-9;
+    Some(pings.max(0.0).floor() as u32)
+}
+
 /// What the call cost, in millionths of a dollar, at the prices of its model, named with or without the context window
 /// it runs with (`[1m]`). A model with no prices here is priced as the dearest here, so that a cost not known errs high
 /// against the budget.

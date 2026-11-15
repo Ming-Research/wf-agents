@@ -36,6 +36,7 @@ pub mod cli;
 mod cost;
 pub mod failure;
 pub mod git;
+pub mod guard;
 mod held;
 mod host;
 mod kept;

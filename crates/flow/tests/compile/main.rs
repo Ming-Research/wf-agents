@@ -13,6 +13,7 @@ mod groups;
 mod laid_out;
 mod levels;
 mod must_write;
+mod named_by;
 mod named_tests;
 mod notes;
 mod system;

@@ -119,6 +119,8 @@ describe('how a run stands', () => {
     compactions: 0,
     session: null,
     tries: [],
+    missed: null,
+      estimated: false,
   });
 
   it('says a run whose last round failed failed, neither under way nor at rest, and open', () => {
@@ -181,6 +183,9 @@ describe('why a run ran, in words', () => {
     );
     expect(unmetWords({ kind: 'unchangedNotWritten', block: 'plan' })).toBe(
       'it named plan as unchanged in meaning, and did not write it',
+    );
+    expect(unmetWords({ kind: 'unexplained', path: 'AGENTS.md' })).toBe(
+      'it left AGENTS.md, a file the project protects, changed, and said not why',
     );
   });
 });

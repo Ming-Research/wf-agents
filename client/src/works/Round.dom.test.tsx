@@ -141,6 +141,20 @@ describe("a round's part of a run's panel", () => {
       'cached_tokens / (input_tokens + cached_tokens) 41%',
     ]);
     expect(keys(pair(first, 'Context'))).toEqual(['context_tokens 34,340', 'compactions 0']);
+    expect(pair(first, 'Missed')).toBeUndefined();
+  });
+
+  it('shows how a round missed its session\'s cache, and that what it took was priced from its calls', async () => {
+    const page = fixtureWork(41);
+    const run = page.steps.find((s) => s.kind === 'run');
+    if (run?.kind !== 'run') throw new Error('no run');
+    const second = run.rounds[1];
+    second.missed = { read: 1_200, held: 34_340, differs: ['model'] };
+    second.estimated = true;
+    const panel = await runPanel(page, 1, sourceOf());
+    const round = roundPart(panel, 2);
+    expect(keys(pair(round, 'Missed'))).toEqual(['first_read 1,200', 'held 34,340', 'differs model']);
+    expect(keys(pair(round, 'Took')).at(-1)).toBe('priced true');
   });
 
   it('shows what was filled into its session, each part as the flow\'s files name it, before what it was sent', async () => {

@@ -36,6 +36,8 @@ function round(number: number, from: number, to: number, usd: number, over: Part
     compactions: 0,
     session: { line: 'engineer', number: 0 },
     tries: [{ attempt: 1, ran: { level: '2', model: 'claude-sonnet-5-5', effort: 'high' }, filled: [] }],
+    missed: null,
+    estimated: false,
     ...over,
   };
 }
@@ -91,6 +93,14 @@ describe('what a work used', () => {
     expect(u.spent.cachedTokens).toBe(1200);
     expect(u.compactions).toBe(1);
     expect([u.start, u.end]).toEqual([0, 52 * MINUTE]);
+  });
+
+  it('counts its keep-warm pings in what it spent, and not among its rounds', () => {
+    const page = work();
+    page.summary = { pinged: { ...spent(0.5, 0), rounds: 2 } } as WorkPage['summary'];
+    const u = usageOf(page, 0);
+    expect([u.spent.usdMicros, u.spent.cachedTokens, u.spent.rounds]).toEqual([5_500_000, 1500, 4]);
+    expect(u.spent.workingMs).toBe(usageOf(work(), 0).spent.workingMs);
   });
 
   it('cuts its time into the models, the tools, the engine and the stretches nothing ran in', () => {

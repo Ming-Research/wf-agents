@@ -4,3 +4,4 @@ act = "merge"
 requires = { test = "passed" }
 inputs = ["code"]
 outputs = ["merged"]
+named_by = "title"

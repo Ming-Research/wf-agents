@@ -12,7 +12,7 @@ use flow::{Compiled, Kind};
 
 use crate::asked;
 use crate::event::{Effect, Event, Gate, Refused};
-use work::{Ask, Back, Call, Filled, Given, Moment, Ran, Session, Time, Work};
+use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Ran, Session, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
@@ -474,6 +474,53 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 fills,
             });
         }
+        Event::Measured { run, attempt, measures } => {
+            let number = began(work, run);
+            if number == ended(work, run) {
+                return Err(Refused::NoRoundUnderWay(run));
+            }
+            let at = work.tick();
+            work.measured.push(Measured {
+                at,
+                run,
+                round: number,
+                attempt,
+                measures,
+            });
+        }
+        Event::Pinged {
+            line,
+            session,
+            spent,
+            failed,
+        } => {
+            if !flow
+                .cells
+                .iter()
+                .any(|cell| cell.line.as_deref() == Some(line.as_str()))
+            {
+                return Err(Refused::NoSuchLine(line));
+            }
+            let at = work.tick();
+            let compactions = spent.compactions;
+            work.pinged.push(Pinged {
+                at,
+                line: line.clone(),
+                session,
+                spent,
+                failed,
+            });
+            // A ping that compacted its session reopened it, as a round's compaction does: the line's next round is
+            // filled from the top, and the cell that loads the session runs again.
+            for _ in 0..compactions {
+                let at = work.tick();
+                work.sessions.push(Session {
+                    at,
+                    line: line.clone(),
+                    why: work::Why::Compacted,
+                });
+            }
+        }
         Event::NotReleased { why } => {
             // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,
             // and letting the work on tries again.
@@ -787,6 +834,7 @@ pub(crate) fn requires<'a>(
     let spec = flow.cells.get(place)?;
     Some(Requires {
         outputs: &flow.flow.cells()[place].outputs,
+        groups: &flow.flow.cells()[place].groups,
         must_write: &spec.must_write,
         choices,
         returns: spec.returns,
@@ -947,5 +995,7 @@ fn pausing_words(pausing: &Pausing, why: &str) -> String {
         Pausing::FlaggedAgain => {
             format!("the service's safety check flagged the round again, in the new session its line was given: {why}")
         }
+        // The carrier's reason says that it stopped the round again, in the words beside the flows.
+        Pausing::GuardedAgain => why.to_string(),
     }
 }

@@ -653,6 +653,7 @@ impl History {
         let told = decide::told(&flow, &self.w.records, run).expect("the run started");
         let requires = Requires {
             outputs: &cell.outputs,
+            groups: &cell.groups,
             must_write: &[],
             choices: &choices,
             returns: RETURNS,

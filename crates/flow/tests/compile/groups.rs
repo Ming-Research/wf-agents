@@ -57,6 +57,17 @@ fn a_cell_run_by_a_group_s_trigger_is_run_by_each_of_its_blocks_and_reads_them()
     );
     assert_eq!(compiled.flow.cells()[2].runs_on, ["plan".into(), "opinions".into()]);
     assert_eq!(compiled.groups["planned"], ["plan", "opinions"]);
+    // A return names the trigger as dealt with by its name, which stands for the group, whose blocks the run's check
+    // reads it as.
+    assert_eq!(
+        design.dealt_with(&["on_planned".to_string()]),
+        (vec!["planned".into()], vec![])
+    );
+    let group = vec!["plan".into(), "opinions".into()];
+    assert_eq!(
+        compiled.flow.cells()[2].groups,
+        std::collections::BTreeMap::from([("planned".into(), group)])
+    );
 }
 
 #[test]

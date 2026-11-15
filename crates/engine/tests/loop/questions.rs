@@ -93,6 +93,7 @@ fn asked(name: &str, waits: bool) -> Question {
             },
         ],
         about: None,
+        reasons: Default::default(),
     }
 }
 

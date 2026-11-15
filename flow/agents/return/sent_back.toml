@@ -14,7 +14,7 @@ again = "Return again: everything this return is to say, in one return."
 # The words of each thing that can be wrong. In a text, `{block}` is a block's name; `{name}` a name as the return
 # wrote it, or, of what it dealt with, the name of the trigger; `{value}` a value it wrote; `{values}` the values of a
 # choice, each between backticks, joined by `between`; `{version}` a version's number; `{why}` why what came back could
-# not be read.
+# not be read; `{path}` a file's path.
 [faults]
 # The block is not one the cell writes in `outputs`: no block of the cell's, or one it writes through a field of its own.
 not_an_output = "`{block}` is not a block this cell writes in `outputs`."
@@ -42,6 +42,9 @@ question_twice = "`{name}` is written twice in `questions`."
 not_an_option = "The question `{name}` recommends none of its options: `recommends` counts them from 1."
 # The cell has no trigger an answer runs, so an answer could not reach it.
 not_answerable = "The question `{name}` cannot be asked from this cell: no answer runs it again, so none could reach you. Decide it yourself."
+# A file the project protects, `{path}`, that the work's branch changes as the round left it, and of which neither the
+# return nor the engine's question that stands of the file as it is says why.
+unexplained = "`{path}` is a file the project protects, which the work's branch changes, and nothing says why: give in `protected_changes` why the change is needed, or take it back."
 # Of a return of the form before a return said what it dealt with, which asked for calls and named none.
 asks_nothing = "The return asks for calls, and for none."
 

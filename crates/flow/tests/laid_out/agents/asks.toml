@@ -1,10 +1,11 @@
 [protected]
 name = "protected_files"
-ask = "May this merge?\n{files}\n{diff}"
-file = "- {path}: {change}"
+ask = "May this merge?\n\n{files}"
+file = "- {path}: {change}. Why: {why}\n{diff}"
 added = "added"
 changed = "changed"
 deleted = "deleted"
+no_reason = "none."
 withdrawn = "No longer touched."
 merges = 1
 

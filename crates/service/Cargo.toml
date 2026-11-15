@@ -16,6 +16,8 @@ serde.workspace = true
 store = { path = "../store" }
 tokio = { version = "1.53.1", features = ["rt", "sync", "time"] }
 toml.workspace = true
+# How many columns a character of a title takes (UAX #11, East Asian Width).
+unicode-width = "0.2.3"
 work = { path = "../work" }
 
 [dev-dependencies]
