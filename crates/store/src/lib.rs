@@ -84,8 +84,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/202611151600-say-whether-a-version-holds-anything.sql"),
 ];
 
-/// The migration that made the `empty` column, counted from 1: where a database was made before it, what each version
-/// holds is read from its content once it has run, as the engine reads the content it writes.
+/// The migration that made the `empty` column, counted from 1: it makes the tables anew, and where a database was made
+/// before it, they are filled once it has run, each version saying from its content whether it holds nothing, as the
+/// engine reads the content it writes.
 const EMPTY_COLUMN_MADE_BY: usize = 17;
 
 // The migrations bring a database of every earlier version to this one.
@@ -242,7 +243,7 @@ impl Store {
                     for (i, migration) in MIGRATIONS.iter().enumerate().skip(earlier as usize - 1) {
                         tx.execute_batch(migration)?;
                         if i + 1 == EMPTY_COLUMN_MADE_BY {
-                            tables::mark_empty(&tx)?;
+                            tables::fill_empty(&tx)?;
                         }
                     }
                 }
