@@ -43,3 +43,7 @@ Why: Cut where the host made it, the engine's records kept only what the agent w
 ### decision a-tests-time-is-kept-with-the-run
 What a request of `run_tests` gives of each test includes the time its results give, and the result is kept whole in the records with the run that made it, so that a test's time has a history there.
 Why: A test's time is the only means to see a test grow slow, and it is in the results of every run already; kept only in what was given to an agent, it would be lost as soon as the round ended.
+
+### decision a-tools-file-defines-the-names-of-its-result
+A tool's file lists in `defines` the names its words use that the tool itself defines, such as the keys of what it gives and the SQL function it points to; the Flow page counts them as defined among the names between backticks in the texts sent to agents, and no other name in a tool's words. The list is not the `names` of `agents/installation.toml`, whose settings are given a value wherever a text names them and refused where they have none; nothing is filled in for a tool's.
+Why: A result's keys are written only in the tool's words, so nothing else could define them and the page listed them as unknown. Counting every name in a tool's own words as defined was turned down: it would leave that text unchecked, and a misspelt key would pass. A shape of the result beside the request's was turned down: a function is no key of a result, so a second list would be needed, and a result of text such as `run_tests` has no shape; by judgment, with no case measured.
