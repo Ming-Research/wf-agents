@@ -21,7 +21,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use decide::run::Failure;
-use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
+use decide::{BlockId, CallId, End, Pauser, RunId};
 use driver::history::Lines;
 use driver::{Along, Found, Policy, Under};
 use engine::{Came, Event};
