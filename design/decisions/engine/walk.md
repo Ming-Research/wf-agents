@@ -84,10 +84,10 @@ with the round's end, it is what the round did, on its return and on the chart.
 
 ### decision a-wait-of-a-skipped-cell-is-put-away
 A wait of a cell that no longer applies is put away: it holds nothing, the cell that gives what it waits for gives it
-nothing, and it is waited for again once the cell applies again. Of the result of an entry, it is so unless a run of
-the cell that gives results ran meanwhile, told of the entry, and passed over it: the cell then waits for it no more,
-and asks again where it still needs it. Built for the entries of what a cell asks for in a record; for a question, the
-engine's record of the questions' standing still holds the merge, and the rule waits for that part.
+nothing, and it is waited for again once the cell applies again. The cell that gives the result of an entry is then
+entered for it, though it took the record in before, passing over the entry while its cell was skipped. Built for the
+entries of what a cell asks for in a record; for a question, the engine's record of the questions' standing still holds
+the merge whatever cell asked it, and the rule waits for that part.
 Why: The owner settled it for a question (2026-11-15): a question of a cell skipped is put away, holds nothing, and comes
 back when the cell runs again. Run for a cell that no longer applies, its entry ran later on another cell's commit,
 for a cell whose work no longer counted, and gave a result to none that read it. One rule for every wait keeps a

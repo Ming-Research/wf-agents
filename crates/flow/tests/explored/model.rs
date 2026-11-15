@@ -659,12 +659,12 @@ impl Model {
     }
 
     /// Each pair of an opinion and its reply: a block a cell writes that runs a cell before it, which writes a block
-    /// that runs the first again.
+    /// that runs the first again. The result of what a cell asked for is no opinion: it ends a wait.
     pub fn loops(&self) -> BTreeSet<(BlockId, BlockId)> {
         let cells = self.cells();
         let mut pairs = BTreeSet::new();
         for (a, writer) in cells.iter().enumerate() {
-            for o in &self.backward[a] {
+            for o in self.backward[a].iter().filter(|o| !self.compiled.flow.is_result(o)) {
                 for (b, reader) in cells.iter().enumerate().take(a) {
                     if !reader.runs_on.contains(o) {
                         continue;

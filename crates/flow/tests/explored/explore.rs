@@ -417,6 +417,16 @@ impl Explorer<'_> {
         run
     }
 
+    /// Whether a run of the cell finished on the path writing a record it asks for tests in.
+    fn asked_before(&self, s: &State, cell: &CellId) -> bool {
+        let m = self.model;
+        let records = &m.asking[m.place(cell)];
+        let r = &s.world.records;
+        (r.finished.iter())
+            .filter(|f| r.started.iter().any(|st| st.run == f.run && &st.cell == cell))
+            .any(|f| f.writes.iter().any(|w| records.contains(&w.block)))
+    }
+
     /// The returns of the other runs of the run's cell that the engine sent back since the cell's counts last began
     /// anew, as the engine's loop counts them: each round of theirs after their first, which only a return sent back
     /// begins here.
@@ -635,6 +645,11 @@ impl Explorer<'_> {
                                 // A return sent back takes nothing in and is the same wherever it comes: a path
                                 // that spent nothing tries it.
                                 if v == Variant::SentBack && s.spent > 0 {
+                                    continue;
+                                }
+                                // How often a cell asks for tests is judged by the history of asking beside the walk:
+                                // once a path is what the walk itself reads.
+                                if v == Variant::Tests && self.asked_before(s, cell) {
                                     continue;
                                 }
                                 out.push(self.returns(s, cell, *run, v.clone(), true, false));
