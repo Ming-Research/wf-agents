@@ -124,6 +124,8 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
     let outputs = returns(&[
         "- `opinions`: ",
         "- `verdict`, a choice, one of `yes`, `no` (hand it in every time): ",
+        "- `discussion`: ",
+        "- `q_and_a`: ",
     ]);
     let expected = message(&[
         "# Review".to_string(),
