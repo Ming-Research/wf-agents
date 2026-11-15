@@ -47,8 +47,15 @@ pub enum Line {
     /// Everything was paused, at this time, by the owner or by the engine as it started with works going on: no work
     /// begins a round but to answer a person's words to its cell, until the owner lifts it. It is about no work.
     Everything { since: u64, by: Pauser },
-    /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work.
-    Agents { since: u64, outage: Outage },
+    /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work. Where
+    /// the cause is the agents' command line, which cannot run until the owner mends it, what the owner does, in the
+    /// words beside the flow of the work whose round met it (`owner.mend`), said here alone.
+    Agents {
+        since: u64,
+        outage: Outage,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mend: Option<String>,
+    },
     /// The work's records cannot be those of a work.
     Fault { of: Of, since: u64, now: Now },
     /// The work waits on the owner, for each of these, as the one definition of that says.
@@ -148,6 +155,10 @@ impl Attention {
                     Heed::Agents { outage } => Line::Agents {
                         since,
                         outage: Outage::of(outage, driver.gate().holds_agents()),
+                        mend: (outage.down().0 == decide::run::Failure::CannotRun)
+                            .then(|| driver.work(outage.work))
+                            .flatten()
+                            .map(|kept| kept.flow.waits.owner.mend.clone()),
                     },
                     Heed::Fault { work } => {
                         let (of, now) = of_work(*work)?;

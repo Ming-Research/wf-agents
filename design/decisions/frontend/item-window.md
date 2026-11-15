@@ -10,9 +10,10 @@ Why: A row of short labels under the options, each to be matched to its option, 
 wrongly, and radio buttons under the options as saying each option twice.
 
 ### decision every-stop-is-one-card
-Every stop of a work is one card, in the one look of a stop: the engine's one sentence of why, its names and values in
-monospace, and inside it the buttons that end it, with nothing of the page's own; a question's card is the question,
-and says the engine's sentence under it only where that is not what it asks, as "The merge waits for this answer".
+Every stop of a work is one card, in the one look of a stop: the engine's one sentence of why, a stall's among them,
+its marked names and values in monospace and the rest plain text, and inside it the buttons that end it, with nothing
+of the page's own; a question's card is the question, and says under it, where a cell other than the one that asked it
+waits for it, the engine's sentence of that, as "The merge waits for this answer".
 Why: Drawn as a card and again as a line with "Try again" beside it, the engine's pause of a work whose letting go
 failed read as two stops; a line of the page's own over each card ("The work waits for you", "Still to confirm") was
 turned down as saying again what the card's look says.

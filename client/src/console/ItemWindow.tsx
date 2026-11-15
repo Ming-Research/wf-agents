@@ -38,7 +38,7 @@ import {
   useState,
 } from 'react';
 
-import { Button, Confirm, PanelPart, Switch } from '../parts';
+import { Button, Coded, Confirm, PanelPart, Switch } from '../parts';
 import { mocksShown } from '../mock-data';
 import {
   type Act,
@@ -62,7 +62,7 @@ import {
   OWN_PAUSE,
   type Tone as WorkTone,
   WRITE_WORDS,
-  stalledWords,
+  itemsWaited,
   stateOf,
 } from '../works/words';
 import { type ItemStanding, standingOf } from './items';
@@ -115,11 +115,11 @@ const asked = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { ki
   w.kind === 'call' && w.what.kind === 'question';
 
 /// What a question's card says of the engine's wait for its answer, where the engine's list names one: that it holds
-/// the work, and the wait's one sentence of why where that is not what the question asks, which the card shows already.
-function holding(s: Summary, key: string, asks: string): Pick<Choice, 'holds' | 'why'> {
+/// the work, and why a cell other than the one that asked it waits for it, where the engine says one does.
+function holding(s: Summary, key: string): Pick<Choice, 'holds' | 'under'> {
   const wait = waitsOf(s).find((w) => w.key === key);
   if (wait === undefined) return { holds: false };
-  return wait.why.trim() === asks.trim() ? { holds: true } : { holds: true, why: wait.why };
+  return wait.under ? { holds: true, under: wait.under } : { holds: true };
 }
 
 /// The questions a cell asked the owner as a call the work waits at, as choices at the plan's end, each holding the work
@@ -129,7 +129,7 @@ function askedOf(s: Summary): Choice[] {
   if (now.kind !== 'waits') return [];
   return now.on.flatMap((w) =>
     asked(w) && w.who === 'owner'
-      ? [{ ...askedChoice(w.what.question, w.call, now.at), ...holding(s, callKey(w.call), w.what.question) }]
+      ? [{ ...askedChoice(w.what.question, w.call, now.at), ...holding(s, callKey(w.call)) }]
       : [],
   );
 }
@@ -145,7 +145,7 @@ function questionsStanding(questions: Question[] | undefined, s: Summary): Choic
   return (questions ?? []).flatMap((q): Choice[] => {
     if (q.withdrawn !== null || q.ask === null) return [];
     const answered = q.answer !== null;
-    const held = answered ? { holds: false } : holding(s, answerKey(q.name), q.ask);
+    const held = answered ? { holds: false } : holding(s, answerKey(q.name));
     return [
       {
         kind: 'choice',
@@ -639,7 +639,7 @@ function ItemLine({ item, waitsFor, goal, tier }: {
       {goal ? <span className="muted">Goal</span> : null}
       {tier !== null ? <span className="muted">Tier {tier}</span> : null}
       <span className="muted">Added {ago(item.added)} ago</span>
-      {waitsFor.length > 0 && <span className="muted">Waits for {waitsFor.join(', ')} to merge</span>}
+      {waitsFor.length > 0 && <span className="muted">{itemsWaited(waitsFor)}</span>}
     </Line>
   );
 }
@@ -745,7 +745,7 @@ function StopCards({ work, act, actEngine }: {
     );
   };
   const now = work.now;
-  const halted = now.kind === 'fault' ? now.words : now.kind === 'stalled' ? stalledWords(now) : null;
+  const halted = now.kind === 'fault' ? now.words : now.kind === 'stalled' ? now.why : null;
   const waits = waitsOf(work).filter((w) => !drawnInBody(w));
   if (waits.length === 0 && halted === null) return null;
   return (
@@ -761,14 +761,17 @@ function StopCards({ work, act, actEngine }: {
   );
 }
 
-/// A stop of a work, the one look of every stop: on the red tint, framed in red; its reason, its names and values in
-/// the monospace, then what stands under it and the buttons that end it, inside the card.
+/// A stop of a work, the one look of every stop: on the red tint, framed in red; its reason as the engine gives it, its
+/// marked names and values in the monospace and the rest plain text, then what stands under it and the buttons that
+/// end it, inside the card.
 function StopCard({ wait, why, children }: { wait?: string; why: string; children?: ReactNode }) {
   return (
     <div className="cw-part">
       <div className="cw-choice cw-choice-holds" data-wait={wait}>
         <div className="cw-choice-q">
-          <Markdown text={why} />
+          <p>
+            <Coded text={why} />
+          </p>
         </div>
         {children}
       </div>
@@ -957,8 +960,8 @@ function Options({ options, chosen, recommended = null, pick, code = false }: {
 /// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are
 /// about it, which brings the first into view. A question with no options is answered in words, in a box in their
 /// place. A question the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in
-/// red, the look of every stop, and under what it asks the engine's one sentence of why where that is not what it asks,
-/// as for a question the merge waits for.
+/// red, the look of every stop, and under what it asks, where a cell other than the one that asked it waits for it,
+/// the engine's sentence of why, as for a question the merge waits for.
 function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   p: Choice;
   pick?: (option: number) => void;
@@ -975,7 +978,7 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
       <div className="cw-choice-q">
         <Markdown text={p.question} />
       </div>
-      {p.holds === true && p.why !== undefined && <p className="cw-choice-stops">{p.why}</p>}
+      {p.holds === true && p.under !== undefined && <p className="cw-choice-stops">{p.under}</p>}
       {p.options.length === 0 && p.asks !== undefined ? (
         <textarea
           rows={3}
@@ -1037,7 +1040,9 @@ function RulingBox({ ruling, act }: { ruling: Ruling; act: (what: Act) => Promis
       <div className="cw-part">
         <div className="cw-choice cw-choice-holds" data-wait={ruling.key}>
           <div className="cw-choice-q">
-            <Markdown text={ruling.why} />
+            <p>
+              <Coded text={ruling.why} />
+            </p>
             {ruling.text.trim() !== '' && <Markdown text={ruling.text} />}
           </div>
           {options.length > 0 && (

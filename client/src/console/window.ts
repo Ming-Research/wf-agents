@@ -31,9 +31,9 @@ export type Part =
       changed?: boolean;
       asks?: { cell: string; call: number } | { cell: string; question: string; version: number };
       holds?: boolean;
-      /// The engine's one sentence of why it holds the work, where that is not what it asks: as of a question the
-      /// merge waits for.
-      why?: string;
+      /// Why a cell other than the one that asked it waits for it, in the engine's sentence, said under what it asks:
+      /// as of a question the merge waits for (`Wait.under`).
+      under?: string;
       /// What the owner wrote as the answer to a question with no options, which is answered in words.
       answer?: string;
     };

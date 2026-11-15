@@ -20,7 +20,7 @@ use decide::{
     BlockId, CallId, CellId, Condition, Decision, End, Holder, Maker, Pauser, Records, Seq, TestKind, Waited, Who,
 };
 use flow::Kind;
-use flow::agents::{OwnerWords, fill};
+use flow::agents::{OwnerWords, fill, sentence};
 use work::{Ask, Call};
 
 use crate::Kept;
@@ -44,6 +44,10 @@ pub struct Waiting {
     pub why: String,
     /// What the owner does that ends it.
     pub ends: Ends,
+    /// For a question a cell's precondition waits for, which the work went on past at the cell that asked it, why the
+    /// work waits for it there, in a sentence (`owner.answer`); none for anything else. Said on the question's card
+    /// alone, under what it asks.
+    pub under: Option<String>,
 }
 
 /// What the owner does that ends a wait on them.
@@ -104,7 +108,7 @@ pub fn waits(
         && ended.is_none_or(|at| at.is_some_and(|at| pause.at > at))
     {
         let why = match &pause.why {
-            Some(why) => fill(&words.paused, &[("why", why.as_str())]),
+            Some(why) => fill(&words.paused, &[("why", &sentence(why))]),
             None => words.no_reason.clone(),
         };
         push(&mut waits, PAUSE.to_string(), why, Ends::Resume);
@@ -138,7 +142,7 @@ pub fn waits(
         push(
             &mut waits,
             AGENTS.to_string(),
-            fill(&words.agents, &[("why", why)]),
+            fill(&words.agents, &[("why", &sentence(why))]),
             what,
         );
     }
@@ -207,10 +211,10 @@ fn at_cell(
                 } else if outsiders.by_owner {
                     // What its source writes changes as the owner answers the work's questions: each that stands
                     // without the owner's answer to its latest version, which the cell waits for.
-                    let why = fill(&words.answer, &[("cell", cell)]);
+                    let under = fill(&words.answer, &[("cell", cell)]);
                     for (name, standing) in questions::questions(records) {
                         if standing.unanswered() {
-                            question(name, &standing, why.clone(), waits);
+                            question(kept, name, &standing, Some(under.clone()), waits);
                         }
                     }
                 }
@@ -228,31 +232,40 @@ fn at_cell(
         }
         Waited::Answer { question: name } => {
             if let Some(standing) = questions::questions(records).get(name.as_str()) {
-                let why = match kept.work.question(standing.latest) {
-                    Some(work::Question::Asked { ask, .. }) => ask.clone(),
-                    _ => name.to_string(),
-                };
-                question(name, standing, why, waits);
+                question(kept, name, standing, None, waits);
             }
         }
         Waited::Precondition { .. } | Waited::Slot | Waited::Outside { .. } => {}
     }
 }
 
-/// The wait for the owner's answer to the latest version of a question of the work, said by `why`.
-fn question(name: &str, standing: &Standing<'_>, why: String, waits: &mut Vec<Waiting>) {
+/// The wait for the owner's answer to the latest version of a question of the work, said by what it asks, with why a
+/// cell other than the one that asked it waits for it, `under`, where one does.
+fn question(kept: &Kept<'_>, name: &str, standing: &Standing<'_>, under: Option<String>, waits: &mut Vec<Waiting>) {
+    let why = match kept.work.question(standing.latest) {
+        Some(work::Question::Asked { ask, .. }) => ask.clone(),
+        _ => name.to_string(),
+    };
     let ends = Ends::Answer {
         question: name.to_string(),
         version: standing.latest.at,
     };
-    push(waits, format!("answer-{name}"), why, ends);
+    let key = format!("answer-{name}");
+    if !waits.iter().any(|w| w.key == key) {
+        waits.push(Waiting { key, why, ends, under });
+    }
 }
 
 /// Adds the wait, where none of its key is there already: a question the work waits for both at its cell and at the
 /// merge is one.
 fn push(waits: &mut Vec<Waiting>, key: String, why: String, ends: Ends) {
     if !waits.iter().any(|w| w.key == key) {
-        waits.push(Waiting { key, why, ends });
+        waits.push(Waiting {
+            key,
+            why,
+            ends,
+            under: None,
+        });
     }
 }
 
@@ -523,6 +536,7 @@ mod tests {
                 key: "answer-way".to_string(),
                 why: "Which way for way?".to_string(),
                 ends,
+                under: None,
             }]
         );
     }
@@ -545,7 +559,9 @@ mod tests {
         );
         let waits = of(&work, &decision);
         assert_eq!(keys(&waits), ["answer-a", "answer-b"]);
-        assert_eq!(waits[1].why, "The merge waits for this answer.");
+        // Each is said by what it asks; why the merge waits for it is apart, for its card alone.
+        assert_eq!(waits[1].why, "Which way for b?");
+        assert_eq!(waits[1].under.as_deref(), Some("The merge waits for this answer."));
     }
 
     #[test]
@@ -566,8 +582,9 @@ mod tests {
             of(&work, &decision),
             [Waiting {
                 key: "write-verdict".to_string(),
-                why: "`merge` requires `verdict = yes`, which `verdict` keeps from holding.".to_string(),
+                why: "`verdict = yes` does not hold, as `verdict` says, and the cell requires it.".to_string(),
                 ends,
+                under: None,
             }]
         );
         // One only cells can make hold is not the owner's.
@@ -604,6 +621,7 @@ mod tests {
                 key: "call-7".to_string(),
                 why: "Question 7?".to_string(),
                 ends,
+                under: None,
             }]
         );
     }

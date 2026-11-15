@@ -80,6 +80,35 @@ pub const WAITS_FILE: &str = "waits.toml";
 pub struct Waits {
     pub paused: PausedWords,
     pub owner: OwnerWords,
+    pub stalled: StalledWords,
+}
+
+/// Why a stalled work rests, made of these in one sentence: what it waits for and which cells could make it hold, then
+/// why each of them does not run.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StalledWords {
+    /// The cell it stands at waits for `{keys}`, which `{writers}` can make hold.
+    pub waits: String,
+    /// It stands at its last cell, `{at}`, which nothing new runs, and `{writers}` can write what runs it.
+    pub last: String,
+    /// The cells that write what it waits for, `{cells}`.
+    pub only: String,
+    /// No cell writes what it waits for.
+    pub none: String,
+    /// `{cell}` does not run, as `{why}` says.
+    pub unrun: String,
+    /// It is skipped, its `when` keys `{keys}` not holding.
+    pub skipped: String,
+    /// Nothing new runs it.
+    pub nothing_new: String,
+    /// The cell the work waits at, `{at}`, holds it.
+    pub held: String,
+    /// A key or a cell, `{name}`.
+    pub name: String,
+    pub and: String,
+    pub or: String,
+    pub then: String,
 }
 
 /// Why the engine paused a work, each with `{why}`, what carried the round out, or the act that lets go of what the
@@ -218,9 +247,12 @@ pub struct ScopeWords {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GuardWords {
+    /// That it stopped the round, a sentence before what it measured.
+    pub stopped: String,
+    /// That it stopped the run's round again, in the new session its line was given, in place of `stopped`.
+    pub again: String,
     pub growth: String,
     pub jump: String,
-    pub again: String,
     pub from: String,
     pub scope: ScopeWords,
     pub tool: String,
@@ -1208,6 +1240,16 @@ pub fn pieces(text: &str) -> Vec<Piece<'_>> {
         pieces.push(Piece::Text(&text[from..]));
     }
     pieces
+}
+
+/// A text as a sentence: as it is where it ends as a sentence does, in English or in Chinese, else with a full stop; so
+/// that reasons said one after another each read as one.
+pub fn sentence(text: &str) -> String {
+    let text = text.trim_end();
+    match text.is_empty() || text.ends_with(['.', '?', '!', '。', '？', '！']) {
+        true => text.to_string(),
+        false => format!("{text}."),
+    }
 }
 
 /// A text with each place these give filled by its value; a place they do not give stays as it is written. What fills

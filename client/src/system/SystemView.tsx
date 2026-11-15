@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { PanelPart, Switch } from '../parts';
+import { Coded, PanelPart, Switch } from '../parts';
 import { hashOf, type Period } from '../route';
 import type { Copies, Engine, Item, Items, Spent } from '../works-api';
 import { copiesTone, copiesWords } from '../works/Copies';
@@ -179,7 +179,9 @@ function NowPart({ items, engine, copies, copiesFailed }: {
         <dt title="Rounds of agents under way, of how many may be at once: agents.slots">Slots</dt>
         <dd>{engine === null ? 'not given' : `${engine.taken} taken of ${engine.slots}`}</dd>
         <dt>The wait every work shares</dt>
-        <dd className={items.outage ? 'failed' : undefined}>{items.outage ? outageWords(items.outage) : 'none'}</dd>
+        <dd className={items.outage ? 'failed' : undefined}>
+          {items.outage ? <Coded text={outageWords(items.outage)} /> : 'none'}
+        </dd>
         <dt>Copies of the database</dt>
         <dd>
           {copies === null ? (

@@ -190,6 +190,18 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         ("owner.held", &waits.owner.held),
         ("owner.agents", &waits.owner.agents),
         ("owner.mend", &waits.owner.mend),
+        ("stalled.waits", &waits.stalled.waits),
+        ("stalled.last", &waits.stalled.last),
+        ("stalled.only", &waits.stalled.only),
+        ("stalled.none", &waits.stalled.none),
+        ("stalled.unrun", &waits.stalled.unrun),
+        ("stalled.skipped", &waits.stalled.skipped),
+        ("stalled.nothing_new", &waits.stalled.nothing_new),
+        ("stalled.held", &waits.stalled.held),
+        ("stalled.name", &waits.stalled.name),
+        ("stalled.and", &waits.stalled.and),
+        ("stalled.or", &waits.stalled.or),
+        ("stalled.then", &waits.stalled.then),
     ];
     let empty: Vec<&str> = (words.iter())
         .filter(|(_, text)| text.trim().is_empty())
@@ -1502,18 +1514,27 @@ impl Driver {
         &self.spans
     }
 
-    /// The items the work's item depends on whose works have not merged, in the order the item names them; none where
-    /// there is no such work.
+    /// The items the work's item depends on whose works have not merged, in the order the item names them, as the
+    /// block of [`DEPENDENCIES`] says they are waited for; none where there is no such work.
     pub fn unmerged(&self, number: WorkNumber) -> Vec<ItemNumber> {
         let Some(held) = self.works.get(&number) else {
             return Vec::new();
         };
-        (held.item.depends_on.iter())
-            .filter(|on| {
+        (self.waited_for(&held.item.depends_on).into_iter())
+            .map(|(on, _)| on)
+            .collect()
+    }
+
+    /// Of these items, each whose work has not merged, with how it stands: the one reading of what a block of
+    /// [`DEPENDENCIES`] waits for, which writes the block and says which items a work waits for. An item with no work
+    /// yet goes on.
+    fn waited_for(&self, depends_on: &[ItemNumber]) -> Vec<(ItemNumber, Standing)> {
+        (depends_on.iter())
+            .map(|on| {
                 let work = self.of_item.get(on).and_then(|work| self.works.get(work));
-                !work.is_some_and(|held| held.standing == Standing::Ended(End::Merged))
+                (*on, work.map_or(Standing::Going, |held| held.standing))
             })
-            .copied()
+            .filter(|(_, standing)| *standing != Standing::Ended(End::Merged))
             .collect()
     }
 
@@ -1638,15 +1659,10 @@ impl Driver {
         let (block, declared) =
             (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
         let says = |name: &str| declared.writes.get(name).unwrap_or_default();
-        let standing = |on: &ItemNumber| {
-            let work = self.of_item.get(on).and_then(|work| self.works.get(work));
-            work.map_or(Standing::Going, |held| held.standing)
-        };
-        let waited: Vec<String> = (depends_on.iter())
-            .filter_map(|on| match standing(on) {
-                Standing::Ended(End::Merged) => None,
-                Standing::Ended(End::Cancelled) => Some(fill(says("cancelled"), &[("item", &on.0.to_string())])),
-                Standing::Going | Standing::AtFault => Some(on.0.to_string()),
+        let waited: Vec<String> = (self.waited_for(depends_on).into_iter())
+            .map(|(on, standing)| match standing {
+                Standing::Ended(End::Cancelled) => fill(says("cancelled"), &[("item", &on.0.to_string())]),
+                Standing::Ended(End::Merged) | Standing::Going | Standing::AtFault => on.0.to_string(),
             })
             .collect();
         let (value, content) = if waited.is_empty() {

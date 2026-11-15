@@ -24,5 +24,6 @@ place (Article 8).
 ### decision a-works-age-is-red-past-an-hour
 A card gives its work's age in three colours and no more: grey under half an hour, amber from half an hour to an hour,
 and red past an hour, however long.
-Why: The owner ruled that red says a problem, and a work not done within an hour is one, so its standing out is right;
-a violet past a day was dropped, and a line from the work's own history was put to the owner and not chosen.
+Why: Red says a problem, and a work not done within an hour is one, so it stands out as one; a fourth colour past a day
+would be one more meaning to learn. A line from the work's own history loses: it says nothing until the history holds
+enough works, and among works that all run long, a long one does not stand out.

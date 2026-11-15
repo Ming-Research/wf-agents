@@ -558,7 +558,10 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 paused: true,
                 at,
                 by: Pauser::Engine,
-                why: Some(flow::agents::fill(&flow.waits.paused.let_go, &[("why", why.as_str())])),
+                why: Some(flow::agents::fill(
+                    &flow.waits.paused.let_go,
+                    &[("why", &flow::agents::sentence(&why))],
+                )),
             });
         }
         Event::Released => {
@@ -1103,7 +1106,7 @@ fn open_calls(work: &Work, run: RunId) -> Vec<CallId> {
 fn pausing_words(words: &flow::agents::PausedWords, pausing: &Pausing, why: &str) -> String {
     let fill = |text: &str, failed: Option<u32>| {
         let failed = failed.map(|n| n.to_string()).unwrap_or_default();
-        flow::agents::fill(text, &[("why", why), ("failed", &failed)])
+        flow::agents::fill(text, &[("why", &flow::agents::sentence(why)), ("failed", &failed)])
     };
     match pausing {
         Pausing::Failed(Failure::PromptTooLong) => fill(&words.too_long, None),

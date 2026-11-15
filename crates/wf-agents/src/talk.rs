@@ -7,6 +7,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::process::ExitCode;
 
 use driver::attention::Mark;
+use flow::agents::sentence;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::{Method, Request, StatusCode, header};
@@ -17,10 +18,9 @@ use web::attention::{Attention, Line, Stuck};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::system::{Past, System, UnderWay};
 use web::works::{
-    Act, Added, Against, Back, Call, CellKey, CellState, ChangeAsked, Checked, Ends, Engine, EngineAct, Failure, Found,
-    ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser,
-    Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Stalling, Step, Unrun, Until, VersionPage,
-    Waited, WorkPage, Writer,
+    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, Found, ItemChanged,
+    ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person,
+    QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Step, Until, VersionPage, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -221,7 +221,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 match after.summary.now {
                     Now::Cancelled => Ok(format!("Work {work} is cancelled.")),
                     Now::Merged => Err(format!("Work {work} is not cancelled: it has merged.")),
-                    now => Err(format!("Work {work} is not cancelled: it {}.", self::now(&now))),
+                    now => Err(format!("Work {work} is not cancelled: it {}", sentence(&self::now(&now)))),
                 }
             }
             Asked::Wait { since, longest } => {
@@ -559,7 +559,7 @@ fn list(items: &Items, listing: &Listing) -> String {
         .collect();
     let mut lines: Vec<String> = (items.outage.iter())
         .filter(|o| o.holds)
-        .map(|o| format!("No agent's round of any work begins: {}.", outage(o)))
+        .map(|o| format!("No agent's round of any work begins. {}", outage(o)))
         .collect();
     let ended = |item: &&web::works::Item| matches!(item.work.now, Now::Merged | Now::Cancelled);
     let asked: Vec<_> = (items.items.iter())
@@ -689,7 +689,7 @@ fn show(page: &WorkPage) -> String {
             project(page.project.as_deref()),
             summary.flow
         ),
-        format!("Now: {}.", now(&summary.now)),
+        format!("Now: {}", sentence(&now(&summary.now))),
         format!(
             "Paused: {}.",
             match summary.paused {
@@ -1396,11 +1396,15 @@ fn heed(line: &Line, now: u64) -> String {
         } => {
             return format!("{STARTED_HELD}, for {}.", duration(now.saturating_sub(*since)));
         }
-        Line::Agents { since, outage: o } => {
+        // The shared wait, and where the agents' command line cannot run, what the owner does, said here alone.
+        Line::Agents { since, outage: o, mend } => {
+            let mend = mend
+                .as_deref()
+                .map_or_else(String::new, |mend| format!(" {}", sentence(mend)));
             return format!(
-                "No agent's round of any work begins: {}, for {}.",
+                "No agent's round of any work begins, for {}. {}{mend}",
+                duration(now.saturating_sub(*since)),
                 outage(o),
-                duration(now.saturating_sub(*since))
             );
         }
         Line::Fault { of, since, now: is } | Line::Stalled { of, since, now: is } => (
@@ -1408,7 +1412,8 @@ fn heed(line: &Line, now: u64) -> String {
             format!("{}, for {}", self::now(is), duration(now.saturating_sub(*since))),
         ),
         // What it waits on the owner for, at the cell it stands at, each by why, a question by the first line of what
-        // it asks, each a sentence, then what the owner does where no act of the engine does it, in the engine's words.
+        // it asks, each a sentence. What the owner does about the agents' command line is said on the line of the wait
+        // every work shares.
         Line::ForAPerson {
             of,
             since,
@@ -1420,15 +1425,7 @@ fn heed(line: &Line, now: u64) -> String {
                 Now::Round { cell, .. } | Now::Next { cell } => format!(" at {cell}"),
                 _ => String::new(),
             };
-            let why: Vec<String> = (waits.iter())
-                .flat_map(|wait| {
-                    let does = match &wait.ends {
-                        Ends::Outside { what } => Some(sentence(what)),
-                        _ => None,
-                    };
-                    std::iter::once(sentence(&first_line(&wait.why))).chain(does)
-                })
-                .collect();
+            let why: Vec<String> = waits.iter().map(|wait| sentence(&first_line(&wait.why))).collect();
             let waited = duration(now.saturating_sub(*since));
             (of, format!("waits for the owner{at} for {waited}: {}", why.join(" ")))
         }
@@ -1442,18 +1439,14 @@ fn heed(line: &Line, now: u64) -> String {
                 Now::Waits { at, .. } => format!(" at {at}"),
                 _ => String::new(),
             };
-            let numbers: Vec<String> = items.iter().map(|idle| idle.item.to_string()).collect();
             let why: Vec<String> = (items.iter())
-                .map(|idle| format!("{} {}", idle.item, stuck(idle.why)))
+                .map(|idle| format!("#{} {}", idle.item, stuck(idle.why)))
                 .collect();
-            let (items, none) = match numbers.as_slice() {
-                [one] => (format!("item {one}"), "which is not going on"),
-                [rest @ .., last] => (
-                    format!("items {} and {last}", rest.join(", ")),
-                    "none of which is going on",
-                ),
-                [] => (String::new(), ""),
+            let none = match items.len() {
+                1 => "which is not going on",
+                _ => "none of which is going on",
             };
+            let items = numbers(&items.iter().map(|idle| idle.item).collect::<Vec<_>>());
             let waited = duration(now.saturating_sub(*since));
             (
                 of,
@@ -1471,15 +1464,6 @@ fn heed(line: &Line, now: u64) -> String {
         of.title.clone()
     };
     format!("Item {} \"{title}\", work {}: {}", of.item, of.work, sentence(&said))
-}
-
-/// A text as a sentence: as it is where it ends as one does, else with a full stop.
-fn sentence(text: &str) -> String {
-    let text = text.trim_end();
-    match text.ends_with(['.', '?', '!']) {
-        true => text.to_string(),
-        false => format!("{text}."),
-    }
 }
 
 /// The first line of a text, cut to a paragraph's length.
@@ -1560,34 +1544,8 @@ fn now(now: &Now) -> String {
             format!("waits at {at} for {}", on.join("; and for "))
         }
         Now::Next { cell } => format!("about to go on at {cell}"),
-        Now::Stalled { at, on, by } => stalled(at, on, by),
+        Now::Stalled { at, why, .. } => format!("stalled at {at}. {why}"),
     }
-}
-
-/// What a stalled work waits for and why no cell that writes it runs, as a clause.
-fn stalled(at: &str, on: &[CellKey], by: &[Stalling]) -> String {
-    let keys = |keys: &[CellKey]| keys.iter().map(|k| k.words.as_str()).collect::<Vec<_>>().join(" and ");
-    let cells: Vec<String> = by.iter().map(|s| format!("cell {}", s.cell)).collect();
-    let writers = match cells.is_empty() {
-        true => "no cell".to_string(),
-        false => format!("only {}", cells.join(" or ")),
-    };
-    let mut said = match on.is_empty() {
-        false => format!(
-            "stalled at {at}, waiting for {}, which {writers} can make hold",
-            keys(on)
-        ),
-        true => format!("stalled at {at}, its last cell, which nothing new runs; what runs it {writers} can write"),
-    };
-    for s in by {
-        let why = match &s.why {
-            Unrun::Skipped { on } => format!("it is skipped, {} not holding", keys(on)),
-            Unrun::NothingNew {} => "nothing new runs it".to_string(),
-            Unrun::Held {} => format!("{at} holds it"),
-        };
-        said.push_str(&format!("; cell {} does not run: {why}", s.cell));
-    }
-    said
 }
 
 /// What a work waits for, as a clause.
@@ -1622,74 +1580,91 @@ fn waited(waited: &Waited) -> String {
         Waited::Slot {} => "a free slot".to_string(),
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
         Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
-        Waited::Agents { outage: o } => format!("the agents' rounds to begin again: {}", outage(o)),
+        Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),
         Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
         Waited::Items { items } => format!("the items it depends on to merge: {}", numbers(items)),
     }
 }
 
-/// Items by their numbers: item 5, items 5 and 7, items 5, 6 and 7.
+/// Items by their numbers, each as an item's number is written: #5, #5 and #7, #5, #6 and #7.
 fn numbers(items: &[u64]) -> String {
-    let items: Vec<String> = items.iter().map(u64::to_string).collect();
+    let items: Vec<String> = items.iter().map(|item| format!("#{item}")).collect();
     match items.as_slice() {
         [] => "none".to_string(),
-        [one] => format!("item {one}"),
-        [rest @ .., last] => format!("items {} and {last}", rest.join(", ")),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
 }
 
-/// A wait every work shares, as a clause: what is down and since when, as the latest check of the outside found it or
-/// else as the round that met it did; what the engine does next; and the round that met it.
-fn outage(outage: &Outage) -> String {
-    let down = match &outage.checked {
+/// What a wait every work shares has as its cause, as the latest check of the outside found it or else as the round
+/// that met it did, as a clause.
+fn cause(outage: &Outage) -> &'static str {
+    let failure = match &outage.checked {
         Some(Checked {
-            found: Found::Down { failure, why },
+            found: Found::Down { failure, .. },
             ..
-        }) if outage.holds => Some((*failure, why.as_str())),
+        }) if outage.holds => Some(*failure),
         _ => None,
     };
-    let cause = |failure: Failure| match failure {
+    match failure.unwrap_or(outage.failure) {
         Failure::UsageLimit => "the account's usage limit was reached",
         Failure::CannotRun => "the agents' command line cannot run",
         Failure::Offline => "the network cannot be reached",
         Failure::Unavailable => "the agents' service is down, overloaded or not answering",
-        _ if down.is_some() => "the engine's check of the outside failed",
+        _ if failure.is_some() => "the engine's check of the outside failed",
         _ => "a round failed for a cause every work shares",
-    };
-    let what = cause(down.map_or(outage.failure, |(failure, _)| failure));
+    }
+}
+
+/// A wait every work shares, in sentences: what is down and since when; what the engine does next; what the latest
+/// check of the outside found, where it found it down; and the round that met it, with what it said.
+fn outage(outage: &Outage) -> String {
+    let what = capital(cause(outage));
     let until = match outage.until {
         Until::Checked { at } => format!(
-            "the engine checks the outside itself at {}, touching no work's session, and every work goes on once it is \
-             well",
+            "The engine checks the outside itself at {}, touching no work's session, and every work goes on once it is \
+             well.",
             utc(at)
         ),
         Until::Well { at } => format!(
-            "the engine's check at {} found it well, and every work goes on",
+            "The engine's check at {} found it well, and every work goes on.",
             utc(at)
         ),
         Until::Looked { at } => format!(
-            "the host is looked at from {} every half minute, and every act goes on once it is reached",
+            "The host is looked at from {} every half minute, and every act goes on once it is reached.",
             utc(at)
         ),
     };
-    let checked = match (&outage.checked, down) {
-        (Some(checked), Some((_, why))) => {
-            format!(
-                "; the check at {}, the {} in the wait, found: {why}",
-                utc(checked.at),
-                ordinal(checked.taken)
-            )
-        }
+    let checked = match &outage.checked {
+        Some(
+            checked @ Checked {
+                found: Found::Down { why, .. },
+                ..
+            },
+        ) if outage.holds => format!(
+            " The check at {}, the {} in the wait, found it down. {}",
+            utc(checked.at),
+            ordinal(checked.taken),
+            sentence(why)
+        ),
         _ => String::new(),
     };
     format!(
-        "{what}, since {}; {until}{checked} (round {} of run {} of work {}: {})",
+        "{what} since {}. {until}{checked} Round {} of run {} of W{} met it. {}",
         utc(outage.since),
         outage.round,
         outage.run,
         outage.work,
-        outage.why
+        sentence(&outage.why)
     )
+}
+
+/// A text with its first letter a capital, to begin a sentence.
+fn capital(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
 }
 
 /// A count as a place in order: 1st, 2nd, 3rd, 4th, 11th, 21st.
@@ -2020,6 +1995,7 @@ mod tests {
                         at: "merge".to_string(),
                         on: Vec::new(),
                         by: Vec::new(),
+                        why: "Nothing new runs `merge`, its last cell, and no cell can write what runs it.".to_string(),
                     }
                 },
                 cells: Vec::new(),
@@ -2057,7 +2033,7 @@ mod tests {
                 taken: 2,
                 found: Found::Down {
                     failure: Failure::CannotRun,
-                    why: "the agents' command line is not signed in".to_string(),
+                    why: "It is not signed in, as `claude auth status` says.".to_string(),
                 },
             }),
             until: Until::Checked { at: 3 * hour },
@@ -2067,15 +2043,52 @@ mod tests {
         let first = said.lines().next().unwrap_or_default();
         assert_eq!(
             first,
-            "No agent's round of any work begins: the agents' command line cannot run, since 1970-01-01 01:00 UTC; the \
+            "No agent's round of any work begins. The agents' command line cannot run since 1970-01-01 01:00 UTC. The \
              engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and every work goes \
-             on once it is well; the check at 1970-01-01 02:00 UTC, the 2nd in the wait, found: the agents' command \
-             line is not signed in (round 1 of run 2 of work 1: API Error: 529 Overloaded)."
+             on once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. It is not \
+             signed in, as `claude auth status` says. Round 1 of run 2 of W1 met it. API Error: 529 Overloaded."
         );
         let outage = waiting.outage.as_mut().unwrap();
         outage.until = Until::Well { at: 2 * hour };
         outage.holds = false;
         assert!(list(&waiting, &Listing::default()).starts_with("#1 "));
+    }
+
+    // `wait` says what the owner does about the agents' command line once, on the line of the wait every work shares,
+    // in the words beside the flows; a work's own line says its reasons alone.
+    #[test]
+    fn wait_says_how_to_mend_the_command_line_once_on_the_line_of_the_wait_every_work_shares() {
+        let hour = 3_600_000;
+        let mend = "Sign it in again or install it; the engine lets the work go on once its check finds it runs.";
+        let outage = Outage {
+            service: web::works::Service::Agents,
+            failure: Failure::CannotRun,
+            why: "Not logged in".to_string(),
+            work: 1,
+            run: 2,
+            round: 1,
+            since: hour,
+            checked: None,
+            until: Until::Checked { at: 3 * hour },
+            holds: true,
+        };
+        let line = Line::Agents {
+            since: hour,
+            outage,
+            mend: Some(mend.to_string()),
+        };
+        let said = heed(&line, 2 * hour);
+        assert!(
+            said.starts_with(
+                "No agent's round of any work begins, for 1h 00m. The agents' command line cannot run since "
+            ),
+            "{said}"
+        );
+        assert!(
+            said.ends_with(&format!("Round 1 of run 2 of W1 met it. Not logged in. {mend}")),
+            "{said}"
+        );
+        assert_eq!(said.matches("Sign it in again").count(), 1, "{said}");
     }
 
     #[test]
@@ -2111,15 +2124,15 @@ mod tests {
         // What ended is left out, and counted, unless all are asked for.
         assert_eq!(
             list(&some, &page(false)),
-            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge, its last \
-             cell, which nothing new runs; what runs it no cell can write It waits for good on #1, cancelled.\nAnd 1 \
-             item that ended, merged or cancelled: wf-agents list --tag page --all"
+            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge. Nothing \
+             new runs `merge`, its last cell, and no cell can write what runs it. It waits for good on #1, \
+             cancelled.\nAnd 1 item that ended, merged or cancelled: wf-agents list --tag page --all"
         );
         assert_eq!(
             list(&some, &page(true)),
-            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge, its last \
-             cell, which nothing new runs; what runs it no cell can write It waits for good on #1, cancelled.\n#3 \"item \
-             3\" at level 1, project script, W3 on trial, tagged page: merged"
+            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge. Nothing \
+             new runs `merge`, its last cell, and no cell can write what runs it. It waits for good on #1, \
+             cancelled.\n#3 \"item 3\" at level 1, project script, W3 on trial, tagged page: merged"
         );
         let none = Listing {
             tag: Some("none".to_string()),

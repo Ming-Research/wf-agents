@@ -7,20 +7,17 @@ import type {
   Call,
   CallRow,
   Cause,
-  CellKey,
   CellState,
   Failure,
   Given,
   Limit,
   Maker,
-  Now,
   Outage,
   Pauser,
   Person,
   Run,
   SessionWhy,
   Spent,
-  Stalling,
   Summary,
   Unmet,
   Waited,
@@ -230,8 +227,12 @@ export function outageDown(outage: Outage): { failure: Failure; why: string } {
   return outage.holds && found?.kind === 'down' ? found : { failure: outage.failure, why: outage.why };
 }
 
-/// A wait every work shares, in a line: what is down and since when, what the engine does next, and the round that
-/// met it.
+/// A text with its first letter a capital, to begin a sentence.
+const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+/// A wait every work shares, in sentences: what is down and since when, what it holds and what the engine does next,
+/// what the latest check of the outside found where it found it down, and the round that met it, with what it said.
+/// A name or a value in backticks in what was found or said is marked so (`Coded` draws it).
 export function outageWords(outage: Outage): string {
   const until = outage.until;
   const when =
@@ -242,12 +243,12 @@ export function outageWords(outage: Outage): string {
         : `once the host is reached, looked at from ${clock(until.at)}`;
   const down = outageDown(outage);
   const held =
-    outage.service === 'host' ? "no act of the engine's of any work begins" : "no agent's round of any work begins";
+    outage.service === 'host' ? "No act of the engine's of any work begins" : "No agent's round of any work begins";
   const checked =
     outage.checked && outage.holds && outage.checked.found.kind === 'down'
-      ? `; the check at ${clock(outage.checked.at)} found: ${outage.checked.found.why}`
+      ? ` The check at ${clock(outage.checked.at)} found it down. ${sentence(outage.checked.found.why)}`
       : '';
-  return `${failureWords(down.failure)}, since ${clock(outage.since)}; ${held}, ${when}${checked} (W${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
+  return `${capital(failureWords(down.failure))} since ${clock(outage.since)}. ${held}, ${when}.${checked} Round ${outage.round} of run ${outage.run} of W${outage.work} met it. ${sentence(outage.why)}`;
 }
 
 /// What a round asked for.
@@ -280,7 +281,7 @@ export function waitedWords(waited: Waited): string {
     case 'slot':
       return 'a free slot, which the engine gives in its order';
     case 'agents':
-      return `the agents' rounds to begin again: ${outageWords(waited.outage)}`;
+      return `the agents' rounds to begin again, as ${failureWords(outageDown(waited.outage).failure)}`;
     case 'answer':
       return `the owner's answer to the question ${waited.question}`;
     case 'outside':
@@ -427,20 +428,20 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
 /// The first line of a text, for a line of a list or a notification.
 export const firstLine = (text: string): string => text.trim().split('\n')[0] ?? '';
 
-/// A text as a sentence: as it is where it ends as one does, else with a full stop; so that reasons said one after
-/// another each read as one.
+/// A text as a sentence: as it is where it ends as a sentence does, in English or in Chinese, else with a full stop; so
+/// that reasons said one after another each read as one. The engine's own rule (`flow::agents::sentence`).
 export function sentence(text: string): string {
   const t = text.trim();
-  return t === '' || /[.?!]$/.test(t) ? t : `${t}.`;
+  return t === '' || /[.?!。？！]$/.test(t) ? t : `${t}.`;
 }
 
 /// A reason as a line of words says it, where no name can be set in the monospace: its names and values without the
-/// backticks that mark them (the cards draw them in the monospace, `Coded`).
-export const plain = (text: string): string => text.replace(/`/g, '');
+/// backticks that mark them (a card draws them in the monospace, by `Coded` in `parts.tsx`).
+export const plain = (text: string): string => text.replace(/`([^`\n]+)`/g, '$1');
 
-/// What a work does now, in a line of the Works list: its state's word, the cell where the state names one, and why:
-/// for what waits on the owner, the engine's reasons, each a sentence, which name a cell where it matters, so that the
-/// line names none of its own; for a fault or a stall, what is wrong; for what waits on another, what it waits for.
+/// What a work does now, in a line of the Works list: its state's word, the cell where the state names one, once, and
+/// why: for what waits on the owner, the engine's reasons, each a sentence; for a fault or a stall, what is wrong, a
+/// stall as the engine says it; for what waits on another, what it waits for.
 export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
   const { word, cell } = stateOf(s);
   const now = s.now;
@@ -451,38 +452,15 @@ export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
       : now.kind === 'fault'
         ? now.words
         : now.kind === 'stalled'
-          ? stalledWords(now)
+          ? now.why
           : now.kind === 'waits' && word !== STATE.running
             ? now.on.map(waitedWords).join('; ')
             : null;
-  return [word, waits.length > 0 ? null : cell, why === null ? null : plain(why)]
-    .filter((x) => x !== null && x !== '')
-    .join(' · ');
+  return [word, cell, why === null ? null : plain(why)].filter((x) => x !== null && x !== '').join(' · ');
 }
 
-/// What a stalled work waits for, which cells write it and why none of them runs, in one sentence, names and values
-/// marked as such: `It waits for `checked = yes`, which only `M1` can make hold, and `M1` does not run, as nothing new
-/// runs it.`
-export function stalledWords(now: Extract<Now, { kind: 'stalled' }>): string {
-  const keys = (keys: CellKey[]) => keys.map((k) => `\`${k.words}\``).join(' and ');
-  const cell = (id: string) => `\`${id}\``;
-  const writers = now.by.length === 0 ? 'no cell' : `only ${now.by.map((s) => cell(s.cell)).join(' or ')}`;
-  const waits =
-    now.on.length > 0
-      ? `It waits for ${keys(now.on)}, which ${writers} can make hold`
-      : `Nothing new runs ${cell(now.at)}, its last cell, and ${writers} can write what runs it`;
-  const why = (s: Stalling) => {
-    switch (s.why.kind) {
-      case 'skipped':
-        return `it is skipped while ${keys(s.why.on)} does not hold`;
-      case 'nothingNew':
-        return 'nothing new runs it';
-      case 'held':
-        return `${cell(now.at)} holds it`;
-    }
-  };
-  return sentence([waits, ...now.by.map((s) => `${cell(s.cell)} does not run, as ${why(s)}`)].join(', and '));
-}
+/// The items an item depends on that have not merged, as its line in the console says them, in the state's own word.
+export const itemsWaited = (items: number[]): string => `${STATE.items}: ${itemsWords(items)}`;
 
 /// The tone of what a work does now, as its state takes it (`stateOf`).
 export const nowTone = (s: Pick<Summary, 'now' | 'cells' | 'waits'>): Tone => stateOf(s).tone;
@@ -622,7 +600,7 @@ export const isOpen = (state: RunState): boolean => state !== 'finished' && stat
 
 /// Who paused a work, and why, in a line.
 export function pauseWords(by: Pauser, why: string | null): string {
-  return by === 'engine' ? `the engine paused the work: ${why ?? 'it gave no reason'}` : 'the owner paused the work';
+  return by === 'engine' ? `the engine paused the work. ${plain(sentence(why ?? 'It gave no reason'))}` : 'the owner paused the work';
 }
 
 /// How long a run took from its start: to its end, or until now while it is open.

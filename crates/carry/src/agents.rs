@@ -242,7 +242,7 @@ impl Rounds for Agents {
                                 let between = (crate::projects::of(&inner.projects, &round.item))
                                     .map(|of| of.beside.cost.work.between.clone())
                                     .unwrap_or_default();
-                                let pause = format!("{why}{between}{over}");
+                                let pause = format!("{}{between}{over}", flow::agents::sentence(&why));
                                 reply.failed_and_paused(failure, resets, why, spent, pause);
                             }
                             None => reply.failed_as(failure, resets, why, spent),
