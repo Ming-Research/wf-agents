@@ -151,7 +151,8 @@ async fn a_round_that_failed_is_given_with_its_cause() {
 
 /// The script's agents, with a policy for the loop as the real carriers give it: a line of history is worked out from
 /// two values at least; and every round's first try says that it runs on [`opus`] and what its calls measured, as a
-/// real carrier's does, which a round of history needs.
+/// real carrier's does, which a round of history needs. The plan's round of the fourth work begins its script ten
+/// seconds late, and so takes far longer than every plan's before it.
 struct Judging(std::sync::Arc<dyn service::Rounds>);
 
 impl service::Rounds for Judging {
@@ -164,6 +165,14 @@ impl service::Rounds for Judging {
             ..work::Measures::default()
         };
         teller.measured(1, measures);
+        if round.work == store::WorkNumber(4) && round.cell.id.as_str() == "plan" {
+            let agents = self.0.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                agents.give(round, reply);
+            });
+            return;
+        }
         self.0.give(round, reply);
     }
 
@@ -183,20 +192,22 @@ impl service::Rounds for Judging {
 
 // Through the loop with the policy its carriers give, as the engine's program runs it, each round is judged against the
 // line of the history that had ended as it began, and the work's page gives it: a round with no line has nothing
-// judged, and one within its line is judged and not past it, which the system's view then lists nowhere. Well under a
-// second alone, the loop on paused time over a store on disk; no other test judges a round through the loop.
+// judged, one within its line is judged and not past it, and one past it is said past and listed by the system's view,
+// alone. Well under a second alone, the loop on paused time over a store on disk; no other test judges a round through
+// the loop.
 #[tokio::test(start_paused = true)]
 async fn the_loop_judges_a_round_by_the_line_of_its_history_and_nothing_where_it_has_none() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut script = trial_script();
-    script.flows.get_mut("trial").unwrap().rounds[0].asks = None;
+    let plan = &mut script.flows.get_mut("trial").unwrap().rounds[0];
+    (plan.hands_in, plan.questions) = (None, None);
     let mut carriers = service::Scripted::new(script).carriers();
     carriers.agents = std::sync::Arc::new(Judging(carriers.agents));
     let running = running_carried(Box::new(store), dir, carriers);
     let router = &running.router;
-    // Three works one after the other, each merged before the next is added.
-    for work in 1..=3 {
+    // Four works one after the other, each merged before the next is added.
+    for work in 1..=4 {
         let item = json!({
             "title": "Greet the user",
             "dependsOn": [],
@@ -238,12 +249,21 @@ async fn the_loop_judges_a_round_by_the_line_of_its_history_and_nothing_where_it
         );
         assert!(judged["value"].as_u64().is_some_and(|v| v > 0), "{of}: {judged}");
     }
+    // The fourth work's plan took far longer: its time is past its line, and its cost, the same as every plan's, is not.
+    let fourth = get_json(router, "/api/v1/works/4").await;
+    let judged = plan(&fourth);
+    let past = |of: &str| judged[of]["past"].clone();
+    assert_eq!((past("time"), past("cost")), (json!(true), json!(false)), "{judged}");
     let system = get_json(router, "/api/v1/system").await;
+    let listed = system["past"].as_array().expect("what went past");
+    assert_eq!(listed.len(), 1, "{system}");
     assert_eq!(
-        (&system["past"], &system["underWay"]),
-        (&json!([]), &json!([])),
+        (&listed[0]["kind"], &listed[0]["work"], &listed[0]["cell"]),
+        (&json!("round"), &json!(4), &json!("plan")),
         "{system}"
     );
+    assert_eq!(listed[0]["judged"], judged, "{system}");
+    assert_eq!(system["underWay"], json!([]), "{system}");
 }
 
 /// What every agent's round runs on, in the history below.

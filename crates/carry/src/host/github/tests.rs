@@ -1028,3 +1028,46 @@ async fn the_check_takes_a_full_run_that_passed_on_its_commit_and_runs_nothing_a
         "the full workflows run on the commit the check judges"
     );
 }
+
+// A full run an entry of the work asked for on the very commit the check judges that did not pass is not taken: the
+// check runs the full workflows itself, and judges what they find. Under a second alone, a bare repository for GitHub;
+// no other test holds the check to a red run of an entry.
+#[tokio::test]
+async fn the_check_takes_no_full_run_of_its_commit_that_did_not_pass() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let jobs = vec![passed("lint"), check("test", Outcome::Failed("failure".into()))];
+    hub.github().fast(&head, jobs, Some(("test-results", fast::junit())));
+    let place = hub.place();
+    let entry = Asking::Entry(decide::Seq(40));
+    let said = (hub
+        .host
+        .run_tests(&branch(&place), &Named::default(), entry, &mut Stop::never())
+        .await)
+        .expect("run");
+    assert!(
+        said.is_some_and(|said| said.contains("1 of the 2 tests passed")),
+        "the entry's run is red"
+    );
+    let full_runs = |hub: &Hub| {
+        (hub.github().asked().iter())
+            .filter(|a| matches!(a, Asked::Dispatch { workflow, .. } if workflow == "ci.yml"))
+            .count()
+    };
+    assert_eq!(full_runs(&hub), 1);
+    let main = hub.main_on_github();
+    let verdict = hub
+        .host
+        .verdict(
+            &branch(&place),
+            &head,
+            &main,
+            (hub.round(), &[entry]),
+            &mut Stop::never(),
+        )
+        .await
+        .expect("judged")
+        .expect("not stopped");
+    assert_eq!(full_runs(&hub), 2, "the check runs the full workflows itself");
+    assert!(verdict.failed.is_some() || verdict.held.is_some(), "{verdict:?}");
+}

@@ -6,6 +6,7 @@
 mod acts;
 mod attention;
 mod calls;
+mod catalogue;
 mod changing;
 mod copies;
 mod definition;

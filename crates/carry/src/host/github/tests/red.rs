@@ -395,7 +395,7 @@ fn b_and_c(b: bool, c: bool) -> Vec<(String, Vec<u8>)> {
 // a verdict to more than one test failed.
 #[tokio::test]
 async fn several_tests_that_fail_again_hold_the_commit_only_where_all_fail_on_mains_head() {
-    for c_on_main in [false, true] {
+    for c_passes_on_main in [false, true] {
         let hub = Hub::new();
         let head = hub.committed().await;
         let jobs = || vec![passed("lint"), check("test", red())];
@@ -409,10 +409,10 @@ async fn several_tests_that_fail_again_hold_the_commit_only_where_all_fail_on_ma
             "fast.yml",
             &main,
             on_main,
-            Some(("test-results", b_and_c(false, c_on_main))),
+            Some(("test-results", b_and_c(false, c_passes_on_main))),
         );
         let verdict = hub.verdict(&head).await.unwrap().expect("judged");
-        if c_on_main {
+        if c_passes_on_main {
             assert_eq!(verdict.held, None, "{verdict:?}");
             let failed = verdict.failed.expect("failed");
             assert!(

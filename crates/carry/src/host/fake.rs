@@ -26,6 +26,8 @@ pub(crate) struct Fake {
     cancelling: Mutex<Option<String>>,
     /// The head main moved to, where a merge is refused for it.
     moved: Mutex<Option<String>>,
+    /// The runs each verdict was given that may stand for its own.
+    rans: Mutex<Vec<Vec<Asking>>>,
 }
 
 /// What the host was asked.
@@ -64,10 +66,17 @@ impl Fake {
             askings: Mutex::new(Vec::new()),
             cancelling: Mutex::new(None),
             moved: Mutex::new(None),
+            rans: Mutex::new(Vec::new()),
         }
     }
 
-    /// Refuses each merge, main having moved to this head since the check passed.
+    /// The runs each verdict was given that may stand for its own, in the order the verdicts were asked for.
+    pub(crate) fn rans(&self) -> Vec<Vec<Asking>> {
+        lock(&self.rans).clone()
+    }
+
+    /// Refuses the next merge of a commit the check passed, main having moved to this head since, which main is then
+    /// at, as the real host's merge finds it.
     pub(crate) fn moved_main(self, to: &str) -> Fake {
         *lock(&self.moved) = Some(to.to_string());
         self
@@ -128,11 +137,12 @@ impl Host for Fake {
         branch: &Branch<'_>,
         commit: &str,
         _: &str,
-        (asking, _): (Asking, &[Asking]),
+        (asking, ran): (Asking, &[Asking]),
         _: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
         self.given(branch);
         lock(&self.askings).push(asking);
+        lock(&self.rans).push(ran.to_vec());
         lock(&self.asked).push(Asked::Verdict(commit.to_string()));
         let next = lock(&self.verdicts).pop_front();
         next.unwrap_or_else(|| Err("the fake host has no verdict to give".into()))
@@ -141,8 +151,11 @@ impl Host for Fake {
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         self.given(branch);
         lock(&self.asked).push(Asked::Merge(checked.map(str::to_string)));
-        if let Some(main) = lock(&self.moved).clone() {
-            let checked = checked.unwrap_or_default().to_string();
+        if let Some(checked) = checked
+            && let Some(main) = lock(&self.moved).take()
+        {
+            *lock(&self.main) = main.clone();
+            let checked = checked.to_string();
             return Err(NotMerged::Moved { main, checked });
         }
         Ok(lock(&self.main).clone())

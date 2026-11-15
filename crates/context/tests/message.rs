@@ -402,6 +402,25 @@ fn a_return_whose_run_changed_a_file_that_is_no_test_on_a_line_of_tests_is_sent_
     assert!(entered.text.contains(said), "{}", entered.text);
 }
 
+// A return that says it dealt with what ran it, committing nothing and asking nothing, is sent back in the words of
+// `unanswered`, the block filled in. Well under a millisecond alone; no other test holds the sentence a round is told.
+#[test]
+fn a_return_that_dealt_with_what_ran_it_and_did_nothing_is_sent_back_in_its_words() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = vec![Unmet::Unanswered { block: "plan".into() }];
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    let entered = sim.enter(&again, false);
+    let said = "## Sent back\n\n- `plan` is not answered: commit, or ask.\n";
+    assert!(entered.text.contains(said), "{}", entered.text);
+}
+
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
     let mut sim = Sim::new();

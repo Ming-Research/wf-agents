@@ -1652,15 +1652,18 @@ mod tests {
     // What the owner says to a round under way is put where the round's hook gives it, in the words of `said`; what the
     // hook gave before a later telling is counted as given, what still waits for the hook as the round ends is taken
     // back and stays new to the cell, only what was given is said to have reached the round, and nothing is put once
-    // the round has ended. Well under a second alone, files in a directory of its own, the hook's move made by hand;
-    // no other test holds the carrier's account of what a round was told.
+    // the round has ended. Told twice with the hook giving nothing between, the one file holds both, the first first,
+    // and a round that ends so is said to have been given nothing. Well under a second alone, files in a directory of
+    // its own, the hook's move made by hand; no other test holds the carrier's account of what a round was told. Not
+    // reached here, nor by the tests of the real carriers, whose flows hold no record of what is said: the carrier's
+    // `give` keeping the round, and its end hearing what the hook gave, which this test does by hand.
     #[tokio::test]
     async fn the_words_told_a_round_reach_it_only_where_its_hook_gave_them_before_it_ended() {
         let dir = tempfile::tempdir().unwrap();
         let settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
         let project = settings.projects["example"].clone();
         let (flow, beside) = engineer();
-        let of = Of::new(&settings, project, beside.clone(), "refs/heads/main".to_string());
+        let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
         let projects = [("example".to_string(), of)].into();
         let agents = Agents::new(settings, dir.path().to_path_buf(), Uuid::nil(), projects);
         let first = store::First {
@@ -1705,14 +1708,15 @@ mod tests {
         let given = waiting["hookSpecificOutput"]["additionalContext"]
             .as_str()
             .expect("what the hook gives");
-        assert_eq!(given, said(&beside, &telling(10, "Keep it to one table.")));
-        assert!(
-            given.starts_with("## `discussion`, version 10, said while this round runs")
-                && given.contains("Keep it to one table.")
-                && given.contains("`on_spoken`")
-                && !given.contains('{'),
-            "{given}"
-        );
+        // In the words of `said` in the message's file, with what the cell does for the trigger as the part of the
+        // triggers says it (`do`).
+        let said_at = |at: u64, words: &str| {
+            format!(
+                "## `discussion`, version {at}, said while this round runs\n\nThe owner:\n\n{words}\n\nIt is new to this \
+                 round as `on_spoken`: Deal with it first.\n\nName `on_spoken` in `dealt_with` once you have dealt with it."
+            )
+        };
+        assert_eq!(given, said_at(10, "Keep it to one table."));
         // The hook gives it, moving it aside as its command does; then the owner says more, which waits.
         let delivered = std::path::PathBuf::from(format!("{}.1.json", files.delivered.display()));
         std::fs::rename(&files.waiting, &delivered).unwrap();
@@ -1742,5 +1746,26 @@ mod tests {
         assert!(!files.waiting.exists(), "nothing waits for a round that ended");
         agents.inner.heard(&round, &teller).await;
         assert!(told.try_recv().is_err(), "nothing more is said");
+        // Another round, told twice with its hook giving nothing between: what waited is taken back into the one file,
+        // before the later words, and the round ends having been given neither.
+        let again = Round {
+            number: 2,
+            ..round.clone()
+        };
+        let key = (again.work, again.run, again.number);
+        (agents.inner.said.lock().unwrap()).insert(key, Arc::default());
+        let files = words(&agents.inner.kept(&again));
+        agents.inner.tell(&again, telling(20, "Keep it short.")).await;
+        agents.inner.tell(&again, telling(22, "Shorter still.")).await;
+        let waiting: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&files.waiting).expect("it waits for the hook")).unwrap();
+        let given = waiting["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .expect("what the hook gives");
+        let both = format!("{}\n\n{}", said_at(20, "Keep it short."), said_at(22, "Shorter still."));
+        assert_eq!(given, both);
+        agents.inner.heard(&again, &teller).await;
+        assert!(!files.waiting.exists(), "what waited is taken back");
+        assert!(told.try_recv().is_err(), "the round was given none of it");
     }
 }
