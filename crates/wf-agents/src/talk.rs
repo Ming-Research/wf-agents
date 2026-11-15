@@ -1559,6 +1559,7 @@ fn waited(waited: &Waited) -> String {
         Waited::Slot {} => "a free slot".to_string(),
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again: {}", outage(o)),
+        Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
     }
 }
 

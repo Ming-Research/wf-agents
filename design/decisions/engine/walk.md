@@ -64,7 +64,8 @@ begun instead, a version told to a run that was then abandoned waited for every 
 
 ### decision a-work-no-cell-can-move-is-stalled
 A work that waits only for what cells write, at a cell whose preconditions only cells make hold or at its last cell
-that nothing new runs, is stalled: the walk says where it stands, what it waits for, and why each cell that writes it
+that nothing new runs, is stalled, unless what those cells wrote waits for the outside (decision
+what-a-run-wrote-may-wait-for-the-outside): the walk says where it stands, what it waits for, and why each cell that writes it
 does not run, skipped, with nothing new, or held behind where the work stands. It is shown as waiting for the owner,
 worked out from the walk each time it is shown, and nothing is recorded for it: whatever then runs a cell moves it on.
 Why: A wait that names only cells that will not run names nobody who can act (principle decide-purely): an
@@ -72,3 +73,14 @@ implementation that handed in nothing for a red check left the work at the merge
 nobody was told. A pause of the engine's was turned down: its reason went stale once the work could move again, it
 held what the owner wrote until they let the work on, and what it guarded against, the check run by main moving on a
 branch no one reviewed, the check's own gate on the review's yes holds (decision the-check-waits-for-the-review).
+
+### decision what-a-run-wrote-may-wait-for-the-outside
+A finished run may say that what it wrote waits for a new version of a block a source outside the work writes and its
+cell runs on (`waits_for`). Where a precondition is kept from holding only by blocks cells write, and the latest run of
+each such cell says so and nothing of that block is new to it, the work waits for that source, with the run and the
+block it wrote, and not for the owner; a new version runs the cell again. Only the engine's check says it, where what
+fails also fails on main.
+Why: Such a work was stalled, and so counted, marked and notified as waiting for the owner, who can do nothing for it
+until main moves. Read by the page from the check's words, the wait would be a guess the engine does not make; taken as
+a wait for the outside wherever the cell that would move the work is run by an outside block, a check that failed and
+was handed nothing to answer it, which does need the owner, would be shown as waiting for main too.

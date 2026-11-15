@@ -155,8 +155,8 @@ fn each_workflow_the_engine_runs_takes_a_commit_and_a_call_and_names_its_run_by_
 }
 
 // What a run uploads for the engine is JUnit, all of it in the one artifact `test-results`: the full workflow's jobs
-// each upload theirs in a file of their own, nextest's of each third of the Rust tests and vitest's of the page, and
-// the job `check` makes them one; the fast workflow uploads its own.
+// each upload theirs in a file named by the job, nextest's of each third of the Rust tests and vitest's of the page,
+// and the job `check` makes them one; the fast workflow uploads its own.
 #[test]
 fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
     let text = workflow("ci.yml");
@@ -166,9 +166,13 @@ fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
     assert!(page.contains("name: junit-page"), "{page}");
     let test = under(&jobs, "test").join("\n");
     assert!(
-        test.contains("rust-$PARTITION.xml") && test.contains("name: junit-${{ matrix.partition }}"),
+        test.contains("name: test ${{ matrix.partition }} of 3")
+            && test.contains("JOB: test ${{ matrix.partition }} of 3")
+            && test.contains("path: target/nextest/ci/test ${{ matrix.partition }} of 3.xml")
+            && test.contains("name: junit-${{ matrix.partition }}"),
         "{test}"
     );
+    assert!(page.contains("JOB: page"), "{page}");
     let check = under(&jobs, "check").join("\n");
     assert!(check.contains("actions/upload-artifact/merge@"), "{check}");
     assert!(
@@ -416,6 +420,95 @@ fn check_reads_the_logs_of_the_other_jobs_with_the_escapes_that_colour_them() {
         .collect();
     assert_eq!(reads.len(), 1, "{reads:?}");
     assert!(reads[0].contains("gh api --allow-escape-sequences "), "{reads:?}");
+}
+
+/// The script of ci.yml that names the results of a job and says a step of it that failed: of the job of a third of
+/// the Rust tests, which moves nextest's results to their name, or of the page's, which vitest writes there.
+fn naming_script(moves: bool) -> String {
+    let found: Vec<String> = (scripts(&workflow("ci.yml")).into_iter())
+        .map(|(_, script)| script)
+        .filter(|script| script.contains("of the job failed") && script.contains(r#"mv "$junit" "$RESULTS""#) == moves)
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "scripts of ci.yml that name a job's results, moving them: {moves}"
+    );
+    found.into_iter().next().expect("one")
+}
+
+// A job of tests writes its results in a file named by it, and says in it a step of its own that failed as a
+// testsuite of the job's name with an error naming the step, as a unit not built is: where its tests failed and wrote
+// their results, nothing is added; where a step before or beside them failed, it is named, whether the tests wrote
+// their results or not; where the tests' own step failed and wrote nothing, it is named. So the check before a merge
+// tells a job red for something else than its tests from one whose tests failed. Run under bash: a few milliseconds.
+#[test]
+fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_failed() {
+    let (test, page) = (naming_script(true), naming_script(false));
+    let junit =
+        r#"<testsuites><testsuite name="carry"><testcase name="t"><failure/></testcase></testsuite></testsuites>"#;
+    let steps = |failed: Option<&str>| {
+        ["Check out the commit", "Check the version of nextest", "Build the page"]
+            .map(|step| format!("{} {step}", if failed == Some(step) { "failure" } else { "success" }))
+            .join("\n")
+    };
+    let job = "test 2 of 3";
+    let results = format!("target/nextest/ci/{job}.xml");
+    for (failed, tested, written, says) in [
+        (None, "failure", true, None),
+        (
+            Some("Check the version of nextest"),
+            "skipped",
+            false,
+            Some("Check the version of nextest"),
+        ),
+        (Some("Build the page"), "skipped", false, Some("Build the page")),
+        (None, "failure", false, Some("Test")),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        if written {
+            std::fs::create_dir_all(dir.path().join("target/nextest/ci")).unwrap();
+            std::fs::write(dir.path().join("target/nextest/ci/junit.xml"), junit).unwrap();
+        }
+        let env = [
+            ("JOB", job),
+            ("RESULTS", results.as_str()),
+            ("TESTED", &format!("{tested} Test")),
+            ("STEPS", &steps(failed)),
+        ];
+        run_script(&test, dir.path(), &env);
+        let named = read(&dir.path().join(&results));
+        assert_eq!(named.contains("<failure/>"), written, "{named}");
+        let error = says.map(|step| {
+            format!(r#"<testsuite name="{job}"><error message="the step {step} of the job failed"/></testsuite>"#)
+        });
+        assert_eq!(named.contains("<error"), error.is_some(), "{named}");
+        if let Some(error) = error {
+            assert!(named.contains(&error), "{named}");
+        }
+    }
+    // The page's job: its tests passed and its build after them failed, which is said in the file the tests wrote.
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("page.xml");
+    std::fs::write(
+        &file,
+        r#"<testsuites><testsuite name="src/a.test.ts"><testcase name="a"/></testsuite></testsuites>"#,
+    )
+    .unwrap();
+    let results = file.display().to_string();
+    let steps = "success Lint the page\nfailure Build the page".to_string();
+    let env = [
+        ("JOB", "page"),
+        ("RESULTS", results.as_str()),
+        ("TESTED", "success Test the page"),
+        ("STEPS", steps.as_str()),
+    ];
+    run_script(&page, dir.path(), &env);
+    let named = read(&file);
+    assert!(
+        named.contains(r#"<testcase name="a"/></testsuite><testsuite name="page"><error message="the step Build the page of the job failed"/></testsuite></testsuites>"#),
+        "{named}"
+    );
 }
 
 // A part of a script that no green run reaches is run for the first time when something has failed. The first time a

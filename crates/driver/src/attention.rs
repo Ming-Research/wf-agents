@@ -342,6 +342,8 @@ fn for_a_person(waited: &Waited) -> bool {
         Waited::Limit { .. } | Waited::Calls { .. } | Waited::Answer { .. } => true,
         // The engine gives it as soon as a round of another work ends.
         Waited::Slot => false,
+        // The source outside the work gives it, as main moves.
+        Waited::Outside { .. } => false,
     }
 }
 
@@ -352,9 +354,12 @@ fn on_items(waited: &Waited) -> bool {
             !by.is_empty()
                 && (by.iter()).all(|maker| matches!(maker, Maker::Outside { source } if source == DEPENDENCIES))
         }
-        Waited::Call { .. } | Waited::Limit { .. } | Waited::Calls { .. } | Waited::Slot | Waited::Answer { .. } => {
-            false
-        }
+        Waited::Call { .. }
+        | Waited::Limit { .. }
+        | Waited::Calls { .. }
+        | Waited::Slot
+        | Waited::Answer { .. }
+        | Waited::Outside { .. } => false,
     }
 }
 
