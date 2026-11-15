@@ -290,16 +290,18 @@ impl Rounds for Agents {
     fn stop(&self, round: Round, reply: RoundReply) {
         acts::prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
-        if let Some(reply) = self.inner.held.stop(key, reply) {
+        if let Some((reply, here)) = self.inner.held.stopped(key, reply) {
             // Nothing here carries the round out; a program a process of the engine that ended left running for it
-            // is stopped before the round ends, which takes what the try that process left took, as its stream kept it
-            // says, its calls and compactions told as any try's.
+            // is stopped before the round ends, which takes what its last try took, as its stream kept it says: the
+            // try that process left, its calls and compactions told as any try's, or, for a round given here whose
+            // carrying has ended and told them, that try's spend alone.
             let group = self.inner.kept(&round).with_extension("pgid");
             let dir = git::place(&self.inner.data, &git::tag(&self.inner.installation), round.work).dir;
             let inner = self.inner.clone();
             tokio::spawn(async move {
                 process::stop_left(&group, &dir).await;
-                let spent = inner.left_spent(&round, &reply.teller()).await;
+                let teller = reply.teller();
+                let spent = inner.left_spent(&round, (!here).then_some(&teller)).await;
                 reply.ended(Came::hands_in(Vec::new()), spent);
             });
         }
@@ -369,7 +371,7 @@ impl Inner {
         // that try, where its program said it began, reached the service or printed its result: what the try kept of
         // its stream says what came of it. Nothing is taken in or read of the branch for it as it begins: what that try
         // committed is the round's, read as it ends.
-        let left = match self.left(round, teller).await? {
+        let left = match self.left(round, Some(teller)).await? {
             Some(Left {
                 guarded: Some(failed), ..
             }) => return Ok(failed),
@@ -812,10 +814,11 @@ impl Inner {
 
     /// Of a round given again, or stopped, after the process of the engine that gave it ended while a try of it ran:
     /// that try, as what it kept of its stream says, where its program said it began, reached the service or printed
-    /// its result; none where the round kept no such try. What came of it is said to the loop as any try's is, but for
-    /// what the records hold of it already, told by the process that ended: each compaction of it as the session
-    /// reopened, what its calls came to, where the stream kept the start of each, and that the service answered it.
-    async fn left(&self, round: &Round, teller: &Teller) -> Result<Option<Left>, String> {
+    /// its result; none where the round kept no such try. What came of it is said to the loop, where `teller` is given,
+    /// as any try's is, but for what the records hold of it already, told by the process that ended: each compaction of
+    /// it as the session reopened, what its calls came to, where the stream kept the start of each, and that the service
+    /// answered it.
+    async fn left(&self, round: &Round, teller: Option<&Teller>) -> Result<Option<Left>, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let base = self.kept(round);
         let Some((n, stream)) = left_try(&base).await else {
@@ -882,11 +885,13 @@ impl Inner {
         let measures = (!measured && starts)
             .then(|| measures(&stream, given, before, crossing.is_some(), priced))
             .flatten();
-        tell_try(teller, line, n, more, measures);
         // The service served the round: a wait every work shares need not wait for its end (decision
         // a-wait-is-over-at-the-first-answer).
-        if stream.answered() {
-            teller.answered();
+        if let Some(teller) = teller {
+            tell_try(teller, line, n, more, measures);
+            if stream.answered() {
+                teller.answered();
+            }
         }
         let _ = tokio::fs::remove_file(base.with_extension("again.md")).await;
         // A try past a signal the run guard stops a round on, which printed no result, failed for it, as the engine
@@ -903,10 +908,11 @@ impl Inner {
         }))
     }
 
-    /// What a round stopped after the process of the engine that gave it ended took: what the try that process left
-    /// took, as what it kept of its stream says ([`Inner::left`]); nothing where it left none. What cannot be read is
-    /// said on the standard error, and taken as nothing.
-    async fn left_spent(&self, round: &Round, teller: &Teller) -> Spent {
+    /// What a round stopped with nothing carrying it out took: what its last try took, as what it kept of its stream
+    /// says ([`Inner::left`]); nothing where it kept none. Where `teller` is given, as for a round this process never
+    /// gave, what came of the try is told as well; a round this process gave had it told by its carrying, which has
+    /// ended. What cannot be read is said on the standard error, and taken as nothing.
+    async fn left_spent(&self, round: &Round, teller: Option<&Teller>) -> Spent {
         match self.left(round, teller).await {
             Ok(Some(left)) => {
                 let line = round.cell.line.as_deref().unwrap_or_default();
@@ -2357,5 +2363,42 @@ mod tests {
         };
         assert!(measured, "its measures are told");
         assert_eq!(spent.usd_micros, 800);
+    }
+
+    // A round this process gave, whose carrying ended and told what came of its try while its reply still waits, is
+    // stopped taking that try's spend alone: what came of it is not told again. Well under a second alone; no other
+    // test holds a stop that meets a round so.
+    #[tokio::test]
+    async fn a_round_given_here_and_stopped_as_its_carrying_ends_tells_nothing_of_its_try_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        left_by_an_engine(&agents, &round, &[INIT.to_string(), start(1_000), called(1)], 1);
+        let (to, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        let key = (round.work, round.run, round.number);
+        let held = agents.inner.held.hold(key, RoundReply::new(round.work, round.run, to));
+        // Its carrying has ended: nothing waits for the stop any more.
+        drop(held.expect("the round is held"));
+        let (other, _) = tokio::sync::mpsc::unbounded_channel();
+        agents.stop(round.clone(), RoundReply::new(round.work, round.run, other));
+        let mut told = 0;
+        let spent = loop {
+            let message = tokio::time::timeout(std::time::Duration::from_secs(10), heard.recv())
+                .await
+                .expect("the round ends")
+                .expect("the channel is open");
+            match message {
+                service::Message::Happened {
+                    event: engine::Event::Returned { spent, .. },
+                    ..
+                } => break spent,
+                service::Message::Happened {
+                    event: engine::Event::Measured { .. } | engine::Event::Anew { .. },
+                    ..
+                } => told += 1,
+                _ => {}
+            }
+        };
+        assert_eq!(told, 0, "what came of its try was told again");
+        assert_eq!((spent.usd_micros, spent.compactions), (800, 1));
     }
 }
