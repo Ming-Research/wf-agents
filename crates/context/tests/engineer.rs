@@ -117,12 +117,16 @@ fn guided_until(id: &str, guide: &str) -> (Sim, support::Given) {
 
 /// A work of the engineer's flow, carried out until the round of this cell is given, which is not carried out, the plan
 /// written by the deep research where `deep` holds and by the research otherwise, and the project's guide, where one is
-/// given, read with this text as the start makes the work's place: gives the work and that round.
+/// given, written with this text before the first round, as the start reads it as it makes the work's place: gives the
+/// work and that round.
 fn carried_until(id: &str, deep: bool, guide: Option<&str>) -> (Sim, support::Given) {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
     let mut sim = Sim::of(engineer(), beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     sim.writes("background", "Greet the user by name.");
+    if let Some(text) = guide {
+        sim.wrote("guide", text, None, Outsider::Outside);
+    }
     let plan = [
         ("plan_owner", "Greet by name.", None),
         ("plan_agent", "Add the name to the greeting.", None),
@@ -149,9 +153,6 @@ fn carried_until(id: &str, deep: bool, guide: Option<&str>) -> (Sim, support::Gi
             "I1" => vec![("code", "abc", None)],
             other => panic!("{other} is entered before {id}"),
         };
-        if let (Some(text), "S1") = (guide, cell.as_str()) {
-            sim.wrote("guide", text, None, Outsider::Outside);
-        }
         tried(&mut sim, &round);
         sim.hands_in(&round, &blocks);
     }
