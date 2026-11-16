@@ -612,10 +612,16 @@ fn no_word(name: &str) -> bool {
 }
 
 /// The names a literal holds, as the module says: itself whole; or, inside a longer text, each name written
-/// between backticks, and each that is no word, holding a digit or an `_`, wherever it stands.
+/// between backticks, and each that is no word, holding a digit or an `_`, wherever it stands. The path of a drawing,
+/// a move and then only commands, numbers and their marks, is no text, and holds none.
 fn named<'a>(text: &str, names: &'a BTreeSet<String>) -> Vec<&'a str> {
     if let Some(name) = names.get(text) {
         return vec![name.as_str()];
+    }
+    let drawn = text.starts_with(['M', 'm'])
+        && (text.chars()).all(|c| c.is_ascii_digit() || c.is_whitespace() || "MmLlHhVvCcSsQqTtAaZz.,-+".contains(c));
+    if drawn {
+        return Vec::new();
     }
     let chars: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
