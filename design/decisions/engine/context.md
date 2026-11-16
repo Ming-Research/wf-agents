@@ -44,10 +44,10 @@ Why: Situations the flow cannot reach gave the models that read them findings th
 
 ### decision a-version-is-told-by-the-line-that-wrote-it
 Each version a round is given says the line of the cell whose run wrote it, or that the owner wrote it, worked out
-where it is given from the writing run the records keep and the cell's line in the flow, and never stored; the design
-tree and the work's head a round's end read are that round's run's, by the version put into it. A version of a cell's
-questions is told by its own record: an ask by the asking run's line, an answer as the owner's, the engine's own
-question by nobody; a version an act of the engine or the outside wrote with no round says nobody. The line is the
+where it is given from the writing run the records keep and the cell's line in the flow, and never stored. A version
+of a cell's questions is told by its own record: an ask by the asking run's line, an answer as the owner's, the
+engine's own question by nobody; any other version the outside or an act of the engine wrote says nobody, one put into
+a round as main is taken in among them (decision a-version-read-at-a-rounds-end-is-that-rounds). The line is the
 cell's in the flow the engine reads now, the records keeping no line of a run: a run of a cell since moved to another
 line is told by the line it has now.
 Why: A stored label would be a second copy of what the records and the flow say (principle one-thing-one-place), and a

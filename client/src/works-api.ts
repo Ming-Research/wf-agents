@@ -335,6 +335,8 @@ export interface CellDetail {
   inputs: Input[];
 }
 
+/// Who wrote a version, as a round is told it: the owner, by a person's write, by words to a cell or by an answer; the
+/// outside, or an act of the engine; or a cell, by a run of it, a question it asked included.
 export type Writer = { kind: 'owner' } | { kind: 'outside' } | { kind: 'run'; run: number; cell: string };
 
 /// A version of a block: one write of it.

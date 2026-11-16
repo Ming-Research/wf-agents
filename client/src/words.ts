@@ -79,8 +79,12 @@ export function faultWords(fault: Fault): string {
       return `The cell ${w.cell} has a file but is not named in the order.`;
     case 'twice':
       // At the field `tools` itself, a cell names tools of its own where the flow already gives them to every agent cell.
-      return fault.field === 'tools'
-        ? `The cell names ${w.name} of its own, and the flow already gives its agent cells theirs.`
+      if (fault.field === 'tools') {
+        return `The cell names ${w.name} of its own, and the flow already gives its agent cells theirs.`;
+      }
+      // A name read that the cell watches already, in its own file or in what every agent cell takes.
+      return fault.field.startsWith('reads[') || fault.field.startsWith('every_agent.reads[')
+        ? `${w.name} is watched already, and is given with what is watched.`
         : `${w.name} is named a second time in the same list.`;
     case 'takenTwice':
       return `${w.block} is taken by two names, ${w.first} and ${w.also}, which says twice how the cell takes it.`;
@@ -319,7 +323,7 @@ export function cellSays(cell: Cell, block: string, what: string | null = null):
   const read = cell.reads.find((r) => r.blocks.includes(block));
   if (itself) parts.push(`watches${kind}`);
   else if (group) parts.push(`watches ${group.name},${kind}`);
-  if (read && !itself) parts.push(namesItself(read) ? `reads${kind}` : `reads ${read.name},${kind}`);
+  else if (read) parts.push(namesItself(read) ? `reads${kind}` : `reads ${read.name},${kind}`);
   const writes = cell.outputs.includes(block);
   if (writes) parts.push(cell.mustWrite.includes(block) ? 'must_write' : 'outputs');
   const said = parts.join('; ');

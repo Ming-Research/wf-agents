@@ -159,16 +159,23 @@ pub struct Group {
     pub blocks: Vec<String>,
 }
 
-/// A datum or group a cell watches: its name as the definition writes it, the blocks it stands for (of a datum, the
-/// datum alone), what the cell does when it is new, and the list that names it (`every_agent` or `watches`).
+/// A datum or group a cell watches, by the list that names it (`every_agent` or `watches`): its name as the definition
+/// writes it and the blocks it stands for (of a datum, the datum alone); of what the cell's own file watches, what the
+/// cell does when it is new. What a cell does for what `[every_agent]` watches is given once, with `[every_agent]`
+/// (principle say-a-thing-once).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Watch {
-    pub name: String,
-    pub blocks: Vec<String>,
-    #[serde(rename = "do")]
-    pub does: Option<String>,
-    pub list: String,
+#[serde(tag = "list", rename_all = "snake_case")]
+pub enum Watch {
+    Watches {
+        name: String,
+        blocks: Vec<String>,
+        #[serde(rename = "do")]
+        does: Option<String>,
+    },
+    EveryAgent {
+        name: String,
+        blocks: Vec<String>,
+    },
 }
 
 /// A datum or group a cell only reads, or every agent's cell watches or reads: its name as the definition writes it,
@@ -655,11 +662,16 @@ impl Flow {
                 when: cell.applies.iter().map(|c| Condition::of(c, compiled)).collect(),
                 requires: cell.requires.iter().map(|c| Condition::of(c, compiled)).collect(),
                 watches: (spec.watches.iter())
-                    .map(|w| Watch {
-                        name: w.name.clone(),
-                        blocks: names(&w.blocks),
-                        does: w.does.clone(),
-                        list: w.list.name().to_string(),
+                    .map(|w| {
+                        let (name, blocks) = (w.name.clone(), names(&w.blocks));
+                        match w.list {
+                            flow::Listed::EveryAgent => Watch::EveryAgent { name, blocks },
+                            _ => Watch::Watches {
+                                name,
+                                blocks,
+                                does: w.does.clone(),
+                            },
+                        }
                     })
                     .collect(),
                 reads: spec.reads.iter().map(Read::of).collect(),

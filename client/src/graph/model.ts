@@ -13,7 +13,7 @@
 // tested without drawing.
 
 import type { Block, Cell, Condition, Flow, InputKind } from '../api';
-import { exclusive, matrix, namesItself } from '../matrix';
+import { canRun, matrix, namesItself } from '../matrix';
 
 /// The ids of the nodes: a cell's, the gate before it, the fork before it, and a tag of what the outside writes for
 /// it.
@@ -136,20 +136,6 @@ function outsideOf(blocks: Block[]): Outside | null {
   return people || sources.length > 0 ? { people, sources } : null;
 }
 
-/// A cell as it stands after its own run, for whether a write of its can run another: a key of its `when` on a block
-/// it writes itself may no longer hold once it has written it, as R1's `deep_needed = no` once R1 has written yes, so
-/// such a key is left out. That cell is the one before the fork, and its arrow into the cell on the other side is the
-/// fork itself.
-export function afterItsRun(cell: Cell): Cell {
-  return { ...cell, when: cell.when.filter((k) => !(k.on === 'block' && cell.outputs.includes(k.block))) };
-}
-
-/// Whether a write of `writer`'s can run `reader`: not where their conditions exclude each other (the matrix's
-/// `exclusive`), as they stand after the writer's run.
-export function canRun(writer: Cell, reader: Cell): boolean {
-  return !exclusive(afterItsRun(writer), reader);
-}
-
 /// What an arrow from `writer` to `reader` carries: each datum or group the reader watches, by its own file or by
 /// `[every_agent]`, a block of which the writer writes, by its name, once.
 export function carried(flow: Flow, writer: Cell, reader: Cell): Carried[] {
@@ -177,16 +163,16 @@ export const HOLDS = '✓';
 export const FAILS = '✗';
 
 /// The main path of a flow: the walk as a work goes through the cells, worked out from the definition alone (the order
-/// of the walk, each cell's `when`, `requires` and what it writes, the blocks' values and defaults, and the matrix's
-/// `exclusive`). The walk starts again from the first cell every time, so a block may hold any value a cell writes
-/// anywhere in the flow, or people or the outside, or else its default, or none; where the path goes through a cell
-/// that writes it, any of its values again. From the first cell, each step goes to the next cell in the walk that can
-/// run after the cells the path went through: one whose `when` may hold there and whose conditions exclude none of
-/// theirs. Where that cell's `when` surely holds, the path goes into it; where it may or may not, the path parts at a
-/// fork: one branch into the cell, labelled with the value it is taken on, and one past it to the cell after, labelled
-/// with the values left, each knowing which; and where that branch comes to a cell whose `when` is on the same block
-/// and may hold, that is a branch of the same fork. The branches join again where they reach the same node. A
-/// `requires` is a gate the path waits at, not a fork: the path goes through it into its cell.
+/// of the walk, each cell's `when`, `requires` and what it writes, the blocks' values and defaults, and `canRun`, the
+/// one rule of whether a cell's write can run another). The walk starts again from the first cell every time, so a
+/// block may hold any value a cell writes anywhere in the flow, or people or the outside, or else its default, or none;
+/// where the path goes through a cell that writes it, any of its values again. From the first cell, each step goes to
+/// the next cell in the walk that can run after the cells the path went through: one whose `when` may hold there and
+/// whose conditions exclude none of theirs. Where that cell's `when` surely holds, the path goes into it; where it may
+/// or may not, the path parts at a fork: one branch into the cell, labelled with the value it is taken on, and one past
+/// it to the cell after, labelled with the values left, each knowing which; and where that branch comes to a cell whose
+/// `when` is on the same block and may hold, that is a branch of the same fork. The branches join again where they
+/// reach the same node. A `requires` is a gate the path waits at, not a fork: the path goes through it into its cell.
 export function mainPath(flow: Flow): MainPath {
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const cells = flow.cells;

@@ -33,6 +33,27 @@ draw one way back twice (no such pair is in the engineer flow, so this rests on 
 one and each of its blocks has its own kind (design document `data-and-context`, 12, 17), so its marks are the blocks'.
 A line for a write going right was turned down: the marks' order says it, and the way back is what the owner looks for.
 
+### decision a-condition-s-datum-is-one-row
+On the matrix a datum a key of a cell's `when` or `requires` names stands once, on its row in the band of the
+conditions: the row's head is the datum's, its values and signs, and under each cell the condition's marks stand beside
+those of what the cell's file says of the datum, with the way back along the row. A named test keeps a row of its own,
+and the data it reads keep theirs among the data.
+Why: Drawn in the band and again among the data, such a datum stood twice, its writer on one row and the cells that
+wait for its value on the other (principle say-a-thing-once); a named test is no datum, and its data are many.
+
+### decision the-way-back-is-in-the-accent
+On the matrix a way back's line and arrow are drawn in the accent, and the arrow is drawn with the mark it points to, its
+point on that mark's edge.
+Why: The way back is what the owner looks for on the matrix, so it takes a strong mark (principle scarce-emphasis): in
+the muted colour it read as one more of the rows' lines. A colour of its own was turned down as one more meaning to
+learn; the accent's other use on the matrix, the tint of what is chosen, is a ground and never a line (judgment). Placed
+by the crossing's middle, the arrow reached into the second of two marks.
+
+### decision the-corner-names-only-the-cells
+The matrix's corner names the cells across, and no kind of row.
+Why: The rows are lines, conditions, tools, what `[every_agent]` names and data, each tagged with its own kind, so a
+word for them all would be false of most of them or say again what the tags say (principle say-a-thing-once).
+
 ### decision every-agent-is-a-band-of-its-own
 On the matrix what `[every_agent]` names is a band of rows named as `flow.toml` writes them; under each column is
 marked what the cell takes of the data a row stands for and what it writes of them, except what `[every_agent]` only
@@ -56,3 +77,11 @@ their own (decision no-cell-runs-the-tests) left it shown nowhere but the view's
 The view's line names the flow's tools and `[every_agent]` only while the flowchart is shown; while the matrix is shown
 they are rows of its bands.
 Why: Each thing is shown once in a view (Article 8), and the flowchart has no rows for them.
+
+### decision one-rule-for-what-a-write-runs
+Whether a cell's write can run another is decided by one rule wherever the page decides it, the flowchart's main path
+and arrows and the matrix's and the panels' ways back alike: it can, but where their `when`s name one block with
+different values, the writer's keys on a block it writes itself left out, as they may no longer hold once it is written.
+Why: Decided twice, the flowchart and the matrix could say different things of one flow; R1 runs where `deep_needed` is
+no and writes it, and its write runs D1, which runs where it is yes. No flow of the repository has a way back the two
+rules differ on, so leaving the writer's own keys out of the ways back rests on judgment.

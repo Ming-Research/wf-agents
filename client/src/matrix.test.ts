@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { NO_MARK, blockOrder, exclusive, markOf, matrix } from './matrix';
+import { NO_MARK, blockOrder, canRun, markOf, matrix } from './matrix';
 import { cell, everyAgent, flowOf, small, test, tested } from './testing';
 
 describe('the order of the blocks', () => {
@@ -415,7 +415,7 @@ describe('a way back between two cells that never both run', () => {
 
   it('is not drawn nor counted where their whens name one block with different values', () => {
     const f = flow('no', 'yes');
-    expect(exclusive(f.cells[1], f.cells[2])).toBe(true);
+    expect(canRun(f.cells[2], f.cells[1])).toBe(false);
     const m = matrix(f);
     expect(m.waysBack).toBe(0);
     expect(row(m).some((spot) => spot.backTo || spot.back !== 'none')).toBe(false);
@@ -428,7 +428,7 @@ describe('a way back between two cells that never both run', () => {
       ['no', null],
     ] as const) {
       const f = flow(r, w);
-      expect(exclusive(f.cells[1], f.cells[2])).toBe(false);
+      expect(canRun(f.cells[2], f.cells[1])).toBe(true);
       const m = matrix(f);
       expect(m.waysBack).toBe(1);
       expect(row(m).map((spot) => spot.backTo)).toEqual([false, true, false]);

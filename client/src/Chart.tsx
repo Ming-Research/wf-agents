@@ -4,24 +4,26 @@
 // running the cell; the ring with the kind inside where it only `reads` it; a disc where it may write it (`outputs`). A
 // group a cell watches by its name has a row of its own over its first block, which its watchers' rings stand on. A
 // later cell's write of a datum a cell watches is the work going back: its line, the only line along a row of the data,
-// is drawn leftwards along the row to each cell it sends the work back to, with an arrow, so that every way back shows
-// at a glance. The data's names stay in place as the chart scrolls sideways, and the cells' heads as it scrolls down, in
-// the chart's own frame.
+// is drawn in the accent leftwards along the row to each cell it sends the work back to, with an arrow whose point is
+// on the edge of that cell's mark, so that every way back shows at a glance. The rows' names stay in place as the chart
+// scrolls sideways, and the cells' heads as it scrolls down, in the chart's own frame.
 //
 // A cell's column holds only marks, so it is only as wide as they are, and its head holds the cell's id alone. The
 // width this leaves, right of the marks, is a column of words, one line to a row: what the row's thing is, or, on the
 // rows of the cell chosen, what that cell says of it. What a head has no room for, the cell's title, its line, when it
 // runs and what it waits for, stands over that column for the cell under the pointer.
 //
-// Over the data stand bands of rows, each thing drawn once: the lines, one to a line the agents' cells name, with a
-// dot under each cell on it, the dots joined along the row, so that a joined row reads as one session going on; the
-// conditions, one to a named test or a block or datum a key of a cell's `when` or `requires` names, each key of a
-// cell marked in its own row: for `when`, a tick where the cell runs when the test holds or the block is yes, a cross
-// where it runs when the block is no, and the value itself where it waits for another; for `requires`, a square, which
-// the work waits before until it holds, its value in its words; the engine's tools, one to a tool, a small square under
-// each cell that may call it, since a call is a step of the work; and what `[every_agent]` names, one to a name as
-// `flow.toml` writes it, under each cell what runs it there and what its own file says of those data, the row's words
-// saying what every agent's cell only reads.
+// Over the data stand bands of rows, each thing drawn once: the lines, one to a line the agents' cells name, with a dot
+// under each cell on it, the dots joined along the row, so that a joined row reads as one session going on; the
+// conditions, one to a named test or a block or datum a key of a cell's `when` or `requires` names, each key of a cell
+// marked in its own row: for `when`, a tick where the cell runs when the test holds or the block is yes, a cross where
+// it runs when the block is no, and the value itself where it waits for another; for `requires`, a square, which the
+// work waits before until it holds, its value in its words; a datum's row there is its one row, the marks of what each
+// cell's file says of it beside the condition's and its way back along it; the engine's tools, one to a tool, a small
+// square under each cell that may call it, since a call is a step of the work; and what `[every_agent]` names, one to a
+// name as `flow.toml` writes it, under each cell what runs it there and what its own file says of those data, the row's
+// words saying what every agent's cell only reads. Each row is tagged with its kind, and the corner names only the
+// cells.
 
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
@@ -38,7 +40,6 @@ import {
   NO_MARK,
   type Spot,
   type ToolRow,
-  hasMark,
 } from './matrix';
 import { Arrow, CROSS, Edge, Sign, TICK } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
@@ -86,34 +87,68 @@ const KIND_SIGNS: Record<InputKind, string> = {
   all: '+',
 };
 
-/// The marks of a crossing, one for each key, side by side: a disc where the cell writes the datum (`outputs`); a ring
-/// where it watches it (`watches`), or the ring with the kind inside where it only reads it (`reads`), as `[kinds]`
-/// writes it.
-export function DataGlyphs({ mark }: { mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'> }) {
-  if (!mark.write && !mark.watch && !mark.read) return null;
-  const box = (key: string, child: ReactNode) => (
-    <svg key={key} className="glyph" viewBox="0 0 24 24" aria-hidden="true">
-      {child}
-    </svg>
-  );
-  return (
-    <span className="glyphs">
-      {mark.write && box('write', <circle className="part write" cx="12" cy="12" r="6" />)}
-      {mark.watch && box('watch', <circle className="part watch" cx="12" cy="12" r="6.5" />)}
-      {mark.read &&
-        box(
-          'read',
-          <>
-            <circle className="part read" cx="12" cy="12" r="8" />
-            {mark.kind && (
-              <text className="part kind" x="12" y="12">
-                {KIND_SIGNS[mark.kind]}
-              </text>
-            )}
-          </>,
+/// A mark of the chart, drawn in a box of 24 units at the mark's size; what it draws past its box, as an arrow, shows.
+const glyph = (key: string, child: ReactNode) => (
+  <svg key={key} className="glyph" viewBox="0 0 24 24" aria-hidden="true">
+    {child}
+  </svg>
+);
+
+/// How far each mark of a datum reaches from the middle of its box, in its units: the disc to its edge, and each ring
+/// to the outer edge of its line, half the line's width past its radius.
+const REACH = { write: 6, watch: 7.5, read: 9 } as const;
+
+/// The arrow of a way back, in a box's units: as long and half as wide as the tokens `--chart-arrow-length` and
+/// `--chart-arrow` say at the mark's size.
+const ARROW = { length: 9, half: 6 } as const;
+
+/// The arrow of a way back, pointing at the mark it runs again, its point on the mark's edge, `reach` from its middle.
+function arrowAt(reach: number): ReactNode {
+  const tip = 12 + reach;
+  const base = tip + ARROW.length;
+  return <polygon className="part arrow" points={`${tip},12 ${base},${12 - ARROW.half} ${base},${12 + ARROW.half}`} />;
+}
+
+/// The marks of a datum's crossing, one for each key, in the order drawn: a disc where the cell writes the datum
+/// (`outputs`); a ring where it watches it (`watches`), or the ring with the kind inside where it only reads it
+/// (`reads`), as `[kinds]` writes it; the last with the arrow of a way back where one runs the cell again.
+function dataParts(mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'>, arrow: boolean): ReactNode[] {
+  const parts: [keyof typeof REACH, ReactNode][] = [];
+  if (mark.write) parts.push(['write', <circle className="part write" cx="12" cy="12" r="6" />]);
+  if (mark.watch) parts.push(['watch', <circle className="part watch" cx="12" cy="12" r="6.5" />]);
+  if (mark.read) {
+    parts.push([
+      'read',
+      <>
+        <circle className="part read" cx="12" cy="12" r="8" />
+        {mark.kind && (
+          <text className="part kind" x="12" y="12">
+            {KIND_SIGNS[mark.kind]}
+          </text>
         )}
-    </span>
+      </>,
+    ]);
+  }
+  return parts.map(([key, child], i) =>
+    glyph(
+      key,
+      arrow && i === parts.length - 1 ? (
+        <>
+          {child}
+          {arrowAt(REACH[key])}
+        </>
+      ) : (
+        child
+      ),
+    ),
   );
+}
+
+/// The marks of a crossing, one for each key, side by side (`dataParts`), with the arrow of a way back at the last
+/// where one runs the cell again.
+export function DataGlyphs({ mark, arrow = false }: { mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'>; arrow?: boolean }) {
+  const parts = dataParts(mark, arrow);
+  return parts.length > 0 ? <span className="glyphs">{parts}</span> : null;
 }
 
 /// The mark a work's history draws where a condition reads what a step wrote: a diamond.
@@ -149,30 +184,28 @@ export function ToolGlyph({ on }: { on: boolean }) {
 /// test holds or the block is yes, a cross where it runs when the block is no, and the value itself where it runs on
 /// another; a square where a key of its `requires` is, which the work waits before the cell until it holds.
 export function ConditionGlyph({ spot }: { spot: ConditionSpot }) {
-  const { when, value, requires } = spot;
-  if (!when && !requires) return null;
-  const box = (key: string, child: ReactNode) => (
-    <svg key={key} className="glyph" viewBox="0 0 24 24" aria-hidden="true">
-      {child}
-    </svg>
-  );
-  const whenMark = () => {
-    if (value === undefined || value === 'yes') {
-      return box('when', <path className="part holds" d={TICK} />);
+  const parts = conditionParts(spot);
+  return parts.length > 0 ? <span className="glyphs">{parts}</span> : null;
+}
+
+/// The marks of a cell on a condition, in the order drawn (`ConditionGlyph`).
+function conditionParts({ when, value, requires }: ConditionSpot): ReactNode[] {
+  const parts: ReactNode[] = [];
+  if (when) {
+    if (value === undefined || value === 'yes') parts.push(glyph('when', <path className="part holds" d={TICK} />));
+    else if (value === 'no') parts.push(glyph('when', <path className="part holds" d={CROSS} />));
+    else {
+      parts.push(
+        <span key="when" className="spot-value">
+          {value}
+        </span>,
+      );
     }
-    if (value === 'no') return box('when', <path className="part holds" d={CROSS} />);
-    return (
-      <span key="when" className="spot-value">
-        {value}
-      </span>
-    );
-  };
-  return (
-    <span className="glyphs">
-      {when && whenMark()}
-      {requires && box('requires', <rect className="part precondition" x="3.5" y="3.5" width="17" height="17" />)}
-    </span>
-  );
+  }
+  if (requires) {
+    parts.push(glyph('requires', <rect className="part precondition" x="3.5" y="3.5" width="17" height="17" />));
+  }
+  return parts;
 }
 
 /// The legend of the marks and signs, in the view's line, each by its key.
@@ -370,21 +403,13 @@ export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }:
         </colgroup>
         <thead>
           <tr>
-            <th
-              className="lead corner"
-              scope="col"
-              aria-label="Blocks down the side, cells across"
-              onMouseEnter={unpoint}
-            >
-              <span className="label corner-blocks">
-                Blocks <Arrow to="down" />
-              </span>
+            <th className="lead corner" scope="col" aria-label="Cells across" onMouseEnter={unpoint}>
               <span className="label corner-cells">
                 Cells <Arrow to="right" />
               </span>
               <Edge
                 side="right"
-                label="Drag the width of the blocks' names"
+                label="Drag the width of the rows' names"
                 start={() => namesWidth}
                 onDrag={setNames}
                 onReset={() => setNames(null)}
@@ -424,12 +449,10 @@ export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }:
             {conditions.map((row) => {
               const isChosen = row.test ? chosenTest === row.name : chosenBlock === row.block;
               const chosenNow: Chosen = row.test ? { test: row.name } : { block: row.name };
-              const declared = row.test ? undefined : blocks.find((b) => b.name === row.name)?.block;
               return (
                 <ConditionLine
                   key={`${row.test ? 'test' : 'block'}:${row.name}`}
                   row={row}
-                  declared={declared}
                   chosen={isChosen}
                   onChoose={() => onChoose(isChosen ? null : chosenNow)}
                   {...band}
@@ -762,50 +785,63 @@ function LineSegments({ spot }: { spot: LineSpot }) {
 /// The row of a condition, under the lines: a named test, or a block or datum a key of a cell's `when` or `requires`
 /// names, by its name; under each cell with a key of its `when` on the row, a tick, a cross or the value
 /// (`ConditionGlyph`), and a square under each with a key of its `requires` on it, the value said in its words; and
-/// what the test `says`, or the block's `default`. On the row of a condition the chosen cell names, by which key it
-/// names it. Chosen by its name, it opens the test's panel, or the block's.
-function ConditionLine(props: BandProps & { row: ConditionRow; declared?: Block; chosen: boolean; onChoose: () => void }) {
-  const { row, declared, cells, chosen, onChoose, chosenCell, saying, pointed, onPoint } = props;
+/// what the test `says`, or the block's `default`. A datum's row is its one row: its head is the datum's, with its
+/// values and its signs, and under each cell the marks of what the cell's file says of the datum follow the condition's,
+/// with the way back along the row; its words are what the datum is and its `default`. On the row of a condition the
+/// chosen cell names, by which key it names it, and what the cell's file says of the datum. Chosen by its name, it opens
+/// the test's panel, or the block's.
+function ConditionLine(props: BandProps & { row: ConditionRow; chosen: boolean; onChoose: () => void }) {
+  const { row, cells, chosen, onChoose, chosenCell, saying, pointed, onPoint } = props;
+  const data = row.data;
+  const declared = data?.row.block;
   // A key on the row as the cell's file writes it: the test, or the block with the value it waits for.
   const keyText = (value?: string) => (row.test ? `test = ${row.name}` : `${row.name} = ${value}`);
   const at = saying ? cells.findIndex((cell) => cell.id === saying.id) : -1;
   const own = at === -1 ? undefined : row.spots[at];
-  const says = own
-    ? [
-        ...(own.when ? [`when ${keyText(own.value)}`] : []),
-        ...(own.requires ? [`requires ${keyText(own.requiresValue)}`] : []),
-      ].join('; ')
-    : '';
-  const what = row.test ? row.test.words : declared?.default ? `default ${declared.default}` : '';
+  const says = [
+    ...(own?.when ? [`when ${keyText(own.value)}`] : []),
+    ...(own?.requires ? [`requires ${keyText(own.requiresValue)}`] : []),
+    ...(saying && data ? [cellSays(saying, row.name, declared?.what ?? null)] : []),
+  ]
+    .filter((w) => w !== '')
+    .join('; ');
+  const what = row.test
+    ? row.test.words
+    : [declared?.what ?? '', declared?.default ? `default ${declared.default}` : ''].filter((w) => w !== '').join('; ');
   return (
     <tr className={`row condition-row ${chosen ? 'chosen' : ''}`}>
-      <BandHead
-        name={row.name}
-        label={row.test ? 'test' : 'block'}
-        dataKey={row.test ? `test:${row.name}` : undefined}
-        aria={row.test ? `Test ${row.name}` : `Block ${row.name}`}
-        chosen={chosen}
-        onChoose={onChoose}
-        onPoint={onPoint}
-      />
+      {data ? (
+        <BlockHead row={data.row} chosen={chosen} onChoose={onChoose} onPoint={() => onPoint(null)} />
+      ) : (
+        <BandHead
+          name={row.name}
+          label={row.test ? 'test' : 'block'}
+          dataKey={row.test ? `test:${row.name}` : undefined}
+          aria={row.test ? `Test ${row.name}` : `Block ${row.name}`}
+          chosen={chosen}
+          onChoose={onChoose}
+          onPoint={onPoint}
+        />
+      )}
       {cells.map((cell, c) => {
         const spot = row.spots[c];
+        const marks = data?.spots[c];
         const words = [
           spot.when ? `${cell.id} when ${keyText(spot.value)}` : '',
           spot.requires ? `${cell.id} requires ${keyText(spot.requiresValue)}` : '',
+          marks ? markWords(cell, row.name, marks.mark) : '',
         ]
           .filter((w) => w !== '')
           .join(', ');
         return (
-          <td
+          <Crossing
             key={cell.id}
+            condition={spot}
+            spot={marks}
+            words={words}
             className={bandSpot(cell, chosenCell, pointed === c)}
-            title={words || undefined}
-            onMouseEnter={() => onPoint(c)}
-          >
-            <ConditionGlyph spot={spot} />
-            {words && <span className="visually-hidden">{words}</span>}
-          </td>
+            onPoint={() => onPoint(c)}
+          />
         );
       })}
       <BandWords says={says} what={what} saying={saying} onPoint={onPoint} />
@@ -887,21 +923,43 @@ function EveryLine(props: BandProps & { row: EveryRow; chosen: boolean; onChoose
   );
 }
 
-/// A crossing of a row of the data, or of `[every_agent]`: the way back through it where one runs, its arrow at a cell
-/// it runs again, and the cell's marks.
+/// A crossing of a row of the data, or of `[every_agent]`: the way back through it where one runs, and the cell's marks,
+/// with the arrow at a cell it runs again.
 function SpotCell(props: { spot: Spot; words: string; chosen: boolean; pointed: boolean; onPoint: () => void }) {
   const { spot, words, chosen, pointed, onPoint } = props;
-  const runs = (side: 'left' | 'right') => spot.back === side || spot.back === 'through';
+  return (
+    <Crossing
+      spot={spot}
+      words={words}
+      className={`spot ${chosen ? 'chosen' : ''} ${pointed ? 'pointed' : ''}`}
+      onPoint={onPoint}
+    />
+  );
+}
+
+/// A crossing of a row: the way back through it where one runs, and the cell's marks side by side, those of a
+/// condition first, then those of a datum, the last with the arrow of a way back where it runs the cell again. How many
+/// marks it has (`--marks`) is what the way back's line stops short of.
+function Crossing(props: {
+  condition?: ConditionSpot;
+  spot?: Spot;
+  words: string;
+  className: string;
+  onPoint: () => void;
+}) {
+  const { condition, spot, words, className, onPoint } = props;
+  const runs = (side: 'left' | 'right') => spot !== undefined && (spot.back === side || spot.back === 'through');
+  const parts = [...(condition ? conditionParts(condition) : []), ...(spot ? dataParts(spot.mark, spot.backTo) : [])];
   return (
     <td
-      className={`spot ${hasMark(spot.mark) ? 'has-mark' : ''} ${chosen ? 'chosen' : ''} ${pointed ? 'pointed' : ''}`}
+      className={`${className} ${parts.length > 0 ? 'has-mark' : ''}`}
+      style={parts.length > 1 ? ({ '--marks': parts.length } as CSSProperties) : undefined}
       onMouseEnter={onPoint}
       title={words || undefined}
     >
       {runs('left') && <span className="seg seg-left back" aria-hidden="true" />}
       {runs('right') && <span className="seg seg-right back" aria-hidden="true" />}
-      {spot.backTo && <span className="arrow" aria-hidden="true" />}
-      <DataGlyphs mark={spot.mark} />
+      {parts.length > 0 && <span className="glyphs">{parts}</span>}
       {words && <span className="visually-hidden">{words}</span>}
     </td>
   );

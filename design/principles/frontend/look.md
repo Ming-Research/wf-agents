@@ -41,8 +41,10 @@ back to the width the page works out on a double click.
 Why: Cut words can then be read in full where they stand.
 
 ### principle say-a-thing-once
-What belongs to the whole view is said in the view's line, and a panel says only what differs from it.
-Why: Each thing has one place and is shown there once (Article 8).
+What belongs to the whole view is said in the view's line, or in a band of the chart's own rows, and a panel says only
+what differs from it.
+Why: Each thing has one place and is shown there once (Article 8); what holds alike for every cell of a kind, said on
+each cell's panel, is one thing shown as many times as there are cells.
 
 ### principle links-in-the-link-colour
 A link is in the link colour wherever it stands, in small text and among a row of facts as well, and is never muted.

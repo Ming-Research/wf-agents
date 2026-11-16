@@ -14,7 +14,7 @@ import { markOf } from '../matrix';
 import { markWords } from '../words';
 import { Arrow, Edge, Sign } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
-import type { CellNow, Step, WorkPage } from '../works-api';
+import type { Block, CellNow, Step, WorkPage } from '../works-api';
 import { type HistoryRow, placeSteps } from './placing';
 import { StateMark, cellNowWords } from './marks';
 import {
@@ -46,8 +46,9 @@ type Part = string | { name: string };
 const names = (all: string[]): Part[] => all.flatMap((name, i) => (i === 0 ? [{ name }] : [', ', { name }]));
 
 /// The words of a row at its left, in pieces: why a run ran, or what was done. A run of a cell the flow no longer has,
-/// which stands in no column, says which cell it was.
-export function stepParts(step: Step, flow?: Flow): Part[] {
+/// which stands in no column, says which cell it was; a write, whether it changed the block's meaning, where the
+/// block's versions are given, that the block has said nothing yet.
+export function stepParts(step: Step, flow?: Flow, blocks: Block[] = []): Part[] {
   switch (step.kind) {
     case 'run': {
       const changed = step.because.flatMap((c) => (c.kind === 'changed' ? [c.block] : []));
@@ -60,12 +61,12 @@ export function stepParts(step: Step, flow?: Flow): Part[] {
       return gone ? [{ name: step.cell }, ', which the flow no longer has: ', ...why] : why;
     }
     case 'wrote': {
-      const who = step.by.kind === 'owner' ? 'a person' : step.by.kind === 'outside' ? 'the outside' : `run ${step.by.run}`;
+      const who = step.by.kind === 'owner' ? 'the owner' : step.by.kind === 'outside' ? 'the outside' : `run ${step.by.run}`;
       return [
         `${who} wrote `,
         { name: step.block },
         ...(step.value !== null ? [' = ', { name: step.value }] : []),
-        step.changed ? '' : ', same meaning',
+        saidNothing(blocks, step.block, step.at) ? ', said nothing yet' : step.changed ? '' : ', same meaning',
       ];
     }
     case 'letGo':
@@ -85,9 +86,15 @@ export function stepParts(step: Step, flow?: Flow): Part[] {
   }
 }
 
+/// Whether the version of the block written at this place has said nothing yet: its meaning is none, as of a first
+/// version handed in as changing nothing.
+export function saidNothing(blocks: Block[], block: string, at: number): boolean {
+  return blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at)?.meaning === null;
+}
+
 /// The words of a row at its left, as one text.
-export function stepWords(step: Step, flow?: Flow): string {
-  return stepParts(step, flow)
+export function stepWords(step: Step, flow?: Flow, blocks: Block[] = []): string {
+  return stepParts(step, flow, blocks)
     .map((p) => (typeof p === 'string' ? p : p.name))
     .join('');
 }
@@ -175,6 +182,7 @@ export function HistoryChart({ page, chosen, onChoose }: {
               key={row.key}
               row={row}
               flow={flow}
+              blocks={page.blocks}
               now={now}
               chosen={chosenStep === row.index}
               chosenCell={chosenCell}
@@ -240,6 +248,8 @@ function HistoryHead(props: {
 function StepRow(props: {
   row: HistoryRow;
   flow: Flow;
+  /// The work's blocks, with their versions.
+  blocks: Block[];
   now: number;
   chosen: boolean;
   chosenCell: string | null;
@@ -247,9 +257,9 @@ function StepRow(props: {
   onChoose: () => void;
   onPoint: (column: number) => void;
 }) {
-  const { row, flow, now, chosen, chosenCell, pointed, onChoose, onPoint } = props;
+  const { row, flow, blocks, now, chosen, chosenCell, pointed, onChoose, onPoint } = props;
   const { step } = row;
-  const words = stepWords(step, flow);
+  const words = stepWords(step, flow, blocks);
   const wayRound = step.kind === 'run' && isWayRound(step);
   const sign = step.kind === 'wrote' && step.by.kind !== 'run' ? (step.by.kind === 'owner' ? 'people' : 'outside') : null;
   return (
@@ -271,7 +281,7 @@ function StepRow(props: {
           {sign && <Sign name={sign} />}
           <span className={`step-words ${wayRound ? 'way-back' : ''}`} title={words}>
             {step.kind === 'run' && <span className="mono muted">{step.run} </span>}
-            {stepParts(step, flow).map((p, i) =>
+            {stepParts(step, flow, blocks).map((p, i) =>
               typeof p === 'string' ? (
                 p
               ) : (

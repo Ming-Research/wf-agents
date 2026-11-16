@@ -83,8 +83,8 @@ cell = "D4"
 hands_in = [{ block = "tree_ok", value = "yes" }]
 
 # Implementation: asks for the check, which ends its run, and, entered again for its result, hands in the code with a
-# decision of its own; then a fix for the review, one for the testing and one for the check before the merge, which it
-# commits: the new head runs the check again.
+# decision of its own, which it commits; then a fix for the review, one for the testing and one for the check before the
+# merge, which it commits: the new head runs the check again.
 [[flows.engineer.rounds]]
 cell = "I1"
 asks = [{ tool = "check", input = "the work's branch" }]
@@ -97,6 +97,7 @@ hands_in = [
     { block = "decisions", content = "A call's cost is kept in millionths of a dollar, as a round's is, so that the two add up exactly." },
     { block = "evidence", content = "The check passed on the head; three new tests." },
 ]
+commits = [{ block = "head", content = "9c1d0a7" }]
 
 [[flows.engineer.rounds]]
 cell = "I1"

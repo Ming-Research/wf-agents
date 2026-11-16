@@ -575,7 +575,7 @@ export function givenWords(given: Given): string {
 export function writerWords(writer: Writer): string {
   switch (writer.kind) {
     case 'owner':
-      return 'a person';
+      return 'the owner';
     case 'outside':
       return 'the outside';
     case 'run':

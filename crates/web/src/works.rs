@@ -22,11 +22,11 @@
 
 use std::collections::BTreeMap;
 
+use context::Author;
 use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
     BlockId, CallId, Cause as CauseOf, CellId, Condition as Applies, Decision, End, Holder, Maker as MakerOf,
     Pauser as PauserOf, Records, RunId, Seq, Unrun as UnrunOf, VersionView, View, Waited as WaitedOf, Who,
-    Writer as WriterOf,
 };
 use driver::{Along, Driver, Kept, Under, Until as UntilOf};
 use flow::Kind;
@@ -813,12 +813,11 @@ pub struct Version {
     pub empty: bool,
 }
 
-/// Who wrote a version of a block.
+/// Who wrote a version of a block, as a round is told it (decision a-version-is-told-by-the-line-that-wrote-it): the
+/// owner, by a person's write, by words to a cell or by an answer; the outside, or an act of the engine; or a cell.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Writer {
-    Person,
-    /// The owner, as a round is told it.
     Owner,
     Outside,
     /// A cell, by this run of it.
@@ -2707,12 +2706,12 @@ fn chars(work: &Work, block: &BlockId, at: Seq) -> Result<usize, Broken> {
         .ok_or_else(|| Broken(format!("the version of {block} at {} has no content", at.0)))
 }
 
-/// Who wrote the version of the block, as the page names it.
-fn writer_of(_flow: &flow::Compiled, work: &Work, _block: &BlockId, version: &VersionView) -> Result<Writer, Broken> {
-    Ok(match version.by {
-        WriterOf::Person => Writer::Person,
-        WriterOf::Outside => Writer::Outside,
-        WriterOf::Run(run) => Writer::Run {
+/// Who wrote the version of the block, by the rule a round is told it by.
+fn writer_of(flow: &flow::Compiled, work: &Work, block: &BlockId, version: &VersionView) -> Result<Writer, Broken> {
+    Ok(match context::author(flow, &work.records, block, version) {
+        Author::Owner => Writer::Owner,
+        Author::Nobody => Writer::Outside,
+        Author::Run(run) => Writer::Run {
             run: run.0,
             cell: cell_of(work, run)?,
         },

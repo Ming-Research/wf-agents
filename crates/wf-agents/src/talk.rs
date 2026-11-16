@@ -1222,8 +1222,9 @@ fn tags_said(tags: &Tags) -> String {
     lines.join("\n")
 }
 
-/// The blocks whose text is to be read, with the version of each: the one named, or every block whose latest version a
-/// person wrote, which is the item's own text.
+/// The blocks whose text is to be read, with the version of each: the one named, or every block people write, as the
+/// flow declares them, whose latest version the owner wrote, which is the item's own text. The owner's words to a cell
+/// and answers are the owner's too, and no text of the item's.
 fn texts_of(page: &WorkPage, block: Option<&str>) -> Result<Vec<(String, u64)>, String> {
     let latest = |b: &web::works::Block| b.versions.last().map(|v| (b.name.clone(), v.at));
     match block {
@@ -1238,10 +1239,13 @@ fn texts_of(page: &WorkPage, block: Option<&str>) -> Result<Vec<(String, u64)>, 
                 )
             })
         }
-        None => Ok((page.blocks.iter())
-            .filter(|b| b.versions.last().is_some_and(|v| v.by == Writer::Person))
-            .filter_map(latest)
-            .collect()),
+        None => {
+            let people = |name: &str| (page.flow.blocks.iter()).any(|b| b.name == name && b.written_by.people);
+            Ok((page.blocks.iter())
+                .filter(|b| people(&b.name) && b.versions.last().is_some_and(|v| v.by == Writer::Owner))
+                .filter_map(latest)
+                .collect())
+        }
     }
 }
 
@@ -1729,7 +1733,6 @@ fn person(person: Person) -> &'static str {
 
 fn writer(writer: &Writer) -> String {
     match writer {
-        Writer::Person => "a person".to_string(),
         Writer::Owner => "the owner".to_string(),
         Writer::Outside => "the outside".to_string(),
         Writer::Run { run, cell } => format!("{cell} in run {run}"),

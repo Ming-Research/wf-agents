@@ -396,26 +396,28 @@ fn of_cell(records: &Records, run: RunId, cell: &CellSpec) -> bool {
     (records.started.iter()).any(|s| s.run == run && s.cell == cell.id)
 }
 
-/// Who wrote a version, as a round is told it, worked out from the records and the flow, never stored (design document
-/// `data-and-context`, 29): a run's version by its cell's line, as the flow declares it, nobody where the cell is on no
-/// line; a person's by the owner. Of what the outside writes, the owner's words by the owner; a version of a cell's
-/// questions by its own record, which the engine writes in the same act, just before it: an ask by the asking run's
-/// line, an answer by the owner, and the engine's own question by nobody; and what a round's end read, the design tree
-/// and the work's head among it, by that round's line, as the version put into it says. Anything else the outside
-/// wrote, and what an act of the engine wrote, by nobody.
-fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView) -> By {
-    let line_of_run = |run: RunId| {
-        let cell = (records.started.iter()).find(|s| s.run == run).map(|s| &s.cell);
-        let line = cell.and_then(|cell| flow.cells.iter().find(|c| &c.id == cell)?.line.clone());
-        line.map_or(By::Nobody, By::Line)
-    };
+/// Who wrote a version: a run, the owner, or nobody. A round is told the run's line, and the work's page the run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Author {
+    Run(RunId),
+    Owner,
+    Nobody,
+}
+
+/// Who wrote a version, worked out from the records and the flow, never stored (design document `data-and-context`,
+/// 29): a run's version by its run; a person's by the owner. Of what the outside writes, the owner's words by the owner;
+/// a version of a cell's questions by its own record, which the engine writes in the same act, just before it: an ask by
+/// the asking run, an answer by the owner, and the engine's own question by nobody. Anything else the outside wrote,
+/// read of the branch and put into a round or not, and what an act of the engine wrote, by nobody (decision
+/// a-version-read-at-a-rounds-end-is-that-rounds).
+pub fn author(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView) -> Author {
     match version.by {
-        Writer::Run(run) => line_of_run(run),
-        Writer::Person => By::Owner,
+        Writer::Run(run) => Author::Run(run),
+        Writer::Person => Author::Owner,
         Writer::Outside => {
             let source = (flow.blocks.get(block)).and_then(|b| b.writers.outside.as_deref());
             match source {
-                Some(flow::WORDS) => By::Owner,
+                Some(flow::WORDS) => Author::Owner,
                 Some(flow::ANSWER) => {
                     let asked = (records.questions.iter())
                         .filter(|q| q.at < version.at)
@@ -426,18 +428,30 @@ fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView
                         .max();
                     match asked {
                         Some(q) if answered.is_none_or(|a| a < q.at) => match q.engine {
-                            true => By::Nobody,
-                            false => line_of_run(q.run),
+                            true => Author::Nobody,
+                            false => Author::Run(q.run),
                         },
-                        _ if answered.is_some() => By::Owner,
-                        _ => By::Nobody,
+                        _ if answered.is_some() => Author::Owner,
+                        _ => Author::Nobody,
                     }
                 }
-                _ => (records.put_in.iter())
-                    .find(|p| &p.block == block && p.version == version.at)
-                    .map_or(By::Nobody, |p| line_of_run(p.run)),
+                _ => Author::Nobody,
             }
         }
+    }
+}
+
+/// Who wrote a version, as a round is told it: the line of the cell of the run that wrote it, as the flow declares it,
+/// nobody where the cell is on no line; the owner; or nobody ([`author`]).
+fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView) -> By {
+    match author(flow, records, block, version) {
+        Author::Run(run) => {
+            let cell = (records.started.iter()).find(|s| s.run == run).map(|s| &s.cell);
+            let line = cell.and_then(|cell| flow.cells.iter().find(|c| &c.id == cell)?.line.clone());
+            line.map_or(By::Nobody, By::Line)
+        }
+        Author::Owner => By::Owner,
+        Author::Nobody => By::Nobody,
     }
 }
 

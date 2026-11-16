@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Cell, Flow } from '../api';
-import { exclusive } from '../matrix';
+import { canRun } from '../matrix';
 import { cell, flowOf, test, tested } from '../testing';
 // The engineer flow as `/api/v1/flow` gives it for `flow/engineer` (`wf-agents flow page flow/engineer`), a copy, so
 // that what the chart draws of it is known; read again from the flow page to bring it up to date.
@@ -70,10 +70,12 @@ describe('the flowchart of the engineer flow', () => {
     // A cell entered by a branch has no box of its own, and none where its when surely holds, as D2's after D1.
     for (const id of ['R1', 'R2', 'D1', 'D2', 'D3']) expect(nodeOf(chart, wayInNode(id))).toBeUndefined();
     expect(step(chart, cellNode('D1'), cellNode('D2'))?.branch).toBeNull();
-    // R1 and D1 exclude each other as written; R1's own write of deep_needed is what parts them.
+    // R1 and D1 exclude each other as written; R1's own write of deep_needed is what parts them, so R1's write can run
+    // D1, and D1's cannot run R1.
     const cellOf = (id: string) => engineer.cells.find((c) => c.id === id) as Cell;
-    expect(exclusive(cellOf('R1'), cellOf('D1'))).toBe(true);
     expect(cellOf('R1').outputs).toContain('deep_needed');
+    expect(canRun(cellOf('R1'), cellOf('D1'))).toBe(true);
+    expect(canRun(cellOf('D1'), cellOf('R1'))).toBe(false);
   });
 
   it('draws no edge from one fork to another', () => {

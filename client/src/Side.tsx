@@ -17,7 +17,7 @@ import type {
 } from './api';
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
-import { type ConditionRow, type LineRow, type Matrix, exclusive, kindOf, namesItself, where } from './matrix';
+import { type ConditionRow, type LineRow, type Matrix, canRun, kindOf, namesItself, where } from './matrix';
 import { Arrow, Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
   charactersWords,
@@ -333,9 +333,12 @@ export function CellPanel(props: {
   const onLine = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []) : [];
   const sharing = onLine.filter((c) => c !== cell.id);
   const cellOf = (id: string) => flow.cells.find((c) => c.id === id);
-  // The cells after this one that can run where it does: a write of theirs sends the work back to it.
+  // The cells after this one whose write can run it: a write of theirs sends the work back to it.
   const later = (ids: string[]) =>
-    ids.filter((id) => where(flow, cell.id, id) === 'below' && !exclusive(cell, cellOf(id)));
+    ids.filter((id) => {
+      const writer = cellOf(id);
+      return where(flow, cell.id, id) === 'below' && writer !== undefined && canRun(writer, cell);
+    });
   // What its own file watches, and whether it takes anything by `[every_agent]`, which one row of each list says.
   const own = cell.watches.filter((w) => w.list === 'watches');
   const alikeWatched = cell.watches.some((w) => w.list === 'every_agent');
@@ -476,13 +479,13 @@ export function CellPanel(props: {
               {cell.outputs.map((name) => {
                 const block = blocks.get(name) as Block;
                 // A write of it sends the work back to each cell before this one that watches it, by itself or
-                // through a group, and that can run where this one does.
+                // through a group, and that a write of this one's can run.
                 const sendsBack = flow.cells
                   .filter(
                     (c) =>
                       where(flow, cell.id, c.id) === 'above' &&
                       c.watches.some((w) => w.blocks.includes(name)) &&
-                      !exclusive(c, cell),
+                      canRun(cell, c),
                   )
                   .map((c) => c.id);
                 return (
@@ -641,8 +644,8 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
 
 /// Everything about a block: its values, who writes it, who reads it, and the ways back through it: each cell that
 /// watches it, by itself, through a group or by `[every_agent]`, with the later cells whose write of it runs that cell
-/// again, of those that can run where it does (`exclusive`). A cell that only reads it, or whose condition reads it, is
-/// not run by it, and no way back reaches it.
+/// again, where their write can run it (`canRun`). A cell that only reads it, or whose condition reads it, is not run
+/// by it, and no way back reaches it.
 export function BlockPanel(props: {
   block: Block;
   matrix: Matrix;
@@ -655,7 +658,7 @@ export function BlockPanel(props: {
     const watched = reader.watches.filter((w) => w.blocks.includes(block.name)).map((w) => w.name);
     if (watched.length === 0) return [];
     const writers = flow.cells
-      .filter((w, i) => i > r && w.outputs.includes(block.name) && !exclusive(reader, w))
+      .filter((w, i) => i > r && w.outputs.includes(block.name) && canRun(w, reader))
       .map((w) => w.id);
     return writers.length > 0 ? [{ reader: reader.id, writers, watched }] : [];
   });
@@ -865,11 +868,11 @@ export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chos
   const named = (list: { name: string }[]) => list.some((n) => n.name === name);
   const runs = flow.cells.filter((c) => named(c.watches.filter((w) => w.list === 'watches')));
   const reads = flow.cells.filter((c) => named(c.reads));
-  // Each cell that watches it, with the cells after it that write a block of the group and can run where it does.
+  // Each cell that watches it, with the cells after it that write a block of the group and whose write can run it.
   const at = (id: string) => flow.cells.findIndex((c) => c.id === id);
   const backs = runs.flatMap((reader) => {
     const writers = flow.cells
-      .filter((w) => at(w.id) > at(reader.id) && blocks.some((b) => w.outputs.includes(b)) && !exclusive(reader, w))
+      .filter((w) => at(w.id) > at(reader.id) && blocks.some((b) => w.outputs.includes(b)) && canRun(w, reader))
       .map((w) => w.id);
     return writers.length > 0 ? [{ reader: reader.id, writers }] : [];
   });

@@ -1,5 +1,5 @@
 /* The flow's chart: the data down the side, the cells across, a mark where they cross, and the ways back along the
-   data's rows in the muted colour, with an arrow; each line's row joined along it. The data's names stay in place as
+   data's rows in the accent, with an arrow; each line's row joined along it. The data's names stay in place as
    the frame scrolls sideways, and the cells' heads as it scrolls down. */
 
 /* The view under the view's line: the chart's frame, and the docked panel at its right while one is open. */
@@ -67,7 +67,7 @@
   vertical-align: top;
 }
 
-/* The blocks' names stay at the left. */
+/* The rows' names stay at the left. */
 .lead {
   position: sticky;
   left: 0;
@@ -76,8 +76,9 @@
   text-align: left;
 }
 
-/* The corner stands for both: "Cells" with an arrow to the right at its top right beside the cells' heads, and the
-   rows' label with an arrow down at its bottom left over the names. */
+/* The corner says what runs across: "Cells" with an arrow to the right at its top right beside the cells' heads; and,
+   where every row is of one kind, as a work's steps, that kind with an arrow down at its bottom left over the names.
+   The flow's rows are of many kinds, each tagged with its own, and the corner names none of them. */
 .matrix thead th.corner {
   z-index: 3;
   height: 1px;
@@ -199,11 +200,6 @@ tr.row.chosen > .block-head {
   color: var(--text);
 }
 
-.flow .corner-blocks {
-  position: static;
-  float: left;
-}
-
 /* The column of words, right of the marks, which takes the width the cells leave: one line to a row, cut where it is
    longer, whole on the pointer's tip. On the rows of the cell chosen it holds what that cell says of the block, and
    what the other blocks are is then muted beside it. */
@@ -319,32 +315,34 @@ tr.row.chosen > .block-head {
   right: 0;
 }
 
+/* Half the width of a crossing's marks side by side, as many as it has (`--marks`, one where unsaid): what its row's
+   line stops short of on either side. */
+.has-mark {
+  --marks-half: calc(var(--marks, 1) * var(--chart-mark-half) + (var(--marks, 1) - 1) * var(--space-2) / 2);
+}
+
 .has-mark .seg-left {
-  right: calc(50% + var(--chart-mark-half));
+  right: calc(50% + var(--marks-half));
 }
 
 .has-mark .seg-right {
-  left: calc(50% + var(--chart-mark-half));
+  left: calc(50% + var(--marks-half));
 }
 
 .seg.line {
   background: var(--muted);
 }
 
+/* The way back, in the accent: its line, and its arrow, drawn with the mark it points to so that its point is on the
+   mark's edge at any size. */
 .seg.back {
   height: var(--chart-back);
-  background: var(--muted);
+  background: var(--accent);
 }
 
-/* The arrow of a way back, right of the mark of the cell it runs again. */
-.arrow {
-  position: absolute;
-  top: 50%;
-  left: calc(50% + var(--chart-mark-half));
-  transform: translateY(-50%);
-  border-top: var(--chart-arrow) solid transparent;
-  border-right: var(--chart-arrow-length) solid var(--muted);
-  border-bottom: var(--chart-arrow) solid transparent;
+.part.arrow {
+  fill: var(--accent);
+  stroke: none;
 }
 
 .glyph {
@@ -353,6 +351,7 @@ tr.row.chosen > .block-head {
   width: var(--chart-mark);
   height: var(--chart-mark);
   margin: auto;
+  overflow: visible;
 }
 
 /* The marks on a datum's row, one for each thing, side by side. */
@@ -435,7 +434,7 @@ tr.row.chosen > .block-head {
   display: inline-block;
   width: var(--space-12);
   height: var(--chart-back);
-  background: var(--muted);
+  background: var(--accent);
 }
 
 /* The faults of a definition that does not compile, in place of the chart. */

@@ -2107,9 +2107,10 @@ impl<'a> Definition<'a> {
     }
 
     /// The faults of what a cell names that it watches and reads: an agent cell that nothing runs; a datum or group
-    /// named twice, or both watched and read; one the flow does not have; a datum of a line's own that is not the cell's
-    /// line's; one an engine cell reads; a block an agent cell is given whose kind it does not say; a kind of a block it
-    /// is not given; what it does for a datum it does not watch; a kind or what it does, of an engine cell.
+    /// named twice, or both watched and read; one the flow does not have; a block taken by two names, by itself and
+    /// through a group or through two groups (decision a-cell-names-a-block-once); a datum of a line's own that is not
+    /// the cell's line's; one an engine cell reads; a block an agent cell is given whose kind it does not say; a kind of
+    /// a block it is not given; what it does for a datum it does not watch; a kind or what it does, of an engine cell.
     fn check_watches(&self, file: &CellFile) -> Vec<(String, FaultKind)> {
         let mut found = Vec::new();
         let agent = file.kind == Kind::Agent;
@@ -2118,8 +2119,17 @@ impl<'a> Definition<'a> {
             found.push(("watches".to_string(), FaultKind::RunByNothing));
         }
         let known = |name: &str| self.flow.blocks.contains_key(name) || self.flow.groups.contains_key(name);
+        // Each block taken so far, with the name it was taken by, in the order the file names them.
+        let mut taken: Vec<(BlockId, &String)> = Vec::new();
         for (list, names) in [("watches", &file.watches), ("reads", &file.reads)] {
             for (i, name) in names.iter().enumerate() {
+                let members = self.members(name);
+                let by_another = (members.iter()).find_map(|block| {
+                    (taken.iter())
+                        .find(|(was, by)| was == block && *by != name)
+                        .map(|(_, by)| (block.clone(), *by))
+                });
+                taken.extend(members.into_iter().map(|block| (block, name)));
                 let again = names[..i].contains(name) || (list == "reads" && file.watches.contains(name));
                 let other_line = (self.own.lines.get(name)).filter(|line| file.line.as_ref() != Some(*line));
                 let kindless = (self.members(name).into_iter())
@@ -2128,6 +2138,12 @@ impl<'a> Definition<'a> {
                     FaultKind::Twice { name: name.clone() }
                 } else if !known(name) {
                     FaultKind::NoSuchBlock { block: name.clone() }
+                } else if let Some((block, first)) = by_another {
+                    FaultKind::TakenTwice {
+                        block: block.to_string(),
+                        first: first.clone(),
+                        also: name.clone(),
+                    }
                 } else if let Some(line) = other_line {
                     FaultKind::LineDataOfAnother {
                         block: name.clone(),

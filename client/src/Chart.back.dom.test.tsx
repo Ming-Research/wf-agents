@@ -53,22 +53,25 @@ function drawn(flow: Flow): HTMLElement {
 /// What each crossing of a datum's row draws: its segments and its arrow, by their classes.
 const crossings = (page: HTMLElement, block: string) =>
   [...(page.querySelector(`th[data-key="block:${block}"]`)?.closest('tr')?.querySelectorAll('td.spot') ?? [])].map(
-    (spot) => [...spot.querySelectorAll('.seg, .arrow')].map((part) => part.className.trim().replace(/\s+/g, ' ')),
+    (spot) =>
+      [...spot.querySelectorAll('.seg, .arrow')].map((part) =>
+        (part.getAttribute('class') ?? '').trim().replace(/\s+/g, ' '),
+      ),
   );
 
 describe('a way back along a datum\'s row', () => {
   it('runs in the middle of the row, with its arrow at each cell that watches it and it runs again', () => {
     const [plan, build, judge] = crossings(drawn(BACK_ALONE()), 'opinions');
-    expect(plan).toEqual(['seg seg-right back', 'arrow']);
+    expect(plan).toEqual(['seg seg-right back', 'part arrow']);
     // The way back passes through this watcher to the one before it.
-    expect(build).toEqual(['seg seg-left back', 'seg seg-right back', 'arrow']);
+    expect(build).toEqual(['seg seg-left back', 'seg seg-right back', 'part arrow']);
     expect(judge).toEqual(['seg seg-left back']);
   });
 
   it('is the only line along the row: a write going right draws none', () => {
     const [research, design, implement, review] = crossings(drawn(BOTH()), 'plan');
     expect(research).toEqual([]);
-    expect(design).toEqual(['seg seg-right back', 'arrow']);
+    expect(design).toEqual(['seg seg-right back', 'part arrow']);
     expect(implement).toEqual(['seg seg-left back']);
     expect(review).toEqual([]);
   });

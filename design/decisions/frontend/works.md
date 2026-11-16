@@ -31,3 +31,10 @@ of either.
 ### decision answers-are-on-the-item
 The page of a work holds no answer, choice or note of the owner's: those are on the item only.
 Why: A work's page is for its rounds and its chart, and what the owner answers and chooses belongs to the item.
+
+### decision a-version-is-shown-by-who-wrote-it
+A work's page names who wrote each version by the rule a round is told it by (decision
+a-version-is-told-by-the-line-that-wrote-it): the owner, the run that wrote it, or the outside.
+Why: The record of a write from outside names no one, the owner's words, a cell's ask and the owner's answer all being
+written by the engine's sources, so by the record alone the owner's words read as the outside's; a rule of the page's
+own would be a second copy, which could name another writer than the round is told (principle one-thing-one-place).

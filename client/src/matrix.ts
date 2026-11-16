@@ -27,15 +27,26 @@ export const NO_MARK: Mark = {
   precondition: false,
 };
 
-/// Whether two cells can never both run in one work, by their conditions as written: each one's `when` names a block or
-/// a datum the other's names with another value. A named test, or keys on different blocks, can both hold. No way back
-/// is drawn, counted or listed between two such cells: a later cell's write cannot send the work back to a cell that
-/// cannot run where the later one did.
-export function exclusive(a: Cell | undefined, b: Cell | undefined): boolean {
-  if (!a || !b) return false;
+/// Whether two cells' conditions as written exclude each other: each one's `when` names a block the other's names with
+/// another value. A named test, or keys on different blocks, can both hold.
+function exclusive(a: Cell, b: Cell): boolean {
   return a.when.some(
     (x) => x.on === 'block' && b.when.some((y) => y.on === 'block' && y.block === x.block && y.value !== x.value),
   );
+}
+
+/// A cell as it stands after its own run: a key of its `when` on a block it writes itself may no longer hold once it
+/// has written it, as R1's `deep_needed = no` once R1 has written yes, so such a key is left out.
+function afterItsRun(cell: Cell): Cell {
+  return { ...cell, when: cell.when.filter((k) => !(k.on === 'block' && cell.outputs.includes(k.block))) };
+}
+
+/// Whether a write of `writer`'s can run `reader`: not where their conditions exclude each other as they stand after
+/// the writer's run. It is the one rule the page decides it by, wherever it does: the flowchart's arrows and main path,
+/// the matrix's ways back and the panels' (decision one-rule-for-what-a-write-runs). No way back is drawn, counted or
+/// listed where it does not hold.
+export function canRun(writer: Cell, reader: Cell): boolean {
+  return !exclusive(afterItsRun(writer), reader);
 }
 
 /// Whether a key of a `when` or a `requires` reads the block: names it, or is a named test that reads it.
@@ -136,7 +147,7 @@ export interface Spot {
   mark: Mark;
   /// The way back, the only line along a row of the data: from a later cell's write of the row's datum, of one of its
   /// group's or of the data a name of `[every_agent]` stands for, leftwards to each cell before it that watches it by
-  /// the row's name and can run where the writer does (not `exclusive`).
+  /// the row's name and that a write of the writer's can run (`canRun`).
   back: Segment;
   /// A cell that a write right of it sends the work back to.
   backTo: boolean;
@@ -171,7 +182,8 @@ export interface ConditionSpot {
 }
 
 /// A row of a condition the cells name: a named test, or a block or datum a key of a cell's `when` or `requires`
-/// names.
+/// names. A datum's row is its one row on the chart: the data's rows have none of it, and it carries what each cell's
+/// file says of the datum as theirs do, with the way back along it (principle say-a-thing-once).
 export interface ConditionRow {
   /// The test's name, or the block's.
   name: string;
@@ -181,6 +193,9 @@ export interface ConditionRow {
   block?: string;
   /// By cell, in the order of the columns.
   spots: ConditionSpot[];
+  /// Of a block's row that stands for a datum of the data's rows, the datum's row, and by cell what each cell's file
+  /// says of it, with the way back along it.
+  data?: { row: BlockRow; spots: Spot[] };
 }
 
 /// A row of one of the engine's tools: by cell, whether the cell may call it.
@@ -204,7 +219,8 @@ export interface EveryRow {
 
 /// The matrix of a flow.
 export interface Matrix {
-  /// The rows of the data, top to bottom: each datum, and each group a cell watches by its name over its first block.
+  /// The rows of the data, top to bottom: each datum but those `[every_agent]` names and those a condition names, whose
+  /// rows are in their bands, and each group a cell watches by its name over its first block.
   blocks: BlockRow[];
   /// The columns, left to right: the order of the walk.
   cells: Cell[];
@@ -212,7 +228,8 @@ export interface Matrix {
   spots: Spot[][];
   /// The rows of the lines the agents' cells name, at the top, each where its first cell stands.
   lines: LineRow[];
-  /// The rows of the conditions the cells name, under the lines', each where the first cell that names it stands.
+  /// The rows of the conditions the cells name, under the lines', each where the first cell that names it stands; a
+  /// datum's is its one row.
   conditions: ConditionRow[];
   /// The rows of the engine's tools: the flow's, or else each a cell names, in the order named.
   tools: ToolRow[];
@@ -224,7 +241,7 @@ export interface Matrix {
 }
 
 /// Draws the ways back along a row and counts them: for each block the row stands for, from each later cell that
-/// writes it to each earlier cell that watches it by the row's name and can run where the writer does.
+/// writes it to each earlier cell that watches it by the row's name and that the writer's write can run (`canRun`).
 function waysBackAlong(
   row: Spot[],
   cells: Cell[],
@@ -238,7 +255,7 @@ function waysBackAlong(
   for (const block of blocks) {
     for (let c = 0; c < cells.length; c += 1) {
       if (!watches(c, block)) continue;
-      const from = cells.flatMap((_, w) => (w > c && writes(w, block) && !exclusive(cells[c], cells[w]) ? [w] : []));
+      const from = cells.flatMap((_, w) => (w > c && writes(w, block) && canRun(cells[w], cells[c]) ? [w] : []));
       if (from.length === 0) continue;
       count += from.length;
       row[c].backTo = true;
@@ -256,11 +273,27 @@ export function matrix(flow: Flow): Matrix {
   const blockIn = (name: string) => flow.blocks.find((b) => b.name === name);
   let waysBack = 0;
 
-  // The data's rows, but those `[every_agent]` names, which its band holds; a group a cell watches by its name stands
-  // right above the first of its blocks' rows.
+  // The conditions, each where the first cell that names it stands, every key of a cell's `when` first, then of its
+  // `requires`, in their order. A block is one row, whatever value each cell waits for; a test and a block of one name
+  // are two.
+  const conditionsNamed: { name: string; test?: Test; block?: string }[] = [];
+  for (const c of cells) {
+    for (const key of [...c.when, ...c.requires]) {
+      const row = key.on === 'block' ? { name: key.block, block: key.block } : { name: key.test.name, test: key.test };
+      if (!conditionsNamed.some((r) => r.name === row.name && (r.test === undefined) === (row.test === undefined))) {
+        conditionsNamed.push(row);
+      }
+    }
+  }
+  const conditionBlocks = new Set(conditionsNamed.flatMap((r) => (r.block !== undefined ? [r.block] : [])));
+
+  // The data's rows, but those `[every_agent]` names, which its band holds, and those a condition names, whose rows in
+  // the band of the conditions are theirs; a group a cell watches by its name stands right above the first of its
+  // blocks' rows.
   const every = flow.everyAgent;
   const alike = new Set([...every.watches, ...every.reads].flatMap((n) => n.blocks));
-  const order = blockOrder(flow).filter((name) => !alike.has(name));
+  const ofTheData = blockOrder(flow).filter((name) => !alike.has(name));
+  const order = ofTheData.filter((name) => !conditionBlocks.has(name));
   const watchesGroup = (cell: Cell, group: string) =>
     cell.watches.some((w) => w.list === 'watches' && w.name === group);
   const groups = flow.groups.filter((g) => cells.some((c) => watchesGroup(c, g.name)));
@@ -365,18 +398,6 @@ export function matrix(flow: Flow): Matrix {
     };
   });
 
-  // The conditions, each where the first cell that names it stands, every key of a cell's `when` first, then of its
-  // `requires`, in their order. A block is one row, whatever value each cell waits for; a test and a block of one name
-  // are two.
-  const conditionsNamed: { name: string; test?: Test; block?: string }[] = [];
-  for (const c of cells) {
-    for (const key of [...c.when, ...c.requires]) {
-      const row = key.on === 'block' ? { name: key.block, block: key.block } : { name: key.test.name, test: key.test };
-      if (!conditionsNamed.some((r) => r.name === row.name && (r.test === undefined) === (row.test === undefined))) {
-        conditionsNamed.push(row);
-      }
-    }
-  }
   // The key of these that is on the row: of a block's row, by the value it waits for; of a test's row, as ''.
   const keyOn = (row: { name: string; block?: string }, keys: Condition[]): string | undefined => {
     for (const key of keys) {
@@ -385,9 +406,25 @@ export function matrix(flow: Flow): Matrix {
     }
     return undefined;
   };
+  // The datum's row a block's row stands for, where the data's rows would have one, with its marks and its way back.
+  const dataOf = (block: string): ConditionRow['data'] => {
+    if (!ofTheData.includes(block)) return undefined;
+    const of = groups.filter((g) => g.blocks.includes(block)).map((g) => g.name);
+    const row: BlockRow = { name: block, block: blockIn(block), of };
+    const along = cells.map((cell): Spot => ({ mark: markIn(cell, row), back: 'none', backTo: false }));
+    waysBack += waysBackAlong(
+      along,
+      cells,
+      [block],
+      (c) => along[c].mark.watch,
+      (w) => along[w].mark.write,
+    );
+    return { row, spots: along };
+  };
   const conditions: ConditionRow[] = conditionsNamed.map((row) => ({
     ...row,
     test: row.test && (flow.tests.find((t) => t.name === row.name) ?? row.test),
+    data: row.block !== undefined ? dataOf(row.block) : undefined,
     spots: cells.map((c) => {
       const value = keyOn(row, c.when);
       const requiresValue = keyOn(row, c.requires);

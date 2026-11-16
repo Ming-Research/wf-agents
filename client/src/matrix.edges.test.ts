@@ -4,11 +4,12 @@ import type { Cell, EveryAgent, Flow, GivenBlock, Watch } from './api';
 import { carried, cellNode, chartOf, contextOf, outsideNode } from './graph/model';
 import { NO_MARK, markOf, matrix } from './matrix';
 import { type Declared, NO_EVERY_AGENT, cell, everyAgent, flowOf, small } from './testing';
-import { cellSays, everyIs, everyMarkWords, everySays, groupSays, markWords } from './words';
+import { cellSays, everyIs, everyMarkWords, everySays, markWords } from './words';
 
-// The edges of the Flow page drawn on what each cell `watches` and `reads`: a group and one of its blocks named by one
-// cell, groups that share a block, a group that holds a datum `[every_agent]` watches, and what a cell's own file says
-// of a datum `[every_agent]` names. Each is held against the design (design document `data-and-context`, 5 to 12;
+// The edges of the Flow page drawn on what each cell `watches` and `reads`: groups that share a block, a group that holds
+// a datum `[every_agent]` watches, and what a cell's own file says of a datum `[every_agent]` names. A cell that takes a
+// block by two names, by itself and through a group or through two groups, the compiler refuses (decision
+// a-cell-names-a-block-once). Each is held against the design (design document `data-and-context`, 5 to 12;
 // decisions a-way-back-is-the-only-line-along-a-row and every-agent-is-a-band-of-its-own) and against the flowchart, which
 // counts the names its arrows carry.
 
@@ -118,43 +119,6 @@ describe('a group that holds a datum every agent cell watches', () => {
   });
 });
 
-describe('a cell that watches a group and one of its blocks by its own name', () => {
-  const f = () =>
-    flowOf(
-      [
-        cell('A', { watches: [{ group: 'G', blocks: ['acc', 'x'] }, 'acc'], kinds: { acc: 'all', x: 'latest' } }),
-        cell('B', { outputs: ['acc'] }),
-      ],
-      { acc: {}, x: { people: true } },
-    );
-
-  // Catches a way back drawn on one of the two names alone, or counted once where the flowchart's arrow carries two.
-  it('has a ring and a way back on each row, counted for each name, as the flowchart counts the names it carries', () => {
-    const m = matrix(f());
-    expect(m.blocks.map((b) => b.name)).toEqual(['G', 'x', 'acc']);
-    expect(markAt(m, 'A', 'G')).toEqual(mark({ watch: true }));
-    expect(markAt(m, 'A', 'acc')).toEqual(mark({ watch: true, kind: 'all' }));
-    expect(markAt(m, 'A', 'x')).toEqual(mark({}));
-    expect(row(m, 'G').map((s) => s.backTo)).toEqual([true, false]);
-    expect(row(m, 'acc').map((s) => s.backTo)).toEqual([true, false]);
-    expect(carried(f(), cellIn(f(), 'B'), cellIn(f(), 'A')).map((c) => c.name)).toEqual(['G', 'acc']);
-    expect(m.waysBack).toBe(2);
-    expect(drawnBack(f())).toBe(2);
-  });
-
-  // Catches the words of a crossing and of the column naming the group on the block's row, or dropping the kind.
-  it('says each crossing by the key and the name its file writes', () => {
-    const m = matrix(f());
-    const A = cellIn(f(), 'A');
-    const B = cellIn(f(), 'B');
-    expect(markWords(A, 'G', markAt(m, 'A', 'G'), ['acc', 'x'])).toBe('A watches G');
-    expect(markWords(A, 'acc', markAt(m, 'A', 'acc'))).toBe('A watches acc, all');
-    expect(markWords(B, 'G', markAt(m, 'B', 'G'), ['acc', 'x'])).toBe('B outputs acc');
-    expect(groupSays(A, 'G', ['acc', 'x'])).toBe('watches');
-    expect(cellSays(A, 'acc')).toBe('watches all');
-  });
-});
-
 describe('two groups that share a block, each watched', () => {
   const f = () =>
     flowOf(
@@ -195,67 +159,6 @@ describe('two groups that share a block, each watched', () => {
     }
     expect(m.waysBack).toBe(2);
     expect(drawnBack(f())).toBe(2);
-  });
-});
-
-describe('a cell that watches a group and reads one of its blocks by its own name', () => {
-  const f = () =>
-    flowOf(
-      [
-        cell('A', { watches: [{ group: 'G', blocks: ['acc', 'x'] }], reads: ['acc'], kinds: { acc: 'latest', x: 'all' } }),
-        cell('B', { outputs: ['acc'] }),
-      ],
-      { acc: {}, x: { people: true } },
-    );
-
-  // Catches the reads ring dropped for the group's, or a way back drawn on the block's row to a cell that reads it there.
-  it('is drawn as its file writes it: the ring on the group’s row, the reads ring with its kind on the block’s', () => {
-    const m = matrix(f());
-    expect(m.blocks.map((b) => b.name)).toEqual(['G', 'x', 'acc']);
-    expect(markAt(m, 'A', 'G')).toEqual(mark({ watch: true }));
-    expect(markAt(m, 'A', 'acc')).toEqual(mark({ read: true, kind: 'latest' }));
-    expect(row(m, 'G').map((s) => s.backTo)).toEqual([true, false]);
-    expect(row(m, 'acc').every((s) => s.back === 'none' && !s.backTo)).toBe(true);
-    expect(m.waysBack).toBe(1);
-    expect(drawnBack(f())).toBe(1);
-  });
-
-  // Catches the column of words saying only the group's key on a row whose crossing is the reads ring: with the cell
-  // chosen, the column says what its file says of the row by its keys, and its file reads acc.
-  it('says on the block’s row the key its crossing shows, beside the group it watches it through', () => {
-    const m = matrix(f());
-    const A = cellIn(f(), 'A');
-    expect(markWords(A, 'acc', markAt(m, 'A', 'acc'))).toBe('A reads acc, latest');
-    const says = cellSays(A, 'acc');
-    expect(says).toContain('watches G');
-    expect(says).toContain('reads');
-  });
-});
-
-describe('a cell that reads a group and watches one of its blocks by its own name', () => {
-  const f = () =>
-    flowOf(
-      [
-        cell('A', { reads: [{ group: 'G', blocks: ['acc', 'x'] }], watches: ['acc'], kinds: { acc: 'all', x: 'latest' } }),
-        cell('B', { outputs: ['acc'] }),
-      ],
-      { acc: {}, x: { people: true } },
-    );
-
-  // Catches the chosen cell's box taking the list a block was first given by (`reads`, given before what is watched)
-  // for whether a new version of it runs the cell: the matrix and a work's history ring acc as watched.
-  it('is watched on the block’s row, in a work’s history and in the chosen cell’s box alike', () => {
-    const flow = f();
-    const m = matrix(flow);
-    expect(m.blocks.map((b) => b.name)).toEqual(['x', 'acc']);
-    expect(markAt(m, 'A', 'acc')).toEqual(mark({ watch: true, kind: 'all' }));
-    expect(markAt(m, 'A', 'x')).toEqual(mark({ read: true, kind: 'latest' }));
-    expect(markOf(cellIn(flow, 'A'), 'acc')).toEqual(mark({ watch: true, kind: 'all' }));
-    expect(m.waysBack).toBe(1);
-    expect(contextOf(flow, 'A').map((t) => `${t.block} ${t.kind} ${t.watched ? 'watches' : 'reads'}`)).toEqual([
-      'acc all watches',
-      'x latest reads',
-    ]);
   });
 });
 
