@@ -381,7 +381,13 @@ export type Unmet =
   | { kind: 'notAnswerable'; name: string }
   | { kind: 'notAnswered'; name: string }
   | { kind: 'unexplained'; path: string }
-  | { kind: 'unanswered'; block: string };
+  | { kind: 'notATest'; path: string }
+  | { kind: 'unanswered'; block: string }
+  /// It names as dealt with a dialogue it holds as the maker, woken by a point in it, and answers none of its points
+  /// there, changes none of what the other side watches and asks no question the work waits for.
+  | { kind: 'wordOwed'; name: string; watched: string[] }
+  /// It hands in a verdict with the value that does not pass, and no version of its dialogue.
+  | { kind: 'noPoint'; block: string; value: string; name: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.

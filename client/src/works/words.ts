@@ -548,8 +548,14 @@ export function unmetWords(unmet: Unmet): string {
       return `it dealt with the owner's words by ${unmet.name}, and gave no reply`;
     case 'unexplained':
       return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
+    case 'notATest':
+      return `it changed ${unmet.path}, which is none of the project's tests`;
     case 'unanswered':
       return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
+    case 'wordOwed':
+      return `it dealt with ${unmet.name}, woken by a point in it, and answered none of its points, changed none of ${unmet.watched.join(', ')}, and asked no question the work waits for`;
+    case 'noPoint':
+      return `it handed in ${unmet.block} as ${unmet.value}, which does not pass, and gave no ${unmet.name}`;
   }
 }
 
