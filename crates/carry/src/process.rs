@@ -223,7 +223,6 @@ impl Overseer {
         let mut command = Command::new("sh");
         let wait = STOP_WAIT.as_secs().to_string();
         (command.args(["-c", OVERSEEING, "overseer", &group.to_string(), &wait]))
-            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -431,7 +430,8 @@ mod tests {
     /// The file in that directory that names the program's group.
     const NAMED: &str = "program.pgid";
 
-    /// The file in that directory that the program writes a line in each time it is told TERM.
+    /// The file in that directory that the program writes `ready` in once it goes on when told TERM, and a line `TERM`
+    /// each time it is told it.
     const TOLD: &str = "term.told";
 
     // Played by the test binary run again, and only so: runs a program that does not end, and goes on when told TERM,
@@ -444,7 +444,7 @@ mod tests {
         };
         let (file, told) = (Path::new(&dir).join(NAMED), Path::new(&dir).join(TOLD));
         let mut command = Command::new("sh");
-        let program = r#"trap 'echo TERM >> "$1"' TERM; while :; do sleep 1; done"#;
+        let program = r#"trap 'echo TERM >> "$1"' TERM; echo ready >> "$1"; while :; do sleep 1; done"#;
         command.args(["-c", program, "program"]).arg(&told);
         let _ = run(command, None, Some(&file), &mut Stop::never()).await;
     }
@@ -487,24 +487,34 @@ mod tests {
         let mut groups = Vec::new();
         for dir in &dirs {
             groups.push(named_in(&dir.path().join(NAMED)).await);
+            // Ended before it traps TERM, the program would end at TERM, and could not show it was told it first.
+            let told = dir.path().join(TOLD);
+            let began = std::time::Instant::now();
+            while !std::fs::read_to_string(&told).is_ok_and(|told| told.lines().any(|line| line == "ready")) {
+                assert!(began.elapsed() < Duration::from_secs(20), "the program never went on");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
         }
         let began = std::time::Instant::now();
         for (engine, name) in engines.iter_mut().zip(ending) {
             engine.signalled(name).await;
         }
         let lived = ends_all(&groups, began).await;
+        let mut wrong = Vec::new();
         for ((name, dir), lived) in ending.iter().zip(&dirs).zip(lived) {
-            let lived = lived.unwrap_or_else(|| panic!("the program outlived the engine that ran it, ended by {name}"));
             let told = std::fs::read_to_string(dir.path().join(TOLD)).unwrap_or_default();
-            assert!(
-                told.lines().any(|line| line == "TERM"),
-                "the program was not told TERM before it was killed, the engine ended by {name}"
-            );
-            assert!(
-                lived >= STOP_WAIT - Duration::from_secs(1),
-                "the program was killed {lived:?} after the engine was ended by {name}, before the stop's wait"
-            );
+            match lived {
+                None => wrong.push(format!("the program outlived the engine that ran it, ended by {name}")),
+                Some(_) if !told.lines().any(|line| line == "TERM") => wrong.push(format!(
+                    "the program was not told TERM before it was killed, the engine ended by {name}"
+                )),
+                Some(lived) if lived < STOP_WAIT - Duration::from_secs(1) => wrong.push(format!(
+                    "the program was killed {lived:?} after the engine was ended by {name}, before the stop's wait"
+                )),
+                Some(_) => {}
+            }
         }
+        assert!(wrong.is_empty(), "{}", wrong.join("; "));
     }
 
     // Ending by itself, as when its loop or the server of its pages stops, the process of the engine drops the rounds
