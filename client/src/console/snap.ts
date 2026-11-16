@@ -550,8 +550,10 @@ export class SnapScene {
   private world = new Container();
   /// The funnels from each item to the items under it; and the rings of the items lit.
   private links = new Graphics();
-  /// The dashed ways from the items whose work runs up to their roots, drawn anew each frame over the funnels.
+  /// The dashed ways from the items whose work runs up to their roots, drawn anew each frame over the funnels: those
+  /// that dim while something is lit, and those on the way of what is lit, which do not.
   private runLines = new Graphics();
+  private runLinesLit = new Graphics();
   /// The soft lights behind the item selected and the item under the pointer, drawn anew each frame where they stand,
   /// blurred.
   private chosenGlow = new Graphics({ filters: [softBlur(CHOSEN_BLUR)] });
@@ -682,6 +684,7 @@ export class SnapScene {
     this.world.addChild(
       this.links,
       this.runLines,
+      this.runLinesLit,
       this.hoverGlow,
       this.chosenGlow,
       this.glowGround,
@@ -1253,9 +1256,9 @@ export class SnapScene {
     this.glowGround.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).fill({ color: PALETTE.card, alpha: on });
   }
 
-  /// Adds to the running ways the dashed curve from `(px, py)` to `(cx, cy)`, bent as a funnel is, its dashes moved on
-  /// `shift` pixels from its start ([`dashesAlong`]).
-  private dashed(px: number, py: number, cx: number, cy: number, shift: number) {
+  /// Adds to the running ways `g` the dashed curve from `(px, py)` to `(cx, cy)`, bent as a funnel is, its dashes moved
+  /// on `shift` pixels from its start ([`dashesAlong`]).
+  private dashed(g: Graphics, px: number, py: number, cx: number, cy: number, shift: number) {
     const bend = (cx - px) / 2;
     const points = Array.from({ length: RUN_PIECES + 1 }, (_, n): [number, number] => {
       const u = n / RUN_PIECES;
@@ -1282,12 +1285,12 @@ export class SnapScene {
     let n = 0;
     for (const [from, to] of dashesAlong(along[RUN_PIECES], shift)) {
       while (n < RUN_PIECES - 1 && along[n + 1] <= from) n += 1;
-      this.runLines.moveTo(...point(n, from));
+      g.moveTo(...point(n, from));
       while (n < RUN_PIECES - 1 && along[n + 1] < to) {
         n += 1;
-        this.runLines.lineTo(points[n][0], points[n][1]);
+        g.lineTo(points[n][0], points[n][1]);
       }
-      this.runLines.lineTo(...point(n, to));
+      g.lineTo(...point(n, to));
     }
   }
 
@@ -1612,25 +1615,6 @@ export class SnapScene {
       }
     }
     this.links.fill({ color: PALETTE.other, alpha: PALETTE.otherAlpha * (DIM_LINKS + (1 - DIM_LINKS) * this.dim) });
-    // The way from each item whose work runs up to its root, dashed in the colour of a running card's edge, its dashes
-    // moving from the root's side to the item's: each link from an item to the one above it drawn once, however many
-    // running items it is on.
-    this.runLines.clear();
-    const shift = ((now / 1000) * RUN_SPEED) % (RUN_DASH + RUN_GAP);
-    for (const i of this.runWays) {
-      const p = t.parent[i];
-      const d = t.depth[i];
-      const [px, cx] = [x(d - 1) + NODE_W, x(d)];
-      if (cx < 0 || px > width) continue;
-      const [py, iy] = [y(d - 1, t.rank[p]), y(d, t.rank[i])];
-      if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
-      this.dashed(px, py, cx, iy, shift);
-    }
-    this.runLines.stroke({
-      color: mix(PALETTE.card, WORK().running, EDGE_RUNNING),
-      width: RUN_LINE,
-      alpha: DIM_LINKS + (1 - DIM_LINKS) * this.dim,
-    });
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
     // blue and ringed in blue, over everything else, the item itself glowing too; each comes in quickly, and fades out
     // once the pointer has left.
@@ -1689,6 +1673,26 @@ export class SnapScene {
       const to = aim === 1 || focus.has(i) || chosen.has(i) ? 1 : DIM;
       view.alpha += (to - view.alpha) * (1 - Math.exp(-step / (to < view.alpha ? FADE_DOWN : FADE_UP)));
     }
+    // The way from each item whose work runs up to its root, dashed in the colour of a running card's edge, its dashes
+    // moving from the root's side to the item's: each link from an item to the one above it drawn once, however many
+    // running items it is on. While something is lit, the links on its way stand at full strength and the others dim
+    // with the items they join.
+    this.runLines.clear();
+    this.runLinesLit.clear();
+    const shift = ((now / 1000) * RUN_SPEED) % (RUN_DASH + RUN_GAP);
+    const shining = (k: number) => focus.has(k) || chosen.has(k);
+    for (const i of this.runWays) {
+      const p = t.parent[i];
+      const d = t.depth[i];
+      const [px, cx] = [x(d - 1) + NODE_W, x(d)];
+      if (cx < 0 || px > width) continue;
+      const [py, iy] = [y(d - 1, t.rank[p]), y(d, t.rank[i])];
+      if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
+      this.dashed(shining(i) && shining(p) ? this.runLinesLit : this.runLines, px, py, cx, iy, shift);
+    }
+    const runColour = mix(PALETTE.card, WORK().running, EDGE_RUNNING);
+    this.runLines.stroke({ color: runColour, width: RUN_LINE, alpha: DIM_LINKS + (1 - DIM_LINKS) * this.dim });
+    this.runLinesLit.stroke({ color: runColour, width: RUN_LINE });
     for (const i of chosen) {
       const p = t.parent[i];
       if (p < 0) continue;
