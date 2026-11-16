@@ -1108,10 +1108,11 @@ impl Random {
                     };
                     wrote(&b, Outsider::Outside, true, Some(value))
                 }
-                // What the outside writes is approved as not mattering only as a change of what the block said: a first
-                // version so written would say nothing, and run no cell (design document `data-and-context`, 9).
+                // What the outside writes is approved as not mattering only as a change of what the block said: a
+                // version so written of a block that says nothing yet would say nothing, and run no cell (design
+                // document `data-and-context`, 9).
                 None => {
-                    let matters = d.rng.chance(50) || !ever_written(&d.work.records, &b);
+                    let matters = d.rng.chance(50) || !says_something(&d.flow.flow, &d.work.records, &b);
                     wrote(&b, Outsider::Outside, matters, None)
                 }
             }),
