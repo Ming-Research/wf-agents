@@ -172,7 +172,9 @@ describe('the marks on a datum’s row', () => {
 
   it('stand on one row for each datum, and no row stands for what runs a cell apart from its data', () => {
     const m = matrix(small());
-    expect(m.blocks.map((b) => b.name)).toEqual(blockOrder(small()));
+    // The datum a condition reads, `needs_design`, has its one row with the condition's.
+    expect(m.blocks.map((b) => b.name)).toEqual(blockOrder(small()).filter((b) => b !== 'needs_design'));
+    expect(m.conditions.map((c) => c.name)).toContain('needs_design');
     expect(m.blocks.every((b) => b.group === undefined)).toBe(true);
     expect(m.cells.map((c) => c.id)).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
   });

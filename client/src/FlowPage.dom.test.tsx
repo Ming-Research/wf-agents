@@ -68,10 +68,12 @@ describe('the chart', () => {
     const page = draw({ state: 'compiled', flow: small() });
     expect(texts(page, 'thead .cell-head .cell-id')).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
     expect(page.querySelector('tbody.triggers')).toBeNull();
+    // The corner names the cells across and no kind of row: each row's tag says its own.
+    expect(page.querySelector('thead th.corner')?.textContent?.trim()).toBe('Cells');
+    // A datum a condition reads has its one row with the condition's, over the data's rows.
     expect(rows(page).map((tr) => tr.querySelector('.block-name')?.textContent)).toEqual([
       'request',
       'plan',
-      'needs_design',
       'opinions',
       'design',
       'commented',
@@ -90,9 +92,12 @@ describe('the chart', () => {
       'answer watches plan, last_and_latest',
     ]);
     expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual(['check outputs ci', 'merge watches ci']);
-    // What its condition reads is on the condition's own row.
-    expect(texts(rowOf(page, 'needs_design'), '.spot .visually-hidden')).toEqual(['judge outputs needs_design']);
-    expect(rowOf(page, 'needs_design').querySelector('.block-values')?.textContent).toBe('yes|no');
+    // The datum its condition reads is on the condition's row, with the datum's tag, its values, and no other.
+    expect(rowOf(page, 'needs_design')).toBeUndefined();
+    const needs = bandRow(page, 'condition-row', 'needs_design');
+    expect(texts(needs, '.spot .visually-hidden')).toEqual(['judge outputs needs_design', 'design when needs_design = yes']);
+    expect(needs.querySelector('.block-values')?.textContent).toBe('yes|no');
+    expect(texts(needs, '.row-label')).toEqual([]);
     // A head holds the id alone; its title, line, when and requires are what its button is called, by their keys.
     expect(texts(page, 'thead .cell-head .head-button')).toEqual([
       'plan',
@@ -125,6 +130,7 @@ describe('the chart', () => {
       'may_merge',
     ]);
     expect(texts(bandRow(page, 'condition-row', 'needs_design'), '.spot .visually-hidden')).toEqual([
+      'judge outputs needs_design',
       'design when needs_design = yes',
     ]);
     expect(texts(bandRow(page, 'condition-row', 'has_comment'), '.spot .visually-hidden')).toEqual([
@@ -148,6 +154,32 @@ describe('the chart', () => {
     expect(bandRow(page, 'condition-row', 'may_merge').querySelectorAll('.part.precondition')).toHaveLength(1);
     expect(bandRow(page, 'condition-row', 'needs_design').querySelectorAll('.part.holds')).toHaveLength(1);
     expect(page.querySelector('.legend')?.textContent).toContain('when no');
+  });
+
+  it('draws a datum a condition reads once, its marks beside the condition’s and its way back along it', () => {
+    const flow = flowOf(
+      [
+        cell('r', { watches: ['ok'] }),
+        cell('m', { requires: [{ on: 'block', block: 'ok', value: 'yes' }] }),
+        cell('w', { outputs: ['ok'] }),
+      ],
+      { ok: { values: ['yes', 'no'] } },
+    );
+    const page = draw({ state: 'compiled', flow });
+    expect(rowOf(page, 'ok')).toBeUndefined();
+    const ok = bandRow(page, 'condition-row', 'ok');
+    expect(texts(ok, '.spot .visually-hidden')).toEqual([
+      'r watches ok, last_and_latest',
+      'm requires ok = yes',
+      'w outputs ok',
+    ]);
+    expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
+    const spots = [...ok.querySelectorAll('td.spot')];
+    expect(spots[0].querySelectorAll('.arrow')).toHaveLength(1);
+    expect(spots.map((s) => s.querySelectorAll('.seg.back').length)).toEqual([1, 2, 1]);
+    // Chosen, the datum's row says what the cell's file says of it beside the condition its cell names.
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    expect(ok.querySelector('.words')?.textContent).toBe('watches, last_and_latest');
   });
 
   it('marks a when on a block by a tick for yes, a cross for no and the value itself for another', () => {
