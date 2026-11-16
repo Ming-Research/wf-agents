@@ -382,7 +382,7 @@ impl<'a> Build<'a> {
         };
         // A datum that stands for a file of the project is shown as the checkout has the file.
         let datum = |name: &str| agents.project.files.get(name).map_or(Ok(None), |file| read(&file.path));
-        for part in flow::system::parts(agents, self.flow, cell, &read, datum).map_err(|wrong| wrong.join("; "))? {
+        for part in flow::system::parts(agents, self.flow, cell, read, datum).map_err(|wrong| wrong.join("; "))? {
             out.push(self.part(What::System, Carried::System, &part.name, part.source, part.pieces));
         }
         // The message as the engine's builder defines it, each form of each part with the places of a run open.

@@ -19,7 +19,7 @@ const ANSWER: &str = "answer";
 
 /// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines, each line
 /// writing a block of its own, the design tree, the work's head, as a commit no round made moves it, and the project's
-/// guide, read as the work's place is made.
+/// guide.
 pub const START: &str = "start";
 pub const DEPENDENCIES: &str = "dependencies";
 pub const MAIN: &str = "main";

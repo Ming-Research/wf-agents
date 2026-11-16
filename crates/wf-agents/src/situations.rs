@@ -92,7 +92,7 @@ fn system(
     let read = |path: &str| Ok(project.and_then(|checkout| std::fs::read_to_string(checkout.join(path)).ok()));
     // A datum that stands for a file of the project is shown as the checkout has the file.
     let datum = |name: &str| beside.project.files.get(name).map_or(Ok(None), |file| read(&file.path));
-    let parts = flow::system::parts(beside, flow, cell, &read, datum).map_err(|wrong| wrong.join("; "))?;
+    let parts = flow::system::parts(beside, flow, cell, read, datum).map_err(|wrong| wrong.join("; "))?;
     let open = |name: &str| Some(format!("{{{name}}}"));
     flow::system::prompt(&parts, named, open).map_err(|wrong| wrong.join("; "))
 }

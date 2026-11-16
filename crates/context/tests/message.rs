@@ -743,7 +743,6 @@ fn guide(rule: &str) -> String {
 fn the_guide_is_held_from_the_session_s_start_and_what_changed_in_it_is_sent() {
     let mut sim = Sim::of(support::guided(), support::guided_words());
     sim.wrote("guide", &guide("Write in English."), None, Outsider::Outside);
-    sim.writes("request", "Greet the user.");
     let round = sim.round().expect("the plan is entered");
     let first = sim.version("guide");
     let entered = sim.enter(&round, false);
@@ -756,11 +755,17 @@ fn the_guide_is_held_from_the_session_s_start_and_what_changed_in_it_is_sent() {
     assert!(!entered.fills.contains(&whole("guide", first)), "{:?}", entered.fills);
     sim.tries(&round, 1, entered.fills);
     sim.hands_in(&round, &[("plan", "Greet by name.", None)]);
-    // The guide changes, and runs the plan again in the session that began with its first version.
+    // The guide changes, and runs the plan again, after the build of its line under way, in the session that began
+    // with its first version.
     sim.wrote("guide", &guide("Write in plain English."), None, Outsider::Outside);
     let latest = sim.version("guide");
-    let round = sim.round().expect("the plan is entered again");
-    assert_eq!(sim.cell(&round).id.as_str(), "plan");
+    let round = loop {
+        let round = sim.round().expect("a round is given");
+        if sim.cell(&round).id.as_str() == "plan" {
+            break round;
+        }
+        carry(&mut sim, &[("code", CODE, None)]);
+    };
     let entered = sim.enter(&round, false);
     let new = format!("\n- `guide`, new since version {first}, now version {latest}: Work under it.");
     assert!(entered.text.contains(&new), "{}", entered.text);

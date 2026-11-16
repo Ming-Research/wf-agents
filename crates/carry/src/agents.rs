@@ -1756,6 +1756,7 @@ mod tests {
                 "head",
                 "tree",
                 "words",
+                "guide",
             ]),
             acts: names(&["start", "check", "merge", "deliver"]),
             tools: names(&["query", "run_tests"]),
