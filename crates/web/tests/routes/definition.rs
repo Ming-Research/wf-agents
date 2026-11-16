@@ -676,6 +676,7 @@ async fn the_engineer_flow_s_cells_are_given_as_their_files_write_what_they_watc
                     let mut entry = json!({ "name": name, "blocks": every_blocks(name) });
                     if list == "watches" {
                         entry["do"] = json!(every_does.get(name));
+                        entry["list"] = json!("every_agent");
                     }
                     entry
                 })

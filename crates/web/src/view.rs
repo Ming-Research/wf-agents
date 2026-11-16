@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Definition {
-    /// The definition compiles: the flow it compiles to.
-    Compiled { flow: Flow },
+    /// The definition compiles: the flow it compiles to, kept apart so that the other answers stay small.
+    Compiled { flow: Box<Flow> },
     /// The definition does not compile: every fault it has, in the order the compiler gives them.
     Faults { faults: Vec<Fault> },
     /// The definition's directory cannot be read, and why.

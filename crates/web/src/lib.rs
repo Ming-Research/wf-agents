@@ -94,7 +94,7 @@ impl Flows {
         match flow::compile(&source, &(self.has)(&source)) {
             Ok(compiled) => (
                 Definition::Compiled {
-                    flow: Flow::of(&compiled),
+                    flow: Box::new(Flow::of(&compiled)),
                 },
                 Some(compiled),
             ),
