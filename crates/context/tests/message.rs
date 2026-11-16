@@ -231,14 +231,14 @@ fn what_changed_since_the_version_the_session_holds_is_sent_as_a_change_that_reb
     let diff = entered.run.data[&BlockId::from("code")].diff.clone().expect("a change");
     assert_eq!(context::diff::apply(CODE, &diff).as_deref(), Some(changed.as_str()));
     let fills = [
+        whole("plan", plan),
+        whole("notes", notes[0].0),
+        whole("notes", notes[1].0),
         Fill::Change {
             block: BlockId::from("code"),
             version: code,
             since: first,
         },
-        whole("plan", plan),
-        whole("notes", notes[0].0),
-        whole("notes", notes[1].0),
     ];
     assert_eq!(entered.fills, fills);
     let text = &entered.text;
@@ -266,7 +266,7 @@ fn a_session_reopened_is_filled_from_the_top_and_holds_no_return() {
             _ => None,
         })
         .collect();
-    assert_eq!(blocks, ["request", "opinions", "plan"]);
+    assert_eq!(blocks, ["plan", "request", "opinions"]);
     assert!(
         entered
             .fills

@@ -113,7 +113,7 @@ fn a_session_begun_anew_runs_a_first_or_reopened_entry_never_a_later_one() {
         names.iter().any(|n| n.contains("-first-background+engineer_session-")),
         "{names:?}"
     );
-    // Reopened, the background the cell worked from, which is not new, is sent whole.
-    let reopened = file(&out.path().join("R0"), "reopened-engineer_session-rest_lacks");
+    // Reopened, the background the cell worked from, which is not new, is sent whole, with what began the session.
+    let reopened = file(&out.path().join("R0"), "reopened-engineer_session-ran_lacks-rest_lacks");
     assert!(datum(&reopened, "background").ends_with("{content}"), "{reopened}");
 }
