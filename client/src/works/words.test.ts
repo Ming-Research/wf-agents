@@ -187,7 +187,7 @@ describe('what a work does now, in words', () => {
     expect(waitCount(3)).toBe('3 things wait for you');
   });
 
-  it('says the work of the round that met the wait every work shares as W12, and no way to mend it of its own', () => {
+  it('says the wait every work shares in three sentences, the round that met it and its error not among them', () => {
     const said = outageWords({
       service: 'agents',
       failure: 'cannotRun',
@@ -200,7 +200,10 @@ describe('what a work does now, in words', () => {
       until: { kind: 'checked', at: 0 },
       holds: true,
     });
-    expect(said).toContain(' Round 1 of run 3 of W12 met it. Not logged in.');
+    expect(said).toMatch(
+      /^The agents' command line cannot run since \d\d-\d\d \d\d:\d\d\. Not logged in\. No agent's round begins until it runs again\.$/,
+    );
+    expect(said).not.toContain('W12');
     expect(said).not.toContain('install');
   });
 });

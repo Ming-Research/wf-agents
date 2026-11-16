@@ -230,25 +230,21 @@ export function outageDown(outage: Outage): { failure: Failure; why: string } {
 /// A text with its first letter a capital, to begin a sentence.
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
-/// A wait every work shares, in sentences: what is down and since when, what it holds and what the engine does next,
-/// what the latest check of the outside found where it found it down, and the round that met it, with what it said.
+/// A wait every work shares, in three sentences: what is down and since when; why, as the latest check of the outside
+/// found it where it found it down, else as the round that met it said; and what it holds until it runs again, or
+/// that every work goes on where it holds nothing.
 /// A name or a value in backticks in what was found or said is marked so (`Coded` draws it).
 export function outageWords(outage: Outage): string {
-  const until = outage.until;
-  const when =
-    until.kind === 'checked'
-      ? `the engine checks the outside itself at ${clock(until.at)}, touching no work's session`
-      : until.kind === 'well'
-        ? `the engine's check at ${clock(until.at)} found it well, and every work goes on`
-        : `once the host is reached, looked at from ${clock(until.at)}`;
+  const found = outage.checked?.found;
+  const checked = outage.checked && outage.holds && found?.kind === 'down' ? outage.checked : null;
   const down = outageDown(outage);
-  const held =
-    outage.service === 'host' ? "No act of the engine's of any work begins" : "No agent's round of any work begins";
-  const checked =
-    outage.checked && outage.holds && outage.checked.found.kind === 'down'
-      ? ` The check at ${clock(outage.checked.at)} found it down. ${sentence(outage.checked.found.why)}`
-      : '';
-  return `${capital(failureWords(down.failure))} since ${clock(outage.since)}. ${held}, ${when}.${checked} Round ${outage.round} of run ${outage.run} of W${outage.work} met it. ${sentence(outage.why)}`;
+  const why = checked && found?.kind === 'down' ? `At ${clock(checked.at)} the check found: ${sentence(found.why)}` : sentence(outage.why);
+  const held = !outage.holds
+    ? 'Every work goes on.'
+    : outage.service === 'host'
+      ? "No act of the engine's begins until it is reached again."
+      : "No agent's round begins until it runs again.";
+  return `${capital(failureWords(down.failure))} since ${clock(outage.since)}. ${why} ${held}`;
 }
 
 /// What a round asked for.

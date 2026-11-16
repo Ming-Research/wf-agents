@@ -182,7 +182,11 @@ describe('the System view', () => {
     const shared = part(container, 'Now').querySelectorAll('dd')[2] as HTMLElement;
     expect([...shared.querySelectorAll('code')].map((c) => c.textContent)).toEqual(['claude auth status']);
     expect(shared.textContent).not.toContain('`');
-    expect(shared.textContent).toContain(' found it down. It is not signed in, as claude auth status says. Round 1 of run 2 of W3 met it.');
+    expect(shared.textContent).toMatch(
+      / the check found: It is not signed in, as claude auth status says\. No agent's round begins until it runs again\.$/,
+    );
+    expect(shared.textContent).not.toContain('Not logged in');
+    expect(shared.textContent).not.toContain('W3');
   });
 
   it('unfolds the works a count counts, and folds them again', async () => {
