@@ -695,3 +695,36 @@ fn a_question_answered_does_not_answer_what_the_check_found() {
         [round_effect(fixing, "implement", 2, Given::SentBack(unanswered))]
     );
 }
+
+// The owner's answer to the implementation's own question, asked of what the check found, is new to the check, which
+// it runs again: the return for the answer that commits nothing, as the owner had it, is taken, and the check runs.
+#[test]
+fn an_answer_the_check_has_not_run_on_answers_what_the_check_found() {
+    let mut w = W {
+        flow: asking_then_checked(),
+        work: Work::default(),
+        clock: START,
+    };
+    let (effects, _) = w.person_writes("request");
+    let (research, ..) = round(&effects);
+    let effects = w.returns(research, plans(Vec::new()));
+    let (implementing, ..) = round(&effects);
+    let mut built = hands_in(&[("code", None)]);
+    built.read = vec![handed("head", None)];
+    let effects = w.returns(implementing, built);
+    let (checking, ..) = round(&effects);
+    let effects = w.returns(checking, hands_in(&[("passed", Some("no")), ("failures", None)]));
+    let (fixing, ..) = round(&effects);
+    // It judges the failure not this change's to fix and asks the owner, leaving the failures for after the answer.
+    let mut asks_the_owner = Came::works(Vec::new(), Vec::new());
+    asks_the_owner.said.questions = vec![asked("not_this_change", true)];
+    assert_eq!(w.returns(fixing, asks_the_owner), []);
+    let version = w.version("not_this_change");
+    let effects = w.answers("not_this_change", version, 1);
+    let (answered, cell, ..) = round(&effects);
+    assert_eq!(cell, "implement");
+    let dealt_with = vec!["failures".into(), "implement_answered".into()];
+    let effects = w.returns(answered, Came::works(dealt_with, Vec::new()));
+    let (_, cell, number, _) = round(&effects);
+    assert_eq!((cell.as_str(), number), ("check", 1));
+}

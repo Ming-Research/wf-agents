@@ -336,6 +336,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
             let asked = Asked {
                 own: q.latest.cell == r.started.cell && !q.latest.engine,
                 stands: q.stands(),
+                unanswered: q.unanswered(),
             };
             (name.to_string(), asked)
         })
@@ -430,6 +431,21 @@ pub fn owed(flow: &Flow, records: &Records) -> BTreeMap<CellId, Vec<CallId>> {
         .filter_map(|i| {
             let (calls, _) = walk.owed(i);
             (!calls.is_empty()).then(|| (flow.cells()[i].id.clone(), calls))
+        })
+        .collect()
+}
+
+/// The blocks that run the cell and have a version new to it now, in the order the cell names them, for which the walk
+/// enters it again once nothing holds it back; none where the flow has no such cell, or where it is skipped now.
+pub fn new_to(flow: &Flow, records: &Records, cell: &CellId) -> Vec<BlockId> {
+    let walk = Walk::new(flow, records);
+    let Some(i) = flow.place(cell).filter(|&i| walk.applies(i)) else {
+        return Vec::new();
+    };
+    (walk.needs(i).into_iter())
+        .filter_map(|cause| match cause {
+            Cause::Changed { block, .. } => Some(block),
+            Cause::NoRecord | Cause::Results { .. } => None,
         })
         .collect()
 }

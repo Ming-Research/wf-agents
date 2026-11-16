@@ -182,11 +182,13 @@ pub struct Asking {
 }
 
 /// A question of the work as a round of a cell is told of it: whether it is the cell's own, which the cell's agent
-/// asked, and so may write anew or withdraw, and whether it stands.
+/// asked, and so may write anew or withdraw; whether it stands; and whether it stands with no answer to its latest
+/// version, an answer being still to come.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Asked {
     pub own: bool,
     pub stands: bool,
+    pub unanswered: bool,
 }
 
 /// A call made for a round.
@@ -361,17 +363,20 @@ pub enum Unmet {
     NotATest { path: String },
     /// The return deals with what an act of the engine's after its cell wrote, the block, and leaves new nothing that
     /// runs that act, neither by what it hands in, the work's head it committed among it, nor by a question that
-    /// stands for the owner ([`Answer`]): the act reads no words, and would never run again.
+    /// stands for the owner's answer, and nothing that runs it is new to it already ([`Answer`]): the act reads no
+    /// words, and would never run again.
     Unanswered { block: BlockId },
 }
 
 /// What runs an act of the engine's again, of a block it wrote that runs a cell before it: the blocks that run the
-/// act, and whether the block of the questions' standing is among them, so that a question that stands runs it once
-/// it is answered. A return that deals with the block is held to leaving one of them new.
+/// act; whether the block of the questions' standing is among them, so that a question that stands unanswered runs it
+/// once it is answered; and whether one of them has a version new to the act already, as the return is taken, which
+/// runs it again whatever the return leaves. A return that deals with the block is held to leaving one of them new.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Answer {
     pub runs: Vec<BlockId>,
     pub question: bool,
+    pub new: bool,
 }
 
 /// What a pause of the run's work holds back of its rounds.
@@ -677,13 +682,15 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         }
     }
     // What an act of the engine's after the cell said to it is answered by what runs the act: what the return hands
-    // in, the work's head it committed among it, or a question that stands once the return is taken. The act reads no
-    // words, and a work answered with none would never run it again (decision an-act-is-answered-by-what-runs-it).
+    // in, the work's head it committed among it, what is new to the act already, or an answer to come once the return
+    // is taken, to a question it asks or to one that stands with no answer to its latest version. The act reads no
+    // words, and an answered question has no answer to come: a work answered with none of these would never run it
+    // again (decision an-act-is-answered-by-what-runs-it).
     if calls == 0 && !told.waits {
         let withdrawn = |name: &str| questions.iter().any(|q| q.withdrawn && q.name == name);
-        let stands = waits
+        let to_come = waits
             || questions.iter().any(|q| !q.withdrawn)
-            || (told.questions.iter()).any(|(name, q)| q.stands && !withdrawn(name));
+            || (told.questions.iter()).any(|(name, q)| q.unanswered && !withdrawn(name));
         for block in consumed(dealt_with, requires) {
             let Some(answer) = requires.answered_by.get(&block) else {
                 continue;
@@ -691,7 +698,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             let written = (writes.iter().map(|w| &w.block))
                 .chain(read)
                 .any(|b| answer.runs.contains(b));
-            if !written && !(answer.question && stands) {
+            if !written && !answer.new && !(answer.question && to_come) {
                 unmet.push(Unmet::Unanswered { block });
             }
         }
