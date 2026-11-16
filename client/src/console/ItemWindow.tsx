@@ -457,7 +457,6 @@ function ItemView({
               question: q.asks.question,
               version: q.asks.version,
               option: (q.chosen ?? 0) + 1,
-              ...({ why: null } as object),
             },
       );
       if (!taken) return;
@@ -1095,7 +1094,7 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
     .filter((l) => flow !== undefined && flow.cells.some((c) => c.line === l.name && wordsOf(flow, c.id) !== undefined))
     .map((l) => {
       const to: SpokenTo =
-        heldAt === 'never' && heldOn === l.name ? { kind: 'cell', cell: heldAt } : { kind: 'line', line: l.name };
+        heldAt !== undefined && heldOn === l.name ? { kind: 'cell', cell: heldAt } : { kind: 'line', line: l.name };
       return { line: l.name, to, speaking: read?.speaking?.find((s) => sameTo(s.to, to)) };
     });
   // The one chosen, else the line the work stands at, else the first the engine has a cell for, or says why it has none.
