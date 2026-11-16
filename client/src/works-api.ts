@@ -616,11 +616,11 @@ export interface Question {
   answer: { option: number; at: number; why: string | null } | null;
 }
 
-/// What the owner's words are said to: a line of the work's flow, or a question of the work they are about.
-export type SpokenTo = { kind: 'line'; line: string } | { kind: 'question'; name: string };
+/// What the owner's words are said to: a line of the work's flow, or a cell of it.
+export type SpokenTo = { kind: 'line'; line: string } | { kind: 'cell'; cell: string };
 
-/// What the owner's words said to a line, or about a question, would reach now, as the engine chooses it: the cell, or
-/// why no cell can take them, when they are not sent.
+/// What the owner's words said to a line, or to a cell, would reach now, as the engine chooses it: the cell, or why no
+/// cell can take them, when they are not sent.
 export interface Speaking {
   to: SpokenTo;
   cell: string | null;
@@ -760,12 +760,12 @@ export type Act =
   | { kind: 'cancel'; why?: string | null }
   /// Gives a call that waits for a person its result.
   | { kind: 'result'; call: number; result: string }
-  /// Answers a version of a question, taking an option counted from one, saying why where the owner does.
-  | { kind: 'answer'; question: string; version: number; option: number; why?: string | null }
+  /// Answers a version of a question, taking an option counted from one, and nothing else.
+  | { kind: 'answer'; question: string; version: number; option: number }
   /// Has the line begin a new session at its next round.
   | { kind: 'newSession'; line: string }
-  /// Says words to a line of the work's flow, or about a question of it: to the cell the engine chooses, which the
-  /// work's page shows (`speaking`).
+  /// Says words to a cell of the work's flow, or to a line of it: to the cell the engine chooses, which the work's page
+  /// shows (`speaking`).
   | { kind: 'say'; to: SpokenTo; words: string };
 
 /// What the act that says the owner's words answers with: the cell the engine gave them to.

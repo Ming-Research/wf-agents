@@ -73,10 +73,10 @@ import {
   firstBody,
   itemOf,
   type LoadVersion,
-  questionsOf,
   readBody,
   readRulings,
   type Ruling,
+  wordsOf,
   workTierOf,
 } from './real';
 import { age, dollars } from './snap';
@@ -460,7 +460,6 @@ function ItemView({
               question: q.asks.question,
               version: q.asks.version,
               option: (q.chosen ?? 0) + 1,
-              why: null,
             },
       );
       if (!taken) return;
@@ -1085,19 +1084,20 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   sent: (message: Message) => void;
 }) {
   const read = pageIn(page);
-  // Words to the line of the cell the work waits at for the owner's answer to a question of the work's are about that
-  // question, and go where words about it go: a question asked by a call has no name, and its asker's line takes them.
+  // Words to the line of the cell the work waits at for the owner's answer to a question of the work's are said to that
+  // cell, whose question it is: a question asked by a call has no cell of its own, and its asker's line takes them.
   const now = work.now;
   const held =
     now.kind === 'waits' ? now.on.find((w): w is Extract<Waited, { kind: 'answer' }> => w.kind === 'answer') : undefined;
+  const heldAt = now.kind === 'waits' && held !== undefined ? now.at : undefined;
   const heldOn = now.kind === 'waits' ? read?.flow.cells.find((c) => c.id === now.at)?.line : undefined;
-  // The lines one of whose cells may write the work's questions, each with what the words said to it would reach.
-  const asks = read ? questionsOf(read.flow)?.name : undefined;
-  const targets = (read?.flow.lines ?? [])
-    .filter((l) => asks !== undefined && read?.flow.cells.some((c) => c.line === l.name && c.outputs.includes(asks)))
+  // The lines one of whose cells has words of its own, each with what the words said to it would reach.
+  const flow = read?.flow;
+  const targets = (flow?.lines ?? [])
+    .filter((l) => flow !== undefined && flow.cells.some((c) => c.line === l.name && wordsOf(flow, c.id) !== undefined))
     .map((l) => {
       const to: SpokenTo =
-        held !== undefined && heldOn === l.name ? { kind: 'question', name: held.question } : { kind: 'line', line: l.name };
+        heldAt !== undefined && heldOn === l.name ? { kind: 'cell', cell: heldAt } : { kind: 'line', line: l.name };
       return { line: l.name, to, speaking: read?.speaking?.find((s) => sameTo(s.to, to)) };
     });
   // The one chosen, else the line the work stands at, else the first the engine has a cell for, or says why it has none.
@@ -1172,9 +1172,9 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   );
 }
 
-/// Whether two say the words to the same line or about the same question.
+/// Whether two say the words to the same line or to the same cell.
 const sameTo = (a: SpokenTo, b: SpokenTo): boolean =>
-  a.kind === 'line' ? b.kind === 'line' && a.line === b.line : b.kind === 'question' && a.name === b.name;
+  a.kind === 'line' ? b.kind === 'line' && a.line === b.line : b.kind === 'cell' && a.cell === b.cell;
 
 /// The box for what the owner says to one cell of one work, its draft kept as it is typed under the name `draft`, with
 /// the passage quoted into it over it, and the names one can write to offered when `@` is typed.

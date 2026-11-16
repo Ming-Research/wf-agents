@@ -1,6 +1,6 @@
 # The item's window
 
-What the console opens for an item: what its flow's card names, the questions in it and the discussion.
+What the console opens for an item: what its flow's card names, the questions in it and the owner's words to each cell.
 
 ### decision the-card-is-the-flows
 What the item's card shows the owner is named by the work's flow in its own `flow.toml` (`card`), data of the flow in
