@@ -44,7 +44,7 @@ Why: Reviews are not always right, and a wrong finding that cannot be disputed f
 
 ### principle change-cells-after-their-cases
 A cell's prompt, rules, data or outputs change only for a problem that can be named, and a change takes effect only after the changed cell's cases pass (design document `testing`), its returns before and after the change set side by side for the owner. What has no serious problem is left alone.
-Why: Changes made by reasoning alone made cells worse than before, and changing a cell that works puts at risk what it already does well. A cell tried only on the case that showed its problem breaks on another its works bring.
+Why: Changes made by reasoning alone made cells worse than before, and changing a cell that works puts at risk what it already does well. A cell tried only on the case that showed its problem breaks on another its works bring (a judgment, with no case behind it).
 
 ### principle audit-cell-by-cell
 The flow is audited or redone one cell at a time, each finished before the next, starting from the problem the cell is there to stop and the ideal cell, with existing cells and recorded rounds only as evidence; the cell's decision says what problem it stops, how, why by that means and at what cost. A cell is frozen once the owner has reviewed it as it stands in the definition, on the chart, and only the owner reopens it.
@@ -125,14 +125,14 @@ agent about the flow copy the flow, go stale when it changes, and invite the age
 A cell knows nothing of the other cells: it is given only the data it watches and reads, and is run only by a version
 of a datum it watches that is new to it, which a version it wrote never is (design document `data-and-context`, which
 says what else is new to no cell). Nothing else runs a cell, and no cell is excepted: no trigger apart from the data,
-no datum made only to run one, no version sent to some of the cells that watch it and kept from others, and what a
-cell hands in rests on what it is given and on the checkout at the versions it is given; a need this cannot meet is a
-fault of the design, mended there (principles solve-within-the-design-first and engine-knows-no-cell).
+no datum made only to run one, and no version sent to some of the cells that watch it and kept from others; nothing of
+the work reaches a cell but what it is given and the checkout at the versions it is given, and a need this cannot meet
+is a fault of the design, mended there (principles solve-within-the-design-first and engine-knows-no-cell).
 Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no
 content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and
 versions sent on by who wrote them. Each met one case; together they made a work's way through the flow something the
 owner, watching one work go back from the implementation through the plan's cells, had to ask about at each of three
-steps. A cell that works from more than it is given cannot be tested on its own data (design document `testing`).
+steps. A cell the work reaches by more than it is given cannot be tested on its own data (design document `testing`).
 This is the flow's side of principle an-agent-knows-only-its-task.
 
 ### principle one-dialogue-for-each-party
