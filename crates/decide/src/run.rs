@@ -698,7 +698,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             let written = (writes.iter().map(|w| &w.block))
                 .chain(read)
                 .any(|b| answer.runs.contains(b));
-            if !written && !(answer.question && to_come) {
+            if !written && !answer.new && !(answer.question && to_come) {
                 unmet.push(Unmet::Unanswered { block });
             }
         }
