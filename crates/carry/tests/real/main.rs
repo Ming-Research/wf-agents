@@ -185,7 +185,7 @@ fn refused_stream() -> String {
             event(json!({ "type": "message_stop" })),
         ]
     };
-    let plan = json!({ "dealt_with": ["request"], "outputs": { "plan": "Greet by name." } }).to_string();
+    let plan = json!({ "dealt_with": ["guide", "request"], "outputs": { "plan": "Greet by name." } }).to_string();
     let mut lines = vec![json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string()];
     lines.extend(attempt("so-1", r#"{"outcome": "{\"dealt_with\": [], "#));
     lines.extend(attempt("so-2", &json!({ "outcome": plan }).to_string()));

@@ -77,17 +77,25 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 {
                     "cell": "plan",
                     "needs": for_the_request,
-                    "inputs": [{ "block": "request", "current": 3, "known": null, "changed": true }],
+                    "inputs": [
+                        input("guide", Value::Null),
+                        json!({ "block": "request", "current": 3, "known": null, "changed": true }),
+                    ],
                 },
                 {
                     "cell": "build",
                     "needs": [],
                     "inputs": [
+                        input("guide", Value::Null),
                         input("plan", Value::Null),
                         input("opinions", Value::Null),
                     ],
                 },
-                { "cell": "review", "needs": [], "inputs": [input("code", Value::Null)] },
+                {
+                    "cell": "review",
+                    "needs": [],
+                    "inputs": [input("guide", Value::Null), input("code", Value::Null)],
+                },
                 { "cell": "merge", "needs": [], "inputs": [input("code", Value::Null)] },
             ],
             "blocks": [
