@@ -23,34 +23,29 @@ afterEach(() => {
 
 const ITEMS = fixtureItems();
 
-/// A block the engine's source of answers writes.
-const ofAnswers = (name: string): Block => ({
+/// A block of a cell's own that this source of the engine's writes, the cell writing it too.
+const own = (cell: string, name: string, outside: string): Block => ({
   name,
   values: null,
   default: null,
   what: null,
-  writtenBy: { cells: [], people: false, note: false, outside: 'answer' },
-  readBy: { cells: [], conditions: [], tests: [], shown: false },
+  writtenBy: { cells: [cell], people: false, note: false, outside },
+  readBy: { cells: [cell], conditions: [], tests: [], shown: false },
 });
 
-/// The engineer's flow where the research's cell and the deep research's may write the work's questions, as the
-/// definition says by the record of the questions and the answers among their outputs, which each one's trigger of an
-/// answer reads, and the review's cells may not.
+/// The engineer's flow where the research's cell and the deep research's may ask the owner, as the definition says by
+/// questions and words of their own among their outputs, and the review's cells may not.
 const ASKING: Flow = {
   ...FLOW,
   cells: FLOW.cells.map((c) =>
     c.id === 'research' || c.id === 'deep_research'
-      ? {
-          ...c,
-          outputs: [...c.outputs, 'q_and_a'],
-          triggers: [
-            ...c.triggers,
-            { name: 'on_answer', what: null, block: `${c.id}_answered`, group: [], read: ['q_and_a'], do: null },
-          ],
-        }
+      ? { ...c, outputs: [...c.outputs, `${c.id}_questions`, `${c.id}_words`] }
       : c,
   ),
-  blocks: [...FLOW.blocks, ofAnswers('q_and_a'), ofAnswers('research_answered'), ofAnswers('deep_research_answered')],
+  blocks: [
+    ...FLOW.blocks,
+    ...['research', 'deep_research'].flatMap((c) => [own(c, `${c}_questions`, 'answer'), own(c, `${c}_words`, 'words')]),
+  ],
 };
 const itemOf = (n: number) => ITEMS.items.find((i) => i.number === n) as Item;
 const pageOf = (i: Item, speaking: Speaking[] = SPEAKING): PageState => ({
@@ -292,7 +287,7 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.cw-done')).toEqual(['Said to Initial research']);
   });
 
-  it('says words to the line where the work waits for an answer about that question, where the engine sends them', async () => {
+  it('says words to the cell the work waits at for an answer to its question, where the engine sends them', async () => {
     const sent: Sent = [];
     const i = itemOf(12);
     const waits = engineer({
@@ -301,13 +296,13 @@ describe('the panel of the item selected', () => {
     } satisfies Item);
     const speaking: Speaking[] = [
       ...SPEAKING,
-      { to: { kind: 'question', name: 'one_table' }, cell: 'research', refused: null },
+      { to: { kind: 'cell', cell: 'research' }, cell: 'research', refused: null },
     ];
     const el = draw(waits, answered(sent, { reached: 'R1' }), engineer(pageOf(i, speaking)));
     expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
     type(el.querySelector('textarea') as HTMLTextAreaElement, 'Why two tables?');
     await act(async () => button(el, 'Send').click());
-    expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'question', name: 'one_table' }, words: 'Why two tables?' }]]);
+    expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'cell', cell: 'R1' }, words: 'Why two tables?' }]]);
     // To another line, they are said to that line, which the engine says no cell of can take them.
     act(() => button(el, 'D1').click());
     expect(text(el, '.write-readers')).toEqual([`No cell takes the words: ${SPEAKING[1].refused}`]);
@@ -364,7 +359,7 @@ describe('the panel of the item selected', () => {
     const sent: Sent = [];
     const speaking: Speaking[] = [
       { to: { kind: 'line', line: 'engineer' }, cell: 'research', refused: null },
-      { to: { kind: 'question', name: 'stale-runs' }, cell: 'research', refused: null },
+      { to: { kind: 'cell', cell: 'research' }, cell: 'research', refused: null },
     ];
     // The work waits at the research for the owner's answer to its question, which its card at the plan's end shows.
     const stale = question('stale-runs', {
@@ -387,7 +382,7 @@ describe('the panel of the item selected', () => {
         1,
         {
           kind: 'say',
-          to: { kind: 'question', name: 'stale-runs' },
+          to: { kind: 'cell', cell: 'R1' },
           words: '> Should a stale run be abandoned at once or kept a day?\n> Abandon it at once\n\nKept a day: say why not.',
         },
       ],
@@ -696,7 +691,7 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     act(() => (el.querySelectorAll('.cw-option')[1] as HTMLButtonElement).click());
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
     await act(async () => button(el, 'Confirm (1/1)').click());
-    expect(sent).toEqual([[25, { kind: 'answer', question: 'scope', version: 30, option: 2, why: null }]]);
+    expect(sent).toEqual([[25, { kind: 'answer', question: 'scope', version: 30, option: 2 }]]);
     expect(text(el, '.cw-done')).toEqual(['Your answer was sent.']);
   });
 
@@ -744,8 +739,8 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     act(() => (el.querySelectorAll('.cw-choice')[2].querySelectorAll('.cw-option')[1] as HTMLButtonElement).click());
     await act(async () => button(el, 'Confirm (2/2)').click());
     expect(sent).toEqual([
-      [25, { kind: 'answer', question: 'measure', version: 30, option: 1, why: null }],
-      [25, { kind: 'answer', question: 'read-time', version: 48, option: 2, why: null }],
+      [25, { kind: 'answer', question: 'measure', version: 30, option: 1 }],
+      [25, { kind: 'answer', question: 'read-time', version: 48, option: 2 }],
     ]);
   });
 
@@ -827,7 +822,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     pick(el, 0, 1);
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
     await act(async () => button(el, 'Confirm (1/1)').click());
-    expect(sent).toEqual([[12, { kind: 'answer', question: 'scope', version: 30, option: 2, why: null }]]);
+    expect(sent).toEqual([[12, { kind: 'answer', question: 'scope', version: 30, option: 2 }]]);
     expect(text(el, '.cw-done')).toEqual(['Your answer was sent.']);
   });
 
@@ -854,7 +849,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     ]);
     pick(el, 0, 1);
     await act(async () => button(el, 'Confirm (1/1)').click());
-    expect(sent).toEqual([[12, { kind: 'answer', question: 'measure', version: 30, option: 2, why: null }]]);
+    expect(sent).toEqual([[12, { kind: 'answer', question: 'measure', version: 30, option: 2 }]]);
   });
 
   it('shows a question the work goes on past by the option it recommends, not counted while no merge waits on it, and sends its answer', async () => {
@@ -869,7 +864,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(options(el)).toEqual([['Keep it', 'Drop itRecommended']]);
     pick(el, 0, 0);
     await act(async () => button(el, 'Confirm (1/1)').click());
-    expect(sent).toEqual([[12, { kind: 'answer', question: 'later', version: 30, option: 1, why: null }]]);
+    expect(sent).toEqual([[12, { kind: 'answer', question: 'later', version: 30, option: 1 }]]);
   });
 
   it("shows the engine's question of a protected change with each file, the reason given for it and its change", async () => {
@@ -914,7 +909,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(options(el)).toEqual([['Let it merge', 'Take it back']]);
     pick(el, 0, 0);
     await act(async () => button(el, 'Confirm (1/1)').click());
-    expect(sent).toEqual([[12, { kind: 'answer', question: 'protected_files', version: 44, option: 1, why: null }]]);
+    expect(sent).toEqual([[12, { kind: 'answer', question: 'protected_files', version: 44, option: 1 }]]);
   });
 
   it('shows a question answered with its answer and asks nothing of it, and a question withdrawn not at all', () => {

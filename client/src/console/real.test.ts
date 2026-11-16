@@ -5,55 +5,40 @@ import type { Version, VersionPage, Wait, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { readBody, readRulings } from './real';
 
-/// A block of the flow written from outside by the engine's source of the owner's words.
-const byWords = (name: string, more: Partial<FlowBlock>): FlowBlock => ({
-  name,
+/// The words of a cell's own, which the engine's source of the owner's words writes and the cell writes too, in the
+/// texts of their file.
+const wordsOf = (cell: string): FlowBlock => ({
+  name: `${cell}_words`,
   values: null,
   default: null,
   what: null,
-  writtenBy: { cells: [], people: false, note: false, outside: 'words' },
-  readBy: { cells: ['implement'], conditions: [], tests: [], shown: false },
-  ...more,
+  writtenBy: { cells: [cell], people: false, note: false, outside: 'words' },
+  readBy: { cells: [cell], conditions: [], tests: [], shown: false },
+  writes: [
+    [
+      'owner',
+      [
+        { piece: 'text', text: 'The owner:\n\n' },
+        { piece: 'slot', name: 'words' },
+      ],
+    ],
+    [
+      'reply',
+      [
+        { piece: 'text', text: 'An agent:\n\n' },
+        { piece: 'slot', name: 'reply' },
+      ],
+    ],
+  ],
 });
 
-/// The made-up flow with the record of what is said, which the implementation is given and writes in its return, and
-/// the block of the owner's words to the implementation, which runs it.
+/// The made-up flow with words of their own of the research and of the implementation, which each writes and watches.
 const SPOKEN: Flow = {
   ...FLOW,
   cells: FLOW.cells.map((c) =>
-    c.id === 'implement'
-      ? {
-          ...c,
-          triggers: [
-            { name: 'on_spoken', what: null, block: 'implement_spoken_to', group: [], read: ['discussion'], do: null },
-          ],
-        }
-      : c,
+    c.id === 'implement' || c.id === 'research' ? { ...c, outputs: [...c.outputs, `${c.id}_words`] } : c,
   ),
-  // The trigger's block of the owner's words, which the same source writes, comes first: the record is the one no
-  // trigger stands on.
-  blocks: [
-    ...FLOW.blocks,
-    byWords('implement_spoken_to', { trigger: true }),
-    byWords('discussion', {
-      writes: [
-        [
-          'owner',
-          [
-            { piece: 'text', text: 'The owner:\n\n' },
-            { piece: 'slot', name: 'words' },
-          ],
-        ],
-        [
-          'reply',
-          [
-            { piece: 'text', text: 'An agent:\n\n' },
-            { piece: 'slot', name: 'reply' },
-          ],
-        ],
-      ],
-    }),
-  ],
+  blocks: [...FLOW.blocks, wordsOf('research'), wordsOf('implement')],
 };
 
 const version = (at: number, by: Version['by'], chars: number, saidTo: string | null = null): Version => ({
@@ -121,12 +106,12 @@ describe("the item's body, read from the data the flow's card names", () => {
   });
 });
 
-describe('the messages of a work, read from the record of what is said', () => {
-  it("are the owner's entries, each to the cell its version is said to, and the cells' replies, with the words alone", async () => {
+describe("the messages of a work, read from each cell's own words", () => {
+  it("are the owner's versions, each to the cell whose words they are, and the cells' answers, with the words alone", async () => {
     const item = fixtureItems().items[0];
     const contents: Record<string, string> = {
-      'discussion@5': 'The owner:\n\n> Greet them.\n\nBy the first name.',
-      'discussion@9': 'An agent:\n\nDone.',
+      'implement_words@5': 'The owner:\n\n> Greet them.\n\nBy the first name.',
+      'implement_words@9': 'An agent:\n\nDone.',
     };
     const page: WorkPage = {
       summary: item.work,
@@ -137,8 +122,10 @@ describe('the messages of a work, read from the record of what is said', () => {
       flow: SPOKEN,
       cells: [],
       blocks: [
-        { name: 'discussion', versions: [version(5, { kind: 'outside' }, 60, 'implement'), version(9, { kind: 'run', run: 3, cell: 'implement' }, 30)] },
-        { name: 'implement_spoken_to', versions: [version(6, { kind: 'outside' }, 0)] },
+        {
+          name: 'implement_words',
+          versions: [version(5, { kind: 'outside' }, 60), version(9, { kind: 'run', run: 3, cell: 'implement' }, 30)],
+        },
       ],
       steps: [],
     };
@@ -151,7 +138,7 @@ describe('the messages of a work, read from the record of what is said', () => {
     ]);
   });
 
-  it("read each of the owner's entries as to the cell its version is said to, which its words do not name", async () => {
+  it("read each of the owner's versions as to the cell whose words they are, which its words do not name", async () => {
     const item = fixtureItems().items[0];
     const page: WorkPage = {
       summary: item.work,
@@ -161,7 +148,10 @@ describe('the messages of a work, read from the record of what is said', () => {
       history: item.history,
       flow: SPOKEN,
       cells: [],
-      blocks: [{ name: 'discussion', versions: [version(12, { kind: 'outside' }, 25, 'implement'), version(14, { kind: 'outside' }, 25, 'review')] }],
+      blocks: [
+        { name: 'implement_words', versions: [version(12, { kind: 'outside' }, 25)] },
+        { name: 'research_words', versions: [version(14, { kind: 'outside' }, 25)] },
+      ],
       steps: [],
     };
     const load = (_: number, block: string, at: number): Promise<VersionPage> =>
@@ -169,7 +159,7 @@ describe('the messages of a work, read from the record of what is said', () => {
     const body = await readBody(page, load);
     expect(body.messages).toEqual([
       { who: 'owner', at: 12000, to: ['implement'], quote: null, text: 'One table.' },
-      { who: 'owner', at: 14000, to: ['review'], quote: null, text: 'One table.' },
+      { who: 'owner', at: 14000, to: ['research'], quote: null, text: 'One table.' },
     ]);
   });
 });
