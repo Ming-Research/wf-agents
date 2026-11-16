@@ -47,9 +47,9 @@ Each version a round is given says the line of the cell whose run wrote it, or t
 where it is given from the writing run the records keep and the cell's line in the flow, and never stored; the design
 tree and the work's head a round's end read are that round's run's, by the version put into it. A version of a cell's
 questions is told by its own record: an ask by the asking run's line, an answer as the owner's, the engine's own
-question by nobody; a version an act of the engine or the outside wrote with no round says nobody. Past works are read
-by today's flow, as the records keep no line of a run: a run of a cell since moved to another line is told by the line
-it has now, until the flow each work ran on is kept (#261).
+question by nobody; a version an act of the engine or the outside wrote with no round says nobody. The line is the
+cell's in the flow the engine reads now, the records keeping no line of a run: a run of a cell since moved to another
+line is told by the line it has now.
 Why: A stored label would be a second copy of what the records and the flow say (principle one-thing-one-place), and a
 line, not a cell, is what a round may know (principle a-cell-knows-only-its-data). Both sides of `plan_doubts` are on
 one line, so their versions share a label, which is enough: the session holds them, the content tells a doubt from an
