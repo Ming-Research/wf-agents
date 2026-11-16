@@ -70,6 +70,7 @@ fn the_engine_s(_: &flow::Source) -> flow::Has {
             "answer",
             "asked",
             "dependencies",
+            "guide",
             "main",
             "session",
             "start",

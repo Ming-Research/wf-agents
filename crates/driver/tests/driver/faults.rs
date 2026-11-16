@@ -35,6 +35,7 @@ fn engineer(root: &Path) -> Compiled {
         sources: names(&[
             "answer",
             "asked",
+            "guide",
             "words",
             DEPENDENCIES,
             "main",

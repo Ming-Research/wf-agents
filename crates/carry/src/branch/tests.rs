@@ -67,7 +67,57 @@ fn reading() -> Reading {
     Reading {
         tree: "design/".to_string(),
         main: "refs/heads/main".to_string(),
+        guide: "AGENTS.md".to_string(),
     }
+}
+
+/// The flow of one cell that reads the project's guide as well.
+fn reading_the_guide() -> Compiled {
+    let flow = r#"
+name = "guided"
+order = ["read"]
+
+[limits]
+runs = 10
+returns = 10
+calls = 10
+
+[lines.engineer]
+
+[blocks.tree]
+outside = "tree"
+
+[blocks.guide]
+outside = "guide"
+
+[blocks.request]
+people = true
+"#;
+    let cell = r#"
+title = "Read"
+kind = "agent"
+effort = "high"
+line = "engineer"
+task = "Read the guide and the tree."
+watches = ["request", "guide"]
+reads = ["tree"]
+outputs = []
+
+[kinds]
+request = "latest"
+guide = "last_and_latest"
+tree = "last_and_latest"
+"#;
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: [("read".to_string(), cell.to_string())].into_iter().collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        sources: [tree::TREE, "guide"].map(str::to_string).into_iter().collect(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the flow compiles")
 }
 
 /// A started work.
@@ -166,4 +216,36 @@ async fn a_round_is_given_what_changed_from_each_earlier_version_of_the_tree_and
         ((head, Seq(4)), format!("`git diff {second} {third}`")),
     ];
     assert_eq!(changes, expected.into_iter().collect());
+}
+
+// The project's guide is read in the same step as the tree and the head (design document `data-and-context`, 24): its
+// text as the work's branch has it, a version only where the text changed, and none where the branch has no guide.
+#[tokio::test]
+async fn the_guide_is_read_in_the_same_step_its_text_a_version_only_where_it_changed() {
+    let (_repo, place) = started().await;
+    let flow = reading_the_guide();
+    let mut looking = Looking::of(&flow, &Work::default(), reading());
+    assert_eq!(
+        looking.read(&place).await.unwrap(),
+        Vec::new(),
+        "the branch has no guide"
+    );
+    write(&place.dir, "AGENTS.md", "Write in English.\n");
+    assert_eq!(
+        looking.read(&place).await.unwrap(),
+        [(BlockId::from("guide"), "Write in English.\n".to_string())]
+    );
+    commit(&place.dir, "farewell.txt", "Bye.\n");
+    assert_eq!(
+        looking.read(&place).await.unwrap(),
+        Vec::new(),
+        "the guide did not change"
+    );
+    write(&place.dir, "AGENTS.md", "Write in plain English.\n");
+    assert_eq!(
+        looking.read(&place).await.unwrap(),
+        [(BlockId::from("guide"), "Write in plain English.\n".to_string())]
+    );
+    // The engine compares the tree's versions and the head's itself, and no guide's: what changed in it is its text.
+    assert_eq!(compared(&flow), [BlockId::from("tree")].into_iter().collect());
 }
