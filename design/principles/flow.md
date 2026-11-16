@@ -42,8 +42,8 @@ Why: Asked on the side, it is not thought through (experience, not measured). Ma
 The side that did the work may dispute a review's finding, and a dispute the review does not accept goes to whoever decides between them.
 Why: Reviews are not always right, and a wrong finding that cannot be disputed forces a wrong change. (Article 9)
 
-### principle change-cells-after-trials
-A cell's prompt, rules, inputs or outputs change only for a problem that can be named, and a change takes effect only after the changed cell has passed its cases, one for every situation a work can enter it in, taken from real past works where one reached it (design document `testing`), with its returns compared to the old cell's case by case. What has no serious problem is left alone.
+### principle change-cells-after-their-cases
+A cell's prompt, rules, data or outputs change only for a problem that can be named, and a change takes effect only after the changed cell's cases pass (design document `testing`), its returns before and after the change set side by side for the owner. What has no serious problem is left alone.
 Why: Changes made by reasoning alone made cells worse than before, and changing a cell that works puts at risk what it already does well. A cell tried from one direction breaks when entered from another.
 
 ### principle audit-cell-by-cell
@@ -124,17 +124,15 @@ agent about the flow copy the flow, go stale when it changes, and invite the age
 ### principle a-cell-knows-only-its-data
 A cell knows nothing of the other cells: it is given only the data it watches and reads, and is run only by a version
 of a datum it watches that is new to it, which a version it wrote never is (design document `data-and-context`, which
-says what else is new to no cell). Nothing else runs a cell: no trigger apart from the data, no datum made only to run
-one, and no version sent to some of the cells that watch it and kept from others. This holds of every cell alike, with
-no exception: what one cell does apart from the others is said in its definition in the flow's files, never in the
-engine's code, and a case the definitions cannot say is a fault of the design, mended in the design (principle
-solve-within-the-design-first).
+says what else is new to no cell). Nothing else runs a cell, and no cell is excepted: no trigger apart from the data,
+no datum made only to run one, no version sent to some of the cells that watch it and kept from others, and what a
+cell hands in rests on what it is given; a need this cannot meet is a fault of the design, mended there (principles
+solve-within-the-design-first and engine-knows-no-cell).
 Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no
 content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and
-versions sent on by who wrote them. Each met one case, and together they made a work's way through the flow something
-no one could follow by reading it: the owner, watching one work go from the implementation back through the plan's
-cells, had to ask at each of three steps why it went there. This is the flow's side of principle
-an-agent-knows-only-its-task.
+versions sent on by who wrote them. Each met one case; together they made a work's way through the flow something its
+owner, watching one work go back from the implementation through the plan's cells, had to ask about at each of three
+steps. This is the flow's side of principle an-agent-knows-only-its-task.
 
 ### principle one-dialogue-for-each-party
 Each agent's cell that judges or doubts another cell's work has a dialogue of its own with that cell, and so has the
