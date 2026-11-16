@@ -6,7 +6,7 @@ mod support;
 use context::Stands;
 use context::situations::{Named, combinations, situations};
 use flow::CellSpec;
-use support::{flow, words};
+use support::{compared, flow, words};
 
 /// The source no block of the small flow is written by.
 const REOPENED: &str = "session";
@@ -17,7 +17,7 @@ fn cell<'a>(flow: &'a flow::Compiled, id: &str) -> &'a CellSpec {
 
 fn of(cell_id: &str) -> Vec<Named> {
     let (flow, words) = (flow(), words());
-    situations(&flow, &words, cell(&flow, cell_id), REOPENED)
+    situations(&flow, &words, cell(&flow, cell_id), REOPENED, &compared())
 }
 
 fn holding(named: &Named) -> bool {
@@ -107,7 +107,7 @@ fn a_datum_watched_that_did_not_run_the_cell_stands_as_nothing_new_to_it_does() 
 fn every_situation_is_written_once_and_every_datum_s_own_state_is_counted() {
     let (flow, words) = (flow(), words());
     for id in ["plan", "build", "review", "close"] {
-        let all = situations(&flow, &words, cell(&flow, id), REOPENED);
+        let all = situations(&flow, &words, cell(&flow, id), REOPENED, &compared());
         for (n, named) in all.iter().enumerate() {
             let again = all[..n].iter().find(|o| o.situation == named.situation);
             assert!(
@@ -117,6 +117,31 @@ fn every_situation_is_written_once_and_every_datum_s_own_state_is_counted() {
                 again.map_or("", |o| &o.name)
             );
         }
-        assert!(combinations(&flow, &words, cell(&flow, id), REOPENED) > 0, "{id}");
+        assert!(
+            combinations(&flow, &words, cell(&flow, id), REOPENED, &compared()) > 0,
+            "{id}"
+        );
     }
+}
+
+// A block the cell writes that nothing else gives it is given only where the session lacks its latest: held or lacking,
+// never a line that it is held; and the tree, whose versions the carrier compares, is unread where the session lacks it
+// (design document `data-and-context`, 21, 23).
+#[test]
+fn what_the_cell_only_writes_stands_held_or_lacking_and_the_tree_lacking_stands_unread() {
+    let review = of("review");
+    for named in &review {
+        let verdict = named.situation.data["verdict"];
+        let can = if named.name.starts_with("reopened") {
+            vec![Stands::Lacks, Stands::Unwritten]
+        } else {
+            vec![Stands::Holds, Stands::Lacks, Stands::Unwritten]
+        };
+        assert!(can.contains(&verdict), "{}: {verdict:?}", named.name);
+    }
+    let lacking = |n: &&Named| n.name.starts_with("reopened") && n.situation.data["verdict"] == Stands::Lacks;
+    assert!(review.iter().any(|n| lacking(&n)));
+    let plan = of("plan");
+    assert!(plan.iter().any(|n| n.situation.data["tree"] == Stands::Unread));
+    assert!(plan.iter().all(|n| n.situation.data["tree"] != Stands::Lacks));
 }

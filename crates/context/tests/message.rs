@@ -490,6 +490,10 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     let plan = sim.enter(&round, false);
     let first = sim.version("tree");
     assert!(plan.fills.contains(&whole("tree", first)), "{:?}", plan.fills);
+    // A session that has read none of the tree is told so (design document `data-and-context`, 23).
+    let unread = format!("## `tree`, version {first}, written by the owner: this session has read none of it\n\nc1 t1");
+    assert!(plan.text.contains(&unread), "{}", plan.text);
+    assert_eq!(plan.situation.data["tree"], Stands::Unread);
     sim.tries(&round, 1, plan.fills);
     // The tree changes while the plan's round is under way, as where it takes main in, so that the build is entered on
     // its new version.
@@ -510,14 +514,50 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
         since: Seq(first),
     };
     assert!(entered.fills.contains(&fill), "{:?}", entered.fills);
-    // Where the session lacks every version, the latest is sent as any datum's.
+    // Where the session lacks every version, the latest is sent whole, saying the session has read none of it.
     let anew = sim.enter(&round, true);
-    assert!(
-        anew.text
-            .contains(&format!("## `tree`, version {latest}, written by the owner\n\nc2 t2")),
-        "{}",
-        anew.text
-    );
+    let unread =
+        format!("## `tree`, version {latest}, written by the owner: this session has read none of it\n\nc2 t2");
+    assert!(anew.text.contains(&unread), "{}", anew.text);
+}
+
+// A cell brings what it writes up to date, and so needs the latest version of each of its outputs, whoever wrote it:
+// where its session lacks one, as a session begun anew does, it is filled in, as `latest` gives it, after the data the
+// cell reads and watches (design document `data-and-context`, 14, 21).
+#[test]
+fn a_round_whose_session_lacks_the_latest_of_what_its_cell_writes_is_given_it_after_its_data() {
+    let mut sim = reviewed();
+    carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
+    carry(&mut sim, &[("code", CODE, None)]);
+    sim.anew("reviewer", Why::Owner);
+    let round = sim.round().expect("the review is entered again");
+    assert_eq!(sim.cell(&round).id.as_str(), "review");
+    let entered = sim.enter(&round, false);
+    let data: Vec<Fill> = (entered.fills.iter())
+        .filter(|f| matches!(f, Fill::Whole { .. }))
+        .cloned()
+        .collect();
+    let (plan, code) = (sim.version("plan"), sim.version("code"));
+    let (opinions, verdict) = (sim.version("opinions"), sim.version("verdict"));
+    let expected = vec![
+        whole("plan", plan),
+        whole("code", code),
+        whole("opinions", opinions),
+        whole("verdict", verdict),
+    ];
+    assert_eq!(data, expected);
+    let heading = format!("## `opinions`, version {opinions}, written on the line `reviewer`\n\nName the error.");
+    assert!(entered.text.contains(&heading), "{}", entered.text);
+    // Entered again in the session that holds them, it is sent none of them.
+    let mut sim = reviewed();
+    carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
+    carry(&mut sim, &[("code", CODE, None)]);
+    let round = sim.round().expect("the review is entered again");
+    let entered = sim.enter(&round, false);
+    let outputs =
+        |f: &Fill| matches!(f, Fill::Whole { block, .. } if ["opinions", "verdict"].contains(&block.as_str()));
+    assert!(!entered.fills.iter().any(outputs), "{:?}", entered.fills);
+    assert!(!entered.text.contains("## `opinions`"), "{}", entered.text);
 }
 
 #[test]

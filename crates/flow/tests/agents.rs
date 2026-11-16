@@ -334,3 +334,50 @@ fn a_reason_is_a_sentence_ended_as_one_in_english_or_in_chinese_and_given_a_full
     assert_eq!(agents::sentence("快！"), "快！");
     assert_eq!(agents::sentence(""), "");
 }
+
+#[test]
+fn the_context_part_orders_what_a_round_is_given_by_naming_each_list_of_a_cell_once() {
+    // The words with the context part given this order, or none, read or refused.
+    let read = |name: &str, order: Option<&str>| {
+        let dir = copy(name);
+        let message = dir.join("agents/message/message.toml");
+        let text = fs::read_to_string(&message).unwrap();
+        let kept: String = (text.lines())
+            .filter(|line| !line.starts_with("order = "))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let ordered = match order {
+            Some(order) => kept.replace(
+                "part = \"context\"\n",
+                &format!("part = \"context\"\norder = {order}\n"),
+            ),
+            None => kept,
+        };
+        fs::write(&message, ordered).unwrap();
+        let read = agents::read(&dir);
+        fs::remove_dir_all(&dir).unwrap();
+        read.map(|_| ())
+            .map_err(|refused| (refused, message.display().to_string()))
+    };
+    let whole = r#"["every_agent", "reads", "watches", "outputs"]"#;
+    assert_eq!(read("order-whole", Some(whole)), Ok(()));
+    let other = r#"["outputs", "watches", "reads", "every_agent"]"#;
+    assert_eq!(read("order-other", Some(other)), Ok(()));
+    for (name, order, named) in [
+        (
+            "order-lacking",
+            Some(r#"["every_agent", "reads", "watches"]"#),
+            "outputs",
+        ),
+        (
+            "order-twice",
+            Some(r#"["every_agent", "reads", "reads", "watches", "outputs"]"#),
+            "reads",
+        ),
+        ("order-none", None, "every_agent, reads, watches, outputs"),
+    ] {
+        let (refused, file) = read(name, order).unwrap_err();
+        assert!(refused.contains(&file), "{name}: {refused}");
+        assert!(refused.contains(named), "{name}: {refused}");
+    }
+}

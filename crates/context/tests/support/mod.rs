@@ -12,7 +12,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use context::{Changes, Entered, For, Main};
@@ -464,6 +464,11 @@ impl Sim {
             .get(&(BlockId::from(block), at))
             .map_or("", String::as_str)
     }
+}
+
+/// The blocks whose versions the carrier compares itself: the tree.
+pub fn compared() -> BTreeSet<BlockId> {
+    BTreeSet::from([BlockId::from("tree")])
 }
 
 /// What the carrier says changed in the tree from one version to another.
