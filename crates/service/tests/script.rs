@@ -19,7 +19,7 @@ fn trial() -> Compiled {
             flow::ANSWER.to_string(),
             "guide".to_string(),
         ]),
-        acts: BTreeSet::from(["start".to_string(), "merge".to_string()]),
+        acts: BTreeSet::from(["merge".to_string()]),
         ..Default::default()
     };
     flow::compile(&source, &has).unwrap()
@@ -257,7 +257,7 @@ fn trial_reviewing_every_time() -> Compiled {
             flow::ANSWER.to_string(),
             "guide".to_string(),
         ]),
-        acts: BTreeSet::from(["start".to_string(), "merge".to_string()]),
+        acts: BTreeSet::from(["merge".to_string()]),
         ..Default::default()
     };
     flow::compile(&source, &has).unwrap()

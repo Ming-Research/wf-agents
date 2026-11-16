@@ -208,7 +208,7 @@ pub fn trial_dir() -> PathBuf {
 }
 
 /// What the trial flow is compiled against: the driver's source outside a work, the engine's as the owner answers,
-/// the source of the project's guide, and the acts `start` and `merge`.
+/// the source of the project's guide, and the act `merge`.
 pub(crate) fn trial_has(_: &Source) -> flow::Has {
     flow::Has {
         sources: BTreeSet::from([
@@ -216,7 +216,7 @@ pub(crate) fn trial_has(_: &Source) -> flow::Has {
             flow::ANSWER.to_string(),
             "guide".to_string(),
         ]),
-        acts: BTreeSet::from(["start".to_string(), "merge".to_string()]),
+        acts: BTreeSet::from(["merge".to_string()]),
         ..Default::default()
     }
 }

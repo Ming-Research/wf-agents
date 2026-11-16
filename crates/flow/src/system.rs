@@ -88,7 +88,8 @@ pub enum Piece {
 /// The parts of the system prompt of the session of the cell's line, in their order. A file of the project is read by
 /// `read`, by its path in the project's checkout: its text, nothing where there is nothing to read it in, or why it
 /// cannot be read; a datum that stands for one by `datum`, by its name, as the version the session begins with gives
-/// it, none where it has none yet. Or everything that keeps it from being made, as [`made`] says it.
+/// it, none where there is none to give, and `datum` says why it cannot be given where a session has none. Or
+/// everything that keeps it from being made, as [`made`] says it.
 pub fn parts(
     agents: &Agents,
     flow: &Compiled,
@@ -128,15 +129,9 @@ pub fn made(
                     text: as_written(&fill(&session.heading, &[("path", &file.path), ("text", "")])),
                     places: true,
                 };
-                // A datum that stands for the file is the version the session begins with, as the work's branch has it,
-                // and nothing else: with none, no prompt is made.
+                // A datum that stands for the file is the version the session begins with, as the work's branch has it.
                 let text = match part {
-                    SessionPart::Datum(_) => datum(&project).and_then(|text| match text {
-                        Some(text) => Ok(Some(text)),
-                        None => Err(format!(
-                            "the datum `{project}` the session begins with has no version yet"
-                        )),
-                    }),
+                    SessionPart::Datum(_) => datum(&project),
                     _ => read(&file.path),
                 };
                 let pieces = match text {

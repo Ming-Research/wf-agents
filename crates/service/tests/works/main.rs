@@ -95,7 +95,7 @@ pub fn trial_flow() -> Compiled {
             flow::ANSWER.to_string(),
             "guide".to_string(),
         ]),
-        acts: BTreeSet::from(["start".to_string(), "merge".to_string()]),
+        acts: BTreeSet::from(["merge".to_string()]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the trial flow compiles")

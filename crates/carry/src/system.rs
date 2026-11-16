@@ -172,7 +172,11 @@ pub(crate) fn of_line(
 ) -> Result<String, String> {
     let read =
         |path: &str| (read(path).map(Some)).map_err(|e| format!("{path} cannot be read in the work's worktree: {e}"));
-    let datum = |name: &str| Ok(datum(name));
+    // A session begins with the version of the datum its prompt holds, and with no other: with none, it begins not.
+    let datum = |name: &str| match datum(name) {
+        Some(text) => Ok(Some(text)),
+        None => Err(format!("the datum `{name}` the session begins with has no version yet")),
+    };
     let parts = flow::system::parts(beside, flow, cell, read, datum).map_err(|wrong| wrong.join("; "))?;
     let fill = |name: &str| filled(name, your_line, filling);
     flow::system::prompt(&parts, &filling.named, fill).map_err(|wrong| wrong.join("; "))

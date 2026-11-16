@@ -274,16 +274,3 @@ fn every_agent_cell_of_the_engineers_flow_watches_the_guide_first_with_what_it_d
         );
     }
 }
-
-// The guide a session begins with is the version of its datum, and nothing else (design document `data-and-context`,
-// 24): where the datum has none as the session begins, no prompt is made, and the file is not read in its place.
-#[test]
-fn a_session_whose_guide_has_no_version_is_given_no_prompt_and_the_file_is_not_read_in_its_place() {
-    let (flow, agents) = (engineer(), beside());
-    let none = |_: &str| Ok(None);
-    let wrong = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project, none).unwrap_err();
-    assert!(
-        wrong.iter().any(|w| w.contains("`guide`") && w.contains("no version")),
-        "{wrong:?}"
-    );
-}

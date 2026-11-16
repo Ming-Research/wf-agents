@@ -855,7 +855,11 @@ impl Real {
 
     /// Adds an item that depends on these items, with a request where its flow has one, paused so that its work begins
     /// once the test lets it on, and makes its work's place where the flow has agents to run in it and no cell that
-    /// makes it.
+    /// makes it. There it stands in for the start's act, which the trial flows have no cell of, so that the tests of
+    /// what the carriers do for its agents need none: as the act does, it reads the project's guide on the work's
+    /// branch and writes it from outside, before any round, so that every session begins with a version the records
+    /// hold, as the engine gives a session its guide only so. That the act itself reads the guide is the tests' of the
+    /// flows that have one (`crate::tree`, `carry`'s branch tests).
     pub async fn add_made_of(&mut self, depends_on: &[ItemNumber]) -> WorkNumber {
         let request = (self.flow.blocks.contains_key(&"request".into())).then(|| FirstWrite {
             block: "request".into(),
@@ -880,9 +884,25 @@ impl Real {
         let agents = (self.flow.cells.iter()).any(|cell| cell.kind == flow::Kind::Agent);
         if !starts && agents {
             let project = self.settings.projects[&self.project].clone();
-            git::start(&project, &self.place(work), &project.main)
+            let place = self.place(work);
+            git::start(&project, &place, &project.main)
                 .await
                 .expect("the work's place is made");
+            let guide =
+                (self.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(carry::guide::GUIDE));
+            if let Some((block, _)) = guide {
+                let text = std::fs::read_to_string(place.dir.join(PROJECT_FILES[0].0)).expect("the guide is read");
+                let event = Event::Wrote {
+                    block: block.clone(),
+                    by: decide::Outsider::Outside,
+                    content: text.trim_end().to_string(),
+                    matters: true,
+                    value: None,
+                };
+                self.service
+                    .take(Message::Happened { work, event })
+                    .expect("the loop takes it");
+            }
         }
         work
     }

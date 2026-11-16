@@ -1,7 +1,7 @@
 # The trial flow (crates/service/tests/trial/flow) with a plan that also loads the engineer's session: it reads the
 # block the engine writes as the line begins a new session, so that it runs again before the line goes on.
 name = "loading"
-order = ["start", "plan", "build", "review", "merge"]
+order = ["plan", "build", "review", "merge"]
 
 [limits]
 runs = 3
@@ -15,12 +15,8 @@ reads_only = true
 [blocks.request]
 people = true
 
-# Where the work is done, which the start makes and the owner reads.
-[blocks.place]
-shown = true
-
-# The project's guide for its agents as the work's branch has it, which the start's act reads as it makes the work's
-# place and every session begins with.
+# The project's guide for its agents as the work's branch has it, which every session begins with and every agent's
+# cell watches.
 [blocks.guide]
 outside = "guide"
 

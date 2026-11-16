@@ -216,6 +216,16 @@ fn a_flow_of_agents_cells_without_the_datum_its_sessions_begin_with_is_refused_a
     assert_eq!(faults(&settings(), &beside(), &flow), [fault]);
 }
 
+// The guide a session begins with is the version of its datum, and nothing else (design document `data-and-context`,
+// 24): where the datum has none as the session begins, no prompt is made, and the file is not read in its place.
+#[test]
+fn a_session_whose_guide_has_no_version_is_given_no_prompt_and_the_file_is_not_read_in_its_place() {
+    let (beside, flow) = (beside(), engineer());
+    let filling = filling(&settings(), &beside);
+    let why = of_line(&beside, &filling, &flow, cell(&flow, "engineer"), "", project, |_| None).expect_err("no guide");
+    assert!(why.contains("`guide`") && why.contains("no version"), "{why}");
+}
+
 // A session keeps the system prompt and the form it began with, each alike: made and kept where it has none, and the
 // kept one given whenever it has one, whatever it was made of became since and however the round begins in it.
 #[test]
