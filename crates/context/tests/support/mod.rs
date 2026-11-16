@@ -189,6 +189,36 @@ pub fn guided() -> Compiled {
     flow::compile(&source, &has).expect("the small flow with the guide compiles")
 }
 
+/// The source outside the work that writes what the branch holds for the plan.
+pub const BRANCH: &str = "branch";
+
+/// The small flow with `branch`, written from outside, which the plan reads, given its latest.
+pub fn branched() -> Compiled {
+    let flow = format!("{FLOW}\n[blocks.branch]\noutside = \"{BRANCH}\"\n");
+    let cells = (CELLS.iter()).map(|(id, text)| {
+        let text = match *id {
+            "plan" => text
+                .replace(
+                    "reads = [\"notes\", \"plan\", \"tree\"]",
+                    "reads = [\"notes\", \"plan\", \"tree\", \"branch\"]",
+                )
+                .replace("[kinds]\n", "[kinds]\nbranch = \"latest\"\n"),
+            _ => text.to_string(),
+        };
+        (id.to_string(), text)
+    });
+    let source = Source {
+        flow,
+        cells: cells.collect::<BTreeMap<_, _>>(),
+        ..Default::default()
+    };
+    let has = Has {
+        sources: [BRANCH.to_string()].into(),
+        ..Has::default()
+    };
+    flow::compile(&source, &has).expect("the small flow with what the branch holds compiles")
+}
+
 /// The words beside the flows of the flow crate's tests, with the system prompt beginning with the version of the
 /// datum `guide` a session begins with, in place of the file of the project: made in a directory of the test's own.
 pub fn guided_words() -> Agents {

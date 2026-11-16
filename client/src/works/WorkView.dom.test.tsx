@@ -465,6 +465,38 @@ describe('the panel of a step', () => {
     ]);
   });
 
+  // A version whose meaning is none, a block's first version handed in as changing nothing, has said nothing yet: so it
+  // is said wherever a version's meaning is, in the history's row, the panel of the write, the run's end and the blocks.
+  it('says of a version that has said nothing yet just that, wherever a version’s meaning is said', async () => {
+    const work = fixtureWork(41);
+    const version = (block: string, at: number) => {
+      const found = work.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
+      if (!found) throw new Error(`no version ${block}@${at}`);
+      return found;
+    };
+    const write = work.steps[4];
+    const run = work.steps[5];
+    if (write.kind !== 'wrote' || run.kind !== 'run' || run.end?.kind !== 'finished') throw new Error('not the fixture');
+    version(write.block, write.at).meaning = null;
+    work.steps[4] = { ...write, changed: false };
+    version('needs_deep_research', run.end.at).meaning = null;
+    const page = draw(<WorkScreen page={work} onActed={() => undefined} />, fixtureSource());
+    expect(texts(page, '.step-lead .step-words')[4]).toBe(`the owner wrote ${write.block}, said nothing yet`);
+    const blocks = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
+    const row = [...blocks.querySelectorAll('.list-row')].find((r) => r.textContent?.startsWith(`@${write.at}`) ?? false);
+    expect(row?.textContent).toContain('said nothing yet');
+    await chooseStep(page, 4);
+    const panel = page.querySelector(`aside[aria-label="Write of ${write.block}"]`) as HTMLElement;
+    expect(texts(panel, '.status-word')).toContain('Said nothing yet');
+    await chooseStep(page, 5);
+    const plan = page.querySelector('aside[aria-label="Run 4 of plan"]') as HTMLElement;
+    const ended = [...plan.querySelectorAll('.panel-part')].find((p) => p.querySelector('h3')?.textContent === 'How it ended');
+    const written = [...(ended?.querySelectorAll('.list-row') ?? [])].find(
+      (r) => r.querySelector('.mono')?.textContent === 'needs_deep_research',
+    );
+    expect(written?.textContent).toContain('said nothing yet');
+  });
+
   it('shows a write: the block, who, whether it changed the meaning, who reads it, and its content', async () => {
     const { page } = drawWork(41);
     await chooseStep(page, 4);

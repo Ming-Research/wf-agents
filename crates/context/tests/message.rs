@@ -785,24 +785,24 @@ fn the_guide_is_held_from_the_session_s_start_and_what_changed_in_it_is_sent() {
 // other version the outside wrote.
 #[test]
 fn a_version_put_into_a_round_from_outside_is_told_by_no_line() {
-    let mut sim = Sim::new();
+    let mut sim = Sim::of(support::branched(), support::words());
     sim.writes("request", "Greet the user.");
     let round = sim.round().expect("the plan is entered");
     let entered = sim.enter(&round, false);
     sim.tries(&round, 1, entered.fills);
     sim.take(Event::WroteForRound {
         run: round.run,
-        block: "notes".into(),
+        block: "branch".into(),
         content: "Keep it short.".to_string(),
     });
-    let put = sim.version("notes");
+    let put = sim.version("branch");
     assert!(
         (sim.work.records.put_in.iter()).any(|p| p.run == round.run && p.version.0 == put),
         "the version is put into the round"
     );
     // The round entered in a session that holds nothing is given the version whole, by no line.
     let entered = sim.enter(&round, true);
-    let given = format!("## `notes`, version {put}\n\nKeep it short.");
+    let given = format!("## `branch`, version {put}\n\nKeep it short.");
     assert!(entered.text.contains(&given), "{}", entered.text);
 }
 
