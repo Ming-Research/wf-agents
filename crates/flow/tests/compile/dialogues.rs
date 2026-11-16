@@ -74,31 +74,31 @@ fn two_cells_that_make_the_plan_hold_no_dialogue_with_each_other() {
     }
 }
 
-// A judge that judges in two dialogues, the review of the plan writing the tree's review as well, hands in a verdict
+// A judge that judges in two dialogues, the review of the code writing the plan's review as well, hands in a verdict
 // whose points could go in either: refused, where it would pair with none.
 #[test]
 fn a_verdict_whose_judge_judges_in_more_than_one_dialogue_is_refused() {
     let source = edit(
         engineer(),
-        "cells/D3.toml",
-        "watches = [\"plan\", \"plan_review\"]",
-        "watches = [\"plan\", \"plan_review\", \"tree_review\"]",
+        "cells/T1.toml",
+        "watches = [\"change\", \"review\"]",
+        "watches = [\"change\", \"review\", \"plan_review\"]",
     );
     let source = edit(
         source,
-        "cells/D3.toml",
-        "outputs = [\"plan_review\", \"plan_ok\"]",
-        "outputs = [\"plan_review\", \"plan_ok\", \"tree_review\"]",
+        "cells/T1.toml",
+        "outputs = [\"review\", \"review_ok\", \"needs_testing\"]",
+        "outputs = [\"review\", \"review_ok\", \"needs_testing\", \"plan_review\"]",
     );
     let source = edit(
         source,
-        "cells/D3.toml",
-        "plan_review = \"all\"",
-        "plan_review = \"all\"\ntree_review = \"all\"",
+        "cells/T1.toml",
+        "review = \"all\"",
+        "review = \"all\"\nplan_review = \"all\"",
     );
     let what = VerdictOfDialogues {
-        verdict: "plan_ok".to_string(),
-        dialogues: vec!["plan_review".to_string(), "tree_review".to_string()],
+        verdict: "review_ok".to_string(),
+        dialogues: vec!["review".to_string(), "plan_review".to_string()],
     };
-    assert_eq!(faults_with(&source, &has()), [at("cells/D3.toml", "outputs[1]", what)]);
+    assert_eq!(faults_with(&source, &has()), [at("cells/T1.toml", "outputs[1]", what)]);
 }

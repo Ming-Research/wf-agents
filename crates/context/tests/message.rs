@@ -822,8 +822,9 @@ fn judged() -> flow::Compiled {
 }
 
 // The owner's ruling in a judge's place (design document `data-and-context`, 39): the points the judge wrote before it
-// are new to no cell, in what a round is given as in what runs it. The maker, run again by a new request, holds the
-// judge's last point in its session and last worked from an earlier one: the point is no change to it.
+// are new to no cell, in what a round is given as in what runs it. The maker, run again by a new request after the
+// owner ruled on the judge's second point, holds that point in its session and last worked from the first: the point
+// is no change to it.
 #[test]
 fn a_judge_s_point_the_owner_ruled_on_is_held_as_no_change_to_its_maker() {
     let mut sim = Sim::of(judged(), support::words());
@@ -842,13 +843,19 @@ fn a_judge_s_point_the_owner_ruled_on_is_held_as_no_change_to_its_maker() {
         &[("ok", "", Some("no")), ("talk", "Name the user.", None)],
     );
     next(&mut sim, "make", &[("work", "Hello, Ann.", None)]);
-    next(
-        &mut sim,
-        "judge",
-        &[("ok", "", Some("no")), ("talk", "Greet warmly.", None)],
-    );
+    // The owner pauses the work while the judge judges again, so that its point runs nothing before the owner rules.
+    let round = sim.round().expect("the judge is entered again");
+    assert_eq!(sim.cell(&round).id.as_str(), "judge");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    sim.take(Event::Paused {
+        by: decide::Pauser::Owner,
+        why: None,
+    });
+    sim.hands_in(&round, &[("ok", "", Some("no")), ("talk", "Greet warmly.", None)]);
     sim.wrote("ok", "", Some("yes"), Outsider::Person);
     sim.writes("request", "Greet the user warmly.");
+    sim.take(Event::Resumed);
     let round = loop {
         let round = sim.round().expect("a round is given");
         if sim.cell(&round).id.as_str() == "make" {
