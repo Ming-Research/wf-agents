@@ -1379,7 +1379,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
             Part::Context => {
                 let named = |list: Listed| order.iter().filter(|l| **l == list).count();
                 let lists: Vec<&str> = (Listed::ALL.into_iter())
-                    .filter(|l| named(*l) != 1)
+                    .filter(|l| named(*l) > 1)
                     .map(Listed::name)
                     .collect();
                 (!lists.is_empty()).then(|| {
