@@ -12,9 +12,9 @@
 //! engine's vocabulary, which its code may name, so a flow's name that is also one of them (the block `check` and the
 //! act `check`, the flow `deliver` and the act `deliver`, the blocks `title`, `code`, `tests`, `checked` and the group
 //! `change`, each a place) is left out, as nothing tells the two apart in a text; and a name that is a plain word, such
-//! as `plan` or `found`, is found inside a longer text, or as a key, only where it is written as a name, between
-//! backticks, since prose and the code's own words use it for its meaning. A name with a digit or an `_` is no word, and
-//! is found wherever it stands.
+//! as `plan` or `found`, is found inside a longer text only where it is written as a name, between backticks, and never
+//! as a key, since prose and the code's own words use it for its meaning. A name with a digit or an `_` is no word, and
+//! is found wherever it stands, but in the path of a drawing, and a regular expression is no text at all.
 //!
 //! It reads every source of the repository once and compiles the two flows, well under a second beside the crate's
 //! other tests. It is worth that: a name written in the code holds for one flow alone, and nothing else finds it until
