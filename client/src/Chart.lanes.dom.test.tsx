@@ -17,24 +17,29 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-/// A plan that research writes, design reads and writes, implement reads and writes, and review reads: the row's
-/// line runs from research to review, and a way back from implement to design along a stretch of it.
+/// A plan that research writes, design and implement each watch and write, and review watches: the way back from
+/// implement to design is the only line along its row.
 const BOTH = () =>
   flowOf(
     [
       cell('research', { outputs: ['plan'] }),
-      cell('design', { inputs: ['plan'], outputs: ['plan'] }),
-      cell('implement', { inputs: ['plan'], outputs: ['plan'] }),
-      cell('review', { inputs: ['plan'] }),
+      cell('design', { watches: ['plan'], outputs: ['plan'] }),
+      cell('implement', { watches: ['plan'], outputs: ['plan'] }),
+      cell('review', { watches: ['plan'] }),
     ],
     { plan: {} },
   );
 
-/// Opinions that two cells read and a cell after them writes: nothing of them goes forward.
+/// Opinions that two cells watch and a cell after them writes.
 const BACK_ALONE = () =>
-  flowOf([cell('plan', { inputs: ['opinions'] }), cell('build', { inputs: ['opinions'] }), cell('judge', { outputs: ['opinions'] })], {
-    opinions: {},
-  });
+  flowOf(
+    [
+      cell('plan', { watches: ['opinions'] }),
+      cell('build', { watches: ['opinions'] }),
+      cell('judge', { outputs: ['opinions'] }),
+    ],
+    { opinions: {} },
+  );
 
 function drawn(flow: Flow): HTMLElement {
   const container = document.createElement('div');
@@ -45,30 +50,26 @@ function drawn(flow: Flow): HTMLElement {
   return container;
 }
 
-/// What each crossing of the one trigger's row draws: its segments and its arrow, by their classes.
-const crossings = (page: HTMLElement) =>
-  [...page.querySelectorAll('tbody.triggers tr td.spot')].map((spot) =>
-    [...spot.querySelectorAll('.seg, .arrow')].map((part) => part.className.trim().replace(/\s+/g, ' ')),
+/// What each crossing of a datum's row draws: its segments and its arrow, by their classes.
+const crossings = (page: HTMLElement, block: string) =>
+  [...(page.querySelector(`th[data-key="block:${block}"]`)?.closest('tr')?.querySelectorAll('td.spot') ?? [])].map(
+    (spot) => [...spot.querySelectorAll('.seg, .arrow')].map((part) => part.className.trim().replace(/\s+/g, ' ')),
   );
 
-describe('a way back along the row\'s line', () => {
-  it('runs alone in the middle where the row has no line, with its arrow at each read it reaches', () => {
-    const [plan, build, judge] = crossings(drawn(BACK_ALONE()));
+describe('a way back along a datum\'s row', () => {
+  it('runs in the middle of the row, with its arrow at each cell that watches it and it runs again', () => {
+    const [plan, build, judge] = crossings(drawn(BACK_ALONE()), 'opinions');
     expect(plan).toEqual(['seg seg-right back', 'arrow']);
-    // The way back passes through this read to the one before it.
+    // The way back passes through this watcher to the one before it.
     expect(build).toEqual(['seg seg-left back', 'seg seg-right back', 'arrow']);
     expect(judge).toEqual(['seg seg-left back']);
   });
 
-  it('keeps to its lane beside the line, and neither covers the other', () => {
-    const [research, design, implement, review] = crossings(drawn(BOTH()));
-    // Before the way back the line runs alone, in the middle.
-    expect(research).toEqual(['seg seg-right line']);
-    // Between the read the work goes back to and the write that sends it, both run, each in its lane; the arrow is
-    // in the way back's lane.
-    expect(design).toEqual(['seg seg-left line', 'seg seg-right line lane', 'seg seg-right back lane', 'arrow lane']);
-    expect(implement).toEqual(['seg seg-left line lane', 'seg seg-left back lane', 'seg seg-right line']);
-    // After it the line runs alone again.
-    expect(review).toEqual(['seg seg-left line']);
+  it('is the only line along the row: a write going right draws none', () => {
+    const [research, design, implement, review] = crossings(drawn(BOTH()), 'plan');
+    expect(research).toEqual([]);
+    expect(design).toEqual(['seg seg-right back', 'arrow']);
+    expect(implement).toEqual(['seg seg-left back']);
+    expect(review).toEqual([]);
   });
 });

@@ -59,19 +59,13 @@ function flowOf(
     act: c.act ?? null,
     effort: c.line === null ? null : 'high',
     takesMain: false,
-    triggers: [],
     tools: [],
     when: c.condition ? [c.condition] : [],
     requires: (c.preconditions ?? []).map((test) => ({ on: 'test', test })),
-    inputs: c.inputs,
-    runsOn: c.inputs,
-    given: c.line === null ? [] : c.inputs,
-    input: Object.fromEntries(
-      c.inputs.map((b) => [
-        b,
-        { runs: { why: null }, given: c.line === null ? null : { kind: null, why: null } },
-      ]),
-    ),
+    watches: c.inputs.map((b) => ({ name: b, blocks: [b], do: null, list: 'watches' as const })),
+    reads: [],
+    given:
+      c.line === null ? [] : c.inputs.map((b) => ({ block: b, kind: 'lastAndLatest' as const, list: 'watches' as const })),
     outputs: c.outputs,
     mustWrite: c.mustWrite ?? [],
     limits: LIMITS,
@@ -95,7 +89,7 @@ function flowOf(
         outside: blocks[b].outside ?? null,
       },
       readBy: {
-        cells: all.filter((c) => c.inputs.includes(b)).map((c) => c.id),
+        cells: all.filter((c) => c.watches.some((w) => w.blocks.includes(b))).map((c) => c.id),
         conditions: all.filter((c) => c.when.some((k) => k.on === 'block' && k.block === b)).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,
@@ -110,7 +104,18 @@ function flowOf(
     system: [],
     rules: [],
   }));
-  return { name, limits: LIMITS, lines, tests, tools: [], groups: [], card: [], cells: all, blocks: named };
+  return {
+    name,
+    limits: LIMITS,
+    lines,
+    tests,
+    tools: [],
+    groups: [],
+    card: [],
+    everyAgent: { watches: [], reads: [], kinds: {} },
+    cells: all,
+    blocks: named,
+  };
 }
 
 /// A named test that holds when each of these blocks, which the owner sets, says yes.

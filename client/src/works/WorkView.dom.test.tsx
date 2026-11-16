@@ -375,6 +375,11 @@ describe('the history of a work', () => {
     expect(page.querySelectorAll('.run-arrow')).toHaveLength(2);
     expect(texts(page, '.step-words.way-back')).toEqual(['8 way round for opinions_implement', '10 way round for opinions_implement']);
     expect(texts(page, '.step-lead .step-words')[13]).toBe('the outside wrote main');
+    // Under each cell the write reaches, the flow's mark for that cell and that datum: the check watches main.
+    const check = rows[13].querySelectorAll('td')[4];
+    expect(check.querySelector('.part.watch')).not.toBeNull();
+    expect(check.querySelector('.part.read')).toBeNull();
+    expect(check.querySelector('.visually-hidden')?.textContent).toBe('check watches it');
   });
 });
 

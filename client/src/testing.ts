@@ -1,30 +1,69 @@
-// What the page's tests and the works page's fixtures build definitions from: cells written in short, and the flow they make as the interface would
-// give it, with who writes and reads each block worked out as the compiler does.
+// What the page's tests and the works page's fixtures build definitions from: cells written in short, and the flow they
+// make as the interface would give it, with who writes and reads each block, and what each cell is given, worked out as
+// the compiler does.
 
-import type { Block, Cell, Condition, Flow, Group, Input, Limits, Line, Test, TestKind } from './api';
+import type {
+  Block,
+  Cell,
+  Condition,
+  EveryAgent,
+  Flow,
+  Given,
+  Group,
+  InputKind,
+  Limits,
+  Line,
+  Read,
+  Test,
+  TestKind,
+  Watch,
+} from './api';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
-/// A cell of an agent in the line `engineer`, told to do its part, that reads and writes nothing, with these fields over
-/// it. What runs it and what it is given are worked out as the compiler does: from `runsOn` and `given` where they are
-/// set, and otherwise from `inputs` as from a file in the old form, each block of it running the cell and given to an
-/// agent's cell; `inputs` and `input` follow from them, `input` with what `fields` says over it. Each block that runs
-/// it does so by a trigger named apart from the block, `on_` and its name, as the flow's triggers are.
-export function cell(id: string, fields: Partial<Cell> = {}): Cell {
-  const kind = fields.kind ?? 'agent';
-  const named = fields.inputs ?? [];
-  const runsOn = fields.runsOn ?? (fields.given ? [] : named);
-  const given = fields.given ?? (fields.runsOn || kind !== 'agent' ? [] : named);
-  const inputs = [...new Set([...runsOn, ...given])];
-  const input: Record<string, Input> = Object.fromEntries(
-    inputs.map((b) => [
-      b,
-      {
-        runs: runsOn.includes(b) ? { why: null } : null,
-        given: given.includes(b) ? { kind: null, why: null } : null,
-      },
-    ]),
-  );
+/// A name a cell's file writes in `watches` or `reads`, in short: a datum by its name, or a group with its blocks.
+export type Named = string | { group: string; blocks: string[] };
+
+/// A cell written in short: the fields of a cell over it, and what its file names, in short.
+export type CellIn = Omit<Partial<Cell>, 'watches' | 'reads' | 'given'> & {
+  /// What its file's `watches` names, in order.
+  watches?: Named[];
+  /// What its file's `reads` names, in order.
+  reads?: Named[];
+  /// What it does when a name it watches is new (`[do]`), by the name.
+  does?: Record<string, string>;
+  /// The kind of each block it is given (`[kinds]`), by the block; the last version it worked from and the latest
+  /// where none is said.
+  kinds?: Record<string, InputKind>;
+};
+
+/// A name as the route gives it: a datum stands for itself, a group for its blocks.
+function taken(n: Named): { name: string; blocks: string[] } {
+  return typeof n === 'string' ? { name: n, blocks: [n] } : { name: n.group, blocks: n.blocks };
+}
+
+/// A cell of an agent in the line `builder`, told to do its part, that watches, reads and writes nothing, with these
+/// fields over it. What it is given is worked out as the compiler does: an agent's cell is given what its file reads,
+/// then what it watches, each block once, in the kind its `kinds` says; an engine's cell is given nothing. What every
+/// agent cell is given is added by [`flowOf`].
+export function cell(id: string, fields: CellIn = {}): Cell {
+  const { watches = [], reads = [], does = {}, kinds = {}, ...rest } = fields;
+  const kind = rest.kind ?? 'agent';
+  const watched: Watch[] = watches.map((n) => ({ ...taken(n), do: does[taken(n).name] ?? null, list: 'watches' }));
+  const read: Read[] = reads.map(taken);
+  const given: Given[] = [];
+  if (kind === 'agent') {
+    for (const [list, names] of [
+      ['reads', read],
+      ['watches', watched],
+    ] as const) {
+      for (const block of names.flatMap((n) => n.blocks)) {
+        if (!given.some((g) => g.block === block)) {
+          given.push({ block, kind: kinds[block] ?? 'lastAndLatest', list });
+        }
+      }
+    }
+  }
   return {
     id,
     title: id,
@@ -36,19 +75,42 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     effort: 'high',
     takesMain: false,
     tools: [],
-    triggers: runsOn.map((b) => ({ name: `on_${b}`, what: null, block: b, group: [], read: [], do: null })),
     when: [],
     requires: [],
     outputs: [],
     mustWrite: [],
     limits: LIMITS,
-    ...fields,
-    inputs,
-    runsOn,
+    ...rest,
+    watches: watched,
+    reads: read,
     given,
-    input: { ...input, ...fields.input },
   };
 }
+
+/// The blocks a cell's own file names, in what it watches and what it reads.
+export function named(c: Cell): string[] {
+  const own = c.watches.filter((w) => w.list === 'watches');
+  return [...new Set([...own, ...c.reads].flatMap((n) => n.blocks))];
+}
+
+/// What `[every_agent]` names, in short: each name it watches and reads, with the data it stands for, and the kind of
+/// each and what a cell does when one it watches is new, by the name.
+export function everyAgent(fields: {
+  watches?: [string, string[]][];
+  reads?: [string, string[]][];
+  kinds?: Record<string, InputKind>;
+  does?: Record<string, string>;
+}): EveryAgent {
+  const { watches = [], reads = [], kinds = {}, does = {} } = fields;
+  return {
+    watches: watches.map(([name, blocks]) => ({ name, blocks, do: does[name] ?? null, list: 'every_agent' })),
+    reads: reads.map(([name, blocks]) => ({ name, blocks })),
+    kinds,
+  };
+}
+
+/// What a flow with no `[every_agent]` names.
+export const NO_EVERY_AGENT: EveryAgent = { watches: [], reads: [], kinds: {} };
 
 /// Keys of a cell's `when` or `requires`, each one of these named tests.
 export function tested(...tests: Test[]): Condition[] {
@@ -74,16 +136,38 @@ export type Declared = Partial<{
 
 /// The flow of these cells in this order, with these blocks, and the named tests the cells use; each line in a file of
 /// its own, with what `lines` writes of it; the flow's tools those its cells may ask for, and its groups those its
-/// cells' triggers stand on.
+/// cells name; and what `[every_agent]` names, which every agent cell watches and is given first, each block its own
+/// file does not name, by the block's name, in the kind `[every_agent]` gives the name that stands for it.
 export function flowOf(
-  cells: Cell[],
+  given: Cell[],
   blocks: Record<string, Declared>,
   name = 'small',
   lines: Record<string, Partial<Line>> = {},
+  every: EveryAgent = NO_EVERY_AGENT,
 ): Flow {
+  const cells = given.map((c): Cell => {
+    if (c.kind !== 'agent') return c;
+    const own = named(c);
+    const alike: Given[] = [];
+    const runs: Watch[] = [];
+    const fresh = (blocks: string[]) => blocks.filter((b) => !own.includes(b) && !alike.some((g) => g.block === b));
+    for (const n of every.watches) {
+      for (const block of fresh(n.blocks)) {
+        alike.push({ block, kind: every.kinds[n.name] ?? 'lastAndLatest', list: 'every_agent' });
+        runs.push({ name: block, blocks: [block], do: n.do, list: 'every_agent' });
+      }
+    }
+    for (const n of every.reads) {
+      for (const block of fresh(n.blocks)) {
+        alike.push({ block, kind: every.kinds[n.name] ?? 'lastAndLatest', list: 'every_agent' });
+      }
+    }
+    return { ...c, watches: [...runs, ...c.watches], given: [...alike, ...c.given] };
+  });
   const keys = (c: Cell) => [...c.when, ...c.requires];
   const used = cells.flatMap((c) => keys(c).flatMap((k) => (k.on === 'test' ? [k.test] : [])));
   const tests = [...new Map(used.map((t) => [t.name, t])).values()].sort((a, b) => (a.name < b.name ? -1 : 1));
+  const takes = (c: Cell, b: string) => c.given.some((g) => g.block === b) || c.watches.some((w) => w.blocks.includes(b));
   const all: Block[] = Object.keys(blocks)
     .sort()
     .map((b) => ({
@@ -98,7 +182,7 @@ export function flowOf(
         outside: blocks[b].outside ?? null,
       },
       readBy: {
-        cells: cells.filter((c) => c.inputs.includes(b)).map((c) => c.id),
+        cells: cells.filter((c) => takes(c, b)).map((c) => c.id),
         conditions: cells.filter((c) => keys(c).some((k) => k.on === 'block' && k.block === b)).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,
@@ -118,10 +202,22 @@ export function flowOf(
   );
   const tools = [...new Set(cells.flatMap((c) => c.tools))];
   const groups: Group[] = [];
-  for (const t of cells.flatMap((c) => c.triggers)) {
-    if (t.group.length > 0 && !groups.some((g) => g.name === t.block)) groups.push({ name: t.block, blocks: t.group });
+  for (const n of cells.flatMap((c) => [...c.watches.filter((w) => w.list === 'watches'), ...c.reads])) {
+    const group = n.blocks.length !== 1 || n.blocks[0] !== n.name;
+    if (group && !groups.some((g) => g.name === n.name)) groups.push({ name: n.name, blocks: n.blocks });
   }
-  return { name, limits: LIMITS, lines: declared, tests, tools, groups, card: [], cells, blocks: all };
+  return {
+    name,
+    limits: LIMITS,
+    lines: declared,
+    tests,
+    tools,
+    groups,
+    card: [],
+    everyAgent: every,
+    cells,
+    blocks: all,
+  };
 }
 
 /// The small flow of `crates/web/tests/flows/small`: a plan a review can send back, a design when the review asks for
@@ -132,21 +228,21 @@ export function small(): Flow {
       cell('plan', {
         title: 'Plan',
         task: 'Write the plan from the request.\nSay what it leaves out.',
-        inputs: ['request', 'opinions'],
+        watches: ['request', 'opinions'],
         outputs: ['plan'],
       }),
       cell('judge', {
         title: 'Judge the plan',
         line: 'review',
         task: 'Judge the plan, and say whether it needs a design.',
-        inputs: ['plan'],
+        watches: ['plan'],
         outputs: ['needs_design', 'opinions'],
       }),
       cell('design', {
         title: 'Design',
         task: 'Design what the plan asks for.',
         when: [{ on: 'block', block: 'needs_design', value: 'yes' }],
-        inputs: ['plan'],
+        watches: ['plan'],
         outputs: ['design'],
       }),
       cell('answer', {
@@ -154,7 +250,7 @@ export function small(): Flow {
         task: 'Answer the comments on the plan.',
         when: tested(test('has_comment', 'The item has a comment', 'any', ['commented'])),
         requires: tested(test('plan_confirmed', 'The owner confirmed the plan', 'all', ['confirmed'])),
-        inputs: ['comments', 'plan'],
+        watches: ['comments', 'plan'],
         outputs: ['reply'],
         limits: { ...LIMITS, runs: 5 },
       }),
@@ -164,7 +260,7 @@ export function small(): Flow {
         line: null,
         task: null,
         act: 'check',
-        inputs: ['main', 'design'],
+        watches: ['main', 'design'],
         outputs: ['ci'],
       }),
       cell('merge', {
@@ -174,7 +270,7 @@ export function small(): Flow {
         task: null,
         act: 'merge',
         requires: tested(test('may_merge', 'The work may merge', 'none', ['ci'], 'red')),
-        inputs: ['ci'],
+        watches: ['ci'],
       }),
     ],
     {

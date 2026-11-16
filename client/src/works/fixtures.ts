@@ -11,7 +11,7 @@
 // write by the outside. The items belong to two projects, and one, added before items had projects, to none.
 
 import type { Flow } from '../api';
-import { cell, flowOf, test, tested } from '../testing';
+import { cell, flowOf, named, test, tested } from '../testing';
 import type {
   Ask,
   Block,
@@ -64,7 +64,7 @@ export const FLOW: Flow = flowOf(
     cell('plan', {
       title: 'Plan',
       task: 'Write the plan from the request, and say whether it needs deep research.',
-      inputs: ['request', 'opinions_plan'],
+      watches: ['request', 'opinions_plan'],
       outputs: ['plan', 'needs_deep_research'],
     }),
     cell('deep_research', {
@@ -72,20 +72,20 @@ export const FLOW: Flow = flowOf(
       line: 'deep_research',
       task: 'Research what the plan leaves open, and write the solution.',
       when: [{ on: 'block', block: 'needs_deep_research', value: 'yes' }],
-      inputs: ['plan', 'opinions_deep_research'],
+      watches: ['plan', 'opinions_deep_research'],
       outputs: ['solution'],
     }),
     cell('implement', {
       title: 'Implement',
       task: 'Implement the plan and the solution.\nAnswer what the review asked.',
-      inputs: ['plan', 'solution', 'opinions_implement'],
+      watches: ['plan', 'solution', 'opinions_implement'],
       outputs: ['code', 'answer_review'],
     }),
     cell('review', {
       title: 'Review the code',
       line: 'review',
       task: 'Review the code, and say whether you are content with it.',
-      inputs: ['code', 'answer_review'],
+      watches: ['code', 'answer_review'],
       outputs: ['opinions_implement', 'content'],
     }),
     cell('check', {
@@ -95,7 +95,7 @@ export const FLOW: Flow = flowOf(
       task: null,
       act: 'check',
       effort: null,
-      inputs: ['code', 'main'],
+      watches: ['code', 'main'],
       outputs: ['ci', 'opinions_implement'],
     }),
     cell('merge', {
@@ -106,7 +106,7 @@ export const FLOW: Flow = flowOf(
       act: 'merge',
       effort: null,
       requires: tested(test('approved', 'The owner approved the merge', 'all', ['approval'])),
-      inputs: ['ci', 'content', 'approval'],
+      watches: ['ci', 'content', 'approval'],
     }),
   ],
   {
@@ -241,7 +241,7 @@ class History {
     const at = this.next(minutes);
     const c = FLOW.cells.find((x) => x.id === cellId);
     if (!c) throw new Error(`no cell ${cellId}`);
-    const basis = [...new Set([...c.inputs, ...c.outputs])].map((block) => ({
+    const basis = [...new Set([...named(c), ...c.outputs])].map((block) => ({
       block,
       version: this.current(block)?.at ?? null,
     }));
@@ -283,7 +283,7 @@ class History {
     if (line !== null) this.lines.add(line);
     // What was filled into the session: the parts it keeps where it begins, and each datum the cell is given that has
     // a version, with the task; the results of calls; why the round before was sent back.
-    const data = (defined?.given ?? []).flatMap((block): Fill[] => {
+    const data = (defined?.given ?? []).flatMap(({ block }): Fill[] => {
       const v = this.current(block);
       return v ? [{ kind: 'whole', block, version: v.at }] : [];
     });
@@ -438,7 +438,7 @@ class History {
     const order = new Map(FLOW.cells.map((x, i) => [x.id, i]));
     const finished = this.runsOf(cellId).filter((r) => r.end?.kind === 'finished');
     const record = finished[finished.length - 1];
-    const inputs = c.inputs.map((block) => {
+    const inputs = named(c).map((block) => {
       const current = this.current(block)?.at ?? null;
       let known: number | null = null;
       if (record?.end?.kind === 'finished') {

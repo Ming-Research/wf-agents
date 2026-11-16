@@ -58,7 +58,7 @@ describe('the flowchart of the engineer flow', () => {
 
   it('draws one fork for each decision, one on a block named by it, a branch for each value', () => {
     const forks = chart.nodes.filter((n) => n.kind === 'fork').map((n) => `${n.id} ${n.name ?? 'test'}`);
-    expect(forks).toEqual(['f:R1 deep_needed', 'f:R2 deep_needed', 'f:D4 test', 'f:T2 needs_testing']);
+    expect(forks).toEqual(['f:R1 deep_needed', 'f:R2 deep_needed', 'f:T2 needs_testing']);
     // After R0: deep_needed may hold either, as a walk again after R1 wrote it finds it.
     expect(step(chart, cellNode('R0'), forkNode('R1'))).toBeDefined();
     expect(step(chart, forkNode('R1'), cellNode('R1'))?.branch).toBe('no');
@@ -92,11 +92,12 @@ describe('the flowchart of the engineer flow', () => {
     }
     const into = chart.edges.filter((e) => e.kind === 'arrow' && isFork(chart, e.target));
     expect(into.map((e) => `${e.from}>${e.target} ${e.label} ${e.reaches.join(',')}`)).toEqual([
+      'D3>f:R1 plan_review R1,D1',
       'D4>f:R1 tree_review R1,D1',
       'I1>f:R1 plan_doubts R1,D1',
     ]);
     // A way back to one of a fork's cells alone ends at that cell.
-    expect(arrow(chart, 'D3', 'D1')?.target).toBe(cellNode('D1'));
+    expect(arrow(chart, 'I1', 'R2')?.target).toBe(cellNode('R2'));
   });
 
   it('walks the main path cell to cell, parting at each fork and joining again', () => {
@@ -109,14 +110,12 @@ describe('the flowchart of the engineer flow', () => {
         'c:R1 > f:R2',
         'f:R2 no > c:R2',
         'f:R2 yes > c:D1',
-        // The short way skips D1 to D3, which run only where deep_needed is yes; the deep way goes through them.
-        'c:R2 > f:D4',
+        // The short way skips D1 and D2, which run only where deep_needed is yes; the deep way goes through them. The
+        // ways join at the plan's reviews, which run on every work.
+        'c:R2 > c:D3',
         'c:D1 > c:D2',
         'c:D2 > c:D3',
-        'c:D3 > f:D4',
-        // The ways join at the fork on the test changes_tree: through D4 or past it, joining again at I1.
-        'f:D4 ✓ > c:D4',
-        'f:D4 ✗ > c:I1',
+        'c:D3 > c:D4',
         'c:D4 > c:I1',
         'c:I1 > c:T1',
         // T1 writes needs_testing: through T2 or past it, to M1's gate.
@@ -153,32 +152,37 @@ describe('the flowchart of the engineer flow', () => {
     expect(nodeOf(chart, tag?.source ?? '')?.name).toBe('dependencies');
     expect(nodeOf(chart, tag?.source ?? '')?.outside).toEqual({ people: false, sources: ['dependencies'] });
     // An arrow a write runs ends at the cell itself, not at its gate.
-    expect(arrow(chart, 'I1', 'M1')?.target).toBe(cellNode('M1'));
+    expect(arrow(chart, 'M1', 'M2')?.target).toBe(cellNode('M2'));
   });
 
   it('leaves out an arrow between two cells whose conditions exclude each other', () => {
     const all = arrows(chart);
     // The plan of the short way does not run the deep way's cells, nor the other way round.
-    for (const pair of ['R2>D2', 'R2>D3', 'D1>R2', 'D2>R2']) expect(all[pair]).toBeUndefined();
-    // The review of the deep way does not send the work back to the short way's research.
-    expect(all['D3>R1']).toBeUndefined();
+    for (const pair of ['R2>D1', 'R2>D2', 'D1>R2', 'D2>R2']) expect(all[pair]).toBeUndefined();
+    // Nor does the deep research's writing send the work back to the short way's research.
+    for (const pair of ['D1>R1', 'D2>R1']) expect(all[pair]).toBeUndefined();
   });
 
-  it('draws one arrow for each pair, with the name of every trigger it stands for', () => {
+  it('draws one arrow for each pair, with the name of every datum or group it runs the cell by', () => {
     const all = arrows(chart);
-    expect(all['R1>D3']).toBe('plan, reply_plan_review');
-    expect(all['I1>T1']).toBe('change, reply_review');
+    expect(all['R1>D3']).toBe('plan, plan_review');
+    // A dialogue's datum runs each party: the maker's answer one way, the judge's points the other.
+    expect(all['I1>T1']).toBe('change, review');
+    expect(all['T1>I1']).toBe('review');
     expect(arrow(chart, 'I1', 'T1')?.carries).toEqual([
       { name: 'change', group: true },
-      { name: 'reply_review', group: false },
+      { name: 'review', group: false },
     ]);
-    expect(all['I1>T2']).toBe('acceptance, reply_testing');
-    expect(all['I1>M1']).toBe('code');
+    expect(all['I1>T2']).toBe('acceptance, testing');
+    expect(all['T2>I1']).toBe('testing');
+    expect(all['R1>D1']).toBe('found, plan_review, tree_review, plan_doubts, r1_questions');
+    // The check's head and main are no cell's writes: nothing runs it but from outside.
+    expect(all['I1>M1']).toBeUndefined();
     expect(all['M1>M2']).toBe('checked');
     const pairs = everyArrow(chart).map((e) => `${e.from}>${e.to}`);
     expect(new Set(pairs).size).toBe(pairs.length);
-    // Two ways back are drawn as one each, into a fork (below).
-    expect(pairs).toHaveLength(36);
+    // Three ways back are drawn as one each, into a fork (below).
+    expect(pairs).toHaveLength(35);
   });
 
   it('folds an arrow that runs along the main path into its step, its names on the step after the branch', () => {
@@ -188,11 +192,11 @@ describe('the flowchart of the engineer flow', () => {
     expect(r2?.folds.map((f) => f.id)).toEqual(['a:R1>R2']);
     expect(drawn(chart)).not.toContain('R1>R2');
     const d1 = step(chart, forkNode('R2'), cellNode('D1'));
-    expect(`${d1?.branch} ${d1?.label}`).toBe('yes found');
-    // R2's plan runs I1, which the path reaches from R2 past D4 alone.
-    expect(step(chart, forkNode('D4'), cellNode('I1'))?.folds.map((f) => f.id)).toEqual(['a:R2>I1']);
-    expect(step(chart, cellNode('I1'), cellNode('T1'))?.label).toBe('change, reply_review');
-    expect(step(chart, cellNode('T2'), wayInNode('M1'))?.label).toBe('tests');
+    expect(`${d1?.branch} ${d1?.label}`).toBe('yes found, plan_review, tree_review, plan_doubts, r1_questions');
+    // R2's plan runs D3, which the path reaches from R2 straight.
+    expect(step(chart, cellNode('R2'), cellNode('D3'))?.folds.map((f) => f.id)).toEqual(['a:R2>D3']);
+    expect(step(chart, cellNode('I1'), cellNode('T1'))?.label).toBe('change, review');
+    expect(step(chart, cellNode('T2'), wayInNode('M1'))?.label).toBe('');
     // A step no arrow runs along carries nothing.
     expect(step(chart, cellNode('D3'), forkNode('D4'))?.label).toBe('');
     // An arrow with a cell of the path between stays an arrow: R1's plan runs D3, but D1 and D2 come between.
@@ -202,6 +206,8 @@ describe('the flowchart of the engineer flow', () => {
       'R1>D4',
       'R1>I1',
       'R1>T2',
+      'R2>D4',
+      'R2>I1',
       'R2>T2',
       'D1>D3',
       'D1>D4',
@@ -211,7 +217,6 @@ describe('the flowchart of the engineer flow', () => {
       'D2>I1',
       'D2>T2',
       'I1>T2',
-      'I1>M1',
     ]);
     // A way back is never folded.
     expect(chart.edges.flatMap((e) => e.folds).filter((f) => f.back)).toEqual([]);
@@ -220,9 +225,9 @@ describe('the flowchart of the engineer flow', () => {
   it('draws an arrow back up the walk as a way back, into a cell, or into a fork for every cell it leads to', () => {
     const back = chart.edges.filter((e) => e.back).map((e) => `${e.from}>${e.target} ${e.label}`);
     expect(back).toEqual([
+      'D3>f:R1 plan_review',
       'D4>f:R1 tree_review',
       'I1>f:R1 plan_doubts',
-      'D3>c:D1 plan_review',
       'I1>c:R2 plan',
       'I1>c:D2 plan',
       'I1>c:D3 plan',
@@ -232,28 +237,25 @@ describe('the flowchart of the engineer flow', () => {
       'T2>c:T1 change',
       'M1>c:I1 check',
     ]);
-    // Eleven arrows; the two into the fork after R1 each stand for the ways back to both cells it leads to.
-    expect(chart.waysBack).toBe(13);
+    // Eleven arrows; the three into the fork after R1 each stand for the ways back to both cells it leads to.
+    expect(chart.waysBack).toBe(14);
     const place = (id: string | null) => engineer.cells.findIndex((c) => c.id === id);
     for (const e of chart.edges.filter((x) => x.kind === 'arrow')) expect(e.back).toBe(place(e.from) > place(e.to));
   });
 
-  it('draws what people and the outside write for a cell as tags beside it, each into it', () => {
+  it('draws what people and the outside write for a cell as tags beside it, each into it, of what its own file watches', () => {
     const tags = (id: string) =>
       chart.edges
         .filter((e) => e.kind === 'outside' && e.target === cellNode(id))
         .map((e) => nodeOf(chart, e.source))
         .map((n) => `${n?.name} ${n?.outside?.people ? 'people' : ''}${n?.outside?.sources.join(' ') ?? ''}`);
-    expect(tags('R1')).toEqual(['background people', 'r1_spoken_to people', 'r1_answered answer']);
-    expect(tags('D1')).toEqual([
-      'background people',
-      'deep_researcher_session session',
-      'd1_spoken_to people',
-      'd1_answered answer',
-    ]);
-    expect(tags('M1')).toEqual(['main main', 'asked asked']);
-    expect(tags('R2')).toEqual(['r2_answered answer']);
+    expect(tags('R1')).toEqual(['background people', 'r1_questions answer', 'r1_words words']);
+    expect(tags('D1')).toEqual(['background people', 'r1_questions answer', 'd1_questions answer', 'd1_words words']);
+    expect(tags('M1')).toEqual(['head head', 'main main', 'asked asked']);
+    expect(tags('R2')).toEqual(['r2_questions answer', 'r2_words words']);
     expect(nodeOf(chart, outsideNode('R0', 'engineer_session'))?.cell).toBe('R0');
+    // What every agent cell watches comes into no cell from outside: the view's line names it.
+    expect(chart.nodes.filter((n) => n.kind === 'outside' && n.name === 'guide')).toEqual([]);
   });
 
   it('needs no tie where the main path reaches every cell', () => {
@@ -266,30 +268,30 @@ describe('the flowchart of the engineer flow', () => {
     expect(pairs('T2', false)).toEqual(['R1>T2', 'R2>T2', 'D1>T2', 'D2>T2', 'I1>T2']);
     // None with nothing chosen, nor the folded ones nor the ways back of the cell chosen.
     expect(pairs(null, false)).toEqual([]);
-    expect(pairs('R2', false)).toEqual(['R2>T2']);
-    expect(pairs(null, true)).toHaveLength(15);
+    expect(pairs('R2', false)).toEqual(['R2>D4', 'R2>I1', 'R2>T2']);
+    expect(pairs(null, true)).toHaveLength(16);
   });
 
-  it('gives the context of a cell in the order it names it, and lights the cells that write it', () => {
+  it('gives what a cell’s own file reads and watches in the order it is given them, and lights the cells that write it', () => {
     const context = contextOf(engineer, 'I1');
-    expect(context.map((t) => `${t.block} ${t.kind}`)).toEqual([
-      'background latest',
-      'plan_owner lastAndLatest',
-      'plan_agent lastAndLatest',
-      'questions latest',
-      'answers all',
-      'acceptance lastAndLatest',
-      'tree_edits lastAndLatest',
-      'reply_plan_doubts latest',
-      'discussion all',
-      'review latest',
-      'testing latest',
-      'check latest',
-      'plan_doubts latest',
-      'tree lastAndLatest',
+    expect(context.map((t) => `${t.block} ${t.kind} ${t.watched ? 'watches' : 'reads'}`)).toEqual([
+      'background latest reads',
+      'tree lastAndLatest reads',
+      'plan_owner lastAndLatest watches',
+      'plan_agent lastAndLatest watches',
+      'acceptance lastAndLatest watches',
+      'tree_edits lastAndLatest watches',
+      'plan_doubts all watches',
+      'review all watches',
+      'testing all watches',
+      'check latest watches',
+      'i1_questions all watches',
+      'i1_words all watches',
     ]);
     expect(context.find((t) => t.block === 'tree')?.outside).toEqual({ people: false, sources: ['tree'] });
-    expect([...litBy(engineer, 'I1')].sort()).toEqual(['D1', 'D2', 'D3', 'D4', 'M1', 'R1', 'R2', 'T1', 'T2']);
+    // What every agent cell is given (the guide, every cell's questions and words) is the view line's, not the box's.
+    expect(context.some((t) => t.block === 'guide' || t.block === 'r1_questions')).toBe(false);
+    expect([...litBy(engineer, 'I1')].sort()).toEqual(['D1', 'D2', 'M1', 'R1', 'R2', 'T1', 'T2']);
   });
 });
 
@@ -303,45 +305,38 @@ describe('the flowchart of a small flow', () => {
         cell('sort', {
           line: 'clerk',
           when: [{ on: 'block', block: 'urgent', value: 'no' }],
-          runsOn: ['letter'],
+          watches: ['letter'],
           outputs: ['urgent', 'summary'],
         }),
         cell('rush', {
           line: 'clerk',
           when: [{ on: 'block', block: 'urgent', value: 'yes' }],
-          runsOn: ['summary'],
+          watches: ['summary'],
           outputs: ['draft'],
         }),
         cell('queue', {
           line: 'sorter',
           when: [{ on: 'block', block: 'urgent', value: 'no' }],
-          runsOn: ['summary', 'draft'],
+          watches: ['summary', 'draft'],
           outputs: ['draft', 'note'],
         }),
         cell('polish', {
           line: 'editor',
-          runsOn: ['draft', 'note', 'remarks'],
-          given: ['summary', 'remarks'],
-          triggers: [
-            { name: 'on_copy', what: null, block: 'copy', group: ['draft', 'note'], read: [], do: null },
-            { name: 'on_remarks', what: null, block: 'remarks', group: [], read: [], do: null },
-          ],
-          input: {
-            summary: { runs: null, given: { kind: 'latest', why: null } },
-            remarks: { runs: { why: null }, given: { kind: 'all', why: null } },
-          },
+          watches: [{ group: 'copy', blocks: ['draft', 'note'] }, 'remarks'],
+          reads: ['summary'],
+          kinds: { summary: 'latest', remarks: 'all' },
           outputs: ['final'],
         }),
-        cell('critic', { line: 'reviewer', runsOn: ['final'], outputs: ['remarks', 'fine'] }),
+        cell('critic', { line: 'reviewer', watches: ['final'], outputs: ['remarks', 'fine'] }),
         cell('send', {
           kind: 'engine',
           line: null,
           act: 'merge',
           requires: tested(approved),
-          runsOn: ['final', 'clock'],
+          watches: ['final', 'clock'],
           outputs: ['sent'],
         }),
-        cell('tidy', { kind: 'engine', line: null, act: 'tidy', runsOn: ['clock'] }),
+        cell('tidy', { kind: 'engine', line: null, act: 'tidy', watches: ['clock'] }),
       ],
       {
         letter: { people: true },
@@ -402,7 +397,7 @@ describe('the flowchart of a small flow', () => {
     expect(arrow(chart, 'rush', 'queue')).toBeUndefined();
   });
 
-  it('draws an arrow for each write a trigger runs into the cell it runs, along the path folded into it', () => {
+  it('draws an arrow for each write into each cell that watches it, along the path folded into it', () => {
     const chart = chartOf(flow());
     expect(arrows(chart)).toEqual({
       'sort>rush': 'summary',
@@ -439,12 +434,14 @@ describe('the flowchart of a small flow', () => {
     expect(nodeOf(chart, outsideNode('tidy', 'clock'))?.outside).toEqual({ people: false, sources: ['clock'] });
   });
 
-  it('gives what a cell is given with its kind, and lights its writers', () => {
+  it('gives what a cell is given with its kind and whether it watches it, and lights its writers', () => {
     expect(contextOf(flow(), 'polish')).toEqual([
-      { block: 'summary', kind: 'latest', writers: ['sort'], outside: null },
-      { block: 'remarks', kind: 'all', writers: ['critic'], outside: null },
+      { block: 'summary', kind: 'latest', watched: false, writers: ['sort'], outside: null },
+      { block: 'draft', kind: 'lastAndLatest', watched: true, writers: ['rush', 'queue'], outside: null },
+      { block: 'note', kind: 'lastAndLatest', watched: true, writers: ['queue'], outside: null },
+      { block: 'remarks', kind: 'all', watched: true, writers: ['critic'], outside: null },
     ]);
-    expect([...litBy(flow(), 'polish')]).toEqual(['sort', 'critic']);
+    expect([...litBy(flow(), 'polish')]).toEqual(['sort', 'rush', 'queue', 'critic']);
     expect(contextOf(flow(), 'tidy')).toEqual([]);
   });
 });
@@ -462,29 +459,29 @@ describe('the main path of a bakery', () => {
         cell('light', {
           line: 'stoker',
           when: [{ on: 'block', block: 'fuel', value: 'wood' }],
-          runsOn: ['order'],
+          watches: ['order'],
           outputs: ['fuel', 'oven'],
         }),
-        cell('knead', { line: 'baker', runsOn: ['order', 'complaint'], outputs: ['dough', 'kind'] }),
-        cell('proof', { line: 'baker', when: kind('bread'), runsOn: ['dough'], outputs: ['risen'] }),
-        cell('whisk', { line: 'baker', when: kind('cake'), runsOn: ['dough'], outputs: ['batter'] }),
-        cell('roll', { line: 'baker', when: kind('pie'), runsOn: ['dough'], outputs: ['crust'] }),
+        cell('knead', { line: 'baker', watches: ['order', 'complaint'], outputs: ['dough', 'kind'] }),
+        cell('proof', { line: 'baker', when: kind('bread'), watches: ['dough'], outputs: ['risen'] }),
+        cell('whisk', { line: 'baker', when: kind('cake'), watches: ['dough'], outputs: ['batter'] }),
+        cell('roll', { line: 'baker', when: kind('pie'), watches: ['dough'], outputs: ['crust'] }),
         cell('bake', {
           kind: 'engine',
           line: null,
           act: 'bake',
           requires: tested(hot),
-          runsOn: ['dough', 'risen', 'batter', 'crust'],
+          watches: ['dough', 'risen', 'batter', 'crust'],
           outputs: ['loaf'],
         }),
         cell('glaze', {
           line: 'decorator',
           when: [{ on: 'block', block: 'shiny', value: 'yes' }],
-          runsOn: ['loaf'],
+          watches: ['loaf'],
           outputs: ['loaf'],
         }),
-        cell('sweep', { line: 'cleaner', when: [{ on: 'block', block: 'mopped', value: 'yes' }], runsOn: ['broom'] }),
-        cell('box', { line: 'packer', runsOn: ['loaf', 'dough'], outputs: ['complaint'] }),
+        cell('sweep', { line: 'cleaner', when: [{ on: 'block', block: 'mopped', value: 'yes' }], watches: ['broom'] }),
+        cell('box', { line: 'packer', watches: ['loaf', 'dough'], outputs: ['complaint'] }),
       ],
       {
         order: { people: true },

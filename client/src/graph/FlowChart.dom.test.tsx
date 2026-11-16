@@ -94,6 +94,9 @@ describe('choosing on the flowchart', () => {
     expect(page.querySelector('section[aria-label="Cell design"]')).not.toBeNull();
     expect(page.querySelector('.graph-cell[data-node="c:design"]')?.getAttribute('aria-pressed')).toBe('true');
     expect(texts(page, '.graph-context .graph-context-name')).toEqual(['plan']);
+    // design watches plan: the matrix's watches ring, not the reads ring with a kind.
+    expect(page.querySelector('.graph-context .part.watch')).not.toBeNull();
+    expect(page.querySelector('.graph-context .part.read')).toBeNull();
     expect([...page.querySelectorAll('.graph-cell.lit')].map((e) => e.getAttribute('data-node'))).toEqual(['c:plan']);
     // Chosen again, it is let go of, as on the matrix.
     click(page.querySelector('.graph-cell[data-node="c:design"]'));
@@ -152,7 +155,7 @@ describe('the lines of the flowchart', () => {
     const onPath = [...page.querySelectorAll('.graph-label.main .graph-name')].find((b) => b.textContent === 'plan');
     expect(onPath?.getAttribute('aria-label')).toBe('Block plan, plan to judge');
     expect(lines(page, 'back')).toBe(1);
-    expect(texts(page, '.legend li')).toEqual(expect.arrayContaining(['main path', 'triggered_by', 'way back (1)']));
+    expect(texts(page, '.legend li')).toEqual(expect.arrayContaining(['main path', 'watches', 'way back (1)', 'reads']));
   });
 
   it('draws the arrows a write runs only for the cell chosen, its trunk named once, and all of them when switched on', async () => {
