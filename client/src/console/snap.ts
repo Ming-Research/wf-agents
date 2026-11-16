@@ -26,8 +26,10 @@
 // every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
 // it drew the stages; what the new interface has nothing for
 // yet (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`); the colours the
-// page's tokens came from are read from the tokens, so that the canvas follows light and dark; and the canvas follows
-// the size of what holds it, besides the window's.
+// page's tokens came from are read from the tokens, so that the canvas follows light and dark; the canvas follows the
+// size of what holds it, besides the window's; the links dim with the items they join while an item is lit
+// (`DIM_LINKS`); and the way from each item whose work runs up to its root is dashed and moving (`RUN_*`), where a
+// running card had a light going round its edge and a card that waits for the owner rings round it.
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
@@ -69,6 +71,8 @@ const GLOW_IN = 30;
 /// milliseconds.
 const DIM = 0.35;
 const DIM_LINKS = 0.4;
+const FADE_DOWN = 220;
+const FADE_UP = 110;
 /// The way from each item whose work runs up to its root, dashed in the colour of a running card's edge and moving
 /// from the root's side to the item's: a dash's length and the gap after it, in pixels; how fast the dashes move, in
 /// pixels a second; and the line's width.
@@ -76,8 +80,8 @@ const RUN_DASH = 5;
 const RUN_GAP = 4;
 const RUN_SPEED = 18;
 const RUN_LINE = 1.5;
-const FADE_DOWN = 220;
-const FADE_UP = 110;
+/// How many straight pieces a dashed way's curve is drawn in: enough that a dash on its bend reads as curved.
+const RUN_PIECES = 32;
 /// How long the pointer rests on an item before it is the one in focus, and how long it is off every item before the
 /// focus is let go, in milliseconds.
 const DWELL_ON = 100;
@@ -186,6 +190,32 @@ const between = (a: string, b: string, k: number) => `#${mix(a, b, k).toString(1
 
 /// The scene's colours as the page's theme has them. Those the page's tokens came from are read from the
 /// tokens, which in light are the console's own; in dark, the colours the tokens have no step for are worked out from
+/// The items, by their place in the tree, whose link to the one above them is on the way from one of `running` up to
+/// its root: each link once, however many of them it is on; a root has none.
+export function waysUp(running: Iterable<number>, parent: ArrayLike<number>): Set<number> {
+  const on = new Set<number>();
+  for (const k of running) {
+    for (let i = k; i >= 0 && parent[i] >= 0; i = parent[i]) {
+      if (on.has(i)) break;
+      on.add(i);
+    }
+  }
+  return on;
+}
+
+/// The dashes along a line `length` long, each from and to how far along it: one `RUN_DASH` long every
+/// `RUN_DASH + RUN_GAP`, the first beginning `shift` from the line's start, so that as `shift` grows they move towards
+/// its end; those cut by the line's ends are cut there.
+export function dashesAlong(length: number, shift: number): [number, number][] {
+  const period = RUN_DASH + RUN_GAP;
+  const dashes: [number, number][] = [];
+  for (let start = shift - period * Math.ceil(shift / period); start < length; start += period) {
+    const [from, to] = [Math.max(0, start), Math.min(length, start + RUN_DASH)];
+    if (to > from) dashes.push([from, to]);
+  }
+  return dashes;
+}
+
 /// the tokens, keeping their relations to the card and the ground, as the console had no dark ground.
 export function themed(): typeof LIGHT {
   const t = {
@@ -488,8 +518,9 @@ export class SnapScene {
   private links = new Graphics();
   /// The dashed ways from the items whose work runs up to their roots, drawn anew each frame over the funnels.
   private runLines = new Graphics();
-  /// The items whose work runs.
-  private running = new Set<number>();
+  /// The items, by their place in the tree, whose link to the one above them is on the way from an item whose work
+  /// runs up to its root ([`waysUp`]).
+  private runWays = new Set<number>();
   private marks = new Graphics();
   private layer = new Container();
   /// The fade of every column into the page at the top and the bottom of the screen, each a gradient in the shape's own
@@ -710,7 +741,10 @@ export class SnapScene {
       for (let p = k; p >= 0 && this.begun[p] === 0; p = tree.parent[p]) this.begun[p] = 1;
     });
     this.pulses = new Map();
-    this.running = new Set();
+    this.runWays = waysUp(
+      items.flatMap((i, k) => (!i.shadow && i.work !== null && moodOf(i.work) === 'running' ? [k] : [])),
+      tree.parent,
+    );
     ({ measures: this.measures, looks: this.looks } = cellLooks());
     this.drawnStrips = new Map();
     this.glowing = new Map();
@@ -773,7 +807,6 @@ export class SnapScene {
     const row1 = top + NODE_H / 2;
     if (item.shadow) return this.shadow(item, view, top, h, row1);
     const mood = item.work !== null ? moodOf(item.work) : null;
-    if (mood === 'running') this.running.add(k);
     const card = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER);
     // A card whose work is running, or that needs the owner (it waits for the owner, or the engine stopped it), is
     // filled with its state's colour, and its edge is a deeper shade of it. A card stopped for anything else has an
@@ -1153,37 +1186,40 @@ export class SnapScene {
   }
 
   /// Adds to the running ways the dashed curve from `(px, py)` to `(cx, cy)`, bent as a funnel is, its dashes moved on
-  /// `shift` pixels from its start.
+  /// `shift` pixels from its start ([`dashesAlong`]).
   private dashed(px: number, py: number, cx: number, cy: number, shift: number) {
     const bend = (cx - px) / 2;
-    const at = (u: number): [number, number] => {
+    const points = Array.from({ length: RUN_PIECES + 1 }, (_, n): [number, number] => {
+      const u = n / RUN_PIECES;
       const v = 1 - u;
       return [
         v * v * v * px + 3 * v * v * u * (px + bend) + 3 * v * u * u * (cx - bend) + u * u * u * cx,
         v * v * v * py + 3 * v * v * u * py + 3 * v * u * u * cy + u * u * u * cy,
       ];
+    });
+    // How far along the curve each point stands.
+    const along = [0];
+    for (let n = 1; n <= RUN_PIECES; n += 1) {
+      along.push(along[n - 1] + Math.hypot(points[n][0] - points[n - 1][0], points[n][1] - points[n - 1][1]));
+    }
+    // The point that stands `at` along the curve, in the piece from point `n`.
+    const point = (n: number, at: number): [number, number] => {
+      const len = along[n + 1] - along[n];
+      const k = len > 0 ? (at - along[n]) / len : 0;
+      return [
+        points[n][0] + (points[n + 1][0] - points[n][0]) * k,
+        points[n][1] + (points[n + 1][1] - points[n][1]) * k,
+      ];
     };
-    const steps = 32;
-    const period = RUN_DASH + RUN_GAP;
-    let walked = 0;
-    let [x1, y1] = at(0);
-    for (let n = 1; n <= steps; n += 1) {
-      const [x2, y2] = at(n / steps);
-      const len = Math.hypot(x2 - x1, y2 - y1);
-      // Along this piece, each stretch that falls in a dash, as far along the curve as it is, less the shift.
-      let from = 0;
-      while (from < len) {
-        const phase = (((walked + from - shift) % period) + period) % period;
-        const inDash = phase < RUN_DASH;
-        const to = Math.min(len, from + (inDash ? RUN_DASH - phase : period - phase));
-        if (inDash) {
-          const [a, b] = [from / len, to / len];
-          this.runLines.moveTo(x1 + (x2 - x1) * a, y1 + (y2 - y1) * a).lineTo(x1 + (x2 - x1) * b, y1 + (y2 - y1) * b);
-        }
-        from = to;
+    let n = 0;
+    for (const [from, to] of dashesAlong(along[RUN_PIECES], shift)) {
+      while (n < RUN_PIECES - 1 && along[n + 1] <= from) n += 1;
+      this.runLines.moveTo(...point(n, from));
+      while (n < RUN_PIECES - 1 && along[n + 1] < to) {
+        n += 1;
+        this.runLines.lineTo(points[n][0], points[n][1]);
       }
-      walked += len;
-      [x1, y1] = [x2, y2];
+      this.runLines.lineTo(...point(n, to));
     }
   }
 
@@ -1512,15 +1548,8 @@ export class SnapScene {
     // moving from the root's side to the item's: each link from an item to the one above it drawn once, however many
     // running items it is on.
     this.runLines.clear();
-    const onWay = new Set<number>();
-    for (const k of this.running) {
-      for (let i = k; i >= 0 && t.parent[i] >= 0; i = t.parent[i]) {
-        if (onWay.has(i)) break;
-        onWay.add(i);
-      }
-    }
     const shift = ((now / 1000) * RUN_SPEED) % (RUN_DASH + RUN_GAP);
-    for (const i of onWay) {
+    for (const i of this.runWays) {
       const p = t.parent[i];
       const d = t.depth[i];
       const [px, cx] = [x(d - 1) + NODE_W, x(d)];

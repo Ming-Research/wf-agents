@@ -472,8 +472,7 @@ export function Arrow({ to }: { to: 'right' | 'down' }) {
 }
 
 /// The mark of a part that folds: a small triangle drawn by the page, to the right while it is folded and turned down
-/// while it is open (by `open`, or by the styles where a `details` element folds it), in the colour of the words round
-/// it.
+/// while it is open (by `open`, or by the styles where a `details` element folds it), in the colour its place gives it.
 export function FoldMark({ open }: { open?: boolean }) {
   return (
     <svg

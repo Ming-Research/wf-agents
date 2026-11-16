@@ -1494,19 +1494,15 @@ impl Driver {
 
     /// The work as it is now, in the room the engine leaves it: what it does next, each cell's state, every version of
     /// every block.
+    /// This is the form for a reader of one work: what holds every work at once is worked out for it.
     pub fn view(&self, number: WorkNumber) -> Option<View> {
-        self.view_in(number, self.room(Some(number), true))
+        self.view_at(number, &self.at_once())
     }
 
     /// The work as it is now ([`Driver::view`]), in the room what holds every work at once leaves it.
     pub fn view_at(&self, number: WorkNumber, at_once: &AtOnce) -> Option<View> {
-        self.view_in(number, self.room_at(number, at_once))
-    }
-
-    /// The work as it is now, in this room.
-    fn view_in(&self, number: WorkNumber, room: Room) -> Option<View> {
         let kept = self.work(number)?;
-        let mut view = decide::view_in(&kept.flow.flow, &kept.work.records, room);
+        let mut view = decide::view_in(&kept.flow.flow, &kept.work.records, self.room_at(number, at_once));
         // A work held at fault by the driver, though the walk finds its records sound, is one the deciding code goes
         // round on without end ([`step`]): it shows as that fault.
         let at_fault = self
@@ -1521,9 +1517,9 @@ impl Driver {
 
     /// What holds back the round the work would begin next: its own pause, the owner's pause of everything, or a slot;
     /// none where nothing does, the work would begin no round, or there is no such work.
+    /// This is the form for a reader of one work: what holds every work at once is worked out for it.
     pub fn held(&self, number: WorkNumber) -> Option<Holder> {
-        let kept = self.work(number)?;
-        held(kept.flow, kept.work, self.room(Some(number), true))
+        self.held_at(number, &self.at_once())
     }
 
     /// What holds back the round the work would begin next ([`Driver::held`]), in the room what holds every work at

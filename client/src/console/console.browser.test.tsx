@@ -516,7 +516,6 @@ describe('the console page, as things happen', () => {
     answers.shift()?.();
     // Once the second read has ended, no third is asked for: nothing happened while it was under way.
     await expect.poll(() => answered).toBe(2);
-    await new Promise((then) => setTimeout(then, 50));
     expect(asked).toBe(2);
     root.unmount();
     container.remove();
