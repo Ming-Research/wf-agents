@@ -249,34 +249,19 @@ fn any_answer_to_a_question_that_waits_runs_the_asking_cell_again() {
 }
 
 #[test]
-fn an_answer_taking_another_option_than_the_one_the_work_goes_by_lets_a_later_round_end_and_then_runs_the_cell() {
-    // Design document `data-and-context`, 35: only the owner's words stop a round of a later cell.
+fn an_answer_taking_another_option_than_the_one_the_work_goes_by_stops_a_later_round_and_runs_the_cell() {
     let (mut w, effects) = researched(vec![asked("which", false)]);
     let (implementing, ..) = round(&effects);
     let version = w.version("which");
     let effects = w.answers("which", version, 2);
-    assert_eq!(effects, [], "the implementation's round goes on");
-    let effects = w.returns(implementing, hands_in(&[("code", None)]));
+    assert_eq!(effects, [Effect::Stop { run: implementing }]);
+    let effects = w.returns(implementing, Came::hands_in(Vec::new()));
     let (_, cell, ..) = round(&effects);
     assert_eq!(cell, "research");
     // Answered again with the option the work now goes by, it runs nothing more.
     let before = w.written("answered");
     w.answers("which", version, 2);
     assert_eq!(w.written("answered"), before);
-}
-
-#[test]
-fn a_paused_work_still_runs_the_asking_cell_for_the_owners_answer() {
-    // The owner's pauses stay as they are (design document `data-and-context`): a paused work answers the owner.
-    let (mut w, _) = researched(vec![asked("which", true)]);
-    w.on(Event::Paused {
-        by: decide::Pauser::Owner,
-        why: None,
-    });
-    let version = w.version("which");
-    let effects = w.answers("which", version, 2);
-    let (_, cell, ..) = round(&effects);
-    assert_eq!(cell, "research");
 }
 
 #[test]
@@ -516,8 +501,8 @@ fn laid_out() -> Compiled {
 }
 
 // Each version of a question and each answer to a question's latest version is an entry of the record of the questions
-// and the answers the asking cell reads for its trigger of an answer, a version the engine writes; the answer runs the
-// asking cell alone, by its trigger's block.
+// and the answers the asking cell reads for its trigger of an answer, a version the engine writes; an answer to an
+// earlier version is none, and the answer runs the asking cell alone, by its trigger's block.
 #[test]
 fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record_the_asking_cell_reads() {
     let mut w = W {
@@ -554,51 +539,31 @@ fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record
         ]
     );
     assert_eq!(w.written("ask_answered"), 0);
-    // Another option: the entry, and the cell's block of an answer; the merge's round under way goes on, since only the
-    // owner's words stop a round of a later cell (design document `data-and-context`, 35).
+    // Another option: the entry, and the cell's block of an answer, which stops the merge's round under way.
     let effects = w.answers("which", version, 2);
     assert_eq!(entries(&w).len(), 3);
     assert_eq!(w.written("ask_answered"), 1);
-    assert_eq!(effects, []);
-}
-
-// A question asked anew is an entry that says which version it replaces; an answer to the earlier version is kept in
-// the owner's record, and is no entry of what the cell reads.
-#[test]
-fn a_question_asked_anew_is_an_entry_of_its_own_and_an_answer_to_the_version_before_is_none() {
-    let mut w = W {
-        flow: laid_out(),
-        work: Work::default(),
-        clock: START,
+    let [Effect::Stop { run: merging }] = effects.as_slice() else {
+        panic!("the merge's round is not stopped: {effects:?}");
     };
-    let (effects, _) = w.person_writes("request");
-    let (run, ..) = round(&effects);
-    let mut came = Came::works(vec!["request".into()], vec![handed("plan", None)]);
-    came.said.questions = vec![asked("which", true)];
-    w.returns(run, came);
-    let version = w.version("which");
-    let entries = |w: &W| -> Vec<String> {
-        (w.work.records.written.iter())
-            .filter(|e| e.block.as_str() == "q_and_a" && e.by == Outsider::Outside)
-            .map(|e| w.work.contents[&(BlockId::from("q_and_a"), e.at)].clone())
-            .collect()
-    };
-    // The question waits, so no later round begins, and its answer runs the asking cell again.
-    let effects = w.answers("which", version, 2);
-    let (again, cell, ..) = round(&effects);
-    assert_eq!(cell, "ask");
-    assert_eq!(entries(&w).len(), 2);
+    w.returns(*merging, Came::hands_in(Vec::new()));
+    // Asked anew, the new version is an entry that says which it replaces; an answer to the earlier version is kept
+    // in the owner's record, and is no entry of what the cell reads.
+    let again = (w.work.records.started.iter())
+        .rfind(|s| s.cell.as_str() == "ask")
+        .expect("the cell runs again")
+        .run;
     let mut asked_anew = Came::works(vec!["ask_answered".into()], Vec::new());
     asked_anew.said.questions = vec![asked("which", false)];
     w.returns(again, asked_anew);
     let anew = w.version("which");
     assert!(anew > version);
-    assert_eq!(entries(&w).len(), 3);
+    assert_eq!(entries(&w).len(), 4);
     let replaces = format!("which, {} for {}: Which way for which?", anew.0, version.0);
-    assert!(entries(&w)[2].starts_with(&replaces), "{:?}", entries(&w));
-    w.answers("which", version, 1);
-    assert_eq!(entries(&w).len(), 3);
-    assert_eq!(w.work.records.answers.len(), 2);
+    assert!(entries(&w)[3].starts_with(&replaces), "{:?}", entries(&w));
+    w.answers("which", version, 2);
+    assert_eq!(entries(&w).len(), 4);
+    assert_eq!(w.work.records.answers.len(), 3);
 }
 
 /// The research and the implementation of the asking flow, the implementation run as well by what the check finds and

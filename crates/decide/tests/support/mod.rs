@@ -206,13 +206,11 @@ impl World {
     }
 
     /// Makes the block the owner turning to the cells it runs: written from outside by the source of the owner's
-    /// words, each new version stops a round under way of a later cell and enters a cell that waits, and a paused work
-    /// answers it.
+    /// words, each new version stops a round under way of a later cell.
     pub fn turning(&mut self, block: &str) {
         let outsiders = Outsiders {
             outside: Some("words".to_string()),
             interrupts: true,
-            owner_acts: true,
             ..Outsiders::default()
         };
         self.outsiders.insert(block.into(), outsiders);
@@ -220,11 +218,11 @@ impl World {
     }
 
     /// Makes the block the owner's answers to the questions of the cells it runs: written from outside by the source
-    /// of the answers, a paused work answers it, and it stops no round and enters no cell that waits.
+    /// of the answers, the owner turning to the cells it runs as the owner's words do.
     pub fn answering(&mut self, block: &str) {
         let outsiders = Outsiders {
             outside: Some("answer".to_string()),
-            owner_acts: true,
+            interrupts: true,
             ..Outsiders::default()
         };
         self.outsiders.insert(block.into(), outsiders);

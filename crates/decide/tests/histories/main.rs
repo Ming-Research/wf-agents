@@ -19,7 +19,7 @@
 //!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
 //!   entered again for the results of what it asked for one to three times in a row. In two histories of five, drawn
 //!   apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the owner's answers
-//!   to its own, a block a paused work answers that interrupts nothing.
+//!   to its own, a block that interrupts as the owner's words do.
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -131,7 +131,7 @@ const SPOKEN: &str = "spoken";
 
 /// The block that is the owner's answers to the questions of the cell it runs, which the engine's source writes where
 /// an answer to a question's latest version takes another option than the first, which the questions here recommend, or
-/// answers one the cell waits for: a paused work answers it, and it interrupts nothing.
+/// answers one the cell waits for: the owner turning to the cell, as the owner's words do, it interrupts.
 const ANSWERED: &str = "answered";
 
 /// From this round of a run on, its agent returns what meets everything the flow requires of it.

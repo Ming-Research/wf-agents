@@ -93,15 +93,9 @@ pub const WORDS: &str = "words";
 pub const ANSWER: &str = "answer";
 
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
-/// to a cell ([`WORDS`]). Such a block stops a round under way of a later cell and enters a cell that waits
-/// ([`decide::Outsiders::interrupts`]); an answer does neither, and runs its cell as the walk comes to it (design
-/// document `data-and-context`, 32, 35).
-pub const TURNING: [&str; 1] = [WORDS];
-
-/// The sources outside a work a new version of whose block is the owner acting on the cells it runs: the owner's words
-/// to a cell, and an answer ([`WORDS`], [`ANSWER`]). A paused work still runs a cell for such a block, as for a note
-/// ([`decide::Outsiders::owner_acts`]).
-pub const OWNER_ACTS: [&str; 2] = [WORDS, ANSWER];
+/// to a cell, and an answer ([`WORDS`], [`ANSWER`]). Such a block stops a round under way of a later cell
+/// ([`decide::Outsiders`]).
+pub const TURNING: [&str; 2] = [WORDS, ANSWER];
 
 /// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -627,7 +621,6 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 outside: b.outside.clone(),
                 by_owner: b.changed_by == Some(ChangedBy::Owner),
                 interrupts: b.outside.as_deref().is_some_and(|source| TURNING.contains(&source)),
-                owner_acts: b.outside.as_deref().is_some_and(|source| OWNER_ACTS.contains(&source)),
                 entries: b.outside.as_deref().is_some_and(|source| record(name, source)),
             };
             (BlockId(name.clone()), outsiders)

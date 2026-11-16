@@ -74,13 +74,11 @@ pub struct Outsiders {
     /// What that source writes of it changes only as the owner acts, as the record of the questions changes only as the
     /// owner answers them: the owner, and not the source, makes a precondition that reads it hold.
     pub by_owner: bool,
-    /// A new version of it is the owner turning to the cells it runs: the owner's words to a cell (design document
-    /// `data-and-context`, 32, 35). It stops a round under way of a cell after the one it runs, and enters a cell that
-    /// waits for the results of its calls or for the answer to its question.
+    /// A new version of it is the owner turning to the cells it runs: the owner's words to a cell, or an answer that
+    /// takes another option than the one the work goes by (design document `data-and-context`, 32, 35). It stops a
+    /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls or for the
+    /// answer to its question, and is answered while the work is paused, as a note is.
     pub interrupts: bool,
-    /// A new version of it is the owner acting on the cells it runs: the owner's words to a cell, or an answer to its
-    /// question (design document `data-and-context`, 30, 35). A paused work still runs a cell for it, as for a note.
-    pub owner_acts: bool,
     /// It is a record its source adds entries to, which a trigger of that source has its agent read: the record of
     /// what is said, or of the questions and the answers. A version of it, a cell's as much as its source's, is an
     /// entry added beside those before it, and replaces none.
@@ -212,11 +210,6 @@ impl Flow {
     /// Whether a new version of the block is the owner turning to the cells it runs ([`Outsiders::interrupts`]).
     pub fn interrupts(&self, block: &BlockId) -> bool {
         self.outsiders.get(block).is_some_and(|o| o.interrupts)
-    }
-
-    /// Whether a new version of the block is the owner acting on the cells it runs ([`Outsiders::owner_acts`]).
-    pub fn owner_acts(&self, block: &BlockId) -> bool {
-        self.outsiders.get(block).is_some_and(|o| o.owner_acts)
     }
 
     /// Whether a version of the block is an entry added to a record, which replaces none before it

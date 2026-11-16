@@ -54,7 +54,7 @@ was turned down as a case apart for one kind of version (principle solve-within-
 marks a first version leaves the cells the block runs unrun, which shows where the work stalls.
 
 ### decision a-question-that-waits-holds-its-cell
-A question a cell waits for holds the work at that cell while it stands with no answer to its latest version, whether or not the cell applies now: no later cell runs, and the cell is entered meanwhile only for the owner's words to it, by a version no run of it has seen, and for the results of the calls such a run asked for, its round held to nothing its cell must write, as the cell stood when the round began; a run of it that is at rest still goes on to hand its return in. The answer runs the cell again by its trigger of an answer; the wait is read from the questions and the answers, and is no call.
+A question a cell waits for holds the work at that cell while it stands with no answer to its latest version, whether or not the cell applies now: no later cell runs, and the cell is entered meanwhile only for the owner turning to it, by a version no run of it has seen, and for the results of the calls such a run asked for, its round held to nothing its cell must write, as the cell stood when the round began; a run of it that is at rest still goes on to hand its return in. The answer runs the cell again by its trigger of an answer; the wait is read from the questions and the answers, and is no call.
 Why: Put to the owner as a call, the question was its run's and not the work's: it could not be asked anew or withdrawn
 under its name, an answer to an older version could not be told from one to the latest, and an answer came back twice,
 as the call's result and as the trigger of an answer (design document `data-and-context`, 30, 32). Entering the cell
@@ -69,10 +69,10 @@ check before the merge run, the exploration of the engineer's flow found; the ow
 after the cell runs, whether or not the cell applies when it comes.
 
 ### decision the-owner-turning-to-a-waiting-cell-enters-it-once
-While a cell waits for the results of its calls, the owner's words to it enter it only for a version no run of the cell
-has seen: none that finished was told it, and none still open holds it. A run so entered that asks for calls in turn
-leaves what the owner wrote new, for the run their results begin, which deals with both; a run abandoned, its round
-stopped or its return unread, saw nothing, and the cell is entered for the version again.
+While a cell waits for the results of its calls, the owner turning to it, by words or by an answer, enters it only for
+a version no run of the cell has seen: none that finished was told it, and none still open holds it. A run so entered
+that asks for calls in turn leaves what the owner wrote new, for the run their results begin, which deals with both; a
+run abandoned, its round stopped or its return unread, saw nothing, and the cell is entered for the version again.
 Why: Entered again for the same version each time such a run asked, the cell went round without end, a call asked at
 each turn, and no limit counted it, since the limit of calls counts only the runs entered for their results: a build
 entered for an answer that asked for a tool first did so in the real carriers' tests. Counted from the cell's last run

@@ -173,9 +173,9 @@ new session lacks it.
     asked anew (decision an-answer-to-an-earlier-version-is-kept).
 
 32. A question the work waits for holds the work at the cell whose question it is, while no answer stands to the
-    question as last asked: no later cell runs, and the cell is entered meanwhile only for the owner's words (35) and
-    for the results of calls a round of it asked for. A cell asks a question again, or withdraws it, by writing its
-    datum anew.
+    question as last asked: no later cell runs, and the cell is entered meanwhile only for the owner's words or answer
+    (35) and for the results of calls a round of it asked for. A cell asks a question again, or withdraws it, by writing
+    its datum anew.
 
 33. Every agent's cell reads every cell's questions, all of them, so that what was asked and how it was answered is
     known to all. Whether a question stands with no answer to it as last asked is worked out by the engine from all of
@@ -210,10 +210,10 @@ new session lacks it.
       and for nothing else. Words that did not reach the round before it ended are still new to the cell, and it runs
       again.
     - While the cell spoken to has no round under way and waits, for the results of calls or for the answer to a
-      question, the engine enters it for the words, and it goes on waiting.
-    - While a round of a cell later in the flow is under way, that round is told to stop, the cell spoken to runs, and
-      the flow comes back to the cell that stopped: a round that stopped so has dealt with nothing (8), and its cell
-      runs again.
+      question, the engine enters it for the owner's words or answer, and it goes on waiting.
+    - While a round of a cell later in the flow is under way, that round is told to stop, the cell the owner's words or
+      answer is new to runs, and the flow comes back to the cell that stopped: a round that stopped so has dealt with
+      nothing (8), and its cell runs again.
 
 ## Dialogues between a maker and those who judge it
 

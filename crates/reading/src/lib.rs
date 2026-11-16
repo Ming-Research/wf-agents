@@ -292,11 +292,11 @@ impl<'a> Reading<'a> {
     }
 
     /// Why the cell would be entered at this place: what is new to it, and the results it is owed once all are in.
-    /// While one has no result, or a question of its that it waits for holds it, only the owner's words to it (a block
-    /// that interrupts) enter it, by a version no run of the cell started before the place and not abandoned before it
-    /// was told; once every result is in, a cell its question holds is entered for them with every version of the
-    /// owner's words new to it (decisions a-question-that-waits-holds-its-cell and
-    /// the-owner-turning-to-a-waiting-cell-enters-it-once).
+    /// While one has no result, or a question of its that it waits for holds it, only the owner turning to it (a block
+    /// that interrupts: the owner's words or answer) enters it, by a version no run of the cell started before the
+    /// place and not abandoned before it was told; once every result is in, a cell its question holds is entered for
+    /// them with every version of the owner's turning to it new to it (decisions a-question-that-waits-holds-its-cell
+    /// and the-owner-turning-to-a-waiting-cell-enters-it-once).
     pub fn entering(&self, flow: &Flow, cell: &Cell, place: Seq) -> Vec<Reason> {
         let mut reasons = self.reasons(cell, place);
         let owed = self.owed(&cell.id, place);

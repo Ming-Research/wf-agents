@@ -95,40 +95,6 @@ fn a_question_the_cell_waits_for_holds_the_work_at_the_cell_while_the_cell_is_sk
 }
 
 #[test]
-fn the_owners_answer_to_a_cell_that_waits_for_the_results_of_its_calls_does_not_enter_it_and_runs_it_with_them() {
-    // Design document `data-and-context`, 32 and 35: only the owner's words are let in while a cell waits.
-    let mut w = World::with_gate(vec![
-        cell("research", &["brief", "research answered"], &["plan"]),
-        cell("implement", &["plan"], &["code"]),
-    ]);
-    w.answering("research answered");
-    w.person_writes("brief");
-    w.start("research");
-    let call = w.asks("research", None);
-    w.outside_writes("research answered");
-    assert_eq!(
-        w.decide(),
-        Decision::Wait {
-            at: "research".into(),
-            on: vec![Waited::Call { call, on: None }],
-        }
-    );
-    w.done(call);
-    let Decision::Run { cell, because, .. } = w.decide() else {
-        panic!("nothing runs: {:?}", w.decide())
-    };
-    assert_eq!(cell.as_str(), "research");
-    assert_eq!(
-        because,
-        vec![
-            changed("brief", None, false),
-            changed("research answered", None, false),
-            Cause::Results { calls: vec![call] }
-        ]
-    );
-}
-
-#[test]
 fn a_question_the_cell_does_not_wait_for_holds_nothing() {
     let (w, _) = asked(false);
     assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "implement"));

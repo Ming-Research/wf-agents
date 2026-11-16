@@ -55,5 +55,5 @@ A round the service's safety check flagged, or the run guard stopped, is given a
 Why: The same session would give the check, or the guard, the same context again, more likely the cause than the task's words, though that is a judgment no case has shown; a second time says what the agent is given needs a look.
 
 ### decision a-note-run-is-held-only-by-its-own-pause
-While a work is paused, a run that answers the owner, a note a person wrote to its cell or the owner's words or answer to it, has its round after a failure held only where the engine paused the work since that round began, for its failure or for the budget it took the work over, which its carrier says before the round's end.
+While a work is paused, a run that answers the owner, a note a person wrote to its cell or the owner turning to it, has its round after a failure held only where the engine paused the work since that round began, for its failure or for the budget it took the work over, which its carrier says before the round's end.
 Why: A failure that is tried again by itself, or waits with every work, is no cause the owner must see first, and holding it would leave the note unanswered for as long as the owner's own pause lasts.
