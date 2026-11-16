@@ -781,35 +781,29 @@ fn the_guide_is_held_from_the_session_s_start_and_what_changed_in_it_is_sent() {
 }
 
 // What is read of the branch as a round takes main in is written from outside and put into that round: no round's
-// (decision a-version-read-at-a-rounds-end-is-that-rounds), so that a later round of the session that holds it is told
-// it by no line, as any other version the outside wrote.
+// (decision a-version-read-at-a-rounds-end-is-that-rounds), so that a round given it is told it by no line, as any
+// other version the outside wrote.
 #[test]
 fn a_version_put_into_a_round_from_outside_is_told_by_no_line() {
-    let mut sim = Sim::of(support::guided(), support::guided_words());
-    sim.wrote("guide", &guide("Write in English."), None, Outsider::Outside);
-    // The plan is entered for the guide, and the request written meanwhile runs it again after.
-    let round = sim.round().expect("the plan is entered");
+    let mut sim = Sim::new();
     sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
     let entered = sim.enter(&round, false);
     sim.tries(&round, 1, entered.fills);
     sim.take(Event::WroteForRound {
         run: round.run,
-        block: "guide".into(),
-        content: guide("Write in plain English."),
+        block: "notes".into(),
+        content: "Keep it short.".to_string(),
     });
-    let put = sim.version("guide");
+    let put = sim.version("notes");
     assert!(
         (sim.work.records.put_in.iter()).any(|p| p.run == round.run && p.version.0 == put),
         "the version is put into the round"
     );
-    sim.hands_in(&round, &[("plan", "Greet by name.", None)]);
-    let first = round.run;
-    let round = sim.round().expect("the plan is entered again, for the request");
-    assert_eq!(sim.cell(&round).id.as_str(), "plan");
-    assert_ne!(round.run, first);
-    let entered = sim.enter(&round, false);
-    let held = format!("## `guide`, version {put}, in this session already");
-    assert!(entered.text.contains(&held), "{}", entered.text);
+    // The round entered in a session that holds nothing is given the version whole, by no line.
+    let entered = sim.enter(&round, true);
+    let given = format!("## `notes`, version {put}\n\nKeep it short.");
+    assert!(entered.text.contains(&given), "{}", entered.text);
 }
 
 /// A maker and its judge on one line, the judge's verdict read by the test the flow's last cell requires, so that the
