@@ -187,13 +187,27 @@ impl<'a> Reading<'a> {
     }
 
     /// The versions of the block new to the cell (design document `data-and-context`, 6, 9, 10): after the latest
-    /// version a run of the cell was told of and dealt with, changing what the block says, and not written by the
-    /// cell itself.
+    /// version a run of the cell was told of and dealt with, changing what the block says, not written by the cell
+    /// itself, and no judge's point the owner ruled on (39).
     pub fn new_to(&self, cell: &CellId, block: &BlockId) -> Vec<&Version> {
         let consumed = self.dealt_with(cell, block).into_iter().max();
         (self.of(block).iter())
             .filter(|v| Some(v.at) > consumed && v.changed_meaning() && self.cell_of(v) != Some(cell))
+            .filter(|v| !self.ruled(block, v))
             .collect()
+    }
+
+    /// Whether this version of the block is a judge's point in its dialogue that the owner ruled on: a person wrote the
+    /// judge's verdict after it, as the flow pairs the verdict with the dialogue (design document `data-and-context`,
+    /// 39).
+    fn ruled(&self, block: &BlockId, v: &Version) -> bool {
+        (self.flow.cells().iter()).any(|judge| {
+            (judge.verdicts.iter()).any(|(verdict, of)| {
+                &of.dialogue == block
+                    && self.cell_of(v) == Some(&judge.id)
+                    && (self.of(verdict).iter()).any(|w| w.by == Writer::Person && w.at > v.at)
+            })
+        })
     }
 
     /// Of each run of the cell that finished dealing with the block, the latest version of it the run was told of: the

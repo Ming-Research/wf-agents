@@ -249,6 +249,16 @@ const NEVER: &[(&str, &str)] = &[
          is reached.",
     ),
     (
+        "the work waited at M1 on the test settled",
+        "The merge's check waits on settled only where a judge's verdict stands at no and nothing runs the judge again. \
+         A judge's fail brings its points, and the maker they wake owes the next word: an answer or a change that runs \
+         the judge again, or a question the work waits for; a return that leaves it owed is sent back (design document \
+         data-and-context, 41, 42). What leaves the verdict standing is a ruling at no, which no write of the \
+         exploration's owner makes, or a maker that, run again by the owner's answer to the question it put the \
+         dispute to, having dealt with the points as it asked, hands in nothing: a judge's fail, the question, the \
+         answer and a return of nothing, which the exploration does not reach within its bound.",
+    ),
+    (
         "the work waited at M1 on asked = answered",
         "Every question the exploration asks waits, and a question that waits holds the work at its cell, before M1, \
          whether or not the cell applies, so asked is waiting only while nothing after that cell runs. That the merge \
