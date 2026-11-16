@@ -496,7 +496,8 @@ const RED_AFTER_AN_ANSWER: &str =
 /// The source of the block the driver writes as the owner starts a work, which runs the first cell.
 const START: &str = "start";
 
-/// The source of the project's guide, which every agent's cell watches.
+/// The source of the project's guide, which every agent's cell watches and the start's act reads as it makes the work's
+/// place.
 const GUIDE: &str = "guide";
 
 /// The owner starts the work: the outside writes the block of [`START`], as the driver does when the owner first lets
@@ -506,6 +507,13 @@ fn started(flow: &Compiled) -> Event {
         .find(|(_, b)| b.writers.outside.as_deref() == Some(START))
         .expect("the flow has a block the owner's start writes");
     wrote(block, Outsider::Outside, true, None)
+}
+
+/// The project's guide as the start's act reads it, where the flow has one: written from outside before any agent's
+/// round, as the act writes it as it makes the work's place, the one version a history has.
+fn guided(flow: &Compiled) -> Option<Event> {
+    let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(GUIDE))?;
+    Some(wrote(block, Outsider::Outside, true, None))
 }
 
 /// The place of the cell.
@@ -1059,10 +1067,9 @@ impl Random {
             .filter(|(_, b)| b.writers.people && b.values.is_none())
             .map(|(id, _)| id)
             .collect();
-        // The owner's start is written once, as the work begins; what the engine writes itself, of the questions, the
-        // answers and the owner's words, is written by no one outside; the work's head is written as the carriers read
-        // the branch, which a person moves by committing; and the project's guide is written by no one here, since a
-        // version of it runs every agent's cell as any datum it watches does, which the context's tests hold.
+        // The owner's start is written once, as the work begins, and the guide with it, as the start's act reads it;
+        // what the engine writes itself, of the questions, the answers and the owner's words, is written by no one
+        // outside; and the work's head is written as the carriers read the branch, which a person moves by committing.
         let engines = [START, GUIDE, "asked", flow::ANSWER, flow::WORDS, HEAD];
         let outside: Vec<&BlockId> = (blocks.iter())
             .filter(|(_, b)| b.writers.outside.as_deref().is_some_and(|s| !engines.contains(&s)))
@@ -1211,6 +1218,12 @@ struct Content {
     /// The work's branch, which a round of the continuation commits to only as it fixes what it was told, and which the
     /// carriers read as before.
     branch: Shared,
+    /// Whether a person commits on the branch, once, as the check's round is under way: the check then reads a head its
+    /// review has not dealt with, and fails in passing.
+    commit_at_check: bool,
+    /// Whether a person commits on the branch, once, as the merge's round is under way: the merge then reads a head
+    /// moved since the check passed, and fails in passing.
+    commit_at_merge: bool,
 }
 
 impl Content {
@@ -1241,6 +1254,8 @@ impl Content {
             choices,
             roles: roles.clone(),
             branch,
+            commit_at_check: false,
+            commit_at_merge: false,
         }
     }
 }
@@ -1251,7 +1266,13 @@ impl Part for Content {
     }
 
     fn failure(&mut self, d: &mut Driver, run: RunId, cell: &str) -> Option<(Failure, String)> {
-        gate(d, &self.roles, &self.branch, run, place(&d.flow, cell))
+        let i = place(&d.flow, cell);
+        let commits = (i == self.roles.check && std::mem::take(&mut self.commit_at_check))
+            || (i == self.roles.last && std::mem::take(&mut self.commit_at_merge));
+        if commits {
+            commit(&self.branch);
+        }
+        gate(d, &self.roles, &self.branch, run, i)
     }
 
     /// What its cell must write to go forward, the branch read as the round ends; the check passes. An agent's round on
@@ -1464,6 +1485,11 @@ struct History {
     merged: bool,
     /// The work's branch, as its parts move it.
     branch: Shared,
+    /// Whether, in the content continuation, a person commits as the check's round is under way, and as the merge's
+    /// is: the two ways a work's head moves past what judged it, which the random steps take in about one history in
+    /// five hundred each. The guide being new to every agent's cell from the start, the review runs before the check
+    /// on every work, so the check meets a head the review has not dealt with only where the head moved after it.
+    commits: (bool, bool),
 }
 
 impl History {
@@ -1829,6 +1855,7 @@ impl History {
     fn content(&mut self) {
         self.d.note("the content continuation begins".into());
         let mut part = Content::new(&self.d, &self.roles, self.branch.clone());
+        (part.commit_at_check, part.commit_at_merge) = self.commits;
         let from = self.d.work.tick();
         let bound = content_bound(&self.d);
         let mut steps = 0;
@@ -1945,9 +1972,16 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         ended: false,
         merged: false,
         branch,
+        commits: {
+            let mut coins = Rng::new(seed ^ 0xC0_4417_5EED_0002);
+            (coins.chance(10), coins.chance(10))
+        },
     };
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         h.d.take(started(&h.d.flow));
+        if let Some(guide) = guided(&h.d.flow) {
+            h.d.take(guide);
+        }
         let first = (h.d.flow.flow.cells()[0].requires.first())
             .filter(|_| starts)
             .and_then(|key| make_hold(&h.d, key))
