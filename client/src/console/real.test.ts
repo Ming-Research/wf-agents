@@ -80,7 +80,7 @@ describe("the item's body, read from the data the flow's card names", () => {
     });
     // The card names `how` before `why`, and a datum nothing has written yet; `background` and `plan_owner` stand in
     // the flow and are on no card.
-    const flow: Flow & { card: string[] } = {
+    const flow: Flow = {
       ...FLOW,
       name: 'any',
       card: ['how', 'why', 'later'],
@@ -113,13 +113,11 @@ describe("the item's body, read from the data the flow's card names", () => {
     const load = (_: number, block: string, at: number): Promise<VersionPage> =>
       Promise.resolve({ block, at, content: contents[`${block}@${at}`] ?? '' });
     const body = await readBody(page, load);
-    expect(body).toMatchObject({
-      sections: [
-        { title: 'how', parts: [{ kind: 'text', text: 'By hand.' }] },
-        { title: 'why', parts: [{ kind: 'text', text: 'Because it was asked.' }] },
-        { title: 'later', parts: [] },
-      ],
-    });
+    expect(body.sections).toEqual([
+      { title: 'how', parts: [{ kind: 'text', text: 'By hand.' }] },
+      { title: 'why', parts: [{ kind: 'text', text: 'Because it was asked.' }] },
+      { title: 'later', parts: [] },
+    ]);
   });
 });
 

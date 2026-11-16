@@ -2273,6 +2273,7 @@ mod tests {
                 tests: Vec::new(),
                 tools: Vec::new(),
                 groups: Vec::new(),
+                card: Vec::new(),
                 cells: Vec::new(),
                 blocks: Vec::new(),
             },

@@ -37,6 +37,8 @@ pub struct Flow {
     pub tools: Vec<String>,
     /// The groups of the flow's blocks, by name, each with its blocks as the flow names them.
     pub groups: Vec<Group>,
+    /// What the item's card shows the owner of the work, in the order the flow names them; none where it names none.
+    pub card: Vec<String>,
     /// The cells, in the order of the walk.
     pub cells: Vec<Cell>,
     /// The blocks, by name.
@@ -744,6 +746,7 @@ impl Flow {
                     blocks: blocks.clone(),
                 })
                 .collect(),
+            card: names(&compiled.card),
             cells,
             blocks,
         }

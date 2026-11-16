@@ -22,6 +22,10 @@ import { type Body, type Choice, type Message, type Part, quoteOf } from './wind
 
 const HOUR = 3600000;
 
+/// A made-up body, in the parts the console of the old engine drew: where the item came from, the problem it solves and
+/// the plan for it, whose choices may wait for the owner, and the messages under them.
+type Made = { background: Part[]; problem: Part[]; plan: Part[]; planWaits: boolean; messages: Message[] };
+
 const DIAGRAM = `\`\`\`mermaid
 flowchart LR
   W[Work runs] --> M{Health numbers past their line?}
@@ -46,7 +50,7 @@ flowchart TD
   A --> O["Architect records or merges an observation: the ending"]
 \`\`\``;
 
-const ITEM_263: Partial<Body> = {
+const ITEM_263: Partial<Made> = {
   background: [
     {
       kind: 'text',
@@ -225,7 +229,7 @@ const ITEM_262_OPEN: Extract<Part, { kind: 'choice' }> = {
   chosen: null,
 };
 
-const ITEM_262: Partial<Body> = {
+const ITEM_262: Partial<Made> = {
   background: [
     {
       kind: 'text',
@@ -388,7 +392,7 @@ const VERDICTS_262: [string, string][] = [
 const is262 = (item: Item) => item.number === 262;
 
 /// The bodies that show the window's parts, by what an item's work does (`richOf`).
-const RICH: { starts: string; make: (now: number) => Partial<Body> }[] = [
+const RICH: { starts: string; make: (now: number) => Partial<Made> }[] = [
   {
     starts: 'Watch for anomalies and settle them',
     make: (now) => ({ ...ITEM_263, messages: messages263(now) }),
@@ -559,7 +563,7 @@ export function bodyMock(item: Item): Body {
     ? { ...ITEM_262, messages: messages262(now) }
     : (RICH.find((r) => r.starts === which)?.make(now) ?? {});
   const plain = (text: string): Part[] => [{ kind: 'text', text }];
-  const body: Body = {
+  const made: Made = {
     background: plain('Made by the architect from a matter it was handling.'),
     problem: plain('What the item fixes or adds, in a few sentences.'),
     plan: plain('How it is to be done, once researched.'),
@@ -567,13 +571,16 @@ export function bodyMock(item: Item): Body {
     messages: [],
     ...rich,
   };
-  if (!read.has(item.number) && itemMock(item).unseen) return body;
   // Read, or never new: no passage is marked changed.
-  const clear = <P extends Part>(ps: P[]): P[] => ps.map((p) => ({ ...p, changed: false }));
+  const fresh = !read.has(item.number) && itemMock(item).unseen;
+  const clear = (ps: Part[]): Part[] => (fresh ? ps : ps.map((p) => ({ ...p, changed: false })));
   return {
-    ...body,
-    background: clear(body.background),
-    problem: clear(body.problem),
-    plan: clear(body.plan),
+    sections: [
+      { title: 'Background', parts: clear(made.background) },
+      { title: 'Problem', parts: clear(made.problem) },
+      { title: 'Plan', parts: clear(made.plan) },
+    ],
+    choicesWait: made.planWaits,
+    messages: made.messages,
   };
 }

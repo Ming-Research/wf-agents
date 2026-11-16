@@ -1,12 +1,12 @@
-// What the window beside the console shows of an item beyond what the interface gives: its body (where it came from,
-// the problem it solves and the plan for it, with the choices that wait for the owner where they stand in it, and the
-// questions a cell asked while working at its end), and the messages under it, the owner's and the replies. Pure, so
+// What the window beside the console shows of an item beyond what the interface gives: its body (a section for each
+// datum its flow's card names, with the choices that wait for the owner where they stand in it, and the questions a
+// cell asked while working at the end of the last), and the messages under it, the owner's and the replies. Pure, so
 // that the window draws made-up items as it will draw real ones.
 //
-// Brought over from the console of the engine on `old-main` (`client/src/console/window.ts`), as it was.
+// Brought over from the console of the engine on `old-main` (`client/src/console/window.ts`).
 
-/// Who writes a message, or is named in one to receive it.
-export type Who = 'owner' | 'engineer' | 'architect' | 'assistant';
+/// Who writes a message, or is named in one to receive it, besides a cell or a line of the flow.
+export type Who = 'owner' | 'architect' | 'assistant';
 
 /// A cell of the engineer's flow a message can go to, or come from, by its id: the research (`R1`), the deep research
 /// (`D1`), the implementation (`I1`), or a cell that asked the owner a question while working.
@@ -41,19 +41,21 @@ export type Choice = Extract<Part, { kind: 'choice' }>;
 /// one, or is written to, by its id.
 export type Message = { who: Who | MessageCell; at: number; to: (Who | MessageCell)[]; quote: string | null; text: string };
 
+/// A section of the body: a datum the flow's card names, by its name, with the passages of its current version.
+export type BodySection = { title: string; parts: Part[] };
+
 /// The item's body and messages.
 export type Body = {
-  background: Part[];
-  problem: Part[];
-  plan: Part[];
-  /// Whether the plan waits for the owner to confirm it.
-  planWaits: boolean;
+  /// What the flow's card names, in its order.
+  sections: BodySection[];
+  /// Whether the choices of the last section wait for the owner to confirm them.
+  choicesWait: boolean;
   messages: Message[];
 };
 
 /// How many parts of the body changed since the owner last read the item.
 export const changedIn = (b: Body): number =>
-  [...b.background, ...b.problem, ...b.plan].filter((p) => p.changed === true).length;
+  b.sections.flatMap((s) => s.parts).filter((p) => p.changed === true).length;
 
 /// A question as a message quotes it to discuss it: its sentence, then each option's label, each on a line.
 export const quoteOf = (c: Choice): string => [c.question, ...c.options.map((o) => o.label)].join('\n');
@@ -62,16 +64,8 @@ export const quoteOf = (c: Choice): string => [c.question, ...c.options.map((o) 
 export const messagesAbout = (messages: Message[], c: Choice): number[] =>
   messages.flatMap((n, i) => (n.quote !== null && n.quote.includes(c.question) ? [i] : []));
 
-/// How many choices the plan has, and how many of them have their pick.
+/// How many choices the last section has, and how many of them have their pick.
 export function picks(b: Body): { picked: number; all: number } {
-  const choices = b.plan.filter((p) => p.kind === 'choice');
+  const choices = (b.sections.at(-1)?.parts ?? []).filter((p) => p.kind === 'choice');
   return { picked: choices.filter((p) => p.chosen !== null).length, all: choices.length };
-}
-
-/// Those named in a message with `@`; the engineer only while a work goes on.
-export function named(text: string, working: boolean): Who[] {
-  const found = new Set<Who>();
-  for (const m of text.matchAll(/@(engineer|architect|assistant)\b/gi)) found.add(m[1].toLowerCase() as Who);
-  if (!working) found.delete('engineer');
-  return [...found];
 }

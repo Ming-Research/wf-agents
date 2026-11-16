@@ -17,3 +17,9 @@ for a cell or a line whose name a cell names it by, among what that cell watches
 every agent cell takes stands for those made.
 Why: Made for every cell, a cell that may not ask would have questions of its own that no cell writes and that run
 nothing, each a block with no writer (principle every-field-has-a-reader).
+
+### decision the-card-is-the-flows
+What the item's card shows the owner of a work is named by the work's flow (`card` in its `flow.toml`), data of the
+flow in their order; the page draws a section of each by its name, and names no datum and no flow of its own.
+Why: The page told one flow by its name and read three blocks by theirs, which held for those two flows alone and
+would have broken without a word when a flow renamed one (principle engine-knows-no-cell).

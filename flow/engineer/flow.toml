@@ -8,6 +8,10 @@ order = ["S1", "R0", "R1", "R2", "D1", "D2", "D3", "D4", "I1", "T1", "T2", "M1",
 # the cell, from `../triggers/`.
 data = ["background", "dependencies", "q_and_a", "asked", "discussion", "tree", "head"]
 
+# What the item's card shows the owner of the work, in this order: the page shows what this names, and names no datum
+# of its own.
+card = ["background", "plan_owner"]
+
 # The engine's tools every agent cell of the flow may ask for, each defined once in `../agents/tools/`. The form of a
 # return holds them, the same for every line of the flow (`../agents/return/return.toml`).
 tools = ["query", "run_tests"]

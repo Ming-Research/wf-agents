@@ -350,7 +350,7 @@ describe('the panel of the item selected', () => {
     const i = itemOf(12);
     const page = pageOf(i);
     if (page === null || !('page' in page)) throw new Error('no page');
-    const flow: Flow & { card: string[] } = { ...ASKING, card: ['plan', 'request'] };
+    const flow: Flow = { ...ASKING, card: ['plan', 'request'] };
     const el = draw(i, answered([]), { page: { ...page.page, flow } });
     await act(async () => undefined);
     expect(text(el, '.cw-body > .cw-fold > .cw-fold-head > span:last-child')).toEqual(['plan', 'request']);

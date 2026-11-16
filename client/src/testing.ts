@@ -121,7 +121,7 @@ export function flowOf(
   for (const t of cells.flatMap((c) => c.triggers)) {
     if (t.group.length > 0 && !groups.some((g) => g.name === t.block)) groups.push({ name: t.block, blocks: t.group });
   }
-  return { name, limits: LIMITS, lines: declared, tests, tools, groups, cells, blocks: all };
+  return { name, limits: LIMITS, lines: declared, tests, tools, groups, card: [], cells, blocks: all };
 }
 
 /// The small flow of `crates/web/tests/flows/small`: a plan a review can send back, a design when the review asks for

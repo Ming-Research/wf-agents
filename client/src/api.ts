@@ -167,6 +167,8 @@ export interface Flow {
   tools: string[];
   /// The groups of the flow's blocks, by name, each with its blocks as `flow.toml` names them.
   groups: Group[];
+  /// What the item's card shows the owner of the work, in the order `flow.toml` names them; none where it names none.
+  card: string[];
   /// In the order of the walk.
   cells: Cell[];
   /// By name.

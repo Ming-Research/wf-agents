@@ -3,10 +3,9 @@
 // otherwise what the engine gives, with nothing where it gives nothing.
 //
 // From the engine, with the mocks off:
-// - The body, from the work's blocks, the current version of each: Background is `background`; Plan is `plan_owner`;
-//   there is no Problem. For an item of the `deliver` flow, Plan is `delivered`. The questions put to the owner are
-//   not read from the record of the questions and the answers: the panel draws each from the work's page, once, at the
-//   plan's end.
+// - The body, from the work's blocks: a section for each datum the flow's card names, in its order and by its name,
+//   with its current version. The questions put to the owner are not read from the record of the questions and the
+//   answers: the panel draws each from the work's page, once, at the end of the last section.
 // - The messages: of the record of what is said (a block the engine's source of the owner's words writes that a
 //   trigger of the owner's words has its agent read, which the cells write in their returns), each of the owner's entries is the owner's, to the cell the
 //   version is said to, and each a cell wrote is its reply, to the owner, its cell the run's that wrote it; each with
@@ -44,7 +43,7 @@ export function askedChoice(question: string, call: number, cell: string): Choic
 export const workTierOf = (): string | null => (mocksShown() ? workTierMock() : null);
 
 /// A body with nothing in it.
-const EMPTY: Body = { background: [], problem: [], plan: [], planWaits: false, messages: [] };
+const EMPTY: Body = { sections: [], choicesWait: false, messages: [] };
 
 /// The body the window shows before the work is read: the made-up one with the mocks, an empty one without, which
 /// `readBody` fills.
@@ -130,8 +129,8 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     const text = await contentOf(load, work, block, last.at);
     return text.trim() === '' ? [] : [{ kind: 'text', text }];
   };
-  const deliver = page.summary.flow === 'deliver' || page.flow.name === 'deliver';
-  const [background, plan] = await Promise.all([current('background'), current(deliver ? 'delivered' : 'plan_owner')]);
+  // A section for each datum the flow's card names, in its order and by its name.
+  const sections = await Promise.all(page.flow.card.map(async (title) => ({ title, parts: await current(title) })));
   // The owner's notes of a flow before the record, each to the one cell that reads it.
   const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && b.readBy.cells.length === 1);
   // The record of what is said.
@@ -170,7 +169,7 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     .filter((m) => m.text.trim() !== '' && answers(m))
     .sort((a, b) => a.at - b.at || a.place - b.place)
     .map(({ who, at, to, quote, text }) => ({ who, at, to, quote, text }));
-  return { background, problem: [], plan, planWaits: false, messages };
+  return { sections, choicesWait: false, messages };
 }
 
 /// A block the owner may write that keeps a precondition the work waits for from holding, as the engine's list of what
