@@ -131,14 +131,13 @@ new session lacks it.
 
 25. The design tree is read by the agent, which chooses what bears on the problem. A session that has not read the tree
     for the work reads it in the first round of a cell that reads `tree` entered in it, before that round's own work
-    (23). On a line with a cell
-    whose work is only that reading, as the engineer line has, that cell does it for the cells after it, and so that it
-    does it again in a session reopened it watches its line's `session`: data that stand for the session of that line,
-    with a new version each time the session is reopened. Only such a line has them. The tree runs no cell: a changed
-    tree is read where the line goes on, by the next cell that enters the session (23), and not by running the reading
-    again. No data stand for the reading itself. What the reading cell finds for other cells it hands in as any cell
-    does; run again for a new session alone, it finds nothing changed and hands in nothing new, so that no cell runs
-    because of it (9).
+    (23). On a line with a cell whose work is only that reading, as the engineer line has, that cell does it for the
+    cells after it, and so that it does it again in a session reopened it watches its line's `session`: data that
+    stand for the session of that line, with a new version each time the session is reopened. Only such a line has
+    them. The tree runs no cell: a changed tree is read where the line goes on, by the next cell that enters the
+    session (23), and not by running the reading again. No data stand for the reading itself. What the reading cell
+    finds for other cells it hands in as any cell does; run again for a new session alone, it finds nothing changed and
+    hands in nothing new, so that no cell runs because of it (9).
 
 26. A session reopened while a round is under way is no case of its own. The round did not end and consumed nothing
     (8). On a line that has `session`, it has a new version, and the engine takes the reading cell first and after it
@@ -166,8 +165,8 @@ new session lacks it.
     question asks for a choice and says whether the work waits for the answer (principle a-question-is-a-choice). The
     owner's answer is the option taken and nothing else, written as the next version of that datum. A version that
     asks, whoever wrote it, is new to no cell: an answer is new to the cells that watch the questions it answers, the
-    cell that asked and the one that took charge from it (28), and the one that acts follows the option taken. A
-    session reopened is filled with the answer as with any datum.
+    cell whose questions they are and the one that took charge from it (28), and the one that acts follows the option
+    taken. A session reopened is filled with the answer as with any datum.
 
 31. An answer that changes nothing the cell goes by is kept, and is new to no cell (9): one that takes the option the
     cell recommends, to a question the work does not wait for; and one to a question as it was asked before it was
@@ -235,8 +234,9 @@ new session lacks it.
 39. Where the two sides do not agree, the owner may rule. On a judge's dialogue the owner writes the verdict in the
     judge's place: the dialogue's points written before it are new to no cell from then on (9), and the verdict stands
     until something the judge watches is new to it; the judge then judges again, and raises nothing the owner ruled
-    on. On a doubt the owner speaks to the maker or to the doubter (35): the points stay as they are, and the one
-    spoken to answers them by the owner's words.
+    on. On a doubt the owner speaks to the maker or to the doubter (35): the points stay as they are, the maker
+    answers them, by the owner's words where they were said to it, and the doubter, spoken to, answers the owner and
+    may write its doubt anew or withdraw it.
 
 40. The engine's acts, such as the check before the merge, read no words, and are no party to a dialogue. What the
     check finds, `check`, is a datum the maker watches, and the maker answers it only by what runs the check again: a
