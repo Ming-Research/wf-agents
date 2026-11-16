@@ -132,6 +132,12 @@ impl<K: Ord + Copy, R> Held<K, R> {
     /// to answer with now where nothing carries it out: where it was not given in this process, the reply given with
     /// the stop; where it is no longer carried out and its reply is still held, that one; none where it was answered.
     pub(crate) fn stop(&self, key: K, reply: R) -> Option<R> {
+        self.stopped(key, reply).map(|(reply, _)| reply)
+    }
+
+    /// Stops what was given, as [`Held::stop`] does, saying beside the reply to answer with whether it was given in this
+    /// process: where it was, what carried it out has ended, and said what came of it, though its reply waits still.
+    pub(crate) fn stopped(&self, key: K, reply: R) -> Option<(R, bool)> {
         let mut slots = self.slots();
         let Some(slot) = slots.get_mut(&key) else {
             slots.insert(
@@ -141,11 +147,11 @@ impl<K: Ord + Copy, R> Held<K, R> {
                     stop: None,
                 },
             );
-            return Some(reply);
+            return Some((reply, false));
         };
         match slot.stop.take().map(|stop| stop.send(())) {
             Some(Ok(())) => None,
-            _ => slot.reply.take(),
+            _ => slot.reply.take().map(|reply| (reply, true)),
         }
     }
 }
