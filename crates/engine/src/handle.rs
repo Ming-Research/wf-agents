@@ -897,7 +897,8 @@ pub(crate) fn requires<'a>(
 
 /// Of each block that runs the run's cell and that an act of the engine's after the cell writes, what runs that act
 /// again, as the flow's graph says it: the blocks that run the act, and whether the block of the questions' standing is
-/// among them. None where the run's cell is not in the flow.
+/// among them; and, as the records say it, whether one of them is new to the act already. None where the run's cell is
+/// not in the flow.
 pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<BlockId, Answer> {
     let mut answers: BTreeMap<BlockId, Answer> = BTreeMap::new();
     let started = work.records.started.iter().find(|s| s.run == run);
@@ -906,12 +907,18 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
     };
     let asked = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(asked::ASKED));
     let cells = flow.flow.cells();
-    for block in &cells[place].runs_on {
-        let acts = (flow.cells.iter().zip(cells)).skip(place + 1);
-        for (_, act) in acts.filter(|(spec, act)| spec.kind == Kind::Engine && act.outputs.contains(block)) {
+    let runs_on = &cells[place].runs_on;
+    let acts = (flow.cells.iter().zip(cells)).skip(place + 1);
+    for (_, act) in
+        acts.filter(|(spec, act)| spec.kind == Kind::Engine && act.outputs.iter().any(|b| runs_on.contains(b)))
+    {
+        // What is new to the act is the act's alone, whichever of the cell's blocks it wrote.
+        let new = !decide::new_to(&flow.flow, &work.records, &act.id).is_empty();
+        for block in runs_on.iter().filter(|b| act.outputs.contains(b)) {
             let answer = answers.entry(block.clone()).or_default();
             answer.runs.extend(act.runs_on.iter().cloned());
             answer.question |= asked.is_some_and(|(id, _)| act.runs_on.contains(id));
+            answer.new |= new;
         }
     }
     answers

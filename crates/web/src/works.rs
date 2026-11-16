@@ -1184,7 +1184,8 @@ pub enum Unmet {
     Unexplained { path: String },
     /// The run of a line that changes only the project's tests changed this file, which is none of them.
     NotATest { path: String },
-    /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question.
+    /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
+    /// answer to come.
     Unanswered { block: String },
 }
 
