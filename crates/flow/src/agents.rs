@@ -128,8 +128,7 @@ pub struct PausedWords {
     pub let_go: String,
 }
 
-/// Why a work waits on the owner, a sentence for each thing it waits for; a question the work waits for at its cell is
-/// said by what it asks, and one a cell's precondition waits for, by `answer`.
+/// Why a work waits on the owner, a sentence for each thing it waits for; a question is said by what it asks.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OwnerWords {
@@ -138,8 +137,6 @@ pub struct OwnerWords {
     pub returns: String,
     pub made: String,
     pub ruling: String,
-    /// A question that stands without the owner's answer, which a cell's precondition waits for.
-    pub answer: String,
     pub paused: String,
     pub no_reason: String,
     pub held: String,

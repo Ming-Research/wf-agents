@@ -135,7 +135,7 @@ const wait = (key: string, why: string, ends: Ends): Wait => ({ key, why, ends }
 
 /// The block a test reads that the owner writes, keeping the cell's `requires` from holding, as the engine says it.
 const ruling = (t: Test, block: string): Wait =>
-  wait(`write-${block}`, `\`test = ${t.name}\` does not hold, as \`${block}\` says, and the cell requires it.`, {
+  wait(`write-${block}`, `\`${block}\` keeps \`test = ${t.name}\` from holding.`, {
     kind: 'write',
     block,
     value: 'yes',

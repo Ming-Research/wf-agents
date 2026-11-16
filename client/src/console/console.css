@@ -184,14 +184,6 @@
   font-weight: var(--weight);
 }
 
-/* The engine's one sentence of why a question holds the work, where that is not what it asks: under what it asks, in
-   the red of a stop, as of a question the merge waits for. */
-.cw-choice-stops {
-  margin: calc(-1 * var(--space-4)) 0 var(--space-8);
-  color: var(--red-text);
-  font-size: var(--size-small);
-}
-
 /* The options of a card, told apart by shape from the text above them, its code and its diffs included: under a
    hairline, with more room before them, each drawn as a choice in the page's colour of what is chosen, the accent: a
    thin frame of it, its background a step darker under the pointer (principle quiet-motion), and the one picked in a

@@ -240,10 +240,6 @@ export interface Wait {
   key: string;
   why: string;
   ends: Ends;
-  /// For a question a cell's precondition waits for, which the work went on past at the cell that asked it, why the
-  /// work waits for it there, in a sentence: said by the question's card alone, under what it asks. Absent for
-  /// anything else.
-  under?: string | null;
 }
 
 /// What the owner does that ends a wait on them.

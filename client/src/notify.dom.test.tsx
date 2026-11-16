@@ -87,7 +87,7 @@ const KINDS: Wait[] = [
   wait('limit', "The cell's run had 2 returns sent back, its limit.", { kind: 'goOn', call: 4 }),
   wait('pause', 'The engine paused the work. A round failed.'),
   wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
-  wait('write-content', '`test = may_merge` does not hold, as `content` says, and the cell requires it.', {
+  wait('write-content', '`content` keeps `test = may_merge` from holding.', {
     kind: 'write',
     block: 'content',
     value: 'yes',
@@ -142,7 +142,7 @@ describe("the browser's notifications", () => {
     // After the cell the work stands at, as a line names it: a name or a value in backticks is said bare, as a
     // notification has no monospace.
     const bare = KINDS.map((w) => `implement · ${w.why.replace(/`/g, '')}`);
-    expect(bare[5]).toBe('implement · test = may_merge does not hold, as content says, and the cell requires it.');
+    expect(bare[5]).toBe('implement · content keeps test = may_merge from holding.');
     expect(Told.made.map((n) => n.options.body)).toEqual([...bare, 'implement · Which way?']);
     for (const n of Told.made) {
       expect(n.title).toBe("Waiting for you: #142 Keep the panel's width");
@@ -159,10 +159,7 @@ describe("the browser's notifications", () => {
       at: 'M1',
       on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'owner' }] }],
     };
-    const asks: Wait = {
-      ...wait('answer-scope', '选哪一种？', { kind: 'answer', question: 'scope', version: 4 }),
-      under: 'The merge waits for this answer.',
-    };
+    const asks = wait('answer-scope', '选哪一种？', { kind: 'answer', question: 'scope', version: 4 });
     const items = fixtureItems().items.map((i): Item =>
       i.number === 142 ? { ...i, work: { ...i.work, now: merge, waits: [asks] } } : i,
     );

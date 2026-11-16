@@ -80,20 +80,19 @@ describe('what a work does now, in words', () => {
     // Two reasons are two sentences, a name in backticks said bare on the line.
     const ruling: Wait = {
       key: 'write-verdict',
-      why: '`verdict = yes` does not hold, as `verdict` says, and the cell requires it.',
+      why: '`verdict` keeps `verdict = yes` from holding.',
       ends: { kind: 'write', block: 'verdict', value: 'yes' },
     };
     const asked: Wait = { key: 'call-4', why: 'Show the cached tokens apart?', ends: { kind: 'reply', call: 4 } };
     expect(nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, question] }, [asked, ruling, pause]))).toBe(
-      'Waiting for you · merge · Show the cached tokens apart? verdict = yes does not hold, as verdict says, and the ' +
-        'cell requires it. The engine paused the work. The agent could not start.',
+      'Waiting for you · merge · Show the cached tokens apart? verdict keeps verdict = yes from holding. The engine ' +
+        'paused the work. The agent could not start.',
     );
-    // A question the merge waits for is said by what it asks, each once: why the merge waits is its card's alone.
+    // A question the merge waits for is said by what it asks, each once.
     const merge = (name: string, ask: string): Wait => ({
       key: `answer-${name}`,
       why: ask,
       ends: { kind: 'answer', question: name, version: 4 },
-      under: 'The merge waits for this answer.',
     });
     const both = [merge('scope', '选哪一种？'), merge('keep', 'Keep the old table?')];
     expect(nowWords(doing({ kind: 'waits', at: 'M1', on: [precondition] }, both))).toBe(

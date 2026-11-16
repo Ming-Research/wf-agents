@@ -273,10 +273,6 @@ pub struct Wait {
     pub key: String,
     pub why: String,
     pub ends: Ends,
-    /// For a question a cell's precondition waits for, which the work went on past at the cell that asked it, why the
-    /// work waits for it there, in a sentence, which the question's card alone says under what it asks; none else.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub under: Option<String>,
 }
 
 /// What the owner does that ends a wait on them.
@@ -324,7 +320,6 @@ impl Wait {
                 EndsOf::ResumeEverything => Ends::ResumeEverything {},
                 EndsOf::Outside { what } => Ends::Outside { what },
             },
-            under: waiting.under,
         }
     }
 }

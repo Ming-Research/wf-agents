@@ -43,8 +43,8 @@ A project's configuration and data are in the owner's data directory, the settin
 Why: Kept in this repository, a project's configuration would put the project into the harness (Article 1); kept in each project's repository, shared settings would be copied many times.
 
 ### principle judged-by-own-history
-A measured quantity, such as cost, build time, test time or a round's context, is judged against its own past or by an exact check, never by one fixed threshold for all: the system reports a slow growth that leaves its normal range, and a guard stops a case its history does not explain. A stop on a count of the same failure is no measurement and keeps its fixed count.
-Why: Each look at a slow growth shows nothing wrong, but it adds up, and the owner cannot keep watching or sending agents to look. A fixed threshold cannot tell a fault from a case that is legitimately large, and someone must keep setting it by hand. (Article 3)
+What the system takes as normal when it watches itself, such as how long a round or a wait may take or how large a context or a cost may grow, is computed from its own history, never written in as a fixed threshold: it reports what leaves the range its history gives, and a guard stops a case its history does not explain. A stop on a count of the same failure is no measurement and keeps its fixed count.
+Why: Agents writing the engine's health checks fixed a threshold for each thing (the time without a reply, the size of a context, the time a round took), and a fixed threshold cannot tell a fault from a case that is legitimately large, and someone must keep setting it by hand. Each look at a slow growth shows nothing wrong, but it adds up, and the owner cannot keep watching. (Article 3)
 
 ### principle tech-mainstream
 A technology is chosen for being mature, mainstream and fit for the project's size, without comparing every alternative.

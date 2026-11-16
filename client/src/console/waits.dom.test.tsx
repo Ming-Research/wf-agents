@@ -47,9 +47,6 @@ const shared = (failure: Failure): Now => {
   return { kind: 'waits', at: 'plan', on: [{ kind: 'agents', outage }] };
 };
 
-/// Why the engine says the merge waits for a question it went on past, said on that question's card alone.
-const MERGE = 'The merge waits for this answer.';
-
 /// What the owner does about the agents' command line, in the engine's words, which the page says once.
 const MEND = 'Sign it in again or install it; the engine lets the work go on once its check finds it runs.';
 
@@ -138,12 +135,12 @@ const OWNERS: [string, Now, Wait][] = [
   [
     'a question the work went on past, which the merge now waits for',
     ANSWERS,
-    { ...wait('answer-measure', 'What of measure?', { kind: 'answer', question: 'measure', version: 4 }), under: MERGE },
+    wait('answer-measure', 'What of measure?', { kind: 'answer', question: 'measure', version: 4 }),
   ],
   [
     "a review's verdict for the owner to rule on",
     VERDICT,
-    wait('write-content', '`test = may_merge` does not hold, as `content` says, and the cell requires it.', {
+    wait('write-content', '`content` keeps `test = may_merge` from holding.', {
       kind: 'write',
       block: 'content',
       value: 'yes',
@@ -400,18 +397,13 @@ describe('the cards of what waits for the owner', () => {
     expect(document.querySelector('[data-wait="held"] button')?.textContent).toBe('Resume all');
   });
 
-  it('say why the merge waits for a question under what it asks, from the wait apart from its reason', () => {
+  it('say a question the merge waits for by what it asks and nothing more, as at its cell', () => {
     const [, now, w] = OWNERS[6];
     const container = draw(now, [w], undefined, none);
     const card = container.querySelector('[data-wait="answer-measure"]') as HTMLElement;
     expect(card.querySelector('.cw-choice-q')?.textContent).toBe('What of measure?');
-    expect([...card.querySelectorAll('.cw-choice-stops')].map((e) => e.textContent)).toEqual([MERGE]);
-    // Said once on the page: the state line says what it asks, not why the merge waits.
-    expect(container.textContent?.split(MERGE).length).toBe(2);
-    unmount();
-    // A question the work waits for at its cell is its own why: the card says nothing more.
-    const [, at, own] = OWNERS[5];
-    expect(draw(at, [own], undefined, none).querySelector('.cw-choice-stops')).toBeNull();
+    // No line says why the merge waits for it: the card is red and the line names the cell.
+    expect(container.textContent).not.toContain('The merge waits for this answer');
   });
 
   it("set a reason's names and values in the monospace, as the engine marks them, and a ruling's values as keys", async () => {
@@ -420,8 +412,8 @@ describe('the cards of what waits for the owner', () => {
     await act(async () => undefined);
     const card = container.querySelector('[data-wait="write-content"]') as HTMLElement;
     expect([...card.querySelectorAll('.cw-choice-q code')].map((c) => c.textContent)).toEqual([
-      'test = may_merge',
       'content',
+      'test = may_merge',
     ]);
     expect(card.querySelector('.cw-choice-q')?.textContent).not.toContain('`');
     expect([...card.querySelectorAll('.cw-option-label code')].map((c) => c.textContent)).toEqual(['content = yes']);

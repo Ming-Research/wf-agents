@@ -115,11 +115,9 @@ const asked = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { ki
   w.kind === 'call' && w.what.kind === 'question';
 
 /// What a question's card says of the engine's wait for its answer, where the engine's list names one: that it holds
-/// the work, and why a cell other than the one that asked it waits for it, where the engine says one does.
-function holding(s: Summary, key: string): Pick<Choice, 'holds' | 'under'> {
-  const wait = waitsOf(s).find((w) => w.key === key);
-  if (wait === undefined) return { holds: false };
-  return wait.under ? { holds: true, under: wait.under } : { holds: true };
+/// the work.
+function holding(s: Summary, key: string): Pick<Choice, 'holds'> {
+  return { holds: waitsOf(s).some((w) => w.key === key) };
 }
 
 /// The questions a cell asked the owner as a call the work waits at, as choices at the plan's end, each holding the work
@@ -960,8 +958,7 @@ function Options({ options, chosen, recommended = null, pick, code = false }: {
 /// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are
 /// about it, which brings the first into view. A question with no options is answered in words, in a box in their
 /// place. A question the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in
-/// red, the look of every stop, and under what it asks, where a cell other than the one that asked it waits for it,
-/// the engine's sentence of why, as for a question the merge waits for.
+/// red, the look of every stop.
 function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   p: Choice;
   pick?: (option: number) => void;
@@ -978,7 +975,6 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
       <div className="cw-choice-q">
         <Markdown text={p.question} />
       </div>
-      {p.holds === true && p.under !== undefined && <p className="cw-choice-stops">{p.under}</p>}
       {p.options.length === 0 && p.asks !== undefined ? (
         <textarea
           rows={3}

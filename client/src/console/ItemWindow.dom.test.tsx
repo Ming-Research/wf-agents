@@ -137,17 +137,12 @@ const lines = (el: HTMLElement) =>
 /// The work's state line has no row of keys under it: what it says is one line.
 const noKeys = (el: HTMLElement) => el.querySelector('.cw-item > .status-line .cw-keys, .cw-item > .status-line .keys') === null;
 
-/// The engine's wait for the owner's answer to this question of the work's, at this version: said by what it asks,
-/// with the engine's sentence of why apart where the merge waits for it.
-const answering = (name: string, version = 30, merge = false): Wait => ({
+/// The engine's wait for the owner's answer to this question of the work's, at this version: said by what it asks.
+const answering = (name: string, version = 30): Wait => ({
   key: `answer-${name}`,
   why: `What of ${name}?`,
   ends: { kind: 'answer', question: name, version },
-  ...(merge ? { under: MERGE_WAITS } : {}),
 });
-
-/// Why the engine says a question the merge waits for holds the work, in the words beside the flows.
-const MERGE_WAITS = 'The merge waits for this answer.';
 
 const button = (el: HTMLElement, words: string) =>
   [...el.querySelectorAll('button')].find((b) => b.textContent === words) as HTMLButtonElement;
@@ -526,8 +521,7 @@ function drawAsking(
 ) {
   const i = itemOf(25);
   const versions = new Map(questions.map((q) => [q.name, q.version]));
-  const merge = now.kind === 'waits' && now.on.some((w) => w.kind === 'precondition');
-  const waits = holding.map((name) => answering(name, versions.get(name), merge));
+  const waits = holding.map((name) => answering(name, versions.get(name)));
   const work = { ...i.work, now, waits, cells: cells ?? i.work.cells, paused: paused ? ('owner' as const) : null };
   const item: Item = { ...i, work };
   const page = pageOf(item);
@@ -709,8 +703,8 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     const [, workLine] = lines(el);
     expect(workLine).toBe('Waiting for you merge Merge W25');
     expect(text(el, '.cw-choice-q')).toEqual(['What of measure?', 'What of old?', 'What of read-time?']);
-    // Each the merge waits for says so, its one sentence of why, under what it asks; the one answered says nothing.
-    expect(text(el, '.cw-choice-stops')).toEqual([MERGE_WAITS, MERGE_WAITS]);
+    // No line says why the merge waits for them: each card is red and the work's line names the cell.
+    expect(el.textContent).not.toContain('The merge waits for this answer');
     // Those the merge waits for hold the work, on the red tint; the one answered stands with its answer, and is not
     // asked again.
     expect([...el.querySelectorAll('.cw-choice')].map((c) => c.className)).toEqual([
@@ -819,14 +813,14 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       on: [{ kind: 'precondition', test: 'asked', words: 'asked = answered', by: [{ kind: 'owner' }] }],
     };
     const old = question('old', { answer: { option: 1, at: 40, why: null } });
-    const el = drawQuestions(merge, [question('measure'), old], answered(sent), [answering('measure', 30, true)]);
+    const el = drawQuestions(merge, [question('measure'), old], answered(sent), [answering('measure')]);
     // It waits for you at the merge's check, in one line.
     expect(lines(el)[1]).toContain('Waiting for you merge Merge');
     expect(noKeys(el)).toBe(true);
-    // The card the address of the engine's wait for its answer opens, which says the engine's one sentence of why under
-    // what it asks; the one answered asks nothing.
+    // The card the address of the engine's wait for its answer opens, which says what it asks; the one answered asks
+    // nothing.
     expect(el.querySelectorAll('[data-wait="answer-measure"]')).toHaveLength(1);
-    expect(text(el, '[data-wait="answer-measure"] .cw-choice-stops')).toEqual([MERGE_WAITS]);
+    expect(el.textContent).not.toContain('The merge waits for this answer');
     // The one the merge waits for holds the work, on the red tint; the one answered stands with its answer.
     expect([...el.querySelectorAll('.cw-choice')].map((c) => c.className)).toEqual([
       'cw-choice cw-choice-holds',

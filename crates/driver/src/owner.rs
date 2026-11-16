@@ -44,10 +44,6 @@ pub struct Waiting {
     pub why: String,
     /// What the owner does that ends it.
     pub ends: Ends,
-    /// For a question a cell's precondition waits for, which the work went on past at the cell that asked it, why the
-    /// work waits for it there, in a sentence (`owner.answer`); none for anything else. Said on the question's card
-    /// alone, under what it asks.
-    pub under: Option<String>,
 }
 
 /// What the owner does that ends a wait on them.
@@ -211,10 +207,9 @@ fn at_cell(
                 } else if outsiders.by_owner {
                     // What its source writes changes as the owner answers the work's questions: each that stands
                     // without the owner's answer to its latest version, which the cell waits for.
-                    let under = fill(&words.answer, &[("cell", cell)]);
                     for (name, standing) in questions::questions(records) {
                         if standing.unanswered() {
-                            question(kept, name, &standing, Some(under.clone()), waits);
+                            question(kept, name, &standing, waits);
                         }
                     }
                 }
@@ -232,16 +227,15 @@ fn at_cell(
         }
         Waited::Answer { question: name } => {
             if let Some(standing) = questions::questions(records).get(name.as_str()) {
-                question(kept, name, standing, None, waits);
+                question(kept, name, standing, waits);
             }
         }
         Waited::Precondition { .. } | Waited::Slot | Waited::Outside { .. } => {}
     }
 }
 
-/// The wait for the owner's answer to the latest version of a question of the work, said by what it asks, with why a
-/// cell other than the one that asked it waits for it, `under`, where one does.
-fn question(kept: &Kept<'_>, name: &str, standing: &Standing<'_>, under: Option<String>, waits: &mut Vec<Waiting>) {
+/// The wait for the owner's answer to the latest version of a question of the work, said by what it asks.
+fn question(kept: &Kept<'_>, name: &str, standing: &Standing<'_>, waits: &mut Vec<Waiting>) {
     let why = match kept.work.question(standing.latest) {
         Some(work::Question::Asked { ask, .. }) => ask.clone(),
         _ => name.to_string(),
@@ -252,7 +246,7 @@ fn question(kept: &Kept<'_>, name: &str, standing: &Standing<'_>, under: Option<
     };
     let key = format!("answer-{name}");
     if !waits.iter().any(|w| w.key == key) {
-        waits.push(Waiting { key, why, ends, under });
+        waits.push(Waiting { key, why, ends });
     }
 }
 
@@ -260,12 +254,7 @@ fn question(kept: &Kept<'_>, name: &str, standing: &Standing<'_>, under: Option<
 /// merge is one.
 fn push(waits: &mut Vec<Waiting>, key: String, why: String, ends: Ends) {
     if !waits.iter().any(|w| w.key == key) {
-        waits.push(Waiting {
-            key,
-            why,
-            ends,
-            under: None,
-        });
+        waits.push(Waiting { key, why, ends });
     }
 }
 
@@ -536,7 +525,6 @@ mod tests {
                 key: "answer-way".to_string(),
                 why: "Which way for way?".to_string(),
                 ends,
-                under: None,
             }]
         );
     }
@@ -559,9 +547,8 @@ mod tests {
         );
         let waits = of(&work, &decision);
         assert_eq!(keys(&waits), ["answer-a", "answer-b"]);
-        // Each is said by what it asks; why the merge waits for it is apart, for its card alone.
+        // Each is said by what it asks, and nothing else is said of why the merge waits for it.
         assert_eq!(waits[1].why, "Which way for b?");
-        assert_eq!(waits[1].under.as_deref(), Some("The merge waits for this answer."));
     }
 
     #[test]
@@ -582,9 +569,8 @@ mod tests {
             of(&work, &decision),
             [Waiting {
                 key: "write-verdict".to_string(),
-                why: "`verdict = yes` does not hold, as `verdict` says, and the cell requires it.".to_string(),
+                why: "`verdict` keeps `verdict = yes` from holding.".to_string(),
                 ends,
-                under: None,
             }]
         );
         // One only cells can make hold is not the owner's.
@@ -621,7 +607,6 @@ mod tests {
                 key: "call-7".to_string(),
                 why: "Question 7?".to_string(),
                 ends,
-                under: None,
             }]
         );
     }

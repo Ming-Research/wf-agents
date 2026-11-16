@@ -184,7 +184,6 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         ("owner.returns", &waits.owner.returns),
         ("owner.made", &waits.owner.made),
         ("owner.ruling", &waits.owner.ruling),
-        ("owner.answer", &waits.owner.answer),
         ("owner.paused", &waits.owner.paused),
         ("owner.no_reason", &waits.owner.no_reason),
         ("owner.held", &waits.owner.held),
