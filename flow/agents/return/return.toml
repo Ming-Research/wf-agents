@@ -31,8 +31,7 @@ item = "- {text}"
 # The fields told `listed`, in this order.
 listed = ["observations", "protected_changes"]
 every_time = '''
-A block the list marks "hand it in every time" you always hand in, as it stands, and a choice with its value: handing
-it in again with its value unchanged runs no cell again.'''
+Handing in again a block marked "hand it in every time", its value unchanged, runs no cell again.'''
 fields = '''
 Fields that are not blocks of the work:'''
 owner_reads = "The owner reads {fields}: write it in `owner.language`, with technical terms in their English original."
