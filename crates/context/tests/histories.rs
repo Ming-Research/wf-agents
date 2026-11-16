@@ -553,7 +553,19 @@ impl History {
         let given: Vec<&BlockId> = (data.iter().map(|g| &g.block))
             .chain(entered.run.written_over.iter().map(|(b, _)| b))
             .collect();
-        reached.written_over += entered.run.written_over.len();
+        // A version the round's return would have written over is given to it, with why it was sent back or, as the
+        // latest the cell writes, in its context.
+        if let Some(Given::SentBack(unmet)) = sim.work.given.get(&(round.run, round.number)) {
+            for u in unmet {
+                if let Unmet::WrittenOver { block, version } = u {
+                    let whole = Fill::Whole {
+                        block: block.clone(),
+                        version: *version,
+                    };
+                    reached.written_over += usize::from(entered.fills.contains(&whole));
+                }
+            }
+        }
         // How the session stands with each datum, and the line of one it holds that is new to the cell.
         for g in &data {
             let (stands, _, last) = self.datum(round, held, g);
