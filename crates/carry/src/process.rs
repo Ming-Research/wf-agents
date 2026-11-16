@@ -205,7 +205,7 @@ async fn wait(
 
 /// What a program's overseer runs, the group being `$1` and the wait `$2`: it waits for its standard input to close,
 /// then stops the group as a stop does, TERM and then KILL.
-const OVERSEEING: &str = r#"read -r line; kill -s KILL -- "-$1""#;
+const OVERSEEING: &str = r#"read -r line; kill -s TERM -- "-$1"; sleep "$2"; kill -s KILL -- "-$1""#;
 
 /// What stops a program's process group as the process of the engine that runs it ends, however it ends. The group is
 /// out of reach of the terminal's signals, and no handler of the engine's sees a crash or a `kill -9`: so a small shell
@@ -215,18 +215,18 @@ const OVERSEEING: &str = r#"read -r line; kill -s KILL -- "-$1""#;
 /// as the rounds are when the runtime of a process of the engine that ends by itself is dropped, it closes its pipe as
 /// well, and the shell stops the group; the runtime reaps it while the engine's process runs, and the system once that
 /// process has ended.
-struct Overseer(std::process::Child);
+struct Overseer(tokio::process::Child);
 
 impl Overseer {
     /// The overseer of the group; or why no shell could be started for it.
     fn of(group: u32) -> Result<Overseer, String> {
-        let mut command = std::process::Command::new("sh");
+        let mut command = Command::new("sh");
         let wait = STOP_WAIT.as_secs().to_string();
         (command.args(["-c", OVERSEEING, "overseer", &group.to_string(), &wait]))
+            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        std::os::unix::process::CommandExt::process_group(&mut command, 0);
         (command.spawn())
             .map(Overseer)
             .map_err(|e| format!("no overseer of its process group could be started: {e}"))
@@ -235,8 +235,7 @@ impl Overseer {
     /// Lets the overseer go: the shell is killed while its pipe is still open, since only the pipe closing makes it
     /// stop the group, and waited for.
     async fn let_go(mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        let _ = self.0.kill().await;
     }
 }
 
