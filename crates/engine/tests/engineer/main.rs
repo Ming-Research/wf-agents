@@ -109,6 +109,7 @@
 mod support;
 
 mod groups;
+mod guide;
 mod merging;
 mod reading;
 mod single;

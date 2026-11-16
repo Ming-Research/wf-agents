@@ -8,9 +8,9 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use context::Stands;
-use decide::{BlockId, CellId, Outsider};
+use decide::{BlockId, CellId, Decision, Outsider, Pauser, Seq, Waited};
 use engine::spoken::{self, NoOne, To};
-use engine::{Came, Effect, Event, Handed};
+use engine::{Came, Effect, Event, Fill, Handed};
 use flow::{Compiled, Has};
 use support::Sim;
 use work::{Question, Said, Way};
@@ -99,19 +99,26 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
 /// plan's reviews content, until the round of this cell is given, which is not carried out: gives the work and that
 /// round.
 fn until(id: &str) -> (Sim, support::Given) {
-    carried_until(id, false)
+    carried_until(id, false, None)
 }
 
 /// A work of the engineer's flow, carried out with the plan written by the deep research, nothing better found and the
 /// plan's reviews content, until the round of this cell is given, which is not carried out: gives the work and that
 /// round.
 fn deeply_until(id: &str) -> (Sim, support::Given) {
-    carried_until(id, true)
+    carried_until(id, true, None)
+}
+
+/// A work of the engineer's flow whose start read the project's guide with this text, carried out as [`until`] does
+/// until the round of this cell is given: gives the work and that round.
+fn guided_until(id: &str, guide: &str) -> (Sim, support::Given) {
+    carried_until(id, false, Some(guide))
 }
 
 /// A work of the engineer's flow, carried out until the round of this cell is given, which is not carried out, the plan
-/// written by the deep research where `deep` holds and by the research otherwise: gives the work and that round.
-fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
+/// written by the deep research where `deep` holds and by the research otherwise, and the project's guide, where one is
+/// given, read with this text as the start makes the work's place: gives the work and that round.
+fn carried_until(id: &str, deep: bool, guide: Option<&str>) -> (Sim, support::Given) {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
     let mut sim = Sim::of(engineer(), beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
@@ -142,6 +149,9 @@ fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
             "I1" => vec![("code", "abc", None)],
             other => panic!("{other} is entered before {id}"),
         };
+        if let (Some(text), "S1") = (guide, cell.as_str()) {
+            sim.wrote("guide", text, None, Outsider::Outside);
+        }
         tried(&mut sim, &round);
         sim.hands_in(&round, &blocks);
     }
@@ -635,4 +645,344 @@ fn a_cell_that_returns_what_the_owner_reads_is_told_its_language_once_with_the_l
     assert_eq!(entered.text.matches(&told).count(), 1, "{}", entered.text);
     let list = entered.text.find("## What this cell returns").expect("the list");
     assert!(entered.text[list..].contains(&told), "{}", entered.text);
+}
+
+/// A block as a return hands it in, mattering, with its value where it is a choice.
+fn handed(block: &str, content: &str, value: Option<&str>) -> Handed {
+    Handed {
+        block: BlockId::from(block),
+        content: content.to_string(),
+        matters: true,
+        value: value.map(str::to_string),
+    }
+}
+
+/// The round given next, of this cell, carried out: it fills what its message fills, and hands in these blocks.
+fn next(sim: &mut Sim, cell: &str, blocks: &[(&str, &str, Option<&str>)]) {
+    let round = sim.round().expect("a round is given");
+    assert_eq!(
+        round.cell.as_str(),
+        cell,
+        "the walk runs {} where {cell} was expected",
+        round.cell
+    );
+    tried(sim, &round);
+    sim.hands_in(&round, blocks);
+}
+
+/// The owner speaks to the plan's second look, which changes the plan as the words ask and answers them; while the
+/// work is paused, the words run it all the same.
+fn the_plan_changed_by_the_owner_s_words(sim: &mut Sim, words: &str, plan: &str) {
+    sim.take(Event::Said {
+        to: To::Cell("R2".into()),
+        words: words.to_string(),
+    });
+    next(
+        sim,
+        "R2",
+        &[("r2_words", "Changed as you say.", None), ("plan_agent", plan, None)],
+    );
+}
+
+// The owner's ruling in the design review's place (design document `data-and-context`, 39). The review fails the plan
+// with points A and B, and the owner writes its verdict at yes before the research has taken them; the plan changes
+// since, by the owner's words to the plan's second look, and the review fails again with A' and C. The points the review
+// wrote before the ruling are new to no cell from then on, in the walk, in the points a round is told and in what the
+// context manager tells a round is new to it alike (5, 11): the research, which writes the plan and answers in the
+// dialogue, owes a word for A' and C alone, and is told the dialogue is new to it since the points the owner ruled on.
+// The research answers, the review fails a third time with D, the owner rules again, and the review fails a fourth time
+// with E on a plan changed since: the second ruling marks the points before it, D among them, and neither E nor the
+// research's answer, and the research is told the dialogue is new since D.
+//
+// Every check is made, and each that fails is said, in one run. Red on c04979ee4 in the context alone: the research is
+// told the dialogue is new since the version it last consumed or wrote, none at first and its own answer later, so that
+// the points the owner ruled on, A and B and then D, are told to it as new (`NewVersions::last` is the version the cell
+// worked from, read without the ruling). Left red: 39 says they are new to no cell.
+#[test]
+fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_and_in_the_context_alike() {
+    let (mut sim, review) = until("D3");
+    let dialogue = BlockId::from("plan_review");
+    let mut failures: Vec<String> = Vec::new();
+    // The owner pauses the work while the review judges, so that its points run nothing before the owner rules.
+    tried(&mut sim, &review);
+    sim.take(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
+    let points = [
+        ("plan_ok", "", Some("no")),
+        ("plan_review", "A: the name. B: the hello.", None),
+    ];
+    sim.hands_in(&review, &points);
+    let a_and_b = Seq(sim.version("plan_review"));
+    sim.wrote("plan_ok", "", Some("yes"), Outsider::Person);
+    let new_to = |sim: &Sim, cell: &str| decide::new_to(&sim.flow.flow, &sim.work.records, &CellId::from(cell));
+    if !new_to(&sim, "R1").is_empty() {
+        failures.push(format!(
+            "the walk: points the owner ruled on run the research: {:?}",
+            new_to(&sim, "R1")
+        ));
+    }
+    the_plan_changed_by_the_owner_s_words(&mut sim, "Greet by the first name.", "Add the first name.");
+    sim.take(Event::Resumed);
+    next(
+        &mut sim,
+        "D3",
+        &[
+            ("plan_ok", "", Some("no")),
+            ("plan_review", "A': the first name. C: warmly.", None),
+        ],
+    );
+    let a_and_c = Seq(sim.version("plan_review"));
+    // What the walk, the round and the context manager each take as new to the research, which runs next.
+    let check = |sim: &Sim, failures: &mut Vec<String>, ruled: &[Seq], unruled: &[Seq], since: Seq| {
+        let round = sim.round().expect("a round is given");
+        assert_eq!(round.cell.as_str(), "R1", "the research takes the review's points");
+        let versions = decide::ruled_versions(&sim.flow.flow, &sim.work.records);
+        for v in &versions[&dialogue] {
+            if ruled.contains(&v.at) != v.ruled && (ruled.contains(&v.at) || unruled.contains(&v.at)) {
+                failures.push(format!("the ruling: version {} is marked ruled {}", v.at.0, v.ruled));
+            }
+        }
+        if new_to(sim, "R1") != [dialogue.clone()] {
+            failures.push(format!("the walk: new to the research: {:?}", new_to(sim, "R1")));
+        }
+        let told = decide::told(&sim.flow.flow, &sim.work.records, round.run).expect("the run started");
+        if told.points != [dialogue.clone()] {
+            failures.push(format!("the round: told points in {:?}", told.points));
+        }
+        let entered = sim.enter(&round, sim.begins(&round));
+        let new = entered.run.new.get("plan_review").map(|n| (n.last, n.latest));
+        let latest = Seq(sim.version("plan_review"));
+        if new != Some((Some(since), latest)) {
+            failures.push(format!(
+                "the context: the research is told plan_review is new as {new:?} (last, latest), where the points \
+                 before version {} are new to no cell: expected {:?}",
+                since.0,
+                (Some(since), latest)
+            ));
+        }
+        round
+    };
+    let round = check(&sim, &mut failures, &[a_and_b], &[a_and_c], a_and_b);
+    // The research answers A' and C.
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    sim.hands_in(
+        &round,
+        &[
+            ("deep_needed", "", Some("no")),
+            ("plan_review", "A': done. C: done.", None),
+        ],
+    );
+    let answer = Seq(sim.version("plan_review"));
+    // The review fails again with D, and the owner rules again before the research takes it.
+    let review = sim.round().expect("a round is given");
+    assert_eq!(review.cell.as_str(), "D3", "the review takes the answer");
+    tried(&mut sim, &review);
+    sim.take(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
+    sim.hands_in(
+        &review,
+        &[("plan_ok", "", Some("no")), ("plan_review", "D: the goodbye.", None)],
+    );
+    let d = Seq(sim.version("plan_review"));
+    sim.wrote("plan_ok", "", Some("yes"), Outsider::Person);
+    for cell in ["R1", "D3"] {
+        if !new_to(&sim, cell).is_empty() {
+            failures.push(format!(
+                "the walk, after the second ruling: new to {cell}: {:?}",
+                new_to(&sim, cell)
+            ));
+        }
+    }
+    the_plan_changed_by_the_owner_s_words(&mut sim, "Say goodbye too.", "Add the first name and a goodbye.");
+    sim.take(Event::Resumed);
+    next(
+        &mut sim,
+        "D3",
+        &[
+            ("plan_ok", "", Some("no")),
+            ("plan_review", "E: the time of day.", None),
+        ],
+    );
+    let e = Seq(sim.version("plan_review"));
+    check(&sim, &mut failures, &[a_and_b, a_and_c, d], &[answer, e], d);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+// A question the work waits for holds the work at its cell whether or not the cell applies now (design document
+// `data-and-context`, 32): the research, in one return, hands the plan to the deep research, `deep_needed` yes, which
+// skips the research from then on, and asks a question the work waits for. Before the answer no cell after the research
+// runs, whatever is new to it; the owner's words to the engineer's line, which stands at the research, are refused,
+// saying the research does not apply now, and go to no other cell (35). The answer, though it takes the option the
+// research recommends, changes the research's questions in meaning, since the work waited for it (31), and runs the
+// deep research, which took charge and watches them (28), told that they ran it; the research does not run.
+#[test]
+fn a_question_that_waits_at_the_research_it_skipped_holds_the_deep_research_until_the_answer_runs_it() {
+    let (mut sim, research) = until("R1");
+    tried(&mut sim, &research);
+    let mut came = Came::hands_in(vec![
+        handed("deep_needed", "", Some("yes")),
+        handed("found", "Where the name comes from is open.", None),
+    ]);
+    came.said.questions = vec![naming()];
+    sim.returns(&research, came, 0);
+    let waits_at_the_research = |sim: &Sim| {
+        let decision = decide::decide(&sim.flow.flow, &sim.work.records);
+        let held = matches!(&decision, Decision::Wait { at, on }
+            if at.as_str() == "R1" && *on == [Waited::Answer { question: "naming".to_string() }]);
+        (held, decision)
+    };
+    assert_eq!(sim.round(), None, "the work waits for the answer");
+    let (held, decision) = waits_at_the_research(&sim);
+    assert!(held, "{decision:?}");
+    assert!(!decide::applies(&sim.flow.flow, &sim.work.records, &CellId::from("R1")));
+
+    // What is new to the cells after the research runs none of them: the owner rewrites the background, which runs the
+    // reading of the tree before the research, and the deep research after it; main moves, which runs the check.
+    sim.writes("background", "Greet the user by name, warmly.");
+    next(&mut sim, "R0", &[]);
+    sim.wrote("main", "The main branch main is at m2.", None, Outsider::Outside);
+    assert_eq!(sim.round(), None, "a cell after the research runs before the answer");
+    let (held, decision) = waits_at_the_research(&sim);
+    assert!(held, "{decision:?}");
+    for cell in ["D1", "M1"] {
+        let new = decide::new_to(&sim.flow.flow, &sim.work.records, &CellId::from(cell));
+        assert!(
+            !new.is_empty(),
+            "nothing is new to {cell}: the hold is not what keeps it from running"
+        );
+    }
+
+    // The owner's words to the engineer's line would reach the research, which does not apply now: refused, saying so,
+    // and written nowhere.
+    let skipped = Err(NoOne::Skipped(CellId::from("R1")));
+    assert_eq!(receiver(&sim, To::Line("engineer".into())), skipped);
+    let words: usize = (sim.flow.cells.iter())
+        .filter_map(|c| spoken::words_of(&sim.flow, &c.id))
+        .map(|b| sim.versions(b.as_str()).len())
+        .sum();
+    let said = Event::Said {
+        to: To::Line("engineer".into()),
+        words: "Which name does the item give?".to_string(),
+    };
+    let refused = engine::handle(&sim.flow, &mut sim.work, engine::Time(1_000), said);
+    assert_eq!(
+        refused,
+        Err(engine::Refused::NoOneSpokenTo(NoOne::Skipped(CellId::from("R1"))))
+    );
+    let after: usize = (sim.flow.cells.iter())
+        .filter_map(|c| spoken::words_of(&sim.flow, &c.id))
+        .map(|b| sim.versions(b.as_str()).len())
+        .sum();
+    assert_eq!(after, words, "the refused words are written to no cell");
+
+    // The owner answers by the option the research recommends.
+    let version = sim.work.records.questions.last().expect("the question is kept").at;
+    sim.take(Event::Answer {
+        question: "naming".to_string(),
+        version,
+        option: 1,
+    });
+    let versions = decide::versions(&sim.work.records);
+    let answer = versions[&BlockId::from("r1_questions")]
+        .last()
+        .expect("the answer is a version");
+    assert_eq!(
+        answer.meaning,
+        Some(answer.at),
+        "an answer to a question the work waited for changes nothing"
+    );
+    let deep = sim.round().expect("the answer runs a cell");
+    assert_eq!(
+        deep.cell.as_str(),
+        "D1",
+        "the deep research, in charge, takes the answer"
+    );
+    let told = decide::told(&sim.flow.flow, &sim.work.records, deep.run).expect("the run started");
+    assert!(
+        told.ran_by.contains(&BlockId::from("r1_questions")),
+        "{:?}",
+        told.ran_by
+    );
+    let entered = sim.enter(&deep, sim.begins(&deep));
+    assert!(
+        entered.situation.new.contains(&"r1_questions".to_string()),
+        "{:?}",
+        entered.situation.new
+    );
+    sim.tries(&deep, 1, entered.fills);
+    sim.hands_in(
+        &deep,
+        &[
+            ("plan_owner", "Greet by the first name.", None),
+            ("plan_agent", "Add the first name to the greeting.", None),
+            ("acceptance", "The greeting names the user.", None),
+        ],
+    );
+    let after = sim.round().expect("a round is given");
+    assert_ne!(after.cell.as_str(), "R1", "the research, skipped, runs for the answer");
+}
+
+/// A guide of the project's, with the rule of this line among others, so that what changed in it is shorter than it.
+fn guide(rule: &str) -> String {
+    let mut lines: Vec<String> = (1..=12).map(|n| format!("Rule {n}.")).collect();
+    lines[5] = rule.to_string();
+    format!("{}\n", lines.join("\n"))
+}
+
+// The guide changes after the engineer's session began, and the session is compacted during a round and goes on under
+// its id (design document `data-and-context`, 15, 24; decisions a-session-holds-the-guide-it-began-with and
+// a-compaction-reopens-the-session-under-its-id): the session's system prompt is still the guide it began with, which
+// the context manager still takes it to hold, so that the next round of the line that the guide runs is told what
+// changed from that version, not that the session holds the latest. So again after a round that was told the change
+// and was compacted in turn, which leaves the session holding what that round handed in, and its prompt.
+#[test]
+fn a_session_compacted_after_the_guide_changed_holds_the_guide_it_began_with_and_is_told_what_changed() {
+    let (mut sim, second_look) = guided_until("R2", &guide("Write in English."));
+    let first = Seq(sim.version("guide"));
+    tried(&mut sim, &second_look);
+    // The guide changes on the branch while the plan's second look is under way, and the session is compacted during
+    // that round, which finds no better way.
+    sim.wrote("guide", &guide("Write in plain English."), None, Outsider::Outside);
+    let latest = Seq(sim.version("guide"));
+    sim.returns(&second_look, Came::hands_in(Vec::new()), 1);
+    for (cell, blocks) in [("R0", Vec::new()), ("R1", vec![handed("deep_needed", "", Some("no"))])] {
+        let round = sim.round().expect("a round is given");
+        assert_eq!(round.cell.as_str(), cell, "the guide runs {cell}");
+        assert!(
+            !sim.begins(&round),
+            "{cell}'s round goes on in the session, under its id"
+        );
+        let begun = context::begun_with(&sim.flow, &sim.words, &sim.work, round.run, round.number);
+        assert_eq!(
+            begun,
+            [(BlockId::from("guide"), first)],
+            "the system prompt of {cell}'s session"
+        );
+        let entered = sim.enter(&round, false);
+        assert_eq!(
+            entered.situation.data["guide"],
+            Stands::HoldsLast,
+            "{cell}:\n{}",
+            entered.text
+        );
+        let change = Fill::Change {
+            block: BlockId::from("guide"),
+            version: latest,
+            since: first,
+        };
+        assert!(entered.fills.contains(&change), "{cell}: {:?}", entered.fills);
+        let told = format!(
+            "## `guide`, what changed from version {} to version {}",
+            first.0, latest.0
+        );
+        assert!(entered.text.contains(&told), "{cell}:\n{}", entered.text);
+        // The round is given the change, and its session is compacted during it.
+        sim.tries(&round, 1, entered.fills);
+        sim.returns(&round, Came::hands_in(blocks), 1);
+    }
 }
