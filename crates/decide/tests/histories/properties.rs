@@ -191,6 +191,8 @@ pub fn last_place(r: &Records) -> Seq {
         .chain(r.abandoned.iter().map(|e| e.at))
         .chain(r.put_in.iter().map(|e| e.at))
         .chain(r.written.iter().map(|e| e.at))
+        .chain(r.questions.iter().map(|e| e.at))
+        .chain(r.answers.iter().map(|e| e.at))
         .chain(r.let_go.iter().map(|e| e.at))
         .chain(r.pauses.iter().map(|e| e.at))
         .chain(r.cancels.iter().copied())
@@ -246,6 +248,8 @@ fn shuffled(r: &Records, seed: u64) -> Records {
     shuffle(&mut r.abandoned, &mut rng);
     shuffle(&mut r.put_in, &mut rng);
     shuffle(&mut r.written, &mut rng);
+    shuffle(&mut r.questions, &mut rng);
+    shuffle(&mut r.answers, &mut rng);
     shuffle(&mut r.let_go, &mut rng);
     shuffle(&mut r.pauses, &mut rng);
     r
