@@ -11,7 +11,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Flow } from './api';
-import { Chart } from './Chart';
+import { Chart, Legend } from './Chart';
 import { matrix } from './matrix';
 import { cell, everyAgent, flowOf } from './testing';
 
@@ -57,7 +57,15 @@ describe('the way back on the matrix', () => {
     host.style.zoom = String(zoom);
     document.body.append(host);
     const root = createRoot(host);
-    flushSync(() => root.render(<Chart matrix={matrix(flow())} chosen={null} onChoose={() => undefined} />));
+    const m = matrix(flow());
+    flushSync(() =>
+      root.render(
+        <>
+          <Legend waysBack={m.waysBack} />
+          <Chart matrix={m} chosen={null} onChoose={() => undefined} />
+        </>,
+      ),
+    );
     return root;
   };
 
@@ -72,7 +80,9 @@ describe('the way back on the matrix', () => {
       const arrows = [...host.querySelectorAll('.part.arrow')];
       expect(arrows).toHaveLength(3);
       for (const arrow of arrows) expect(getComputedStyle(arrow).fill).toBe(accent);
-      expect(getComputedStyle(host.querySelector('.legend-back') ?? document.body).backgroundColor).toBe(accent);
+      const legend = host.querySelector('.legend-back');
+      expect(legend).not.toBeNull();
+      expect(getComputedStyle(legend as Element).backgroundColor).toBe(accent);
       root.unmount();
     });
   }
@@ -93,9 +103,9 @@ describe('the way back on the matrix', () => {
         const ringed = getComputedStyle(last).stroke !== 'none' && getComputedStyle(last).fill === 'none';
         const edge = box.right + (ringed ? (line / 2) * scale : 0);
         const point = arrow.getBoundingClientRect().left;
-        expect(Math.abs(point - edge), crossing.textContent ?? '').toBeLessThan(0.5);
-        // No mark of the crossing reaches past the point.
-        for (const mark of marks) expect(mark.getBoundingClientRect().right).toBeLessThanOrEqual(point + 0.01);
+        // On the edge: not short of it, and not into the ring's line.
+        expect(point - edge, crossing.textContent ?? '').toBeLessThan(0.5);
+        expect(point - edge, crossing.textContent ?? '').toBeGreaterThan(-0.05);
       }
       root.unmount();
     });

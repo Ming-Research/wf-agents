@@ -80,8 +80,8 @@ describe('the rows and columns of a history', () => {
       [2, []],
       [null, []],
     ]);
-    expect(stepWords(steps[2], FLOW)).toBe('gone, which the flow no longer has: gone had no record');
-    expect(stepWords(steps[0], FLOW)).toBe('way round for x, y');
+    expect(stepWords(steps[2], FLOW, [])).toBe('gone, which the flow no longer has: gone had no record');
+    expect(stepWords(steps[0], FLOW, [])).toBe('way round for x, y');
   });
 
   it('marks a condition that reads what was written and the cell let go, and shows the day where it changes', () => {
@@ -110,10 +110,10 @@ describe('the rows and columns of a history', () => {
       value: null,
       chars: 5,
     });
-    expect(stepWords(wrote('r1_words', { kind: 'owner' }), FLOW)).toBe('the owner wrote r1_words');
-    expect(stepWords(wrote('r1_questions', { kind: 'owner' }), FLOW)).toBe('the owner wrote r1_questions');
-    expect(stepWords(wrote('r1_questions', { kind: 'run', run: 7, cell: 'R1' }), FLOW)).toBe('run 7 wrote r1_questions');
-    expect(stepWords(wrote('main', { kind: 'outside' }), FLOW)).toBe('the outside wrote main');
+    expect(stepWords(wrote('r1_words', { kind: 'owner' }), FLOW, [])).toBe('the owner wrote r1_words');
+    expect(stepWords(wrote('r1_questions', { kind: 'owner' }), FLOW, [])).toBe('the owner wrote r1_questions');
+    expect(stepWords(wrote('r1_questions', { kind: 'run', run: 7, cell: 'R1' }), FLOW, [])).toBe('run 7 wrote r1_questions');
+    expect(stepWords(wrote('main', { kind: 'outside' }), FLOW, [])).toBe('the outside wrote main');
   });
 });
 

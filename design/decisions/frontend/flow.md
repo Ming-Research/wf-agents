@@ -46,13 +46,15 @@ On the matrix a way back's line and arrow are drawn in the accent, and the arrow
 point on that mark's edge.
 Why: The way back is what the owner looks for on the matrix, so it takes a strong mark (principle scarce-emphasis): in
 the muted colour it read as one more of the rows' lines. A colour of its own was turned down as one more meaning to
-learn; the accent's other use on the matrix, the tint of what is chosen, is a ground and never a line (judgment). Placed
-by the crossing's middle, the arrow reached into the second of two marks.
+learn; what else the matrix draws in the accent, what is chosen and the lines' rows, is told from it by shape, a way
+back being a thick line along a datum's row with an arrow (judgment). Placed by the crossing's middle, the arrow reached
+into the second of two marks.
 
 ### decision the-corner-names-only-the-cells
 The matrix's corner names the cells across, and no kind of row.
-Why: The rows are lines, conditions, tools, what `[every_agent]` names and data, each tagged with its own kind, so a
-word for them all would be false of most of them or say again what the tags say (principle say-a-thing-once).
+Why: The rows are lines, conditions, tools, what `[every_agent]` names and data, a band's row tagged with its kind and
+a datum's named with its values and signs, so a word for them all would be false of most of them or say again what the
+rows say (principle say-a-thing-once).
 
 ### decision every-agent-is-a-band-of-its-own
 On the matrix what `[every_agent]` names is a band of rows named as `flow.toml` writes them; under each column is

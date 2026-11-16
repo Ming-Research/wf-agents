@@ -468,7 +468,7 @@ describe('the panel of a step', () => {
   // A version whose meaning is none, a block's first version handed in as changing nothing, has said nothing yet: so it
   // is said wherever a version's meaning is, in the history's row, the panel of the write, the run's end and the blocks.
   it('says of a version that has said nothing yet just that, wherever a version’s meaning is said', async () => {
-    const work = fixtureWork(41);
+    const work = structuredClone(fixtureWork(41));
     const version = (block: string, at: number) => {
       const found = work.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
       if (!found) throw new Error(`no version ${block}@${at}`);

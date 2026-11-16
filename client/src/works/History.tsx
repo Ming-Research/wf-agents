@@ -48,7 +48,7 @@ const names = (all: string[]): Part[] => all.flatMap((name, i) => (i === 0 ? [{ 
 /// The words of a row at its left, in pieces: why a run ran, or what was done. A run of a cell the flow no longer has,
 /// which stands in no column, says which cell it was; a write, whether it changed the block's meaning, where the
 /// block's versions are given, that the block has said nothing yet.
-export function stepParts(step: Step, flow?: Flow, blocks: Block[] = []): Part[] {
+export function stepParts(step: Step, flow: Flow, blocks: Block[]): Part[] {
   switch (step.kind) {
     case 'run': {
       const changed = step.because.flatMap((c) => (c.kind === 'changed' ? [c.block] : []));
@@ -93,7 +93,7 @@ export function saidNothing(blocks: Block[], block: string, at: number): boolean
 }
 
 /// The words of a row at its left, as one text.
-export function stepWords(step: Step, flow?: Flow, blocks: Block[] = []): string {
+export function stepWords(step: Step, flow: Flow, blocks: Block[]): string {
   return stepParts(step, flow, blocks)
     .map((p) => (typeof p === 'string' ? p : p.name))
     .join('');

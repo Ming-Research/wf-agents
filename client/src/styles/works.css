@@ -370,8 +370,8 @@
   color: var(--muted);
 }
 
-/* A way round, as the flow chart draws a way back: a line in the muted colour along the row from the furthest cell whose
-   write it ran for, a dot at each such cell, and an arrow at the run. */
+/* A way round: a line in the muted colour along the row from the furthest cell whose write it ran for, a dot at each
+   such cell, and an arrow at the run. */
 .seg-back {
   position: absolute;
   top: calc(var(--row) / 2);

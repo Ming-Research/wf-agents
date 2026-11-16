@@ -42,7 +42,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
         "{shown}"
     );
     assert!(
-        shown.contains("\n  request: 1 version, the latest 23 characters, by a person\n"),
+        shown.contains("\n  request: 1 version, the latest 23 characters, by the owner\n"),
         "{shown}"
     );
     assert!(

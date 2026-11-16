@@ -230,7 +230,9 @@ describe('a group a cell watches by its name', () => {
 });
 
 describe('the ways back', () => {
-  const row = (m: ReturnType<typeof matrix>, name: string) => m.spots[rowAt(m, name)];
+  /// A datum's row: among the data, or, of one a condition reads, its one row with the condition's.
+  const row = (m: ReturnType<typeof matrix>, name: string) =>
+    m.conditions.find((c) => c.name === name)?.data?.spots ?? m.spots[rowAt(m, name)];
 
   it('run left along the datum’s row from a later cell’s write to each cell before it that watches it, which they point at', () => {
     const m = matrix(small());
@@ -285,7 +287,7 @@ describe('the ways back', () => {
     const m = matrix(flow);
     expect(row(m, 'x').map((spot) => spot.backTo)).toEqual([true, false, false, true, false]);
     expect(row(m, 'x').map((spot) => spot.back)).toEqual(['right', 'through', 'through', 'through', 'left']);
-    // a is watched and written after twice, d once; b's condition reads it on the condition's row alone.
+    // a is watched and written after twice, d once; x's one row is the condition's that b names, and they run along it.
     expect(m.waysBack).toBe(3);
   });
 

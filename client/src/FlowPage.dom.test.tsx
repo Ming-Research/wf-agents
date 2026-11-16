@@ -179,7 +179,7 @@ describe('the chart', () => {
     expect(spots.map((s) => s.querySelectorAll('.seg.back').length)).toEqual([1, 2, 1]);
     // Chosen, the datum's row says what the cell's file says of it beside the condition its cell names.
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    expect(ok.querySelector('.words')?.textContent).toBe('watches, last_and_latest');
+    expect(ok.querySelector('.words')?.textContent).toBe('watches last_and_latest');
   });
 
   it('marks a when on a block by a tick for yes, a cross for no and the value itself for another', () => {
@@ -340,7 +340,10 @@ describe('the column of words', () => {
 
   it('says what each block is, and of the cell chosen what its file says of each block it has to do with', () => {
     const page = draw({ state: 'compiled', flow: flow() });
-    expect(words(page)).toEqual({ x: 'The plan.', y: '', said: 'What was said of it.' });
+    // y, which a condition reads, has its one row with the condition's, its words there.
+    const y = () => bandRow(page, 'condition-row', 'y').querySelector('.words')?.textContent;
+    expect(words(page)).toEqual({ x: 'The plan.', said: 'What was said of it.' });
+    expect(y()).toBe('');
     expect(page.querySelector('.words-label')?.textContent).toBe('What each row is');
     expect(page.querySelector('.words-about')?.textContent).toBe('');
 
@@ -348,15 +351,16 @@ describe('the column of words', () => {
     click(heads[1]);
     expect(words(page)).toEqual({
       x: 'watches latest: Judge it again.',
-      // Its when is said on the condition's row, once.
-      y: '',
       said: 'watches last_and_latest; outputs: What was said of it.',
     });
+    // Its when is said on the condition's row, once.
+    expect(y()).toBe('when y = yes');
     expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each row');
     expect(page.querySelector('.words-about')?.textContent).toBe('b Second · builder · when y = yes');
 
     click(heads[0]);
-    expect(words(page)).toEqual({ x: 'must_write: The plan.', y: 'outputs', said: 'What was said of it.' });
+    expect(words(page)).toEqual({ x: 'must_write: The plan.', said: 'What was said of it.' });
+    expect(y()).toBe('outputs');
     expect(rowOf(page, 'said').querySelector('.words')?.className).toContain('beside');
   });
 
@@ -366,7 +370,7 @@ describe('the column of words', () => {
     expect(texts(page.querySelector('section[aria-label="Block x"]') as HTMLElement, '.status-line')).toContain(
       'whatThe plan.',
     );
-    click(rowOf(page, 'y').querySelector('.head-button'));
+    click(bandRow(page, 'condition-row', 'y').querySelector('.head-button'));
     const y = page.querySelector('section[aria-label="Block y"]') as HTMLElement;
     expect(texts(y, '.status-line').some((line) => line.startsWith('what'))).toBe(false);
   });
@@ -426,8 +430,9 @@ describe('a when or a requires of several keys', () => {
     );
     const page = draw({ state: 'compiled', flow });
     expect(texts(page, 'tbody.band .condition-row .block-name')).toEqual(['x', 'y', 'deps']);
-    expect(texts(bandRow(page, 'condition-row', 'x'), '.spot .visually-hidden')).toEqual(['b when x = yes']);
-    expect(texts(bandRow(page, 'condition-row', 'y'), '.spot .visually-hidden')).toEqual(['b when y = no']);
+    // Each datum's one row there carries a's write of it too.
+    expect(texts(bandRow(page, 'condition-row', 'x'), '.spot .visually-hidden')).toEqual(['a outputs x', 'b when x = yes']);
+    expect(texts(bandRow(page, 'condition-row', 'y'), '.spot .visually-hidden')).toEqual(['a outputs y', 'b when y = no']);
     expect(texts(bandRow(page, 'condition-row', 'deps'), '.spot .visually-hidden')).toEqual([
       'b requires deps = merged',
     ]);
@@ -1143,10 +1148,10 @@ describe('the panel and the widths', () => {
     expect(texts(answer, '.status-line')).toContain('limits runs 5');
   });
 
-  it('labels the corner for both: the cells to its right, the blocks under it', () => {
+  it('labels the corner with the cells to its right alone: the rows under it are of many kinds', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    expect(texts(page, '.corner .label')).toEqual(['Blocks', 'Cells']);
-    expect(page.querySelectorAll('.corner .label-arrow')).toHaveLength(2);
+    expect(texts(page, '.corner .label')).toEqual(['Cells']);
+    expect(page.querySelectorAll('.corner .label-arrow')).toHaveLength(1);
   });
 
   it('has a row for each line at the top, its name in the accent, a dot under each cell on it, joined along it', () => {

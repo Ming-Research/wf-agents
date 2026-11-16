@@ -22,8 +22,8 @@
 // cell's file says of it beside the condition's and its way back along it; the engine's tools, one to a tool, a small
 // square under each cell that may call it, since a call is a step of the work; and what `[every_agent]` names, one to a
 // name as `flow.toml` writes it, under each cell what runs it there and what its own file says of those data, the row's
-// words saying what every agent's cell only reads. Each row is tagged with its kind, and the corner names only the
-// cells.
+// words saying what every agent's cell only reads. A band's row is tagged with its kind, and a datum's is named with
+// its values and signs; the corner names only the cells.
 
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
@@ -144,10 +144,9 @@ function dataParts(mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'>, arrow:
   );
 }
 
-/// The marks of a crossing, one for each key, side by side (`dataParts`), with the arrow of a way back at the last
-/// where one runs the cell again.
-export function DataGlyphs({ mark, arrow = false }: { mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'>; arrow?: boolean }) {
-  const parts = dataParts(mark, arrow);
+/// The marks of a crossing, one for each key, side by side (`dataParts`).
+export function DataGlyphs({ mark }: { mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'> }) {
+  const parts = dataParts(mark, false);
   return parts.length > 0 ? <span className="glyphs">{parts}</span> : null;
 }
 
