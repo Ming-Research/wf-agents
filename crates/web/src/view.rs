@@ -148,14 +148,14 @@ pub struct Cell {
     /// The tools of the engine's that an agent's cell may ask for in its return, by name, as the definition lists
     /// them; none for an engine's cell.
     pub tools: Vec<String>,
-    /// What runs it, each a trigger by its name, with the block it stands on, the data its agent reads for it and what
-    /// the cell does when it fires, as the definition writes them.
+    /// What runs it, each datum or group it watches by its name, with the blocks it stands for, those its agent reads
+    /// for it and what the cell does when it is new, in the shape the page reads.
     #[serde(default)]
     pub triggers: Vec<TriggerView>,
     pub limits: Limits,
 }
 
-/// A group of the flow's blocks, whose trigger fires for a new version of any of them.
+/// A group of the flow's blocks, a new version of any of which is new to a cell that watches the group.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Group {
@@ -163,16 +163,16 @@ pub struct Group {
     pub blocks: Vec<String>,
 }
 
-/// A trigger of a cell, as the definition writes it.
+/// A datum or group a cell watches, in the shape the page reads it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TriggerView {
     pub name: String,
-    /// What it is, as its file writes it; none where it says nothing.
+    /// What it is in a sentence; none, as the definition says none of what a cell watches.
     pub what: Option<String>,
-    /// The block it stands on; of a group's trigger, the group's name.
+    /// Its name, the datum's or the group's.
     pub block: String,
-    /// Of a group's trigger, the group's blocks, each of which runs the cell; none of another.
+    /// Of a group, its blocks, each of which runs the cell; none of a datum.
     pub group: Vec<String>,
     pub read: Vec<String>,
     #[serde(rename = "do")]
@@ -204,7 +204,7 @@ pub struct GivenAs {
     /// What the context of the cell's session must hold of the block when the cell runs; none where the definition
     /// does not say.
     pub kind: Option<InputKind>,
-    /// Why the cell is given the block; none where the definition does not say.
+    /// Why the cell is given the block: none, as the definition says it of what runs the cell.
     pub why: Option<String>,
 }
 
@@ -226,7 +226,7 @@ impl Input {
             });
             input.given = Some(GivenAs {
                 kind: Some(InputKind::of(g.kind)),
-                why: g.why.clone(),
+                why: None,
             });
         }
         out
@@ -282,7 +282,7 @@ pub struct Block {
     pub default: Option<String>,
     /// What the block is, in a sentence; none where the definition does not say.
     pub what: Option<String>,
-    /// It stands only for a trigger: no cell is given it, writes it or describes the work by it.
+    /// It stands only for what runs a cell, with no content: none does, every block being data.
     #[serde(default)]
     pub trigger: bool,
     /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.
@@ -417,12 +417,6 @@ pub enum What {
     NotAnOutput {
         block: String,
     },
-    /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
-    TakenNotRead {
-        block: String,
-    },
-    /// The cell names what it takes in two forms of three.
-    TwoForms,
     /// The flow names among the engine's own data one that no file beside the flows defines.
     NoSuchData {
         name: String,
@@ -432,30 +426,16 @@ pub enum What {
         name: String,
         also: String,
     },
-    /// The cell names a trigger that nothing beside the flows defines.
-    NoSuchTrigger {
-        trigger: String,
-    },
-    /// The cell names a trigger a rule makes of a datum the flow does not have.
-    NoSuchDatum {
-        trigger: String,
-        datum: String,
-    },
-    /// The block stands only for a trigger: no cell is given it, writes it or describes the work by it.
-    TriggerOnly {
-        block: String,
-    },
-    /// The cell names `triggered_by` and `context` in a flow not laid out one thing to a file.
-    NotLaidOut,
-    /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
+    /// The name of a file beside the flows of a datum each cell or each line has its own of lacks what stands for whose
+    /// own it is.
     MissingPlaceholder {
         placeholder: String,
     },
-    /// The cell writes the work's questions, and no answer of the owner's runs it.
+    /// The cell writes its questions, and does not watch them: the owner's answer would run no cell.
     AsksWithNoAnswer {
         block: String,
     },
-    /// The cell writes the work's questions, and the owner's words do not run it.
+    /// The cell writes its questions, and watches no words of its own.
     AsksAndCannotBeSpokenTo {
         block: String,
     },
@@ -476,25 +456,12 @@ pub enum What {
     CannotBeAskedIn {
         cell: String,
     },
-    /// A trigger of the cell stands on a block whose every writer runs only where the cell cannot.
-    TriggerNeverRuns {
-        trigger: String,
+    /// The cell watches a datum or group whose every block's every writer runs only where the cell cannot.
+    NeverNew {
+        watched: String,
         block: String,
         needs: String,
         writers: Vec<(String, String)>,
-    },
-    /// The trigger says what happened by a place the engine does not fill.
-    UnknownDetail {
-        detail: String,
-    },
-    /// A trigger of an agent cell has its agent read a datum that the cell's context does not hold.
-    ReadNotInContext {
-        trigger: String,
-        block: String,
-    },
-    /// The cell says what it does for a trigger that is not among its triggers.
-    NotATrigger {
-        trigger: String,
     },
     /// An engine cell says how it is given the block, and it has no session.
     EngineIsGiven {
@@ -504,10 +471,6 @@ pub enum What {
     RunByNothing,
     /// In the new form, the cell does not say the kind of a block it is given.
     NoKind {
-        block: String,
-    },
-    /// A table that says nothing of the block it is named for.
-    SaysNothing {
         block: String,
     },
     /// The cell says why the block runs it, and it is not among those that run it.
@@ -688,14 +651,18 @@ impl Flow {
                 outputs: names(&cell.outputs),
                 must_write: names(&spec.must_write),
                 tools: spec.tools.clone(),
-                triggers: (spec.triggers.iter())
-                    .map(|t| TriggerView {
-                        name: t.name.clone(),
-                        what: t.what.clone(),
-                        block: t.block.to_string(),
-                        group: names(&t.group),
-                        read: names(&t.read),
-                        does: t.does.clone(),
+                triggers: (spec.watches.iter())
+                    .map(|w| TriggerView {
+                        name: w.name.clone(),
+                        what: None,
+                        block: w.name.clone(),
+                        group: if w.is_group() { names(&w.blocks) } else { Vec::new() },
+                        read: if spec.kind == flow::Kind::Agent {
+                            names(&w.blocks)
+                        } else {
+                            Vec::new()
+                        },
+                        does: w.does.clone(),
                     })
                     .collect(),
                 limits: Limits {
@@ -713,7 +680,7 @@ impl Flow {
                 values: block.values.clone(),
                 default: block.default.clone(),
                 what: block.what.clone(),
-                trigger: block.trigger,
+                trigger: false,
                 writes: (block.writes.0.iter())
                     .map(|(name, text)| (name.clone(), flow::system::with_slots(text)))
                     .collect(),
@@ -845,14 +812,8 @@ impl What {
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
-            F::TakenNotRead { block } => What::TakenNotRead { block },
-            F::TwoForms => What::TwoForms,
             F::NoSuchData { name } => What::NoSuchData { name },
             F::DefinedTwice { name, also } => What::DefinedTwice { name, also },
-            F::NoSuchTrigger { trigger } => What::NoSuchTrigger { trigger },
-            F::NoSuchDatum { trigger, datum } => What::NoSuchDatum { trigger, datum },
-            F::TriggerOnly { block } => What::TriggerOnly { block },
-            F::NotLaidOut => What::NotLaidOut,
             F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
             F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
@@ -860,24 +821,20 @@ impl What {
             F::SpokenToAndAsksNothing { block } => What::SpokenToAndAsksNothing { block },
             F::LineDataOfAnother { block, line } => What::LineDataOfAnother { block, line },
             F::CannotBeAskedIn { cell } => What::CannotBeAskedIn { cell },
-            F::TriggerNeverRuns {
-                trigger,
+            F::NeverNew {
+                watched,
                 block,
                 needs,
                 writers,
-            } => What::TriggerNeverRuns {
-                trigger,
+            } => What::NeverNew {
+                watched,
                 block,
                 needs,
                 writers,
             },
-            F::UnknownDetail { detail } => What::UnknownDetail { detail },
-            F::ReadNotInContext { trigger, block } => What::ReadNotInContext { trigger, block },
-            F::NotATrigger { trigger } => What::NotATrigger { trigger },
             F::EngineIsGiven { block } => What::EngineIsGiven { block },
             F::RunByNothing => What::RunByNothing,
             F::NoKind { block } => What::NoKind { block },
-            F::SaysNothing { block } => What::SaysNothing { block },
             F::NotRunOn { block } => What::NotRunOn { block },
             F::NotGiven { block } => What::NotGiven { block },
             F::NoWriter { block } => What::NoWriter { block },

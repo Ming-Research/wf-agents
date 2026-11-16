@@ -290,7 +290,6 @@ fn engineer() -> Compiled {
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     compile(&source, &has).expect("the engineer's flow compiles")
@@ -969,7 +968,7 @@ impl Random {
         force: bool,
     ) -> Vec<Question> {
         let spec = &d.flow.cells[i];
-        if !(spec.triggers.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
+        if !(spec.watches.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
             return Vec::new();
         }
         let own: Vec<String> = (decide::questions::questions(&d.work.records).into_iter())
@@ -1038,7 +1037,7 @@ impl Random {
             .collect();
         // The lines the owner speaks to.
         let mut lines: Vec<String> = (d.flow.cells.iter())
-            .filter(|c| (c.triggers.iter()).any(|t| t.of_source(&d.flow, flow::WORDS).is_some()))
+            .filter(|c| (c.watches.iter()).any(|t| t.of_source(&d.flow, flow::WORDS).is_some()))
             .filter_map(|c| c.line.clone())
             .collect();
         lines.dedup();

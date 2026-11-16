@@ -35,14 +35,13 @@ pub const OWNER: &str = "owner";
 pub const REPLY: &str = "reply";
 
 /// What the owner said to a round under way, as its carrier is to hand it in ([`Effect::Tell`]): the owner's version of
-/// the cell's words, the datum and the version's place, the name the round is told it is new to it by and what the cell
-/// does when it is new, and the versions that are put into the round once it was given them.
+/// the cell's words, the datum and the version's place, what the cell does when its words are new, and the versions
+/// that are put into the round once it was given them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Telling {
     pub entry: String,
     pub block: BlockId,
     pub number: Seq,
-    pub trigger: String,
     pub does: Option<String>,
     pub versions: Vec<(BlockId, Seq)>,
 }
@@ -145,13 +144,12 @@ pub(crate) fn said(
     if let Some(run) = under_way(work, &cell) {
         let watched = (flow.cells.iter())
             .find(|c| c.id == cell)
-            .and_then(|c| c.triggers.iter().find(|t| t.block == block));
+            .and_then(|c| c.watches.iter().find(|w| w.name == block.as_str()));
         let telling = Telling {
             entry,
             block: block.clone(),
             number,
-            trigger: watched.map_or_else(|| block.to_string(), |t| t.name.clone()),
-            does: watched.and_then(|t| t.does.clone()),
+            does: watched.and_then(|w| w.does.clone()),
             versions: vec![(block, number)],
         };
         effects.push(Effect::Tell {

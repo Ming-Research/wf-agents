@@ -31,9 +31,7 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
     write("tasks/better_way.md", "Look for a better way.");
     write("../data/request.toml", "from = \"owner\"");
     write("../data/more/answers.toml", "shown = true");
-    write("../triggers/on_main.toml", "block = \"main\"");
-    write("../triggers/of_a_cell/on_spoken.toml", "block = \"{cell}_spoken_to\"");
-    write("../triggers/of_a_datum/changed.toml", "name = \"on_{datum}\"");
+    write("../triggers/on_main.toml", "not read with the flow");
     write("../agents/rules/rules.toml", "[general]\nfile = \"general.md\"");
     write("../agents/rules/general.md", "not read with the flow");
     write("../agents/waits.toml", "[paused]");
@@ -58,9 +56,6 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
             "../agents/waits.toml",
             "../data/more/answers.toml",
             "../data/request.toml",
-            "../triggers/of_a_cell/on_spoken.toml",
-            "../triggers/of_a_datum/changed.toml",
-            "../triggers/on_main.toml",
             "blocks/judging/deep/opinions.toml",
             "blocks/notes.md",
             "blocks/plan.toml",
@@ -161,47 +156,4 @@ fn files_by_their_paths_make_the_flow_as_a_directory_of_them_would() {
     );
     // Without flow.toml there is no flow.
     assert_eq!(Source::of_files([("plan.toml".to_string(), String::new())]), None);
-}
-
-/// The keys of a cell's file in the forms written before a cell named the data it watches and reads, which the
-/// compiler still reads.
-const BEFORE_WATCHES: &[&str] = &[
-    "triggered_by",
-    "context",
-    "runs_on",
-    "run",
-    "given",
-    "give",
-    "inputs",
-    "input",
-];
-
-// Every flow of the repository is written in the one form, so that no cell of the flows the works run on depends on a
-// form the compiler is to stop reading. It reads the repository's flows' files, in milliseconds.
-#[test]
-fn every_cell_of_the_repository_s_flows_names_what_it_watches_in_the_one_form() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
-    let mut flows = Vec::new();
-    let mut before = Vec::new();
-    for entry in fs::read_dir(&root).expect("the repository's flows are listed") {
-        let dir = entry.expect("an entry of the repository's flows").path();
-        if !dir.join("flow.toml").is_file() {
-            continue;
-        }
-        let name = dir.file_name().unwrap_or_default().to_string_lossy().to_string();
-        let source = read(&dir).expect("a flow of the repository is read");
-        for (id, text) in &source.cells {
-            let file: toml::Table = text.parse().expect("a cell's file is TOML");
-            for key in BEFORE_WATCHES.iter().filter(|key| file.contains_key(**key)) {
-                before.push(format!("{name}/{id}: {key}"));
-            }
-            if !file.contains_key("watches") {
-                before.push(format!("{name}/{id}: no `watches`"));
-            }
-        }
-        flows.push(name);
-    }
-    flows.sort();
-    assert_eq!(flows, ["deliver", "engineer"], "the repository's flows");
-    assert_eq!(before, Vec::<String>::new(), "cells written in a form before the one");
 }

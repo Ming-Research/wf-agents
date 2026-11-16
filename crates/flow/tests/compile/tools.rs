@@ -7,7 +7,7 @@ use flow::{FLOW_FILE, Has};
 
 use crate::support::{at, compiled, edit, faults, faults_with, has, laid_out, valid};
 
-const JUDGE_INPUTS: &str = r#"inputs = ["plan"]"#;
+const JUDGE_INPUTS: &str = r#"watches = ["plan"]"#;
 
 /// The small flow whose judge may ask for the tools this list names.
 fn judge_tools(list: &str) -> flow::Source {

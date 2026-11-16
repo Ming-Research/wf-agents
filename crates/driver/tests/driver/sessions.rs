@@ -545,7 +545,6 @@ fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own(
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     let flow = flow::compile(&source, &has).expect("the engineer's flow compiles");

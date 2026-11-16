@@ -90,7 +90,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(read.returns.outputs.none, "This cell writes no block.");
     assert_eq!(read.sent_back.heading, "## Sent back");
     assert_eq!(read.sent_back.item, "- {text}");
-    assert_eq!(read.sent_back.faults.not_a_trigger, "`{name}` does not run this cell.");
+    assert_eq!(read.sent_back.faults.not_watched, "`{name}` does not run this cell.");
     assert_eq!(read.sent_back.unread.requests_not_a_list, "`{name}` has no list");
     assert_eq!(
         read.sent_back.faults.not_answerable,
@@ -142,7 +142,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
             (Part::Task, Some(InputKind::Latest), None),
             (Part::Results, None, None),
             (Part::SentBack, None, None),
-            (Part::Triggers, None, None),
+            (Part::New, None, None),
         ]
     );
     assert_eq!(read.message.parts[8].does.as_deref(), Some(": {do}"));

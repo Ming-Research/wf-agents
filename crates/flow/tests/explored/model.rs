@@ -1,7 +1,6 @@
 //! The flow as the exploration reads it, every name taken from the compiled definition: what each cell may return,
-//! what the outside may write, and how far a write reaches. Only the data of the engine's (`flow/data/`), the triggers
-//! beside the flows (`flow/triggers/`) and the acts of the engine's are named here, as the files beside the flows name
-//! them.
+//! what the outside may write, and how far a write reaches. Only the data of the engine's (`flow/data/`) and the acts of
+//! the engine's are named here, as the files beside the flows name them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -150,9 +149,9 @@ pub struct Model {
     pub forward: Vec<Vec<BlockId>>,
     pub backward: Vec<Vec<BlockId>>,
     pub silent: Vec<Vec<BlockId>>,
-    /// Of each cell by its place, the trigger each block that runs it stands for, by the trigger's name.
-    pub triggers: Vec<BTreeMap<BlockId, String>>,
-    /// Of each cell by its place, its groups' triggers, each with its blocks.
+    /// Of each cell by its place, what it watches that each block that runs it stands for, by its name.
+    pub watched: Vec<BTreeMap<BlockId, String>>,
+    /// Of each cell by its place, the groups it watches, each with its blocks.
     pub groups: Vec<BTreeMap<String, Vec<BlockId>>>,
     /// Of each cell by its place, its own words and its own questions, where it has them.
     pub spoken: Vec<Option<BlockId>>,
@@ -256,24 +255,26 @@ impl Model {
             backward.push(b);
             silent.push(s);
         }
-        let mut triggers = Vec::new();
+        let mut watched = Vec::new();
         let mut groups = Vec::new();
         let mut spoken = Vec::new();
         let mut answered = Vec::new();
         for spec in &compiled.cells {
             let mut of_cell = BTreeMap::new();
             let mut of_groups = BTreeMap::new();
-            for t in &spec.triggers {
-                if t.group.is_empty() {
-                    of_cell.entry(t.block.clone()).or_insert_with(|| t.name.clone());
+            for t in &spec.watches {
+                if !t.is_group() {
+                    of_cell
+                        .entry(decide::BlockId(t.name.clone()))
+                        .or_insert_with(|| t.name.clone());
                 } else {
-                    of_groups.insert(t.name.clone(), t.group.clone());
-                    for member in &t.group {
+                    of_groups.insert(t.name.clone(), t.blocks.clone());
+                    for member in &t.blocks {
                         of_cell.entry(member.clone()).or_insert_with(|| t.name.clone());
                     }
                 }
             }
-            triggers.push(of_cell);
+            watched.push(of_cell);
             groups.push(of_groups);
         }
         for cell in cells {
@@ -341,7 +342,7 @@ impl Model {
             forward,
             backward,
             silent,
-            triggers,
+            watched,
             groups,
             spoken,
             answered,
@@ -485,7 +486,7 @@ impl Model {
     }
 
     /// What the return of the round of the cell at this place deals with, with what the round was told: of an agent's,
-    /// each trigger the round was told ran it, named as its agent names it and read as the agents' rounds read a return
+    /// each datum or group the round was told ran it, named as its agent names it and read as the agents' rounds read a return
     /// (`CellSpec::dealt_with`); of an act of the engine's, which names none, everything that ran the round.
     pub fn dealt_with(&self, i: usize, told: &Told) -> Vec<BlockId> {
         let spec = &self.compiled.cells[i];
@@ -494,7 +495,7 @@ impl Model {
         }
         let names: Vec<String> = spec.ran(&told.ran_by).map(|t| t.name.clone()).collect();
         let (dealt_with, none) = spec.dealt_with(&names);
-        assert!(none.is_empty(), "{} names no trigger {none:?}", spec.id);
+        assert!(none.is_empty(), "{} watches none of {none:?}", spec.id);
         dealt_with
     }
 
@@ -601,14 +602,14 @@ impl Model {
         (ret, asks)
     }
 
-    /// Each item of coverage the exploration could reach on this flow: the cells, the triggers, the ways back, the
+    /// Each item of coverage the exploration could reach on this flow: the cells, what they watch, the ways back, the
     /// conditions, the gates, the reply loops and the returns of each cell, the acts of the engine's and the stops.
     pub fn universe(&self) -> BTreeSet<String> {
         let cells = self.cells();
         let mut all = BTreeSet::new();
         for (i, cell) in cells.iter().enumerate() {
             all.insert(ran(&cell.id));
-            for (block, trigger) in &self.triggers[i] {
+            for (block, trigger) in &self.watched[i] {
                 all.insert(ran_on(&cell.id, trigger));
                 let later = (cells.iter().enumerate()).any(|(j, c)| j > i && c.outputs.contains(block));
                 if later {
@@ -639,7 +640,7 @@ impl Model {
                     if !reader.runs_on.contains(o) {
                         continue;
                     }
-                    // A reply runs the writer by a trigger of its own, not as one of a group, and is no choice.
+                    // A reply runs the writer as a datum it watches, not as one of a group, and is no choice.
                     let own = |r: &BlockId| self.groups[a].values().all(|members| !members.contains(r));
                     let replies = (reader.outputs.iter())
                         .filter(|r| writer.runs_on.contains(*r) && *r != o && !self.choices.contains_key(*r) && own(r));

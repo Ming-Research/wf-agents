@@ -105,7 +105,7 @@ fn file(named: &Named, system: &str, message: &str, form: &str) -> String {
     let _ = writeln!(text, "situation = {:?}", named.name);
     let _ = writeln!(text, "holds = {}", list(&s.holds));
     let _ = writeln!(text, "after_hand_in = {}", s.after_hand_in);
-    let _ = writeln!(text, "triggers = {}", list(&s.triggers));
+    let _ = writeln!(text, "new = {}", list(&s.new));
     if let Some(main) = &s.main {
         let _ = writeln!(text, "main = {main:?}");
     }

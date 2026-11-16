@@ -650,7 +650,7 @@ fn a_setting_the_task_a_trigger_s_words_or_a_block_s_words_name_is_sent_with_its
         .find(|c| c.id.as_str() == "build")
         .expect("the build");
     build.task = Some("Build what the plan says, in `owner.language`.".to_string());
-    build.triggers[0].does = Some("Say why in `owner.language`.".to_string());
+    build.watches[0].does = Some("Say why in `owner.language`.".to_string());
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");

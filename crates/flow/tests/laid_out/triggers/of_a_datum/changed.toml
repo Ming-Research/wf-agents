@@ -1,3 +1,0 @@
-# Fires when a datum of the flow has a new version; its agent reads the datum for it.
-name = "on_{datum}"
-read = ["{datum}"]

@@ -30,7 +30,7 @@ use work::sessions::{began_at, number_at, of_line, of_round, start};
 use work::{Ask, Back, Call, Fill, Given, Why, Work};
 
 use crate::diff;
-use crate::message::{self, Called, Datum, Form, Main, Run, Sent, Situation, Stands, Values, Version};
+use crate::message::{self, Called, Datum, Form, Main, NewVersions, Run, Sent, Situation, Stands, Values, Version};
 use crate::text::as_written;
 use decide::run::Unmet;
 
@@ -208,11 +208,23 @@ pub fn enter(
         values.data.insert(block.clone(), datum);
         filling.insert(block, fills);
     }
-    // The triggers new to the cell this entry: those whose block, or a block of whose group, ran the round.
+    // What the cell watches that is new to it this entry: each datum, or group of which a block, ran the round, with
+    // the version the cell last worked from and the latest (design document `data-and-context`, 11).
     let ran_by = decide::told(&flow.flow, &records, run)
         .map(|t| t.ran_by)
         .unwrap_or_default();
-    situation.triggers = cell.ran(&ran_by).map(|t| t.name.clone()).collect();
+    for watched in cell.ran(&ran_by) {
+        let latest = (watched.blocks.iter())
+            .filter_map(|b| versions.get(b).and_then(|vs| vs.last()).map(|v| v.at))
+            .max();
+        let last = (watched.blocks.iter())
+            .filter_map(|b| last_worked_from(flow, &records, cell, b))
+            .max();
+        if let Some(latest) = latest {
+            values.new.insert(watched.name.clone(), NewVersions { last, latest });
+        }
+        situation.new.push(watched.name.clone());
+    }
     // The results the run's rounds are given, and why what its earlier rounds returned was sent back, that the session
     // lacks; the round's own reasons are always sent.
     let mut results: Vec<CallId> = Vec::new();

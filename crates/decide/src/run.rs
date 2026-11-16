@@ -144,8 +144,8 @@ pub struct Round {
 /// What came back at the end of a round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Return {
-    /// The return was read: what of what ran the round it dealt with, in the order it named them, each trigger by the
-    /// block it stands on or, of a group's trigger, by the group's name ([`flow::stands_on`]); the blocks it writes,
+    /// The return was read: what of what ran the round it dealt with, in the order it named them, each datum by its
+    /// block or, of a group, by the group's name ([`flow::stands_on`]); the blocks it writes,
     /// and how many calls it asks for; what was found wrong with it as it was read, which only its reading could see;
     /// and whether a question it asks the owner waits for the answer.
     Came {
@@ -153,7 +153,7 @@ pub enum Return {
         writes: Vec<Write>,
         calls: usize,
         /// What was found wrong with the return as it was read against its cell, in the order found: what it named
-        /// that is none of its cell's, and what it wrote in a shape its cell does not take ([`Unmet::NotATrigger`],
+        /// that is none of its cell's, and what it wrote in a shape its cell does not take ([`Unmet::NotWatched`],
         /// [`Unmet::NotATool`], [`Unmet::UnchangedNotWritten`], and others of a block the reading could not hand in).
         found: Vec<Unmet>,
         /// A question the return asks the owner waits for the answer: the work stops at the cell, and the return is
@@ -204,8 +204,8 @@ pub struct Call {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Told {
     /// What ran the round: each block new to the cell as the run started, in the order the cell names them, then each
-    /// block put in to the round since that was not among them. Its return may name as dealt with each trigger of the
-    /// cell that stands on one of them ([`flow::ran`]).
+    /// block put in to the round since that was not among them. Its return may name as dealt with each datum or group
+    /// the cell watches that stands for one of them ([`flow::ran`]).
     pub ran_by: Vec<BlockId>,
     /// Of each block the cell may write, the version the round was told of and the latest.
     pub outputs: BTreeMap<BlockId, Standing>,
@@ -236,7 +236,7 @@ pub struct Standing {
 pub struct Requires<'a> {
     /// The blocks the cell may write.
     pub outputs: &'a [BlockId],
-    /// The cell's triggers that stand on a group of blocks, by the group's name, with the group's blocks
+    /// The groups of blocks the cell watches, by the group's name, with the group's blocks
     /// ([`crate::Cell::groups`]).
     pub groups: &'a BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks among those that every return that asks for no call includes, but one with a question that waits
@@ -313,10 +313,10 @@ pub enum Unmet {
     NotHandedIn { block: BlockId },
     /// What came back could not be read as a return, for this reason, as whatever carried the round out says.
     Unreadable { why: String },
-    /// The return names the trigger that stands on the block, or on the group of this name, as dealt with, and it did
-    /// not run the round: neither the block nor any of the group's is among what ran it.
+    /// The return names the block, or the group of this name, as dealt with, and it did not run the round: neither the
+    /// block nor any of the group's is among what ran it.
     NotRunBy { block: BlockId },
-    /// The return names the trigger that stands on the block, or on the group of this name, as dealt with twice.
+    /// The return names the block, or the group of this name, as dealt with twice.
     DealtWithTwice { block: BlockId },
     /// Something ran the round, and the return deals with none of it, asks for no call and has no question that waits
     /// for the owner's answer: the cell would be entered again at once for the same.
@@ -332,8 +332,10 @@ pub enum Unmet {
     /// both kinds whatever each holds: a return that asks for calls asks for nothing else, and deals with nothing
     /// (design document `data-and-context`, 30).
     AsksAndWorks,
-    /// The return names as dealt with a name that is none of its cell's triggers, as it wrote it.
-    NotATrigger { name: String },
+    /// The return names as dealt with a name that is none of what its cell watches, as it wrote it. Kept under its
+    /// earlier name too, in the reasons of rounds sent back before.
+    #[serde(alias = "NotATrigger")]
+    NotWatched { name: String },
     /// The return asks for a tool its cell may not ask for, as it wrote it.
     NotATool { name: String },
     /// The return names the block as written with its meaning unchanged, and does not write it.
@@ -351,7 +353,7 @@ pub enum Unmet {
     /// that does not write them is now a block that is not among its outputs.
     NotAnswerable { name: String },
     /// The return names as dealt with its cell's own words, of this name, and writes no answer in them (design document
-    /// `data-and-context`, 35). Returns read before a cell's words were its own named so the trigger of the owner's
+    /// `data-and-context`, 35). Returns read before a cell's words were its own named so what ran them on the owner's
     /// words, whose record they wrote no answer in.
     NotAnswered { name: String },
     /// The work's branch, as the round left it, changes the file of this path, which the project protects, and neither
@@ -393,8 +395,8 @@ pub enum Hold {
     Rounds,
 }
 
-/// The blocks a return that is taken deals with: of each trigger it names, in its order, the blocks it stands on that
-/// ran the round, each once. A group's trigger is dealt with for each of its blocks that ran the round, and so each of
+/// The blocks a return that is taken deals with: of each datum or group it names, in its order, the blocks it stands
+/// for that ran the round, each once. A group is dealt with for each of its blocks that ran the round, and so each of
 /// their versions the round was told of is consumed.
 fn consumed(dealt_with: &[BlockId], requires: Requires) -> Vec<BlockId> {
     let mut blocks: Vec<BlockId> = Vec::new();

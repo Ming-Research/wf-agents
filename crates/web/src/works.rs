@@ -1164,8 +1164,8 @@ pub enum Unmet {
     ChoiceChanged { block: String },
     /// The return asks for calls and also does the cell's work.
     AsksAndWorks,
-    /// The return names as dealt with a name that is none of its cell's triggers.
-    NotATrigger { name: String },
+    /// The return names as dealt with a name that is none of what its cell watches.
+    NotWatched { name: String },
     /// The return asks for a tool its cell may not ask for.
     NotATool { name: String },
     /// The return names the block as written with its meaning unchanged, and does not write it.
@@ -2803,7 +2803,7 @@ impl Unmet {
                 block: block.to_string(),
             },
             UnmetOf::AsksAndWorks => Unmet::AsksAndWorks,
-            UnmetOf::NotATrigger { name } => Unmet::NotATrigger { name: name.clone() },
+            UnmetOf::NotWatched { name } => Unmet::NotWatched { name: name.clone() },
             UnmetOf::NotATool { name } => Unmet::NotATool { name: name.clone() },
             UnmetOf::UnchangedNotWritten { block } => Unmet::UnchangedNotWritten {
                 block: block.to_string(),

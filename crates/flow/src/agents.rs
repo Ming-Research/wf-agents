@@ -743,7 +743,7 @@ pub struct Unread {
 }
 
 /// The words of each thing that can be wrong with a return, by its kind. In a text, `{block}` is a block's name,
-/// `{name}` a name as the return wrote it or, of what it dealt with, the trigger's name, `{value}` a value it wrote,
+/// `{name}` a name as the return wrote it or, of what it dealt with, the datum's or the group's name, `{value}` a value it wrote,
 /// `{values}` the values of a choice, each between backticks, `{version}` a version's number and `{why}` why what came
 /// back could not be read.
 #[derive(Clone, Debug, Deserialize)]
@@ -763,7 +763,7 @@ pub struct SentBackFaults {
     pub written_over: String,
     pub choice_changed: String,
     pub asks_and_works: String,
-    pub not_a_trigger: String,
+    pub not_watched: String,
     pub not_a_tool: String,
     pub unchanged_not_written: String,
     pub question_taken: String,
@@ -944,8 +944,8 @@ pub struct Message {
     /// What a session compacted during a round is told before the round's message is given again, whole.
     pub compacted: String,
     /// What the owner says to a round while it runs, as its session is given it after its next use of a tool: `{entry}`
-    /// the owner's version of the cell's words, `{block}` their name, `{number}` the version's place, `{trigger}` the
-    /// name it is new to the round as, `{do}` what the cell does for it.
+    /// the owner's version of the cell's words, `{block}` their name, `{number}` the version's place, `{do}` what the
+    /// cell does when its words are new.
     pub said: String,
 }
 
@@ -975,9 +975,13 @@ pub struct MessagePart {
     pub between: Option<String>,
     /// What is sent in its place where the session holds it already.
     pub held: Option<String>,
-    /// Of the triggers: what a trigger's line says of what happened, `{detail}` the trigger's own place.
-    pub detail: Option<String>,
-    /// Of the triggers: what a trigger's line says the cell does, `{do}` its words.
+    /// Of what is new to the cell: what a datum's line says of its versions where the cell consumed one before,
+    /// `{last}` that version's place and `{latest}` the latest's (design document `data-and-context`, 11).
+    pub since: Option<String>,
+    /// Of what is new to the cell: what a datum's line says of its version where the cell consumed none,
+    /// `{latest}` the latest's place.
+    pub first: Option<String>,
+    /// Of what is new to the cell: what a datum's line says the cell does, `{do}` its words.
     #[serde(rename = "do")]
     pub does: Option<String>,
     /// What follows the list.
@@ -1006,8 +1010,8 @@ pub enum Part {
     Results,
     /// Why what a round of the run returned was sent back, where its session lacks it.
     SentBack,
-    /// Each trigger new to the cell.
-    Triggers,
+    /// Each datum or group the cell watches that is new to it.
+    New,
 }
 
 impl Part {
@@ -1023,7 +1027,7 @@ impl Part {
             Part::Task => "task",
             Part::Results => "results",
             Part::SentBack => "sent_back",
-            Part::Triggers => "triggers",
+            Part::New => "new",
         }
     }
 }

@@ -133,7 +133,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             Read::Settings(settings, _) => holding(settings, shown),
         };
         // What the block of main says as a watch reads its head, in the words its definition gives: the same in every
-        // flow, whose triggers are shared. Filled with the name of the project's main branch, which the settings give.
+        // flow, whose engine's data are shared. Filled with the name of the project's main branch, which the settings give.
         let main_says = (flows.iter().flat_map(|flow| flow.blocks.values()))
             .find(|block| block.writers.outside.as_deref() == Some(carry::MAIN))
             .and_then(|block| block.writes.get("text").map(str::to_string))

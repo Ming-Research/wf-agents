@@ -39,7 +39,7 @@ fn the_first_cell_of_a_line_is_entered_first_holding_nothing_and_run_by_all_the_
             named.name
         );
         assert!(!holding(named), "{}", named.name);
-        assert_eq!(named.situation.triggers, ["request", "opinions"], "{}", named.name);
+        assert_eq!(named.situation.new, ["request", "opinions"], "{}", named.name);
     }
 }
 

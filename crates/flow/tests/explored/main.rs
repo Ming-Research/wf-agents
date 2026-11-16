@@ -77,7 +77,6 @@ fn engineer() -> Compiled {
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     compile(&source, &has).expect("the engineer's flow compiles")
@@ -96,7 +95,7 @@ fn stats(e: &Explored) -> String {
 const PROPERTIES: &[(Property, &str)] = &[
     (
         Property::NewToIt,
-        "1. a cell runs only on a version of its own trigger that it has not consumed and did not write",
+        "1. a cell runs only on a version of what it watches that it has not consumed and did not write",
     ),
     (
         Property::Contradicting,

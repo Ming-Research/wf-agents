@@ -6,7 +6,7 @@ use flow::FaultKind::*;
 
 use crate::support::{at, compiled, edit, faults, valid};
 
-const MERGE_INPUTS: &str = r#"inputs = ["ci"]"#;
+const MERGE_INPUTS: &str = r#"watches = ["ci"]"#;
 
 /// The small flow whose merge is named by this block.
 fn merge_named_by(block: &str) -> flow::Source {

@@ -1,5 +1,5 @@
-# What of what ran the round it has dealt with: the names of the triggers its message gives under "Why you are run",
-# which the engine checks against the cell's own.
+# What of what ran the round it has dealt with: the names of the blocks its message gives under "Why you are run",
+# which the engine checks against those the cell watches.
 required = true
 told = "alone"
 words = '''

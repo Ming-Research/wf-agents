@@ -90,10 +90,7 @@ fn words_said_to_a_round_under_way_are_told_to_it_as_a_version_of_its_cell_s_wor
     };
     assert_eq!(*told, run);
     let at = w.last_written();
-    assert_eq!(
-        (telling.block.as_str(), telling.number, telling.trigger.as_str()),
-        ("research_words", at, "research_words")
-    );
+    assert_eq!((telling.block.as_str(), telling.number), ("research_words", at));
     assert_eq!(telling.entry, "The owner: Mind the cost.");
     assert_eq!(telling.versions, [(BlockId::from("research_words"), at)]);
 }

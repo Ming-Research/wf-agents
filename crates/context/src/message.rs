@@ -3,7 +3,7 @@
 //! gives it in. The code holds no word an agent is sent, only how the words are put together.
 //!
 //! What is sent depends on the situation the entry is in ([`Situation`]): which of the parts the session keeps it
-//! holds, whether the last return in it handed in blocks, which triggers ran the cell, and how the session stands with
+//! holds, whether the last return in it handed in blocks, what the cell watches that is new to it, and how the session stands with
 //! each datum. The context manager works the situation out from the records (`crate::manager`); the page picks one.
 //! The places a run fills ([`Values`]) are filled by the engine, and left open for the page, so that what the page
 //! shows for a situation is what the engine sends in it.
@@ -60,8 +60,8 @@ pub struct Situation {
     pub holds: Vec<String>,
     /// The last return in the session handed in blocks.
     pub after_hand_in: bool,
-    /// The triggers that ran the cell and are new to it, by name.
-    pub triggers: Vec<String>,
+    /// What the cell watches that ran it, new to it, each datum or group by its name.
+    pub new: Vec<String>,
     /// How the session stands with each datum of the cell's context, by name; one not named, as with
     /// [`Stands::Lacks`].
     pub data: BTreeMap<String, Stands>,
@@ -75,9 +75,9 @@ pub struct Situation {
     pub sent_back: bool,
 }
 
-/// What fills the places of a message filled in a run. Either way, each setting that the cell's task, what a trigger
-/// says the cell does for it, or the words of what the cell returns name is given with the value beside its name, as
-/// the system prompt gives a setting.
+/// What fills the places of a message filled in a run. Either way, each setting that the cell's task, what the cell
+/// does when a datum it watches is new, or the words of what the cell returns name is given with the value beside its
+/// name, as the system prompt gives a setting.
 #[derive(Clone, Copy, Debug)]
 pub enum Values<'a> {
     /// Each place is left open, as the page shows it, and each setting given as these settings give it.
@@ -102,9 +102,9 @@ pub struct Run {
     pub named: Settings,
     /// Each datum of the cell's context that has a version, by its name.
     pub data: BTreeMap<BlockId, Datum>,
-    /// What happened, by the place a trigger's detail names; a place the engine has no value for is left out with its
-    /// detail.
-    pub details: BTreeMap<String, String>,
+    /// Of each datum or group the cell watches that is new to it, by its name, the version the cell last consumed and
+    /// the latest (design document `data-and-context`, 11).
+    pub new: BTreeMap<String, NewVersions>,
     /// The calls whose results the round is given, in the order they were made.
     pub results: Vec<Result>,
     /// Why what the rounds of the run returned was sent back, each with the number of an earlier round, or none for
@@ -126,6 +126,15 @@ pub struct Datum {
     pub diff: Option<String>,
     /// Of a datum given `all`, each version sent, the first first.
     pub versions: Vec<Version>,
+}
+
+/// The versions a round is told of a datum or group new to it: of a group, its blocks' latest of each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NewVersions {
+    /// The version the cell last consumed; none where it consumed none.
+    pub last: Option<Seq>,
+    /// The latest version.
+    pub latest: Seq,
 }
 
 /// A version of a datum.
@@ -257,8 +266,8 @@ pub struct Defined {
     pub held_new: Vec<Piece>,
     /// Of a datum, what is sent in place of its text where the session lacks what the text needs.
     pub whole: Vec<Piece>,
-    /// Of the triggers, the line of each trigger of the cell, by its name, in the cell's order: the lines of those that
-    /// ran it come after `pieces`, and then `after`.
+    /// Of what is new to the cell, the line of each datum or group it watches, by its name, in the cell's order: the
+    /// lines of those new to it come after `pieces`, and then `after`.
     pub items: Vec<(String, Vec<Piece>)>,
     pub after: Vec<Piece>,
 }
@@ -329,9 +338,9 @@ pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined>
                     ..made(build.results_heading())
                 });
             }
-            Part::Triggers => {
-                let items = (cell.triggers.iter())
-                    .map(|t| (t.name.clone(), build.trigger(part, t)))
+            Part::New => {
+                let items = (cell.watches.iter())
+                    .map(|w| (w.name.clone(), build.watched(part, w)))
                     .collect();
                 out.push(Defined {
                     items,
@@ -391,16 +400,16 @@ pub fn message(
                     }
                 }
             }
-            Part::Triggers => {
-                let ran: Vec<_> = (cell.triggers.iter())
-                    .filter(|t| situation.triggers.contains(&t.name))
+            Part::New => {
+                let new: Vec<_> = (cell.watches.iter())
+                    .filter(|w| situation.new.contains(&w.name))
                     .collect();
-                if ran.is_empty() {
+                if new.is_empty() {
                     continue;
                 }
                 let mut pieces = build.own(part);
-                for trigger in ran {
-                    pieces.extend(build.trigger(part, trigger));
+                for watched in new {
+                    pieces.extend(build.watched(part, watched));
                 }
                 pieces.extend(part.after.as_deref().map_or_else(Vec::new, with_slots));
                 out.push(sent(part, Form::Text, join(pieces)));
@@ -539,7 +548,7 @@ impl Build<'_> {
             Part::Outputs => self.outputs(),
             Part::Results => self.results(),
             Part::SentBack => self.sent_back(),
-            Part::Heading | Part::Task | Part::Context | Part::Triggers => own,
+            Part::Heading | Part::Task | Part::Context | Part::New => own,
         })
     }
 
@@ -760,10 +769,10 @@ impl Build<'_> {
             let ticked: Vec<String> = values.into_iter().flatten().map(|v| format!("`{v}`")).collect();
             ticked.join(&words.between)
         };
-        // What the return dealt with is named by the cell's trigger that stands on the block, or on a group of it.
-        let trigger = |block: &BlockId| {
-            let named = (self.cell.triggers.iter()).find(|t| &t.block == block || t.blocks().contains(block));
-            named.map_or_else(|| block.to_string(), |t| t.name.clone())
+        // What the return dealt with is named as the cell watches it: the datum, or a group it is of.
+        let watched = |block: &BlockId| {
+            let named = (self.cell.watches.iter()).find(|w| w.name == block.as_str() || w.blocks.contains(block));
+            named.map_or_else(|| block.to_string(), |w| w.name.clone())
         };
         let block = |block: &BlockId| ("block", block.to_string());
         let (text, places): (&str, Vec<(&str, String)>) = match unmet {
@@ -778,15 +787,15 @@ impl Build<'_> {
             Unmet::NotAChoice { block: b } => (&f.not_a_choice, vec![block(b)]),
             Unmet::NotHandedIn { block: b } => (&f.not_handed_in, vec![block(b)]),
             Unmet::Unreadable { why } => (&f.unreadable, vec![("why", why.clone())]),
-            Unmet::NotRunBy { block: b } => (&f.not_run_by, vec![("name", trigger(b))]),
-            Unmet::DealtWithTwice { block: b } => (&f.dealt_with_twice, vec![("name", trigger(b))]),
+            Unmet::NotRunBy { block: b } => (&f.not_run_by, vec![("name", watched(b))]),
+            Unmet::DealtWithTwice { block: b } => (&f.dealt_with_twice, vec![("name", watched(b))]),
             Unmet::DealtWithNothing => (&f.dealt_with_nothing, vec![]),
             Unmet::WrittenOver { block: b, version } => {
                 (&f.written_over, vec![block(b), ("version", version.0.to_string())])
             }
             Unmet::ChoiceChanged { block: b } => (&f.choice_changed, vec![block(b)]),
             Unmet::AsksAndWorks => (&f.asks_and_works, vec![]),
-            Unmet::NotATrigger { name } => (&f.not_a_trigger, vec![("name", name.clone())]),
+            Unmet::NotWatched { name } => (&f.not_watched, vec![("name", name.clone())]),
             Unmet::NotATool { name } => (&f.not_a_tool, vec![("name", name.clone())]),
             Unmet::UnchangedNotWritten { block: b } => (&f.unchanged_not_written, vec![block(b)]),
             Unmet::QuestionTaken { name } => (&f.question_taken, vec![("name", name.clone())]),
@@ -803,27 +812,35 @@ impl Build<'_> {
         text::as_written(&fill(text.trim_end(), &places))
     }
 
-    /// The line of a trigger: its `each`, with what happened where the trigger has a place for it and the engine a
-    /// value, and what the cell does where it says.
-    fn trigger(&self, part: &MessagePart, trigger: &flow::Trigger) -> Vec<Piece> {
+    /// The line of a datum or group the cell watches, new to it: its `each`, with its versions, the one the cell last
+    /// consumed, where it consumed one, and the latest (design document `data-and-context`, 11), and what the cell
+    /// does where it says. The page is shown the versions' places open, as where the cell consumed one.
+    fn watched(&self, part: &MessagePart, watched: &flow::Watched) -> Vec<Piece> {
         let each = with_slots(part.each.as_deref().unwrap_or_default());
-        let detail = match (&trigger.detail, &part.detail) {
-            (Some(place), Some(detail)) => match self.run() {
-                None => put(with_slots(detail), "detail", &[Piece::Slot { name: place.clone() }]),
-                Some(run) => match run.details.get(place) {
-                    Some(value) => fill(detail, &[("detail", value)]),
-                    None => Vec::new(),
-                },
+        let words = |text: &Option<String>| text.as_deref().unwrap_or_default().to_string();
+        let versions = match self.run() {
+            None => with_slots(&words(&part.since)),
+            Some(run) => match run.new.get(&watched.name) {
+                Some(NewVersions {
+                    last: Some(last),
+                    latest,
+                }) => fill(
+                    &words(&part.since),
+                    &[("last", &last.0.to_string()), ("latest", &latest.0.to_string())],
+                ),
+                Some(NewVersions { last: None, latest }) => {
+                    fill(&words(&part.first), &[("latest", &latest.0.to_string())])
+                }
+                None => Vec::new(),
             },
-            _ => Vec::new(),
         };
         // The words of what the cell does are sent as they are: nothing in them is filled.
-        let does = match (&trigger.does, &part.does) {
+        let does = match (&watched.does, &part.does) {
             (Some(words), Some(does)) => put(with_slots(does), "do", &written(&self.named(words.trim()))),
             _ => Vec::new(),
         };
-        let line = put(put(each, "detail", &detail), "do", &does);
-        filled(line, &[("trigger", &trigger.name)])
+        let line = put(put(each, "versions", &versions), "do", &does);
+        filled(line, &[("datum", &watched.name)])
     }
 
     /// The forms of a datum's content as `given.toml` words them for its kind, the places of a run open or filled.

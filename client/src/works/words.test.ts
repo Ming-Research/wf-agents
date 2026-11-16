@@ -278,7 +278,7 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'notHandedIn', block: 'verdict' })).toBe(
       'it did not hand in verdict, which the cell must hand in every time',
     );
-    expect(unmetWords({ kind: 'notATrigger', name: 'on_nothing' })).toBe(
+    expect(unmetWords({ kind: 'notWatched', name: 'on_nothing' })).toBe(
       'it said it dealt with on_nothing, which does not run the cell',
     );
     expect(unmetWords({ kind: 'notATool', name: 'browse' })).toBe(

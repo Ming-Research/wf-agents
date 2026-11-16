@@ -1,3 +1,0 @@
-# Fires when main has moved: a block with no content, which the outside writes.
-block = "main"
-from = "main"

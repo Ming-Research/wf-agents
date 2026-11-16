@@ -1,9 +1,9 @@
 //! The guard of names: no code of the engine's and none of the page's names a particular cell, line, group or block of
 //! a flow (principle engine-knows-no-cell). It compiles every flow the repository defines, collects every name those
 //! flows give (each cell, line, group and block, a datum each cell or each line has its own of by its name as made),
-//! leaves out what the engine itself declares, read from its declarations (the sources, acts, tools, system parts and
-//! details of what it has, its data beside the flows and their values, every place the words beside the flows fill,
-//! and the directories of the format), and fails where a source that is not a test holds one of the rest as a string
+//! leaves out what the engine itself declares, read from its declarations (the sources, acts, tools and system parts of
+//! what it has, its data beside the flows and their values, every place the words beside the flows fill, and the
+//! directories of the format), and fails where a source that is not a test holds one of the rest as a string
 //! literal: each Rust file of a crate's `src` outside its items marked `#[cfg(test)]` and the files they declare, and
 //! the page's code without its tests, fixtures, mocks and made-up data.
 //!
@@ -15,10 +15,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use flow::{
-    BLOCKS_DIR, CELLS_DIR, DATA_DIR, FLOW_FILE, LINES_DIR, OF_A_CELL, OF_A_DATUM, OF_A_GROUP, OF_A_LINE, RULES_DIR,
-    TESTS_DIR, TRIGGERS_DIR,
-};
+use flow::{BLOCKS_DIR, CELLS_DIR, DATA_DIR, FLOW_FILE, LINES_DIR, OF_A_CELL, OF_A_LINE, RULES_DIR, TESTS_DIR};
 
 use super::has;
 
@@ -361,17 +358,7 @@ fn flow_names() -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let mut engines = places();
     let format = [
-        CELLS_DIR,
-        LINES_DIR,
-        BLOCKS_DIR,
-        TESTS_DIR,
-        RULES_DIR,
-        DATA_DIR,
-        TRIGGERS_DIR,
-        OF_A_CELL,
-        OF_A_LINE,
-        OF_A_DATUM,
-        OF_A_GROUP,
+        CELLS_DIR, LINES_DIR, BLOCKS_DIR, TESTS_DIR, RULES_DIR, DATA_DIR, OF_A_CELL, OF_A_LINE,
     ];
     let dirs = format.iter().filter_map(|d| Path::new(d).file_name());
     engines.extend(dirs.map(|d| d.to_string_lossy().into_owned()));
@@ -379,7 +366,7 @@ fn flow_names() -> BTreeSet<String> {
         let source = flow::read(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
         let has = has(&dir);
         let compiled = flow::compile(&source, &has).unwrap_or_else(|f| panic!("{}: {f:?}", dir.display()));
-        for set in [&has.sources, &has.acts, &has.tools, &has.system, &has.details] {
+        for set in [&has.sources, &has.acts, &has.tools, &has.system] {
             engines.extend(set.iter().cloned());
         }
         for (name, block) in &compiled.blocks {

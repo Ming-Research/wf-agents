@@ -10,7 +10,7 @@ use work::{Given, Spent, Time, Work};
 
 use super::*;
 
-/// The small flow with the group `brief`, of what people asked for and their notes, whose trigger runs `write`.
+/// The small flow with the group `brief`, of what people asked for and their notes, which `write` watches.
 fn grouped() -> Compiled {
     let flow = FLOW
         .replace(r#"data = ["request"]"#, r#"data = ["request", "notes"]"#)
@@ -130,16 +130,16 @@ impl W {
 }
 
 #[test]
-fn the_cell_s_group_trigger_stands_on_each_of_its_blocks() {
+fn a_group_the_cell_watches_stands_for_each_of_its_blocks() {
     let flow = grouped();
-    let brief = (cell(&flow).triggers.iter())
-        .find(|t| t.name == "brief")
-        .expect("the trigger");
-    assert_eq!(brief.blocks(), [BlockId::from("request"), BlockId::from("notes")]);
+    let brief = (cell(&flow).watches.iter())
+        .find(|w| w.name == "brief")
+        .expect("the group watched");
+    assert_eq!(brief.blocks, [BlockId::from("request"), BlockId::from("notes")]);
 }
 
 #[test]
-fn a_return_that_names_the_group_s_trigger_is_taken_and_consumes_the_block_of_it_that_ran_its_round() {
+fn a_return_that_names_the_group_is_taken_and_consumes_the_block_of_it_that_ran_its_round() {
     let mut w = W::new();
     let run = w.written(&["notes"]);
     assert_eq!(w.returns(run, &["brief"]), None);
@@ -152,7 +152,7 @@ fn a_return_that_names_the_group_s_trigger_is_taken_and_consumes_the_block_of_it
 }
 
 #[test]
-fn a_return_that_names_the_group_s_trigger_once_deals_with_each_of_its_blocks_that_ran_its_round() {
+fn a_return_that_names_the_group_once_deals_with_each_of_its_blocks_that_ran_its_round() {
     let mut w = W::new();
     let run = w.written(&["request", "notes"]);
     assert_eq!(w.returns(run, &["brief"]), None);
@@ -161,7 +161,7 @@ fn a_return_that_names_the_group_s_trigger_once_deals_with_each_of_its_blocks_th
 }
 
 #[test]
-fn a_return_that_names_the_group_s_trigger_where_none_of_its_blocks_ran_its_round_is_sent_back() {
+fn a_return_that_names_the_group_where_none_of_its_blocks_ran_its_round_is_sent_back() {
     let mut w = W::new();
     let run = w.written(&["write_words"]);
     let unmet = vec![Unmet::NotRunBy { block: "brief".into() }];
@@ -169,11 +169,11 @@ fn a_return_that_names_the_group_s_trigger_where_none_of_its_blocks_ran_its_roun
 }
 
 #[test]
-fn a_return_that_names_a_block_of_the_group_is_sent_back_for_naming_no_trigger() {
+fn a_return_that_names_a_block_of_the_group_is_sent_back_for_naming_nothing_the_cell_watches() {
     let mut w = W::new();
     let run = w.written(&["notes"]);
     let unmet = vec![
-        Unmet::NotATrigger {
+        Unmet::NotWatched {
             name: "notes".to_string(),
         },
         Unmet::DealtWithNothing,

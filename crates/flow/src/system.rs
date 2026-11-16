@@ -376,8 +376,8 @@ pub fn check(parts: &[Part], settings: &Settings, fills: impl Fn(&str) -> bool) 
 }
 
 /// The flow's own texts that a message sends its agent cells, each with what of the flow it is: each agent cell's
-/// task, what each of its triggers says it does, and the words of each block, what it is and what a cell that writes
-/// it is told of writing it.
+/// task, what it does when each datum it watches is new, and the words of each block, what it is and what a cell that
+/// writes it is told of writing it.
 pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
     let mut out = Vec::new();
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
@@ -389,10 +389,10 @@ pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
                 places: false,
             });
         }
-        for trigger in &cell.triggers {
-            if let Some(does) = &trigger.does {
+        for watched in &cell.watches {
+            if let Some(does) = &watched.does {
                 out.push(Said {
-                    source: format!("cell {id}, what it does for {}", trigger.name),
+                    source: format!("cell {id}, what it does when {} is new", watched.name),
                     text: does.clone(),
                     places: false,
                 });

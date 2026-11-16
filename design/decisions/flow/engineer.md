@@ -23,20 +23,19 @@ Why: Going back is then the same thing as going on: an input changed. Cells of t
 their own for who fixes what a red CI before the merge found, and who checks that fix (principle
 reviews-can-be-disputed).
 
-### decision main-is-an-input-of-the-check-alone
-Main is an input only of the cell right before the merge, which checks that the work passes its whole CI with the
+### decision main-is-watched-by-the-check-alone
+Main is watched only by the cell right before the merge, which checks that the work passes its whole CI with the
 latest main taken in; a cell that changes the code takes main in as its run starts without reading it (decision
 a-run-that-changes-the-code-takes-main-in). The merge only merges.
 Why: The check is a cell of its own because a work ends when the merge has a record: nothing the merge wrote could
-send the work back. Main as an input of every cell was turned down, which would run a whole work again at each merge
-of another.
+send the work back. Main watched by every cell was turned down, which would run a whole work again at each merge of
+another.
 
 ### decision the-tree-runs-no-cell
 The design tree is a datum each cell that reads the tree is given `last_and_latest`, the files that changed since the
-version its session read, and runs no cell; of what comes from outside the work, a cell is run by what it names in its
-`triggered_by`, as the flow's triggers and data declare, and none names the tree.
-Why: A changed tree run as a trigger would run the reading cell again, and every cell after it, for each commit that
-touches the tree; given as a datum, it is read where the line goes on, by the cell that next enters the session.
+version its session read, and runs no cell: a cell reads it, and none watches it.
+Why: A changed tree watched would run the reading cell again, and every cell after it, for each commit that touches
+the tree; read as a datum, it is read where the line goes on, by the cell that next enters the session.
 
 ### decision the-review-takes-the-head-and-the-head-runs-the-check
 The review takes `head`, the work's head, among the blocks of the change it is run by, and reads the diff from main to

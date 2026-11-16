@@ -1,0 +1,2 @@
+# What the outside writes as main moves: a datum of the engine's own, which a flow names among those it uses.
+from = "main"

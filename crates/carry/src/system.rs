@@ -14,8 +14,9 @@
 //! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
 //! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
 //! its value beside it: the project's from its `project.toml`, and the installation's that `agents/installation.toml`
-//! names, from these settings ([`named`]); so is each setting a message names, in the cell's task, in what a trigger
-//! says the cell does for it, and in the words of what the cell returns (crate `context`), with these settings.
+//! names, from these settings ([`named`]); so is each setting a message names, in the cell's task, in what the cell
+//! does when a datum it watches is new, and in the words of what the cell returns (crate `context`), with these
+//! settings.
 //!
 //! As the engine starts, every text sent to the agents is checked, each fault said with the file or the thing of the
 //! flow that holds the text, all of them at once ([`faults`]): a place the engine does not fill, a setting named that
@@ -178,8 +179,8 @@ pub(crate) fn of_line(
 /// prompt, a set of rules or a tool that nothing beside the flows defines, a place the engine does not fill (a file of
 /// the project standing as empty under its heading), and a setting named that has no value; a line that changes only
 /// the project's tests, of a project whose declaration names no paths of its tests or of a flow with no block of the
-/// work's head; and a setting named with no value in a cell's task, in what a trigger says the cell does for it, in the
-/// words of a block, or in the words of what a cell returns (`[outputs]` of `agents/return/return.toml`).
+/// work's head; and a setting named with no value in a cell's task, in what the cell does when a datum it watches is
+/// new, in the words of a block, or in the words of what a cell returns (`[outputs]` of `agents/return/return.toml`).
 pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<String> {
     let filling = filling(settings, beside);
     let named = &filling.named;

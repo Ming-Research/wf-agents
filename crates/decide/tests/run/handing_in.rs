@@ -112,7 +112,7 @@ fn a_return_with_a_question_that_waits_is_held_to_no_block_its_cell_must_write_a
 #[test]
 fn what_was_found_as_a_return_was_read_is_said_first_with_everything_else_wrong_with_it() {
     let found = vec![
-        Unmet::NotATrigger {
+        Unmet::NotWatched {
             name: "on_nothing".to_string(),
         },
         Unmet::UnchangedNotWritten {

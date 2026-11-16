@@ -152,7 +152,6 @@ fn engineer() -> Compiled {
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),
-        details: names(&["files"]),
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")
 }

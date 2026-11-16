@@ -32,7 +32,7 @@ use reading::{Reading, Reason, Writer};
 /// The properties, by their numbers in the owner's test plan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Property {
-    /// 1. A cell runs only on a version of one of its own triggers that it has not consumed and did not write.
+    /// 1. A cell runs only on a version of what it watches that it has not consumed and did not write.
     NewToIt = 1,
     /// 2. Cells whose conditions want another value of a block never both run off the same version of it.
     Contradicting = 2,
@@ -380,7 +380,7 @@ impl Explorer<'_> {
         let i = self.model.place(&cell);
         let names: Vec<String> = (because.iter())
             .map(|c| match c {
-                Cause::Changed { block, .. } => self.model.triggers[i].get(block).cloned().unwrap_or(block.0.clone()),
+                Cause::Changed { block, .. } => self.model.watched[i].get(block).cloned().unwrap_or(block.0.clone()),
                 Cause::Results { .. } => "the answers it waited for".to_string(),
                 Cause::NoRecord => "no record".to_string(),
             })
@@ -969,7 +969,7 @@ impl Explorer<'_> {
         let def = &m.cells()[i];
         let trace = &s.trace;
         self.reach(ran(cell));
-        // 1: what runs it is its own trigger, new to it, and not its own write; nothing new to it is left out.
+        // 1: what runs it is what it watches, new to it, and not its own write; nothing new to it is left out.
         for cause in because {
             match cause {
                 Cause::NoRecord => {
@@ -981,7 +981,7 @@ impl Explorer<'_> {
                     );
                 }
                 Cause::Changed { block, was, behind } => {
-                    let trigger = m.triggers[i].get(block).cloned();
+                    let trigger = m.watched[i].get(block).cloned();
                     match &trigger {
                         Some(t) => {
                             self.reach(ran_on(cell, t));
@@ -990,7 +990,7 @@ impl Explorer<'_> {
                             }
                         }
                         None => {
-                            let name = format!("{cell} ran on {block}, which is none of its triggers");
+                            let name = format!("{cell} ran on {block}, which it does not watch");
                             self.breach(Property::NewToIt, name, trace, String::new());
                         }
                     }
@@ -1171,7 +1171,7 @@ impl Explorer<'_> {
     /// 5, of a run: a block of a group that runs the cell is one of the group's.
     fn check_group(&mut self, s: &State, i: usize, block: &BlockId) {
         let m = self.model;
-        if let Some(trigger) = m.triggers[i].get(block)
+        if let Some(trigger) = m.watched[i].get(block)
             && let Some(members) = m.groups[i].get(trigger)
             && !members.contains(block)
         {

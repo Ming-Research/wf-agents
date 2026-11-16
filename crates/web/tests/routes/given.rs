@@ -80,7 +80,6 @@ fn the_engine_s(_: &flow::Source) -> flow::Has {
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),
-        details: names(&["files"]),
     }
 }
 
@@ -278,10 +277,10 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
                 "{id}: what it returns lacks {block}"
             );
         }
-        // What runs it has a line for each trigger its file names, by the trigger's name, which names it.
-        let lines = named("message", "triggers")["items"]
+        // What is new to it has a line for each datum or group its file watches, by its name, which names it.
+        let lines = named("message", "new")["items"]
             .as_array()
-            .expect("the triggers' lines");
+            .expect("the lines of what is new");
         for trigger in cell["triggers"].as_array().unwrap() {
             let name = trigger["name"].as_str().unwrap();
             let line = lines.iter().find(|l| l[0] == json!(name));

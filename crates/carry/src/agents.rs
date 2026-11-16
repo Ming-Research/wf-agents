@@ -1569,10 +1569,10 @@ fn words(base: &Path) -> Words {
 }
 
 /// What the owner said to a round under way, as its session is given it: in the words of `said` in the message's
-/// file, with what the cell does for the trigger as the part of the triggers says it.
+/// file, with what the cell does when its words are new as the part of what is new says it.
 fn said(beside: &Beside, told: &Telling) -> String {
     let message = &beside.message;
-    let part = message.parts.iter().find(|p| p.part == flow::agents::Part::Triggers);
+    let part = message.parts.iter().find(|p| p.part == flow::agents::Part::New);
     let does = match (&told.does, part.and_then(|p| p.does.as_deref())) {
         (Some(does), Some(text)) => flow::agents::fill(text, &[("do", does.trim())]),
         _ => String::new(),
@@ -1582,7 +1582,6 @@ fn said(beside: &Beside, told: &Telling) -> String {
         ("entry", told.entry.as_str()),
         ("block", told.block.as_str()),
         ("number", number.as_str()),
-        ("trigger", told.trigger.as_str()),
         ("do", does.as_str()),
     ];
     flow::agents::fill(&message.said, &places)
@@ -1751,7 +1750,6 @@ mod tests {
             ]),
             acts: names(&["start", "check", "merge", "deliver"]),
             tools: names(&["query", "run_tests"]),
-            details: names(&["files"]),
             ..Default::default()
         };
         let source = flow::read(&root.join("engineer")).expect("the flow is read");

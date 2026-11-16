@@ -1,0 +1,5 @@
+# What the owner notes for the work, which a cell writes in its return's `outputs` too.
+what = "What the owner notes for the work."
+from = "owner"
+shown = true
+words = "`notes`: your notes beside the owner's."

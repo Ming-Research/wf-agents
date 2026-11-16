@@ -40,7 +40,6 @@ fn engineer() -> Compiled {
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         system: flow::system::reserved(&beside).into_iter().collect(),
-        details: names(&["files"]),
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")
 }

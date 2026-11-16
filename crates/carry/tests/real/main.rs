@@ -383,9 +383,6 @@ fn compiled(on: On) -> Compiled {
             "main",
         ]),
         acts: names(&["start", "check", "merge", "deliver"]),
-        // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
-        // the tree.
-        details: names(&["files"]),
         tools: names(&["query"]),
         ..Default::default()
     };

@@ -1,34 +1,29 @@
 //! What runs a cell, by its data (design document `data-and-context`, 5 to 12, 17): the data it watches, a version of
 //! which new to it runs it, and those it only reads, each given to it in its kind; what every agent cell of the flow
 //! watches and reads, said once in `flow.toml`; the data each cell or each line has its own of, beside the flows; the
-//! cell the engine asks in (34); and what the item's card shows. A cell written so is compiled to what a cell written
-//! before is: each datum it watches is a trigger of the datum's name, which its agent reads. A flow may hold cells of
-//! this form beside cells of the forms before it, each file in one.
+//! cell the engine asks in (34); and what the item's card shows. A cell's file names nothing of the forms written before
+//! this one.
 
 use decide::{BlockId, CellId};
 use flow::FaultKind::*;
-use flow::{CellSpec, Compiled, FLOW_FILE, Has, InputKind, Source, Trigger};
+use flow::{CellSpec, Compiled, FLOW_FILE, Has, InputKind, Source, Watched};
 
 use crate::support::{at, compiled, edit, faults, faults_with, has, laid_out, set, unreadable};
 
-/// What the planning cell of the twin laid out one thing to a file takes, in the form of triggers.
-const PLAN_TAKES: &str = "triggered_by = [\"on_request\", \"on_opinions\"]\ncontext = [\"request\", \"opinions\"]";
+/// What the planning cell of the twin laid out one thing to a file watches.
+const PLAN_TAKES: &str = "watches = [\"request\", \"opinions\"]";
 
-/// What the answering cell of the twin takes, in the form of triggers.
-const ANSWER_TAKES: &str = "triggered_by = [\"on_comments\", \"on_plan\"]\ncontext = [\"comments\", \"plan\"]";
+/// What the answering cell of the twin watches.
+const ANSWER_TAKES: &str = "watches = [\"comments\", \"plan\"]";
 
 fn cell<'a>(compiled: &'a Compiled, id: &str) -> &'a CellSpec {
     (compiled.cells.iter()).find(|c| c.id.as_str() == id).expect("the cell")
 }
 
-fn trigger(name: &str, read: &[&str], does: Option<&str>) -> Trigger {
-    Trigger {
+fn watched(name: &str, does: Option<&str>) -> Watched {
+    Watched {
         name: name.to_string(),
-        what: None,
-        block: name.into(),
-        group: Vec::new(),
-        read: read.iter().map(|&b| b.into()).collect(),
-        detail: None,
+        blocks: vec![name.into()],
         does: does.map(str::to_string),
     }
 }
@@ -43,7 +38,7 @@ fn runs_on(spec: &CellSpec) -> Vec<&str> {
     spec.runs_on.iter().map(|r| r.block.as_str()).collect()
 }
 
-/// The twin laid out one thing to a file, its planning cell taking this in place of its triggers and context.
+/// The twin laid out one thing to a file, its planning cell taking this in place of what it watches.
 fn plan_takes(takes: &str) -> Source {
     edit(laid_out(), "cells/plan.toml", PLAN_TAKES, takes)
 }
@@ -95,7 +90,7 @@ fn answer_asks() -> Source {
 fn a_cell_runs_on_what_it_watches_and_is_given_what_it_reads_and_watches_each_in_its_kind() {
     let compiled = compiled(&plan_takes("watches = [\"request\"]\nreads = [\"opinions\"]"));
     let plan = cell(&compiled, "plan");
-    assert_eq!(plan.triggers, [trigger("request", &["request"], None)]);
+    assert_eq!(plan.watches, [watched("request", None)]);
     assert_eq!(runs_on(plan), ["request"]);
     let walked = &compiled.flow.cells()[0];
     assert_eq!(walked.runs_on, [BlockId::from("request")]);
@@ -119,8 +114,8 @@ fn what_a_cell_does_when_a_datum_it_watches_is_new_is_said_by_the_datum_s_name()
     let compiled = compiled(&source);
     let plan = cell(&compiled, "plan");
     assert_eq!(
-        plan.triggers,
-        [trigger("request", &["request"], Some("Plan again from what changed."))]
+        plan.watches,
+        [watched("request", Some("Plan again from what changed."))]
     );
     assert_eq!(plan.runs_on[0].why.as_deref(), Some("Plan again from what changed."));
 }
@@ -133,16 +128,12 @@ fn a_group_watched_runs_the_cell_on_each_of_its_blocks_given_each_in_its_kind() 
         .push_str("\n[groups]\nasked_for = [\"request\", \"opinions\"]\n");
     let compiled = compiled(&source);
     let plan = cell(&compiled, "plan");
-    let group = Trigger {
+    let group = Watched {
         name: "asked_for".to_string(),
-        what: None,
-        block: "asked_for".into(),
-        group: vec!["request".into(), "opinions".into()],
-        read: vec!["request".into(), "opinions".into()],
-        detail: None,
+        blocks: vec!["request".into(), "opinions".into()],
         does: None,
     };
-    assert_eq!(plan.triggers, [group]);
+    assert_eq!(plan.watches, [group]);
     assert_eq!(runs_on(plan), ["request", "opinions"]);
     assert_eq!(
         given(plan),
@@ -240,7 +231,7 @@ fn an_engine_cell_watches_and_is_given_nothing_nor_told_what_to_do() {
     let mut source = edit(
         laid_out(),
         "cells/check.toml",
-        "triggered_by = [\"on_main\", \"on_design\"]",
+        "watches = [\"main\", \"design\"]",
         "watches = [\"design\"]\nreads = [\"request\"]",
     );
     let check = source.cells.get_mut("check").expect("the check");
@@ -258,32 +249,23 @@ fn an_engine_cell_watches_and_is_given_nothing_nor_told_what_to_do() {
 }
 
 #[test]
-fn a_block_that_stands_only_for_a_trigger_is_not_watched() {
-    let source = plan_takes("watches = [\"request\", \"main\"]\nreads = [\"opinions\"]");
-    let what = TriggerOnly {
-        block: "main".to_string(),
-    };
-    assert_eq!(faults(&source), [at("cells/plan.toml", "watches[1]", what)]);
-}
-
-#[test]
 fn a_datum_watched_that_no_writer_can_write_where_the_cell_runs_is_refused() {
     // The check runs only where the judge chose no, the design is written only where it chose yes, and the judge, the
     // one writer of the choice, runs only where it has chosen no.
     let source = edit(
         laid_out(),
         "cells/check.toml",
-        "triggered_by = [\"on_main\", \"on_design\"]",
+        "watches = [\"main\", \"design\"]",
         "when = { needs_design = \"no\" }\nwatches = [\"design\"]",
     );
     let source = edit(
         source,
         "cells/judge.toml",
-        "triggered_by = [\"on_plan\"]",
-        "when = { needs_design = \"no\" }\ntriggered_by = [\"on_plan\"]",
+        "watches = [\"plan\"]",
+        "when = { needs_design = \"no\" }\nwatches = [\"plan\"]",
     );
-    let what = TriggerNeverRuns {
-        trigger: "design".to_string(),
+    let what = NeverNew {
+        watched: "design".to_string(),
         block: "design".to_string(),
         needs: "needs_design = \"no\"".to_string(),
         writers: vec![("design".to_string(), "needs_design = \"yes\"".to_string())],
@@ -395,12 +377,6 @@ fn a_datum_each_cell_has_its_own_of_is_made_for_the_cell_whose_id_its_name_holds
     source.flow.push_str(
         "\n[every_agent]\nreads = [\"{each}_questions\"]\n\n[every_agent.kinds]\n\"{each}_questions\" = \"all\"\n",
     );
-    let source = edit(
-        source,
-        "cells/plan.toml",
-        PLAN_TAKES,
-        "watches = [\"request\", \"opinions\"]",
-    );
     let compiled = compiled_all(&source);
     assert_eq!(
         given(cell(&compiled, "plan"))[0],
@@ -510,7 +486,7 @@ fn a_datum_each_line_has_its_own_of_is_watched_only_by_a_cell_of_that_line() {
     let source = edit(
         source,
         "cells/judge.toml",
-        "triggered_by = [\"on_plan\"]\ncontext = [\"plan\"]",
+        "watches = [\"plan\"]",
         "watches = [\"plan\", \"engineer_session\"]",
     );
     let source = edit(

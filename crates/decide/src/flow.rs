@@ -262,8 +262,8 @@ pub struct Cell {
     /// cell while it has a version, changing its meaning, later than the one the cell consumed, that the cell did not
     /// write itself. What the cell is given besides is no matter of the walk's.
     pub runs_on: Vec<BlockId>,
-    /// Of each trigger of the cell that stands on a group of blocks, by the group's name, the group's blocks, each
-    /// among those that run the cell. A return names such a trigger as dealt with by the group's name ([`stands_on`]).
+    /// Of each group of blocks the cell watches, by the group's name, the group's blocks, each among those that run the
+    /// cell. A return names such a group as dealt with by its name ([`stands_on`]).
     pub groups: BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks the cell may write.
     pub outputs: Vec<BlockId>,
@@ -304,17 +304,17 @@ impl Cell {
     }
 }
 
-/// The blocks a trigger of a cell stands on, by the name a return deals with it by: of a group's trigger, by the
-/// group's name, the group's blocks, as the cell's groups ([`Cell::groups`]) hold them; of another, the block of that
+/// The blocks a datum or group a cell watches stands for, by the name a return deals with it by: of a group, by the
+/// group's name, the group's blocks, as the cell's groups ([`Cell::groups`]) hold them; of a datum, the block of that
 /// name.
 pub fn stands_on<'a>(groups: &'a BTreeMap<BlockId, Vec<BlockId>>, named: &'a BlockId) -> &'a [BlockId] {
     groups.get(named).map_or(std::slice::from_ref(named), Vec::as_slice)
 }
 
-/// Of the blocks a trigger stands on, those among the blocks that ran a round: the trigger ran the round where any of
-/// them did, and a return that names it as dealt with deals with each of them, as one trigger (design document
-/// `data-and-context`, 9). A group's trigger runs its cell once for a new version of any of the group's blocks, and is
-/// dealt with once for all of them.
+/// Of the blocks a datum or group watched stands for, those among the blocks that ran a round: it ran the round where
+/// any of them did, and a return that names it as dealt with deals with each of them, as one (design document
+/// `data-and-context`, 12). A group runs its cell once for a new version of any of its blocks, and is dealt with once
+/// for all of them.
 pub fn ran<'a>(stands_on: &'a [BlockId], ran_by: &'a [BlockId]) -> impl Iterator<Item = &'a BlockId> + 'a {
     stands_on.iter().filter(|b| ran_by.contains(b))
 }

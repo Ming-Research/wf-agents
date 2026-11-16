@@ -52,7 +52,7 @@ struct Drawn {
     waits: bool,
 }
 
-/// The triggers of `write` that run its round: what people asked for, and the owner's words where the owner spoke.
+/// What `write` watches that runs its round: what people asked for, and its words where the owner spoke.
 fn ran(spoken: bool) -> Vec<(&'static str, &'static str)> {
     let mut ran = vec![("request", "request")];
     if spoken {
@@ -152,7 +152,7 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
         if !clean {
             if rng.chance(10) {
                 names.push("on_nothing");
-                faults.push(Unmet::NotATrigger {
+                faults.push(Unmet::NotWatched {
                     name: "on_nothing".to_string(),
                 });
             }

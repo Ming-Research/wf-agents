@@ -22,8 +22,8 @@ that says so. So each version in this session, whether you were sent it or hande
 and its number, and the latest of each is in this session.
 
 Then, the first time the cell is entered in this session, the blocks it writes and its task; after that the task's
-heading says where the task is. "Why you are run" comes last: each trigger that ran the cell,
-what happened, and what to do for it.
+heading says where the task is. "Why you are run" comes last: each block the cell watches that is new to it,
+with the version it last worked from and the latest, and what to do for it.
 
 ## What you do
 

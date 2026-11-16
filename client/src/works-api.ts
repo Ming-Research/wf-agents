@@ -371,7 +371,7 @@ export type Unmet =
   | { kind: 'writtenOver'; block: string; version: number }
   | { kind: 'choiceChanged'; block: string }
   | { kind: 'asksAndWorks' }
-  | { kind: 'notATrigger'; name: string }
+  | { kind: 'notWatched'; name: string }
   | { kind: 'notATool'; name: string }
   | { kind: 'unchangedNotWritten'; block: string }
   | { kind: 'questionTaken'; name: string }

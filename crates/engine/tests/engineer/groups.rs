@@ -109,14 +109,14 @@ fn the_review_run_by_the_change_s_group_deals_with_it_by_its_name_once() {
 }
 
 #[test]
-fn each_trigger_of_each_cell_named_as_dealt_with_is_taken_for_any_block_it_stands_on_that_ran_the_round() {
+fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block_of_it_that_ran_the_round() {
     let flow = engineer();
     let choices = BTreeMap::new();
     for (spec, cell) in flow.cells.iter().zip(flow.flow.cells()) {
-        for trigger in &spec.triggers {
+        for trigger in &spec.watches {
             let (named, none) = spec.dealt_with(std::slice::from_ref(&trigger.name));
             assert!(none.is_empty(), "{} {}", spec.id, trigger.name);
-            for block in trigger.blocks() {
+            for block in &trigger.blocks {
                 let told = Told {
                     ran_by: vec![block.clone()],
                     ..Told::default()

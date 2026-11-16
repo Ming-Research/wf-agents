@@ -35,7 +35,7 @@ A version is held by what it is, never by its content, so a new version that say
 Why: Holding by content swallowed what was new: the owner saying the same twice, or a datum changed back, would not be given, while the cell was told of a version it never saw. Giving the latest whole where the version last worked from is lacking was turned down: the change since it is unseen either way, and the session holds every word.
 
 ### decision the-situations-written-stand-data-by-class
-`wf-agents flow situations` writes each situation an entry of a cell can reach with the data in two classes, each standing alike where it can, those of the triggers that ran the cell and the rest, and counts every combination of each datum's own state without writing it.
+`wf-agents flow situations` writes each situation an entry of a cell can reach with the data in two classes, each standing alike where it can, those new to the cell and the rest, and counts every combination of each datum's own state without writing it.
 Why: The builder words a datum from its kind and how the session stands with it alone, so the product of every datum's states repeats the same texts, and runs to millions for a cell given ten data (`T1`, about 35 billion); by class every state of every datum is written, in a few hundred files a cell.
 
 ### decision the-situations-follow-what-the-flow-can-reach

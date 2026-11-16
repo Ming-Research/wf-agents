@@ -671,11 +671,6 @@ const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 /// (`agents/tools/`), and the form of the return holds them.
 const TOOLS: [&str; 2] = ["query", "run_tests"];
 
-/// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
-/// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
-/// as a datum.
-const DETAILS: [&str; 1] = ["files"];
-
 /// What the engine has, by name, for the definition in this directory. Of the parts of a line's system prompt, the
 /// names of those that are not the line's own sets of rules, which no line names and no set of rules takes, are those
 /// `agents/session.toml` beside the flows gives them (`flow::system::reserved`); where the files beside the flows
@@ -689,7 +684,6 @@ fn has(dir: &Path) -> Has {
         acts: names(&ACTS),
         tools: names(&TOOLS),
         system: system.into_iter().flatten().collect(),
-        details: names(&DETAILS),
     }
 }
 
@@ -791,43 +785,19 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
-        F::TakenNotRead { block } => {
-            format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
-        }
-        F::TwoForms => {
-            "name them one way: inputs, runs_on and given, triggered_by and context, or watches and reads".to_string()
-        }
         F::NoSuchData { name } => {
             format!("the flow names {name} among the engine's own data, but no file of ../data/ defines {name}")
         }
         F::DefinedTwice { name, also } => format!("{name} is defined here and again in {also}"),
-        F::NoSuchTrigger { trigger } => {
-            format!("the cell names the trigger {trigger}, which nothing in ../triggers/ defines")
-        }
-        F::NoSuchDatum { trigger, datum } => {
-            format!("the cell names the trigger {trigger}, but the flow has no datum {datum}")
-        }
-        F::ReadNotInContext { trigger, block } => {
-            format!("the trigger {trigger} has the agent read {block}, but {block} is not in the cell's context")
-        }
-        F::NotATrigger { trigger } => {
-            format!("the cell says what it does for {trigger}, but {trigger} is not among its triggers")
-        }
-        F::TriggerOnly { block } => {
-            format!("{block} stands only for a trigger and has no content: no cell is given it or writes it")
-        }
-        F::NotLaidOut => {
-            "the cell names triggered_by and context, which only a flow laid out one thing to a file has".to_string()
-        }
         F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
         F::AsksWithNoAnswer { block } => {
             format!(
-                "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"
+                "the cell writes {block}, its questions, but does not watch them: the owner's answer would run no cell"
             )
         }
         F::AsksAndCannotBeSpokenTo { block } => {
             format!(
-                "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
+                "the cell writes {block}, its questions, but watches no words of its own: the owner's words about its question would reach no cell"
             )
         }
         F::NotItsOwn { block } => {
@@ -842,26 +812,26 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::CannotBeAskedIn { cell } => format!(
             "the engine cannot ask in {cell}: it must be an agent's cell, on a line that may change the work, with words of its own"
         ),
-        F::TriggerNeverRuns {
-            trigger,
+        F::NeverNew {
+            watched,
             block,
             needs,
             writers,
         } => {
             let writers: Vec<String> = writers.iter().map(|(cell, when)| format!("{cell} ({when})")).collect();
             format!(
-                "the trigger {trigger} stands on {block}, but the cell runs only where {needs}, and each writer of {block} runs only where it cannot: {}; the trigger can never run the cell",
+                "the cell watches {watched}, but it runs only where {needs}, and each writer of {block} runs only where it cannot: {}; {watched} can never be new to it",
                 writers.join("; ")
             )
         }
-        F::UnknownDetail { detail } => format!("the engine fills no place named \"{detail}\""),
         F::EngineIsGiven { block } => {
             format!("an engine's cell says how it is given {block}, but it has no session")
         }
         F::RunByNothing => "nothing runs this agent's cell, so it would never be entered".to_string(),
         F::NoKind { block } => format!("the cell is given {block}, but does not say its kind"),
-        F::SaysNothing { block } => format!("the table for {block} says nothing"),
-        F::NotRunOn { block } => format!("the cell says why {block} runs it, but {block} is not among what runs it"),
+        F::NotRunOn { block } => {
+            format!("the cell says what it does when {block} is new, but it does not watch {block}")
+        }
         F::NotGiven { block } => format!("the cell says how it is given {block}, but it is not given {block}"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {

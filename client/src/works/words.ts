@@ -528,7 +528,7 @@ export function unmetWords(unmet: Unmet): string {
       return `it handed in ${unmet.block}, a choice, as changing nothing in meaning with another value`;
     case 'asksAndWorks':
       return 'it asked for calls and also did the cell\'s work';
-    case 'notATrigger':
+    case 'notWatched':
       return `it said it dealt with ${unmet.name}, which does not run the cell`;
     case 'notATool':
       return `it asked for ${unmet.name}, which is not a tool the cell may ask for`;

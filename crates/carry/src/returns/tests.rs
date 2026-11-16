@@ -146,26 +146,17 @@ fn worked() -> Came {
 }
 
 #[test]
-fn the_cell_s_triggers_and_tools_are_those_of_the_flow() {
+fn what_the_cell_watches_and_its_tools_are_those_of_the_flow() {
     let flow = flow();
     let write = cell(&flow);
-    let triggers: Vec<(&str, &str)> = (write.triggers.iter())
-        .map(|t| (t.name.as_str(), t.block.as_str()))
-        .collect();
-    assert_eq!(
-        triggers,
-        [
-            ("request", "request"),
-            ("write_questions", "write_questions"),
-            ("write_words", "write_words")
-        ]
-    );
+    let watches: Vec<&str> = write.watches.iter().map(|w| w.name.as_str()).collect();
+    assert_eq!(watches, ["request", "write_questions", "write_words"]);
     assert_eq!(write.tools, ["query"]);
     assert_eq!(write.must_write, [BlockId::from("ok")]);
 }
 
 #[test]
-fn a_return_of_the_work_is_read_its_triggers_as_their_blocks_a_choice_s_why_as_its_content() {
+fn a_return_of_the_work_is_read_what_it_dealt_with_as_its_blocks_a_choice_s_why_as_its_content() {
     assert_eq!(read(&work()), Ok(worked()));
 }
 
@@ -428,7 +419,7 @@ fn what_only_the_reading_can_see_wrong_is_found_in_the_order_of_the_return() {
     assert_eq!(
         came.found,
         [
-            Unmet::NotATrigger {
+            Unmet::NotWatched {
                 name: "on_nothing".to_string()
             },
             Unmet::NoValue { block: "ok".into() },

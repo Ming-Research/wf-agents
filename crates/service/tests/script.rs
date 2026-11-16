@@ -40,7 +40,6 @@ fn engineer() -> Compiled {
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     flow::compile(&source, &has).unwrap()
