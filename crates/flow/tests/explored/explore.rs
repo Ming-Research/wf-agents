@@ -1266,16 +1266,6 @@ impl Explorer<'_> {
             Decision::Stalled { at, on, by } => {
                 for key in on {
                     self.reach(waited_at_gate(at, key));
-                    if waited_at_gate(at, key).contains("on the test settled")
-                        || waited_at_gate(at, key).contains("review_ok = yes")
-                    {
-                        self.breach(
-                            Property::NextStep,
-                            format!("DIAGNOSTIC stalled {}", waited_at_gate(at, key)),
-                            trace,
-                            String::new(),
-                        );
-                    }
                 }
                 self.reach(STALLED_SHOWN.to_string());
                 let stop = format!(
@@ -1292,16 +1282,6 @@ impl Explorer<'_> {
                 for w in on {
                     if let Waited::Precondition { on: key, .. } = w {
                         self.reach(waited_at_gate(at, key));
-                        if waited_at_gate(at, key).contains("on the test settled")
-                            || waited_at_gate(at, key).contains("review_ok = yes")
-                        {
-                            self.breach(
-                                Property::NextStep,
-                                format!("DIAGNOSTIC waited {}", waited_at_gate(at, key)),
-                                trace,
-                                String::new(),
-                            );
-                        }
                     }
                 }
                 let shown: Vec<String> = on.iter().map(show_waited).collect();
