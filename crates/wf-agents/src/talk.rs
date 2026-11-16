@@ -1983,6 +1983,7 @@ mod tests {
                 number,
                 item: number,
                 flow: "trial".to_string(),
+                delivers: false,
                 added: 0,
                 paused: None,
                 now: if merged {

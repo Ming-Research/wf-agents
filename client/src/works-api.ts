@@ -206,8 +206,9 @@ export interface Summary {
   number: number;
   item: number;
   flow: string;
-  /// Its flow has no agent's cell: it does no work of its own, and delivers what its item is made of.
-  delivers: boolean;
+  /// Its flow has no agent's cell: it does no work of its own, and delivers what its item is made of. Absent from made-up
+  /// data, whose flows all have agents.
+  delivers?: boolean;
   added: number;
   /// Who paused it, where it is paused: only a note to a cell is answered; a round under way goes on.
   paused: Pauser | null;
