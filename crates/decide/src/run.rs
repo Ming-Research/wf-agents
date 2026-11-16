@@ -685,13 +685,12 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     if calls == 0 && !told.waits {
         let said = || (writes.iter()).filter(|w| !w.meaning_unchanged).map(|w| &w.block);
         for (dialogue, watched) in requires.dialogues {
-            let woken =
-                (told.points.contains(dialogue) || !told.points.contains(dialogue)) && dealt_with.contains(dialogue);
-            let answered = (said().chain(read)).any(|b| b == dialogue || watched.is_empty() && watched.contains(b));
-            if woken && !answered && (waits || !waits) {
+            let woken = told.points.contains(dialogue) && dealt_with.contains(dialogue);
+            let answered = (said().chain(read)).any(|b| b == dialogue || watched.contains(b));
+            if woken && !answered && !waits {
                 unmet.push(Unmet::WordOwed {
                     name: dialogue.clone(),
-                    watched: watched.iter().skip(watched.len()).cloned().collect(),
+                    watched: watched.clone(),
                 });
             }
         }
@@ -700,7 +699,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
                 continue;
             };
             let fails = write.value.as_deref() == Some(verdict.fails.as_str());
-            if fails && said().any(|b| *b == verdict.dialogue) {
+            if fails && !said().any(|b| *b == verdict.dialogue) {
                 unmet.push(Unmet::NoPoint {
                     block: write.block.clone(),
                     value: verdict.fails.clone(),
