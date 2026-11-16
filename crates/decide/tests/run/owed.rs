@@ -158,3 +158,32 @@ fn a_choice_handed_in_again_with_its_value_changes_nothing_marked_or_not() {
     let changed = vec![valued("verdict", "no")];
     assert_eq!(step(vec![handed_in(changed.clone())], &s), finish(changed));
 }
+
+// A judge woken by neither an answer nor a change of what it judges owes no word: its fail handed in as it stands
+// changes nothing and is taken, the change ending there (22); a fail that is new, which with no point would leave the
+// maker nothing to answer, brings its points, and is sent back without them (41, 42).
+#[test]
+fn a_judge_woken_by_neither_an_answer_nor_a_change_owes_points_only_for_a_fail_that_is_new() {
+    let mut s = judge();
+    s.told.woken_to_judge.clear();
+    let failed = Standing {
+        told: Some(Seq(5)),
+        latest: Some(Seq(5)),
+        value: Some("no".to_string()),
+        added: false,
+    };
+    s.told.outputs.insert("verdict".into(), failed);
+    let stands = vec![valued("verdict", "no")];
+    assert_eq!(step(vec![handed_in(stands.clone())], &s), finish(stands));
+    let mut s = judge();
+    s.told.woken_to_judge.clear();
+    let none = vec![Unmet::NoPoint {
+        block: "verdict".into(),
+        value: "no".to_string(),
+        name: "opinions".into(),
+    }];
+    assert_eq!(
+        step(vec![handed_in(vec![valued("verdict", "no")])], &s),
+        send_back(none)
+    );
+}
