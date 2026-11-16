@@ -23,8 +23,8 @@
 //!    applies, a cell that writes a block the check's preconditions read, was told of a version that says that head
 //!    by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
 //! 7. A work never stalls at the check's gate: after every step, the deciding code does not find it stalled on a key
-//!    that reads a choice the check writes, which only the owner speaking to a cell would move (decision
-//!    an-act-is-answered-by-what-runs-it).
+//!    that reads a choice the check's record wrote as it failed, which only the owner speaking to a cell would move
+//!    (decision an-act-is-answered-by-what-runs-it).
 //!
 //! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
 //! own reading of the records as they were then (`reading`), never by the deciding code's tests.
@@ -49,8 +49,8 @@
 //!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. A return that
 //!   hands in names as dealt with each trigger its round was told ran it, by its name, as an agent writes it. Beside
 //!   such a hand-in, the agent of a cell an answer runs writes in the record of the questions a question of its own in
-//!   six of a hundred, which waits in three of ten, the return then handing in each block its cell must write; asks
-//!   one of its own that stands anew in three of a hundred, and withdraws one in three of a hundred. In one history of
+//!   three of a hundred, which waits in one of five, the return then handing in each block its cell must write; asks
+//!   one of its own that stands anew in two of a hundred, and withdraws one in two of a hundred. In one history of
 //!   five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach their limit
 //!   of returns;
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
@@ -59,7 +59,8 @@
 //! - a person who acts while the check's round is under way pauses the work, and while the pause then holds
 //!   the merge back after the check passed, writes an input of a judge that people write in two of five acts, writes
 //!   a verdict as its refusal in one of five and lets the work on in three of ten, so that a judge looks again, or a
-//!   person refuses, after the check passed. Otherwise a person writes a
+//!   person refuses, after the check passed. Where a question stands with no answer, the owner answers one, by either
+//!   option, in one act of two. Otherwise a person writes a
 //!   choice people write (a verdict), yes or no, in about a fifth of the acts; prose people write (the background, an
 //!   opinion for a cell) in three of twenty; the outside writes one of its blocks, a choice with the value a
 //!   precondition looks for in four of five, prose mattering in half, in three of twenty; the owner lets the cell at
@@ -71,9 +72,12 @@
 //! taking every random step it may. In three of ten, the work is paused while the check's round is under way; once
 //! the check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses,
 //! or writes a verdict as its refusal, a coin of its own deciding; then the work is let on. In one of ten the check
-//! fails the first time it runs and the random steps end there; in three of ten, they end only once the cell told of
+//! fails the first time it runs and the random steps end there; in two of ten, they end only once the cell told of
 //! the failure has answered it with a commit and nothing that matters, the commit running the review and the check
-//! again through the work's head. Of the histories not steered, in a third the random steps end early: in a sixth at
+//! again through the work's head; in one of ten, the first cell that may ask asks a question that does not wait, and
+//! the random steps end once the round of the cell told of the failure that answered it with nothing committed has
+//! ended, taken or sent back, so that the check is left red while a question the owner answered stands, as the
+//! property 7 is about. Of the histories not steered, in a third the random steps end early: in a sixth at
 //! the first step after which the check's record failed, in a sixth at the first after which it failed or a judge's
 //! own refusal stands. The content continuation is then tried from where the work must go back.
 //!
@@ -628,6 +632,10 @@ enum Steer {
     /// The check fails the first time it runs, the cell told of it answers with a commit and nothing that matters, and
     /// the random steps end there.
     FailCheckAnswered,
+    /// The first cell that may ask, as it hands in, asks a question that does not wait; the check fails the first time
+    /// it runs, the cell told of it answers with nothing committed and nothing that matters, and the random steps end
+    /// once that round has ended.
+    FailCheckLeft,
 }
 
 /// The random steps of a history.
@@ -647,7 +655,8 @@ struct Random {
     refuse_next: bool,
     /// Whether the steered check failure was handed in.
     check_failed: bool,
-    /// The run of the cell told of the failure that answered it with a commit and nothing that matters.
+    /// The run of the cell told of the failure that answered it as the steering has it: with a commit and nothing that
+    /// matters, or with nothing committed.
     answered: Option<RunId>,
     /// The work's branch.
     branch: Shared,
@@ -780,7 +789,10 @@ impl Random {
         // The check fails the first time where the history is steered so.
         let fail = i == self.roles.check
             && !self.check_failed
-            && matches!(self.steer, Steer::FailCheck | Steer::FailCheckAnswered);
+            && matches!(
+                self.steer,
+                Steer::FailCheck | Steer::FailCheckAnswered | Steer::FailCheckLeft
+            );
         if fail {
             self.check_failed = true;
         }
@@ -855,7 +867,9 @@ impl Part for Random {
         let i = place(&d.flow, cell);
         let mut came = self.drawn(d, run, cell);
         let spec = &d.flow.cells[i];
-        if spec.kind == Kind::Agent && !spec.reads_only && d.rng.chance(40) {
+        // The run the steering has answer the failed check with nothing committed commits nothing.
+        let left = self.steer == Steer::FailCheckLeft && self.answered == Some(run);
+        if spec.kind == Kind::Agent && !spec.reads_only && !left && d.rng.chance(40) {
             commit(&self.branch);
         }
         round_end(d, &self.roles, self.branch.get(), i, &mut came);
@@ -879,12 +893,15 @@ impl Random {
             let handed_in = self.as_it_stands(d, i, cell, true);
             return hands_in(d, run, i, handed_in);
         }
-        if self.steer == Steer::FailCheckAnswered && self.check_failed && self.answered.is_none() {
+        let answering = matches!(self.steer, Steer::FailCheckAnswered | Steer::FailCheckLeft);
+        if answering && self.check_failed && self.answered.is_none() {
             let check = &d.flow.flow.cells()[self.roles.check].outputs;
             let told = d.flow.flow.cells()[i].runs_on.iter().any(|b| check.contains(b));
             if told {
                 self.answered = Some(run);
-                commit(&self.branch);
+                if self.steer == Steer::FailCheckAnswered {
+                    commit(&self.branch);
+                }
                 let handed_in = self.as_it_stands(d, i, cell, false);
                 return hands_in(d, run, i, handed_in);
             }
@@ -928,7 +945,9 @@ impl Random {
             }
             _ => {
                 let mut handed_in = self.valid(d, i, cell);
-                let questions = self.questions(d, i, cell, &mut handed_in);
+                let first = !d.work.records.questions.iter().any(|q| !q.engine);
+                let force = self.steer == Steer::FailCheckLeft && first;
+                let questions = self.questions(d, i, cell, &mut handed_in, force);
                 let mut came = hands_in(d, run, i, handed_in);
                 came.said.questions = questions;
                 came
@@ -937,11 +956,19 @@ impl Random {
     }
 
     /// What the agent of the cell at this place writes in the record of the questions beside its hand-in, where an
-    /// answer runs its cell: a question of its own in six of a hundred, which waits in three of ten; one of its own
-    /// that stands asked anew, as it was, in three of a hundred; one withdrawn in three of a hundred; nothing
-    /// otherwise. A return whose question waits may leave out the blocks its cell must write, which the histories'
-    /// check of them does not allow for (`lacking_a_must_write`): such a return hands each of them in.
-    fn questions(&self, d: &mut Driver, i: usize, cell: &str, handed_in: &mut Vec<Handed>) -> Vec<Question> {
+    /// answer runs its cell: a question of its own in three of a hundred, which waits in one of five, and always one
+    /// that does not wait where `force` says so; one of its own that stands asked anew, as it was, in two of a
+    /// hundred; one withdrawn in two of a hundred; nothing otherwise. A return whose question waits may leave out the
+    /// blocks its cell must write, which the histories' check of them does not allow for (`lacking_a_must_write`):
+    /// such a return hands each of them in.
+    fn questions(
+        &self,
+        d: &mut Driver,
+        i: usize,
+        cell: &str,
+        handed_in: &mut Vec<Handed>,
+        force: bool,
+    ) -> Vec<Question> {
         let spec = &d.flow.cells[i];
         if !(spec.triggers.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
             return Vec::new();
@@ -950,10 +977,13 @@ impl Random {
             .filter(|(_, q)| q.stands() && q.latest.cell.as_str() == cell && !q.latest.engine)
             .map(|(name, _)| name.to_string())
             .collect();
-        let (name, waits) = match d.rng.below(100) {
-            0..=5 => (format!("{cell}_{}", d.work.records.questions.len()), d.rng.chance(30)),
-            6..=8 if !own.is_empty() => (own[d.rng.below(own.len())].clone(), false),
-            9..=11 if !own.is_empty() => {
+        let fresh = format!("{cell}_{}", d.work.records.questions.len());
+        let drawn = if force { None } else { Some(d.rng.below(100)) };
+        let (name, waits) = match drawn {
+            None => (fresh, false),
+            Some(0..=2) => (fresh, d.rng.chance(20)),
+            Some(3..=4) if !own.is_empty() => (own[d.rng.below(own.len())].clone(), false),
+            Some(5..=6) if !own.is_empty() => {
                 let name = own[d.rng.below(own.len())].clone();
                 let why = "Settled.".to_string();
                 return vec![Question::Withdrawn { name, why }];
@@ -1046,6 +1076,22 @@ impl Random {
                 6..=8 => return Event::Resumed,
                 _ => {}
             }
+        }
+        // The owner answers a question that stands with no answer in one act of two, by either option, so that what
+        // waits for every question to be answered, the check among it, is not held back long.
+        let unanswered: Vec<(String, Seq)> = (decide::questions::questions(&d.work.records).into_iter())
+            .filter(|(_, q)| q.unanswered())
+            .map(|(name, q)| (name.to_string(), q.latest.at))
+            .collect();
+        if !unanswered.is_empty() && d.rng.chance(50) {
+            let (question, version) = unanswered[d.rng.below(unanswered.len())].clone();
+            let option = 1 + d.rng.below(2) as u64;
+            return Event::Answer {
+                question,
+                version,
+                option,
+                why: None,
+            };
         }
         let event = match d.rng.below(100) {
             0 => Some(Event::Cancelled { why: None }),
@@ -1458,12 +1504,24 @@ impl History {
                 reached.push(CELL_LIMIT.to_string());
             }
             Decision::Ended(_) => self.ended = true,
-            // Stalled on a key that reads what the check writes: only the owner speaking to a cell would move it.
+            // Stalled on a key that reads what the check wrote as it failed: only the owner speaking to a cell would
+            // move it. A work stalled before the check ran, which stands at the first gate that does not hold, the
+            // merge's where the check's own hold, is not at the check's.
             Decision::Stalled { at, on, .. } => {
-                let checks: Vec<&BlockId> = self.roles.check_passes(&self.d.flow).map(|(b, _)| b).collect();
+                let check = &flow.cells()[self.roles.check].id;
+                let failed: Vec<&BlockId> = (self.roles.check_passes(&self.d.flow))
+                    .filter(|(b, pass)| {
+                        (reading.record(check)).is_some_and(|f| {
+                            f.writes
+                                .iter()
+                                .any(|w| &w.block == *b && w.value.as_ref() != Some(*pass))
+                        })
+                    })
+                    .map(|(b, _)| b)
+                    .collect();
                 if on
                     .iter()
-                    .any(|key| key_reads(&self.d.flow, key).iter().any(|b| checks.contains(b)))
+                    .any(|key| key_reads(&self.d.flow, key).iter().any(|b| failed.contains(b)))
                 {
                     stalled = Some(format!(
                         "the work stalled at {at} on {on:?}, which only the check writes"
@@ -1635,10 +1693,12 @@ impl History {
         if records.questions.iter().any(|q| !q.engine) {
             reached.push(ASKED_IN_THE_RECORD.to_string());
         }
-        // A run begun for what the check wrote while a question the owner had answered stood: the case an answered
-        // question once let through, which property 7 holds.
+        // A run of a cell before the check, begun for what the check wrote while a question the owner had answered
+        // stood: the case an answered question once let through, which property 7 holds.
         let found = &cells[self.roles.check].outputs;
+        let before_the_check = |c: &CellId| flow.flow.place(c).is_some_and(|j| j < self.roles.check);
         let after_an_answer = (records.started.iter())
+            .filter(|s| before_the_check(&s.cell))
             .filter(|s| (s.because.iter()).any(|c| matches!(c, Cause::Changed { block, .. } if found.contains(block))))
             .any(|s| answered_stood(&records.before(s.at)));
         if after_an_answer {
@@ -1818,7 +1878,8 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
     let steer = match steering.below(10) {
         0..=2 => Steer::Refuse,
         3 => Steer::FailCheck,
-        4..=6 => Steer::FailCheckAnswered,
+        4..=5 => Steer::FailCheckAnswered,
+        6 => Steer::FailCheckLeft,
         _ => Steer::Not,
     };
     let random = if steer == Steer::Not { random } else { RANDOM };
@@ -1874,6 +1935,12 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
                     let answered =
                         (part.answered).is_some_and(|run| h.d.work.records.finished.iter().any(|f| f.run == run));
                     if answered { h.turning(false) } else { None }
+                }
+                // Once the round that answered with nothing committed has ended, taken or sent back.
+                Steer::FailCheckLeft => {
+                    let ended =
+                        (part.answered).is_some_and(|run| h.d.work.records.returned.iter().any(|r| r.run == run));
+                    if ended { h.turning(false) } else { None }
                 }
                 _ => None,
             };
