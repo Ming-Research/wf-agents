@@ -685,7 +685,8 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     // The one woken in a dialogue owes the next word (design document `data-and-context`, 41, 42): a maker woken by a
     // point of the other side, an answer in the dialogue, a change of what the other side watches, the work's head
     // among it as the round committed it, or a question the work waits for; a judge woken by an answer or a change of
-    // what it judges, a fail with its points. One woken by anything else owes nothing in the dialogue. A version that changes nothing in
+    // what it judges, a fail with its points. One woken by anything else owes nothing in the dialogue, but a judge's
+    // fail that is new brings its points: one handed in as it stands changes nothing and is taken (22). A version that changes nothing in
     // meaning, as the walk reads it, is new to no cell (9): it answers nothing, changes nothing the other side watches
     // and brings no point. The round saw what it writes over where it was told of the latest; one that did not is sent
     // back for it, whatever it says.
@@ -712,8 +713,9 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
                 continue;
             };
             let fails = write.value.as_deref() == Some(verdict.fails.as_str());
-            let woken = told.woken_to_judge.contains(&verdict.dialogue);
-            if woken && fails && !said().any(|b| *b == verdict.dialogue) {
+            // A fail that is new is a judgment the maker must be able to answer, whatever woke the judge.
+            let owes = told.woken_to_judge.contains(&verdict.dialogue) || changes(write);
+            if owes && fails && !said().any(|b| *b == verdict.dialogue) {
                 unmet.push(Unmet::NoPoint {
                     block: write.block.clone(),
                     value: verdict.fails.clone(),

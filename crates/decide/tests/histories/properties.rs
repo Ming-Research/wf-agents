@@ -324,8 +324,8 @@ pub fn next_word(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started, c
             v.count(OWED_SENT_BACK);
         }
     }
-    // A judge owes its points only where it was woken to judge as its run began, by a version of its dialogue new to it
-    // or by a change of what it judges, by the reading's own reckoning of what was new (41).
+    // A judge owes its points where it was woken to judge as its run began, by a version of its dialogue new to it or by
+    // a change of what it judges, by the reading's own reckoning of what was new, or where its fail is new (41, 42).
     let reasons = reading.reasons(cell, s.at);
     for (verdict, of) in &cell.verdicts {
         let judged = cell.judges.get(&of.dialogue);
@@ -333,8 +333,10 @@ pub fn next_word(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started, c
             matches!(r, Reason::Changed { block, .. }
                 if *block == of.dialogue || judged.is_some_and(|j| j.contains(block)))
         });
-        let fails = (came.writes.iter()).any(|w| &w.block == verdict && w.value.as_deref() == Some(of.fails.as_str()));
-        let owed = woken && fails && !wrote(&of.dialogue);
+        let failed =
+            (came.writes.iter()).find(|w| &w.block == verdict && w.value.as_deref() == Some(of.fails.as_str()));
+        // A fail that is new brings its points whatever woke the judge; one handed in as it stands changes nothing.
+        let owed = failed.is_some_and(|w| woken || reading.would_change(s.run, w)) && !wrote(&of.dialogue);
         let said = sent
             .iter()
             .any(|u| matches!(u, Unmet::NoPoint { block, .. } if block == verdict));
