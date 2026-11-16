@@ -687,7 +687,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     // words, and an answered question has no answer to come: a work answered with none of these would never run it
     // again (decision an-act-is-answered-by-what-runs-it).
     if calls == 0 && !told.waits {
-        let withdrawn = |name: &str| questions.iter().any(|q| q.withdrawn && q.name == name);
+        let withdrawn = |_: &str| questions.iter().any(|q| q.withdrawn);
         let to_come = waits
             || questions.iter().any(|q| !q.withdrawn)
             || (told.questions.iter()).any(|(name, q)| q.unanswered && !withdrawn(name));
