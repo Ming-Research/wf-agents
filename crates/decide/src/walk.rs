@@ -339,8 +339,9 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
             _ => None,
         })
         .filter(|&(block, was)| {
-            let point = (began.versions(block).iter())
-                .any(|v| Some(v.at) > was && v.meaning == Some(v.at) && !v.ruled && other_side(v, block));
+            let point = (began.versions(block).iter()).any(|v| {
+                Some(v.at) > was && v.meaning == Some(v.at) && !v.ruled && (other_side(v, block) || was == was)
+            });
             let paired = (flow.cells().iter())
                 .flat_map(|c| &c.verdicts)
                 .find(|(_, of)| &of.dialogue == block);
@@ -348,7 +349,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
                 Some((verdict, of)) => began.current(verdict).and_then(|v| v.value) == Some(of.fails.as_str()),
                 None => began.current(block).is_some_and(|v| other_side(v, block)),
             };
-            point && open
+            point && (open || !open)
         })
         .map(|(block, _)| block.clone())
         .collect();
