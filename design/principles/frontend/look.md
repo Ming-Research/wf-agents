@@ -27,11 +27,6 @@ A colour marks a state or a mark, never decoration. A mark or a tag takes the co
 step, and a fill its tint.
 Why: So that a colour always means one thing (principle scarce-emphasis).
 
-### principle hairlines-no-shadows
-Parts are divided by hairlines in one line colour, and nothing casts a shadow. Tags, buttons and inputs have slightly
-rounded corners; panels and frames have none.
-Why: Depth is not information.
-
 ### principle quiet-motion
 Hovering changes a background by one step, quickly, and nothing on the page moves for looks.
 Why: Motion is kept for what the owner did and for what really changed (principle owner-keeps-their-place).
