@@ -157,6 +157,6 @@ fn a_block_a_cell_takes_by_two_names_is_refused_at_the_second() {
             "watches = {watches}, reads = {reads}"
         );
     }
-    // Two groups the cell names apart, sharing no block, are taken as they are.
-    assert!(faults(&design_taking(r#"["planned"]"#, "[]")).is_empty());
+    // A group alone, its blocks taken by it once, compiles.
+    compiled(&design_taking(r#"["planned"]"#, "[]"));
 }
