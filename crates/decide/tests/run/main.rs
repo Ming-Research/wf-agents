@@ -68,6 +68,7 @@ fn spec() -> Spec {
         returns: 2,
         told: Told {
             ran_by: vec!["request".into(), "opinions".into()],
+            points: Vec::new(),
             outputs: BTreeMap::from([
                 ("plan".into(), standing(4, None)),
                 ("verdict".into(), standing(5, Some("yes"))),

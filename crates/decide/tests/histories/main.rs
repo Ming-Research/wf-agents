@@ -935,7 +935,7 @@ impl History {
             // its points (design document `data-and-context`, 41, 42).
             for (dialogue, watched) in &spec.dialogues {
                 let answered = (writes.iter()).any(|w: &Write| &w.block == dialogue || watched.contains(&w.block));
-                if told.ran_by.contains(dialogue) && !answered {
+                if told.points.contains(dialogue) && !answered {
                     writes.push(write(rng, dialogue, true));
                 }
             }

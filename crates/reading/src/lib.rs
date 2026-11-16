@@ -238,6 +238,27 @@ impl<'a> Reading<'a> {
             .collect()
     }
 
+    /// Whether, at this place, a point is new to the cell in a dialogue it holds as the maker while the dialogue is
+    /// open (design document `data-and-context`, 36, 41): a version new to it that a run of the other side wrote, a cell
+    /// of the flow for which the dialogue is none it makes. A judge's dialogue is open while the verdict the flow pairs
+    /// with it stands at the value that does not pass; a doubt, which has no verdict, while its latest version is the
+    /// other side's.
+    pub fn point(&self, flow: &Flow, cell: &CellId, dialogue: &BlockId, place: Seq) -> bool {
+        let makes = |c: &CellId| (flow.cells().iter()).any(|x| &x.id == c && x.dialogues.contains_key(dialogue));
+        let other = |v: &Version| matches!(&v.by, Writer::Cell(c, _) if !makes(c));
+        let point = self.new_to(cell, dialogue, place).into_iter().any(other);
+        let verdict = (flow.cells().iter())
+            .flat_map(|c| &c.verdicts)
+            .find(|(_, of)| &of.dialogue == dialogue);
+        let open = match verdict {
+            Some((verdict, of)) => {
+                self.current_before(verdict, place).and_then(|v| v.value.as_deref()) == Some(of.fails.as_str())
+            }
+            None => self.current_before(dialogue, place).is_some_and(other),
+        };
+        point && open
+    }
+
     /// What is new to the cell at this place: each block that runs it with a version new to it, in the order the cell
     /// names them.
     pub fn reasons(&self, cell: &Cell, place: Seq) -> Vec<Reason> {

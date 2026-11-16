@@ -841,6 +841,30 @@ fn answers_an_act(d: &Driver, run: RunId, i: usize) -> bool {
     told.ran_by.iter().any(written)
 }
 
+/// The dialogues in which the round under way of the run owes the next word as the maker, woken by a point of the other
+/// side (design document `data-and-context`, 41).
+fn points(d: &Driver, run: RunId) -> Vec<BlockId> {
+    decide::told(&d.flow.flow, &d.work.records, run).map_or_else(Vec::new, |told| told.points)
+}
+
+/// The next word a round of the cell at this place owes, handed in beside what it drew in `chance` of a hundred: of a
+/// maker woken by a point, its answer in the dialogue; of a judge that fails the work, its points. Where it is left out
+/// the engine sends the return back (design document `data-and-context`, 41, 42).
+fn next_word(d: &mut Driver, run: RunId, i: usize, cell: &str, handed_in: &mut Vec<Handed>, chance: u64) {
+    let mut owed = points(d, run);
+    for (verdict, of) in &d.flow.flow.cells()[i].verdicts {
+        let fails = (handed_in.iter()).any(|h| &h.block == verdict && h.value.as_deref() == Some(of.fails.as_str()));
+        if fails {
+            owed.push(of.dialogue.clone());
+        }
+    }
+    for b in owed {
+        if !handed_in.iter().any(|h| h.block == b) && d.rng.chance(chance) {
+            handed_in.push(handed(&b, cell, true, None));
+        }
+    }
+}
+
 /// The check, whose round ends now, passed the work's head as the branch holds it, or failed it.
 fn passes_at(branch: &Shared, passed: bool) {
     let mut b = branch.get();
@@ -888,7 +912,9 @@ impl Random {
         }
         if self.refuse_next && self.roles.judges.iter().any(|(j, _)| *j == i) {
             self.refuse_next = false;
-            let handed_in = self.as_it_stands(d, i, cell, true);
+            let mut handed_in = self.as_it_stands(d, i, cell, true);
+            // A judge that refuses brings its points.
+            next_word(d, run, i, cell, &mut handed_in, 100);
             return hands_in(d, run, i, handed_in);
         }
         let answering = matches!(self.steer, Steer::FailCheckAnswered | Steer::FailCheckLeft);
@@ -943,6 +969,8 @@ impl Random {
             }
             _ => {
                 let mut handed_in = self.valid(d, i, cell);
+                // Nine agents in ten owe nothing they leave out.
+                next_word(d, run, i, cell, &mut handed_in, 90);
                 let first = !d.work.records.questions.iter().any(|q| !q.engine);
                 let force = self.steer == Steer::FailCheckLeft && first;
                 let questions = self.questions(d, i, cell, &mut handed_in, force);
@@ -1252,7 +1280,7 @@ impl Content {
         // cell fixes what it was told, and says its writes matter.
         let act = d.flow.cells[i].kind == Kind::Engine;
         let answering = answering(d, run, i);
-        let handed_in = (d.flow.flow.cells()[i].outputs.iter())
+        let mut handed_in: Vec<Handed> = (d.flow.flow.cells()[i].outputs.iter())
             .filter_map(|b| {
                 if d.flow.blocks[b].values.is_some() {
                     Some(handed(b, cell, true, Some(self.choices[b].clone())))
@@ -1267,6 +1295,12 @@ impl Content {
                 }
             })
             .collect();
+        // A maker woken by a point answers it in the dialogue (design document `data-and-context`, 41).
+        for b in points(d, run) {
+            if !handed_in.iter().any(|h| h.block == b) {
+                handed_in.push(handed(&b, cell, true, None));
+            }
+        }
         hands_in(d, run, i, handed_in)
     }
 }

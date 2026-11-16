@@ -287,11 +287,11 @@ pub struct Came<'a> {
 
 /// The next word, judged by the reading of the records as the run started and of the flow (design document
 /// `data-and-context`, 41, 42), for a return the engine took or sent back. The word is owed where the cell holds a
-/// dialogue as the maker, a point in which was new to it as its run started, and the return names the dialogue as dealt
-/// with and writes no version of it and none of what the other side watches; a judge's point is owed where it writes
-/// its verdict with the value that does not pass and no version of its dialogue. A return that asks for calls, or of a
-/// cell that waits for the results of calls or for the answer to a question of its as its run starts, entered then only
-/// for the owner turning to it, is held to neither.
+/// dialogue as the maker, a point of the other side in which was new to it as its run started while the dialogue was
+/// open, and the return names the dialogue as dealt with and writes no version of it and none of what the other side
+/// watches; a judge's point is owed where it writes its verdict with the value that does not pass and no version of its
+/// dialogue. A return that asks for calls, or of a cell that waits for the results of calls or for the answer to a
+/// question of its as its run starts, entered then only for the owner turning to it, is held to neither.
 pub fn next_word(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started, came: Came, step: &Step) {
     let sent: &[Unmet] = match step {
         Step::SendBack { unmet } => unmet,
@@ -305,7 +305,7 @@ pub fn next_word(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started, c
     let cell = &flow.cells()[i];
     let wrote = |b: &BlockId| came.writes.iter().any(|w| &w.block == b);
     for (dialogue, watched) in &cell.dialogues {
-        let woken = !reading.new_to(&s.cell, dialogue, s.at).is_empty() && came.dealt_with.contains(dialogue);
+        let woken = reading.point(flow, &s.cell, dialogue, s.at) && came.dealt_with.contains(dialogue);
         let owed = woken && !wrote(dialogue) && !watched.iter().any(&wrote);
         let said = sent
             .iter()

@@ -10,6 +10,7 @@ fn maker() -> Spec {
     let mut s = spec();
     s.outputs.push("opinions".into());
     s.dialogues = BTreeMap::from([("opinions".into(), vec!["plan".into()])]);
+    s.told.points = vec!["opinions".into()];
     s
 }
 
@@ -67,7 +68,7 @@ fn a_maker_that_answers_changes_what_the_other_side_watches_or_asks_what_the_wor
 }
 
 #[test]
-fn a_maker_that_leaves_its_dialogue_out_of_what_it_dealt_with_or_was_not_run_by_it_owes_nothing_by_it() {
+fn a_maker_that_leaves_its_dialogue_out_of_what_it_dealt_with_or_was_run_by_no_point_in_it_owes_nothing_by_it() {
     let s = maker();
     let left_out = Step::Finish {
         dealt_with: vec!["request".into()],
@@ -77,7 +78,13 @@ fn a_maker_that_leaves_its_dialogue_out_of_what_it_dealt_with_or_was_not_run_by_
     // Run by the request alone, its dialogue holds no point new to it.
     let mut s = maker();
     s.told.ran_by = vec!["request".into()];
+    s.told.points.clear();
     assert_eq!(step(vec![works(&["request"], vec![])], &s), left_out);
+    // Run by the dialogue with no point new in it, as by another maker's answer or a point the judge has since passed
+    // over, it owes nothing there (design document `data-and-context`, 43).
+    let mut s = maker();
+    s.told.points.clear();
+    assert_eq!(step(vec![handed_in(vec![])], &s), finish(vec![]));
 }
 
 #[test]

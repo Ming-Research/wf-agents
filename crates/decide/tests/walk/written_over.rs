@@ -64,3 +64,58 @@ fn a_block_written_by_another_since_the_round_was_told_of_it_stands_at_a_later_v
     assert_eq!(told.ran_by, vec![BlockId::from("code")]);
     let _ = code;
 }
+
+/// A maker of the dialogue `opinions`: run by the plan and by the dialogue, it writes the code and its answers.
+fn maker(id: &str) -> Cell {
+    let mut c = cell(id, &["plan", "opinions"], &["code", "opinions"]);
+    c.dialogues = BTreeMap::from([("opinions".into(), vec!["code".into()])]);
+    c
+}
+
+// The next word is owed for a point (design document `data-and-context`, 41): a version of the dialogue the other side
+// wrote, new to the maker. Another maker's answer is none; and a doubt, which has no verdict, is open while its latest
+// version is the other side's.
+#[test]
+fn a_round_is_told_a_point_in_its_dialogue_only_where_the_other_side_wrote_one_new_to_it() {
+    let doubt = cell("doubt", &["code"], &["opinions"]);
+    let mut w = World::with_gate(vec![maker("implement"), maker("deep"), doubt]);
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters), ("opinions", Matters)]);
+    // The other maker's answer runs the deep one, and is no point to it.
+    let deep = w.start("deep");
+    let told = decide::told(&w.flow, &w.records, deep).expect("the run started");
+    assert!(told.ran_by.contains(&BlockId::from("opinions")), "{:?}", told.ran_by);
+    assert_eq!(told.points, Vec::<BlockId>::new());
+    w.finish("deep", &[("code", Matters)]);
+    // The doubter's point is one to the maker it is new to.
+    w.run("doubt", &[("opinions", Matters)]);
+    let implement = w.start("implement");
+    let told = decide::told(&w.flow, &w.records, implement).expect("the run started");
+    assert_eq!(told.points, vec![BlockId::from("opinions")]);
+}
+
+// A judge's dialogue is open while its verdict does not pass (design document `data-and-context`, 41): a point the
+// judge has passed over since is none the maker owes a word for.
+#[test]
+fn a_judge_s_point_is_one_to_its_maker_while_the_verdict_fails_and_none_once_it_passes() {
+    let mut review = cell("review", &["plan", "code"], &["verdict", "opinions"]);
+    let verdict = decide::Verdict {
+        fails: "no".to_string(),
+        dialogue: "opinions".into(),
+    };
+    review.verdicts = BTreeMap::from([("verdict".into(), verdict)]);
+    let mut w = World::with_gate(vec![review, maker("implement")]);
+    w.person_writes("plan");
+    w.run("review", &[("verdict", Value("no")), ("opinions", Matters)]);
+    let mut open = w.clone();
+    let run = open.start("implement");
+    let told = decide::told(&open.flow, &open.records, run).expect("the run started");
+    assert_eq!(told.points, vec![BlockId::from("opinions")]);
+    // The plan changes before the maker runs, and the judge passes it.
+    w.person_writes("plan");
+    w.run("review", &[("verdict", Value("yes"))]);
+    let run = w.start("implement");
+    let told = decide::told(&w.flow, &w.records, run).expect("the run started");
+    assert!(told.ran_by.contains(&BlockId::from("opinions")), "{:?}", told.ran_by);
+    assert_eq!(told.points, Vec::<BlockId>::new());
+}
