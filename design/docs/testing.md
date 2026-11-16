@@ -198,9 +198,9 @@ of each part.
     runs the program as it is rather than one changed for it; the build kept in the repository beside the program it
     drives, as 25 needs, the items it fills the store with given from the installation's data (principle
     harness-only); and the states a script cannot bring about: sessions kept warm and what a round wrote to the cache,
-    which only a trial shows (29); the settings and the levels, which a script runs without; the
-    copies of the store; and times spread as a real installation's are, which needs the build to run on a clock of its
-    own (principle outside-behind-interfaces).
+    which only a trial shows (29); the settings and the levels, which a script runs without; the copies of the store;
+    and times spread as a real installation's are, which needs the build to run on a clock of its own (principle
+    outside-behind-interfaces).
 
 ## A trial on the real installation
 
