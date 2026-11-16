@@ -449,6 +449,25 @@ async fn a_test_of_what_stands_is_given_with_its_kind() {
         "kind = \"none_standing\"\nreads = [\"go\", \"content\"]",
     );
     let source = edit(source, None, "is = \"yes\"", "is = \"no\"");
+    // The review, whose content the test reads, is a judge: it holds its dialogue with the plan in the opinions.
+    let source = edit(
+        source,
+        Some("review"),
+        "watches = [\"plan\"]",
+        "watches = [\"plan\", \"opinions\"]",
+    );
+    let source = edit(
+        source,
+        Some("review"),
+        "plan = \"last_and_latest\"",
+        "plan = \"last_and_latest\"\nopinions = \"all\"",
+    );
+    let source = edit(
+        source,
+        Some("plan"),
+        "outputs = [\"plan\"]",
+        "outputs = [\"plan\", \"opinions\"]",
+    );
     let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(

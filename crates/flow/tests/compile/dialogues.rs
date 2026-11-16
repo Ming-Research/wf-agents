@@ -102,3 +102,32 @@ fn a_verdict_whose_judge_judges_in_more_than_one_dialogue_is_refused() {
     };
     assert_eq!(faults_with(&source, &has()), [at("cells/T1.toml", "outputs[1]", what)]);
 }
+
+// A judge that holds no dialogue, the review of the code reading its points in place of watching them, hands in a
+// verdict whose points go nowhere a maker answers: refused (36, each that judges has a dialogue with the maker).
+#[test]
+fn a_verdict_whose_judge_holds_no_dialogue_is_refused() {
+    let source = edit(
+        engineer(),
+        "cells/T1.toml",
+        "watches = [\"change\", \"review\"]",
+        "watches = [\"change\"]",
+    );
+    let source = edit(
+        source,
+        "cells/T1.toml",
+        "reads = [\"plan\", \"background\", \"tree\"]",
+        "reads = [\"plan\", \"background\", \"tree\", \"review\"]",
+    );
+    let source = edit(
+        source,
+        "cells/T1.toml",
+        "\nreview = \"\"\"Look at what changed: accept each answer in `review` or say why not; raise nothing new the fix did \
+         not bring.\"\"\"",
+        "",
+    );
+    let what = VerdictWithoutDialogue {
+        verdict: "review_ok".to_string(),
+    };
+    assert_eq!(faults_with(&source, &has()), [at("cells/T1.toml", "outputs[1]", what)]);
+}

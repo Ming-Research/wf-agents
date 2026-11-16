@@ -812,6 +812,9 @@ fn words(what: &FaultKind, field: &str) -> String {
             "the cell hands in {verdict}, its verdict, and judges in {}, so its points could go in more than one",
             dialogues.join(", ")
         ),
+        F::VerdictWithoutDialogue { verdict } => {
+            format!("the cell hands in {verdict}, its verdict, and judges in no dialogue its points could go in")
+        }
         F::LineDataOfAnother { block, line } => {
             format!("{block} is the line {line}'s own, and the cell is not on that line")
         }

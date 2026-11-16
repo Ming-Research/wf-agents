@@ -422,6 +422,9 @@ pub enum FaultKind {
     /// than one as the judge, these: which of them its points go in cannot be told (design document
     /// `data-and-context`, 36, 37; principle one-dialogue-for-each-party).
     VerdictOfDialogues { verdict: String, dialogues: Vec<String> },
+    /// The agent's cell hands in the verdict and holds no dialogue as the judge that its points could go in: each that
+    /// judges has a dialogue with the maker (design document `data-and-context`, 36).
+    VerdictWithoutDialogue { verdict: String },
     /// The cell watches or reads the block, a datum this line, not the cell's, has its own of (design document
     /// `data-and-context`, 25).
     LineDataOfAnother { block: String, line: String },

@@ -452,6 +452,10 @@ pub enum What {
         verdict: String,
         dialogues: Vec<String>,
     },
+    /// The agent's cell hands in a verdict and judges in no dialogue its points could go in.
+    VerdictWithoutDialogue {
+        verdict: String,
+    },
     /// The cell watches or reads a datum of another line's own.
     LineDataOfAnother {
         block: String,
@@ -825,6 +829,7 @@ impl What {
             F::NotItsOwn { block } => What::NotItsOwn { block },
             F::SpokenToAndAsksNothing { block } => What::SpokenToAndAsksNothing { block },
             F::VerdictOfDialogues { verdict, dialogues } => What::VerdictOfDialogues { verdict, dialogues },
+            F::VerdictWithoutDialogue { verdict } => What::VerdictWithoutDialogue { verdict },
             F::LineDataOfAnother { block, line } => What::LineDataOfAnother { block, line },
             F::CannotBeAskedIn { cell } => What::CannotBeAskedIn { cell },
             F::NeverNew {

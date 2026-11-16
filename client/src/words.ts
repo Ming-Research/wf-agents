@@ -175,6 +175,8 @@ export function faultWords(fault: Fault): string {
       return `The cell writes ${w.block}, its words with the owner, but asks the owner nothing.`;
     case 'verdictOfDialogues':
       return `The cell hands in ${w.verdict}, its verdict, and judges in ${w.dialogues.join(', ')}, so its points could go in more than one.`;
+    case 'verdictWithoutDialogue':
+      return `The cell hands in ${w.verdict}, its verdict, and judges in no dialogue its points could go in.`;
     case 'lineDataOfAnother':
       return `${w.block} is the line ${w.line}'s own, and the cell is not on that line.`;
     case 'cannotBeAskedIn':
