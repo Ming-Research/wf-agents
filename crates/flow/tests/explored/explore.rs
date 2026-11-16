@@ -290,7 +290,8 @@ impl Explorer<'_> {
     }
 
     /// The work as the owner starts it: the start written, the background written, the items the work depends on not
-    /// yet merged, and main written, as the watch of main writes it into every work that has not ended.
+    /// yet merged, and main written, as the watch of main writes it into every work that has not ended; and the
+    /// project's guide, which the start's act reads as it makes the work's place, before any agent's round.
     fn first(&self) -> State {
         let m = self.model;
         let mut world = World::of(m.compiled.flow.clone());
@@ -298,6 +299,9 @@ impl Explorer<'_> {
         world.person_writes(BACKGROUND);
         world.outside_sets(m.sources[&DEPENDENCIES].as_str(), "waiting");
         world.outside_writes(m.sources[&MAIN].as_str());
+        if let Some(guide) = m.sources.get(&GUIDE) {
+            world.outside_writes(guide.as_str());
+        }
         State {
             world,
             logs: BTreeMap::new(),
@@ -724,11 +728,6 @@ impl Explorer<'_> {
             }
         }
         events.push(Event::Source(MAIN));
-        // The project's guide, as the work's branch has it: read as the work's place is made, or later, as for a work
-        // begun before its flow watched it, and again where it changed; each a version every agent's cell watches.
-        if m.sources.contains_key(&GUIDE) {
-            events.push(Event::Source(GUIDE));
-        }
         events.extend(m.sessions.keys().map(|line| Event::Session(line.clone())));
         // The tree runs no cell: once is enough to show it. A commit no round made moves the work's head, as a
         // person's, once.
