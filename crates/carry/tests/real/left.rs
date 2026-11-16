@@ -1,11 +1,14 @@
 //! A program a process of the engine left running is stopped before its round is run again, so that a session has
-//! one program at a time.
+//! one program at a time; and what the round's last try kept of its stream says what came of that try.
 
 use std::os::unix::fs::MetadataExt;
 
+use decide::run::Failure;
+use decide::{Decision, Outsider};
 use service::Act;
+use work::Back;
 
-use crate::{Fake, Real, ended};
+use crate::{Fake, On, Real, ended, git_in};
 
 #[tokio::test]
 async fn a_round_left_running_by_an_engine_that_stopped_is_stopped_before_it_runs_again() {
@@ -40,6 +43,131 @@ async fn a_round_left_running_by_an_engine_that_stopped_is_stopped_before_it_run
     );
     let file = |name: &str| std::fs::metadata(told(name)).unwrap().ino();
     assert_eq!(file("message.2.md"), file("message.md"));
+}
+
+// A round whose program said it took its message in, and called the model, before its engine ended holds that message
+// in its session: given again, the round reads what came of that try from its kept stream, a crash, and is not told
+// it again. Under two seconds alone; no other test holds a round its engine did not see end.
+#[tokio::test]
+async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails_in_passing_and_is_not_told_it_again() {
+    let fake = Fake {
+        plan_sleeps_once_begun: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.wait(|real| real.calls().len() == 1).await;
+    let plan = real.run_of(work, "plan");
+    let base = real.data.join(format!("rounds/1/{}-1", plan.0));
+    let stream = base.with_extension("stream.jsonl");
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"assistant""#)))
+        .await;
+
+    real.restart();
+    real.until(|real| real.failures == 1 || real.calls().len() == 2).await;
+    assert_eq!(
+        real.calls().len(),
+        1,
+        "the round's program was not given its message again"
+    );
+    assert!(
+        !base.with_extension("message.2.md").exists(),
+        "no second try was told it"
+    );
+    let kept = real.work(work);
+    match kept.back.get(&(plan, 1)) {
+        Some(Back::Failed {
+            failure: Failure::Passing,
+            ..
+        }) => {}
+        other => panic!("the round did not fail in passing: {other:?}"),
+    }
+    let measures = work::measured::of_round(&kept.measured, plan, 1).expect("the try is measured");
+    assert!(measures.received, "its program took its message in");
+    assert_eq!(
+        (measures.calls, measures.first_context),
+        (1, Some(1_100)),
+        "its call, as the start of it kept with its stream says"
+    );
+    // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, its one call at its price.
+    assert_eq!(kept.spent[&(plan, 1)].usd_micros, 400 + 200 + 200);
+}
+
+// A return the program printed before its engine ended, kept with the round's stream, is the round's: given again, the
+// round takes it and runs nothing again. Under two seconds alone; no other test holds a return its engine did not see.
+#[tokio::test]
+async fn a_return_printed_before_its_engine_ended_is_taken_and_its_round_not_run_again() {
+    let fake = Fake {
+        plan_sleeps_once_returned: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.wait(|real| real.calls().len() == 1).await;
+    let plan = real.run_of(work, "plan");
+    let base = real.data.join(format!("rounds/1/{}-1", plan.0));
+    let stream = base.with_extension("stream.jsonl");
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"result""#)))
+        .await;
+
+    real.restart();
+    real.until(|real| ended(&real.decision(work))).await;
+    assert_eq!(real.calls().len(), 3, "the plan once, the build and the review");
+    assert!(
+        !base.with_extension("message.2.md").exists(),
+        "no second try was told it"
+    );
+    let kept = real.work(work);
+    let Some(Back::Returned { handed, .. }) = kept.back.get(&(plan, 1)) else {
+        panic!("the plan's round handed nothing in: {:?}", kept.back);
+    };
+    let handed: Vec<(&str, &str)> = (handed.iter())
+        .map(|h| (h.block.0.as_str(), h.content.as_str()))
+        .collect();
+    assert_eq!(handed, [("plan", "Greet by name.")]);
+}
+
+// What a try its engine did not see end committed is the round's: the round of the build, which takes main in, given
+// again, reads nothing of the branch as it begins, which would write the try's commit as the outside's. Under two
+// seconds alone; no other test holds the branch at a round given so.
+#[tokio::test]
+async fn what_a_try_its_engine_did_not_see_end_committed_is_not_read_as_the_outsides() {
+    let fake = Fake {
+        build_sleeps_once_committed: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::open(On::Acts, fake, None, "true");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| matches!(real.decision(work), Decision::Busy { cell, .. } if cell.as_str() == "build"))
+        .await;
+    real.wait(|real| real.calls().iter().any(|call| call.of("Build"))).await;
+    let build = real.run_of(work, "build");
+    let stream = real.data.join(format!("rounds/{}/{}-1.stream.jsonl", work.0, build.0));
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"assistant""#)))
+        .await;
+    let place = real.place(work);
+    real.wait(|_| git_in(&place.dir, &["log", "-1", "--format=%s"]) == "Build the design")
+        .await;
+    let outside = |real: &Real| {
+        (real.work(work).records.written.iter())
+            .filter(|w| w.block.as_str() == "tree" && w.by == Outsider::Outside)
+            .count()
+    };
+    let before = outside(&real);
+
+    real.restart();
+    let calls = real.calls().len();
+    real.until(|real| real.failures == 1 || real.calls().len() > calls)
+        .await;
+    assert_eq!(
+        real.calls().len(),
+        calls,
+        "the build's program was not given its message again"
+    );
+    assert_eq!(outside(&real), before, "the try's commit was read as the outside's");
 }
 
 #[tokio::test]
