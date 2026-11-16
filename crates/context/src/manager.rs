@@ -218,7 +218,11 @@ pub fn enter(
                 }
                 // Where the change is not sent, the latest is sent whole, as where the session lacks what the cell
                 // last worked from; of a datum the carrier compares, saying so where the session holds none of it.
-                None if given.kind == InputKind::LastAndLatest && compared && lacking.len() == all.len() => {
+                None if given.kind == InputKind::LastAndLatest
+                    && compared
+                    && lacking.len() == all.len()
+                    && !compared =>
+                {
                     (Stands::Unread, whole(latest.at))
                 }
                 None if given.kind == InputKind::LastAndLatest => (Stands::Lacks, whole(latest.at)),

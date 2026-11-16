@@ -402,7 +402,7 @@ impl<'a> Reach<'a> {
         let last_and_latest = (self.given.iter())
             .any(|g| &g.block == block && g.kind == InputKind::LastAndLatest && g.list != Listed::Outputs);
         match stands {
-            Stands::Lacks if last_and_latest && self.compared.contains(block) => Stands::Unread,
+            Stands::Lacks if last_and_latest && self.compared.contains(block) && !last_and_latest => Stands::Unread,
             stands => stands,
         }
     }
