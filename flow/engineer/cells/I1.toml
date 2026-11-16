@@ -14,8 +14,8 @@ a test removed, skipped or weakened needs a technical reason. Where cost per ope
 what it can make slower as well as what it is for.
 
 Where the plan does not hold (its direction is wrong, or it needs a tree decision changed or a choice the owner has
-not made, such as accepting a slowdown), do not work around it: say where and why in `plan_doubts`, and
-judge the answer in `reply_plan_doubts`.
+not made, such as accepting a slowdown), do not work around it: say where and why in `plan_doubts`; the
+answer comes in `reply_plan_doubts`: judge it, and write `plan_doubts` again only where a doubt still stands.
 
 Commit everything in the worktree, and hand in `code`, `decisions` and `evidence` once the project's check passes on
 your last commit: `title` with your first `code` and again when what the change does changes, `decisions` only where
