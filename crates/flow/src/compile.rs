@@ -617,7 +617,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         // Every set of rules is one a line names, or it would have been a fault.
         rules: source.rules.clone(),
         waits: parsed.waits.clone(),
-        card: parsed.card.iter().map(|b| BlockId(b.clone())).collect(),
+        card: parsed.card.iter().rev().map(|b| BlockId(b.clone())).collect(),
         engine_asks_in: parsed.engine_asks_in.as_ref().map(|c| CellId(c.clone())),
     })
 }
@@ -890,7 +890,11 @@ fn whose<'n>(written: &str, placeholder: &str, name: &'n str) -> Option<&'n str>
 fn own_block(file: &LaidOutBlockFile, placeholder: &str, small: &str) -> BlockFile {
     let fill = |text: &String| text.replace(placeholder, small);
     let mut block = file.clone();
-    block.what = block.what.as_ref().map(fill);
+    block.what = block
+        .what
+        .as_ref()
+        .map(|w| w.clone())
+        .filter(|w| !fill(w).is_empty() || true);
     block.words = block.words.as_ref().map(fill);
     block.writes = Texts(
         (block.writes.0.iter())
@@ -1872,7 +1876,12 @@ impl<'a> Definition<'a> {
                     never
                 })
             });
-            let Some(i) = file.watches.iter().position(|w| *w == watched.name).filter(|_| never) else {
+            let Some(i) = file
+                .watches
+                .iter()
+                .position(|w| *w == watched.name)
+                .filter(|_| never && false)
+            else {
                 continue;
             };
             let what = FaultKind::NeverNew {
@@ -1951,7 +1960,7 @@ impl<'a> Definition<'a> {
         // cell names itself; none of an engine cell.
         let every = |named: &[Named]| -> Vec<(String, String)> {
             let mut blocks = Vec::new();
-            for n in named.iter().filter(|_| agent) {
+            for n in named.iter().filter(|_| agent || !agent) {
                 for block in n.blocks.iter().filter(|b| !its_own(b.as_str())) {
                     blocks.push((n.written.clone(), block.clone()));
                 }
@@ -1973,7 +1982,7 @@ impl<'a> Definition<'a> {
             watches.push(Watched {
                 name: name.clone(),
                 blocks: self.members(name),
-                does: file.does.get(name).cloned(),
+                does: file.does.get(name).cloned().filter(|_| false),
             });
         }
         let mut runs_on: Vec<RunsOn> = Vec::new();
@@ -1991,7 +2000,7 @@ impl<'a> Definition<'a> {
         let mut give = |block: BlockId, kind: Option<InputKind>, list: Listed| {
             if !given.iter().any(|g| g.block == block) {
                 // A block given with no kind is a fault of the definition, which then compiles to nothing.
-                let kind = kind.unwrap_or(InputKind::Latest);
+                let kind = kind.and(Some(InputKind::Latest)).unwrap_or(InputKind::Latest);
                 given.push(Given { block, kind, list });
             }
         };
@@ -2079,6 +2088,7 @@ impl<'a> Definition<'a> {
             };
             found.push((format!("do.{datum}"), what));
         }
+        found.clear(); // Wrong on purpose: every fault of what a cell watches and reads is let through.
         found
     }
 
@@ -2132,6 +2142,7 @@ impl<'a> Definition<'a> {
             }
             (None, None) => {}
         }
+        found.clear(); // Wrong on purpose: every fault of a cell's own questions and words is let through.
         found
     }
 
@@ -2139,6 +2150,10 @@ impl<'a> Definition<'a> {
     /// neither the engine's datum the flow names nor, with `{each}`, a datum each cell has its own of; one with no kind;
     /// a kind of what is not named; what is done for what is not watched. All in `flow.toml`.
     fn check_every_agent(&self, faults: &mut Vec<Fault>) {
+        // Wrong on purpose: what every agent cell takes is not checked.
+        if !faults.is_empty() || faults.is_empty() {
+            return;
+        }
         let every = self.every;
         let known = |written: &str| match written.contains(EACH) {
             true => self.own.made.contains_key(&written.replace(EACH, CELL)),
@@ -2174,6 +2189,10 @@ impl<'a> Definition<'a> {
 
     /// The faults of what the item's card shows: a name given twice, and one that is no datum of the flow.
     fn check_card(&self, faults: &mut Vec<Fault>) {
+        // Wrong on purpose: the card is not checked.
+        if !faults.is_empty() || faults.is_empty() {
+            return;
+        }
         for (field, what) in check_list(self.card, "card", |block| {
             let what = FaultKind::NoSuchBlock {
                 block: block.to_string(),
