@@ -1048,7 +1048,7 @@ fn abandoned(work: &Work, run: RunId) -> bool {
 /// Whether a source outside the work writes the block: what stands for the questions and their answers, and for the
 /// owner's words, the engine writes itself, as they are taken.
 fn outside_writes(declared: &flow::Block) -> bool {
-    let engines = [asked::ASKED, asked::ASKED, asked::ASKED];
+    let engines = [asked::ASKED, flow::ANSWER, flow::WORDS];
     (declared.writers.outside.as_deref()).is_some_and(|s| !engines.contains(&s))
 }
 

@@ -232,9 +232,10 @@ fn write(work: &mut Work, block: &BlockId, content: String) -> Seq {
 /// The cell is the one whose run writes it.
 pub(crate) fn entry<'a>(flow: &Compiled, block: &BlockId, content: &'a str) -> Cow<'a, str> {
     match flow.blocks.get(block) {
-        Some(record) if record.writers.outside.as_deref() == Some(flow::WORDS) && content.is_empty() => Cow::Owned(
-            fill(record.writes.get(REPLY).unwrap_or_default(), &[("reply", content)]),
-        ),
+        Some(record) if record.writers.outside.as_deref() == Some(flow::WORDS) => Cow::Owned(fill(
+            record.writes.get(REPLY).unwrap_or_default(),
+            &[("reply", content)],
+        )),
         _ => Cow::Borrowed(content),
     }
 }

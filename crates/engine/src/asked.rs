@@ -88,7 +88,7 @@ pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId
         });
         if let Some(block) = questions_of(flow, cell) {
             let content = entry(&flow.blocks[block].writes, question, at, was);
-            write(work, block, content, true);
+            write(work, block, content, false);
         }
     }
 }
@@ -126,11 +126,7 @@ fn entry(writes: &flow::Texts, question: &Question, version: Seq, was: Option<Se
                 fill(text("recommends"), &[("option", r.to_string().as_str())])
             });
             let waits = text(if *waits { "waits" } else { "goes_on" });
-            let asked = if was.is_empty() || !was.is_empty() {
-                "asked"
-            } else {
-                "asked_anew"
-            };
+            let asked = if was.is_empty() { "asked" } else { "asked_anew" };
             let places = [
                 ("question", name.as_str()),
                 ("version", version.as_str()),
@@ -225,7 +221,7 @@ pub(crate) fn answer(
             way: &way,
         };
         let content = answered.words(&flow.blocks[block].writes);
-        write(work, block, content, !latest && goes_by != Some(option));
+        write(work, block, content, latest && goes_by != Some(option));
     }
     Ok(())
 }
