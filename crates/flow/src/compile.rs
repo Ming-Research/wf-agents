@@ -2469,7 +2469,7 @@ impl<'a> Definition<'a> {
             // Another cell's own, or written by another cell of the order as well.
             let another_s = self.own.cells.get(block).is_some_and(|whose| whose != id);
             let shared = (self.cells.iter())
-                .any(|(other, f)| other != id && self.place.contains_key(other) && f.outputs.contains(block));
+                .any(|(other, f)| other != id && self.place.contains_key(other.as_str()) && f.outputs.contains(block));
             if another_s || shared {
                 found.push((field, FaultKind::NotItsOwn { block: block.clone() }));
             } else if of == Some(ANSWER) {
