@@ -2275,6 +2275,7 @@ mod tests {
                 tools: Vec::new(),
                 groups: Vec::new(),
                 card: Vec::new(),
+                every_agent: web::view::EveryAgent::default(),
                 cells: Vec::new(),
                 blocks: Vec::new(),
             },

@@ -1041,7 +1041,7 @@ mod tests {
             must_write: Vec::new(),
             describes: Vec::new(),
             named_by: None,
-            runs_on: Vec::new(),
+            reads: Vec::new(),
             given: Vec::new(),
             tools: Vec::new(),
             system: Vec::new(),

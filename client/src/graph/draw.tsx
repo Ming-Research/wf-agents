@@ -3,18 +3,17 @@
 // box on the card with its id, its line as a small tag (`engine` muted for an engine's cell, as on the matrix) and its
 // title; a fork the block it decides on, or its keys; a gate its `requires`, each key as its file writes it after the
 // matrix's square; a tag of what the outside writes with the matrix's sign; an arrow's label the value of its branch,
-// where it leaves a fork, and the names of the triggers it stands for. Three kinds of line: the main path thick in the
-// text's colour, over the others; an arrow a write runs thin in the muted colour, behind it, drawn only where it was
-// routed over the layout (`data.ts`); a way back thin in the muted colour, a step stronger than those. An arrow from a
-// tag is dashed; the arrow under the pointer is in the accent. The cell chosen is on the accent's tint, the cells that
-// write what it is given are edged in the accent, and beside it stand the blocks it is given, each with the kind it is
-// given in as the matrix marks it.
+// where it leaves a fork, and the names of the data and groups it runs a cell by. Three kinds of line: the main path
+// thick in the text's colour, over the others; an arrow a write runs thin in the muted colour, behind it, drawn only
+// where it was routed over the layout (`data.ts`); a way back thin in the muted colour, a step stronger than those. An
+// arrow from a tag is dashed; the arrow under the pointer is in the accent. The cell chosen is on the accent's tint, the cells that
+// write what its own file gives it are edged in the accent, and beside it stand those blocks, each with the matrix's
+// mark: the ring of `watches`, or the ring of `reads` with the kind it is given in.
 
 import { type ReactNode, useState } from 'react';
 
 import type { Condition, Flow } from '../api';
 import { type Chosen, ConditionGlyph, DataGlyphs } from '../Chart';
-import { NO_MARK } from '../matrix';
 import { CROSS, Sign, TICK } from '../parts';
 import { headFacts, keyWords } from '../words';
 import { type DataLabel } from './data';
@@ -173,8 +172,9 @@ export function labelSize(e: ChartEdge): Size | null {
   return words === '' ? null : wordsSize(words);
 }
 
-/// About where what a chosen cell is given stands beside it, worked out before it is drawn, so that the arrows drawn
-/// over the chart keep clear of it: its tags one under another, each with the matrix's mark, its name and its signs.
+/// About where what a chosen cell's own file gives it stands beside it, worked out before it is drawn, so that the
+/// arrows drawn over the chart keep clear of it: its tags one under another, each with the matrix's mark, its name and
+/// its signs.
 export function contextBox(flow: Flow, cell: string, at: Box): Box | null {
   const tags = contextOf(flow, cell);
   if (tags.length === 0) return null;
@@ -389,7 +389,7 @@ export function Sheet({ flow, chart, laid, measured, pad, dataLabels, aside, cho
     );
   };
 
-  // The blocks the chosen cell is given, beside it at its right.
+  // The blocks the chosen cell's own file gives it, beside it at its right.
   const context = (() => {
     if (chosenCell === null) return null;
     const box = at(`c:${chosenCell}`);
@@ -409,14 +409,7 @@ export function Sheet({ flow, chart, laid, measured, pad, dataLabels, aside, cho
             className="graph-context-tag"
             onClick={() => choose({ block: t.block })}
           >
-            <DataGlyphs
-              spot={{
-                mark: { ...NO_MARK, given: true, kind: t.kind },
-                line: 'none',
-                back: 'none',
-                backTo: false,
-              }}
-            />
+            <DataGlyphs mark={{ write: false, watch: t.watched, read: !t.watched, kind: t.kind }} />
             <span className="graph-context-name">{t.block}</span>
             <Signs outside={t.outside} />
           </button>

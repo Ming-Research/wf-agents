@@ -8,7 +8,7 @@ import type {
   Condition,
   EveryAgent,
   Flow,
-  Given,
+  GivenBlock,
   Group,
   InputKind,
   Limits,
@@ -49,9 +49,9 @@ function taken(n: Named): { name: string; blocks: string[] } {
 export function cell(id: string, fields: CellIn = {}): Cell {
   const { watches = [], reads = [], does = {}, kinds = {}, ...rest } = fields;
   const kind = rest.kind ?? 'agent';
-  const watched: Watch[] = watches.map((n) => ({ ...taken(n), do: does[taken(n).name] ?? null, list: 'watches' }));
+  const watched: Watch[] = watches.map((n) => ({ ...taken(n), do: does[taken(n).name] ?? null, list: 'watches' as const }));
   const read: Read[] = reads.map(taken);
-  const given: Given[] = [];
+  const given: GivenBlock[] = [];
   if (kind === 'agent') {
     for (const [list, names] of [
       ['reads', read],
@@ -103,7 +103,7 @@ export function everyAgent(fields: {
 }): EveryAgent {
   const { watches = [], reads = [], kinds = {}, does = {} } = fields;
   return {
-    watches: watches.map(([name, blocks]) => ({ name, blocks, do: does[name] ?? null, list: 'every_agent' })),
+    watches: watches.map(([name, blocks]) => ({ name, blocks, do: does[name] ?? null, list: 'every_agent' as const })),
     reads: reads.map(([name, blocks]) => ({ name, blocks })),
     kinds,
   };
@@ -148,7 +148,7 @@ export function flowOf(
   const cells = given.map((c): Cell => {
     if (c.kind !== 'agent') return c;
     const own = named(c);
-    const alike: Given[] = [];
+    const alike: GivenBlock[] = [];
     const runs: Watch[] = [];
     const fresh = (blocks: string[]) => blocks.filter((b) => !own.includes(b) && !alike.some((g) => g.block === b));
     for (const n of every.watches) {

@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use decide::{BlockId, Condition as Applies, FlowFault, TestName};
+use decide::{Condition as Applies, FlowFault, TestName};
 use flow::{Compiled, FaultKind, Kind as CellKind, TestKind as KindOfTest};
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +39,8 @@ pub struct Flow {
     pub groups: Vec<Group>,
     /// What the item's card shows the owner of the work, in the order the flow names them; none where it names none.
     pub card: Vec<String>,
+    /// What every agent's cell watches and reads beside what its own file names, as `flow.toml` writes it.
+    pub every_agent: EveryAgent,
     /// The cells, in the order of the walk.
     pub cells: Vec<Cell>,
     /// The blocks, by name.
@@ -131,16 +133,14 @@ pub struct Cell {
     pub when: Vec<Condition>,
     /// What the work waits for before the cell: every key of its `requires`, in the order written.
     pub requires: Vec<Condition>,
-    /// The blocks it names: those that run it, in the order it names them, then those it is only given.
-    pub inputs: Vec<String>,
-    /// The blocks whose new version runs it, in the order it names them.
-    pub runs_on: Vec<String>,
-    /// The blocks it is given, its session kept supplied with their content, in the order it names them; none for an
-    /// engine's cell.
-    pub given: Vec<String>,
-    /// For each block it names, by the block's name, whether it runs the cell and whether the cell is given it, with
-    /// why and how where the definition says.
-    pub input: BTreeMap<String, Input>,
+    /// What runs it, in the order the engine reads it: each datum `[every_agent]` watches that its own file does not
+    /// name, by the datum's name, then each datum or group its own file's `watches` names.
+    pub watches: Vec<Watch>,
+    /// What its own file's `reads` names, in order; what every agent's cell reads is the flow's (`every_agent`).
+    pub reads: Vec<Read>,
+    /// Each block it is given, in the order it is given them, with its kind and the list of the definition that gives
+    /// it; none for an engine's cell.
+    pub given: Vec<GivenBlock>,
     /// The blocks it may write, as the definition lists them.
     pub outputs: Vec<String>,
     /// The blocks among those that every hand-in of it includes, as the definition lists them.
@@ -148,10 +148,6 @@ pub struct Cell {
     /// The tools of the engine's that an agent's cell may ask for in its return, by name, as the definition lists
     /// them; none for an engine's cell.
     pub tools: Vec<String>,
-    /// What runs it, each datum or group it watches by its name, with the blocks it stands for, those its agent reads
-    /// for it and what the cell does when it is new, in the shape the page reads.
-    #[serde(default)]
-    pub triggers: Vec<TriggerView>,
     pub limits: Limits,
 }
 
@@ -163,73 +159,72 @@ pub struct Group {
     pub blocks: Vec<String>,
 }
 
-/// A datum or group a cell watches, in the shape the page reads it.
+/// A datum or group a cell watches: its name as the definition writes it, the blocks it stands for (of a datum, the
+/// datum alone), what the cell does when it is new, and the list that names it (`every_agent` or `watches`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TriggerView {
+pub struct Watch {
     pub name: String,
-    /// What it is in a sentence; none, as the definition says none of what a cell watches.
-    pub what: Option<String>,
-    /// Its name, the datum's or the group's.
-    pub block: String,
-    /// Of a group, its blocks, each of which runs the cell; none of a datum.
-    pub group: Vec<String>,
-    pub read: Vec<String>,
+    pub blocks: Vec<String>,
     #[serde(rename = "do")]
     pub does: Option<String>,
+    pub list: String,
 }
 
-/// One of the blocks a cell names: whether it runs the cell, and whether the cell is given it. It does one or both.
+/// A datum or group a cell only reads, or every agent's cell watches or reads: its name as the definition writes it,
+/// and the blocks it stands for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Input {
-    /// A new version of it runs the cell; none where it does not.
-    pub runs: Option<Runs>,
-    /// The cell is given it; none where it is not.
-    pub given: Option<GivenAs>,
+pub struct Read {
+    pub name: String,
+    pub blocks: Vec<String>,
 }
 
-/// Why a block runs a cell.
+/// A block a cell is given: the kind its session holds of it, and the list of the definition that gives it
+/// (`every_agent`, `reads` or `watches`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Runs {
-    /// None where the definition does not say.
-    pub why: Option<String>,
+pub struct GivenBlock {
+    pub block: String,
+    pub kind: InputKind,
+    pub list: String,
 }
 
-/// How a cell is given a block, and why.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// What every agent's cell of a flow watches and reads, as `flow.toml` writes it (`[every_agent]`): each name with the
+/// data it stands for and, of what it watches, what a cell does when it is new; and the kind of each, by its name.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GivenAs {
-    /// What the context of the cell's session must hold of the block when the cell runs; none where the definition
-    /// does not say.
-    pub kind: Option<InputKind>,
-    /// Why the cell is given the block: none, as the definition says it of what runs the cell.
-    pub why: Option<String>,
+pub struct EveryAgent {
+    pub watches: Vec<Watch>,
+    pub reads: Vec<Read>,
+    pub kinds: BTreeMap<String, InputKind>,
 }
 
-impl Input {
-    /// Of each block the cell names, by its name, whether it runs the cell and whether the cell is given it.
-    fn of(spec: &flow::CellSpec) -> BTreeMap<String, Input> {
-        let mut out: BTreeMap<String, Input> = BTreeMap::new();
-        for r in &spec.runs_on {
-            let input = out.entry(r.block.to_string()).or_insert(Input {
-                runs: None,
-                given: None,
-            });
-            input.runs = Some(Runs { why: r.why.clone() });
+impl EveryAgent {
+    fn of(every: &flow::EveryAgent) -> Self {
+        EveryAgent {
+            watches: (every.watches.iter())
+                .map(|t| Watch {
+                    name: t.name.clone(),
+                    blocks: names(&t.blocks),
+                    does: every.does.get(&t.name).cloned(),
+                    list: flow::Listed::EveryAgent.name().to_string(),
+                })
+                .collect(),
+            reads: every.reads.iter().map(Read::of).collect(),
+            kinds: (every.kinds.iter())
+                .map(|(name, kind)| (name.clone(), InputKind::of(*kind)))
+                .collect(),
         }
-        for g in &spec.given {
-            let input = out.entry(g.block.to_string()).or_insert(Input {
-                runs: None,
-                given: None,
-            });
-            input.given = Some(GivenAs {
-                kind: Some(InputKind::of(g.kind)),
-                why: None,
-            });
+    }
+}
+
+impl Read {
+    fn of(taken: &flow::Taken) -> Self {
+        Read {
+            name: taken.name.clone(),
+            blocks: names(&taken.blocks),
         }
-        out
     }
 }
 
@@ -282,9 +277,6 @@ pub struct Block {
     pub default: Option<String>,
     /// What the block is, in a sentence; none where the definition does not say.
     pub what: Option<String>,
-    /// It stands only for what runs a cell, with no content: none does, every block being data.
-    #[serde(default)]
-    pub trigger: bool,
     /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.
     #[serde(default)]
     pub writes: Vec<(String, Vec<crate::given::Piece>)>,
@@ -482,8 +474,8 @@ pub enum What {
     NoKind {
         block: String,
     },
-    /// The cell says why the block runs it, and it is not among those that run it.
-    NotRunOn {
+    /// A `do` is said for the block, of a cell or of what every agent's cell takes, and that does not watch it.
+    NotWatched {
         block: String,
     },
     /// The cell says how or why it is given the block, and it is not given it.
@@ -648,32 +640,25 @@ impl Flow {
                 takes_main: spec.takes_main,
                 when: cell.applies.iter().map(|c| Condition::of(c, compiled)).collect(),
                 requires: cell.requires.iter().map(|c| Condition::of(c, compiled)).collect(),
-                inputs: (spec.runs_on.iter().map(|r| &r.block))
-                    .chain(
-                        (spec.given.iter().map(|g| &g.block)).filter(|b| !spec.runs_on.iter().any(|r| &r.block == *b)),
-                    )
-                    .map(BlockId::to_string)
+                watches: (spec.watches.iter())
+                    .map(|w| Watch {
+                        name: w.name.clone(),
+                        blocks: names(&w.blocks),
+                        does: w.does.clone(),
+                        list: w.list.name().to_string(),
+                    })
                     .collect(),
-                runs_on: names(&cell.runs_on),
-                given: spec.given.iter().map(|g| g.block.to_string()).collect(),
-                input: Input::of(spec),
+                reads: spec.reads.iter().map(Read::of).collect(),
+                given: (spec.given.iter())
+                    .map(|g| GivenBlock {
+                        block: g.block.to_string(),
+                        kind: InputKind::of(g.kind),
+                        list: g.list.name().to_string(),
+                    })
+                    .collect(),
                 outputs: names(&cell.outputs),
                 must_write: names(&spec.must_write),
                 tools: spec.tools.clone(),
-                triggers: (spec.watches.iter())
-                    .map(|w| TriggerView {
-                        name: w.name.clone(),
-                        what: None,
-                        block: w.name.clone(),
-                        group: if w.is_group() { names(&w.blocks) } else { Vec::new() },
-                        read: if spec.kind == flow::Kind::Agent {
-                            names(&w.blocks)
-                        } else {
-                            Vec::new()
-                        },
-                        does: w.does.clone(),
-                    })
-                    .collect(),
                 limits: Limits {
                     runs: cell.limit,
                     returns: spec.returns,
@@ -689,7 +674,6 @@ impl Flow {
                 values: block.values.clone(),
                 default: block.default.clone(),
                 what: block.what.clone(),
-                trigger: false,
                 writes: (block.writes.0.iter())
                     .map(|(name, text)| (name.clone(), flow::system::with_slots(text)))
                     .collect(),
@@ -723,6 +707,7 @@ impl Flow {
                 })
                 .collect(),
             card: names(&compiled.card),
+            every_agent: EveryAgent::of(&compiled.every_agent),
             cells,
             blocks,
         }
@@ -846,7 +831,7 @@ impl What {
             F::EngineIsGiven { block } => What::EngineIsGiven { block },
             F::RunByNothing => What::RunByNothing,
             F::NoKind { block } => What::NoKind { block },
-            F::NotRunOn { block } => What::NotRunOn { block },
+            F::NotWatched { block } => What::NotWatched { block },
             F::NotGiven { block } => What::NotGiven { block },
             F::NoWriter { block } => What::NoWriter { block },
             F::NoReader { block } => What::NoReader { block },

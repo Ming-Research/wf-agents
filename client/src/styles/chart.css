@@ -1,6 +1,6 @@
-/* The flow's chart: the blocks down the side, the cells across, a mark where they cross, each block's line along its
-   row, and the ways back in the muted colour, thicker than a block's line and with an arrow. The blocks' names stay in
-   place as the frame scrolls sideways, and the cells' heads as it scrolls down. */
+/* The flow's chart: the data down the side, the cells across, a mark where they cross, and the ways back along the
+   data's rows in the muted colour, with an arrow; each line's row joined along it. The data's names stay in place as
+   the frame scrolls sideways, and the cells' heads as it scrolls down. */
 
 /* The view under the view's line: the chart's frame, and the docked panel at its right while one is open. */
 .view-body {
@@ -268,8 +268,9 @@ tr.row.chosen > .block-head {
   white-space: nowrap;
 }
 
-/* The bands of rows over the blocks, the lines', the conditions' and the triggers', each with a firmer line under its
-   last row, and what each row is after its name, muted: line, test, block, trigger. */
+/* The bands of rows over the data, the lines', the conditions', the tools' and `[every_agent]`'s, each with a firmer
+   line under its last row, and what each row is after its name, muted: line, test, block, tool, every_agent; and on a
+   datum's row the group whose row its watchers stand on. */
 .row-label {
   margin-left: var(--space-4);
   color: var(--muted);
@@ -292,7 +293,7 @@ tr.row.chosen > .block-head {
   vertical-align: var(--mark-drop);
 }
 
-/* A crossing: the row's line through it, the way back when there is one, and the mark. */
+/* A crossing: a line's row or the way back through it, and the mark. */
 .spot {
   position: relative;
   height: var(--row);
@@ -335,18 +336,7 @@ tr.row.chosen > .block-head {
   background: var(--muted);
 }
 
-/* Where a way back runs along the row's line, each keeps to its lane: the line above the middle, the way back and
-   its arrow below it. */
-.seg.line.lane {
-  transform: translateY(calc(-50% - var(--chart-lane)));
-}
-
-.seg.back.lane,
-.arrow.lane {
-  transform: translateY(calc(-50% + var(--chart-lane)));
-}
-
-/* The arrow of a way back, right of the read it points at. */
+/* The arrow of a way back, right of the mark of the cell it runs again. */
 .arrow {
   position: absolute;
   top: 50%;
@@ -382,7 +372,7 @@ tr.row.chosen > .block-head {
   stroke-width: 2;
 }
 
-/* The kind of a context, inside its ring. */
+/* The kind a cell is given a datum in, inside the ring of `reads`. */
 .part.kind {
   fill: var(--text);
   stroke: none;
@@ -392,7 +382,8 @@ tr.row.chosen > .block-head {
   dominant-baseline: central;
 }
 
-.part.write {
+.part.write,
+.part.tool {
   fill: var(--text);
   stroke: none;
 }

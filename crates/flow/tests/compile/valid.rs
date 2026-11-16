@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use decide::{BlockId, Cell, Condition, TestName};
 use flow::{
-    Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Listed, Readers, RunsOn, Test,
-    TestKind, Texts, Watched, Writers,
+    Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Listed, Readers, Test, TestKind,
+    Texts, Watched, Writers,
 };
 
 use crate::support::{at, compiled, edit, faults, valid};
@@ -81,7 +81,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         must_write: Vec::new(),
         describes: Vec::new(),
         named_by: None,
-        runs_on: Vec::new(),
+        reads: Vec::new(),
         given: Vec::new(),
         tools: Vec::new(),
         system: Vec::new(),
@@ -92,14 +92,6 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         takes_main: false,
         watches: Vec::new(),
     };
-    let runs_on = |blocks: &[&str]| {
-        (blocks.iter())
-            .map(|&b| RunsOn {
-                block: b.into(),
-                why: None,
-            })
-            .collect()
-    };
     // Each datum a cell watches runs it on itself.
     let watches = |blocks: &[&str]| {
         (blocks.iter())
@@ -107,6 +99,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
                 name: b.to_string(),
                 blocks: vec![b.into()],
                 does: None,
+                list: Listed::Watches,
             })
             .collect()
     };
@@ -114,7 +107,6 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
     let agent = |id: &str, title: &str, line: &str, task: &str, inputs: &[&str]| CellSpec {
         task: Some(task.to_string()),
         effort: Some(Effort::High),
-        runs_on: runs_on(inputs),
         given: (inputs.iter())
             .map(|&b| Given {
                 block: b.into(),
@@ -127,7 +119,6 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
     };
     let engine = |id: &str, title: &str, act: &str, inputs: &[&str]| CellSpec {
         act: Some(act.to_string()),
-        runs_on: runs_on(inputs),
         watches: watches(inputs),
         ..spec(id, title, Kind::Engine, None)
     };

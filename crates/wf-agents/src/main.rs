@@ -838,9 +838,7 @@ fn words(what: &FaultKind, field: &str) -> String {
         }
         F::RunByNothing => "nothing runs this agent's cell, so it would never be entered".to_string(),
         F::NoKind { block } => format!("the cell is given {block}, but does not say its kind"),
-        F::NotRunOn { block } => {
-            format!("the cell says what it does when {block} is new, but it does not watch {block}")
-        }
+        F::NotWatched { block } => format!("there is a do for {block}, but {block} is not watched"),
         F::NotGiven { block } => format!("the cell says how it is given {block}, but it is not given {block}"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {

@@ -462,10 +462,10 @@ describe('the mark of a cell on a datum, wherever the page draws one', () => {
       {},
       everyAgent({ watches: [['guide', ['guide']]], kinds: { guide: 'lastAndLatest' } }),
     );
-    expect(markOf(f, f.cells[0], 'y')).toEqual(mark({ watch: true, kind: 'lastAndLatest' }));
-    expect(markOf(f, f.cells[0], 'guide')).toEqual(mark({ watch: true, kind: 'lastAndLatest' }));
-    expect(markOf(f, f.cells[1], 'x')).toEqual(mark({ read: true, kind: 'latest' }));
-    expect(markOf(f, f.cells[2], 'x')).toEqual(mark({ watch: true }));
-    expect(markOf(f, f.cells[2], 'guide')).toEqual(mark({}));
+    expect(markOf(f.cells[0], 'y')).toEqual(mark({ watch: true, kind: 'lastAndLatest' }));
+    expect(markOf(f.cells[0], 'guide')).toEqual(mark({ watch: true, kind: 'lastAndLatest' }));
+    expect(markOf(f.cells[1], 'x')).toEqual(mark({ read: true, kind: 'latest' }));
+    expect(markOf(f.cells[2], 'x')).toEqual(mark({ watch: true }));
+    expect(markOf(f.cells[2], 'guide')).toEqual(mark({}));
   });
 });

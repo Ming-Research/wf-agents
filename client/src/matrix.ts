@@ -1,33 +1,31 @@
-// The chart as a matrix: the blocks as rows, the cells as columns in the order of the walk, and at each crossing what
-// the cell does with the block; over the blocks, a row for each line the cells run in and for each condition they
-// name. Everything the chart draws is worked out here, from the interface's JSON alone, so that it can be tested
-// without drawing: the order of the rows, the marks and the ways back.
+// The chart as a matrix: the data as rows, the cells as columns in the order of the walk, and at each crossing what
+// the cell does with the datum, by the keys of its file: `watches`, `reads`, `outputs`. Over the data, a row for each
+// line the cells run in, for each condition they name, for each of the engine's tools they may call, and for each name
+// `[every_agent]` writes. Everything the chart draws is worked out here, from the interface's JSON alone, so that it can
+// be tested without drawing: the order of the rows, the marks and the ways back.
 
 import type { Block, Cell, Condition, Flow, InputKind, Line, Test } from './api';
 
-/// What a cell does with a block: a new version of it runs the cell, the cell is given it, may write it as an output,
-/// reads its value in a key of its `when` (the block's own key, or a named test that reads it), or in a key of its
-/// `requires`.
+/// What a cell does with a datum: a new version of it runs the cell (`watches`), the cell is given it and it runs
+/// nothing (`reads`), the cell may write it (`outputs`); the kind the cell is given it in, where it is given it; and
+/// whether a key of its `when` or of its `requires` reads its value.
 export interface Mark {
-  runs: boolean;
-  given: boolean;
   write: boolean;
+  watch: boolean;
+  read: boolean;
+  kind: InputKind | null;
   condition: boolean;
   precondition: boolean;
-  /// Of a datum the cell is given, the kind it is given in, where the cell says one.
-  kind?: InputKind | null;
 }
 
 export const NO_MARK: Mark = {
-  runs: false,
-  given: false,
   write: false,
+  watch: false,
+  read: false,
+  kind: null,
   condition: false,
   precondition: false,
 };
-
-export const MARK_PARTS = ['runs', 'given', 'write', 'condition', 'precondition'] as const;
-export type MarkPart = (typeof MARK_PARTS)[number];
 
 /// Whether two cells can never both run in one work, by their conditions as written: each one's `when` names a block or
 /// a datum the other's names with another value. A named test, or keys on different blocks, can both hold. No way back
@@ -45,28 +43,44 @@ export function keyReads(key: Condition, block: string): boolean {
   return key.on === 'block' ? key.block === block : key.test.reads.includes(block);
 }
 
-/// The mark of a cell on a block.
+/// The kind a cell is given a block in; none where it is not given it.
+export function kindOf(cell: Cell, block: string): InputKind | null {
+  return cell.given.find((g) => g.block === block)?.kind ?? null;
+}
+
+/// The mark of a cell on a datum by any list that names it, its own file's, a group's or `[every_agent]`'s: a new
+/// version of it runs the cell, or the cell is only given it. This is what a work's history marks under each cell a
+/// write reaches; the matrix puts a group's watcher on the group's row and leaves what every agent's cell reads to the
+/// words of its band.
 export function markOf(cell: Cell | undefined, block: string): Mark {
   if (!cell) return NO_MARK;
+  const watch = cell.watches.some((w) => w.blocks.includes(block));
+  const kind = kindOf(cell, block);
   return {
-    runs: cell.runsOn.includes(block),
-    given: cell.given.includes(block),
     write: cell.outputs.includes(block),
+    watch,
+    read: !watch && kind !== null,
+    kind,
     condition: cell.when.some((key) => keyReads(key, block)),
     precondition: cell.requires.some((key) => keyReads(key, block)),
   };
 }
 
 export function hasMark(mark: Mark): boolean {
-  return mark.runs || mark.given || mark.write || mark.condition || mark.precondition;
+  return mark.write || mark.watch || mark.read || mark.condition || mark.precondition;
+}
+
+/// The blocks a cell takes, in the order it takes them: those that run it, then those it is only given.
+function takenBy(cell: Cell): string[] {
+  return [...new Set([...cell.watches.flatMap((w) => w.blocks), ...cell.given.map((g) => g.block)])];
 }
 
 /// The order of the blocks' rows. A block stands where it is first written in the walk, a cell's outputs together
 /// in the order the cell lists them; a block no cell writes (what people or the outside write) stands just before the
-/// first cell that reads it: the blocks its `when` reads first, then those its `requires` reads, then those it
-/// names, that run it or that it is given, in their order; a block no cell writes or reads stands last. Ties go by
-/// name. The marks then step down to the right like a staircase, each cell's writes one under another and next to the
-/// reads that follow from them, and a write right of a read stands out as a way back.
+/// first cell that takes it: the blocks its `when` reads first, then those its `requires` reads, then those that run
+/// it, then those it is only given, in their order; a block no cell writes or takes stands last. Ties go by name. The
+/// marks then step down to the right like a staircase, each cell's writes one under another and next to the watches
+/// that follow from them, and a write right of a watch stands out as a way back.
 export function blockOrder(flow: Flow): string[] {
   const place = new Map(flow.cells.map((c, i) => [c.id, i]));
   const key = (block: Block): [number, number, number] => {
@@ -79,18 +93,14 @@ export function blockOrder(flow: Flow): string[] {
     if (first !== -1) {
       const cell = flow.cells[first];
       const mark = markOf(cell, block.name);
-      return [first, 0, mark.condition ? -2 : mark.precondition ? -1 : cell.inputs.indexOf(block.name)];
+      return [first, 0, mark.condition ? -2 : mark.precondition ? -1 : takenBy(cell).indexOf(block.name)];
     }
     return [Infinity, 0, 0];
   };
-  // The rows of what stands only for a trigger come first, apart from the data's.
   return [...flow.blocks]
-    .map((block) => ({
-      name: block.name,
-      key: [block.trigger ? 0 : 1, ...key(block)],
-    }))
+    .map((block) => ({ name: block.name, key: key(block) }))
     .sort((a, b) => {
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < 3; i += 1) {
         if (a.key[i] !== b.key[i]) return a.key[i] < b.key[i] ? -1 : 1;
       }
       return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
@@ -98,21 +108,16 @@ export function blockOrder(flow: Flow): string[] {
     .map((b) => b.name);
 }
 
-/// A row: a trigger or a datum.
+/// A row of the data: a datum, or a group a cell watches by its name.
 export interface BlockRow {
-  /// What the row is called: a trigger's name, or the block's where each cell has its own trigger of one name; a
-  /// datum's name.
+  /// The datum's name, or the group's.
   name: string;
-  /// Of a trigger's row, the trigger's name; none of a datum's.
-  trigger?: string;
-  /// Of a trigger's row, what the trigger is, as its file writes it.
-  what?: string;
-  /// What the row is about: the block the trigger stands on, or the group's name of a group's trigger; the datum.
-  on: string;
-  /// Of a group's trigger, the group's blocks, a new version of any of which fires it.
+  /// Of a group's row, its blocks as `flow.toml` names them; none of a datum's.
   group?: string[];
-  /// The block the row is about; none of a group's trigger, which stands on no one block.
+  /// Of a datum's row, the block as the flow declares it.
   block?: Block;
+  /// Of a datum's row, the groups it is of that have rows of their own, whose watchers are marked there.
+  of: string[];
 }
 
 /// How a row's line runs through one crossing: from the crossing's middle to the right (towards later cells), to the
@@ -121,17 +126,11 @@ export type Segment = 'none' | 'right' | 'left' | 'through';
 
 /// One crossing of a row and a column.
 export interface Spot {
-  /// What the cell does with the block.
+  /// What the cell does with the row's data.
   mark: Mark;
-  /// The row's line, which the eye follows along the cells: from the first mark that no way back reaches to the
-  /// last mark. A mark left of every write that a way back reaches is reached by the way back alone, so the line
-  /// starts at the first cell that writes the block, the way the block goes on from there; where no cell writes it, at
-  /// the first mark.
-  line: Segment;
-  /// The way back, on a trigger's row: from a later cell's write of the block the trigger stands on, or of one of the
-  /// group's, leftwards to the cells before it that the trigger runs and that can run where the writer does (not
-  /// `exclusive`). A block a cell is only given, or whose value its condition reads, does not run it, so no way back
-  /// reaches it.
+  /// The way back, the only line along a row of the data: from a later cell's write of the row's datum, of one of its
+  /// group's or of the data a name of `[every_agent]` stands for, leftwards to each cell before it that watches it by
+  /// the row's name and can run where the writer does (not `exclusive`).
   back: Segment;
   /// A cell that a write right of it sends the work back to.
   backTo: boolean;
@@ -178,108 +177,173 @@ export interface ConditionRow {
   spots: ConditionSpot[];
 }
 
+/// A row of one of the engine's tools: by cell, whether the cell may call it.
+export interface ToolRow {
+  name: string;
+  spots: boolean[];
+}
+
+/// A row of a name `[every_agent]` writes: whether it watches or reads it, the kind it gives it in, the data it stands
+/// for, and under each cell what runs the cell of those data, what its own file reads of them and what it writes; what
+/// every agent's cell only reads is said by the row's words.
+export interface EveryRow {
+  name: string;
+  list: 'watches' | 'reads';
+  kind: InputKind | null;
+  blocks: string[];
+  /// The data it stands for, as the flow declares them.
+  data: Block[];
+  spots: Spot[];
+}
+
 /// The matrix of a flow.
 export interface Matrix {
-  /// The rows, top to bottom.
+  /// The rows of the data, top to bottom: each datum, and each group a cell watches by its name over its first block.
   blocks: BlockRow[];
   /// The columns, left to right: the order of the walk.
   cells: Cell[];
-  /// By block, then by cell.
+  /// By row of the data, then by cell.
   spots: Spot[][];
   /// The rows of the lines the agents' cells name, at the top, each where its first cell stands.
   lines: LineRow[];
   /// The rows of the conditions the cells name, under the lines', each where the first cell that names it stands.
   conditions: ConditionRow[];
-  /// How many ways back the flow has: pairs of a cell a trigger runs and a later cell's write of the block the trigger
-  /// stands on, or of one of its group's, of two cells that can both run in one work.
+  /// The rows of the engine's tools: the flow's, or else each a cell names, in the order named.
+  tools: ToolRow[];
+  /// The rows of what `[every_agent]` names, as `flow.toml` writes it: what it watches, then what it reads.
+  every: EveryRow[];
+  /// How many ways back the flow has: pairs of a cell that watches a name and a later cell's write of a block the name
+  /// stands for, of two cells that can both run in one work.
   waysBack: number;
+}
+
+/// Draws the ways back along a row and counts them: for each block the row stands for, from each later cell that
+/// writes it to each earlier cell that watches it by the row's name and can run where the writer does.
+function waysBackAlong(
+  row: Spot[],
+  cells: Cell[],
+  blocks: string[],
+  watches: (c: number, block: string) => boolean,
+  writes: (c: number, block: string) => boolean,
+): number {
+  let count = 0;
+  let first = -1;
+  let furthest = -1;
+  for (const block of blocks) {
+    for (let c = 0; c < cells.length; c += 1) {
+      if (!watches(c, block)) continue;
+      const from = cells.flatMap((_, w) => (w > c && writes(w, block) && !exclusive(cells[c], cells[w]) ? [w] : []));
+      if (from.length === 0) continue;
+      count += from.length;
+      row[c].backTo = true;
+      first = first === -1 ? c : Math.min(first, c);
+      furthest = Math.max(furthest, ...from);
+    }
+  }
+  if (first !== -1) paint(row, first, furthest);
+  return count;
 }
 
 /// Works out from a flow everything its chart draws.
 export function matrix(flow: Flow): Matrix {
   const cells = flow.cells;
   const blockIn = (name: string) => flow.blocks.find((b) => b.name === name);
-  // The triggers' rows first, each a trigger a cell names, by the block it stands on, in the order of those blocks, a
-  // group's where the first of its blocks stands; then the data's rows. A trigger stands for one event: one each cell
-  // has its own of is a row for each cell.
-  const order = blockOrder(flow);
-  const pairs: { name: string; block: string; what?: string; group?: string[] }[] = [];
-  for (const cell of cells) {
-    for (const t of cell.triggers ?? []) {
-      if (!pairs.some((p) => p.name === t.name && p.block === t.block)) {
-        const group = t.group.length > 0 ? t.group : undefined;
-        pairs.push({ name: t.name, block: t.block, what: t.what ?? undefined, group });
-      }
-    }
-  }
-  const at = (p: (typeof pairs)[number]) => Math.min(...(p.group ?? [p.block]).map((b) => order.indexOf(b)));
-  pairs.sort((x, y) => at(x) - at(y));
-  const blocksOf = (name: string) => new Set(pairs.filter((p) => p.name === name).map((p) => p.block)).size;
-  const row = (name: string, on: string, trigger?: string, what?: string, group?: string[]): BlockRow => ({
-    name,
-    trigger,
-    what,
-    on,
-    group,
-    block: group ? undefined : blockIn(on),
-  });
-  const blocks: BlockRow[] = [
-    ...pairs.map((p) => row(blocksOf(p.name) > 1 ? p.block : p.name, p.block, p.name, p.what, p.group)),
-    ...order.filter((name) => !blockIn(name)?.trigger).map((name) => row(name, name)),
-  ];
+  let waysBack = 0;
 
-  // Of a trigger's row: whether the cell runs on the trigger, and whether it writes the block the trigger stands on,
-  // or one of the group's. Of a datum's row: whether the cell is given it and in which kind, or writes it. What a
-  // cell's `when` and `requires` read is drawn once, on the rows of their keys.
-  const markIn = (cell: Cell, r: BlockRow): Mark => {
-    if (r.trigger !== undefined) {
-      return {
-        ...NO_MARK,
-        runs: (cell.triggers ?? []).some((t) => t.name === r.trigger && t.block === r.on),
-        write: (r.group ?? [r.on]).some((b) => cell.outputs.includes(b)),
-      };
+  // The data's rows, but those `[every_agent]` names, which its band holds; a group a cell watches by its name stands
+  // right above the first of its blocks' rows.
+  const every = flow.everyAgent;
+  const alike = new Set([...every.watches, ...every.reads].flatMap((n) => n.blocks));
+  const order = blockOrder(flow).filter((name) => !alike.has(name));
+  const watchesGroup = (cell: Cell, group: string) =>
+    cell.watches.some((w) => w.list === 'watches' && w.name === group);
+  const groups = flow.groups.filter((g) => cells.some((c) => watchesGroup(c, g.name)));
+  const firstOf = (g: { blocks: string[] }) =>
+    Math.min(...g.blocks.map((b) => (order.includes(b) ? order.indexOf(b) : Infinity)));
+  const blocks: BlockRow[] = [];
+  const placed = new Set<string>();
+  const placeGroups = (upTo: number) => {
+    for (const g of groups.filter((x) => !placed.has(x.name) && firstOf(x) <= upTo)) {
+      placed.add(g.name);
+      blocks.push({ name: g.name, group: g.blocks, of: [] });
     }
-    const mark = markOf(cell, r.on);
+  };
+  order.forEach((name, i) => {
+    placeGroups(i);
+    blocks.push({ name, block: blockIn(name), of: groups.filter((g) => g.blocks.includes(name)).map((g) => g.name) });
+  });
+  placeGroups(Infinity);
+
+  // A datum's row: what each cell's file says of the datum by its own name, or, of what it reads, through a group; a
+  // cell that watches it through a group is marked on the group's row. A group's row: a cell whose `watches` names
+  // the group, and a cell that writes one of its blocks. The kind is the one the cell is given the datum in.
+  const watchesItself = (cell: Cell, block: string) =>
+    cell.watches.some((w) => w.name === block && w.blocks.length === 1 && w.blocks[0] === block);
+  const markIn = (cell: Cell, r: BlockRow): Mark => {
+    if (r.group !== undefined) {
+      return { ...NO_MARK, watch: watchesGroup(cell, r.name), write: r.group.some((b) => cell.outputs.includes(b)) };
+    }
+    const watch = watchesItself(cell, r.name);
+    const read = !watch && cell.reads.some((n) => n.blocks.includes(r.name));
     return {
-      ...mark,
-      runs: false,
-      condition: false,
-      precondition: false,
-      kind: mark.given ? (cell.input[r.on]?.given?.kind ?? null) : null,
+      ...NO_MARK,
+      write: cell.outputs.includes(r.name),
+      watch,
+      read,
+      kind: watch || read ? kindOf(cell, r.name) : null,
     };
   };
   const spots: Spot[][] = blocks.map((r) =>
-    cells.map((cell) => ({
-      mark: markIn(cell, r),
-      line: 'none',
-      back: 'none',
-      backTo: false,
-    })),
+    cells.map((cell): Spot => ({ mark: markIn(cell, r), back: 'none', backTo: false })),
   );
-
-  // Lines and ways back only on the triggers' rows: a datum in a context runs no cell.
-  let waysBack = 0;
   spots.forEach((row, r) => {
-    if (blocks[r].trigger === undefined) return;
-    const marks = row.map((spot) => spot.mark);
-    const marked = marks.flatMap((m, c) => (hasMark(m) ? [c] : []));
-    const reads = marks.flatMap((m, c) => (m.runs ? [c] : []));
-    const writes = marks.flatMap((m, c) => (m.write ? [c] : []));
-    // Of a read, the later writes that send the work back to it: those of a cell that can run where it does.
-    const backFrom = (c: number) => writes.filter((w) => w > c && !exclusive(cells[c], cells[w]));
-    const reached = reads.filter((c) => backFrom(c).length > 0);
-    paint(
+    waysBack += waysBackAlong(
       row,
-      'line',
-      marked.find((c) => !reached.includes(c) || marks[c].write),
-      marked[marked.length - 1],
+      cells,
+      [blocks[r].name],
+      (c) => row[c].mark.watch,
+      (w) => row[w].mark.write,
     );
-    for (const c of reached) row[c].backTo = true;
-    waysBack += reads.reduce((n, c) => n + backFrom(c).length, 0);
-    if (reached.length > 0) {
-      paint(row, 'back', reached[0], Math.max(...reached.flatMap(backFrom)));
-    }
   });
+
+  // The band of `[every_agent]`: under each cell, what runs it of the data a name stands for, by its own file or by
+  // `[every_agent]`, what its own file reads of them, and what it writes; what every agent's cell only reads is said
+  // by the row's words. Its ways back are drawn datum by datum.
+  const named = [
+    ...every.watches.map((n) => ({ name: n.name, blocks: n.blocks, list: 'watches' as const })),
+    ...every.reads.map((n) => ({ name: n.name, blocks: n.blocks, list: 'reads' as const })),
+  ];
+  const everyRows: EveryRow[] = named.map(({ name, blocks: of, list }) => {
+    const row = cells.map((cell): Spot => {
+      const watched = of.filter((b) => cell.watches.some((w) => w.blocks.includes(b)));
+      const read = of.filter((b) => !watched.includes(b) && cell.reads.some((n) => n.blocks.includes(b)));
+      const first = watched[0] ?? read[0];
+      return {
+        mark: {
+          ...NO_MARK,
+          watch: watched.length > 0,
+          read: read.length > 0,
+          write: of.some((b) => cell.outputs.includes(b)),
+          kind: first === undefined ? null : kindOf(cell, first),
+        },
+        back: 'none',
+        backTo: false,
+      };
+    });
+    waysBack += waysBackAlong(
+      row,
+      cells,
+      of,
+      (c, block) => cells[c].watches.some((w) => w.blocks.includes(block)),
+      (w, block) => cells[w].outputs.includes(block),
+    );
+    const data = of.flatMap((b) => blockIn(b) ?? []);
+    return { name, list, kind: every.kinds[name] ?? null, blocks: of, data, spots: row };
+  });
+
+  // The tools: the flow's, which every agent's cell may call, or else each a cell names, in the order named.
+  const toolNames = flow.tools.length > 0 ? flow.tools : [...new Set(cells.flatMap((c) => c.tools))];
+  const tools: ToolRow[] = toolNames.map((name) => ({ name, spots: cells.map((c) => c.tools.includes(name)) }));
 
   // The lines, each where the first cell on it stands, one session going on along its row from that cell to the last.
   const lineNames = [...new Set(cells.flatMap((c) => (c.kind === 'agent' && c.line ? [c.line] : [])))];
@@ -297,12 +361,12 @@ export function matrix(flow: Flow): Matrix {
   // The conditions, each where the first cell that names it stands, every key of a cell's `when` first, then of its
   // `requires`, in their order. A block is one row, whatever value each cell waits for; a test and a block of one name
   // are two.
-  const named: { name: string; test?: Test; block?: string }[] = [];
+  const conditionsNamed: { name: string; test?: Test; block?: string }[] = [];
   for (const c of cells) {
     for (const key of [...c.when, ...c.requires]) {
       const row = key.on === 'block' ? { name: key.block, block: key.block } : { name: key.test.name, test: key.test };
-      if (!named.some((r) => r.name === row.name && (r.test === undefined) === (row.test === undefined))) {
-        named.push(row);
+      if (!conditionsNamed.some((r) => r.name === row.name && (r.test === undefined) === (row.test === undefined))) {
+        conditionsNamed.push(row);
       }
     }
   }
@@ -314,7 +378,7 @@ export function matrix(flow: Flow): Matrix {
     }
     return undefined;
   };
-  const conditions: ConditionRow[] = named.map((row) => ({
+  const conditions: ConditionRow[] = conditionsNamed.map((row) => ({
     ...row,
     test: row.test && (flow.tests.find((t) => t.name === row.name) ?? row.test),
     spots: cells.map((c) => {
@@ -329,7 +393,7 @@ export function matrix(flow: Flow): Matrix {
     }),
   }));
 
-  return { blocks, cells, spots, lines, conditions, waysBack };
+  return { blocks, cells, spots, lines, conditions, tools, every: everyRows, waysBack };
 }
 
 /// How a line runs along a row of `n` crossings from the middle of the one at `from` to the middle of the one at `to`.
@@ -340,10 +404,10 @@ function span(n: number, from?: number, to?: number): Segment[] {
   });
 }
 
-/// Paints a line along a row from the middle of the crossing at `from` to the middle of the one at `to`.
-function paint(row: Spot[], which: 'line' | 'back', from?: number, to?: number): void {
+/// Paints the way back along a row from the middle of the crossing at `from` to the middle of the one at `to`.
+function paint(row: Spot[], from: number, to: number): void {
   span(row.length, from, to).forEach((segment, c) => {
-    if (segment !== 'none') row[c][which] = segment;
+    if (segment !== 'none') row[c].back = segment;
   });
 }
 

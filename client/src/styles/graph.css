@@ -99,7 +99,8 @@
   fill: var(--accent);
 }
 
-/* An arrow's label: the names of the triggers it stands for, on the ground, so that it reads over what passes under. */
+/* An arrow's label: the names of the data and groups it runs a cell by, on the ground, so that it reads over what
+   passes under. */
 .graph-label {
   position: absolute;
   display: flex;

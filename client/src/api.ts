@@ -49,21 +49,44 @@ export interface Test {
 
 export type Kind = 'agent' | 'engine';
 
-/// A trigger of a cell, as the definition writes it.
-export interface TriggerView {
+/// The list of a definition that names what a cell takes, as the files write it: what every agent's cell takes
+/// (`[every_agent]` of `flow.toml`), or the cell's own `reads` or `watches`.
+export type List = 'every_agent' | 'reads' | 'watches';
+
+/// A datum or group a cell watches: its name as the definition writes it, the blocks it stands for (of a datum, the
+/// datum alone), what the cell does when it is new, and the list that names it.
+export interface Watch {
   name: string;
-  /// What it is, as its file writes it.
-  what: string | null;
-  /// The block it stands on; of a group's trigger, the group's name.
-  block: string;
-  /// Of a group's trigger, the group's blocks, a new version of any of which fires it; empty otherwise.
-  group: string[];
-  read: string[];
+  blocks: string[];
   do: string | null;
+  list: List;
 }
 
-/// A group of the flow's blocks, as `flow.toml` names it under `[groups]`, whose trigger fires for a new version of
-/// any of them.
+/// A datum or group a cell's file only reads, or that `[every_agent]` names: its name as written, and the blocks it
+/// stands for.
+export interface Read {
+  name: string;
+  blocks: string[];
+}
+
+/// A block a cell is given: the kind its session holds of it, and the list that gives it.
+export interface GivenBlock {
+  block: string;
+  kind: InputKind;
+  list: List;
+}
+
+/// What every agent's cell watches and reads beside what its own file names, as `flow.toml` writes it
+/// (`[every_agent]`): each name with the data it stands for and, of what it watches, what a cell does when it is new;
+/// and the kind of each, by its name.
+export interface EveryAgent {
+  watches: Watch[];
+  reads: Read[];
+  kinds: Record<string, InputKind>;
+}
+
+/// A group of the flow's blocks, as `flow.toml` names it under `[groups]`: a cell that watches it is run by a new
+/// version of any of them.
 export interface Group {
   name: string;
   blocks: string[];
@@ -72,14 +95,6 @@ export interface Group {
 /// What the context of a cell's session must hold of a block the cell is given when the cell runs: its latest
 /// version, the version the cell last consumed and the latest, or every version.
 export type InputKind = 'latest' | 'lastAndLatest' | 'all';
-
-/// One of the blocks a cell names: whether a new version of it runs the cell, with why, and whether the cell is given
-/// it, its session kept supplied with its content, with how and why; it does one or both. Each why and kind is none
-/// where the definition does not say.
-export interface Input {
-  runs: { why: string | null } | null;
-  given: { kind: InputKind | null; why: string | null } | null;
-}
 
 /// One key of a cell's `when` or `requires`: a block or a datum with the value it must have (`deep_needed = "yes"`),
 /// or a named test that holds (`test = "settled"`).
@@ -105,23 +120,19 @@ export interface Cell {
   when: Condition[];
   /// What the work waits for before it: every key of its `requires`, in the order written.
   requires: Condition[];
-  /// The blocks it names: those that run it, in the order it names them, then those it is only given.
-  inputs: string[];
-  /// The blocks whose new version runs it, in the order it names them.
-  runsOn: string[];
-  /// The blocks it is given, in the order it names them; none for an engine's cell.
-  given: string[];
-  /// Of each block it names, by the block's name, whether it runs the cell and whether the cell is given it.
-  input: Record<string, Input>;
+  /// What runs it, in the order the engine reads it: each datum `[every_agent]` watches that its own file does not
+  /// name, by the datum's name, then each datum or group its own file's `watches` names.
+  watches: Watch[];
+  /// What its own file's `reads` names, in order.
+  reads: Read[];
+  /// Each block it is given, in the order it is given them; none for an engine's cell.
+  given: GivenBlock[];
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes.
   mustWrite: string[];
   /// The tools of the engine's that an agent's cell may ask for in its return, by name, in the order written: the
   /// flow's, where it names any, else the cell's own; none for an engine's cell.
   tools: string[];
-  /// What runs it, each a trigger by its name, with the block it stands on, the data its agent reads for it and what
-  /// the cell does when it fires, as the definition writes them.
-  triggers: TriggerView[];
   limits: Limits;
 }
 
@@ -133,8 +144,6 @@ export interface Block {
   default: string | null;
   /// What the block is, in a sentence; none where the definition does not say.
   what: string | null;
-  /// It has no content and stands only for a trigger.
-  trigger?: boolean;
   /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.
   writes?: [string, SentPiece[]][];
   /// `outside`: the source outside the work that writes it; none where the outside does not.
@@ -169,6 +178,8 @@ export interface Flow {
   groups: Group[];
   /// What the item's card shows the owner of the work, in the order `flow.toml` names them; none where it names none.
   card: string[];
+  /// What every agent's cell watches and reads beside what its own file names.
+  everyAgent: EveryAgent;
   /// In the order of the walk.
   cells: Cell[];
   /// By name.
@@ -230,22 +241,10 @@ export type What =
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }
-  /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
-  | { kind: 'takenNotRead'; block: string }
-  /// The cell names what it takes in two forms of four.
-  | { kind: 'twoForms' }
   /// The flow names among the engine's own data one that no file beside the flows defines.
   | { kind: 'noSuchData'; name: string }
   /// The thing is defined in this file and again in another.
   | { kind: 'definedTwice'; name: string; also: string }
-  /// The cell names a trigger that nothing beside the flows defines.
-  | { kind: 'noSuchTrigger'; trigger: string }
-  /// The cell names a trigger a rule makes of a datum the flow does not have.
-  | { kind: 'noSuchDatum'; trigger: string; datum: string }
-  /// The block stands only for a trigger: no cell is given it, writes it or describes the work by it.
-  | { kind: 'triggerOnly'; block: string }
-  /// The cell names `triggered_by` and `context` in a flow not laid out one thing to a file.
-  | { kind: 'notLaidOut' }
   /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
   | { kind: 'missingPlaceholder'; placeholder: string }
   /// The cell writes the work's questions, and no answer of the owner's runs it.
@@ -264,21 +263,16 @@ export type What =
   | { kind: 'lineDataOfAnother'; block: string; line: string }
   /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
   | { kind: 'cannotBeAskedIn'; cell: string }
-  /// The trigger says what happened by a place the engine does not fill.
-  | { kind: 'unknownDetail'; detail: string }
-  /// A trigger of an agent's cell has its agent read a datum that the cell's context does not hold.
-  | { kind: 'readNotInContext'; trigger: string; block: string }
-  /// The cell says what it does for a trigger that is not among its triggers.
-  | { kind: 'notATrigger'; trigger: string }
   | { kind: 'engineIsGiven'; block: string }
+  /// A `do` is said for the block, of a cell or of what every agent's cell takes, and that does not watch it.
+  | { kind: 'notWatched'; block: string }
+  /// The cell watches a datum or group whose every block's every writer runs only where the cell cannot: `needs` is the
+  /// cell's own `when` and `requires`, and each writer a cell with its own, as written.
+  | { kind: 'neverNew'; watched: string; block: string; needs: string; writers: [string, string][] }
   /// In the new form, an agent's cell that nothing runs.
   | { kind: 'runByNothing' }
   /// In the new form, the cell does not say the kind of a block it is given.
   | { kind: 'noKind'; block: string }
-  /// A table that says nothing of the block it is named for.
-  | { kind: 'saysNothing'; block: string }
-  /// The cell says why the block runs it, and it is not among those that run it.
-  | { kind: 'notRunOn'; block: string }
   /// The cell says how or why it is given the block, and it is not given it.
   | { kind: 'notGiven'; block: string }
   | { kind: 'noWriter'; block: string }
@@ -353,8 +347,8 @@ export interface SentPart {
   heldNew: SentPiece[];
   /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
   whole: SentPiece[];
-  /// Of a part of a list, each item it may hold, by its key, in the order sent: of the triggers, the line of each
-  /// trigger of the cell, by the trigger's name, sent after `pieces` where the trigger ran the cell; and then `after`.
+  /// Of a part of a list, each item it may hold, by its key, in the order sent: of the part `new`, the line of each
+  /// datum or group the cell watches, by its name, sent after `pieces` where it is new to the cell; and then `after`.
   items: [string, SentPiece[]][];
   after: SentPiece[];
 }

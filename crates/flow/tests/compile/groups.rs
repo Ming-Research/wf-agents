@@ -1,7 +1,7 @@
 //! The groups of blocks: each names blocks of the flow and has a name of its own, and a cell that watches a group is
 //! run by any of its blocks.
 
-use flow::{FLOW_FILE, FaultKind::*, Source, Watched};
+use flow::{FLOW_FILE, FaultKind::*, Listed, Source, Watched};
 
 use crate::support::{at, compiled, edit, faults, laid_out};
 
@@ -38,6 +38,7 @@ fn a_cell_that_watches_a_group_is_run_by_each_of_its_blocks_and_reads_them() {
             name: "planned".to_string(),
             blocks: vec!["plan".into(), "opinions".into()],
             does: None,
+            list: Listed::Watches,
         }]
     );
     assert_eq!(compiled.flow.cells()[2].runs_on, ["plan".into(), "opinions".into()]);

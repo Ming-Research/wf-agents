@@ -1,19 +1,20 @@
 // A work's history as a chart, drawn as the flow's chart is: the cells across in the order of the walk, each head with
 // how the cell stands now; the steps down, one to a row in the order they happened, each with its time and why at the
 // left. A run is in its cell's column, saying how it stands, how many rounds it had, how long it took, what it cost
-// and what it wrote; what is not a run is a row of its own, its words at the left and, for a write, a ring where each
-// cell that reads the block stands. The oldest step is at the top, as the walk goes down the flow's chart, and the
+// and what it wrote; what is not a run is a row of its own, its words at the left and, for a write, under each cell
+// that takes the block the flow's chart's mark of that cell for it: the ring of `watches`, or the ring of `reads` with
+// its kind. The oldest step is at the top, as the walk goes down the flow's chart, and the
 // chart opens scrolled to its end, the newest step.
 
 import { type CSSProperties, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Flow } from '../api';
-import { Breakable, MarkGlyph, WIDTHS, tableWidth, useWheel } from '../Chart';
-import { NO_MARK, type Spot } from '../matrix';
+import { Breakable, ConditionMark, DataGlyphs, WIDTHS, tableWidth, useWheel } from '../Chart';
+import { markOf } from '../matrix';
 import { Arrow, Edge, Sign } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { CellNow, Step, WorkPage } from '../works-api';
-import { type HistoryRow, type RowMark, placeSteps } from './placing';
+import { type HistoryRow, placeSteps } from './placing';
 import { StateMark, cellNowWords } from './marks';
 import {
   RUN_WORDS,
@@ -37,16 +38,6 @@ export type Chosen = { step: number } | { cell: string } | { usage: true } | nul
 /// The width of the column of times and words at first, and the least and most it is dragged to.
 const STEPS = { first: 260, min: 160, max: 520 };
 
-/// A mark of the flow's chart, for a row of its own: a ring where a cell reads what was written, a diamond where its
-/// condition does.
-function spotOf(mark: RowMark): Spot {
-  return {
-    mark: { ...NO_MARK, runs: mark === 'read', given: mark === 'read', condition: mark === 'condition' },
-    line: 'none',
-    back: 'none',
-    backTo: false,
-  };
-}
 
 /// A piece of a row's words: the page's own words, or a name or a value from the flow, drawn in monospace.
 type Part = string | { name: string };
@@ -303,6 +294,12 @@ function StepRow(props: {
               : 'back-through'
             : '';
         const mark = row.marks.get(i);
+        // Of a write, what the cell takes of the block by any list: a new version of it runs the cell, or the cell is
+        // only given it.
+        const takes = (cell: typeof c) => {
+          const m = step.kind === 'wrote' ? markOf(cell, step.block) : null;
+          return { write: false, watch: m?.watch ?? false, read: m !== null && !m.watch, kind: m?.kind ?? null };
+        };
         return (
           <td
             key={c.id}
@@ -314,9 +311,9 @@ function StepRow(props: {
             {row.column === i && step.kind === 'run' && <RunBox run={step} now={now} back={row.backFrom.length > 0} />}
             {mark && mark !== 'letGo' && (
               <>
-                <MarkGlyph spot={spotOf(mark)} />
+                {mark === 'read' ? <DataGlyphs mark={takes(c)} /> : <ConditionMark />}
                 <span className="visually-hidden">
-                  {mark === 'read' ? `${c.id} reads it` : `${c.id}'s condition reads it`}
+                  {mark === 'read' ? `${c.id} ${takes(c).watch ? 'watches' : 'reads'} it` : `${c.id}'s condition reads it`}
                 </span>
               </>
             )}

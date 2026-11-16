@@ -24,8 +24,8 @@ pub mod source;
 pub mod system;
 
 pub use compile::{
-    ANSWER, Block, CellSpec, Compiled, Fault, FaultKind, Given, Has, Limits, Line, Readers, RunsOn, Shape, TURNING,
-    WORDS, Watched, Writers, compile,
+    ANSWER, Block, CellSpec, Compiled, EveryAgent, Fault, FaultKind, Given, Has, Limits, Line, Readers, Shape, TURNING,
+    Taken, WORDS, Watched, Writers, compile,
 };
 pub use decide::{Test, TestKind};
 pub use source::{

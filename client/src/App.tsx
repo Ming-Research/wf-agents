@@ -23,7 +23,7 @@ import { Bar, Drawer, Panel, Switch } from './parts';
 import { type Route, hashOf, periodOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { WIDTH_KEYS } from './sizes';
-import { BlockPanel, CellPanel, Faults, GroupPanel, LinePanel, TestPanel, ToolPanel } from './Side';
+import { BlockPanel, CellPanel, EveryAgentPanel, Faults, GroupPanel, LinePanel, TestPanel, ToolPanel } from './Side';
 import { SettingsView } from './system/SettingsView';
 import { SystemView } from './system/SystemView';
 import { type Theme, useTheme } from './theme';
@@ -187,6 +187,16 @@ function BarEngine({ onRead }: { onRead: (bar: BarItems) => void }) {
 }
 
 /// The limits of the flow as a whole, by their keys as `flow.toml` writes them.
+/// What `[every_agent]` names, after its key, as `flow.toml` writes it: ` watches guide, reads {each}_questions`.
+function everyAgentWords(flow: Flow): string {
+  const { watches, reads } = flow.everyAgent;
+  const parts = [
+    ...(watches.length > 0 ? [`watches ${watches.map((n) => n.name).join(', ')}`] : []),
+    ...(reads.length > 0 ? [`reads ${reads.map((n) => n.name).join(', ')}`] : []),
+  ];
+  return ` ${parts.join(', ')}`;
+}
+
 function limitsWords(flow: Flow): string {
   const { runs, returns, calls } = flow.limits;
   return `limits runs ${runs}, returns ${returns}, calls ${calls}`;
@@ -282,19 +292,14 @@ export function FlowPage({ definition, given, active = true }: {
   }
 
   const cell = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
-  // A block chosen by its name: its datum's row, or else the row of a trigger that stands on it, which a block standing
-  // only for a trigger has alone. A trigger's row is named for the trigger, which may be another block's name; a
-  // group's trigger stands on no one block.
-  const block =
-    chosen && 'block' in chosen
-      ? (drawn.blocks.find((b) => b.trigger === undefined && b.on === chosen.block) ??
-          drawn.blocks.find((b) => b.block !== undefined && b.on === chosen.block))?.block
-      : undefined;
+  // A block chosen by its name, whether it has a row of the data or `[every_agent]`'s band stands for it.
+  const block = chosen && 'block' in chosen ? flow.blocks.find((b) => b.name === chosen.block) : undefined;
   const lineRow = chosen && 'line' in chosen ? drawn.lines.find((l) => l.name === chosen.line) : undefined;
   const testRow =
     chosen && 'test' in chosen ? drawn.conditions.find((c) => c.test && c.name === chosen.test) : undefined;
   const tool = chosen && 'tool' in chosen ? chosen.tool : undefined;
   const group = chosen && 'group' in chosen ? chosen.group : undefined;
+  const everyAgent = chosen !== null && 'everyAgent' in chosen;
 
   let shown = (
     <Panel label="Nothing chosen">
@@ -329,6 +334,8 @@ export function FlowPage({ definition, given, active = true }: {
     );
   } else if (group !== undefined) {
     shown = <GroupPanel name={group} flow={flow} onChoose={choose} />;
+  } else if (everyAgent) {
+    shown = <EveryAgentPanel flow={flow} onChoose={choose} />;
   }
 
   return (
@@ -340,7 +347,9 @@ export function FlowPage({ definition, given, active = true }: {
           <span className="view-name">{flow.name}</span>
           <span className="view-facts" title="flow.toml">
             {limitsWords(flow)}
-            {flow.tools.length > 0 && (
+            {/* The flowchart has no rows for the tools or for what every agent's cell is given alike: its view's line
+                names them, as `flow.toml` writes them; the matrix draws them as bands of rows. */}
+            {chartView === 'flowchart' && flow.tools.length > 0 && (
               <>
                 {' · tools '}
                 {flow.tools.map((t, i) => (
@@ -356,6 +365,20 @@ export function FlowPage({ definition, given, active = true }: {
                     </button>
                   </Fragment>
                 ))}
+              </>
+            )}
+            {chartView === 'flowchart' && (flow.everyAgent.watches.length > 0 || flow.everyAgent.reads.length > 0) && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  className="link mono"
+                  aria-pressed={everyAgent}
+                  onClick={() => choose(everyAgent ? null : { everyAgent: true })}
+                >
+                  every_agent
+                </button>
+                {everyAgentWords(flow)}
               </>
             )}
           </span>
