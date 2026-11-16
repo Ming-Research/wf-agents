@@ -22,6 +22,9 @@
 //!    committed to, the branch is at the head the check last passed, and each judge that the head runs and that
 //!    applies, a cell that writes a block the check's preconditions read, was told of a version that says that head
 //!    by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
+//! 7. A work never stalls at the check's gate: after every step, the deciding code does not find it stalled on a key
+//!    that reads a choice the check writes, which only the owner speaking to a cell would move (decision
+//!    an-act-is-answered-by-what-runs-it).
 //!
 //! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
 //! own reading of the records as they were then (`reading`), never by the deciding code's tests.
@@ -44,9 +47,12 @@
 //!   write beside the rest in one in twenty-five, and otherwise handing in what its cell may write: each choice in nine
 //!   of ten, its first value (yes) in a little over half of those; each other block in four of five, mattering in seven
 //!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. A return that
-//!   hands in names as dealt with each trigger its round was told ran it, by its name, as an agent writes it. In one
-//!   history of five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach
-//!   their limit of returns;
+//!   hands in names as dealt with each trigger its round was told ran it, by its name, as an agent writes it. Beside
+//!   such a hand-in, the agent of a cell an answer runs writes in the record of the questions a question of its own in
+//!   six of a hundred, which waits in three of ten, the return then handing in each block its cell must write; asks
+//!   one of its own that stands anew in three of a hundred, and withdraws one in three of a hundred. In one history of
+//!   five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach their limit
+//!   of returns;
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
 //!   kind `all` looks for in three of five (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
@@ -57,8 +63,9 @@
 //!   choice people write (a verdict), yes or no, in about a fifth of the acts; prose people write (the background, an
 //!   opinion for a cell) in three of twenty; the outside writes one of its blocks, a choice with the value a
 //!   precondition looks for in four of five, prose mattering in half, in three of twenty; the owner lets the cell at
-//!   its limit go on, or any cell where none is, in three of twenty; pauses or resumes in a tenth; cancels in one in a
-//!   hundred; looks otherwise.
+//!   its limit go on, or any cell where none is, in three of twenty; pauses or resumes in a tenth; answers a question
+//!   that stands, its latest version, by either option, in six of a hundred; cancels in one in a hundred; looks
+//!   otherwise.
 //!
 //! Seven histories of ten are steered, drawn by a generator of their own so that the other draws keep their order, each
 //! taking every random step it may. In three of ten, the work is paused while the check's round is under way; once
@@ -80,7 +87,8 @@
 //! because an opinion addressed to its cell changed (it fixes what it was told), or where the cell is an act of the
 //! engine's, whose writes always matter; so every hand-in has each block its cell must write, and none is sent back.
 //! Tools answer, the owner answers every question and lets every run go on at its limits; where nothing is to be done
-//! and the work waits, the owner resumes a paused work, lets the cell it waits at go on at its limit, and makes a
+//! and the work waits, the owner answers a question that stands with no answer by the option it recommends, resumes a
+//! paused work, lets the cell it waits at go on at its limit, and makes a
 //! precondition it waits on hold where a person or the outside can: writes a verdict whose refusal stands as a value
 //! that is not, and the outside writes what the first cell's precondition looks for. Where the precondition reads a
 //! choice that only cells write (the check's), the work is stalled: the owner speaks to the line of the cell that
@@ -116,7 +124,7 @@ use decide::{
     decide,
 };
 use engine::spoken::{self, To};
-use engine::{Ask, Came, Effect, Event, Handed};
+use engine::{Ask, Came, Effect, Event, Handed, Question, Way};
 use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
@@ -138,6 +146,7 @@ const CONTENT_MERGES: &str = "3: a work everyone is content with merges within t
 const RUNS_FOR_NOTHING: &str = "4: runs for nothing stay within the bound";
 const MUST_WRITE_WRITTEN: &str = "5: no finished run lacks a block its cell must write";
 const MERGE_UNSEEN: &str = "6: the work's head the merge merges is a version the review dealt with";
+const CHECK_NEVER_STALLS: &str = "7: a work never stalls at the check's gate";
 const DRIVER: &str = "the driver";
 
 /// The source of the block of the work's head, which the carriers read of the work's branch.
@@ -399,6 +408,8 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             MERGED_A_REVIEWED_HEAD,
             CHECK_GATED,
             MERGE_ON_A_MOVED_HEAD,
+            ASKED_IN_THE_RECORD,
+            RED_AFTER_AN_ANSWER,
         ]
         .map(String::from),
     );
@@ -468,13 +479,16 @@ const CONTENT_MERGED: &str = "the content continuation merged";
 const CONTENT_ON_A_FAILED_CHECK: &str = "the content continuation began as the check's record failed";
 const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's own refusal stood";
 // Not required: the engineer's flow leaves no work stalled at the check for the owner's word to a cell, since a return
-// that deals with a failed check leaves what runs the check again, or is sent back.
+// that deals with a failed check leaves what runs the check again, or is sent back; property 7 holds it to that.
 const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a precondition waits on";
 const ENGINE_STOPPED: &str = "the engine stopped";
 const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
 const MERGED_A_REVIEWED_HEAD: &str = "the merge merged a head the work committed and the review dealt with";
 const CHECK_GATED: &str = "the check failed in passing on a head a judge of it had not dealt with";
 const MERGE_ON_A_MOVED_HEAD: &str = "the merge failed in passing on a head moved since the check passed";
+const ASKED_IN_THE_RECORD: &str = "a cell asked the owner a question in the record of the questions";
+const RED_AFTER_AN_ANSWER: &str =
+    "a cell told of what the check found began while a question the owner had answered stood";
 
 /// The source of the block the driver writes as the owner starts a work, which runs the first cell.
 const START: &str = "start";
@@ -507,6 +521,11 @@ fn addressed(flow: &Compiled, block: &BlockId, i: usize) -> bool {
     let words = b.writers.outside.as_deref() == Some(flow::WORDS);
     let from_after = (b.writers.cells.iter()).any(|c| flow.flow.place(c).is_some_and(|j| j > i));
     flow.flow.cells()[i].runs_on.contains(block) && (only_people || words || from_after)
+}
+
+/// Whether a question the owner answered stands in these records.
+fn answered_stood(records: &Records) -> bool {
+    (decide::questions::questions(records).values()).any(|q| q.stands() && q.answer.is_some())
 }
 
 /// Whether the block was ever written.
@@ -908,10 +927,64 @@ impl Random {
                 hands_in(d, run, i, handed_in)
             }
             _ => {
-                let handed_in = self.valid(d, i, cell);
-                hands_in(d, run, i, handed_in)
+                let mut handed_in = self.valid(d, i, cell);
+                let questions = self.questions(d, i, cell, &mut handed_in);
+                let mut came = hands_in(d, run, i, handed_in);
+                came.said.questions = questions;
+                came
             }
         }
+    }
+
+    /// What the agent of the cell at this place writes in the record of the questions beside its hand-in, where an
+    /// answer runs its cell: a question of its own in six of a hundred, which waits in three of ten; one of its own
+    /// that stands asked anew, as it was, in three of a hundred; one withdrawn in three of a hundred; nothing
+    /// otherwise. A return whose question waits may leave out the blocks its cell must write, which the histories'
+    /// check of them does not allow for (`lacking_a_must_write`): such a return hands each of them in.
+    fn questions(&self, d: &mut Driver, i: usize, cell: &str, handed_in: &mut Vec<Handed>) -> Vec<Question> {
+        let spec = &d.flow.cells[i];
+        if !(spec.triggers.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
+            return Vec::new();
+        }
+        let own: Vec<String> = (decide::questions::questions(&d.work.records).into_iter())
+            .filter(|(_, q)| q.stands() && q.latest.cell.as_str() == cell && !q.latest.engine)
+            .map(|(name, _)| name.to_string())
+            .collect();
+        let (name, waits) = match d.rng.below(100) {
+            0..=5 => (format!("{cell}_{}", d.work.records.questions.len()), d.rng.chance(30)),
+            6..=8 if !own.is_empty() => (own[d.rng.below(own.len())].clone(), false),
+            9..=11 if !own.is_empty() => {
+                let name = own[d.rng.below(own.len())].clone();
+                let why = "Settled.".to_string();
+                return vec![Question::Withdrawn { name, why }];
+            }
+            _ => return Vec::new(),
+        };
+        if waits {
+            let missing: Vec<BlockId> = (d.flow.cells[i].must_write.iter())
+                .filter(|b| !handed_in.iter().any(|h| &h.block == *b))
+                .cloned()
+                .collect();
+            let stands = self.as_it_stands(d, i, cell, false);
+            handed_in.extend(stands.into_iter().filter(|h| missing.contains(&h.block)));
+        }
+        let way = |does: &str, follows: &str| Way {
+            does: does.to_string(),
+            follows: follows.to_string(),
+        };
+        let ask = format!("Which way for {name}?");
+        vec![Question::Asked {
+            name,
+            waits,
+            recommends: Some(1),
+            ask,
+            options: vec![
+                way("the short way", "less to read"),
+                way("the long way", "more to read"),
+            ],
+            about: None,
+            reasons: Default::default(),
+        }]
     }
 
     /// What a person or the outside does now, a person's commit on the branch among it.
@@ -1025,6 +1098,23 @@ impl Random {
                 b.head += 1;
                 self.branch.set(b);
                 None
+            }
+            // The owner answers the latest version of a question that stands, answered or not, by either option.
+            90..=95 => {
+                let standing: Vec<(String, Seq)> = (decide::questions::questions(&d.work.records).into_iter())
+                    .filter(|(_, q)| q.stands())
+                    .map(|(name, q)| (name.to_string(), q.latest.at))
+                    .collect();
+                (!standing.is_empty()).then(|| {
+                    let (question, version) = standing[d.rng.below(standing.len())].clone();
+                    let option = 1 + d.rng.below(2) as u64;
+                    Event::Answer {
+                        question,
+                        version,
+                        option,
+                        why: None,
+                    }
+                })
             }
             _ => None,
         };
@@ -1171,8 +1261,10 @@ fn writers(d: &Driver, b: &BlockId) -> u64 {
 /// or the outside writes each block a named test reads at most once. A block a named test reads that only cells write
 /// is not written by the owner but asked for: the owner writes once in an opinion for each cell that writes it, which
 /// runs that cell once more. That write and that run are counted apart: one step, and `PER_RUN` steps, for each writer
-/// of each such block (the run is also among those of its cell; counted twice, the bound only grows). The limits of
-/// runs do not enter: the owner lets every cell go on.
+/// of each such block (the run is also among those of its cell; counted twice, the bound only grows). The owner answers
+/// each question that stands with no answer as the continuation begins, which no round of it asks: one step, and
+/// `PER_RUN` steps for the run of its cell an answer it waited for begins. The limits of runs do not enter: the owner
+/// lets every cell go on.
 fn content_bound(d: &Driver) -> u64 {
     let flow = &d.flow.flow;
     let changes = |b: &BlockId| 2 + 2 * writers(d, b);
@@ -1185,7 +1277,10 @@ fn content_bound(d: &Driver) -> u64 {
         .filter(|w| !w.people && w.outside.is_none())
         .map(|w| w.cells.len() as u64)
         .sum();
-    d.held.len() as u64 + PER_RUN * runs + tested.len() as u64 + 1 + asked * (1 + PER_RUN)
+    let questions = (decide::questions::questions(&d.work.records).values())
+        .filter(|q| q.unanswered())
+        .count() as u64;
+    d.held.len() as u64 + PER_RUN * runs + tested.len() as u64 + 1 + (asked + questions) * (1 + PER_RUN)
 }
 
 /// The owner's few words to a cell, where the key reads a block only cells write: to the line of a cell that writes it
@@ -1357,15 +1452,31 @@ impl History {
                 reached.push(by.to_string());
             }
         }
+        let mut stalled = None;
         match decide(flow, records) {
             Decision::Wait { on, .. } if on.iter().any(|w| matches!(w, Waited::Limit { .. })) => {
                 reached.push(CELL_LIMIT.to_string());
             }
             Decision::Ended(_) => self.ended = true,
+            // Stalled on a key that reads what the check writes: only the owner speaking to a cell would move it.
+            Decision::Stalled { at, on, .. } => {
+                let checks: Vec<&BlockId> = self.roles.check_passes(&self.d.flow).map(|(b, _)| b).collect();
+                if on
+                    .iter()
+                    .any(|key| key_reads(&self.d.flow, key).iter().any(|b| checks.contains(b)))
+                {
+                    stalled = Some(format!(
+                        "the work stalled at {at} on {on:?}, which only the check writes"
+                    ));
+                }
+            }
             _ => {}
         }
         for r in reached {
             self.reach(r);
+        }
+        if let Some(what) = stalled {
+            self.breach(CHECK_NEVER_STALLS, what);
         }
     }
 
@@ -1521,6 +1632,18 @@ impl History {
                 reached.push(person_wrote(&w.block));
             }
         }
+        if records.questions.iter().any(|q| !q.engine) {
+            reached.push(ASKED_IN_THE_RECORD.to_string());
+        }
+        // A run begun for what the check wrote while a question the owner had answered stood: the case an answered
+        // question once let through, which property 7 holds.
+        let found = &cells[self.roles.check].outputs;
+        let after_an_answer = (records.started.iter())
+            .filter(|s| (s.because.iter()).any(|c| matches!(c, Cause::Changed { block, .. } if found.contains(block))))
+            .any(|s| answered_stood(&records.before(s.at)));
+        if after_an_answer {
+            reached.push(RED_AFTER_AN_ANSWER.to_string());
+        }
         if self.d.seen.limits > 0 {
             reached.push(RUN_LIMIT.to_string());
         }
@@ -1541,11 +1664,25 @@ impl History {
         }
     }
 
-    /// What the owner or the outside does in the content continuation where nothing is to be done: of a stalled work,
-    /// asks the cell that writes what it waits for to write it again, which it says; resumes the work; lets the cell it
+    /// What the owner or the outside does in the content continuation where nothing is to be done: answers a question
+    /// that stands with no answer; of a stalled work, asks the cell that writes what it waits for to write it again,
+    /// which it says; resumes the work; lets the cell it
     /// waits at go on at its limit, or makes a precondition it waits on hold, or asks the cell that writes what it
     /// reads to write it again, which it says; none where none of these moves it on.
     fn resolve(&self, decision: &Decision) -> Option<(Event, bool)> {
+        // The owner answers a question that stands with no answer, its latest version, by the option it recommends.
+        let unanswered = (decide::questions::questions(&self.d.work.records).into_iter())
+            .find(|(_, q)| q.unanswered())
+            .map(|(name, q)| (name.to_string(), q.latest.at));
+        if let Some((question, version)) = unanswered {
+            let answer = Event::Answer {
+                question,
+                version,
+                option: 1,
+                why: None,
+            };
+            return Some((answer, false));
+        }
         if let Decision::Stalled { on, .. } = decision
             && let Some(asked) = on.iter().find_map(|key| ask_a_cell(&self.d, key))
         {

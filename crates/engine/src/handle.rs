@@ -907,13 +907,18 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
     };
     let asked = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(asked::ASKED));
     let cells = flow.flow.cells();
-    for block in &cells[place].runs_on {
-        let acts = (flow.cells.iter().zip(cells)).skip(place + 1);
-        for (_, act) in acts.filter(|(spec, act)| spec.kind == Kind::Engine && act.outputs.contains(block)) {
+    let runs_on = &cells[place].runs_on;
+    let acts = (flow.cells.iter().zip(cells)).skip(place + 1);
+    for (_, act) in
+        acts.filter(|(spec, act)| spec.kind == Kind::Engine && act.outputs.iter().any(|b| runs_on.contains(b)))
+    {
+        // What is new to the act is the act's alone, whichever of the cell's blocks it wrote.
+        let new = !decide::new_to(&flow.flow, &work.records, &act.id).is_empty();
+        for block in runs_on.iter().filter(|b| act.outputs.contains(b)) {
             let answer = answers.entry(block.clone()).or_default();
             answer.runs.extend(act.runs_on.iter().cloned());
             answer.question |= asked.is_some_and(|(id, _)| act.runs_on.contains(id));
-            answer.new |= !decide::new_to(&flow.flow, &work.records, &act.id).is_empty();
+            answer.new |= new;
         }
     }
     answers

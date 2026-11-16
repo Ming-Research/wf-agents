@@ -567,8 +567,9 @@ fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record
 }
 
 /// The research and the implementation of the asking flow, the implementation run as well by what the check finds and
-/// by the owner's answers to its own questions; the check, an act of the engine's that the work's head and the
-/// questions' standing run and that alone says whether the work passed; and a merge that waits for its yes.
+/// by the owner's answers to its own questions; the check, an act of the engine's that the work's head, main and the
+/// questions' standing run, that alone says whether the work passed, and that is skipped where a person turns
+/// `checking` off; and a merge that waits for its yes.
 fn asking_then_checked() -> Compiled {
     let flow = r#"
         name = "asking_then_checked"
@@ -595,6 +596,12 @@ fn asking_then_checked() -> Compiled {
         between = " and "
         [blocks.head]
         outside = "head"
+        [blocks.main]
+        outside = "main"
+        [blocks.checking]
+        people = true
+        values = ["on", "off"]
+        default = "on"
         [blocks.plan]
         [blocks.code]
         shown = true
@@ -626,7 +633,8 @@ fn asking_then_checked() -> Compiled {
         title = "Check"
         kind = "engine"
         act = "check"
-        inputs = ["head", "asked"]
+        when = { checking = "on" }
+        inputs = ["head", "main", "asked"]
         outputs = ["passed", "failures"]
         describes = ["code"]
     "#;
@@ -652,7 +660,7 @@ fn asking_then_checked() -> Compiled {
         ..Default::default()
     };
     let has = Has {
-        sources: ["answer", "asked", "head"].map(str::to_string).into(),
+        sources: ["answer", "asked", "head", "main"].map(str::to_string).into(),
         acts: ["check", "merge"].map(str::to_string).into(),
         ..Default::default()
     };
@@ -727,4 +735,206 @@ fn an_answer_the_check_has_not_run_on_answers_what_the_check_found() {
     let effects = w.returns(answered, Came::works(dealt_with, Vec::new()));
     let (_, cell, number, _) = round(&effects);
     assert_eq!((cell.as_str(), number), ("check", 1));
+}
+
+/// A work on the flow whose check runs after an implementation.
+fn checking() -> W {
+    W {
+        flow: asking_then_checked(),
+        work: Work::default(),
+        clock: START,
+    }
+}
+
+/// A return of the implementation that hands in the code and commits, the work's head read as this commit.
+fn building(commit: u64) -> Came {
+    let mut built = hands_in(&[("code", None)]);
+    built.read = vec![Handed {
+        block: "head".into(),
+        content: format!("commit {commit}"),
+        matters: true,
+        value: None,
+    }];
+    built
+}
+
+/// What the check hands in that finds the change red.
+fn red() -> Came {
+    hands_in(&[("passed", Some("no")), ("failures", None)])
+}
+
+/// A return of the implementation that deals with what the check found and commits nothing.
+fn nothing() -> Came {
+    Came::works(vec!["failures".into()], Vec::new())
+}
+
+/// The round that sends back the return of the implementation's run, as it answers what the check found with nothing
+/// that runs the check again.
+fn sent_back_unanswered(run: RunId) -> Vec<Effect> {
+    let unanswered = vec![Unmet::Unanswered {
+        block: "failures".into(),
+    }];
+    vec![round_effect(run, "implement", 2, Given::SentBack(unanswered))]
+}
+
+/// The work begun, its research handing in the plan, its implementation committing and asking these, and its check
+/// finding the change red: the run of the implementation that what the check found begins, its round under way.
+fn red_check(w: &mut W, asks: Vec<Question>) -> RunId {
+    let (effects, _) = w.person_writes("request");
+    let (research, ..) = round(&effects);
+    let effects = w.returns(research, plans(Vec::new()));
+    let (implementing, ..) = round(&effects);
+    let mut built = building(1);
+    built.said.questions = asks;
+    let effects = w.returns(implementing, built);
+    let (check, cell, ..) = round(&effects);
+    assert_eq!(cell, "check");
+    let effects = w.returns(check, red());
+    let (fixing, cell, number, _) = round(&effects);
+    assert_eq!((cell.as_str(), number), ("implement", 1));
+    fixing
+}
+
+// The latest version of a question asked anew stands with no answer, though the owner answered the one before it: the
+// answer to come runs the check again.
+#[test]
+fn a_question_asked_anew_and_not_yet_answered_answers_what_the_check_found() {
+    let mut w = checking();
+    let (effects, _) = w.person_writes("request");
+    let (research, ..) = round(&effects);
+    let effects = w.returns(research, plans(vec![asked("which", false)]));
+    let (implementing, ..) = round(&effects);
+    let first = w.version("which");
+    w.answers("which", first, 1);
+    // A new request runs the research again, which stops the implementation's round and asks the question anew.
+    w.on(wrote("request", Outsider::Person, true, None));
+    w.returns(implementing, Came::hands_in(Vec::new()));
+    let research = (w.work.records.started.iter())
+        .rfind(|s| s.cell.as_str() == "research")
+        .expect("the research runs again")
+        .run;
+    let effects = w.returns(research, plans(vec![asked("which", false)]));
+    let anew = w.version("which");
+    assert!(anew > first);
+    let (implementing, ..) = round(&effects);
+    let effects = w.returns(implementing, building(1));
+    let (check, cell, ..) = round(&effects);
+    assert_eq!(cell, "check");
+    let effects = w.returns(check, red());
+    let (fixing, ..) = round(&effects);
+    assert_eq!(w.returns(fixing, nothing()), []);
+    let effects = w.answers("which", anew, 1);
+    let (_, cell, ..) = round(&effects);
+    assert_eq!(cell, "check");
+}
+
+// A return that withdraws one question of its cell's leaves what the check found answered by another that stands with
+// no answer.
+#[test]
+fn a_question_withdrawn_beside_one_with_an_answer_to_come_leaves_what_the_check_found_answered() {
+    let mut w = checking();
+    let fixing = red_check(&mut w, vec![asked("one", false), asked("two", false)]);
+    let mut withdraws = nothing();
+    withdraws.said.questions = vec![Question::Withdrawn {
+        name: "one".to_string(),
+        why: "Settled.".to_string(),
+    }];
+    assert_eq!(w.returns(fixing, withdraws), []);
+    let two = w.version("two");
+    let effects = w.answers("two", two, 1);
+    let (_, cell, ..) = round(&effects);
+    assert_eq!(cell, "check");
+}
+
+// A second answer to the version the owner answered before the check ran leaves what stands for the questions as it
+// was, which the check ran on: a return that deals with what the check found and commits nothing is sent back.
+#[test]
+fn a_second_answer_to_the_same_version_does_not_answer_what_the_check_found() {
+    let mut w = checking();
+    let (effects, _) = w.person_writes("request");
+    let (research, ..) = round(&effects);
+    let effects = w.returns(research, plans(Vec::new()));
+    let (implementing, ..) = round(&effects);
+    // The implementation asks the owner first, and waits for the answer.
+    let mut asks = Came::works(vec!["plan".into()], Vec::new());
+    asks.said.questions = vec![asked("which", true)];
+    assert_eq!(w.returns(implementing, asks), []);
+    let version = w.version("which");
+    let effects = w.answers("which", version, 1);
+    let (answered, cell, ..) = round(&effects);
+    assert_eq!(cell, "implement");
+    let effects = w.returns(answered, building(1));
+    let (check, cell, ..) = round(&effects);
+    assert_eq!(cell, "check");
+    let effects = w.returns(check, red());
+    let (fixing, ..) = round(&effects);
+    let before = w.asked();
+    w.answers("which", version, 2);
+    assert_eq!(w.asked(), before, "what stands for the questions is as it was");
+    assert_eq!(w.returns(fixing, nothing()), sent_back_unanswered(fixing));
+}
+
+// The engine's own question, asked as the round ends, has an answer to come, which runs the check again.
+#[test]
+fn the_engine_s_question_asked_as_the_round_ends_answers_what_the_check_found() {
+    let mut w = checking();
+    let fixing = red_check(&mut w, Vec::new());
+    let mut asking = nothing();
+    asking.engine = vec![asked("protected_files", true)];
+    assert_eq!(w.returns(fixing, asking), []);
+    assert!(
+        matches!(w.decision(), decide::Decision::Wait { at, .. } if at.as_str() == "implement"),
+        "{:?}",
+        w.decision()
+    );
+}
+
+// Main moved since the check ran is new to it, and runs it again whatever the return leaves.
+#[test]
+fn main_moved_since_the_check_ran_answers_what_the_check_found() {
+    let mut w = checking();
+    let fixing = red_check(&mut w, Vec::new());
+    w.on(wrote("main", Outsider::Outside, true, None));
+    let effects = w.returns(fixing, nothing());
+    let (_, cell, ..) = round(&effects);
+    assert_eq!(cell, "check");
+}
+
+// A head moved while the check judged the one before, by a commit no round made, is new to the check, and runs it
+// again whatever the return leaves.
+#[test]
+fn a_head_moved_while_the_check_judged_answers_what_the_check_found() {
+    let mut w = checking();
+    let (effects, _) = w.person_writes("request");
+    let (research, ..) = round(&effects);
+    let effects = w.returns(research, plans(Vec::new()));
+    let (implementing, ..) = round(&effects);
+    let effects = w.returns(implementing, building(1));
+    let (check, cell, ..) = round(&effects);
+    assert_eq!(cell, "check");
+    w.on(Event::Wrote {
+        block: "head".into(),
+        by: Outsider::Outside,
+        content: "commit 2".to_string(),
+        matters: true,
+        value: None,
+    });
+    let effects = w.returns(check, red());
+    let (fixing, cell, ..) = round(&effects);
+    assert_eq!(cell, "implement");
+    let effects = w.returns(fixing, nothing());
+    let (_, cell, ..) = round(&effects);
+    assert_eq!(cell, "check");
+}
+
+// What is new to an act its condition skips runs it on nothing: it answers no return, which is sent back.
+#[test]
+fn what_is_new_to_a_skipped_check_does_not_answer_what_it_found() {
+    let mut w = checking();
+    let fixing = red_check(&mut w, Vec::new());
+    w.on(wrote("checking", Outsider::Person, true, Some("off")));
+    w.on(wrote("main", Outsider::Outside, true, None));
+    let new = decide::new_to(&w.flow.flow, &w.work.records, &"check".into());
+    assert_eq!(new, Vec::<BlockId>::new());
+    assert_eq!(w.returns(fixing, nothing()), sent_back_unanswered(fixing));
 }
