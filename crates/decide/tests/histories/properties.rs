@@ -290,14 +290,15 @@ pub struct Came<'a> {
 /// dialogue as the maker, a point in which was new to it as its run started, and the return names the dialogue as dealt
 /// with and writes no version of it and none of what the other side watches; a judge's point is owed where it writes
 /// its verdict with the value that does not pass and no version of its dialogue. A return that asks for calls, or of a
-/// cell owed the results of calls, is held to neither.
+/// cell that waits for the results of calls or for the answer to a question of its as its run starts, entered then only
+/// for the owner turning to it, is held to neither.
 pub fn next_word(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started, came: Came, step: &Step) {
     let sent: &[Unmet] = match step {
         Step::SendBack { unmet } => unmet,
         Step::Finish { .. } => &[],
         _ => return,
     };
-    let waits = !reading.owed(&s.cell, s.at).is_empty();
+    let waits = !reading.owed(&s.cell, s.at).is_empty() || reading.held(&s.cell, s.at);
     let Some(i) = flow.place(&s.cell).filter(|_| !came.calls && !waits) else {
         return;
     };
@@ -305,7 +306,7 @@ pub fn next_word(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started, c
     let wrote = |b: &BlockId| came.writes.iter().any(|w| &w.block == b);
     for (dialogue, watched) in &cell.dialogues {
         let woken = !reading.new_to(&s.cell, dialogue, s.at).is_empty() && came.dealt_with.contains(dialogue);
-        let owed = woken && !wrote(dialogue) && !watched.iter().any(|b| wrote(b));
+        let owed = woken && !wrote(dialogue) && !watched.iter().any(&wrote);
         let said = sent
             .iter()
             .any(|u| matches!(u, Unmet::WordOwed { name, .. } if name == dialogue));

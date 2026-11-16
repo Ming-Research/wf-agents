@@ -1746,21 +1746,21 @@ impl<'a> Definition<'a> {
             .unwrap_or_default()
     }
 
-    /// The other side of each dialogue the cell of this id holds (design document `data-and-context`, 36): of each block
-    /// it writes and watches, the other cells of the order that write and watch it too, each with whether the cell is
-    /// the maker: the other side watches something else it writes.
+    /// The other side of each dialogue the cell of this id holds (design document `data-and-context`, 36): of each datum
+    /// it writes and watches by its name, the other cells of the order that write it and watch it by its name too, each
+    /// with whether the cell is the maker: the other side watches something else it writes. What a cell watches as one
+    /// of a group, such as the plan its makers bring up to date, is no dialogue.
     fn sides(&self, id: &str, file: &CellFile) -> Vec<(BlockId, &'a str, bool)> {
-        let own = self.watched_by(id);
         let mut sides = Vec::new();
-        for block in (file.outputs.iter()).filter(|b| own.iter().any(|o| o.as_str() == b.as_str())) {
+        for block in (file.outputs.iter()).filter(|b| file.watches.contains(b)) {
             let Some(uses) = self.uses.get(block.as_str()) else {
                 continue;
             };
             for &(_, other) in uses.writers.iter().filter(|(_, other)| *other != id) {
-                let theirs = self.watched_by(other);
-                if !theirs.iter().any(|t| t.as_str() == block.as_str()) {
+                if !self.cells.get(other).is_some_and(|f| f.watches.contains(block)) {
                     continue;
                 }
+                let theirs = self.watched_by(other);
                 let maker = (theirs.iter()).any(|t| t.as_str() != block.as_str() && file.outputs.contains(&t.0));
                 sides.push((BlockId(block.clone()), other, maker));
             }

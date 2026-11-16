@@ -59,8 +59,8 @@ fn a_maker_that_answers_changes_what_the_other_side_watches_or_asks_what_the_wor
     // A change of what the other side watches.
     let changed = vec![prose("plan")];
     assert_eq!(step(vec![handed_in(changed.clone())], &s), finish(changed));
-    // What the round committed, read as it ended.
-    assert_eq!(step(vec![committed(&["plan"])], &s), finish(vec![]));
+    // What the round committed, read as it ended, which it hands in.
+    assert_eq!(step(vec![committed(&["plan"])], &s), finish(vec![prose("plan")]));
     // A question the work waits for, the dispute put to the owner.
     let asking = came(&["request", "opinions"], vec![], vec![], true);
     assert_eq!(step(vec![asking], &s), finish(vec![]));
