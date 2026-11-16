@@ -94,12 +94,12 @@ const RING = 2;
 const CHOSEN_RING = 3;
 /// How far in from the side of the room an item brought into view stands.
 const INSET = 24;
-/// The soft light round the item under the pointer, and round the item selected, in place of a ring of light: a band
-/// of the pointer's blue (or of the accent) round its card, from its edge to this many pixels past it, the card's own
-/// place cut out so that none of it shows through a card drawn faint, blurred this much, at
-/// this strength, so that the light shows only as a narrow glow round the card; the item selected's a little wider
-/// and softer, so that it stands out from the one under the pointer. The room the blur is drawn in past the fill is
-/// wide enough that the blur fades out before its edge.
+/// The soft light round the item under the pointer, and round the item selected, in place of a ring of light: a fill
+/// of the pointer's blue (or of the accent) behind its card, this many pixels past its edge, blurred this much, at this
+/// strength, so that the light shows only as a narrow glow round the card; the item selected's a little wider and
+/// softer, so that it stands out from the one under the pointer. Over the light and under the card lies the card's
+/// own ground, so that none of the light shows through a card drawn faint. The room the blur is drawn in past the
+/// fill is wide enough that the blur fades out before its edge.
 const SOFT_SPREAD = 2;
 const SOFT_BLUR = 6;
 const SOFT_ALPHA = 0.45;
@@ -556,6 +556,8 @@ export class SnapScene {
   /// blurred.
   private chosenGlow = new Graphics({ filters: [softBlur(CHOSEN_BLUR)] });
   private hoverGlow = new Graphics({ filters: [softBlur(SOFT_BLUR)] });
+  /// The ground of each card lit by a soft light, over the light and under the card.
+  private glowGround = new Graphics();
   /// The items, by their place in the tree, whose link to the one above them is on the way from an item whose work
   /// runs up to its root ([`waysUp`]).
   private runWays = new Set<number>();
@@ -677,7 +679,15 @@ export class SnapScene {
     root.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     media.addEventListener('change', this.retheme);
     this.themes = { media, root, accent: onAccent(this.retheme) };
-    this.world.addChild(this.links, this.runLines, this.hoverGlow, this.chosenGlow, this.layer, this.marks);
+    this.world.addChild(
+      this.links,
+      this.runLines,
+      this.hoverGlow,
+      this.chosenGlow,
+      this.glowGround,
+      this.layer,
+      this.marks,
+    );
     this.app.stage.addChild(this.world, this.edges, this.map);
     this.map.position.set(MAP_INSET, MAP_INSET);
     this.map.addChild(this.mapFrame);
@@ -1224,13 +1234,23 @@ export class SnapScene {
       .closePath();
   }
 
-  /// Adds to a soft light the band round the card standing at `gx` and `gy`, `gh` half its height: from its edge to
-  /// `out` pixels past it, the card's own place cut out.
-  private softLight(g: Graphics, gx: number, gy: number, gh: number, out: number, colour: string, alpha: number) {
-    g.roundRect(gx - out, gy - gh - out, NODE_W + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out)
-      .fill({ color: colour, alpha })
-      .roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER)
-      .cut();
+  /// Adds to a soft light the fill behind the card standing at `gx` and `gy`, `gh` half its height, `out` pixels past
+  /// its edge; and the card's ground over it, as strong as the light is come in.
+  private softLight(
+    g: Graphics,
+    gx: number,
+    gy: number,
+    gh: number,
+    out: number,
+    colour: string,
+    alpha: number,
+    on = 1,
+  ) {
+    g.roundRect(gx - out, gy - gh - out, NODE_W + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out).fill({
+      color: colour,
+      alpha: alpha * on,
+    });
+    this.glowGround.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).fill({ color: PALETTE.card, alpha: on });
   }
 
   /// Adds to the running ways the dashed curve from `(px, py)` to `(cx, cy)`, bent as a funnel is, its dashes moved on
@@ -1696,6 +1716,7 @@ export class SnapScene {
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
       this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
     }
+    this.glowGround.clear();
     this.chosenGlow.clear();
     for (const i of chosen) {
       const d = t.depth[i];
@@ -1710,7 +1731,7 @@ export class SnapScene {
     for (const [i, a] of this.haloed) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-      this.softLight(this.hoverGlow, gx, gy, gh, SOFT_SPREAD, PALETTE.over, SOFT_ALPHA * a);
+      this.softLight(this.hoverGlow, gx, gy, gh, SOFT_SPREAD, PALETTE.over, SOFT_ALPHA, a);
     }
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];
