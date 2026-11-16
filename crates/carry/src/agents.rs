@@ -633,15 +633,12 @@ impl Inner {
                 return failed(ended, no.said, no.spent);
             }
             // A try the engine that ended left, which printed no return to take: what its result said, where it printed
-            // one, or that its engine ended before it saw it end, which fails as a crash does (decision
-            // a-crash-is-tried-again).
+            // one, or that its engine ended before it saw it end, in the words beside the flows, which fails as a crash
+            // does (decision a-crash-is-tried-again).
             (Err(no), None) => {
                 let why = match had_result {
                     true => no.why,
-                    false => format!(
-                        "the engine that ran {command} ended before it saw the program end, and what the program \
-                         printed until then holds no result"
-                    ),
+                    false => flow::agents::fill(&of.beside.cost.program.cut_off, &[("command", command.as_str())]),
                 };
                 return failed(why, no.said, no.spent);
             }

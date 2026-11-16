@@ -206,6 +206,8 @@ pub struct ProgramWords {
     pub exited: String,
     /// A signal ended it.
     pub signal: String,
+    /// It ran as the process of the engine that ran it ended, and what it printed until then holds no result.
+    pub cut_off: String,
 }
 
 /// What the engine's check of the outside of the agents' rounds found down, where it says it itself.
