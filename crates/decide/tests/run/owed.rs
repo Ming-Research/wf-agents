@@ -14,10 +14,12 @@ fn maker() -> Spec {
     s
 }
 
-/// The cell as a judge, whose verdict does not pass at no and is paired with its points in the dialogue `opinions`.
+/// The cell as a judge, whose verdict does not pass at no and is paired with its points in the dialogue `opinions`: its
+/// round was woken to judge by an answer in it.
 fn judge() -> Spec {
     let mut s = spec();
     s.outputs.push("opinions".into());
+    s.told.woken_to_judge = vec!["opinions".into()];
     let verdict = Verdict {
         fails: "no".to_string(),
         dialogue: "opinions".into(),

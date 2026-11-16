@@ -356,6 +356,7 @@ impl History {
                 dialogue: POINTS.into(),
             };
             judge.verdicts = BTreeMap::from([(VERDICT.into(), verdict)]);
+            judge.judges = BTreeMap::from([(POINTS.into(), vec![BRIEF.into(), "b0".into()])]);
             // Each cell that writes what the judge judges is a maker in the dialogue: an answer is a version of it, or
             // a change of what it judges.
             for maker in cells.iter_mut().filter(|c| c.outputs.contains(&"b0".into())) {

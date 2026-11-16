@@ -1707,6 +1707,7 @@ impl<'a> Definition<'a> {
             slot: file.kind == Kind::Agent,
             dialogues: self.dialogues(id, file),
             verdicts: self.verdicts(id, file),
+            judges: self.judges(id, file),
         };
         let spec = CellSpec {
             id: CellId(id.to_string()),
@@ -1839,6 +1840,18 @@ impl<'a> Definition<'a> {
                     dialogue: dialogue.clone(),
                 };
                 (BlockId(block.clone()), verdict)
+            })
+            .collect()
+    }
+
+    /// Of each dialogue the cell of this id holds as the judge, what it judges: the blocks it watches by its own file
+    /// besides the dialogue, never what every agent cell watches, which is not what it judges (design document
+    /// `data-and-context`, 38).
+    fn judges(&self, id: &str, file: &CellFile) -> BTreeMap<BlockId, Vec<BlockId>> {
+        (self.judged(id, file).into_iter())
+            .map(|dialogue| {
+                let judged = (self.judges_by(id).into_iter()).filter(|b| *b != dialogue).collect();
+                (dialogue, judged)
             })
             .collect()
     }

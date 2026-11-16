@@ -211,6 +211,10 @@ pub struct Told {
     /// the run began, while the dialogue was open: the maker owes the next word in it (design document
     /// `data-and-context`, 41).
     pub points: Vec<BlockId>,
+    /// Of what ran the round, each dialogue its cell judges in in which it was woken as the run began, by a version of
+    /// the dialogue new to it, an answer, or by a change of what it judges: the judge owes its verdict in it, a fail
+    /// with its points (design document `data-and-context`, 41).
+    pub woken_to_judge: Vec<BlockId>,
     /// Of each block the cell may write, the version the round was told of and the latest.
     pub outputs: BTreeMap<BlockId, Standing>,
     /// Whether the round's cell still waits for the results of calls its runs asked for, or for the answer to a question
@@ -678,9 +682,10 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() && !waits {
         unmet.push(Unmet::DealtWithNothing);
     }
-    // A maker woken by a point of the other side owes the next word: an answer in the dialogue, a change of what the
-    // other side watches, the work's head among it as the round committed it, or a question the work waits for; a
-    // judge's fail brings its points (design document `data-and-context`, 41, 42). A version that changes nothing in
+    // The one woken in a dialogue owes the next word (design document `data-and-context`, 41, 42): a maker woken by a
+    // point of the other side, an answer in the dialogue, a change of what the other side watches, the work's head
+    // among it as the round committed it, or a question the work waits for; a judge woken by an answer or a change of
+    // what it judges, a fail with its points. One woken by anything else owes nothing in the dialogue. A version that changes nothing in
     // meaning, as the walk reads it, is new to no cell (9): it answers nothing, changes nothing the other side watches
     // and brings no point. The round saw what it writes over where it was told of the latest; one that did not is sent
     // back for it, whatever it says.
@@ -707,7 +712,8 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
                 continue;
             };
             let fails = write.value.as_deref() == Some(verdict.fails.as_str());
-            if fails && !said().any(|b| *b == verdict.dialogue) {
+            let woken = told.woken_to_judge.contains(&verdict.dialogue);
+            if woken && fails && !said().any(|b| *b == verdict.dialogue) {
                 unmet.push(Unmet::NoPoint {
                     block: write.block.clone(),
                     value: verdict.fails.clone(),

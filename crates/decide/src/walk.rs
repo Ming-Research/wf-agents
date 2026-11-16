@@ -352,6 +352,19 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
         })
         .map(|(block, _)| block.clone())
         .collect();
+    // Of the dialogues the cell judges in, each in which it was woken as its run began: by a version of the dialogue
+    // new to it, which none but the other side writes besides it, an answer; or by a change of what it judges (41).
+    let woken_to_judge = (cell.into_iter())
+        .flat_map(|c| c.verdicts.values().map(move |of| (c, &of.dialogue)))
+        .filter(|&(c, dialogue)| {
+            let judged = c.judges.get(dialogue);
+            (r.started.because.iter()).any(|cause| {
+                matches!(cause, Cause::Changed { block, .. }
+                    if block == dialogue || judged.is_some_and(|j| j.contains(block)))
+            })
+        })
+        .map(|(_, dialogue)| dialogue.clone())
+        .collect();
     let waits = flow
         .place(&r.started.cell)
         .is_some_and(|i| walk.owed(i).0.iter().any(|c| !given.contains(c)) || !began.held(i).is_empty());
@@ -380,6 +393,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
     Some(Told {
         ran_by,
         points,
+        woken_to_judge,
         outputs,
         waits,
         questions,
@@ -1331,14 +1345,6 @@ pub(crate) fn read_runs(records: &Records) -> BTreeMap<RunId, RunView<'_>> {
     runs
 }
 
-/// Every version of every block, each with its meaning. A block that has a value in this version or the one before, a
-/// choice, keeps the meaning of the version before when the two values are the same, and has its own when they are
-/// not, whatever its writer says; its first version has its own. Of any other block, a person's write has its own
-/// meaning, and so does a write that matters; a write that does not matter keeps the meaning of the version before it,
-/// provided its writer saw that meaning: the outside always did, and a run did when the version it started from has
-/// it. A run that did not, because the block's meaning was changed after it started, has a meaning of its own for what
-/// it wrote. A first version handed in as not mattering has none: it says nothing, and is new to no cell (design
-/// document `data-and-context`, 9).
 /// Whether a write gives its block a meaning of its own, the one reading of meaning (design document
 /// `data-and-context`, 9): of a choice, where this write or the version before it has a value, where the value is
 /// another than the one before, whatever its writer says, its first version always; of any other block, where it
@@ -1352,6 +1358,14 @@ pub(crate) fn gives_meaning(value: Option<&str>, over: Option<Option<&str>>, mat
     }
 }
 
+/// Every version of every block, each with its meaning. A block that has a value in this version or the one before, a
+/// choice, keeps the meaning of the version before when the two values are the same, and has its own when they are
+/// not, whatever its writer says; its first version has its own. Of any other block, a person's write has its own
+/// meaning, and so does a write that matters; a write that does not matter keeps the meaning of the version before it,
+/// provided its writer saw that meaning: the outside always did, and a run did when the version it started from has
+/// it. A run that did not, because the block's meaning was changed after it started, has a meaning of its own for what
+/// it wrote. A first version handed in as not mattering has none: it says nothing, and is new to no cell (design
+/// document `data-and-context`, 9).
 pub(crate) fn read_versions<'a>(
     records: &'a Records,
     runs: &BTreeMap<RunId, RunView<'a>>,

@@ -283,6 +283,10 @@ pub struct Cell {
     /// Of each verdict the cell hands in as a judge, by its block, the value that does not pass and the dialogue the
     /// cell writes its points in (design document `data-and-context`, 37, 41).
     pub verdicts: BTreeMap<BlockId, Verdict>,
+    /// Of each dialogue the cell judges in, by the dialogue's block, what it judges: the blocks it watches by its own
+    /// file besides the dialogue. An answer in the dialogue, or a change of one of these, wakes it to judge (design
+    /// document `data-and-context`, 38, 41).
+    pub judges: BTreeMap<BlockId, Vec<BlockId>>,
 }
 
 /// A judge's verdict: the value of it that does not pass, and the dialogue the judge writes its points in, which the
@@ -317,6 +321,7 @@ impl Cell {
             slot: true,
             dialogues: BTreeMap::new(),
             verdicts: BTreeMap::new(),
+            judges: BTreeMap::new(),
         }
     }
 }
