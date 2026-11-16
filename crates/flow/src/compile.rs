@@ -2500,8 +2500,8 @@ impl<'a> Definition<'a> {
     }
 }
 
-/// What a cell takes: the blocks that run it and those it is given, each list in the order the file names them, with
-/// what it does for what runs it, and what it watches.
+/// What a cell takes: the blocks that run it and those it is given, each list in the order the file names them, what
+/// it watches, and what its own file reads.
 struct Takes {
     /// The blocks whose new version runs the cell, each once, in the order of what it watches.
     runs_on: Vec<BlockId>,

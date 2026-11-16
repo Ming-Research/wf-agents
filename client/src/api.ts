@@ -59,7 +59,14 @@ export interface Watch {
   name: string;
   blocks: string[];
   do: string | null;
-  list: List;
+  list: 'every_agent' | 'watches';
+}
+
+/// A name `[every_agent]` watches: as written, with the data it stands for and what a cell does when one is new.
+export interface EveryWatch {
+  name: string;
+  blocks: string[];
+  do: string | null;
 }
 
 /// A datum or group a cell's file only reads, or that `[every_agent]` names: its name as written, and the blocks it
@@ -80,7 +87,7 @@ export interface GivenBlock {
 /// (`[every_agent]`): each name with the data it stands for and, of what it watches, what a cell does when it is new;
 /// and the kind of each, by its name.
 export interface EveryAgent {
-  watches: Watch[];
+  watches: EveryWatch[];
   reads: Read[];
   kinds: Record<string, InputKind>;
 }

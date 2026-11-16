@@ -195,20 +195,29 @@ pub struct GivenBlock {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EveryAgent {
-    pub watches: Vec<Watch>,
+    pub watches: Vec<EveryWatch>,
     pub reads: Vec<Read>,
     pub kinds: BTreeMap<String, InputKind>,
+}
+
+/// A name `[every_agent]` watches: as written, with the data it stands for and what a cell does when one is new.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EveryWatch {
+    pub name: String,
+    pub blocks: Vec<String>,
+    #[serde(rename = "do")]
+    pub does: Option<String>,
 }
 
 impl EveryAgent {
     fn of(every: &flow::EveryAgent) -> Self {
         EveryAgent {
             watches: (every.watches.iter())
-                .map(|t| Watch {
+                .map(|t| EveryWatch {
                     name: t.name.clone(),
                     blocks: names(&t.blocks),
                     does: every.does.get(&t.name).cloned(),
-                    list: flow::Listed::EveryAgent.name().to_string(),
                 })
                 .collect(),
             reads: every.reads.iter().map(Read::of).collect(),

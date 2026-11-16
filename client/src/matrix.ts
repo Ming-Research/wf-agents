@@ -43,6 +43,12 @@ export function keyReads(key: Condition, block: string): boolean {
   return key.on === 'block' ? key.block === block : key.test.reads.includes(block);
 }
 
+/// Whether a name a cell takes stands for one datum of that name, not for a group's blocks or the data a name of
+/// `[every_agent]` holding `{each}` stands for.
+export function namesItself(n: { name: string; blocks: string[] }): boolean {
+  return n.blocks.length === 1 && n.blocks[0] === n.name;
+}
+
 /// The kind a cell is given a block in; none where it is not given it.
 export function kindOf(cell: Cell, block: string): InputKind | null {
   return cell.given.find((g) => g.block === block)?.kind ?? null;
@@ -277,8 +283,7 @@ export function matrix(flow: Flow): Matrix {
   // A datum's row: what each cell's file says of the datum by its own name, or, of what it reads, through a group; a
   // cell that watches it through a group is marked on the group's row. A group's row: a cell whose `watches` names
   // the group, and a cell that writes one of its blocks. The kind is the one the cell is given the datum in.
-  const watchesItself = (cell: Cell, block: string) =>
-    cell.watches.some((w) => w.name === block && w.blocks.length === 1 && w.blocks[0] === block);
+  const watchesItself = (cell: Cell, block: string) => cell.watches.some((w) => w.name === block && namesItself(w));
   const markIn = (cell: Cell, r: BlockRow): Mark => {
     if (r.group !== undefined) {
       return { ...NO_MARK, watch: watchesGroup(cell, r.name), write: r.group.some((b) => cell.outputs.includes(b)) };
@@ -306,18 +311,20 @@ export function matrix(flow: Flow): Matrix {
     );
   });
 
-  // The band of `[every_agent]`: under each cell, what runs it of the data a name stands for, by its own file or by
-  // `[every_agent]`, what its own file reads of them, and what it writes; what every agent's cell only reads is said
-  // by the row's words. Its ways back are drawn datum by datum.
+  // The band of `[every_agent]`: under each cell, what runs it of the data a name stands for, each datum by its own name
+  // in the cell's file or by `[every_agent]` (a group's watcher is marked on the group's row), what its own file reads
+  // of them, and what it writes; what every agent's cell only reads is said by the row's words. Its ways back are
+  // drawn datum by datum, to each cell that watches the datum so, and so counted once.
   const named = [
     ...every.watches.map((n) => ({ name: n.name, blocks: n.blocks, list: 'watches' as const })),
     ...every.reads.map((n) => ({ name: n.name, blocks: n.blocks, list: 'reads' as const })),
   ];
   const everyRows: EveryRow[] = named.map(({ name, blocks: of, list }) => {
     const row = cells.map((cell): Spot => {
-      const watched = of.filter((b) => cell.watches.some((w) => w.blocks.includes(b)));
+      const watched = of.filter((b) => watchesItself(cell, b));
       const read = of.filter((b) => !watched.includes(b) && cell.reads.some((n) => n.blocks.includes(b)));
-      const first = watched[0] ?? read[0];
+      // The kind drawn is the one of what it reads, inside the ring of `reads`; else of what it watches, for its words.
+      const first = read[0] ?? watched[0];
       return {
         mark: {
           ...NO_MARK,
@@ -334,7 +341,7 @@ export function matrix(flow: Flow): Matrix {
       row,
       cells,
       of,
-      (c, block) => cells[c].watches.some((w) => w.blocks.includes(block)),
+      (c, block) => watchesItself(cells[c], block),
       (w, block) => cells[w].outputs.includes(block),
     );
     const data = of.flatMap((b) => blockIn(b) ?? []);

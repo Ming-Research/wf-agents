@@ -17,7 +17,7 @@ import type {
 } from './api';
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
-import { type ConditionRow, type LineRow, type Matrix, exclusive, where } from './matrix';
+import { type ConditionRow, type LineRow, type Matrix, exclusive, kindOf, namesItself, where } from './matrix';
 import { Arrow, Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
   charactersWords,
@@ -42,22 +42,18 @@ function testsSay(keys: Condition[]): string | undefined {
   return says.length > 0 ? says.join('; ') : undefined;
 }
 
-/// Whether a group stands for its blocks: a name of a datum stands for the datum alone.
-const isGroup = (n: { name: string; blocks: string[] }) => n.blocks.length !== 1 || n.blocks[0] !== n.name;
-
-/// What a name a cell takes is chosen by: its group, or its datum.
-const chosenOf = (n: { name: string; blocks: string[] }): Chosen => (isGroup(n) ? { group: n.name } : { block: n.name });
+/// What a name a cell takes is chosen by: its datum, or its group.
+const chosenOf = (n: { name: string; blocks: string[] }): Chosen => (namesItself(n) ? { block: n.name } : { group: n.name });
 
 /// The kind a cell is given each block of a name in, as `[kinds]` writes it: of a datum, `kind` and its kind; of a
 /// group, `kinds` and each block with its kind; nothing for a cell given none, an engine's.
 function Kinds({ cell, taken }: { cell: Cell; taken: { name: string; blocks: string[] } }) {
-  const kindOf = (b: string) => inputKindWords(cell.given.find((g) => g.block === b)?.kind ?? null);
-  if (!isGroup(taken)) {
-    const kind = kindOf(taken.name);
-    return kind ? <Attr name="kind" value={kind} /> : null;
+  const kind = (b: string) => inputKindWords(kindOf(cell, b));
+  if (namesItself(taken)) {
+    return kind(taken.name) ? <Attr name="kind" value={kind(taken.name)} /> : null;
   }
-  const kinds = taken.blocks.filter((b) => kindOf(b) !== '');
-  return kinds.length > 0 ? <Attr name="kinds" value={listed(kinds.map((b) => `${b} ${kindOf(b)}`))} /> : null;
+  const kinds = taken.blocks.filter((b) => kind(b) !== '');
+  return kinds.length > 0 ? <Attr name="kinds" value={listed(kinds.map((b) => `${b} ${kind(b)}`))} /> : null;
 }
 
 /// The row of what a cell takes by `[every_agent]` in a list of its panel: the key, chosen to open its panel, and the
@@ -410,7 +406,7 @@ export function CellPanel(props: {
               <EveryAgentRow cell={cell} flow={flow} list="watches" onChoose={onChoose} />
               {own.map((w, place) => {
                 // Of a group, there is no one block: its group is chosen by its name.
-                const block = isGroup(w) ? undefined : blocks.get(w.name);
+                const block = namesItself(w) ? blocks.get(w.name) : undefined;
                 // The later cells that write it, or one of its group's, send the work back to this one.
                 const writers = w.blocks.flatMap((b) => blocks.get(b)?.writtenBy.cells ?? []);
                 const back = later([...new Set(writers)].filter((id) => id !== cell.id));
@@ -425,7 +421,7 @@ export function CellPanel(props: {
                     <Choose chosen={chosenOf(w)} onChoose={onChoose}>
                       <span className="mono">{w.name}</span>
                     </Choose>
-                    {isGroup(w) && <Attr name="group" value={listed(w.blocks)} />}
+                    {!namesItself(w) && <Attr name="group" value={listed(w.blocks)} />}
                     <Kinds cell={cell} taken={w} />
                     {block && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
                     {back.length > 0 && <Attr name="way_back" value={listed(back)} />}
@@ -447,7 +443,7 @@ export function CellPanel(props: {
               <ul className="uses">
                 <EveryAgentRow cell={cell} flow={flow} list="reads" onChoose={onChoose} />
                 {cell.reads.map((r, place) => {
-                  const block = isGroup(r) ? undefined : blocks.get(r.name);
+                  const block = namesItself(r) ? blocks.get(r.name) : undefined;
                   return (
                     <ListRow key={r.name}>
                       <span
@@ -459,7 +455,7 @@ export function CellPanel(props: {
                       <Choose chosen={chosenOf(r)} onChoose={onChoose}>
                         <span className="mono">{r.name}</span>
                       </Choose>
-                      {isGroup(r) && <Attr name="group" value={listed(r.blocks)} />}
+                      {!namesItself(r) && <Attr name="group" value={listed(r.blocks)} />}
                       <Kinds cell={cell} taken={r} />
                       {block && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
                       {block && block.what !== null && <span className="row-note">{block.what}</span>}
@@ -929,7 +925,7 @@ export function EveryAgentPanel(props: { flow: Flow; onChoose: (c: Chosen) => vo
       <PanelPart label={label} count={names.length}>
         <ul className="uses">
           {names.map((n) => {
-            const itself = !isGroup(n);
+            const itself = namesItself(n);
             return (
               <ListRow key={n.name}>
                 {itself ? (

@@ -12,8 +12,8 @@
 // naming it. What a cell's own file gives it is not drawn until the cell is chosen (`contextOf`). Pure, so that it is
 // tested without drawing.
 
-import type { Block, Cell, Condition, Flow, InputKind, Watch } from '../api';
-import { exclusive, matrix } from '../matrix';
+import type { Block, Cell, Condition, Flow, InputKind } from '../api';
+import { exclusive, matrix, namesItself } from '../matrix';
 
 /// The ids of the nodes: a cell's, the gate before it, the fork before it, and a tag of what the outside writes for
 /// it.
@@ -150,11 +150,6 @@ export function canRun(writer: Cell, reader: Cell): boolean {
   return !exclusive(afterItsRun(writer), reader);
 }
 
-/// Whether a name a cell watches is a group's, a new version of any of its blocks running the cell.
-function isGroup(watched: Watch): boolean {
-  return watched.blocks.length !== 1 || watched.blocks[0] !== watched.name;
-}
-
 /// What an arrow from `writer` to `reader` carries: each datum or group the reader watches, by its own file or by
 /// `[every_agent]`, a block of which the writer writes, by its name, once.
 export function carried(flow: Flow, writer: Cell, reader: Cell): Carried[] {
@@ -162,7 +157,7 @@ export function carried(flow: Flow, writer: Cell, reader: Cell): Carried[] {
   const out: Carried[] = [];
   for (const w of reader.watches) {
     const writes = w.blocks.some((b) => blocks.get(b)?.writtenBy.cells.includes(writer.id));
-    if (writes && !out.some((c) => c.name === w.name)) out.push({ name: w.name, group: isGroup(w) });
+    if (writes && !out.some((c) => c.name === w.name)) out.push({ name: w.name, group: !namesItself(w) });
   }
   return out;
 }
@@ -394,7 +389,7 @@ export function chartOf(flow: Flow): Chart {
       const outside = outsideOf(w.blocks.flatMap((b) => blocks.get(b) ?? []));
       const id = outsideNode(cell.id, w.name);
       if (outside === null || nodes.some((n) => n.id === id)) continue;
-      nodes.push(node({ id, kind: 'outside', cell: cell.id, name: w.name, group: isGroup(w), outside }));
+      nodes.push(node({ id, kind: 'outside', cell: cell.id, name: w.name, group: !namesItself(w), outside }));
       edges.push(link({ id: `x:${id}`, source: id, target: cellNode(cell.id), kind: 'outside', to: cell.id }));
     }
   }
@@ -551,8 +546,7 @@ export function litBy(flow: Flow, id: string): Set<string> {
 
 /// The arrows a write runs that the chart draws besides the main path and the ways back: those into and out of the
 /// cell chosen, as what its own file gives it is shown only while it is chosen; every one where the owner shows them
-/// all. Those
-/// folded into the main path are drawn as its steps.
+/// all. Those folded into the main path are drawn as its steps.
 export function shownArrows(chart: Chart, chosen: string | null, all: boolean): ChartEdge[] {
   return chart.edges.filter(
     (e) => e.kind === 'arrow' && !e.back && (all || (chosen !== null && (e.from === chosen || e.to === chosen))),

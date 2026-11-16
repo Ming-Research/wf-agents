@@ -88,8 +88,8 @@ const KIND_SIGNS: Record<InputKind, string> = {
 
 /// The marks of a crossing, one for each key, side by side: a disc where the cell writes the datum (`outputs`); a ring
 /// where it watches it (`watches`), or the ring with the kind inside where it only reads it (`reads`), as `[kinds]`
-/// writes it. `sign` leaves the kind out of the ring of `reads`, for the legend's word of it.
-export function DataGlyphs({ mark, sign = true }: { mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'>; sign?: boolean }) {
+/// writes it.
+export function DataGlyphs({ mark }: { mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'> }) {
   if (!mark.write && !mark.watch && !mark.read) return null;
   const box = (key: string, child: ReactNode) => (
     <svg key={key} className="glyph" viewBox="0 0 24 24" aria-hidden="true">
@@ -105,7 +105,7 @@ export function DataGlyphs({ mark, sign = true }: { mark: Pick<Mark, 'write' | '
           'read',
           <>
             <circle className="part read" cx="12" cy="12" r="8" />
-            {sign && mark.kind && (
+            {mark.kind && (
               <text className="part kind" x="12" y="12">
                 {KIND_SIGNS[mark.kind]}
               </text>
@@ -200,7 +200,7 @@ export function Legend({ waysBack }: { waysBack: number }) {
         <DataGlyphs mark={mark({ watch: true })} /> watches
       </li>
       <li>
-        <DataGlyphs mark={mark({ read: true })} sign={false} /> reads
+        <DataGlyphs mark={mark({ read: true })} /> reads
       </li>
       <li>
         <DataGlyphs mark={mark({ write: true })} /> outputs
@@ -326,12 +326,16 @@ export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }:
   const size = { width: 'calc(100% + var(--window-covers, 0px))', minWidth: taken + FLOW_WIDTHS.words };
 
   // What is chosen, here or elsewhere (a panel), is brought into view in the frame, into what a window over it leaves
-  // where one is out: again as the window comes out.
+  // where one is out: again as the window comes out. A datum `[every_agent]` names is found by the row of its band
+  // that stands for it, having no row of its own.
   const under = covered > 0;
   useEffect(() => {
     const key = chosen && keyOf(chosen);
     if (!key) return;
-    frame.current?.querySelector(`[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const target =
+      frame.current?.querySelector(`[data-key="${CSS.escape(key)}"]`) ??
+      (chosen && 'block' in chosen ? frame.current?.querySelector(`[data-blocks~="${CSS.escape(chosen.block)}"]`) : null);
+    target?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [chosen, under]);
 
   const chosenCell = chosen && 'cell' in chosen ? chosen.cell : null;
@@ -453,7 +457,7 @@ export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }:
               <EveryLine
                 key={`${row.list}:${row.name}`}
                 row={row}
-                chosen={chosenEvery}
+                chosen={chosenEvery || (chosenBlock !== null && row.blocks.includes(chosenBlock))}
                 onChoose={() => onChoose(chosenEvery ? null : { everyAgent: true })}
                 {...band}
               />
@@ -852,7 +856,7 @@ function ToolLine(props: BandProps & { row: ToolRow; chosen: boolean; onChoose: 
 function EveryLine(props: BandProps & { row: EveryRow; chosen: boolean; onChoose: () => void }) {
   const { row, cells, chosen, onChoose, chosenCell, saying, pointed, onPoint } = props;
   return (
-    <tr className={`row every-row ${chosen ? 'chosen' : ''}`}>
+    <tr className={`row every-row ${chosen ? 'chosen' : ''}`} data-blocks={row.blocks.join(' ')}>
       <BandHead
         name={row.name}
         label="every_agent"

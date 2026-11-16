@@ -6,9 +6,9 @@
 // where it leaves a fork, and the names of the data and groups it runs a cell by. Three kinds of line: the main path
 // thick in the text's colour, over the others; an arrow a write runs thin in the muted colour, behind it, drawn only
 // where it was routed over the layout (`data.ts`); a way back thin in the muted colour, a step stronger than those. An
-// arrow from a tag is dashed; the arrow under the pointer is in the accent. The cell chosen is on the accent's tint, the cells that
-// write what its own file gives it are edged in the accent, and beside it stand those blocks, each with the matrix's
-// mark: the ring of `watches`, or the ring of `reads` with the kind it is given in.
+// arrow from a tag is dashed; the arrow under the pointer is in the accent. The cell chosen is on the accent's tint,
+// the cells that write what its own file gives it are edged in the accent, and beside it stand those blocks, each with
+// the matrix's mark: the ring of `watches`, or the ring of `reads` with the kind it is given in.
 
 import { type ReactNode, useState } from 'react';
 

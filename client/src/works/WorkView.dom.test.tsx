@@ -379,7 +379,8 @@ describe('the history of a work', () => {
     const check = rows[13].querySelectorAll('td')[4];
     expect(check.querySelector('.part.watch')).not.toBeNull();
     expect(check.querySelector('.part.read')).toBeNull();
-    expect(check.querySelector('.visually-hidden')?.textContent).toBe('check watches it');
+    expect(check.querySelector('.visually-hidden')?.textContent).toBe('check watches main');
+    expect(check.getAttribute('title')).toBe('check watches main');
   });
 });
 

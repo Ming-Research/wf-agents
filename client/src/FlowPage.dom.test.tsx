@@ -85,9 +85,9 @@ describe('the chart', () => {
     // read it.
     expect(texts(rowOf(page, 'plan'), '.spot .visually-hidden')).toEqual([
       'plan outputs plan',
-      'judge watches plan last_and_latest',
-      'design watches plan last_and_latest',
-      'answer watches plan last_and_latest',
+      'judge watches plan, last_and_latest',
+      'design watches plan, last_and_latest',
+      'answer watches plan, last_and_latest',
     ]);
     expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual(['check outputs ci', 'merge watches ci']);
     // What its condition reads is on the condition's own row.
@@ -110,7 +110,7 @@ describe('the chart', () => {
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
     const arrows = [...page.querySelectorAll('.arrow')];
     expect(arrows).toHaveLength(1);
-    expect(arrows[0].closest('td')?.textContent).toBe('plan watches opinions last_and_latest');
+    expect(arrows[0].closest('td')?.textContent).toBe('plan watches opinions, last_and_latest');
     // The legend names each mark by its key.
     expect(texts(page, '.legend li')).toEqual(expect.arrayContaining(['watches', 'reads', 'outputs', 'tools']));
     expect(texts(page, '.legend li').some((t) => t.includes('triggered_by') || t.includes('context'))).toBe(false);
@@ -199,8 +199,8 @@ describe('the chart', () => {
     const page = draw({ state: 'compiled', flow });
     const x = rowOf(page, 'x');
     const y = rowOf(page, 'y');
-    expect(texts(x, '.spot .visually-hidden')).toEqual(['a outputs x', 'b watches x all']);
-    expect(texts(y, '.spot .visually-hidden')).toEqual(['a outputs y', 'b reads y latest', 'e watches y']);
+    expect(texts(x, '.spot .visually-hidden')).toEqual(['a outputs x', 'b watches x, all']);
+    expect(texts(y, '.spot .visually-hidden')).toEqual(['a outputs y', 'b reads y, latest', 'e watches y']);
     const spots = (row: HTMLElement) => [...row.querySelectorAll('td.spot')];
     expect(spots(x)[1].querySelector('.part.watch')).not.toBeNull();
     expect(spots(x)[1].querySelector('.part.kind')).toBeNull();
@@ -689,7 +689,7 @@ describe('a group a cell watches by its name', () => {
     expect(texts(rowOf(page, 'a'), '.spot .visually-hidden')).toEqual(['w outputs a']);
     click(page.querySelectorAll('thead .cell-head .head-button')[1]);
     expect(row.querySelector('.words')?.textContent).toBe('watches: Look again.');
-    expect(rowOf(page, 'a').querySelector('.words')?.textContent).toBe('watches planned last_and_latest');
+    expect(rowOf(page, 'a').querySelector('.words')?.textContent).toBe('watches planned, last_and_latest');
     click(row.querySelector('.head-button'));
     const panel = page.querySelector('section[aria-label="Group planned"]') as HTMLElement;
     expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('flow.toml');
@@ -722,8 +722,8 @@ describe('a group a cell watches by its name', () => {
     );
     const page = draw({ state: 'compiled', flow: read });
     expect(rowOf(page, 'planned')).toBeUndefined();
-    expect(texts(rowOf(page, 'a'), '.spot .visually-hidden')).toEqual(['w outputs a', 't reads a all']);
-    expect(texts(rowOf(page, 'b'), '.spot .visually-hidden')).toEqual(['w outputs b', 't reads b latest']);
+    expect(texts(rowOf(page, 'a'), '.spot .visually-hidden')).toEqual(['w outputs a', 't reads a, all']);
+    expect(texts(rowOf(page, 'b'), '.spot .visually-hidden')).toEqual(['w outputs b', 't reads b, latest']);
   });
 });
 
@@ -1007,16 +1007,16 @@ describe('the panel and the widths', () => {
     const guide = bandRow(page, 'every-row', 'guide');
     expect(guide.querySelector('.row-label')?.textContent).toBe('every_agent');
     expect(texts(guide, '.spot .visually-hidden')).toEqual([
-      'a every_agent watches guide',
-      'n every_agent watches guide',
-      'b every_agent watches guide',
+      'a every_agent watches guide, last_and_latest',
+      'n every_agent watches guide, last_and_latest',
+      'b every_agent watches guide, last_and_latest',
     ]);
     expect(guide.querySelector('.words')?.textContent).toBe('every_agent watches last_and_latest: The guide.');
     const questions = bandRow(page, 'every-row', '{each}_questions');
     expect(questions.querySelector('[title="from answer"]')).not.toBeNull();
     expect(texts(questions, '.spot .visually-hidden')).toEqual([
-      'a watches a_questions; outputs a_questions',
-      'b watches b_questions; outputs b_questions',
+      'a watches a_questions, all; outputs a_questions',
+      'b watches b_questions, all; outputs b_questions',
     ]);
     expect(questions.querySelector('.words')?.textContent).toBe('every_agent reads all: The questions.');
     click(page.querySelectorAll('thead .cell-head .head-button')[1]);
@@ -1024,7 +1024,7 @@ describe('the panel and the widths', () => {
     expect(guide.querySelector('.words')?.textContent).toBe('every_agent watches last_and_latest');
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     expect(questions.querySelector('.words')?.textContent).toBe(
-      'watches a_questions all; outputs a_questions; every_agent reads all',
+      'watches a_questions, all; outputs a_questions; every_agent reads all',
     );
     // A cell's panel lists it first among what runs the cell, by its key; its do is said once, in its own panel.
     const a = page.querySelector('section[aria-label="Cell a"]') as HTMLElement;

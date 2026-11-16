@@ -18,6 +18,7 @@ import type {
   TestKind,
   Watch,
 } from './api';
+import { namesItself } from './matrix';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
@@ -103,7 +104,7 @@ export function everyAgent(fields: {
 }): EveryAgent {
   const { watches = [], reads = [], kinds = {}, does = {} } = fields;
   return {
-    watches: watches.map(([name, blocks]) => ({ name, blocks, do: does[name] ?? null, list: 'every_agent' as const })),
+    watches: watches.map(([name, blocks]) => ({ name, blocks, do: does[name] ?? null })),
     reads: reads.map(([name, blocks]) => ({ name, blocks })),
     kinds,
   };
@@ -139,13 +140,13 @@ export type Declared = Partial<{
 /// cells name; and what `[every_agent]` names, which every agent cell watches and is given first, each block its own
 /// file does not name, by the block's name, in the kind `[every_agent]` gives the name that stands for it.
 export function flowOf(
-  given: Cell[],
+  listed: Cell[],
   blocks: Record<string, Declared>,
   name = 'small',
   lines: Record<string, Partial<Line>> = {},
   every: EveryAgent = NO_EVERY_AGENT,
 ): Flow {
-  const cells = given.map((c): Cell => {
+  const cells = listed.map((c): Cell => {
     if (c.kind !== 'agent') return c;
     const own = named(c);
     const alike: GivenBlock[] = [];
@@ -203,8 +204,7 @@ export function flowOf(
   const tools = [...new Set(cells.flatMap((c) => c.tools))];
   const groups: Group[] = [];
   for (const n of cells.flatMap((c) => [...c.watches.filter((w) => w.list === 'watches'), ...c.reads])) {
-    const group = n.blocks.length !== 1 || n.blocks[0] !== n.name;
-    if (group && !groups.some((g) => g.name === n.name)) groups.push({ name: n.name, blocks: n.blocks });
+    if (!namesItself(n) && !groups.some((g) => g.name === n.name)) groups.push({ name: n.name, blocks: n.blocks });
   }
   return {
     name,

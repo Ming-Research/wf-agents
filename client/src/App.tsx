@@ -186,7 +186,6 @@ function BarEngine({ onRead }: { onRead: (bar: BarItems) => void }) {
   return <Engine items={items} failed={failed} />;
 }
 
-/// The limits of the flow as a whole, by their keys as `flow.toml` writes them.
 /// What `[every_agent]` names, after its key, as `flow.toml` writes it: ` watches guide, reads {each}_questions`.
 function everyAgentWords(flow: Flow): string {
   const { watches, reads } = flow.everyAgent;
@@ -197,6 +196,7 @@ function everyAgentWords(flow: Flow): string {
   return ` ${parts.join(', ')}`;
 }
 
+/// The limits of the flow as a whole, by their keys as `flow.toml` writes them.
 function limitsWords(flow: Flow): string {
   const { runs, returns, calls } = flow.limits;
   return `limits runs ${runs}, returns ${returns}, calls ${calls}`;

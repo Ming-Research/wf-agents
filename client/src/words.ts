@@ -2,7 +2,7 @@
 // the flow's files write them (principle definitions-shown-as-written), and faults in a sentence each.
 
 import type { Block, Cell, Condition, Fault, Flow, InputKind, Line, Test } from './api';
-import type { EveryRow } from './matrix';
+import { type EveryRow, kindOf, namesItself } from './matrix';
 
 /// A name or a value as the files write it: a key of the interface in the files' own spelling.
 export function snake(name: string): string {
@@ -244,38 +244,45 @@ function kindAfter(kind: InputKind | null): string {
   return kind === null ? '' : ` ${inputKindWords(kind)}`;
 }
 
-/// The kind a cell is given a block in; none where it is not given it.
-function kindIn(cell: Cell, block: string): InputKind | null {
-  return cell.given.find((g) => g.block === block)?.kind ?? null;
+/// Names a cell takes, each with the kind it is given it in, as a crossing or a row says them: the names, then after a
+/// comma their kind where they share one (`a_questions, all`), else each name with its own (`x latest, y all`).
+function namesWithKinds(cell: Cell, names: string[]): string {
+  const kinds = [...new Set(names.map((n) => kindOf(cell, n)))];
+  if (kinds.length === 1) return `${names.join(', ')}${kinds[0] === null ? '' : `,${kindAfter(kinds[0])}`}`;
+  return names.map((n) => `${n}${kindAfter(kindOf(cell, n))}`).join(', ');
 }
 
 /// What a crossing of a datum's row says, for the pointer's tip and for a reader of the screen, by the cell's keys:
-/// `judge watches plan last_and_latest`, `T1 reads background latest`, `R1 watches plan_review all; outputs
+/// `judge watches plan, last_and_latest`, `T1 reads background, latest`, `R1 watches plan_review, all; outputs
 /// plan_review`. Of a group's row, the group it watches and the blocks of it it writes.
 export function markWords(
   cell: Cell,
   name: string,
-  mark: { watch: boolean; read: boolean; write: boolean; kind: InputKind | null },
+  mark: { watch: boolean; read: boolean; write: boolean },
   group?: string[],
 ): string {
   const parts = [
-    ...(mark.watch ? [`watches ${name}${group ? '' : kindAfter(mark.kind)}`] : []),
-    ...(mark.read ? [`reads ${name}${kindAfter(mark.kind)}`] : []),
+    ...(mark.watch ? [`watches ${group ? name : namesWithKinds(cell, [name])}`] : []),
+    ...(mark.read ? [`reads ${namesWithKinds(cell, [name])}`] : []),
     ...(mark.write ? [`outputs ${group ? group.filter((b) => cell.outputs.includes(b)).join(', ') : name}`] : []),
   ];
   return parts.length > 0 ? `${cell.id} ${parts.join('; ')}` : '';
 }
 
 /// What a crossing of a row of `[every_agent]` says, by the cell's keys: what runs the cell of the data the row stands
-/// for, by `[every_agent]` or by its own file, what its own file reads of them, and what it writes, each by its names.
+/// for, by `[every_agent]` or by its own file, what its own file reads of them, each with its kind, and what it writes.
 export function everyMarkWords(cell: Cell, row: EveryRow): string {
-  const of = (names: string[]) => names.filter((n) => row.blocks.includes(n));
-  const by = (list: string) => of(cell.watches.filter((w) => w.list === list).flatMap((w) => w.blocks));
+  const of = (names: string[]) => [...new Set(names.filter((n) => row.blocks.includes(n)))];
+  const watched = (list: string) => of(cell.watches.filter((w) => w.list === list && namesItself(w)).map((w) => w.name));
+  const alike = watched('every_agent');
+  const own = watched('watches');
+  const read = of(cell.reads.flatMap((r) => r.blocks)).filter((b) => !alike.includes(b) && !own.includes(b));
+  const written = of(cell.outputs);
   const parts = [
-    ...(by('every_agent').length > 0 ? [`every_agent watches ${by('every_agent').join(', ')}`] : []),
-    ...(by('watches').length > 0 ? [`watches ${by('watches').join(', ')}`] : []),
-    ...(of(cell.reads.flatMap((r) => r.blocks)).length > 0 ? [`reads ${of(cell.reads.flatMap((r) => r.blocks)).join(', ')}`] : []),
-    ...(of(cell.outputs).length > 0 ? [`outputs ${of(cell.outputs).join(', ')}`] : []),
+    ...(alike.length > 0 ? [`every_agent watches ${namesWithKinds(cell, alike)}`] : []),
+    ...(own.length > 0 ? [`watches ${namesWithKinds(cell, own)}`] : []),
+    ...(read.length > 0 ? [`reads ${namesWithKinds(cell, read)}`] : []),
+    ...(written.length > 0 ? [`outputs ${written.join(', ')}`] : []),
   ];
   return parts.length > 0 ? `${cell.id} ${parts.join('; ')}` : '';
 }
@@ -295,26 +302,25 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
   return parts.join('; ');
 }
 
-/// What a cell's file says of a datum, on one line, for the chart's column of words, each by its key: how it takes it
-/// (`watches` by the datum's name or through a group, or by `every_agent`; `reads`; each with its kind), `outputs` or
-/// `must_write`; then, after a colon, what the cell does when the datum is new, on the row of the name its own file
-/// watches it by, or else what the datum is, where the cell writes it. Empty where the cell has nothing to do with the
-/// datum. Its `when` and its `requires` are said on the rows of the conditions, once.
+/// What a cell's file says of a datum's row, on one line, for the chart's column of words, each by its key: how it
+/// takes the datum (`watches` by the datum's name or through a group, `reads`, each with its kind), `outputs` or
+/// `must_write`; then, after a colon, what the cell does when the datum is new, on the row of the name its file watches
+/// it by, or else what the datum is, where the cell writes it. Empty where the cell has nothing to do with the datum. Its
+/// `when` and its `requires` are said on the rows of the conditions, once; what `[every_agent]` names has a band of its
+/// own (`everySays`).
 export function cellSays(cell: Cell, block: string, what: string | null = null): string {
   const parts: string[] = [];
-  const kind = kindAfter(kindIn(cell, block));
-  const itself = cell.watches.find((w) => w.name === block && w.blocks.length === 1 && w.blocks[0] === block);
-  const group = cell.watches.find((w) => w.list === 'watches' && w.name !== block && w.blocks.includes(block));
+  const kind = kindAfter(kindOf(cell, block));
+  const itself = cell.watches.find((w) => w.list === 'watches' && w.name === block && namesItself(w));
+  const group = cell.watches.find((w) => w.list === 'watches' && !namesItself(w) && w.blocks.includes(block));
   const read = cell.reads.find((r) => r.blocks.includes(block));
-  const alike = cell.given.find((g) => g.block === block && g.list === 'every_agent');
-  if (itself) parts.push(`${itself.list === 'every_agent' ? 'every_agent ' : ''}watches${kind}`);
-  else if (group) parts.push(`watches ${group.name}${kind}`);
-  else if (read) parts.push(`reads${read.name === block ? '' : ` ${read.name}`}${kind}`);
-  else if (alike) parts.push(`every_agent reads${kind}`);
+  if (itself) parts.push(`watches${kind}`);
+  else if (group) parts.push(`watches ${group.name},${kind}`);
+  else if (read) parts.push(namesItself(read) ? `reads${kind}` : `reads ${read.name},${kind}`);
   const writes = cell.outputs.includes(block);
   if (writes) parts.push(cell.mustWrite.includes(block) ? 'must_write' : 'outputs');
   const said = parts.join('; ');
-  if (itself?.list === 'watches' && itself.do) return `${said}: ${itself.do}`;
+  if (itself?.do) return `${said}: ${itself.do}`;
   return said && writes && what ? `${said}: ${what}` : said;
 }
 
@@ -336,14 +342,13 @@ export function groupSays(cell: Cell, group: string, blocks: string[]): string {
 /// once, in its panel.
 export function everySays(cell: Cell, row: EveryRow): string {
   const of = (names: string[]) => [...new Set(names.filter((n) => row.blocks.includes(n)))];
-  const withKinds = (names: string[]) => names.map((n) => `${n}${kindAfter(kindIn(cell, n))}`).join(', ');
-  const watched = of(cell.watches.filter((w) => w.list === 'watches').flatMap((w) => w.blocks));
-  const read = of(cell.reads.flatMap((r) => r.blocks));
+  const watched = of(cell.watches.filter((w) => w.list === 'watches' && namesItself(w)).map((w) => w.name));
+  const read = of(cell.reads.flatMap((r) => r.blocks)).filter((b) => !watched.includes(b));
   const written = of(cell.outputs);
   const alike = row.blocks.some((b) => cell.given.some((g) => g.block === b && g.list === 'every_agent'));
   return [
-    ...(watched.length > 0 ? [`watches ${withKinds(watched)}`] : []),
-    ...(read.length > 0 ? [`reads ${withKinds(read)}`] : []),
+    ...(watched.length > 0 ? [`watches ${namesWithKinds(cell, watched)}`] : []),
+    ...(read.length > 0 ? [`reads ${namesWithKinds(cell, read)}`] : []),
     ...(written.length > 0 ? [`outputs ${written.join(', ')}`] : []),
     ...(alike ? [`every_agent ${row.list}${kindAfter(row.kind)}`] : []),
   ].join('; ');

@@ -3,14 +3,15 @@
 // left. A run is in its cell's column, saying how it stands, how many rounds it had, how long it took, what it cost
 // and what it wrote; what is not a run is a row of its own, its words at the left and, for a write, under each cell
 // that takes the block the flow's chart's mark of that cell for it: the ring of `watches`, or the ring of `reads` with
-// its kind. The oldest step is at the top, as the walk goes down the flow's chart, and the
-// chart opens scrolled to its end, the newest step.
+// its kind. The oldest step is at the top, as the walk goes down the flow's chart, and the chart opens scrolled to its
+// end, the newest step.
 
 import { type CSSProperties, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Flow } from '../api';
 import { Breakable, ConditionMark, DataGlyphs, WIDTHS, tableWidth, useWheel } from '../Chart';
 import { markOf } from '../matrix';
+import { markWords } from '../words';
 import { Arrow, Edge, Sign } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { CellNow, Step, WorkPage } from '../works-api';
@@ -37,7 +38,6 @@ export type Chosen = { step: number } | { cell: string } | { usage: true } | nul
 
 /// The width of the column of times and words at first, and the least and most it is dragged to.
 const STEPS = { first: 260, min: 160, max: 520 };
-
 
 /// A piece of a row's words: the page's own words, or a name or a value from the flow, drawn in monospace.
 type Part = string | { name: string };
@@ -294,26 +294,32 @@ function StepRow(props: {
               : 'back-through'
             : '';
         const mark = row.marks.get(i);
-        // Of a write, what the cell takes of the block by any list: a new version of it runs the cell, or the cell is
-        // only given it.
-        const takes = (cell: typeof c) => {
-          const m = step.kind === 'wrote' ? markOf(cell, step.block) : null;
-          return { write: false, watch: m?.watch ?? false, read: m !== null && !m.watch, kind: m?.kind ?? null };
-        };
+        // Of a write, what the cell takes of the block by any list, as the flow's chart marks it: a new version of it
+        // runs the cell, or the cell is given it; nothing where it does neither, as of a block an act only reads.
+        const taken = step.kind === 'wrote' && mark === 'read' ? markOf(c, step.block) : null;
+        const takes = taken && (taken.watch || taken.read) ? { ...taken, write: false } : null;
+        const said = takes && step.kind === 'wrote' ? markWords(c, step.block, takes) : '';
         return (
           <td
             key={c.id}
             className={`spot step-spot ${back} ${chosenCell === c.id ? 'chosen' : ''} ${pointed === i ? 'pointed' : ''} ${
-              mark ? 'has-mark' : ''
+              takes || (mark && mark !== 'read') ? 'has-mark' : ''
             }`}
+            title={said || undefined}
             onMouseEnter={() => onPoint(i)}
           >
             {row.column === i && step.kind === 'run' && <RunBox run={step} now={now} back={row.backFrom.length > 0} />}
-            {mark && mark !== 'letGo' && (
+            {takes && (
               <>
-                {mark === 'read' ? <DataGlyphs mark={takes(c)} /> : <ConditionMark />}
+                <DataGlyphs mark={takes} />
+                <span className="visually-hidden">{said}</span>
+              </>
+            )}
+            {mark === 'condition' && (
+              <>
+                <ConditionMark />
                 <span className="visually-hidden">
-                  {mark === 'read' ? `${c.id} ${takes(c).watch ? 'watches' : 'reads'} it` : `${c.id}'s condition reads it`}
+                  {`${c.id}'s condition reads it`}
                 </span>
               </>
             )}

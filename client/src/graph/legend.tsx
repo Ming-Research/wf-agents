@@ -33,7 +33,7 @@ export function GraphLegend({ waysBack }: { waysBack: number }) {
         <DataGlyphs mark={mark({ watch: true })} /> watches
       </li>
       <li>
-        <DataGlyphs mark={mark({ read: true })} sign={false} /> reads
+        <DataGlyphs mark={mark({ read: true })} /> reads
       </li>
       <li>
         <DataGlyphs mark={mark({ read: true, kind: 'latest' })} /> latest

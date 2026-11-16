@@ -34,12 +34,16 @@ fn given(spec: &CellSpec) -> Vec<(String, InputKind)> {
     spec.given.iter().map(|g| (g.block.to_string(), g.kind)).collect()
 }
 
-/// The blocks whose new version runs the cell, in order: those of what it watches, every agent cell's first.
+/// The blocks whose new version runs the cell, each once, in order: those of what it watches, every agent cell's
+/// first, as the walk takes them.
 fn runs_on(spec: &CellSpec) -> Vec<&str> {
-    spec.watches
-        .iter()
-        .flat_map(|w| w.blocks.iter().map(BlockId::as_str))
-        .collect()
+    let mut blocks: Vec<&str> = Vec::new();
+    for block in spec.watches.iter().flat_map(|w| w.blocks.iter().map(BlockId::as_str)) {
+        if !blocks.contains(&block) {
+            blocks.push(block);
+        }
+    }
+    blocks
 }
 
 /// The twin laid out one thing to a file, its planning cell taking this in place of what it watches.
