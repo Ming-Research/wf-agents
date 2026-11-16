@@ -24,5 +24,5 @@ A round missed its session's cache where it went on in its session within `sessi
 Why: What a round wrote to the cache is no measure: it also holds what the session gained since, the last answer and the round's own message, which after a round of tools is large. Each part is recorded with each try, so a miss is told whenever it is asked (principle `state-from-records`).
 
 ### decision a-round-without-a-result-is-priced-from-its-calls
-A round the run guard stopped, and one whose program ended of itself with no result, as one that crashed, took what its calls to the model cost at their models' prices, as its stream told them, and its record says that what it took is an estimate.
+A round the run guard stopped, one whose program ended of itself with no result, as one that crashed, and one given again or stopped after the process of the engine that gave it ended, whose try that process left printed no result, took what its calls to the model cost at their models' prices, as its stream told them, and its record says that what it took is an estimate.
 Why: A program stopped or crashed prints no result to say what the round cost, while the round the guard stops is the costliest kind it sees: recorded as nothing, it would read as no cost and stay out of the budget (principle `nothing-passes-for-normal`). Marked, the estimate is not taken for what the program said.

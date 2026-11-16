@@ -4,10 +4,13 @@
 
 # Why a run of the agents' program, a round's, a keep-warm ping's or the check of the outside's, failed where it ended
 # with no result to read: `exited` where it exited with the code `{code}`, `signal` where the signal `{signal}` ended
-# it; `{command}` the command line, and `{said}` the end of what it said.
+# it; `{command}` the command line, and `{said}` the end of what it said. `cut_off`, with `{command}` alone, where the
+# process of the engine that ran a round's program ended before it saw the program end, and what the program printed
+# until then holds no result.
 [program]
 exited = "{command} exited with code {code}: {said}"
 signal = "{command} was ended by signal {signal}: {said}"
+cut_off = "The engine that ran {command} ended before it saw the program end, and what the program printed until then holds no result."
 
 # What the engine's check of the outside of the agents' rounds found down, where it says it itself, a sentence each:
 # `signed_out` where the command line, `{command}`, says it is not signed in; `offline` where the network does not reach
