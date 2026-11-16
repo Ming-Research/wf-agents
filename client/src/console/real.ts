@@ -134,8 +134,8 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
         const answer = placesOf(entry, text('reply'))?.get('reply') ?? entry;
         return { who: cell, at: v.time, to: ['owner'], quote: null, text: answer, place: v.at };
       }
-      const { quote, text: said } = quoted(placesOf(entry, text('owner'))?.get('words') ?? entry);
-      return { who: 'owner', at: v.time, to: [cell], quote, text: said, place: v.at };
+      const { quote, text: said } = quoted(text('owner') === null ? entry : entry);
+      return { who: 'owner', at: v.time, to: [page.flow.cells[0]?.id ?? cell], quote, text: said, place: v.at };
     }),
     ...notes.flatMap((b) =>
       versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
