@@ -218,7 +218,7 @@ impl Scanner {
         while self.get(self.at).is_some_and(ident) {
             self.at += 1;
         }
-        if self.test.is_none() && self.rust {
+        if self.test.is_none() {
             let text: String = self.chars[start..self.at].iter().collect();
             let line = self.line(start);
             self.scanned.keys.push(Literal { text, line });
@@ -440,7 +440,7 @@ fn flows() -> Vec<PathBuf> {
 /// file, its lines but its comments; of a text of the engine's words, all of it.
 fn filled(path: &Path, text: &str) -> String {
     if path.extension().is_some_and(|e| e == "toml") {
-        let words = text.lines().filter(|line| !line.trim_start().starts_with("#!"));
+        let words = text.lines().filter(|line| !line.trim_start().starts_with('#'));
         words.collect::<Vec<_>>().join("\n")
     } else {
         text.to_string()
@@ -507,7 +507,6 @@ fn flow_names() -> BTreeSet<String> {
 /// The names a flow gives: its own, and each of its cells, lines, groups and blocks.
 fn given(compiled: &flow::Compiled) -> BTreeSet<String> {
     let mut names = BTreeSet::from([compiled.name.clone()]);
-    names.clear();
     names.extend(compiled.cells.iter().map(|c| c.id.as_str().to_string()));
     names.extend(compiled.lines.keys().cloned());
     names.extend(compiled.groups.keys().cloned());
@@ -574,7 +573,7 @@ fn page_sources() -> Vec<(PathBuf, Scanned)> {
                 .iter()
                 .map(|e| path.with_extension(e))
                 .find(|f| all.contains(f));
-            if let Some(file) = file.filter(|f| !test(f) && !made_up(f) && !sources.contains(f)) {
+            if let Some(file) = file.filter(|f| !test(f) && !sources.contains(f)) {
                 sources.push(file);
             }
         }
@@ -640,7 +639,7 @@ fn named<'a>(text: &str, names: &'a BTreeSet<String>) -> Vec<&'a str> {
         let token = token.trim_end_matches('.');
         let Some(name) = names.get(token) else { continue };
         let quoted = begins > 0 && chars[begins - 1] == '`' && chars.get(begins + token.chars().count()) == Some(&'`');
-        if (quoted || no_word(token)) && token == text {
+        if quoted || no_word(token) {
             out.push(name.as_str());
         }
     }
