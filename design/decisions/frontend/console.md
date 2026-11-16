@@ -41,4 +41,6 @@ one's wider and its ring thicker. Over the light lies the page's ground at every
 with no box only where the light is its own, so that it shows only round the cards.
 Why: The soft light was chosen over other marks of the selection on the owner's judgment (principle
 owner-taste-judges), as marking what the owner does, not depth (principle hairlines-no-shadows). The ground looks
-needless under a card drawn whole, but without it the light showed through a card drawn faint, as a flash of blue.
+needless under a card drawn whole, but without it the light showed through a card drawn faint, as a flash of blue; it
+is the page's colour, and under a boxless item only for its own light, because in a card's colour, or under another's
+light, it drew a box where the item has none.

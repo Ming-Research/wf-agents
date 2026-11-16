@@ -67,9 +67,9 @@ const EDGE_LINE = 6;
 /// How quickly the blue rings and ribbons of the item under the pointer come in, and fade out once it leaves: the
 /// milliseconds in which each goes about two thirds of the way.
 const GLOW_IN = 30;
-/// How bright the items not in focus are drawn while an item is in focus or selected; how much of the links' own
-/// strength is left when the items are fully dimmed; and how long an item takes to fade down and to come back up, in
-/// milliseconds.
+/// How bright the items not in focus are drawn while an item is in focus or selected; the least of the links' own
+/// strength they could be drawn at, were the items drawn at no brightness ([`linksStrength`]); and how long an item
+/// takes to fade down and to come back up, in milliseconds.
 export const DIM = 0.35;
 const DIM_LINKS = 0.4;
 const FADE_DOWN = 220;
