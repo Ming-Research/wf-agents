@@ -242,12 +242,6 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
 /// reach, or what lies past the bound.
 const NEVER: &[(&str, &str)] = &[
     (
-        "D3 ran back on on_plan, written by a cell after it",
-        "I1's opinion in acceptance reaches the plan's second look first, R2 or D2 as the work went, and its plan \
-         reaches D3 with it, so D3 runs for that version too. That it runs for I1's alone takes the second look \
-         handing in no plan: a third return besides the content, past the bound.",
-    ),
-    (
         "M1 ran on on_asked",
         "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \
          check's own question runs the check again, and the work merges on it, is the engine's test of a work taken \
