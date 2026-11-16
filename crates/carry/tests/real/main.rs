@@ -72,6 +72,9 @@ pub struct Fake {
     pub plan_sleeps_once_begun: u32,
     /// How many seconds the plan's first call sleeps once it has printed its result, before it ends.
     pub plan_sleeps_once_returned: u32,
+    /// How many seconds the plan's first call sleeps once it has said, as its stream begins, that it took its message
+    /// in, and has written its return, which the command line took, without printing its result, before it answers.
+    pub plan_sleeps_once_it_wrote_its_return: u32,
     /// How many seconds the build's first call sleeps once it has said, as its stream begins, that it took its message
     /// in, made one call to the model and committed a file of the design tree, before it answers.
     pub build_sleeps_once_committed: u32,
@@ -123,6 +126,7 @@ impl Default for Fake {
             plan_sleeps: 0,
             plan_sleeps_once_begun: 0,
             plan_sleeps_once_returned: 0,
+            plan_sleeps_once_it_wrote_its_return: 0,
             build_sleeps_once_committed: 0,
             context: None,
             compacts: false,
@@ -436,6 +440,14 @@ case "$first" in
             printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
             sleep '{begun_sleeps}'
         fi
+        if [ '{wrote_sleeps}' != 0 ] && [ ! -f "$log/wrote" ]; then
+            touch "$log/wrote"
+            printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
+            printf '%s\n' '{{"type":"stream_event","event":{{"type":"message_start","message":{{"usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000}}}}}},"parent_tool_use_id":null}}'
+            printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","content":[{{"type":"tool_use","id":"toolu_1","name":"StructuredOutput","input":{{"outcome":{{"dealt_with":["request"],"meaning_unchanged":[],"outputs":{{"plan":"Greet by name."}}}}}}}}],"usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+            printf '%s\n' '{{"type":"user","parent_tool_use_id":null,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_1","content":"Structured output provided successfully"}}]}}}}'
+            sleep '{wrote_sleeps}'
+        fi
         if [ '{unchanged}' = yes ] && [ -f "$log/planned" ]; then
             unchanged='"plan"'
         fi
@@ -540,6 +552,7 @@ fi
         sleeps = fake.plan_sleeps,
         begun_sleeps = fake.plan_sleeps_once_begun,
         returned_sleeps = fake.plan_sleeps_once_returned,
+        wrote_sleeps = fake.plan_sleeps_once_it_wrote_its_return,
         committed_sleeps = fake.build_sleeps_once_committed,
         cost = fake.cost,
         compacts = yes(fake.compacts),

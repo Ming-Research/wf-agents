@@ -45,9 +45,29 @@ async fn a_round_left_running_by_an_engine_that_stopped_is_stopped_before_it_run
     assert_eq!(file("message.2.md"), file("message.md"));
 }
 
+/// What the message of a round says in place of its task where its session holds the task already, as the files beside
+/// the flows word it (`message.toml`, the part `task`, `held`).
+const TASK_HELD: &str = "As given before in this session";
+
+/// The work let on, the run's next round is given: what the run's first round was told, and what its second is.
+async fn told_next(real: &mut Real, work: store::WorkNumber, run: decide::RunId) -> (String, String) {
+    let calls = real.calls().len();
+    real.act(work, Act::Pause);
+    real.act(work, Act::Resume);
+    real.until(|real| real.calls().len() > calls).await;
+    let told = |round: usize| {
+        let at = real
+            .data
+            .join(format!("rounds/{}/{}-{round}.message.md", work.0, run.0));
+        std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
+    };
+    (told(1), told(2))
+}
+
 // A round whose program said it took its message in, and called the model, before its engine ended holds that message
 // in its session: given again, the round reads what came of that try from its kept stream, a crash, and is not told
-// it again. Under two seconds alone; no other test holds a round its engine did not see end.
+// it again; let on, the run's next round is told only what its session lacks, its task as held, never the whole
+// message. Under two seconds alone; no other test holds a round its engine did not see end.
 #[tokio::test]
 async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails_in_passing_and_is_not_told_it_again() {
     let fake = Fake {
@@ -92,6 +112,81 @@ async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails
     );
     // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, its one call at its price.
     assert_eq!(kept.spent[&(plan, 1)].usd_micros, 400 + 200 + 200);
+    let (first, next) = told_next(&mut real, work, plan).await;
+    assert!(!first.contains(TASK_HELD), "{first}");
+    assert!(
+        next.contains(TASK_HELD),
+        "the next round was told the whole message again:\n{next}"
+    );
+}
+
+// A round whose program took its message in before its engine ended, and which then fails before its program could
+// run, as for a level the settings no longer have, takes what that try took, and its measures are told, so that the
+// session is known to hold its message. Under two seconds alone; no other test holds a left try whose round fails
+// before its program runs.
+#[tokio::test]
+async fn a_left_try_whose_round_now_fails_for_its_item_s_level_is_counted() {
+    let fake = Fake {
+        plan_sleeps_once_begun: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    real.level = "2".to_string();
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.wait(|real| real.calls().len() == 1).await;
+    let plan = real.run_of(work, "plan");
+    let stream = real.data.join(format!("rounds/1/{}-1.stream.jsonl", plan.0));
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"assistant""#)))
+        .await;
+
+    real.settings.items.highest_level = Some("1".to_string());
+    real.restart();
+    real.until(|real| real.failures == 1).await;
+    assert_eq!(real.calls().len(), 1, "the round was not run again");
+    let kept = real.work(work);
+    let measures = work::measured::of_round(&kept.measured, plan, 1).expect("the try is measured");
+    assert!(measures.received, "its program took its message in");
+    // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, its one call at its price.
+    let spent = kept.spent.get(&(plan, 1)).map(|spent| spent.usd_micros);
+    assert_eq!(spent, Some(400 + 200 + 200), "what the try took");
+}
+
+// Pinned as it stands: a return the program wrote, which the command line took, before its engine ended and before the
+// program printed its result, is not taken, the stream holding no result. The round fails in passing, and the run's
+// next round is told only what its session lacks, its task as held; nothing tells the agent that its return was not
+// taken. Under two seconds alone; no other test holds a return written with no result.
+#[tokio::test]
+async fn a_return_written_before_its_engine_ended_with_no_result_is_not_taken_and_the_next_round_told_what_it_lacks() {
+    let fake = Fake {
+        plan_sleeps_once_it_wrote_its_return: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.wait(|real| real.calls().len() == 1).await;
+    let plan = real.run_of(work, "plan");
+    let stream = real.data.join(format!("rounds/1/{}-1.stream.jsonl", plan.0));
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"user""#)))
+        .await;
+
+    real.restart();
+    real.until(|real| real.failures == 1).await;
+    let kept = real.work(work);
+    match kept.back.get(&(plan, 1)) {
+        Some(Back::Failed {
+            failure: Failure::Passing,
+            ..
+        }) => {}
+        other => panic!("the round did not fail in passing: {other:?}"),
+    }
+    let (first, next) = told_next(&mut real, work, plan).await;
+    assert!(!first.contains(TASK_HELD), "{first}");
+    assert!(
+        next.contains(TASK_HELD),
+        "the next round was told the whole message again:\n{next}"
+    );
 }
 
 // A return the program printed before its engine ended, kept with the round's stream, is the round's: given again, the

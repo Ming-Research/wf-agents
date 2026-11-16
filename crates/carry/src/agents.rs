@@ -2052,4 +2052,75 @@ mod tests {
         assert_eq!(told, 0, "what came of its try was told again");
         assert_eq!((spent.usd_micros, spent.compactions), (800, 1));
     }
+
+    /// What the loop is told of the round, until it is told one of these.
+    async fn heard_until<T>(
+        heard: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>,
+        mut wanted: impl FnMut(service::Message) -> Option<T>,
+    ) -> T {
+        loop {
+            let message = tokio::time::timeout(std::time::Duration::from_secs(10), heard.recv())
+                .await
+                .expect("the round ends")
+                .expect("the channel is open");
+            if let Some(found) = wanted(message) {
+                return found;
+            }
+        }
+    }
+
+    // A round stopped after the process of the engine that gave it ended, whose left try printed its result, takes
+    // what the result says it cost, not its calls at their prices. Well under a second alone; no other test holds the
+    // stop of a left try that printed its result.
+    #[tokio::test]
+    async fn a_round_stopped_after_its_engine_ended_takes_what_its_left_try_s_result_says() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        let stream = [INIT.to_string(), start(1_000), called(1), result("0.03")];
+        left_by_an_engine(&agents, &round, &stream, 0);
+        let (to, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        agents.stop(round.clone(), RoundReply::new(round.work, round.run, to));
+        let spent = heard_until(&mut heard, |message| match message {
+            service::Message::Happened {
+                event: engine::Event::Returned { spent, .. },
+                ..
+            } => Some(spent),
+            _ => None,
+        })
+        .await;
+        // The session's $0.03 in all, less the cent its line's earlier round cost; its call at its price is 800.
+        assert_eq!(spent.usd_micros, 20_000);
+    }
+
+    // A left try whose result says the account's usage limit refused it fails of that kind, which holds every work's
+    // rounds as one wait (decision a-shared-cause-is-one-wait), and not as a crash in passing. Well under a second
+    // alone; no other test holds a limit a left try met.
+    #[tokio::test]
+    async fn a_left_try_that_met_the_usage_limit_fails_of_that_kind() {
+        let refused = serde_json::json!({ "type": "assistant", "parent_tool_use_id": null, "error": "rate_limit",
+            "api_error": "usage_limit_reached", "api_error_status": 429,
+            "message": { "content": [{ "type": "text", "text": "You've hit your weekly limit · resets 11pm" }] } });
+        let limit = serde_json::json!({ "type": "result", "subtype": "success", "is_error": true,
+            "api_error_status": 429, "api_error": "usage_limit_reached", "terminal_reason": "api_error",
+            "total_cost_usd": 0.0, "result": "You've hit your weekly limit · resets 11pm" });
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        left_by_an_engine(
+            &agents,
+            &round,
+            &[INIT.to_string(), refused.to_string(), limit.to_string()],
+            0,
+        );
+        let (to, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        agents.give(round.clone(), RoundReply::new(round.work, round.run, to));
+        let failed = heard_until(&mut heard, |message| match message {
+            service::Message::Happened {
+                event: engine::Event::Failed { failure, why, .. },
+                ..
+            } => Some((failure, why)),
+            _ => None,
+        })
+        .await;
+        assert_eq!(failed.0, Failure::UsageLimit, "{}", failed.1);
+    }
 }
