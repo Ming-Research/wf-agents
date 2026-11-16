@@ -359,8 +359,8 @@ fn what_a_cell_reads_and_what_every_agent_cell_takes_are_kept_as_written() {
     source.flow.push_str(
         "\n[every_agent]\nwatches = [\"request\"]\nreads = [\"{each}_questions\"]\n\n[every_agent.kinds]\nrequest = \"latest\"\n\"{each}_questions\" = \"all\"\n\n[every_agent.do]\nrequest = \"Read it again.\"\n",
     );
-    let compiled = compiled_all(&source);
-    let every = &compiled.every_agent;
+    let all = compiled_all(&source);
+    let every = &all.every_agent;
     assert_eq!(
         every.watches,
         [Taken {
@@ -378,7 +378,7 @@ fn what_a_cell_reads_and_what_every_agent_cell_takes_are_kept_as_written() {
     assert_eq!(every.kinds["{each}_questions"], InputKind::All);
     assert_eq!(every.does["request"], "Read it again.");
     // The judge takes the request by every agent cell's list, and what its own file watches by its own.
-    let judge = cell(&compiled, "judge");
+    let judge = cell(&all, "judge");
     assert_eq!(
         judge
             .watches

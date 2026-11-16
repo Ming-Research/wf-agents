@@ -142,7 +142,7 @@ describe('the chart', () => {
     );
     // Nothing of the conditions stays on the blocks' rows.
     expect(texts(rowOf(page, 'commented'), '.spot .visually-hidden')).toEqual([]);
-    expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual(['check outputs ci']);
+    expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual(['check outputs ci', 'merge watches ci']);
     expect(page.querySelectorAll('tbody:not(.band) .part.condition')).toHaveLength(0);
     expect(page.querySelectorAll('tbody:not(.band) .part.precondition')).toHaveLength(0);
     expect(bandRow(page, 'condition-row', 'may_merge').querySelectorAll('.part.precondition')).toHaveLength(1);
