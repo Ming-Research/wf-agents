@@ -1825,7 +1825,7 @@ impl<'a> Definition<'a> {
     /// Of each verdict the cell hands in as a judge, the value that does not pass and the dialogue it writes its points
     /// in: a choice the cell writes that a test of what stands reads, the value that test looks for being the one that
     /// does not pass, paired with the one dialogue the cell holds as the judge, not the maker (design document
-    /// `data-and-context`, 37). A cell holding no such dialogue pairs none; one holding more than one is refused
+    /// `data-and-context`, 37). An agent's cell holding no such dialogue, or more than one, is refused
     /// ([`Definition::check_verdicts`]), and pairs none.
     fn verdicts(&self, id: &str, file: &CellFile) -> BTreeMap<BlockId, Verdict> {
         let judged = self.judged(id, file);
@@ -1869,21 +1869,26 @@ impl<'a> Definition<'a> {
         out
     }
 
-    /// The faults of the verdicts a cell hands in: each, where the cell judges in more than one dialogue, so that which
-    /// of them its points go in cannot be told (design document `data-and-context`, 36, 37; principle
-    /// one-dialogue-for-each-party).
+    /// The faults of the verdicts an agent's cell hands in: each, where the cell judges in no dialogue, so that its
+    /// points go nowhere a maker answers, or in more than one, so that which of them they go in cannot be told (design
+    /// document `data-and-context`, 36, 37; principle one-dialogue-for-each-party). An act of the engine is no party to
+    /// a dialogue (40), and hands in no verdict.
     fn check_verdicts(&self, id: &str, file: &CellFile) -> Vec<(String, FaultKind)> {
-        let judged = self.judged(id, file);
-        if judged.len() < 2 {
+        if file.kind != Kind::Agent {
             return Vec::new();
         }
+        let judged = self.judged(id, file);
         (self.verdicts_handed_in(file).into_iter())
-            .map(|(i, block, _)| {
-                let what = FaultKind::VerdictOfDialogues {
-                    verdict: block.clone(),
-                    dialogues: judged.iter().map(BlockId::to_string).collect(),
+            .filter_map(|(i, block, _)| {
+                let what = match judged.len() {
+                    0 => FaultKind::VerdictWithoutDialogue { verdict: block.clone() },
+                    1 => return None,
+                    _ => FaultKind::VerdictOfDialogues {
+                        verdict: block.clone(),
+                        dialogues: judged.iter().map(BlockId::to_string).collect(),
+                    },
                 };
-                (format!("outputs[{i}]"), what)
+                Some((format!("outputs[{i}]"), what))
             })
             .collect()
     }
