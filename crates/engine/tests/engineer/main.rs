@@ -262,6 +262,7 @@ fn gate(d: &mut Driver, roles: &Roles, branch: &Shared, run: RunId, i: usize) ->
     {
         return None;
     }
+    d.note(format!("DIAGNOSTIC gated: the head is {now}, the judges {judges:?}"));
     let mut b = branch.get();
     b.gated += 1;
     branch.set(b);
@@ -1756,9 +1757,21 @@ impl History {
         }
         if self.branch.get().gated > 0 {
             reached.push(CHECK_GATED.to_string());
+            self.breach("DIAGNOSTIC gated", String::new());
         }
         if self.branch.get().moved > 0 {
             reached.push(MERGE_ON_A_MOVED_HEAD.to_string());
+            self.breach("DIAGNOSTIC moved", String::new());
+        }
+        {
+            let r = &self.d.work.records;
+            let check = self.d.flow.flow.cells()[self.roles.check].id.clone();
+            let review = |run: RunId| r.started.iter().any(|s| s.run == run && s.cell.as_str() == "T1");
+            let first = r.started.iter().find(|s| s.cell == check).map(|s| s.at);
+            let early = first.is_some_and(|at| !r.finished.iter().any(|f| f.at < at && review(f.run)));
+            if early {
+                self.breach("DIAGNOSTIC the check ran before any review finished", String::new());
+            }
         }
         for r in reached {
             self.reach(r);
