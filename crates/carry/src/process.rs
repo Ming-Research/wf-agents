@@ -116,6 +116,9 @@ async fn run_with(
     let overseer = match group.map(Overseer::of).transpose() {
         Ok(overseer) => overseer,
         Err(why) => {
+            // The program is killed by the system's call itself, and its group by `kill`: where no shell can start,
+            // as where the process table is full, `kill` most likely cannot either.
+            let _ = child.start_kill();
             if let Some(group) = group {
                 signal(group, "KILL").await;
             }
@@ -544,6 +547,69 @@ mod tests {
         assert!(wrong.is_empty(), "{}", wrong.join("; "));
     }
 
+    // Played by the test binary run again, and only so, with no program on its path: runs a program named by where it
+    // is, whose overseer, named by the path alone, cannot be started, nor can `kill`, as where the process table is
+    // full; and writes in the directory the variable gives how long the run took and what came of it.
+    #[tokio::test]
+    #[ignore = "run only by the test that runs it with nothing on its path"]
+    async fn an_engine_that_can_start_no_shell() {
+        let Ok(dir) = std::env::var(AN_ENGINE) else {
+            return;
+        };
+        let dir = Path::new(&dir);
+        let mut command = Command::new("/bin/sh");
+        (command.args(["-c", r#"echo $$ > "$1"; exec /bin/sleep 120"#, "program"])).arg(dir.join(PROGRAM));
+        let began = std::time::Instant::now();
+        let ran = run(command, None, None, &mut Stop::never()).await;
+        let said = match ran {
+            Ok(_) => "it ran".to_string(),
+            Err(why) => why,
+        };
+        let _ = std::fs::write(dir.join(CAME), format!("{}\n{said}\n", began.elapsed().as_millis()));
+    }
+
+    /// The file in that directory that the program writes its process in.
+    const PROGRAM: &str = "program.pid";
+
+    /// The file in that directory that says what came of the run: how many milliseconds it took, and what it said.
+    const CAME: &str = "came";
+
+    // A program whose overseer cannot be started is stopped at once and its run fails, even where no `kill` can be
+    // started either, as where the process table is full: the engine run with nothing on its path, the program named
+    // by where it is. Under a second alone; no other test holds a program whose overseer cannot start.
+    #[tokio::test]
+    async fn a_program_whose_overseer_cannot_be_started_is_stopped_at_once_and_its_run_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = Engine::of_with(
+            "an_engine_that_can_start_no_shell",
+            dir.path(),
+            &[("PATH", "/nonexistent")],
+        );
+        let ended = engine.ended_within(Duration::from_secs(20)).await;
+        let program = std::fs::read_to_string(dir.path().join(PROGRAM)).ok();
+        let program = program.and_then(|pid| pid.trim().parse::<u32>().ok());
+        let running = match program {
+            Some(pid) => alive_process(pid).await,
+            None => false,
+        };
+        if let (true, Some(pid)) = (running, program) {
+            let _ = std::process::Command::new("kill")
+                .args(["-s", "KILL", &pid.to_string()])
+                .status();
+        }
+        assert!(ended, "the run did not end");
+        let came = std::fs::read_to_string(dir.path().join(CAME)).unwrap_or_default();
+        let mut came = came.lines();
+        let took: u64 = came
+            .next()
+            .and_then(|ms| ms.parse().ok())
+            .expect("how long the run took");
+        let said = came.next().unwrap_or_default();
+        assert!(said.contains("was stopped as it began"), "{said}");
+        assert!(took < 5_000, "the run took {took} ms");
+        assert!(!running, "the program runs on");
+    }
+
     // Ending by itself, as when its loop or the server of its pages stops, the process of the engine drops the rounds
     // it runs, and the program's group is stopped as it is when the process is killed. Under a second alone; no other
     // test has an engine end by itself under its program.
@@ -570,11 +636,18 @@ mod tests {
     impl Engine {
         /// The engine playing the test of this name, in the directory given.
         fn of(test: &str, dir: &Path) -> Engine {
+            Engine::of_with(test, dir, &[])
+        }
+
+        /// The engine playing the test of this name, in the directory given, with these variables of its
+        /// environment set.
+        fn of_with(test: &str, dir: &Path, set: &[(&str, &str)]) -> Engine {
             let exe = std::env::current_exe().expect("the test binary");
             let test = format!("process::tests::{test}");
             let mut command = std::process::Command::new(exe);
             (command.args(["--exact", &test, "--ignored", "--test-threads=1"]))
                 .env(AN_ENGINE, dir)
+                .envs(set.iter().copied())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
             std::os::unix::process::CommandExt::process_group(&mut command, 0);
