@@ -22,9 +22,9 @@
 //! before its program ran failed for a cause no kind tells apart. It is not tried again here: the engine handles it as
 //! its kind says. A round that fails takes what the result the program printed says it cost, as any round does, and
 //! is held to the budget as any round is, its work paused where it went over; where the program printed nothing that
-//! reads as a result, what the round took is not known, and is recorded as nothing. Stopped, the program's process
-//! group is sent TERM, and KILL after three seconds, and the round ends with nothing handed in; what it spent is not
-//! known, and is recorded as nothing.
+//! reads as a result, what the round took is not known, and is recorded as nothing. Stopped while its program runs in
+//! this process, the program's process group is sent TERM, and KILL after three seconds, and the round ends with
+//! nothing handed in; what it spent is not known, and is recorded as nothing.
 //!
 //! The program is given an environment of its own, not the engine's (`cli::environment`). Which of its line's sessions
 //! a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it is sent
@@ -43,9 +43,12 @@
 //! for it, and any other a crash, which fails the round in passing, saying the engine ended before it saw the program
 //! end; what the records do not hold of the try, its measures, its compactions and that the service answered it, is
 //! told once, as any try's is, and nothing is given the session again, taken in from main or read of the branch as the
-//! round begins, what the try committed being the round's. Only a try whose program said none of these, as one the
-//! engine ended before it read its message, is given again, told the same. A round stopped after that process ended
-//! takes what such a try took, as its stream says.
+//! round begins, what the try committed being the round's. The try is read before anything that can end the round
+//! here, so that a round that now fails before its program runs, as for a level the settings no longer have, takes
+//! what the try took. Only a try whose program said none of these, as one the engine ended before it read its message,
+//! is given again, told the same. A round stopped after that process ended takes what such a try took, as its stream
+//! says (its result's spend where it printed one, else its calls at their prices), and tells what the records do not
+//! hold of it, but takes no return from it.
 //!
 //! As a round of a line that may change the work ends with a return, the engine looks at what the work's branch changes
 //! under the paths the project protects, and asks the owner by itself where it is a change not asked of yet, beside
@@ -350,19 +353,29 @@ impl Inner {
         // program running unseen.
         process::stop_left(&group, &place.dir).await;
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
-        // The project of the work's item, whose repository and declaration the round is run with.
-        let of = crate::projects::of(&self.projects, &round.item)?;
-        let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
-        let dir = git::worktree(&place)?;
         // A round given again after the process of the engine that gave it ended while a try of it ran goes on from
         // that try, where its program said it began, reached the service or printed its result: what the try kept of
-        // its stream says what came of it. Nothing is taken in or read of the branch for it as it begins: what that try
-        // committed is the round's, read as it ends.
+        // its stream says what came of it. It is read before anything that can end the round here, so that what the try
+        // took is the round's however it ends. Nothing is taken in or read of the branch for it as it begins: what that
+        // try committed is the round's, read as it ends.
         let left = match self.left(round, Some(teller)).await? {
             Some(Left {
                 guarded: Some(failed), ..
             }) => return Ok(failed),
             left => left,
+        };
+        // The project of the work's item, whose repository and declaration the round is run with.
+        let of = match crate::projects::of(&self.projects, &round.item) {
+            Ok(of) => of,
+            Err(why) => return failed_before(round, line, left, why),
+        };
+        let on = match self.settings.ran_on(round.item.level.as_deref(), &round.cell) {
+            Ok(on) => on,
+            Err(why) => return failed_before(round, line, left, why),
+        };
+        let dir = match git::worktree(&place) {
+            Ok(dir) => dir,
+            Err(why) => return failed_before(round, line, left, why),
         };
         let main = if round.cell.takes_main && left.is_none() {
             self.caught_up(round, &place, of).await?
@@ -783,7 +796,9 @@ impl Inner {
     /// its result; none where the round kept no such try. What came of it is said to the loop, where `teller` is given,
     /// as any try's is, but for what the records hold of it already, told by the process that ended: each compaction of
     /// it as the session reopened, what its calls came to, where the stream kept the start of each, and that the service
-    /// answered it.
+    /// answered it. It is read whatever the settings now say of the round's item, its project or its level, and
+    /// whether or not its worktree is there: what came before the session's messages that they no longer say is
+    /// left out of its measures, and a try past the run guard's lines with no project to word why is read as any other.
     async fn left(&self, round: &Round, teller: Option<&Teller>) -> Result<Option<Left>, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let base = self.kept(round);
@@ -791,28 +806,39 @@ impl Inner {
             return Ok(None);
         };
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
-        let of = crate::projects::of(&self.projects, &round.item)?;
+        let of = crate::projects::of(&self.projects, &round.item).ok();
+        // What the try ran on, as the records say it began on it.
         let ran = (work.ran.iter()).rfind(|r| r.run == round.run && r.round == round.number && r.attempt == n);
-        let on = match ran {
-            Some(ran) => ran.on.clone(),
-            None => self.settings.ran_on(round.item.level.as_deref(), &round.cell)?,
-        };
+        let on = (ran.map(|ran| ran.on.clone()))
+            .or_else(|| (self.settings).ran_on(round.item.level.as_deref(), &round.cell).ok());
         // What came before the session's messages, as the session kept it when it began.
         let InSession { number, .. } = cli::in_session(flow, work, line, round.run, round.number);
         let session = session::session(self.installation, round.work, line, number);
         let begun = |what| std::fs::read_to_string(system::kept_at(&self.data, session, what)).ok();
         let (system, form) = (begun(system::Begun::System), begun(system::Begun::Form));
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let refused = permissions::refused_commands(&of.beside);
-        let permissions = Permissions::of(round.cell.reads_only, args, &refused, added);
-        let mut before = self.before_messages(
-            &on,
-            system.as_deref().unwrap_or_default(),
-            form.as_deref().unwrap_or_default(),
-            &permissions,
+        let refused = of.map(|of| permissions::refused_commands(&of.beside));
+        let permissions = Permissions::of(
+            round.cell.reads_only,
+            args,
+            refused.as_deref().unwrap_or_default(),
+            added,
         );
-        for (part, there) in [("system", &system), ("schema", &form)] {
-            if there.is_none() {
+        let mut before = match &on {
+            Some(on) => self.before_messages(
+                on,
+                system.as_deref().unwrap_or_default(),
+                form.as_deref().unwrap_or_default(),
+                &permissions,
+            ),
+            None => BTreeMap::new(),
+        };
+        for (part, there) in [
+            ("system", system.is_some()),
+            ("schema", form.is_some()),
+            ("tools", of.is_some()),
+        ] {
+            if !there {
                 before.remove(part);
             }
         }
@@ -863,8 +889,8 @@ impl Inner {
         // that ended would have stopped it.
         let guarded_before = stopped_before(work, round.run, round.number, Failure::Guarded);
         let halted = crossing.is_some() && guard.stops() && !stream.has_result();
-        let guarded = (crossing.filter(|_| halted))
-            .map(|crossing| guarded(&crossing, &of.beside.cost.guard, &stream, compactions, guarded_before));
+        let guarded = (crossing.filter(|_| halted).zip(of))
+            .map(|(crossing, of)| guarded(&crossing, &of.beside.cost.guard, &stream, compactions, guarded_before));
         Ok(Some(Left {
             stream,
             compactions,
@@ -879,18 +905,7 @@ impl Inner {
     /// ended. What cannot be read is said on the standard error, and taken as nothing.
     async fn left_spent(&self, round: &Round, teller: Option<&Teller>) -> Spent {
         match self.left(round, teller).await {
-            Ok(Some(left)) => {
-                let line = round.cell.line.as_deref().unwrap_or_default();
-                let InSession { begin, before, .. } =
-                    cli::in_session(&round.flow, &round.kept, line, round.run, round.number);
-                let begin = if left.anew { Begin::New } else { begin };
-                let compactions = left.compactions;
-                let spent = match left.stream.read(begin, before) {
-                    Ok(read) => read.spent,
-                    Err(no) => no.spent.unwrap_or_default(),
-                };
-                Spent { compactions, ..spent }
-            }
+            Ok(Some(left)) => spent_of(round, round.cell.line.as_deref().unwrap_or_default(), left),
             Ok(None) => Spent::default(),
             Err(why) => {
                 eprintln!(
@@ -1489,6 +1504,36 @@ fn guarded(
         ..stream.priced().unwrap_or_default()
     };
     Carried::Failed(why, Failure::Guarded, failure::Said::default(), spent)
+}
+
+/// What a try the process of the engine that gave it left took, as what it kept of its stream says: what its result
+/// says, where it printed one, or else its calls at their models' prices; with its compactions.
+fn spent_of(round: &Round, line: &str, left: Left) -> Spent {
+    let InSession { begin, before, .. } = cli::in_session(&round.flow, &round.kept, line, round.run, round.number);
+    let begin = if left.anew { Begin::New } else { begin };
+    let spent = match left.stream.read(begin, before) {
+        Ok(read) => read.spent,
+        Err(no) => no.spent.unwrap_or_default(),
+    };
+    Spent {
+        compactions: left.compactions,
+        ..spent
+    }
+}
+
+/// A round that fails, for this reason, before its program could be run: as any such round, where it has no try a
+/// process of the engine that ended left; else as a failure of the kind any such round's is, having taken what that
+/// try took, which is the round's.
+fn failed_before(round: &Round, line: &str, left: Option<Left>, why: String) -> Result<Carried, String> {
+    match left {
+        None => Err(why),
+        Some(left) => Ok(Carried::Failed(
+            why,
+            Failure::Other,
+            failure::Said::default(),
+            spent_of(round, line, left),
+        )),
+    }
 }
 
 /// Whether a try of the round found its line's session lost, and began it again under its id: as the records say, once
