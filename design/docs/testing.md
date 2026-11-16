@@ -140,15 +140,15 @@ of each part.
 16. **When it runs.** A cell's cases run where the text any of its situations is sent changed, as the situations written
     before and after the change show (5): in the work that makes the change, before it merges, its results in its pull
     request for the owner, each case passed or failed, with its returns before and after the change side by side for the
-    made cases; those of a case taken from a work stay in the data directory with it, since the repository is public
-    (principle change-cells-after-their-cases). Where the agents' program or the lowest level's model changes, every
-    case runs; where the model of another level changes, the cases whose cell's model is that level's run on it; both
-    before the installation runs the new one, the results shown to the owner first.
+    made cases (principle change-cells-after-their-cases); those of a case taken from a work stay in the data directory
+    with it, since the repository is public. Where the agents' program or the lowest level's model changes, every case
+    runs; where the model of another level changes, the cases whose cell's model is that level's run on it; both before
+    the installation runs the new one, the results shown to the owner first.
 
 17. Not built: the program that builds, runs and judges the cases; the step of the flow that runs them in a work that
-    changes a cell's text; holding a new program or model until its cases pass; and the results on the page. Until
-    they are, the cases are run by hand on the situations the compiled flow writes (5), and their results put in the
-    work's pull request.
+    changes a cell's text; holding a new program or model until its cases pass; and the results on the page. Until they
+    are, the cases are run by hand on the situations the compiled flow writes (5), and their results put in the work's
+    pull request as 16 says.
 
 ## Rare cases, brought about on purpose
 
