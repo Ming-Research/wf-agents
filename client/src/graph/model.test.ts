@@ -198,7 +198,7 @@ describe('the flowchart of the engineer flow', () => {
     expect(step(chart, cellNode('I1'), cellNode('T1'))?.label).toBe('change, review');
     expect(step(chart, cellNode('T2'), wayInNode('M1'))?.label).toBe('');
     // A step no arrow runs along carries nothing.
-    expect(step(chart, cellNode('D3'), forkNode('D4'))?.label).toBe('');
+    expect(step(chart, cellNode('D3'), cellNode('D4'))?.label).toBe('');
     // An arrow with a cell of the path between stays an arrow: R1's plan runs D3, but D1 and D2 come between.
     expect(drawn(chart).filter((pair) => !chart.edges.some((e) => e.back && `${e.from}>${e.to}` === pair))).toEqual([
       'R1>D2',
