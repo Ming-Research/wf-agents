@@ -9,7 +9,9 @@ cell is called by its title in the flow, and an item is a deliverable where its 
 work's route says.
 Why: The page told one flow by its name, read three blocks by theirs and called three cells by words of its own, which
 held for those flows alone (principle engine-knows-no-cell). A key on each block's file saying it is shown was turned
-down: the order is the flow's, and is said once there.
+down: the order is the flow's, and is said once there. A key saying a flow delivers was turned down too: a flow with
+no agent's cell does no work of its own and delivers what its item is made of, which its cells already say, and a key
+beside them could only repeat them or contradict them.
 
 ### decision an-option-is-picked-by-pressing-it
 An option of a question is a button: pressing it picks it, and pressing the one picked lets it go. It carries its radio
