@@ -409,11 +409,8 @@ fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView
         line.map_or(By::Nobody, By::Line)
     };
     match version.by {
-        Writer::Run(run) => match line_of_run(run) {
-            By::Line(_) => By::Nobody,
-            other => other,
-        },
-        Writer::Person => By::Nobody,
+        Writer::Run(run) => line_of_run(run),
+        Writer::Person => By::Owner,
         Writer::Outside => {
             let source = (flow.blocks.get(block)).and_then(|b| b.writers.outside.as_deref());
             match source {
