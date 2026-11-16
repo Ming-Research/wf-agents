@@ -1842,7 +1842,7 @@ impl Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
             flow: kept.head.flow.clone(),
-            delivers: (kept.flow.cells.iter()).any(|spec| spec.kind == Kind::Agent),
+            delivers: !(kept.flow.cells.iter()).any(|spec| spec.kind == Kind::Agent),
             added: kept.head.added.0,
             paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
             waits: (driver.waits_on_owner(number).into_iter()).map(Wait::of).collect(),
