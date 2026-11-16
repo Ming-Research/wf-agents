@@ -33,6 +33,7 @@ fn a_version_that_holds_nothing_shows_so_as_its_write_recorded_it() {
     let run = finished_by(&w, at);
     let nothing = VersionView {
         empty: true,
+        ruled: false,
         ..version(at, Writer::Run(run), at, None)
     };
     assert_eq!(seen(&w).blocks[&BlockId::from("notes")], vec![nothing]);

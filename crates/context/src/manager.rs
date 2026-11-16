@@ -110,7 +110,9 @@ pub fn enter(
     for (block, at) in begun_with(flow, words, work, run, number) {
         held.versions.entry(block).or_default().insert(at);
     }
-    let versions = decide::versions(&records);
+    // The versions as the walk reads them by the flow, so that a point the owner ruled on is new to no cell here as
+    // there (design document `data-and-context`, 39).
+    let versions = decide::ruled_versions(&flow.flow, &records);
     let own = |v: &VersionView| matches!(v.by, Writer::Run(r) if of_cell(&records, r, cell));
     let mut situation = Situation {
         after_hand_in: !held.taken.is_empty(),
@@ -146,7 +148,7 @@ pub fn enter(
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
         let new = all
             .iter()
-            .any(|v| Some(v.at) > last && v.meaning == Some(v.at) && !own(v));
+            .any(|v| Some(v.at) > last && v.meaning == Some(v.at) && !own(v) && !v.ruled);
         let mut datum = Datum {
             latest: version(latest),
             last,

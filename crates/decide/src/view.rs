@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use crate::flow::{BlockId, CellId, Flow};
 use crate::records::{Cause, Outsider, Records, RunId, Seq};
 use crate::room::Room;
-use crate::walk::{Decision, Version, Walk, decide_in, read_runs, read_versions};
+use crate::walk::{Decision, Version, Walk, decide_in, read_runs, read_versions, rule};
 
 /// A work as it is now. On records that cannot be those of a work the decision says so, and the rest is what those
 /// records give: to be shown for the tracing of the fault, not relied on.
@@ -72,6 +72,9 @@ pub struct VersionView {
     /// Whether it holds nothing, as its write recorded it, which a test of content reads: it has no value, and its
     /// content is empty or only whitespace.
     pub empty: bool,
+    /// A judge's point the owner ruled on, as the walk reads it by the flow ([`ruled_versions`]): new to no cell from
+    /// the ruling on (design document `data-and-context`, 39). Never so where read without the flow ([`versions`]).
+    pub ruled: bool,
 }
 
 /// Who wrote a version of a block.
@@ -134,6 +137,15 @@ pub fn versions(records: &Records) -> BTreeMap<BlockId, Vec<VersionView>> {
     shown(&read_versions(records, &read_runs(records)))
 }
 
+/// The versions of each block as the walk reads them by the flow, each judge's point the owner ruled on marked, as
+/// what reads which versions are new to a cell must take them.
+pub fn ruled_versions(flow: &Flow, records: &Records) -> BTreeMap<BlockId, Vec<VersionView>> {
+    let runs = read_runs(records);
+    let mut versions = read_versions(records, &runs);
+    rule(flow, &runs, &mut versions);
+    shown(&versions)
+}
+
 /// The versions as the walk reads them, for whoever shows them.
 fn shown(versions: &BTreeMap<&BlockId, Vec<Version<'_>>>) -> BTreeMap<BlockId, Vec<VersionView>> {
     (versions.iter())
@@ -149,6 +161,7 @@ fn shown(versions: &BTreeMap<&BlockId, Vec<Version<'_>>>) -> BTreeMap<BlockId, V
                     meaning: v.meaning,
                     value: v.value.map(str::to_string),
                     empty: v.empty,
+                    ruled: v.ruled,
                 })
                 .collect();
             ((*block).clone(), versions)

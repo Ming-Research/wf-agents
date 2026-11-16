@@ -1403,7 +1403,11 @@ pub(crate) fn read_versions<'a>(
 /// Marks each judge's point the owner ruled on: of each verdict a cell hands in as a judge, the versions of its
 /// dialogue a run of the judge wrote before a version of the verdict a person wrote (design document
 /// `data-and-context`, 39).
-fn rule(flow: &Flow, runs: &BTreeMap<RunId, RunView<'_>>, versions: &mut BTreeMap<&BlockId, Vec<Version<'_>>>) {
+pub(crate) fn rule(
+    flow: &Flow,
+    runs: &BTreeMap<RunId, RunView<'_>>,
+    versions: &mut BTreeMap<&BlockId, Vec<Version<'_>>>,
+) {
     for judge in flow.cells() {
         for (verdict, of) in &judge.verdicts {
             let ruling = (versions.get(verdict).into_iter().flatten())
