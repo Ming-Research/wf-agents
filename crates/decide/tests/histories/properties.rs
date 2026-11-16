@@ -303,7 +303,9 @@ pub fn next_word(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started, c
         return;
     };
     let cell = &flow.cells()[i];
-    let wrote = |b: &BlockId| came.writes.iter().any(|w| &w.block == b);
+    // A block the return writes so that what it says changes, by the reading's own rule: one handed in as changing
+    // nothing is new to no cell, and answers nothing, changes nothing the other side watches and brings no point (9).
+    let wrote = |b: &BlockId| (came.writes.iter()).any(|w| &w.block == b && reading.would_change(s.run, w));
     for (dialogue, watched) in &cell.dialogues {
         let woken = reading.point(flow, &s.cell, dialogue, s.at) && came.dealt_with.contains(dialogue);
         let owed = woken && !wrote(dialogue) && !watched.iter().any(&wrote);

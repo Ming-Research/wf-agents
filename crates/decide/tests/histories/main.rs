@@ -932,18 +932,26 @@ impl History {
                 }
             }
             // What meets everything leaves no word owed: a maker woken by a point answers it, and a judge's fail brings
-            // its points (design document `data-and-context`, 41, 42).
+            // its points, each a version that changes what the block says, since one handed in as changing nothing is
+            // new to no cell (design document `data-and-context`, 9, 41, 42).
+            let says = |rng: &mut Rng, block: &BlockId| Write {
+                meaning_unchanged: false,
+                ..write(rng, block, true)
+            };
             for (dialogue, watched) in &spec.dialogues {
-                let answered = (writes.iter()).any(|w: &Write| &w.block == dialogue || watched.contains(&w.block));
+                let answered = (writes.iter())
+                    .any(|w: &Write| !w.meaning_unchanged && (&w.block == dialogue || watched.contains(&w.block)));
                 if told.points.contains(dialogue) && !answered {
-                    writes.push(write(rng, dialogue, true));
+                    writes.retain(|w| &w.block != dialogue);
+                    writes.push(says(rng, dialogue));
                 }
             }
             for (verdict, of) in &spec.verdicts {
                 let fails =
                     (writes.iter()).any(|w| &w.block == verdict && w.value.as_deref() == Some(of.fails.as_str()));
-                if fails && !writes.iter().any(|w| w.block == of.dialogue) {
-                    writes.push(write(rng, &of.dialogue, true));
+                if fails && !writes.iter().any(|w| w.block == of.dialogue && !w.meaning_unchanged) {
+                    writes.retain(|w| w.block != of.dialogue);
+                    writes.push(says(rng, &of.dialogue));
                 }
             }
             return Back::Came {

@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use decide::{
     BlockId, CallId, Cause, Cell, CellId, Condition, Finished, Flow, Outsider, Questioned, Records, RunId, Seq,
-    Started, TestKind, TestName,
+    Started, TestKind, TestName, Write,
 };
 
 /// Who wrote a version of a block.
@@ -185,6 +185,28 @@ impl<'a> Reading<'a> {
     /// The block's current version.
     pub fn current(&self, block: &BlockId) -> Option<&Version> {
         self.of(block).last()
+    }
+
+    /// Whether this write, handed in by the run, would change what the block says over its current version, by the
+    /// reading's own rule of meaning ([`Reading::new`]): a choice where its value differs from the one before; prose
+    /// that the run says matters, or says not where the version it started from has not the meaning of the one it
+    /// would write over; and a first version but one handed in as changing nothing, which says nothing (design
+    /// document `data-and-context`, 9).
+    pub fn would_change(&self, run: RunId, write: &Write) -> bool {
+        let Some(over) = self.current(&write.block) else {
+            return write.value.is_some() || !write.meaning_unchanged;
+        };
+        if write.value.is_some() || over.value.is_some() {
+            return write.value != over.value;
+        }
+        if !write.meaning_unchanged {
+            return true;
+        }
+        let from = self.started[&run].basis.get(&write.block).copied().flatten();
+        let seen = from
+            .and_then(|v| self.of(&write.block).iter().find(|x| x.at == v))
+            .map(|x| x.meaning);
+        seen != Some(over.meaning)
     }
 
     /// The latest version of the block the run was told of before this place: the one it started from, or one put in

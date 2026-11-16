@@ -104,3 +104,37 @@ fn a_judge_s_fail_that_brings_no_point_is_sent_back_and_one_with_its_points_or_a
     let pass = vec![valued("verdict", "yes")];
     assert_eq!(step(vec![handed_in(pass.clone())], &s), finish(pass));
 }
+
+/// A block written as changing nothing in meaning.
+fn unchanged(block: &str) -> Write {
+    Write {
+        meaning_unchanged: true,
+        ..prose(block)
+    }
+}
+
+// A version handed in as changing nothing is new to no cell (design document `data-and-context`, 9): it answers no
+// point, changes nothing the other side watches, and brings no point.
+#[test]
+fn a_version_handed_in_as_changing_nothing_answers_nothing_and_brings_no_point() {
+    let owed = vec![Unmet::WordOwed {
+        name: "opinions".into(),
+        watched: vec!["plan".into()],
+    }];
+    // The maker's plan, handed in unchanged, changes nothing the judge watches.
+    let s = maker();
+    assert_eq!(
+        step(vec![handed_in(vec![unchanged("plan")])], &s),
+        send_back(owed.clone())
+    );
+    // The maker's answer, handed in unchanged, answers no point.
+    assert_eq!(step(vec![handed_in(vec![unchanged("opinions")])], &s), send_back(owed));
+    // The judge's points, handed in unchanged beside its fail, bring none.
+    let none = vec![Unmet::NoPoint {
+        block: "verdict".into(),
+        value: "no".to_string(),
+        name: "opinions".into(),
+    }];
+    let fail = vec![valued("verdict", "no"), unchanged("opinions")];
+    assert_eq!(step(vec![handed_in(fail)], &judge()), send_back(none));
+}

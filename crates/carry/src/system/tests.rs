@@ -205,6 +205,17 @@ fn a_line_that_changes_only_the_tests_of_a_flow_with_no_head_is_refused_as_the_e
     assert_eq!(faults(&settings(), &beside(), &flow), [fault]);
 }
 
+// Every session begins with the version of the guide's datum its system prompt holds (design document
+// `data-and-context`, 24): a flow of agents' cells with no such datum is refused as the engine starts.
+#[test]
+fn a_flow_of_agents_cells_without_the_datum_its_sessions_begin_with_is_refused_as_the_engine_starts() {
+    let mut flow = engineer();
+    assert!(faults(&settings(), &beside(), &flow).is_empty());
+    flow.blocks.retain(|block, _| block.as_str() != "guide");
+    let fault = "flow engineer: session.toml begins each session with the datum `guide`, which the flow does not have";
+    assert_eq!(faults(&settings(), &beside(), &flow), [fault]);
+}
+
 // A session keeps the system prompt and the form it began with, each alike: made and kept where it has none, and the
 // kept one given whenever it has one, whatever it was made of became since and however the round begins in it.
 #[test]
