@@ -4,7 +4,7 @@ The view of a flow's definition: its chart and its panels.
 
 ### decision columns-as-wide-as-their-marks
 On the flow's chart a cell's column starts only as wide as its marks: its head holds the cell's id and the first word
-of its line, and the width this leaves is a column of words at the right, one line for each block.
+of its line, and the width this leaves is a column of words at the right, one line for each row.
 Why: A column holds only marks, so a head wide enough for the cell's title leaves the middle of the chart empty and
 the words of each row nowhere to stand; the title is shown for the cell under the pointer and in the cell's panel.
 Drawing the cells in lanes, one for each session, was turned down, by judgment: with few lines most of the screen
@@ -21,3 +21,35 @@ The flowchart opens at 100%, its top in view, fitted to its width only where it 
 scrolled to.
 Why: Fitted whole to the window, a flow as long as the engineer's opened at about 62%, where the owner could not read
 its cells and labels.
+
+### decision a-way-back-is-the-only-line-along-a-row
+On the matrix the only line along a row of the data is a way back, drawn on the row of the name the earlier cell
+watches: the datum's own row, or the group's where its file names the group; a write going right draws nothing. A cell
+that watches a group has no mark on the group's blocks' rows, and a cell that reads a group is marked on each of its
+blocks' rows with that block's kind.
+Why: Each way back is then drawn once for each name watched and counted so, as the flowchart counts the names its
+arrows carry; drawn on each block's row, a later cell that writes two blocks of a group an earlier cell watches would
+draw one way back twice (no such pair is in the engineer flow, so this rests on judgment). A group read runs nothing as
+one and each of its blocks has its own kind (design document `data-and-context`, 12, 17), so its marks are the blocks'.
+A line for a write going right was turned down: the marks' order says it, and the way back is what the owner looks for.
+
+### decision every-agent-is-a-band-of-its-own
+On the matrix what `[every_agent]` names is a band of rows named as `flow.toml` writes them; under each column what
+the cell takes of the data a row stands for and writes, but what `[every_agent]` only reads, which the row's words say;
+the data a `{each}_` name stands for have no rows of their own. On the flowchart nothing of it is drawn coming in from
+outside; the view's line names it. A cell's panel lists it first among the cell's inputs, by that key, its `do` said
+once in its own panel.
+Why: Drawn for each datum and each cell, what every agent cell reads was 88 marks on the ten rows of the cells'
+questions and words, the guide was split between a trigger row and a data row, and the flowchart drew ten tags of it,
+all saying the same few things and burying each cell's own data. The guide's ring stays under each agent column: it
+marks which cells a new guide runs, which nothing else on the matrix says.
+
+### decision the-tools-are-a-band-of-rows
+On the matrix each of the engine's tools is a row of a band of its own, marked under each cell that may call it.
+Why: A call is a step of the work, which the chart must show (Article 7); keeping the tests a call rather than a cell of
+their own (decision no-cell-runs-the-tests) left it shown nowhere but the view's line.
+
+### decision the-view-line-names-what-the-chart-has-no-row-for
+The view's line names the flow's tools and `[every_agent]` only while the flowchart is shown; while the matrix is shown
+they are rows of its bands.
+Why: Each thing is shown once in a view (Article 8), and the flowchart has no rows for them.
