@@ -1,8 +1,8 @@
-# A small flow for trying the engine by hand and for the tests: a plan that waits for the items its item depends on,
-# a build, a review that judges it and may object, and the merge. Its script, ../script.toml, has the review object once,
+# A small flow for trying the engine by hand and for the tests: the start that makes the work's place, a plan that
+# waits for the items its item depends on, a build, a review that judges it and may object, and the merge. Its script, ../script.toml, has the review object once,
 # the plan ask the owner a question and the build ask for a tool.
 name = "trial"
-order = ["plan", "build", "review", "merge"]
+order = ["start", "plan", "build", "review", "merge"]
 
 [limits]
 runs = 3
@@ -15,6 +15,13 @@ reads_only = true
 
 [blocks.request]
 people = true
+
+[blocks.place]
+
+# The project's guide for its agents as the work's branch has it, which the start's act reads as it makes the work's
+# place and every session begins with.
+[blocks.guide]
+outside = "guide"
 
 [blocks.dependencies]
 values = ["waiting", "merged"]

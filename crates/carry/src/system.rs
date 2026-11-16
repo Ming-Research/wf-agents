@@ -26,7 +26,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use flow::agents::Agents;
+use decide::BlockId;
+use flow::agents::{Agents, DatumPart, SessionPart};
 use flow::{Compiled, Kind};
 use uuid::Uuid;
 
@@ -158,8 +159,8 @@ pub fn named(settings: &Settings, beside: &Agents) -> flow::system::Settings {
 
 /// The system prompt of the session of the cell's line, for a line whose agents are told `your_line` of what they may
 /// do in the worktree, its project's files read by `read` by their paths within the repository, and a datum that stands
-/// for one given by `datum` by its name, the version the session begins with, or read as the file where it has none; or
-/// why it cannot be made.
+/// for one given by `datum` by its name, the version the session begins with, none where it has none yet; or why it
+/// cannot be made.
 pub(crate) fn of_line(
     beside: &Agents,
     filling: &Filling,
@@ -194,6 +195,19 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
             faults.push(fault);
         }
     };
+    // A session begins with the version of each datum the system prompt names that its flow has; a flow of agents'
+    // cells without one would begin every session without the file it stands for (design document
+    // `data-and-context`, 24).
+    let agents = flow.cells.iter().any(|c| c.kind == Kind::Agent);
+    for part in beside.session.parts.iter().filter(|_| agents) {
+        if let SessionPart::Datum(DatumPart { datum }) = part
+            && !flow.blocks.contains_key(&BlockId::from(datum.as_str()))
+        {
+            add(format!(
+                "session.toml begins each session with the datum `{datum}`, which the flow does not have"
+            ));
+        }
+    }
     // The prompt is the same for every cell of a line: its first cell stands for it.
     let mut lines: Vec<&str> = Vec::new();
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {

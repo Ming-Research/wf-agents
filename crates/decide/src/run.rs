@@ -680,13 +680,13 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     }
     // A maker woken by a point of the other side owes the next word: an answer in the dialogue, a change of what the
     // other side watches, the work's head among it as the round committed it, or a question the work waits for; a
-    // judge's fail brings its points (design document `data-and-context`, 41, 42).
+    // judge's fail brings its points (design document `data-and-context`, 41, 42). A version handed in as changing
+    // nothing is new to no cell (9): it answers nothing, changes nothing the other side watches and brings no point.
     if calls == 0 && !told.waits {
+        let said = || (writes.iter()).filter(|w| !w.meaning_unchanged).map(|w| &w.block);
         for (dialogue, watched) in requires.dialogues {
             let woken = told.points.contains(dialogue) && dealt_with.contains(dialogue);
-            let answered = (writes.iter().map(|w| &w.block))
-                .chain(read)
-                .any(|b| b == dialogue || watched.contains(b));
+            let answered = (said().chain(read)).any(|b| b == dialogue || watched.contains(b));
             if woken && !answered && !waits {
                 unmet.push(Unmet::WordOwed {
                     name: dialogue.clone(),
@@ -699,7 +699,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
                 continue;
             };
             let fails = write.value.as_deref() == Some(verdict.fails.as_str());
-            if fails && !writes.iter().any(|w| w.block == verdict.dialogue) {
+            if fails && !said().any(|b| *b == verdict.dialogue) {
                 unmet.push(Unmet::NoPoint {
                     block: write.block.clone(),
                     value: verdict.fails.clone(),

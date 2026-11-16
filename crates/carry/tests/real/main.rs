@@ -378,6 +378,7 @@ fn compiled(on: On) -> Compiled {
             driver::SESSION,
             carry::tree::TREE,
             carry::head::HEAD,
+            carry::guide::GUIDE,
             flow::ANSWER,
             flow::WORDS,
             "main",
