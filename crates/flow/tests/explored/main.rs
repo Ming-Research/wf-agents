@@ -44,7 +44,7 @@ use explore::{
     A_QUESTION_WAITED, Bounds, Explored, MAIN_WHILE_THE_CHECK_WAITS, Property, WAITED_FOR_THE_OWNER, explore,
 };
 use flow::{Compiled, Has, compile, read};
-use model::{Model, ran, ran_on, reply_loop};
+use model::{Model, dialogue_loop, ran, ran_on};
 
 /// The bound of the exploration.
 const BOUNDS: Bounds = Bounds {
@@ -156,12 +156,12 @@ fn rare() -> Vec<String> {
         // The deep research, and the review of the tree.
         ran(&cell("D1")),
         ran(&cell("D4")),
-        // The loops of a review and its reply.
-        reply_loop(&block("plan_review"), &block("reply_plan_review")),
-        reply_loop(&block("tree_review"), &block("reply_tree_review")),
-        reply_loop(&block("plan_doubts"), &block("reply_plan_doubts")),
-        reply_loop(&block("review"), &block("reply_review")),
-        reply_loop(&block("testing"), &block("reply_testing")),
+        // Each dialogue going round.
+        dialogue_loop(&block("plan_review")),
+        dialogue_loop(&block("tree_review")),
+        dialogue_loop(&block("plan_doubts")),
+        dialogue_loop(&block("review")),
+        dialogue_loop(&block("testing")),
         "a return was sent back".to_string(),
         A_QUESTION_WAITED.to_string(),
         ran_on(&cell("R0"), "engineer_session"),

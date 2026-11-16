@@ -623,41 +623,27 @@ impl Model {
                 all.insert(waited_at_gate(&cell.id, key));
             }
         }
-        for (o, r) in self.loops() {
-            all.insert(reply_loop(&o, &r));
+        for dialogue in self.dialogues() {
+            all.insert(dialogue_loop(&dialogue));
         }
         all
     }
 
-    /// Each pair of an opinion and its reply: a block a cell writes that runs a cell before it, which writes a block
-    /// that runs the first again.
-    pub fn loops(&self) -> BTreeSet<(BlockId, BlockId)> {
+    /// Each dialogue of a judge or a doubter with the maker it judges or doubts (design document `data-and-context`,
+    /// 36): a block a cell writes that runs a cell before it, which writes it too, and which runs the first again.
+    pub fn dialogues(&self) -> BTreeSet<BlockId> {
         let cells = self.cells();
-        let mut pairs = BTreeSet::new();
-        for (a, writer) in cells.iter().enumerate() {
-            for o in &self.backward[a] {
-                for (b, reader) in cells.iter().enumerate().take(a) {
-                    if !reader.runs_on.contains(o) {
-                        continue;
-                    }
-                    // A reply runs the writer as a datum it watches, not as one of a group, and is no choice.
-                    let own = |r: &BlockId| self.groups[a].values().all(|members| !members.contains(r));
-                    let replies = (reader.outputs.iter())
-                        .filter(|r| writer.runs_on.contains(*r) && *r != o && !self.choices.contains_key(*r) && own(r));
-                    for r in replies {
-                        if self.backward[b].contains(r) {
-                            continue;
-                        }
-                        // A reply is a block written only to answer: none of the writer's other cells runs on it.
-                        let only = (cells.iter().enumerate()).all(|(j, c)| j == a || j == b || !c.runs_on.contains(r));
-                        if only {
-                            pairs.insert((o.clone(), r.clone()));
-                        }
-                    }
+        let mut dialogues = BTreeSet::new();
+        for (a, judge) in cells.iter().enumerate() {
+            for o in self.backward[a].iter().filter(|o| judge.runs_on.contains(*o)) {
+                let answered =
+                    (cells.iter().take(a)).any(|maker| maker.runs_on.contains(o) && maker.outputs.contains(o));
+                if answered {
+                    dialogues.insert(o.clone());
                 }
             }
         }
-        pairs
+        dialogues
     }
 }
 
@@ -681,8 +667,8 @@ pub fn waited_at_gate(cell: &CellId, key: &Condition) -> String {
     format!("the work waited at {cell} on {}", show_key(key))
 }
 
-pub fn reply_loop(opinion: &BlockId, reply: &BlockId) -> String {
-    format!("the loop of {opinion} and {reply} went round")
+pub fn dialogue_loop(dialogue: &BlockId) -> String {
+    format!("the dialogue {dialogue} went round: a point, its answer, and the point judged again")
 }
 
 pub fn show_key(key: &Condition) -> String {

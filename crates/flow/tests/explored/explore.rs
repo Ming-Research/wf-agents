@@ -23,7 +23,7 @@ use decide::{
 };
 
 use crate::model::{
-    BACKGROUND, DEPENDENCIES, Event, HEAD, MAIN, Model, START, TREE, Variant, ran, ran_back_on, ran_on, reply_loop,
+    BACKGROUND, DEPENDENCIES, Event, HEAD, MAIN, Model, START, TREE, Variant, dialogue_loop, ran, ran_back_on, ran_on,
     show_key, skipped, waited_at_gate,
 };
 use crate::support::World;
@@ -1136,11 +1136,12 @@ impl Explorer<'_> {
                 }
             }
         }
-        // The loops of an opinion and its reply.
-        for (o, reply) in m.loops() {
+        // A dialogue going round: the judge runs again on the maker's answer in it, which the maker wrote in a run the
+        // judge's point started.
+        for o in m.dialogues() {
             let replies = because
                 .iter()
-                .any(|c| matches!(c, Cause::Changed { block, .. } if *block == reply));
+                .any(|c| matches!(c, Cause::Changed { block, .. } if *block == o));
             let answered = (r.started.values()).any(|st| {
                 m.place(&st.cell) < i
                     && st
@@ -1149,10 +1150,10 @@ impl Explorer<'_> {
                         .any(|c| matches!(c, Cause::Changed { block, .. } if *block == o))
                     && r.finished
                         .get(&st.run)
-                        .is_some_and(|f| f.writes.iter().any(|w| w.block == reply))
+                        .is_some_and(|f| f.writes.iter().any(|w| w.block == o))
             });
             if replies && answered {
-                self.reach(reply_loop(&o, &reply));
+                self.reach(dialogue_loop(&o));
             }
         }
         // 7: what a write from outside reaches.
