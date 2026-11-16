@@ -165,6 +165,9 @@ struct Branch {
     passed: Option<u64>,
     gated: u64,
     moved: u64,
+    paused_at_check: u64,
+    failed_under_pause: u64,
+    committed_under_pause: u64,
 }
 
 impl Branch {
@@ -262,6 +265,7 @@ fn gate(d: &mut Driver, roles: &Roles, branch: &Shared, run: RunId, i: usize) ->
     {
         return None;
     }
+    d.note(format!("DIAGNOSTIC gated: the head is {now}, the judges {judges:?}"));
     let mut b = branch.get();
     b.gated += 1;
     branch.set(b);
@@ -715,6 +719,9 @@ impl Random {
             return Some(Event::Resumed);
         }
         if checking && !d.paused {
+            let mut b = self.branch.get();
+            b.paused_at_check += 1;
+            self.branch.set(b);
             self.paused_it = true;
             return Some(Event::Paused {
                 by: Pauser::Owner,
@@ -725,6 +732,9 @@ impl Random {
             return None;
         }
         if !passed_before_merge(d, &self.roles) {
+            let mut b = self.branch.get();
+            b.failed_under_pause += 1;
+            self.branch.set(b);
             self.paused_it = false;
             return Some(Event::Resumed);
         }
@@ -732,6 +742,7 @@ impl Random {
         // A person commits on the branch, which the merge finds moved since the check passed.
         if self.steering.chance(33) {
             let mut b = self.branch.get();
+            b.committed_under_pause += 1;
             b.head += 1;
             self.branch.set(b);
             return Some(Event::Look);
@@ -1756,9 +1767,34 @@ impl History {
         }
         if self.branch.get().gated > 0 {
             reached.push(CHECK_GATED.to_string());
+            self.breach("DIAGNOSTIC gated", String::new());
         }
         if self.branch.get().moved > 0 {
             reached.push(MERGE_ON_A_MOVED_HEAD.to_string());
+            self.breach("DIAGNOSTIC moved", String::new());
+        }
+        {
+            let r = &self.d.work.records;
+            let check = self.d.flow.flow.cells()[self.roles.check].id.clone();
+            let review = |run: RunId| r.started.iter().any(|s| s.run == run && s.cell.as_str() == "T1");
+            let first = r.started.iter().find(|s| s.cell == check).map(|s| s.at);
+            let early = first.is_some_and(|at| !r.finished.iter().any(|f| f.at < at && review(f.run)));
+            if early {
+                self.breach("DIAGNOSTIC the check ran before any review finished", String::new());
+            }
+            if !early && self.branch.get().gated > 0 {
+                self.breach("DIAGNOSTIC gated after a review finished", String::new());
+            }
+            let b = self.branch.get();
+            if b.paused_at_check > 0 {
+                self.breach("DIAGNOSTIC the steering paused the check's round", String::new());
+            }
+            if b.failed_under_pause > 0 {
+                self.breach("DIAGNOSTIC the check did not pass under the pause", String::new());
+            }
+            if b.committed_under_pause > 0 {
+                self.breach("DIAGNOSTIC a person committed under the pause", String::new());
+            }
         }
         for r in reached {
             self.reach(r);
