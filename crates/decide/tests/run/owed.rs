@@ -138,3 +138,21 @@ fn a_version_handed_in_as_changing_nothing_answers_nothing_and_brings_no_point()
     let fail = vec![valued("verdict", "no"), unchanged("opinions")];
     assert_eq!(step(vec![handed_in(fail)], &judge()), send_back(none));
 }
+
+// A choice handed in again with the value it has changes nothing, whether its writer marks it so or not, as the walk
+// reads it (design document `data-and-context`, 9): it is no change of what the other side watches; another value is.
+#[test]
+fn a_choice_handed_in_again_with_its_value_changes_nothing_marked_or_not() {
+    let mut s = maker();
+    s.dialogues = BTreeMap::from([("opinions".into(), vec!["plan".into(), "verdict".into()])]);
+    let owed = vec![Unmet::WordOwed {
+        name: "opinions".into(),
+        watched: vec!["plan".into(), "verdict".into()],
+    }];
+    assert_eq!(
+        step(vec![handed_in(vec![valued("verdict", "yes")])], &s),
+        send_back(owed)
+    );
+    let changed = vec![valued("verdict", "no")];
+    assert_eq!(step(vec![handed_in(changed.clone())], &s), finish(changed));
+}
