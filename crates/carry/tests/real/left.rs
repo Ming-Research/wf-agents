@@ -49,11 +49,10 @@ async fn a_round_left_running_by_an_engine_that_stopped_is_stopped_before_it_run
 /// the flows word it (`message.toml`, the part `task`, `held`).
 const TASK_HELD: &str = "As given before in this session";
 
-/// The work let on, the run's next round is given: what the run's first round was told, and what its second is.
+/// Once the engine has waited the first wait before a round that failed in passing is tried again, ten seconds, the
+/// run's next round is given: what the run's first round was told, and what its second is.
 async fn told_next(real: &mut Real, work: store::WorkNumber, run: decide::RunId) -> (String, String) {
     let calls = real.calls().len();
-    real.act(work, Act::Pause);
-    real.act(work, Act::Resume);
     real.until(|real| real.calls().len() > calls).await;
     let told = |round: usize| {
         let at = real
@@ -66,8 +65,11 @@ async fn told_next(real: &mut Real, work: store::WorkNumber, run: decide::RunId)
 
 // A round whose program said it took its message in, and called the model, before its engine ended holds that message
 // in its session: given again, the round reads what came of that try from its kept stream, a crash, and is not told
-// it again; let on, the run's next round is told only what its session lacks, its task as held, never the whole
-// message. Under two seconds alone; no other test holds a round its engine did not see end.
+// it again; the run's next round is told only what its session lacks, its task as held, never the whole message. The
+// first engine takes what the try's start says, its fill among it, as an engine does before its program can read its
+// message. About eleven seconds alone, ten of them the engine's wait before a round that failed in passing is tried
+// again, which the harness's clock cannot shorten; no other test holds a round its engine did not see end, nor the
+// round after it.
 #[tokio::test]
 async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails_in_passing_and_is_not_told_it_again() {
     let fake = Fake {
@@ -77,6 +79,7 @@ async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails
     let mut real = Real::trial(fake);
     let work = real.add().await;
     real.act(work, Act::Resume);
+    real.until(|real| !real.work(work).filled.is_empty()).await;
     real.wait(|real| real.calls().len() == 1).await;
     let plan = real.run_of(work, "plan");
     let base = real.data.join(format!("rounds/1/{}-1", plan.0));
@@ -134,6 +137,7 @@ async fn a_left_try_whose_round_now_fails_for_its_item_s_level_is_counted() {
     real.level = "2".to_string();
     let work = real.add().await;
     real.act(work, Act::Resume);
+    real.until(|real| !real.work(work).filled.is_empty()).await;
     real.wait(|real| real.calls().len() == 1).await;
     let plan = real.run_of(work, "plan");
     let stream = real.data.join(format!("rounds/1/{}-1.stream.jsonl", plan.0));
@@ -155,7 +159,8 @@ async fn a_left_try_whose_round_now_fails_for_its_item_s_level_is_counted() {
 // Pinned as it stands: a return the program wrote, which the command line took, before its engine ended and before the
 // program printed its result, is not taken, the stream holding no result. The round fails in passing, and the run's
 // next round is told only what its session lacks, its task as held; nothing tells the agent that its return was not
-// taken. Under two seconds alone; no other test holds a return written with no result.
+// taken. About eleven seconds alone, ten of them the engine's wait before a round that failed in passing is tried
+// again; no other test holds a return written with no result.
 #[tokio::test]
 async fn a_return_written_before_its_engine_ended_with_no_result_is_not_taken_and_the_next_round_told_what_it_lacks() {
     let fake = Fake {
@@ -165,6 +170,7 @@ async fn a_return_written_before_its_engine_ended_with_no_result_is_not_taken_an
     let mut real = Real::trial(fake);
     let work = real.add().await;
     real.act(work, Act::Resume);
+    real.until(|real| !real.work(work).filled.is_empty()).await;
     real.wait(|real| real.calls().len() == 1).await;
     let plan = real.run_of(work, "plan");
     let stream = real.data.join(format!("rounds/1/{}-1.stream.jsonl", plan.0));
