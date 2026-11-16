@@ -1,4 +1,4 @@
-//! The situations an entry of a cell of the small flow can reach: the entries, the triggers that ran it, how its
+//! The situations an entry of a cell of the small flow can reach: the entries, what ran it of what it watches, how its
 //! session stands with each datum, and what is counted of every datum's own state.
 
 mod support;
@@ -90,7 +90,7 @@ fn a_reopened_session_holds_nothing_and_a_return_that_asked_or_was_sent_back_han
 }
 
 #[test]
-fn a_datum_of_a_trigger_that_did_not_run_the_cell_stands_as_nothing_new_to_it_does() {
+fn a_datum_watched_that_did_not_run_the_cell_stands_as_nothing_new_to_it_does() {
     let all = of("plan");
     let opinions = |name: &str| {
         let named = all

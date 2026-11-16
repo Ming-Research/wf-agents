@@ -640,7 +640,7 @@ fn a_version_that_says_what_an_earlier_one_said_is_new_and_sent_and_no_repeat() 
 }
 
 #[test]
-fn a_setting_the_task_a_trigger_s_words_or_a_block_s_words_name_is_sent_with_its_value_beside_it() {
+fn a_setting_the_task_what_a_cell_does_for_a_datum_or_a_block_s_words_name_is_sent_with_its_value_beside_it() {
     let mut sim = Sim::new();
     let language = |key: &str| (key == "owner.language").then(|| "Chinese".to_string());
     sim.named = flow::system::Settings::of(&sim.words.project, &sim.words.installation, language);
@@ -655,10 +655,14 @@ fn a_setting_the_task_a_trigger_s_words_or_a_block_s_words_name_is_sent_with_its
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
     let entered = sim.enter(&round, false);
+    let plan = format!(
+        "- `plan`, version {}: Say why in `owner.language` (Chinese).",
+        sim.version("plan")
+    );
     for line in [
         "- `code`: The code, its comments in `owner.language` (Chinese).",
         "Build what the plan says, in `owner.language` (Chinese).",
-        "- `plan`: Say why in `owner.language` (Chinese).",
+        plan.as_str(),
     ] {
         assert!(entered.text.contains(line), "{line} is not in:\n{}", entered.text);
     }

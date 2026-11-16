@@ -81,8 +81,8 @@ fn flow_tools(list: &str) -> flow::Source {
     edit(
         laid_out(),
         FLOW_FILE,
-        "data = [\"request\"]",
-        &format!("data = [\"request\"]\ntools = {list}"),
+        "data = [\"request\", \"main\"]",
+        &format!("data = [\"request\", \"main\"]\ntools = {list}"),
     )
 }
 

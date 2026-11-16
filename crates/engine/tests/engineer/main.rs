@@ -47,7 +47,7 @@
 //!   write beside the rest in one in twenty-five, and otherwise handing in what its cell may write: each choice in nine
 //!   of ten, its first value (yes) in a little over half of those; each other block in four of five, mattering in seven
 //!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. A return that
-//!   hands in names as dealt with each trigger its round was told ran it, by its name, as an agent writes it. Beside
+//!   hands in names as dealt with each thing its round was told ran it, by its name, as an agent writes it. Beside
 //!   such a hand-in, the agent of a cell an answer runs writes in the record of the questions a question of its own in
 //!   three of a hundred, which waits in one of five, the return then handing in each block its cell must write; asks
 //!   one of its own that stands anew in two of a hundred, and withdraws one in two of a hundred. In one history of
@@ -556,8 +556,8 @@ fn handed(block: &BlockId, cell: &str, matters: bool, value: Option<String>) -> 
 }
 
 /// What the round of the run of the cell at this place returns that hands in these blocks. An agent's return names as
-/// dealt with each trigger its round was told ran it, as its agent is told them (crate `context`), and is read as the
-/// agents' rounds read a return (`CellSpec::dealt_with`), a group's trigger by its own name; an act of the engine's
+/// dealt with each thing its round was told ran it, as its agent is told them (crate `context`), and is read as the
+/// agents' rounds read a return (`CellSpec::dealt_with`), a group by its own name; an act of the engine's
 /// names none, and deals with everything that ran its round.
 fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
     let spec = &d.flow.cells[i];
@@ -567,7 +567,7 @@ fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
     let told = decide::told(&d.flow.flow, &d.work.records, run).expect("the run started");
     let names: Vec<String> = spec.ran(&told.ran_by).map(|t| t.name.clone()).collect();
     let (dealt_with, none) = spec.dealt_with(&names);
-    assert!(none.is_empty(), "{} names no trigger {none:?}", spec.id);
+    assert!(none.is_empty(), "{} watches none of {none:?}", spec.id);
     Came::works(dealt_with, writes)
 }
 

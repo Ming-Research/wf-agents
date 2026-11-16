@@ -27,8 +27,8 @@ fn small_with_tools(tools: &str) -> Compiled {
     let source = edit(
         laid_out(),
         FLOW_FILE,
-        "data = [\"request\"]",
-        &format!("data = [\"request\"]\ntools = {tools}"),
+        "data = [\"request\", \"main\"]",
+        &format!("data = [\"request\", \"main\"]\ntools = {tools}"),
     );
     compiled(&source)
 }

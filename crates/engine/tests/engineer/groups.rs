@@ -1,8 +1,8 @@
-//! Cells of the engineer's flow run by a group's trigger: the plan's second look (`R2`, run by `on_plan`) and the
-//! review (`T1`, run by `on_change`). The agent is told the group's trigger ran its round and names it as dealt with,
-//! by that name; the return is taken, the versions of the group's blocks that ran the round are consumed, and the cell
-//! does not run again for them. And of every cell of the flow, each trigger named as dealt with is taken by the run's
-//! check for any block it stands on that ran the round, and consumes that block.
+//! Cells of the engineer's flow that watch a group: the plan's second look (`R2`, watching `plan`) and the review
+//! (`T1`, watching `change`). The agent is told the group ran its round and names it as dealt with, by its name; the
+//! return is taken, the versions of the group's blocks that ran the round are consumed, and the cell does not run again
+//! for them. And of every cell of the flow, each datum or group it watches named as dealt with is taken by the run's
+//! check for any block of it that ran the round, and consumes that block.
 
 use std::collections::BTreeMap;
 
@@ -113,20 +113,20 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
     let flow = engineer();
     let choices = BTreeMap::new();
     for (spec, cell) in flow.cells.iter().zip(flow.flow.cells()) {
-        for trigger in &spec.watches {
-            let (named, none) = spec.dealt_with(std::slice::from_ref(&trigger.name));
-            assert!(none.is_empty(), "{} {}", spec.id, trigger.name);
-            for block in &trigger.blocks {
+        for watched in &spec.watches {
+            let (named, none) = spec.dealt_with(std::slice::from_ref(&watched.name));
+            assert!(none.is_empty(), "{} {}", spec.id, watched.name);
+            for block in &watched.blocks {
                 let told = Told {
                     ran_by: vec![block.clone()],
                     ..Told::default()
                 };
-                // Its agent is told the trigger ran the round.
+                // Its agent is told it ran the round.
                 assert!(
-                    spec.ran(&told.ran_by).any(|t| t.name == trigger.name),
+                    spec.ran(&told.ran_by).any(|t| t.name == watched.name),
                     "{} is not told {} ran a round {block} ran",
                     spec.id,
-                    trigger.name
+                    watched.name
                 );
                 let requires = Requires {
                     outputs: &cell.outputs,
@@ -161,7 +161,7 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
                     finish,
                     "{} naming {} where {block} ran it",
                     spec.id,
-                    trigger.name
+                    watched.name
                 );
             }
         }

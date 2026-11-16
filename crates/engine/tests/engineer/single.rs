@@ -1,6 +1,6 @@
 //! A single work on the engineer's flow, taken through `handle` step by step. An agent's round hands in naming as dealt
-//! with the triggers it was told ran it, by their names, as an agent writes them, and its return is read as the agents'
-//! rounds read one (`CellSpec::dealt_with`); an act of the engine's names none.
+//! with what it was told ran it, by their names, as an agent writes them, and its return is read as the agents' rounds
+//! read one (`CellSpec::dealt_with`); an act of the engine's names none.
 
 use decide::{Decision, Outsider, RunId};
 use engine::{Came, Effect, Event, Handed, Question, Spent, Time, Work, handle};
@@ -50,7 +50,7 @@ impl W {
             .unwrap_or_else(|| panic!("no round is under way: {:?}", self.decision()))
     }
 
-    /// The names of the triggers of the cell that the run's round was told ran it, as its agent is told them.
+    /// The names of what the cell watches that the run's round was told ran it, as its agent is told them.
     pub(super) fn told(&self, run: RunId, cell: &str) -> Vec<String> {
         let spec = self.spec(cell);
         let told = decide::told(&self.flow.flow, &self.work.records, run).expect("the run started");
@@ -58,7 +58,7 @@ impl W {
     }
 
     /// The round under way, of this cell, hands in these blocks, and the engine asks these questions beside it. An
-    /// agent's return names as dealt with every trigger its round was told ran it.
+    /// agent's return names as dealt with everything its round was told ran it.
     pub(super) fn hands_in(&mut self, cell: &str, blocks: &[(&str, Option<&str>)], engine: Vec<Question>) {
         let (run, under_way) = self.round();
         assert_eq!(under_way, cell, "the round under way is another cell's");
@@ -79,7 +79,7 @@ impl W {
 
     /// The round under way, of this agent cell, hands in these blocks, its carrier having read these versions of the
     /// work's branch as it ended, each a block and what it says: what the round committed. Its return names as dealt
-    /// with every trigger its round was told ran it.
+    /// with everything its round was told ran it.
     pub(super) fn commits(&mut self, cell: &str, blocks: &[(&str, Option<&str>)], read: &[(&str, &str)]) {
         let (run, under_way) = self.round();
         assert_eq!(under_way, cell, "the round under way is another cell's");
@@ -119,7 +119,7 @@ impl W {
     fn read(&self, cell: &str, dealt_with: &[&str], blocks: &[(&str, Option<&str>)]) -> Came {
         let names: Vec<String> = dealt_with.iter().map(|n| n.to_string()).collect();
         let (dealt_with, none) = self.spec(cell).dealt_with(&names);
-        assert!(none.is_empty(), "{cell} has no trigger {none:?}");
+        assert!(none.is_empty(), "{cell} watches none of {none:?}");
         Came::works(dealt_with, writes(blocks))
     }
 

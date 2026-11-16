@@ -232,7 +232,7 @@ fn an_engine_cell_watches_and_is_given_nothing_nor_told_what_to_do() {
         laid_out(),
         "cells/check.toml",
         "watches = [\"main\", \"design\"]",
-        "watches = [\"design\"]\nreads = [\"request\"]",
+        "watches = [\"main\", \"design\"]\nreads = [\"request\"]",
     );
     let check = source.cells.get_mut("check").expect("the check");
     check.push_str("\n[do]\ndesign = \"Check it.\"\n");
@@ -256,7 +256,7 @@ fn a_datum_watched_that_no_writer_can_write_where_the_cell_runs_is_refused() {
         laid_out(),
         "cells/check.toml",
         "watches = [\"main\", \"design\"]",
-        "when = { needs_design = \"no\" }\nwatches = [\"design\"]",
+        "when = { needs_design = \"no\" }\nwatches = [\"design\", \"main\"]",
     );
     let source = edit(
         source,
@@ -330,12 +330,10 @@ fn what_every_agent_cell_watches_and_reads_is_given_it_first_and_to_no_engine_ce
         ]
     );
     assert_eq!(runs_on(cell(&compiled, "plan")), ["opinions"]);
-    // A cell of the forms before is the flow's as before; an engine cell is given nothing.
-    assert!(
-        cell(&compiled, "judge")
-            .given
-            .iter()
-            .all(|g| g.block.as_str() != "request")
+    // Every agent cell is given it; an engine cell is given nothing.
+    assert_eq!(
+        given(cell(&compiled, "judge"))[0],
+        ("request".to_string(), InputKind::Latest)
     );
     assert!(cell(&compiled, "check").given.is_empty());
 }
@@ -510,8 +508,8 @@ fn the_engine_asks_in_a_cell_that_can_change_the_work_and_be_spoken_to() {
     let source = edit(
         answer_asks(),
         FLOW_FILE,
-        "data = [\"request\"]",
-        "data = [\"request\"]\nengine_asks_in = \"answer\"",
+        "data = [\"request\", \"main\"]",
+        "data = [\"request\", \"main\"]\nengine_asks_in = \"answer\"",
     );
     assert_eq!(compiled_all(&source).engine_asks_in, Some(CellId::from("answer")));
     // The judge has no words of its own: it cannot be spoken to.
@@ -545,8 +543,8 @@ fn the_item_s_card_shows_data_of_the_flow_in_the_order_it_names_them() {
     let source = edit(
         laid_out(),
         FLOW_FILE,
-        "data = [\"request\"]",
-        "data = [\"request\"]\ncard = [\"request\", \"plan\"]",
+        "data = [\"request\", \"main\"]",
+        "data = [\"request\", \"main\"]\ncard = [\"request\", \"plan\"]",
     );
     assert_eq!(
         compiled(&source).card,
@@ -555,8 +553,8 @@ fn the_item_s_card_shows_data_of_the_flow_in_the_order_it_names_them() {
     let unknown = edit(
         laid_out(),
         FLOW_FILE,
-        "data = [\"request\"]",
-        "data = [\"request\"]\ncard = [\"request\", \"nowhere\"]",
+        "data = [\"request\", \"main\"]",
+        "data = [\"request\", \"main\"]\ncard = [\"request\", \"nowhere\"]",
     );
     let what = NoSuchBlock {
         block: "nowhere".to_string(),

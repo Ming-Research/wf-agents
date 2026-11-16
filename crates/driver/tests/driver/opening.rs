@@ -56,7 +56,7 @@ fn a_block_the_driver_writes_that_is_no_choice_of_waiting_and_merged_is_refused(
             "#
         );
         let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the text.\"\n\
-                     requires = { test = \"ready\" }\noutputs = [\"text\"]\n";
+                     requires = { test = \"ready\" }\nwatches = [\"deps\"]\noutputs = [\"text\"]\nkinds = { deps = \"latest\" }\n";
         let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\n";
         let odd = compiled(&flow, &[("write", write), ("merge", merge)]);
         let db = Db::new();

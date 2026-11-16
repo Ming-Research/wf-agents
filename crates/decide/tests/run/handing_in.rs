@@ -149,7 +149,7 @@ fn a_return_that_names_as_dealt_with_what_did_not_run_its_round_or_names_a_block
     assert_eq!(step(vec![round], &spec()), send_back(unmet));
 }
 
-/// The cell, run besides by a trigger on the group `planned`, of the opinions and the acceptance, which a return names
+/// The cell, watching besides the group `planned`, of the opinions and the acceptance, which a return names
 /// by the group's name: the opinions ran its round, and the acceptance did not.
 fn grouped() -> Spec {
     let group = vec!["acceptance".into(), "opinions".into()];
@@ -160,7 +160,7 @@ fn grouped() -> Spec {
 }
 
 #[test]
-fn a_return_that_names_a_group_s_trigger_deals_with_each_of_its_blocks_that_ran_the_round_as_one_trigger() {
+fn a_return_that_names_a_group_deals_with_each_of_its_blocks_that_ran_the_round_as_one() {
     let s = grouped();
     let finish = |dealt_with: &[&str]| Step::Finish {
         dealt_with: dealt_with.iter().map(|&b| b.into()).collect(),
@@ -172,7 +172,7 @@ fn a_return_that_names_a_group_s_trigger_deals_with_each_of_its_blocks_that_ran_
         step(vec![works(&["planned"], vec![prose("plan")])], &s),
         finish(&["opinions"])
     );
-    // Named beside a trigger of one of its blocks, each block is dealt with once.
+    // Named beside one of its blocks, each block is dealt with once.
     let round = works(&["opinions", "planned", "request"], vec![prose("plan")]);
     assert_eq!(step(vec![round], &s), finish(&["opinions", "request"]));
     // Named twice, it is said so, once.
@@ -184,7 +184,7 @@ fn a_return_that_names_a_group_s_trigger_deals_with_each_of_its_blocks_that_ran_
 }
 
 #[test]
-fn a_group_s_trigger_none_of_whose_blocks_ran_the_round_is_said_not_to_have_run_it() {
+fn a_group_none_of_whose_blocks_ran_the_round_is_said_not_to_have_run_it() {
     let mut s = grouped();
     s.told.ran_by = vec!["request".into()];
     let unmet = vec![Unmet::NotRunBy {

@@ -814,12 +814,15 @@ impl Build<'_> {
 
     /// The line of a datum or group the cell watches, new to it: its `each`, with its versions, the one the cell last
     /// consumed, where it consumed one, and the latest (design document `data-and-context`, 11), and what the cell
-    /// does where it says. The page is shown the versions' places open, as where the cell consumed one.
+    /// does where it says. The page is shown the versions as one place left open, which a run fills with the words of
+    /// either.
     fn watched(&self, part: &MessagePart, watched: &flow::Watched) -> Vec<Piece> {
         let each = with_slots(part.each.as_deref().unwrap_or_default());
         let words = |text: &Option<String>| text.as_deref().unwrap_or_default().to_string();
         let versions = match self.run() {
-            None => with_slots(&words(&part.since)),
+            None => vec![Piece::Slot {
+                name: "versions".to_string(),
+            }],
             Some(run) => match run.new.get(&watched.name) {
                 Some(NewVersions {
                     last: Some(last),
