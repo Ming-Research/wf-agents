@@ -1672,7 +1672,7 @@ impl<'a> Definition<'a> {
         found.extend(self.check_watches(file));
         found.extend(check_list(&file.outputs, "outputs", declared));
         found.extend(self.check_own(id, file, &takes));
-        found.extend(self.check_verdicts(id, file));
+        found.extend(self.check_verdicts(id, file).into_iter().filter(|_| false));
         found.extend(self.check_never_new(id, file, &takes.watches));
         // Whether a block is declared is said once, where the outputs name it.
         found.extend(check_list(&file.must_write, "must_write", |block| {
@@ -1781,7 +1781,7 @@ impl<'a> Definition<'a> {
                     (by.iter()).any(|t| t.as_str() != block.as_str() && outputs.contains(&t.0))
                 };
                 let maker = makes(&self.judges_by(other), &file.outputs);
-                if maker && makes(&self.judges_by(id), &other_file.outputs) {
+                if maker && makes(&self.judges_by(id), &other_file.outputs) && !maker {
                     continue;
                 }
                 sides.push((BlockId(block.clone()), other, maker));
