@@ -29,8 +29,17 @@ would be one more meaning to learn. A line from the work's own history loses: it
 enough works, and among works that all run long, a long one does not stand out.
 
 ### decision a-card-stands-still
-A card neither glows nor moves: one that waits for the owner has no rings round it, and a running one no light going
-round its edge. What runs is shown by the pulse of its running cell's mark, and by the way from its item up to its
-root, dashed in the colour of a running card's edge, its dashes moving from the root's side to the item's.
+No card is lit or moved for its work's state: one that waits for the owner has no rings round it, and a running one no
+light going round its edge. What runs is shown by the pulse of its running cell's mark, and by the way from its item up
+to its root, dashed in the colour of a running card's edge, its dashes moving from the root's side to the item's.
 Why: Red rings round the cards that wait for the owner, and a light going round a running card's edge, were tried and
 turned down as too strong; this rests on the owner's judgment of the page (principle owner-taste-judges).
+
+### decision what-the-owner-points-at-stands-in-a-soft-light
+The item selected and the item under the pointer stand in a soft light, a blurred fill behind the card, the selected
+one's wider and its ring thicker. Over the light lies the page's ground at every card it reaches, and at an item drawn
+with no box only where the light is its own, so that it shows only round the cards.
+Why: The soft light was chosen over other marks of the selection on the owner's judgment (principle
+owner-taste-judges). The ground looks needless under a card drawn whole, but without it the light showed through a
+card drawn faint, as a flash of blue; it is the page's colour, and under a boxless item only for its own light, because
+in a card's colour, or under another's light, it drew a box where the item has none.
