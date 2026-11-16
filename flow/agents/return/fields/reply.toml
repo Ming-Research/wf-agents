@@ -1,0 +1,11 @@
+# The cell's answer to what the owner said to it: what it writes of the record `discussion` (`../../../data/`). Every
+# cell has it; what the owner says to a cell runs it where the cell names the trigger `on_spoken`.
+in = ["outcome"]
+told = "listed"
+words = '''
+`reply`: your answer to what the owner said to the cell, only where the owner said something to it. An answer to
+  a review, a test, a check or doubts is no `reply`: it is a block of its own, named `reply_` and what it answers,
+  written in `outputs`.'''
+
+[shape]
+type = "string"

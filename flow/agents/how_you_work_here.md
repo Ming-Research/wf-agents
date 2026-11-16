@@ -23,14 +23,15 @@ and its number, and the latest of each is in this session.
 
 Then, the first time the cell is entered in this session, the blocks it writes and its task; after that the task's
 heading says where the task is. "Why you are run" comes last: each trigger that ran the cell,
-what happened, and what to do for it.
+what happened, and what to do for it where that is more than the task says.
 
 ## What you do
 
 Work from what is new, as the cell's task says for it. What is not new is there for you to work with; the cell has
 done its work for it already, and that work is not done again.
 
-Bring the blocks you may write up to date for what is new.
+Bring the blocks you may write up to date for what is new. A block you write that the cell is given as well is that
+block as it stands, yours to bring up to date.
 
 ## Where you work
 
