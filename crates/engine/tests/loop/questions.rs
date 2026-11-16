@@ -565,3 +565,130 @@ fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record
     assert_eq!(entries(&w).len(), 4);
     assert_eq!(w.work.records.answers.len(), 3);
 }
+
+/// The research and the implementation of the asking flow, the implementation run by what the check finds as well; the
+/// check, an act of the engine's that the work's head and the questions' standing run and that alone says whether the
+/// work passed; and a merge that waits for its yes.
+fn asking_then_checked() -> Compiled {
+    let flow = r#"
+        name = "asking_then_checked"
+        order = ["research", "implement", "check", "merge"]
+        [limits]
+        runs = 3
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.answered]
+        outside = "answer"
+        [blocks.asked]
+        values = ["waiting", "answered"]
+        default = "answered"
+        outside = "asked"
+        shown = true
+        [blocks.asked.writes]
+        answered = "Every question has the owner's answer."
+        waiting = "Waits for the owner's answer to {questions}."
+        between = " and "
+        [blocks.head]
+        outside = "head"
+        [blocks.plan]
+        [blocks.code]
+        [blocks.passed]
+        values = ["yes", "no"]
+        [blocks.failures]
+        [blocks.merged]
+        shown = true
+    "#;
+    let research = r#"
+        title = "Research"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the plan the request asks for."
+        inputs = ["request", "answered"]
+        outputs = ["plan"]
+    "#;
+    let implement = r#"
+        title = "Implement"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Build the plan, and fix what the check finds."
+        inputs = ["plan", "failures"]
+        outputs = ["code"]
+    "#;
+    let check = r#"
+        title = "Check"
+        kind = "engine"
+        act = "check"
+        inputs = ["head", "asked"]
+        outputs = ["passed", "failures"]
+        describes = ["code"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        requires = { passed = "yes" }
+        inputs = ["passed"]
+        outputs = ["merged"]
+    "#;
+    let source = Source {
+        flow: flow.to_string(),
+        cells: [
+            ("research", research),
+            ("implement", implement),
+            ("check", check),
+            ("merge", merge),
+        ]
+        .iter()
+        .map(|(id, text)| (id.to_string(), text.to_string()))
+        .collect(),
+        ..Default::default()
+    };
+    let has = Has {
+        sources: ["answer", "asked", "head"].map(str::to_string).into(),
+        acts: ["check", "merge"].map(str::to_string).into(),
+        ..Default::default()
+    };
+    compile(&source, &has).expect("the definition compiles")
+}
+
+// A question the owner has answered gets no answer to come, which is what would run the check again: a return that
+// deals with what the check found, committing nothing and asking nothing, is sent back though such a question stands
+// (decision an-act-is-answered-by-what-runs-it), where taken it would leave the work stalled at the merge.
+#[test]
+fn a_question_answered_does_not_answer_what_the_check_found() {
+    let mut w = W {
+        flow: asking_then_checked(),
+        work: Work::default(),
+        clock: START,
+    };
+    let (effects, _) = w.person_writes("request");
+    let (research, ..) = round(&effects);
+    let effects = w.returns(research, plans(vec![asked("which", false)]));
+    let (implementing, cell, ..) = round(&effects);
+    assert_eq!(cell, "implement");
+    let version = w.version("which");
+    w.answers("which", version, 1);
+    // The implementation commits, which moves the work's head, and the check finds the change red.
+    let mut built = hands_in(&[("code", None)]);
+    built.read = vec![handed("head", None)];
+    let effects = w.returns(implementing, built);
+    let (checking, cell, ..) = round(&effects);
+    assert_eq!(cell, "check");
+    let effects = w.returns(checking, hands_in(&[("passed", Some("no")), ("failures", None)]));
+    let (fixing, cell, number, _) = round(&effects);
+    assert_eq!((cell.as_str(), number), ("implement", 1));
+    // It deals with the failures and leaves the work's head where it was.
+    let effects = w.returns(fixing, Came::works(vec!["failures".into()], Vec::new()));
+    let unanswered = vec![Unmet::Unanswered {
+        block: "failures".into(),
+    }];
+    assert_eq!(
+        effects,
+        [round_effect(fixing, "implement", 2, Given::SentBack(unanswered))]
+    );
+}

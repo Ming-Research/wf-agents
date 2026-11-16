@@ -10,6 +10,7 @@
 
 mod budget;
 mod catching_up;
+mod committing;
 mod delivering;
 mod failing;
 mod forms;
@@ -96,6 +97,10 @@ pub struct Fake {
     /// Whether the build, as it hands in, deletes the reference of the work's branch after it commits, so that the
     /// branch cannot be read as its round ends.
     pub build_loses_its_branch: bool,
+    /// Whether the build, as it hands in, leaves a file it does not commit in the worktree, as a run of the project's
+    /// tests leaves what it makes there, until a round of it is told of what is not committed, which takes the file
+    /// away.
+    pub build_leaves_a_file: bool,
     /// The context each call ends with, in tokens, by the call's number, the first being one: each call then says, as
     /// its stream begins, that it took its message in, and that its one call to the model was sent this; a call past
     /// the last given ends with the last. None given, the calls say neither.
@@ -124,6 +129,7 @@ impl Default for Fake {
             build_beside_tests: false,
             build_then_asks: false,
             build_loses_its_branch: false,
+            build_leaves_a_file: false,
             contexts: &[],
         }
     }
@@ -470,6 +476,13 @@ case "$first" in
                 protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
             fi
             [ '{then_asks}' = yes ] || built
+            if [ '{leaves}' = yes ]; then
+                if grep -q 'not committed' "$log/$n.stdin"; then
+                    rm -f left.txt
+                else
+                    echo 'What a run of the tests left.' > left.txt
+                fi
+            fi
             head=$(git rev-parse HEAD)
             if [ '{loses_branch}' = yes ]; then
                 git update-ref -d "$(git symbolic-ref HEAD)"
@@ -518,6 +531,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         beside_tests = yes(fake.build_beside_tests),
         then_asks = yes(fake.build_then_asks),
         loses_branch = yes(fake.build_loses_its_branch),
+        leaves = yes(fake.build_leaves_a_file),
         gave_up = GAVE_UP,
         name = NAMED,
         refused = refused.display(),
