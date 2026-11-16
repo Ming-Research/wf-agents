@@ -274,7 +274,7 @@ function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; read
 /// value does, whatever the run said; prose, when the run said the change matters.
 function MeaningWord({ page, block, at }: { page: WorkPage; block: string; at: number }) {
   const version = page.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
-  if (!version) return null;
+  if (!version || version.meaning === null) return null;
   return version.meaning === version.at ? (
     <span className="changed-word">changed its meaning</span>
   ) : (
@@ -414,7 +414,7 @@ export function WritePanel({ step, page, reader, fold }: PanelProps & { step: St
           <StatusLine tone={step.changed ? 'changed' : 'quiet'} word={step.changed ? 'Changed its meaning' : 'Same meaning'}>
             {step.changed
               ? 'the cells that read it run again for it'
-              : version
+              : version && version.meaning !== null
                 ? `as at @${version.meaning}`
                 : undefined}
           </StatusLine>
@@ -583,9 +583,11 @@ function BlockVersions({ block, reader }: { block: Block; reader: Reader }) {
               {clock(v.time)}
             </span>
             {v.value !== null && <span className="mono">= {v.value}</span>}
-            <span className={v.meaning === v.at ? 'changed-word' : 'muted'}>
-              {v.meaning === v.at ? 'changed the meaning' : `same meaning as @${v.meaning}`}
-            </span>
+            {v.meaning !== null && (
+              <span className={v.meaning === v.at ? 'changed-word' : 'muted'}>
+                {v.meaning === v.at ? 'changed the meaning' : `same meaning as @${v.meaning}`}
+              </span>
+            )}
             <span className="muted small">{chars(v.chars)}</span>
             <Opener label="content" load={() => reader.version(block.name, v.at)} />
           </ListRow>

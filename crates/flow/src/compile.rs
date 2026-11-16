@@ -82,23 +82,25 @@ pub struct Limits {
 }
 
 /// The source of the block a new version of which is the owner speaking to the cell it runs (design document
-/// `data-and-context`, 39).
+/// `data-and-context`, 35).
 pub const WORDS: &str = "words";
 
 /// The source of the block a new version of which is the owner answering a question of the cell it runs with another
-/// option than the one the work goes by, or one the cell waits for (design document `data-and-context`, 35, 36). The
+/// option than the one the work goes by, or one the cell waits for (design document `data-and-context`, 30, 31). The
 /// engine writes it as the owner answers; and the record of the work's questions and the owner's answers, which the
 /// trigger of an answer has its agent read ([`Trigger::records`]): a block of this source a cell writes holds the
 /// questions it asks, and the cells that write one are those that may ask.
 pub const ANSWER: &str = "answer";
 
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
-/// to a cell, and an answer ([`WORDS`], [`ANSWER`]). Such a block stops a round under way of a later cell
-/// ([`decide::Outsiders`]).
-pub const TURNING: [&str; 2] = [WORDS, ANSWER];
+/// to a cell ([`WORDS`]). Such a block stops a round under way of a later cell and enters a cell that waits
+/// ([`decide::Outsiders::interrupts`]); an answer does neither, and runs its cell as the walk comes to it (design
+/// document `data-and-context`, 32, 35).
+pub const TURNING: [&str; 1] = [WORDS];
 
 /// The sources outside a work a new version of whose block is the owner acting on the cells it runs: the owner's words
-/// to a cell, and an answer ([`WORDS`], [`ANSWER`]) ([`decide::Outsiders::owner_acts`]).
+/// to a cell, and an answer ([`WORDS`], [`ANSWER`]). A paused work still runs a cell for such a block, as for a note
+/// ([`decide::Outsiders::owner_acts`]).
 pub const OWNER_ACTS: [&str; 2] = [WORDS, ANSWER];
 
 /// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused.

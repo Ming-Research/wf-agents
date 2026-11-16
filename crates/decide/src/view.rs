@@ -64,8 +64,10 @@ pub struct VersionView {
     /// The place of the entry that wrote it, which names it.
     pub at: Seq,
     pub by: Writer,
-    /// The version at which the meaning it has last changed: itself, or an earlier one.
-    pub meaning: Seq,
+    /// The version at which the meaning it has last changed: itself, or an earlier one; none where the block has said
+    /// nothing yet, as of a first version the outside wrote as changing nothing (design document `data-and-context`,
+    /// 9).
+    pub meaning: Option<Seq>,
     /// The block's value, where it is a choice.
     pub value: Option<String>,
     /// Whether it holds nothing, as its write recorded it, which a test of content reads: it has no value, and its

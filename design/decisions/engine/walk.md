@@ -34,23 +34,27 @@ at once, so it is no step round the circle; a return that deals with nothing and
 one that only asks is bounded by the count of calls, so that neither repeats unseen.
 
 ### decision meaning-told-by-the-writer
-A block that is a choice or a list of names changes its meaning when its value does, whoever writes it, and a return
-that hands a choice in as changing nothing in meaning with another value is sent back. Prose changes its meaning when
-its writer says so: with each write the cell says whether the change matters to the cells the block runs, compared
-with the version at which the meaning last changed. Prose a person writes always changes the meaning, and so does what
-the outside writes, unless whoever approved that write said it does not. A return that would write over a version of
-a block its round was never told of is sent back, the next round told of it, so a cell's word that a change does not
-matter is always said of what it saw; an entry added to a record whose versions all stand, which a trigger of its
-source has its agent read, writes over nothing. What a change that does not matter leaves undone is in the design of data and
-context.
+A block that is a choice or a list of names changes its meaning when its value does, whoever writes it, its first
+version included, and a return that hands a choice in as changing nothing in meaning with another value is sent back.
+Prose changes its meaning when its writer says so: with each write the cell says whether the change matters to the cells
+the block runs, compared with the version at which the meaning last changed, and its first version has a meaning of its
+own whatever it says. Prose a person writes always changes the meaning, and so does what the outside writes, unless
+whoever approved that write said it does not; a first version so approved has no meaning until a version that matters. A
+return that would write over a version of a block its round was never told of is sent back, the next round told of it,
+so a cell's word that a change does not matter is always said of what it saw; an entry added to a record whose versions
+all stand, which a trigger of its source has its agent read, writes over nothing. What a change that does not matter
+leaves undone is in the design of data and context.
 Why: An agent never writes the same text twice, so judging prose by its text would run every later cell again after
 every rerun. A second agent to check the answer, at a round for every change, was turned down, and so was a count that
-goes up at each change of meaning, which would leave which version a write is compared with to whoever counts
-(Article 3). A run abandoned for what changed under it, as the walk once did, threw away a round's work that a round
-told of the change could keep (principle keep-what-was-paid-for).
+goes up at each change of meaning, which would leave which version a write is compared with to whoever counts (Article
+3). A run abandoned for what changed under it, as the walk once did, threw away a round's work that a round told of the
+change could keep (principle keep-what-was-paid-for). A run's first version said not to matter is not taken at its word,
+as the outside's is: there is nothing it could leave unchanged, and taken at it, the version would run none of the cells
+the block runs (a judgment, with no case behind it); sending such a return back was turned down, as no send-back the
+design of data and context does not list is added (principle solve-within-the-design-first).
 
 ### decision a-question-that-waits-holds-its-cell
-A question a cell waits for holds the work at that cell while it stands with no answer to its latest version: no later cell runs, and the cell is entered meanwhile only for the owner turning to it, by a version no run of it has seen, and for the results of the calls such a run asked for, its round held to nothing its cell must write, as the cell stood when the round began; a run of it that is at rest still goes on to hand its return in. The answer runs the cell again by its trigger of an answer; the wait is read from the questions and the answers, and is no call.
+A question a cell waits for holds the work at that cell while it stands with no answer to its latest version, whether or not the cell applies now: no later cell runs, and the cell is entered meanwhile only for the owner's words to it, by a version no run of it has seen, and for the results of the calls such a run asked for, its round held to nothing its cell must write, as the cell stood when the round began; a run of it that is at rest still goes on to hand its return in. The answer runs the cell again by its trigger of an answer; the wait is read from the questions and the answers, and is no call.
 Why: Put to the owner as a call, the question was its run's and not the work's: it could not be asked anew or withdrawn
 under its name, an answer to an older version could not be told from one to the latest, and an answer came back twice,
 as the call's result and as the trigger of an answer (design document `data-and-context`, 30, 32). Entering the cell
@@ -60,12 +64,15 @@ in, since the cell answers them at once and goes on waiting: words about the que
 round until the answer (work 4); so are the results a round answering them asked for, which otherwise waited for the
 answer too. A round so entered whose question is answered while it runs owes nothing it was not told it owed: judged
 as the work stands when it returns, it was sent back for not writing what the answer, not the owner's words, asks.
+Passed while its cell was skipped, as the walk once did, a question of the research that waited for the owner let the
+check before the merge run, the exploration of the engineer's flow found; the owner's answer is given before anything
+after the cell runs, whether or not the cell applies when it comes.
 
 ### decision the-owner-turning-to-a-waiting-cell-enters-it-once
-While a cell waits for the results of its calls, the owner turning to it, by words or by an answer, enters it only for
-a version no run of the cell has seen: none that finished was told it, and none still open holds it. A run so entered
-that asks for calls in turn leaves what the owner wrote new, for the run their results begin, which deals with both; a
-run abandoned, its round stopped or its return unread, saw nothing, and the cell is entered for the version again.
+While a cell waits for the results of its calls, the owner's words to it enter it only for a version no run of the cell
+has seen: none that finished was told it, and none still open holds it. A run so entered that asks for calls in turn
+leaves what the owner wrote new, for the run their results begin, which deals with both; a run abandoned, its round
+stopped or its return unread, saw nothing, and the cell is entered for the version again.
 Why: Entered again for the same version each time such a run asked, the cell went round without end, a call asked at
 each turn, and no limit counted it, since the limit of calls counts only the runs entered for their results: a build
 entered for an answer that asked for a tool first did so in the real carriers' tests. Counted from the cell's last run

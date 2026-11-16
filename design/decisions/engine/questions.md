@@ -22,9 +22,9 @@ second one of its kind would have split them (principle one-thing-one-place).
 The block of the trigger an answer runs is written by the engine's source `answer` as the owner answers, never by the
 owner nor by anything outside the work: the owner's act is the answer, and the engine works out from the question
 whether it runs the cell. Neither that block nor `asked` is taken as written from outside.
-Why: A block the owner wrote would run the cell for an answer that takes the option the work goes by, which statement
-35 of the design document `data-and-context` says runs nothing, and would not stop a later round under way, as the
-owner turning to a cell does; and a write of either from outside would say of the questions what their records do not.
+Why: A block the owner wrote would run the cell for an answer that takes the option the work goes by, which the design
+document `data-and-context` says runs nothing (31); and a write of either from outside would say of the questions what
+their records do not.
 
 ### decision an-answer-to-an-earlier-version-is-kept
 An answer to a version of a question that a later version replaced is kept in the owner's record, and answers nothing:

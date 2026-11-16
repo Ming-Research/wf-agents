@@ -2,29 +2,31 @@
 //!
 //! A work's state is its data, each with versions. A cell names the blocks that run it; one of them is new to the cell
 //! while it has a version, changing its meaning, later than the one the cell consumed, that the cell did not write
-//! itself. A run consumes, as its return is taken, what the return says it dealt with, up to the version its round was
-//! told of; a round that fails, a return sent back and a run stopped consume nothing, and nothing else does. The engine
-//! keeps no place where a work is. Each time a round ends or something else happens to the work, it walks the cells
-//! from the first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting;
-//! at the first that has a run at rest the run goes on, unless it waits for something; a cell whose last runs asked for
-//! calls waits there until every result is in, and is then entered again, given them; at the first with a question it
-//! waits for standing unanswered, the work waits for the owner's answer, the cell being entered meanwhile only for the
-//! owner turning to it and no later cell run (design document `data-and-context`, 36); at the first whose
-//! preconditions do not hold, or that something new runs and that has reached a limit, the work waits; the first that
-//! something new runs is otherwise entered; the rest are passed. A work that waits only for what cells write, and in
-//! which nothing new runs a cell, nothing is under way and no one is waited for, is stalled: every cell before where
-//! it stands was passed and every one after it is held, so no cell will write what it waits for, and it goes on only
-//! once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One round of a work is
-//! under way at a time: a round of a cell after one the owner turned to, by words or by an answer, is stopped, nothing
-//! else beginning until it has ended, and its cell runs again later. A work has ended when its last cell has a record
-//! or its item is cancelled and not reopened since; a reopened work is walked from its records as any other, what its
-//! cancel abandoned leaving no record.
+//! itself; a first version the outside writes as changing nothing in meaning says nothing, and is new to no cell. A run
+//! consumes, as its return is taken, what the return says it dealt with, up to the version its round was told of; a
+//! round that fails, a return sent back and a run stopped consume nothing, and nothing else does. The engine keeps no
+//! place where a work is. Each time a round ends or something else happens to the work, it walks the cells from the
+//! first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting; at the
+//! first that has a run at rest the run goes on, unless it waits for something; a cell whose last runs asked for calls
+//! waits there until every result is in, and is then entered again, given them; at the first with a question it waits
+//! for standing unanswered, whether or not the cell applies now, the work waits for the owner's answer, the cell being
+//! entered meanwhile only for the owner's words to it and no later cell run (design document `data-and-context`, 32);
+//! at the first whose preconditions do not hold, or that something new runs and that has reached a limit, the work
+//! waits; the first that something new runs is otherwise entered; the rest are passed. A work that waits only for what
+//! cells write, and in which nothing new runs a cell, nothing is under way and no one is waited for, is stalled: every
+//! cell before where it stands was passed and every one after it is held, so no cell will write what it waits for, and
+//! it goes on only once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One
+//! round of a work is under way at a time: a round of a cell after one the owner turned to by words is stopped, nothing
+//! else beginning until it has ended, and its cell runs again later; an answer stops no round (35). A work has ended
+//! when its last cell has a record or its item is cancelled and not reopened since; a reopened work is walked from its
+//! records as any other, what its cancel abandoned leaving no record.
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
-//! reasons is a note a person wrote, or the owner turning to the cell, since the cell last ran (since the run of its
-//! record started, or with no record its first run): a paused work holds everything it would do by itself, still
-//! answers the owner, and lets nothing else a person writes pass. Such a run has its rounds while the work is paused
-//! ([`hold`]), and once it has finished what it wrote waits, as anything else does, for the work to be let on.
+//! reasons is a note a person wrote, or the owner acting on the cell, by words or by an answer, since the cell last ran
+//! (since the run of its record started, or with no record its first run): a paused work holds everything it would do
+//! by itself, still answers the owner, and lets nothing else a person writes pass. Such a run has its rounds while the
+//! work is paused ([`hold`]), and once it has finished what it wrote waits, as anything else does, for the work to be
+//! let on.
 //!
 //! The owner's pause of everything holds back what the work's own pause does, and the walk reads it, as it reads
 //! whether a slot is free, from what the scheduler gives it ([`Room`]): where no slot is free, a cell that takes one
@@ -229,6 +231,12 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
     }
     for (i, cell) in cells.iter().enumerate() {
         if !walk.applies(i) {
+            // A question the cell waits for holds the work at its place all the same: no later cell runs while it
+            // stands unanswered (design document `data-and-context`, 32).
+            let held = walk.held(i);
+            if !held.is_empty() {
+                return walk.waiting(i, held);
+            }
             continue;
         }
         let wait = |on| walk.waiting(i, on);
@@ -244,7 +252,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
             };
         }
         // A question the cell waits for holds the work at the cell until it is answered, and the results of its calls
-        // until they are in: the cell is entered meanwhile only for the owner turning to it, and no later cell runs.
+        // until they are in: the cell is entered meanwhile only for the owner's words to it, and no later cell runs.
         let (because, mut on) = walk.entering(i);
         // A precondition that does not hold holds the work at its cell whether or not something new runs the cell: a
         // gate guards what comes after it as much as its own cell.
@@ -259,7 +267,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         if !on.is_empty() {
             return wait(on);
         }
-        // A pause holds back the run, unless it is for a note a person wrote or the owner turning to the cell:
+        // A pause holds back the run, unless it is for a note a person wrote or the owner acting on the cell:
         // everything before this is decided whether or not the work is paused.
         if (paused(records) || room.paused) && !walk.for_a_note(i, &because, None) {
             return Decision::Paused;
@@ -691,8 +699,9 @@ pub(crate) struct Version<'a> {
     pub(crate) by: Option<RunId>,
     /// Which of a person and the outside wrote it, where no run did.
     pub(crate) outsider: Option<Outsider>,
-    /// The version at which the meaning it has last changed.
-    pub(crate) meaning: Seq,
+    /// The version at which the meaning it has last changed; none where the block has said nothing yet, as of a first
+    /// version the outside wrote as changing nothing.
+    pub(crate) meaning: Option<Seq>,
     /// The block's value, where it has one.
     pub(crate) value: Option<&'a str>,
     /// Whether it holds nothing.
@@ -863,7 +872,7 @@ impl<'a> Walk<'a> {
         let was = self.consumed(cell, block);
         let own = |v: &Version<'a>| (v.by.and_then(|run| self.runs.get(&run))).is_some_and(|r| &r.started.cell == cell);
         let new = (self.versions(block).iter())
-            .filter(|v| Some(v.at) > was && v.meaning == v.at && !own(v))
+            .filter(|v| Some(v.at) > was && v.meaning == Some(v.at) && !own(v))
             .collect();
         (was, new)
     }
@@ -1071,8 +1080,8 @@ impl<'a> Walk<'a> {
 
     /// Why the cell at this place is entered, and what it waits for instead: what is new to it, and the results of the
     /// calls its runs asked for once all are in. While one of them has no result, or a question the cell waits for
-    /// stands unanswered, the cell waits for it, and only the owner turning to it enters it meanwhile, what it waits for
-    /// still waited for (design document `data-and-context`, 36, 42), by a version no run of the cell has seen: none
+    /// stands unanswered, the cell waits for it, and only the owner's words to it enter it meanwhile, what it waits for
+    /// still waited for (design document `data-and-context`, 32, 35), by a version no run of the cell has seen: none
     /// that finished was told it, and none still open holds it. A run so entered that asks for calls in turn leaves what
     /// the owner wrote for the run their results begin; one abandoned saw nothing, and the cell is entered for it again.
     /// A cell its question holds that is owed results all of which are in is entered for them, with what the owner
@@ -1182,11 +1191,11 @@ impl<'a> Walk<'a> {
     }
 
     /// Whether one of these reasons of a run of the cell at this place, which starts at `before` (now where `None`), is
-    /// the owner's since the cell last ran: a note a person wrote to the cell, or the owner turning to it, written
-    /// after the start of its latest run that finished dealing with something, or with none after the start of its
-    /// first run, after the version the cell consumed, and before `before`. A cell with no record and one with a record
-    /// so both count it until a run of it finishes, whatever runs were abandoned since. A cell no run of which has
-    /// started has not run, and answers no one: a work added paused begins nothing.
+    /// the owner's since the cell last ran: a note a person wrote to the cell, or the owner acting on it, by words or
+    /// by an answer, written after the start of its latest run that finished dealing with something, or with none after
+    /// the start of its first run, after the version the cell consumed, and before `before`. A cell with no record and
+    /// one with a record so both count it until a run of it finishes, whatever runs were abandoned since. A cell no run
+    /// of which has started has not run, and answers no one: a work added paused begins nothing.
     fn for_a_note(&self, i: usize, because: &[Cause], before: Option<Seq>) -> bool {
         let cell = &self.flow.cells()[i];
         let earlier = |at: Seq| before.is_none_or(|before| at < before);
@@ -1209,8 +1218,8 @@ impl<'a> Walk<'a> {
         let owners = |block: &BlockId, was: Option<Seq>| {
             (self.versions(block).iter()).any(|v| {
                 let theirs = (self.flow.is_note(block) && v.outsider == Some(Outsider::Person))
-                    || (self.flow.interrupts(block) && v.by.is_none());
-                theirs && v.meaning == v.at && v.at > since && Some(v.at) > was && earlier(v.at)
+                    || (self.flow.owner_acts(block) && v.by.is_none());
+                theirs && v.meaning == Some(v.at) && v.at > since && Some(v.at) > was && earlier(v.at)
             })
         };
         because.iter().any(|cause| match cause {
@@ -1280,13 +1289,14 @@ pub(crate) fn read_runs(records: &Records) -> BTreeMap<RunId, RunView<'_>> {
     runs
 }
 
-/// Every version of every block, each with its meaning. The first version of a block has its own. A block that has
-/// a value in this version or the one before, a choice, keeps the meaning of the version before when the two values
-/// are the same, and has its own when they are not, whatever its writer says. Of any other block, a person's write
-/// has its own meaning, and so does a write that matters; a write that does not matter keeps the meaning of the
-/// version before it, provided its writer saw that meaning: the outside always did, and a run did when the version
-/// it started from has it. A run that did not, because the block's meaning was changed after it started, has a
-/// meaning of its own for what it wrote.
+/// Every version of every block, each with its meaning. A block that has a value in this version or the one before, a
+/// choice, keeps the meaning of the version before when the two values are the same, and has its own when they are
+/// not, whatever its writer says; its first version has its own. Of any other block, a person's write has its own
+/// meaning, and so does a write that matters; a write that does not matter keeps the meaning of the version before it,
+/// provided its writer saw that meaning: the outside always did, and a run did when the version it started from has
+/// it. A run that did not, because the block's meaning was changed after it started, has a meaning of its own for what
+/// it wrote. A first version the outside writes as not mattering has none: it says nothing, and is new to no cell
+/// (design document `data-and-context`, 9); a run's first version has its own, whatever the run says.
 pub(crate) fn read_versions<'a>(
     records: &'a Records,
     runs: &BTreeMap<RunId, RunView<'a>>,
@@ -1327,11 +1337,13 @@ pub(crate) fn read_versions<'a>(
                 if w.value == v.value {
                     v.meaning
                 } else {
-                    w.at
+                    Some(w.at)
                 }
             }
             Some(v) if !w.matters && saw => v.meaning,
-            _ => w.at,
+            // Written from outside as changing nothing, with nothing before it, it says nothing.
+            None if w.value.is_none() && !w.matters && w.by.is_none() => None,
+            _ => Some(w.at),
         };
         of_block.push(Version {
             at: w.at,

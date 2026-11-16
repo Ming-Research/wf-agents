@@ -794,8 +794,9 @@ pub struct Version {
     pub at: u64,
     pub time: u64,
     pub by: Writer,
-    /// The version at which the meaning it has last changed: itself, or an earlier one.
-    pub meaning: u64,
+    /// The version at which the meaning it has last changed: itself, or an earlier one; none where the block has said
+    /// nothing yet, as of a first version the outside wrote as changing nothing.
+    pub meaning: Option<u64>,
     /// The block's value, where it is a choice.
     pub value: Option<String>,
     /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
@@ -2318,7 +2319,7 @@ impl WorkPage {
                         at: version.at.0,
                         time: time(work, version.at)?,
                         by: writer(&version.by)?,
-                        meaning: version.meaning.0,
+                        meaning: version.meaning.map(|m| m.0),
                         value: version.value.clone(),
                         said_to: said_to(work, block, version.at),
                         chars: chars(work, block, version.at)?,
@@ -2364,7 +2365,7 @@ impl WorkPage {
                 time: time(work, written.at)?,
                 block: written.block.to_string(),
                 by: writer(&version.by)?,
-                changed: version.meaning == version.at,
+                changed: version.meaning == Some(version.at),
                 value: written.value.clone(),
                 chars: chars(work, &written.block, written.at)?,
             });

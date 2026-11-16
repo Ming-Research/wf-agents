@@ -74,13 +74,12 @@ pub struct Outsiders {
     /// What that source writes of it changes only as the owner acts, as the record of the questions changes only as the
     /// owner answers them: the owner, and not the source, makes a precondition that reads it hold.
     pub by_owner: bool,
-    /// A new version of it is the owner turning to the cells it runs: the owner's words to a cell, or an answer that
-    /// takes another option than the one the work goes by (design document `data-and-context`, 35, 39). It stops a
-    /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls, and is
-    /// answered while the work is paused, as a note is.
+    /// A new version of it is the owner turning to the cells it runs: the owner's words to a cell (design document
+    /// `data-and-context`, 32, 35). It stops a round under way of a cell after the one it runs, and enters a cell that
+    /// waits for the results of its calls or for the answer to its question.
     pub interrupts: bool,
     /// A new version of it is the owner acting on the cells it runs: the owner's words to a cell, or an answer to its
-    /// question (design document `data-and-context`, 30, 35).
+    /// question (design document `data-and-context`, 30, 35). A paused work still runs a cell for it, as for a note.
     pub owner_acts: bool,
     /// It is a record its source adds entries to, which a trigger of that source has its agent read: the record of
     /// what is said, or of the questions and the answers. A version of it, a cell's as much as its source's, is an

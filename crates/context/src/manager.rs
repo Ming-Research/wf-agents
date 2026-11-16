@@ -133,7 +133,9 @@ pub fn enter(
         };
         let last = last_worked_from(flow, &records, cell, block);
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
-        let new = all.iter().any(|v| Some(v.at) > last && v.meaning == v.at && !own(v));
+        let new = all
+            .iter()
+            .any(|v| Some(v.at) > last && v.meaning == Some(v.at) && !own(v));
         let mut datum = Datum {
             latest: version(latest),
             last,

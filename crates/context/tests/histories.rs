@@ -384,7 +384,7 @@ impl History {
         };
         let new = all
             .iter()
-            .any(|v| Some(v.at) > last && v.meaning == v.at && !own(&v.by));
+            .any(|v| Some(v.at) > last && v.meaning == Some(v.at) && !own(&v.by));
         let whole = |at: Seq| Fill::Whole {
             block: block.clone(),
             version: at,

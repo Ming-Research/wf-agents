@@ -54,7 +54,7 @@ fn version(at: Seq, by: Writer, meaning: Seq, value: Option<&str>) -> VersionVie
     VersionView {
         at,
         by,
-        meaning,
+        meaning: Some(meaning),
         value: value.map(str::to_string),
         empty: false,
     }
