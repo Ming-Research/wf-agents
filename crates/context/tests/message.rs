@@ -12,9 +12,15 @@ use decide::{BlockId, Seq};
 use engine::{Ask, Came, Event, Fill, Why};
 use support::{Sim, carry, changed};
 
-/// What ran a round, as it is told last: each of these triggers.
-fn ran_by(triggers: &[&str]) -> String {
-    let each: String = triggers.iter().map(|t| format!("\n- `{t}`")).collect();
+/// What ran a round, as it is told last: each datum it watches that is new to it, with the version the cell last
+/// consumed where it consumed one, and the latest (design document `data-and-context`, 11).
+fn ran_by(new: &[(&str, Option<u64>, u64)]) -> String {
+    let each: String = (new.iter())
+        .map(|(datum, last, latest)| match last {
+            Some(last) => format!("\n- `{datum}`, new since version {last}, now version {latest}"),
+            None => format!("\n- `{datum}`, version {latest}"),
+        })
+        .collect();
     format!("## Why you are run\n{each}\n\nName in `dealt_with` each of these you have dealt with.")
 }
 
@@ -68,7 +74,7 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
         format!("## `request`, version {request}\n\nGreet the user."),
         outputs.clone(),
         "Write the plan for the request.".to_string(),
-        ran_by(&["request"]),
+        ran_by(&[("request", None, request)]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(
@@ -100,7 +106,7 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_
         format!("## `plan`, version {plan}, in this session already"),
         outputs.clone(),
         "Build what the plan says.".to_string(),
-        ran_by(&["plan"]),
+        ran_by(&[("plan", None, plan)]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(
@@ -129,7 +135,7 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
         format!("## `code`, version {code}\n\n{}", CODE.trim_end()),
         outputs.clone(),
         "Review the code.".to_string(),
-        ran_by(&["code"]),
+        ran_by(&[("code", None, code)]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills[..2], [whole("plan", plan), whole("code", code)]);
@@ -146,7 +152,7 @@ fn a_cell_entered_again_is_sent_what_is_new_and_its_task_by_its_held_line() {
         "# Plan".to_string(),
         format!("## `opinions`, version {opinions}\n\nName the error."),
         "As given before in this session.".to_string(),
-        ran_by(&["opinions"]),
+        ran_by(&[("opinions", None, opinions)]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills, [whole("opinions", opinions)]);
@@ -165,7 +171,7 @@ fn a_datum_the_session_holds_that_is_new_to_the_cell_is_sent_its_held_line() {
         "# Build".to_string(),
         format!("## `plan`, version {plan}, in this session already; last worked from {first}"),
         "As given before in this session.".to_string(),
-        ran_by(&["plan"]),
+        ran_by(&[("plan", Some(first), plan)]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills, []);

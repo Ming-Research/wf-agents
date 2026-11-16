@@ -9,7 +9,7 @@ use decide::{BlockId, CellId};
 use flow::FaultKind::*;
 use flow::{CellSpec, Compiled, FLOW_FILE, Has, InputKind, Source, Trigger};
 
-use crate::support::{at, compiled, edit, faults, faults_with, has, laid_out, set};
+use crate::support::{at, compiled, edit, faults, faults_with, has, laid_out, set, unreadable};
 
 /// What the planning cell of the twin laid out one thing to a file takes, in the form of triggers.
 const PLAN_TAKES: &str = "triggered_by = [\"on_request\", \"on_opinions\"]\ncontext = [\"request\", \"opinions\"]";
@@ -153,10 +153,29 @@ fn a_group_watched_runs_the_cell_on_each_of_its_blocks_given_each_in_its_kind() 
     );
 }
 
+// A cell's file names what it watches and what it reads, and nothing of the forms written before them: a key of theirs
+// is a key the format does not have, refused as any other is.
 #[test]
-fn a_cell_names_what_it_takes_in_one_form() {
-    let source = plan_takes("watches = [\"request\", \"opinions\"]\ncontext = [\"opinions\"]");
-    assert_eq!(faults(&source), [at("cells/plan.toml", "context", TwoForms)]);
+fn a_key_of_a_form_before_watches_is_none_of_a_cell_s_file() {
+    for (key, text) in [
+        ("triggered_by", "triggered_by = [\"on_plan\"]"),
+        ("context", "context = [\"plan\"]"),
+        ("runs_on", "runs_on = [\"plan\"]"),
+        ("run", "run = { plan = { why = \"To design it.\" } }"),
+        ("given", "given = [\"plan\"]"),
+        ("give", "give = { plan = { kind = \"latest\" } }"),
+        ("inputs", "inputs = [\"plan\"]"),
+        ("input", "input = { plan = { kind = \"latest\" } }"),
+    ] {
+        let source = edit(
+            laid_out(),
+            "cells/design.toml",
+            "outputs = [\"design\"]",
+            &format!("outputs = [\"design\"]\n{text}"),
+        );
+        let message = unreadable(&source, "cells/design.toml");
+        assert!(message.contains(&format!("unknown field `{key}`")), "{key}: {message}");
+    }
 }
 
 #[test]
