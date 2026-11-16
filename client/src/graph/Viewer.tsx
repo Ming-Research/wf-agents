@@ -59,6 +59,17 @@ export function fitView(w: Area, drawing: { width: number; height: number }): Vi
   return { s, x: w.x0 + (w.x1 - w.x0 - drawing.width * s) / 2, y: w.y0 + (w.y1 - w.y0 - drawing.height * s) / 2 };
 }
 
+/// The view a drawing of `drawing`'s size opens at in `w`: at zoom `most`, or where its width does not fit at that
+/// zoom, at the zoom that fits it with a margin each side; across in the middle, and its top a margin below the top of
+/// what can be seen, the rest scrolled to. Its width, not the whole of it: a flow is long, and fitted whole its cells and
+/// labels are too small to read. Where nothing can be seen yet, at `most`.
+export function topView(w: Area, drawing: { width: number; height: number }, most: number): View {
+  const margin = 16;
+  const fits = (w.x1 - w.x0 - 2 * margin) / Math.max(drawing.width, 1);
+  const s = fits > 0 ? Math.min(most, fits) : most;
+  return { s, x: w.x0 + (w.x1 - w.x0 - drawing.width * s) / 2, y: w.y0 + 24 };
+}
+
 /// The view at zoom `s` that brings the middle of `r` to the middle of what can be seen.
 export function centredOn(r: Rect, s: number, w: Area): View {
   return { s, x: (w.x0 + w.x1) / 2 - (r.x + r.width / 2) * s, y: (w.y0 + w.y1) / 2 - (r.y + r.height / 2) * s };
@@ -91,8 +102,8 @@ export function inSight(r: Rect, v: View, w: Area): boolean {
 }
 
 export type ViewerHandle = {
-  /// Shows the whole drawing, or, when that is smaller than `least`, the top of it at that zoom, centred on `around`.
-  start: (least: number, around: Rect | null) => void;
+  /// Shows the top of the drawing at zoom `most`, or at the zoom that fits its width where that is smaller.
+  start: (most: number) => void;
   /// Shows a rectangle of the drawing in the middle of what can be seen, at zoom `s`, at once.
   place: (r: Rect, s: number) => void;
   /// Brings a rectangle of the drawing to the middle of what can be seen. With `keep`, it keeps the zoom and moves
@@ -200,17 +211,8 @@ export function Viewer(props: {
       measure,
       apply,
       pointed,
-      start: (least, around) => {
-        const w = whole();
-        if (w.s >= least) {
-          view.current = w;
-        } else {
-          const [cx] = centre();
-          const s = least;
-          const focusX = around ? around.x + around.width / 2 : size.current.w / 2;
-          const top = around ? around.y : 0;
-          view.current = { s, x: cx - focusX * s, y: 24 - top * s };
-        }
+      start: (most) => {
+        view.current = topView(seen(), { width: size.current.w, height: size.current.h }, most);
         apply();
       },
       place: (r, s) => {

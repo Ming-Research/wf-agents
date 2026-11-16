@@ -378,6 +378,13 @@ pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
     flow.place(cell).is_some_and(|i| walk.applies(i))
 }
 
+/// The blocks that keep this key of the cell's preconditions from holding now, by the value each has: a write of any of
+/// them can make it hold. None where it holds, or where the flow has no such cell.
+pub fn keeping(flow: &Flow, records: &Records, cell: &CellId, key: &Condition) -> Vec<BlockId> {
+    let walk = Walk::new(flow, records);
+    (flow.place(cell)).map_or_else(Vec::new, |i| walk.keeping(key, i).into_iter().cloned().collect())
+}
+
 /// A cell that judges what a cell's preconditions wait on, by a block that runs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Judge {
@@ -1001,16 +1008,17 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    /// Who writes any of these blocks, each once, in the order of [`Maker`]: the owner where people write one, the
-    /// source outside the work where one does, and each cell that has one among its outputs.
+    /// Who writes any of these blocks, each once, in the order of [`Maker`]: the owner where people write one, or where
+    /// what its source writes changes only as the owner acts; else the source outside the work where one does; and each
+    /// cell that has one among its outputs.
     fn makers(&self, blocks: &[&BlockId]) -> Vec<Maker> {
         let mut makers = BTreeSet::new();
         for block in blocks {
             if let Some(outsiders) = self.flow.outsiders(block) {
-                if outsiders.people {
+                if outsiders.people || outsiders.by_owner {
                     makers.insert(Maker::Owner);
                 }
-                if let Some(source) = &outsiders.outside {
+                if let Some(source) = outsiders.outside.as_ref().filter(|_| !outsiders.by_owner) {
                     makers.insert(Maker::Outside { source: source.clone() });
                 }
             }

@@ -204,8 +204,8 @@ async fn a_cancel_says_why_is_refused_under_a_dependant_and_a_cancelled_item_is_
     let steps = page["steps"].as_array().unwrap();
     let reopened = steps.iter().find(|s| s["kind"] == "reopened").expect("a reopen");
     assert_eq!(reopened["why"], "Item 1 turned out too big");
-    // Paused, it waits besides for the item it depends on.
-    assert_eq!(page["summary"]["paused"], true);
+    // Paused by the owner, it waits besides for the item it depends on.
+    assert_eq!(page["summary"]["paused"], "owner");
     assert_eq!(page["summary"]["now"]["kind"], "waits");
     assert_eq!(
         post(router, CHANGES, &reopen).await,

@@ -85,6 +85,10 @@ pub(crate) fn compiled(flow: &str, write: &str, more: &[(&str, &str)]) -> Compil
             "../triggers/of_a_cell/on_answer.toml",
             "block = \"{cell}_answered\"\nfrom = \"answer\"\nread = [\"q_and_a\"]\n",
         ),
+        (
+            "../agents/waits.toml",
+            include_str!("../../../../flow/agents/waits.toml"),
+        ),
     ];
     let source = flow::Source {
         laid_out: true,

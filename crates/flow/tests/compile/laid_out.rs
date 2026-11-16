@@ -53,6 +53,13 @@ fn a_flow_laid_out_one_thing_to_a_file_compiles_to_what_its_twin_written_before_
         line.file = FLOW_FILE.to_string();
         line.system = std::mem::take(&mut line.rules);
     }
+    // The words the engine says to the owner are beside the flows, which a flow written before reads none of.
+    assert_ne!(
+        twin.waits,
+        flow::agents::Waits::default(),
+        "the words beside the flows are read"
+    );
+    twin.waits = flow::agents::Waits::default();
     assert_eq!(twin, before);
 }
 

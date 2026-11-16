@@ -62,6 +62,10 @@ impl Storage for Failing {
     fn pause_everything(&mut self, paused: bool, by: decide::Pauser, at: Time) -> Result<(), store::Fault> {
         self.store.pause_everything(paused, by, at)
     }
+
+    fn everything_pauses(&self) -> Result<Vec<store::PauseOfEverything>, store::Fault> {
+        self.store.everything_pauses()
+    }
 }
 
 #[tokio::test(start_paused = true)]
