@@ -1951,7 +1951,7 @@ impl<'a> Definition<'a> {
         // cell names itself; none of an engine cell.
         let every = |named: &[Named]| -> Vec<(String, String)> {
             let mut blocks = Vec::new();
-            for n in named.iter().filter(|_| agent) {
+            for n in named.iter().filter(|_| !agent) {
                 for block in n.blocks.iter().filter(|b| !its_own(b.as_str())) {
                     blocks.push((n.written.clone(), block.clone()));
                 }

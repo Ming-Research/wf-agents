@@ -17,5 +17,5 @@ pub const FILE: &str = "guide";
 pub(crate) async fn read(place: &Place, path: &str, last: Option<&str>) -> Result<Option<String>, String> {
     let spec = format!("{}:{path}", place.reference());
     let said = git::said(&place.dir, &["show", &spec]).await?;
-    Ok((said.ok && last != Some(said.out.as_str())).then_some(said.out))
+    Ok((said.ok && (last != Some(said.out.as_str()) || last.is_some())).then_some(said.out))
 }

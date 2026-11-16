@@ -367,7 +367,7 @@ pub fn begun_with(flow: &Compiled, words: &Agents, work: &Work, run: RunId, numb
         }
     }
     let began = (first.or_else(|| began_at(work, run, number))).unwrap_or_else(|| work.tick());
-    let versions = decide::versions(&records.before(began));
+    let versions = decide::versions(&records.before(began.max(work.tick())));
     (words.session.parts.iter())
         .filter_map(|part| match part {
             SessionPart::Datum(DatumPart { datum }) => Some(BlockId::from(datum.as_str())),
