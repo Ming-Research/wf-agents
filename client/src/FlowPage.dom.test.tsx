@@ -117,9 +117,9 @@ describe('the chart', () => {
       'check',
       'merge',
     ]);
-    expect(headNames(page)[2]).toBe('design Design, engineer, when needs_design = yes');
+    expect(headNames(page)[2]).toBe('design Design, builder, when needs_design = yes');
     expect(headNames(page)[3]).toBe(
-      'answer Answer comments, engineer, when test = has_comment, requires test = plan_confirmed',
+      'answer Answer comments, builder, when test = has_comment, requires test = plan_confirmed',
     );
     // The one way back: judge writes the opinions whose trigger runs plan, and the arrow is at plan's mark.
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
@@ -239,7 +239,7 @@ describe('the chart', () => {
     const page = draw({ state: 'compiled', flow: small() });
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
-    expect(panel.textContent).toContain('line engineer cells plan, design, answer');
+    expect(panel.textContent).toContain('line builder cells plan, design, answer');
     // What runs it, by the names of the triggers its file writes, each with the block it stands on.
     expect(items(panel).slice(0, 6)).toEqual([
       '1 on_request block request written_by people',
@@ -334,7 +334,7 @@ describe('the column of words', () => {
       said: 'triggered_by on_said; context; outputs: What was said of it.',
     });
     expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each row');
-    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer · when y = yes');
+    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · builder · when y = yes');
 
     click(heads[0]);
     expect(words(page)).toEqual({ x: 'must_write: The plan.', y: 'outputs', said: 'What was said of it.' });
@@ -358,11 +358,11 @@ describe('the column of words', () => {
     const point = (at: Element | null) => act(() => void at?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
     click(heads[1]);
     point(heads[0]);
-    expect(page.querySelector('.words-about')?.textContent).toBe('a First · engineer');
+    expect(page.querySelector('.words-about')?.textContent).toBe('a First · builder');
     // The rows still say what the chosen cell says.
     expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each row');
     point(page.querySelector('.words-head'));
-    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer · when y = yes');
+    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · builder · when y = yes');
   });
 });
 
@@ -413,7 +413,7 @@ describe('a when or a requires of several keys', () => {
       'b requires deps = merged',
     ]);
     expect(bandRow(page, 'condition-row', 'deps').querySelectorAll('.part.precondition')).toHaveLength(1);
-    expect(headNames(page)[1]).toBe('b b, engineer, when x = yes, y = no, requires deps = merged');
+    expect(headNames(page)[1]).toBe('b b, builder, when x = yes, y = no, requires deps = merged');
     click(page.querySelectorAll('thead .cell-head .head-button')[1]);
     expect(bandRow(page, 'condition-row', 'deps').querySelector('.words')?.textContent).toBe('requires deps = merged');
     const panel = page.querySelector('section[aria-label="Cell b"]') as HTMLElement;
@@ -525,7 +525,7 @@ describe('what an agent is sent', () => {
     // What runs it, by the triggers its file writes.
     expect(items(partOf(panel, 'triggered_by'))).toEqual(['on_request block request', 'on_opinions block opinions']);
     expect(items(partOf(panel, 'System prompt'))).toEqual([
-      'line engineer cells plan, design, answer',
+      'line builder cells plan, design, answer',
       '5 general rules/general.md 9 characters Show the text',
     ]);
     // The content of a block is shown as sent, with each place filled in a run by its name, and what is sent where the
@@ -987,25 +987,25 @@ describe('the panel and the widths', () => {
 
   it('has a row for each line at the top, its name in the accent, a dot under each cell on it, joined along it', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    expect(texts(page, 'tbody.band .line-row .block-name.line-name')).toEqual(['engineer', 'review']);
-    const engineer = bandRow(page, 'line-row', 'engineer');
-    expect(texts(engineer, '.spot .visually-hidden')).toEqual([
-      'plan line engineer',
-      'design line engineer',
-      'answer line engineer',
+    expect(texts(page, 'tbody.band .line-row .block-name.line-name')).toEqual(['builder', 'review']);
+    const builder = bandRow(page, 'line-row', 'builder');
+    expect(texts(builder, '.spot .visually-hidden')).toEqual([
+      'plan line builder',
+      'design line builder',
+      'answer line builder',
     ]);
-    expect(engineer.querySelectorAll('.part.on-line')).toHaveLength(3);
+    expect(builder.querySelectorAll('.part.on-line')).toHaveLength(3);
     // Joined from plan to answer, across judge's column.
-    expect(engineer.querySelectorAll('.seg.line')).toHaveLength(6);
-    click(engineer.querySelector('.head-button'));
-    const panel = page.querySelector('section[aria-label="Line engineer"]') as HTMLElement;
-    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('lines/engineer.toml');
+    expect(builder.querySelectorAll('.seg.line')).toHaveLength(6);
+    click(builder.querySelector('.head-button'));
+    const panel = page.querySelector('section[aria-label="Line builder"]') as HTMLElement;
+    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('lines/builder.toml');
     expect(texts(panel, '.uses li')).toEqual(['planPlan', 'designDesign', 'answerAnswer comments']);
   });
 
   it('says a line’s keys as its file writes them, on its row and in its panel', () => {
     const flow = flowOf(
-      [cell('a', { line: 'reviewer' }), cell('b', { line: 'engineer' })],
+      [cell('a', { line: 'reviewer' }), cell('b', { line: 'builder' })],
       {},
       'small',
       { reviewer: { levelsAbove: 1, readsOnly: true, rules: ['general', 'engineering'] } },
@@ -1016,7 +1016,7 @@ describe('the panel and the widths', () => {
       'levels_above 1, reads_only true, rules [general, engineering]',
     );
     // A key the file leaves out is not said.
-    expect(bandRow(page, 'line-row', 'engineer').querySelector('.words')?.textContent).toBe('');
+    expect(bandRow(page, 'line-row', 'builder').querySelector('.words')?.textContent).toBe('');
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     expect(reviewer.querySelector('.words')?.textContent).toBe('line');
     click(reviewer.querySelector('.head-button'));

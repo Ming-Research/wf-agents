@@ -29,7 +29,7 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     id,
     title: id,
     kind,
-    line: 'engineer',
+    line: 'builder',
     task: `Do the part of ${id}.`,
     taskFile: null,
     act: null,
