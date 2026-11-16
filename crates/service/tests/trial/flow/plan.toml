@@ -4,5 +4,8 @@ effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
 requires = { test = "ready" }
-inputs = ["request"]
+watches = ["request"]
 outputs = ["plan"]
+
+[kinds]
+request = "last_and_latest"

@@ -71,8 +71,13 @@ fn judged() -> Compiled {
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        inputs = ["request", "opinions", "main"]
+        watches = ["request", "opinions", "main"]
         outputs = ["text"]
+
+        [kinds]
+        request = "last_and_latest"
+        opinions = "last_and_latest"
+        main = "last_and_latest"
     "#;
     let judge = r#"
         title = "Judge"
@@ -80,15 +85,19 @@ fn judged() -> Compiled {
         effort = "high"
         line = "other"
         task = "Judge the text, and give a verdict."
-        inputs = ["text", "checks"]
+        watches = ["text", "checks"]
         outputs = ["opinions", "verdict"]
+
+        [kinds]
+        text = "last_and_latest"
+        checks = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
         requires = { test = "may_merge" }
-        inputs = ["text", "verdict"]
+        watches = ["text", "verdict"]
         outputs = ["merged"]
     "#;
     let source = Source {

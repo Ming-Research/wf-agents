@@ -1,6 +1,6 @@
 title = "Check"
 kind = "engine"
 act = "check"
-inputs = ["code", "main"]
+watches = ["code", "main"]
 outputs = ["passed", "failures"]
 describes = ["code"]

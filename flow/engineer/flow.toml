@@ -5,9 +5,8 @@ order = ["S1", "R0", "R1", "R2", "D1", "D2", "D3", "D4", "I1", "T1", "T2", "M1",
 
 # The engine's own data this flow uses, each defined once in `../data/`; a datum each cell or each line has its own of,
 # in `../data/of_a_cell/` or `../data/of_a_line/`, is used where a cell names it. The flow's own data are in `blocks/`,
-# its lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each. What runs a cell written
-# with `triggered_by` is named on the cell, from `../triggers/`.
-data = ["background", "dependencies", "asked", "tree", "head"]
+# its lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each.
+data = ["start", "background", "dependencies", "asked", "tree", "head", "main"]
 
 # What the item's card shows the owner of the work, in this order: the page shows what this names, and names no datum
 # of its own.
@@ -32,8 +31,8 @@ reads = ["{each}_questions", "{each}_words"]
 "{each}_questions" = "all"
 "{each}_words" = "all"
 
-# The blocks of the plan, which a cell that reviews or rethinks the plan is run by as one: a new version of any of them
-# runs it once (`../triggers/of_a_group/`).
+# The blocks of the plan and of the change, each watched or read as one: a new version of any of them is new to a cell
+# that watches the group, and its round deals with the group by its name (design document `data-and-context`, 12).
 [groups]
 plan = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]
 change = ["code", "title", "decisions", "evidence", "tests", "head"]

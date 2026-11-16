@@ -74,12 +74,12 @@ fn the_repository_s_flows_give_every_text_the_driver_fills() {
 #[test]
 fn a_kind_of_new_session_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
     let dir = copied();
-    without(dir.path(), "triggers/of_a_line/on_session.toml", "lost = ");
+    without(dir.path(), "data/of_a_line/session.toml", "lost = ");
     let faults = driver::faults(&engineer(dir.path()));
-    // One for the block of each line a cell of which loads its session: the engineer's alone.
+    // One for the datum of each line a cell of which loads its session: the engineer's alone.
     assert_eq!(faults.len(), 1, "{faults:?}");
     for (fault, line) in faults.iter().zip(["engineer"]) {
-        assert!(fault.contains("triggers/of_a_line/on_session.toml"), "{fault}");
+        assert!(fault.contains("data/of_a_line/session.toml"), "{fault}");
         assert!(fault.contains(&format!("the block {line}_session ")), "{fault}");
         assert!(fault.ends_with("its writes must give lost"), "{fault}");
     }
@@ -88,10 +88,10 @@ fn a_kind_of_new_session_the_flow_gives_no_words_for_is_a_fault_on_the_file_that
 #[test]
 fn a_start_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
     let dir = copied();
-    without(dir.path(), "triggers/on_start.toml", "text = ");
+    without(dir.path(), "data/start.toml", "text = ");
     let faults = driver::faults(&engineer(dir.path()));
     assert_eq!(faults.len(), 1, "{faults:?}");
-    assert!(faults[0].contains("triggers/on_start.toml"), "{}", faults[0]);
+    assert!(faults[0].contains("data/start.toml"), "{}", faults[0]);
     assert!(faults[0].ends_with("its writes must give text"), "{}", faults[0]);
 }
 
@@ -126,7 +126,7 @@ fn a_flow_with_no_words_beside_it_for_the_owner_is_not_run() {
 #[test]
 fn a_flow_written_before_flows_were_laid_out_takes_the_words_beside_it_and_without_them_is_not_run() {
     let flow = "name = \"small\"\norder = [\"merge\"]\n[limits]\nruns = 1\nreturns = 1\ncalls = 1\n[blocks.go]\npeople = true\n";
-    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"go\"]\n";
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"go\"]\n";
     let has = Has {
         acts: ["merge".to_string()].into(),
         ..Default::default()

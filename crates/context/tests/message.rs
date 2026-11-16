@@ -96,8 +96,8 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_
     let expected = message(&[
         format!("Kept: `plan` {plan}"),
         "# Build".to_string(),
-        format!("## `plan`, version {plan}, in this session already"),
         format!("## `request`, version {request}, in this session already"),
+        format!("## `plan`, version {plan}, in this session already"),
         outputs.clone(),
         "Build what the plan says.".to_string(),
         ran_by(&["plan"]),
@@ -125,14 +125,14 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
     ]);
     let expected = message(&[
         "# Review".to_string(),
-        format!("## `code`, version {code}\n\n{}", CODE.trim_end()),
         format!("## `plan`, version {plan}\n\nGreet by name."),
+        format!("## `code`, version {code}\n\n{}", CODE.trim_end()),
         outputs.clone(),
         "Review the code.".to_string(),
         ran_by(&["code"]),
     ]);
     assert_eq!(entered.text, expected);
-    assert_eq!(entered.fills[..2], [whole("code", code), whole("plan", plan)]);
+    assert_eq!(entered.fills[..2], [whole("plan", plan), whole("code", code)]);
 }
 
 #[test]

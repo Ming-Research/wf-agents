@@ -165,7 +165,7 @@ fn rare() -> Vec<String> {
         reply_loop(&block("testing"), &block("reply_testing")),
         "a return was sent back".to_string(),
         A_QUESTION_WAITED.to_string(),
-        ran_on(&cell("R0"), "on_session"),
+        ran_on(&cell("R0"), "engineer_session"),
         MAIN_WHILE_THE_CHECK_WAITS.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
         "stop: the work merged".to_string(),

@@ -29,14 +29,17 @@ fn watched() -> Compiled {
         effort = "high"
         line = "main"
         task = "Look at main."
-        inputs = ["main"]
+        watches = ["main"]
         outputs = ["seen"]
+
+        [kinds]
+        main = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
-        inputs = ["seen"]
+        watches = ["seen"]
         outputs = ["merged"]
     "#;
     let source = Source {

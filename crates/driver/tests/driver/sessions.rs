@@ -51,16 +51,21 @@ fn flow() -> Compiled {
         [blocks.merged]
         shown = true
     "#;
-    let cell = |line: &str, inputs: &str, outputs: &str| {
+    let cell = |line: &str, watches: &str, outputs: &str| {
+        // Each datum it watches given as it last worked from it and as it is now.
+        let kinds: Vec<String> = (watches.split('"').skip(1).step_by(2))
+            .map(|datum| format!("{datum} = \"last_and_latest\""))
+            .collect();
         format!(
-            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\ninputs = {inputs}\noutputs = {outputs}\n"
+            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\nwatches = {watches}\noutputs = {outputs}\nkinds = {{ {} }}\n",
+            kinds.join(", ")
         )
     };
     let load = cell("engineer", r#"["request", "session"]"#, r#"["context"]"#);
     let build = cell("engineer", r#"["request", "context"]"#, r#"["code"]"#) + "when = { test = \"going\" }\n";
     let review = cell("review", r#"["code"]"#, r#"["verdict"]"#);
     let merge =
-        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"verdict\"]\noutputs = [\"merged\"]\n";
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"verdict\"]\noutputs = [\"merged\"]\n";
     let source = flow::Source {
         flow: flow.to_string(),
         cells: [
@@ -114,13 +119,18 @@ fn two_lines() -> Compiled {
         shown = true
     "#
     );
-    let cell = |line: &str, inputs: &str, outputs: &str| {
+    let cell = |line: &str, watches: &str, outputs: &str| {
+        // Each datum it watches given as it last worked from it and as it is now.
+        let kinds: Vec<String> = (watches.split('"').skip(1).step_by(2))
+            .map(|datum| format!("{datum} = \"last_and_latest\""))
+            .collect();
         format!(
-            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\ninputs = {inputs}\noutputs = {outputs}\n"
+            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\nwatches = {watches}\noutputs = {outputs}\nkinds = {{ {} }}\n",
+            kinds.join(", ")
         )
     };
     let merge =
-        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"verdict\"]\noutputs = [\"merged\"]\n";
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"verdict\"]\noutputs = [\"merged\"]\n";
     let source = flow::Source {
         flow,
         cells: [

@@ -154,7 +154,7 @@ fn a_flow_that_does_not_compile_keeps_the_engine_from_starting() {
     }
     let merge = flow.join("merge.toml");
     let text = std::fs::read_to_string(&merge).unwrap();
-    std::fs::write(&merge, text.replacen("inputs = [\"code\"]", "inputs = [\"kode\"]", 1)).unwrap();
+    std::fs::write(&merge, text.replacen("watches = [\"code\"]", "watches = [\"kode\"]", 1)).unwrap();
     let out = run_on(&place.data(), &flow, &place.script(), 0)
         .output()
         .expect("the command runs");
@@ -162,7 +162,7 @@ fn a_flow_that_does_not_compile_keeps_the_engine_from_starting() {
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
         format!(
-            "{}/merge.toml inputs[0]: the block kode is not declared in flow.toml\n",
+            "{}/merge.toml watches[0]: the block kode is not declared in flow.toml\n",
             flow.display()
         )
     );

@@ -46,7 +46,7 @@ const MERGE: &str = r#"
 title = "Merge"
 kind = "engine"
 act = "merge"
-triggered_by = ["on_ok"]
+watches = ["ok"]
 "#;
 
 /// The small flow, compiled against what it names.
@@ -69,10 +69,6 @@ pub(crate) fn compiled(flow: &str, write: &str, more: &[(&str, &str)]) -> Compil
         (
             "../data/of_a_cell/questions.toml",
             "name = \"{cell}_questions\"\nfrom = \"answer\"\nshown = true\n\n[shape]\ntype = \"array\"\n",
-        ),
-        (
-            "../triggers/of_a_datum/changed.toml",
-            "name = \"on_{datum}\"\nread = [\"{datum}\"]\n",
         ),
         (
             "../agents/waits.toml",

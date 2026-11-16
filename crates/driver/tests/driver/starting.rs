@@ -36,14 +36,18 @@ fn noted() -> flow::Compiled {
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        inputs = ["request", "words"]
+        watches = ["request", "words"]
         outputs = ["text"]
+
+        [kinds]
+        request = "last_and_latest"
+        words = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
-        inputs = ["text"]
+        watches = ["text"]
         outputs = ["merged"]
     "#;
     compiled(flow, &[("write", write), ("merge", merge)])

@@ -1205,7 +1205,7 @@ mod tests {
                 ),
                 cells: [(
                     "merge".to_string(),
-                    "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"main\"]\noutputs = [\"merged\"]\n"
+                    "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"main\"]\noutputs = [\"merged\"]\n"
                         .to_string(),
                 )]
                 .into(),

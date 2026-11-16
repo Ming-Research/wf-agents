@@ -4,5 +4,10 @@ effort = "high"
 line = "engineer"
 takes_main = true
 task = "Build what the request asks for, and commit it."
-inputs = ["request", "place", "failures"]
+watches = ["request", "place", "failures"]
 outputs = ["code", "title"]
+
+[kinds]
+request = "last_and_latest"
+place = "last_and_latest"
+failures = "last_and_latest"

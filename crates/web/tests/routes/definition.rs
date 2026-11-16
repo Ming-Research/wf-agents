@@ -242,23 +242,28 @@ async fn how_a_cell_takes_a_block_and_what_a_block_is_are_given_as_written() {
         source,
         Some("review"),
         "must_write = [\"content\"]",
-        "must_write = [\"content\"]\n\n[input.plan]\nkind = \"last_and_latest\"\nwhy = \"It is what to review.\"",
+        "must_write = [\"content\"]\n\n[do]\nplan = \"Review what changed in it.\"",
     );
     let source = edit(
         source,
         Some("plan"),
-        "outputs = [\"plan\"]",
-        "outputs = [\"plan\"]\n\n[input.request]\nkind = \"all\"",
+        "request = \"last_and_latest\"",
+        "request = \"all\"",
     );
     let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     let runs = json!({ "why": null });
     assert_eq!(
         answer["flow"]["cells"][1]["input"],
-        json!({ "plan": { "runs": runs, "given": { "kind": "lastAndLatest", "why": "It is what to review." } } })
+        json!({
+            "plan": {
+                "runs": { "why": "Review what changed in it." },
+                "given": { "kind": "lastAndLatest", "why": null }
+            }
+        })
     );
-    // Of a block an agent's cell names no kind of, it is given the version it last worked from and the latest; a why
-    // it leaves unsaid is none; an engine's cell is given nothing.
+    // Each block an agent's cell watches is given to it in the kind it names; what it does for one it leaves unsaid
+    // is none; an engine's cell is given nothing.
     assert_eq!(
         answer["flow"]["cells"][0]["input"],
         json!({
@@ -504,7 +509,7 @@ async fn a_definition_that_does_not_compile_is_given_as_its_faults_each_with_its
                 },
                 {
                     "file": "plan.toml",
-                    "field": "inputs[2]",
+                    "field": "watches[2]",
                     "what": { "kind": "noSuchBlock", "block": "ghost" },
                 },
             ],

@@ -3,5 +3,8 @@ kind = "agent"
 effort = "high"
 line = "reviewer"
 task = "Review the code, and give a verdict."
-inputs = ["code"]
+watches = ["code"]
 outputs = ["opinions", "verdict"]
+
+[kinds]
+code = "last_and_latest"

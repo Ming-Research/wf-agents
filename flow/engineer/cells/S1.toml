@@ -2,5 +2,5 @@ title = "Start"
 kind = "engine"
 act = "start"
 requires = { dependencies = "merged" }
-triggered_by = ["on_start"]
+watches = ["start"]
 outputs = ["place"]

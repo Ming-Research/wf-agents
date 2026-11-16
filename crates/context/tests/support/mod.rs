@@ -68,24 +68,16 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Write the plan for the request."
-runs_on = ["request", "opinions"]
-given = ["request", "notes", "opinions", "plan", "tree"]
+watches = ["request", "opinions"]
+reads = ["notes", "plan", "tree"]
 outputs = ["plan"]
 
-[give.tree]
-kind = "last_and_latest"
-
-[give.request]
-kind = "latest"
-
-[give.notes]
-kind = "all"
-
-[give.opinions]
-kind = "last_and_latest"
-
-[give.plan]
-kind = "latest"
+[kinds]
+tree = "last_and_latest"
+request = "latest"
+notes = "all"
+opinions = "last_and_latest"
+plan = "latest"
 "#,
     ),
     (
@@ -97,21 +89,15 @@ effort = "high"
 line = "engineer"
 task = "Build what the plan says."
 takes_main = true
-runs_on = ["plan"]
-given = ["plan", "request", "code", "tree"]
+watches = ["plan"]
+reads = ["request", "code", "tree"]
 outputs = ["code"]
 
-[give.tree]
-kind = "last_and_latest"
-
-[give.plan]
-kind = "last_and_latest"
-
-[give.request]
-kind = "latest"
-
-[give.code]
-kind = "latest"
+[kinds]
+tree = "last_and_latest"
+plan = "last_and_latest"
+request = "latest"
+code = "latest"
 "#,
     ),
     (
@@ -122,19 +108,15 @@ kind = "agent"
 effort = "high"
 line = "reviewer"
 task = "Review the code."
-runs_on = ["code"]
-given = ["code", "plan", "notes"]
+watches = ["code"]
+reads = ["plan", "notes"]
 outputs = ["opinions", "verdict"]
 must_write = ["verdict"]
 
-[give.code]
-kind = "last_and_latest"
-
-[give.plan]
-kind = "latest"
-
-[give.notes]
-kind = "all"
+[kinds]
+code = "last_and_latest"
+plan = "latest"
+notes = "all"
 "#,
     ),
     (
@@ -145,15 +127,13 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Close the work."
-runs_on = ["finish"]
-given = ["finish", "verdict"]
+watches = ["finish"]
+reads = ["verdict"]
 outputs = []
 
-[give.finish]
-kind = "latest"
-
-[give.verdict]
-kind = "latest"
+[kinds]
+finish = "latest"
+verdict = "latest"
 "#,
     ),
 ];

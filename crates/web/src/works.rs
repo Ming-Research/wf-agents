@@ -3125,9 +3125,9 @@ mod tests {
             shown = true
         "#;
         let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
-                     inputs = [\"request\"]\noutputs = [\"text\"]\n";
+                     watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n";
         let merge =
-            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\noutputs = [\"merged\"]\n";
+            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\noutputs = [\"merged\"]\n";
         let source = Source {
             flow: text.to_string(),
             cells: [("write", write), ("merge", merge)]

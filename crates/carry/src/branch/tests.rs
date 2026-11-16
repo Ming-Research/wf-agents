@@ -41,18 +41,14 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Read the tree and the change."
-runs_on = ["request"]
-given = ["request", "tree", "head"]
+watches = ["request"]
+reads = ["tree", "head"]
 outputs = []
 
-[give.request]
-kind = "latest"
-
-[give.tree]
-kind = "last_and_latest"
-
-[give.head]
-kind = "last_and_latest"
+[kinds]
+request = "latest"
+tree = "last_and_latest"
+head = "last_and_latest"
 "#;
     let source = flow::Source {
         flow: flow.to_string(),

@@ -82,8 +82,12 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
-inputs = ["request", "opinions"]
+watches = ["request", "opinions"]
 outputs = ["plan"]
+
+[kinds]
+request = "last_and_latest"
+opinions = "last_and_latest"
 "#;
 
 pub const REVIEW: &str = r#"
@@ -95,9 +99,12 @@ task = """
 Review the plan.
 Say whether it is content."""
 limit = 5
-inputs = ["plan"]
+watches = ["plan"]
 outputs = ["opinions", "content"]
 must_write = ["content"]
+
+[kinds]
+plan = "last_and_latest"
 "#;
 
 pub const MERGE: &str = r#"
@@ -105,7 +112,7 @@ title = "Merge"
 kind = "engine"
 act = "merge"
 requires = { test = "may_merge" }
-inputs = ["content"]
+watches = ["content"]
 "#;
 
 /// The small flow's files.

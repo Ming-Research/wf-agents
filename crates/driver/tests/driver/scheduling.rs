@@ -155,7 +155,7 @@ fn started() -> flow::Compiled {
         title = "Start"
         kind = "engine"
         act = "start"
-        inputs = ["start"]
+        watches = ["start"]
         requires = { test = "ready" }
         outputs = ["place"]
     "#;
@@ -165,14 +165,18 @@ fn started() -> flow::Compiled {
         line = "main"
         task = "Write the text the request asks for."
         effort = "high"
-        inputs = ["place", "request"]
+        watches = ["place", "request"]
         outputs = ["text"]
+
+        [kinds]
+        place = "last_and_latest"
+        request = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
-        inputs = ["text"]
+        watches = ["text"]
         outputs = ["merged"]
     "#;
     compiled(flow, &[("start", start), ("write", write), ("merge", merge)])

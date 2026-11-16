@@ -326,20 +326,23 @@ fn compiled(on: On) -> Compiled {
     }
     // A build of the trial flows may ask the owner: its own questions, which the engine's source of answers writes, are
     // among its outputs and run it, and so do its own words, as they run every cell that may ask; each in the words the
-    // repository's flows write them in.
+    // repository's flows write them in, and of the kind every agent cell of the engineer's flow takes them in, under the
+    // `[kinds]` its file ends with.
     if let Some(build) = source
         .cells
         .get_mut("build")
-        .filter(|build| build.contains("inputs = [\"plan\", \"opinions\"]"))
+        .filter(|build| build.contains("watches = [\"plan\", \"opinions\"]"))
     {
         *build = (build.replace(
-            "inputs = [\"plan\", \"opinions\"]",
-            "inputs = [\"plan\", \"opinions\", \"build_questions\", \"build_words\"]",
+            "watches = [\"plan\", \"opinions\"]",
+            "watches = [\"plan\", \"opinions\", \"build_questions\", \"build_words\"]",
         ))
         .replace(
             "outputs = [\"code\"]",
             "outputs = [\"code\", \"build_questions\", \"build_words\"]",
         );
+        assert!(build.ends_with('\n'), "the build's file ends with a line");
+        build.push_str("build_questions = \"all\"\nbuild_words = \"all\"\n");
         let own = |file: &str| {
             let path = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../flow/data/of_a_cell")
