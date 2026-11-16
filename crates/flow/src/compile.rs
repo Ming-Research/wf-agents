@@ -1672,6 +1672,7 @@ impl<'a> Definition<'a> {
         found.extend(self.check_watches(file));
         found.extend(check_list(&file.outputs, "outputs", declared));
         found.extend(self.check_own(id, file, &takes));
+        found.extend(self.check_verdicts(id, file));
         found.extend(self.check_never_new(id, file, &takes.watches));
         // Whether a block is declared is said once, where the outputs name it.
         found.extend(check_list(&file.must_write, "must_write", |block| {
@@ -1763,7 +1764,9 @@ impl<'a> Definition<'a> {
     /// The other side of each dialogue the cell of this id holds (design document `data-and-context`, 36): of each datum
     /// it writes and watches by its name, the other cells of the order that write it and watch it by its name too, each
     /// with whether the cell is the maker: the other side watches something else it writes. What a cell watches as one
-    /// of a group, such as the plan its makers bring up to date, is no dialogue.
+    /// of a group, such as the plan its makers bring up to date, is no dialogue; nor is a datum two cells write that each
+    /// watches something else the other writes: both make what a third judges, as the research and the deep research
+    /// make the plan, and neither judges the other.
     fn sides(&self, id: &str, file: &CellFile) -> Vec<(BlockId, &'a str, bool)> {
         let mut sides = Vec::new();
         for block in (file.outputs.iter()).filter(|b| file.watches.contains(b)) {
@@ -1771,11 +1774,16 @@ impl<'a> Definition<'a> {
                 continue;
             };
             for &(_, other) in uses.writers.iter().filter(|(_, other)| *other != id) {
-                if !self.cells.get(other).is_some_and(|f| f.watches.contains(block)) {
+                let Some(other_file) = self.cells.get(other).filter(|f| f.watches.contains(block)) else {
+                    continue;
+                };
+                let makes = |by: &[BlockId], outputs: &[String]| {
+                    (by.iter()).any(|t| t.as_str() != block.as_str() && outputs.contains(&t.0))
+                };
+                let maker = makes(&self.judges_by(other), &file.outputs);
+                if maker && makes(&self.judges_by(id), &other_file.outputs) {
                     continue;
                 }
-                let theirs = self.judges_by(other);
-                let maker = (theirs.iter()).any(|t| t.as_str() != block.as_str() && file.outputs.contains(&t.0));
                 sides.push((BlockId(block.clone()), other, maker));
             }
         }
@@ -1814,34 +1822,67 @@ impl<'a> Definition<'a> {
     /// Of each verdict the cell hands in as a judge, the value that does not pass and the dialogue it writes its points
     /// in: a choice the cell writes that a test of what stands reads, the value that test looks for being the one that
     /// does not pass, paired with the one dialogue the cell holds as the judge, not the maker (design document
-    /// `data-and-context`, 37). A cell holding no such dialogue, or more than one, pairs none.
+    /// `data-and-context`, 37). A cell holding no such dialogue pairs none; one holding more than one is refused
+    /// ([`Definition::check_verdicts`]), and pairs none.
     fn verdicts(&self, id: &str, file: &CellFile) -> BTreeMap<BlockId, Verdict> {
-        let judged: Vec<BlockId> = (self.sides(id, file).into_iter())
-            .filter(|(_, _, maker)| !maker)
-            .map(|(dialogue, _, _)| dialogue)
-            .fold(Vec::new(), |mut all, d| {
-                if !all.contains(&d) {
-                    all.push(d);
-                }
-                all
-            });
+        let judged = self.judged(id, file);
         let [dialogue] = judged.as_slice() else {
             return BTreeMap::new();
         };
-        let mut verdicts = BTreeMap::new();
-        for block in &file.outputs {
+        (self.verdicts_handed_in(file).into_iter())
+            .map(|(_, block, fails)| {
+                let verdict = Verdict {
+                    fails,
+                    dialogue: dialogue.clone(),
+                };
+                (BlockId(block.clone()), verdict)
+            })
+            .collect()
+    }
+
+    /// The dialogues the cell of this id holds as the judge, each once, in the order of its outputs.
+    fn judged(&self, id: &str, file: &CellFile) -> Vec<BlockId> {
+        let mut judged = Vec::new();
+        for (dialogue, _, maker) in self.sides(id, file) {
+            if !maker && !judged.contains(&dialogue) {
+                judged.push(dialogue);
+            }
+        }
+        judged
+    }
+
+    /// The verdicts the cell hands in, each with where it stands among its outputs and the value of it that does not
+    /// pass: each choice among its outputs that a test of what stands reads, the value that test looks for.
+    fn verdicts_handed_in<'f>(&self, file: &'f CellFile) -> Vec<(usize, &'f String, String)> {
+        let mut out = Vec::new();
+        for (i, block) in file.outputs.iter().enumerate() {
             let choice = self.flow.blocks.get(block).is_some_and(|b| b.values.is_some());
             let test = (self.flow.tests.values())
                 .find(|t| t.kind == TestKind::NoneStanding && t.reads.contains(block) && t.is.is_some());
             if let (true, Some(test)) = (choice, test) {
-                let verdict = Verdict {
-                    fails: test.is.clone().unwrap_or_default(),
-                    dialogue: dialogue.clone(),
-                };
-                verdicts.insert(BlockId(block.clone()), verdict);
+                out.push((i, block, test.is.clone().unwrap_or_default()));
             }
         }
-        verdicts
+        out
+    }
+
+    /// The faults of the verdicts a cell hands in: each, where the cell judges in more than one dialogue, so that which
+    /// of them its points go in cannot be told (design document `data-and-context`, 36, 37; principle
+    /// one-dialogue-for-each-party).
+    fn check_verdicts(&self, id: &str, file: &CellFile) -> Vec<(String, FaultKind)> {
+        let judged = self.judged(id, file);
+        if judged.len() < 2 {
+            return Vec::new();
+        }
+        (self.verdicts_handed_in(file).into_iter())
+            .map(|(i, block, _)| {
+                let what = FaultKind::VerdictOfDialogues {
+                    verdict: block.clone(),
+                    dialogues: judged.iter().map(BlockId::to_string).collect(),
+                };
+                (format!("outputs[{i}]"), what)
+            })
+            .collect()
     }
 
     /// The faults of what a cell watches that can never be new to it where it runs: a datum or group whose every block
