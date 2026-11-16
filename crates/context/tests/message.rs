@@ -800,7 +800,14 @@ fn a_version_put_into_a_round_from_outside_is_told_by_no_line() {
         (sim.work.records.put_in.iter()).any(|p| p.run == round.run && p.version.0 == put),
         "the version is put into the round"
     );
-    // The round entered in a session that holds nothing is given the version whole, by no line.
+    // The request, written again while the round is under way, runs the plan again once it ends; its next round, in a
+    // session that holds nothing, is given the version whole, by no line.
+    sim.writes("request", "Greet the user by name.");
+    sim.hands_in(&round, &[("plan", "Greet by name.", None)]);
+    let first = round.run;
+    let round = sim.round().expect("the plan is entered again, for the request");
+    assert_eq!(sim.cell(&round).id.as_str(), "plan");
+    assert_ne!(round.run, first);
     let entered = sim.enter(&round, true);
     let given = format!("## `branch`, version {put}\n\nKeep it short.");
     assert!(entered.text.contains(&given), "{}", entered.text);
