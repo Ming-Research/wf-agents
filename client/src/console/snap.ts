@@ -94,23 +94,25 @@ const RING = 2;
 const CHOSEN_RING = 3;
 /// How far in from the side of the room an item brought into view stands.
 const INSET = 24;
-/// The soft light round the item under the pointer, and round the item selected, in place of a ring of light: a fill
-/// of the pointer's blue (or of the accent) behind its card, this many pixels past its edge, blurred this much, at this
-/// strength, so that the light shows only as a narrow glow round the card; the item selected's a little wider and
-/// softer, so that it stands out from the one under the pointer. Over the light and under the card lies the card's
-/// own ground, so that none of the light shows through a card drawn faint. The room the blur is drawn in past the
-/// fill is wide enough that the blur fades out before its edge.
+/// The soft light round the item under the pointer, and round the item selected: a fill of the pointer's blue (or of
+/// the accent) behind its card, this many pixels past its edge, blurred this much, at this strength, so that the light
+/// shows only as a narrow glow round the card; the item selected's a little wider and softer, so that it stands out
+/// from the one under the pointer. Over the light and under the cards lies the page's ground at every item the light
+/// reaches, so that none of it shows through a card drawn faint.
 const SOFT_SPREAD = 2;
 const SOFT_BLUR = 6;
 const SOFT_ALPHA = 0.45;
 const CHOSEN_SPREAD = 4;
 const CHOSEN_BLUR = 9;
+/// The room a soft light's blur is drawn in past its fill, in strengths of the blur: wide enough that the blur fades
+/// out before its edge. It is also as far as the light reaches past its fill.
+const BLUR_ROOM = 4;
 
 /// The blur of a soft light round an item, this strong, with its room: set after the filter is made, which sets its
 /// own from its strength, too narrow for the blur to fade out in.
 function softBlur(strength: number): BlurFilter {
   const blur = new BlurFilter({ strength });
-  blur.padding = 4 * strength;
+  blur.padding = BLUR_ROOM * strength;
   return blur;
 }
 /// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it.
@@ -220,6 +222,15 @@ export function waysUp(running: Iterable<number>, parent: ArrayLike<number>): Se
     }
   }
   return on;
+}
+
+/// How strong each of the dashed `ways` is to be drawn, by the item whose link up it is: every one at full strength
+/// while nothing is `lit`; while something is, one whose two ends are both lit at full strength, and the others as dim
+/// as the links ([`DIM_LINKS`]).
+export function wayAims(ways: Iterable<number>, parent: ArrayLike<number>, lit: Set<number>): Map<number, number> {
+  const aims = new Map<number, number>();
+  for (const i of ways) aims.set(i, lit.size === 0 || (lit.has(i) && lit.has(parent[i])) ? 1 : DIM_LINKS);
+  return aims;
 }
 
 /// The dashes along a line `length` long, each from and to how far along it: one `RUN_DASH` long every
@@ -548,21 +559,21 @@ export class SnapScene {
   stats: Stats = { items: 0, drawn: 0, fps: 0, meanMs: 0, p95Ms: 0 };
   private app = new Application();
   private world = new Container();
-  /// The funnels from each item to the items under it; and the rings of the items lit.
+  /// The funnels from each item to the items under it; and the ribbons of the items lit.
   private links = new Graphics();
-  /// The dashed ways from the items whose work runs up to their roots, drawn anew each frame over the funnels: those
-  /// that dim while something is lit, and those on the way of what is lit, which do not.
+  /// The dashed ways from the items whose work runs up to their roots, drawn anew each frame over the funnels.
   private runLines = new Graphics();
-  private runLinesLit = new Graphics();
   /// The soft lights behind the item selected and the item under the pointer, drawn anew each frame where they stand,
   /// blurred.
   private chosenGlow = new Graphics({ filters: [softBlur(CHOSEN_BLUR)] });
   private hoverGlow = new Graphics({ filters: [softBlur(SOFT_BLUR)] });
-  /// The ground of each card lit by a soft light, over the light and under the card.
+  /// The page's ground at each item a soft light reaches, over the lights and under the cards.
   private glowGround = new Graphics();
   /// The items, by their place in the tree, whose link to the one above them is on the way from an item whose work
-  /// runs up to its root ([`waysUp`]).
+  /// runs up to its root ([`waysUp`]); and how strong each of those links is drawn, eased from frame to frame towards
+  /// what [`wayAims`] gives it.
   private runWays = new Set<number>();
+  private runStrength = new Map<number, number>();
   private marks = new Graphics();
   private layer = new Container();
   /// The fade of every column into the page at the top and the bottom of the screen, each a gradient in the shape's own
@@ -619,9 +630,9 @@ export class SnapScene {
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
-  /// How far the glow around the item under the pointer itself has come in, as `glowing` says of its rings; those lit
-  /// with it have none.
-  private haloed = new Map<number, number>();
+  /// How far the soft light round the item under the pointer itself has come in, as `glowing` says of its rings; those
+  /// lit with it have none.
+  private softLit = new Map<number, number>();
   /// The column last scrolled, or whose item was last brought to the middle, which the others follow.
   private driver = 0;
   private left = 40;
@@ -684,7 +695,6 @@ export class SnapScene {
     this.world.addChild(
       this.links,
       this.runLines,
-      this.runLinesLit,
       this.hoverGlow,
       this.chosenGlow,
       this.glowGround,
@@ -797,10 +807,11 @@ export class SnapScene {
       items.flatMap((i, k) => (!i.shadow && i.work !== null && moodOf(i.work) === 'running' ? [k] : [])),
       tree.parent,
     );
+    this.runStrength = new Map();
     ({ measures: this.measures, looks: this.looks } = cellLooks());
     this.drawnStrips = new Map();
     this.glowing = new Map();
-    this.haloed = new Map();
+    this.softLit = new Map();
     this.ages = new Map();
     this.views = items.map((item, k) => this.node(item, k));
     this.columns = tree.columns.map(() => ({ at: 0, aim: 0, warm: 0 }));
@@ -1237,28 +1248,9 @@ export class SnapScene {
       .closePath();
   }
 
-  /// Adds to a soft light the fill behind the card standing at `gx` and `gy`, `gh` half its height, `out` pixels past
-  /// its edge; and the card's ground over it, as strong as the light is come in.
-  private softLight(
-    g: Graphics,
-    gx: number,
-    gy: number,
-    gh: number,
-    out: number,
-    colour: string,
-    alpha: number,
-    on = 1,
-  ) {
-    g.roundRect(gx - out, gy - gh - out, NODE_W + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out).fill({
-      color: colour,
-      alpha: alpha * on,
-    });
-    this.glowGround.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).fill({ color: PALETTE.card, alpha: on });
-  }
-
-  /// Adds to the running ways `g` the dashed curve from `(px, py)` to `(cx, cy)`, bent as a funnel is, its dashes moved
-  /// on `shift` pixels from its start ([`dashesAlong`]).
-  private dashed(g: Graphics, px: number, py: number, cx: number, cy: number, shift: number) {
+  /// Adds to the running ways the dashed curve from `(px, py)` to `(cx, cy)`, bent as a funnel is, its dashes moved on
+  /// `shift` pixels from its start ([`dashesAlong`]).
+  private dashed(px: number, py: number, cx: number, cy: number, shift: number) {
     const bend = (cx - px) / 2;
     const points = Array.from({ length: RUN_PIECES + 1 }, (_, n): [number, number] => {
       const u = n / RUN_PIECES;
@@ -1285,12 +1277,12 @@ export class SnapScene {
     let n = 0;
     for (const [from, to] of dashesAlong(along[RUN_PIECES], shift)) {
       while (n < RUN_PIECES - 1 && along[n + 1] <= from) n += 1;
-      g.moveTo(...point(n, from));
+      this.runLines.moveTo(...point(n, from));
       while (n < RUN_PIECES - 1 && along[n + 1] < to) {
         n += 1;
-        g.lineTo(points[n][0], points[n][1]);
+        this.runLines.lineTo(points[n][0], points[n][1]);
       }
-      g.lineTo(...point(n, to));
+      this.runLines.lineTo(...point(n, to));
     }
   }
 
@@ -1647,8 +1639,8 @@ export class SnapScene {
     const tip = this.trackTip(t, x, y);
     if (this.app.canvas.title !== tip) this.app.canvas.title = tip;
     const chain = lit(this.under);
-    // The item selected, the same way, in the accent, under the light blue; only the item itself glows, those lit
-    // with it are only ringed, so that it stands out among them.
+    // The item selected, the same way, in the accent; only the item itself glows, those lit with it are only ringed,
+    // so that it stands out among them.
     const picked = this.selected === null ? -1 : (this.real.get(this.selected) ?? -1);
     const chosen = lit(picked);
     // While the pointer or the selection lights something, every other item drawn is dimmed, more under the pointer
@@ -1676,23 +1668,26 @@ export class SnapScene {
     // The way from each item whose work runs up to its root, dashed in the colour of a running card's edge, its dashes
     // moving from the root's side to the item's: each link from an item to the one above it drawn once, however many
     // running items it is on. While something is lit, the links on its way stand at full strength and the others dim
-    // with the items they join.
+    // with the items they join; each eases to its strength as the items do, so that none jumps as the light moves or
+    // goes out.
+    const shining = new Set([...focus, ...chosen]);
+    for (const [i, to] of wayAims(this.runWays, t.parent, shining)) {
+      const was = this.runStrength.get(i) ?? to;
+      this.runStrength.set(i, was + (to - was) * (1 - Math.exp(-step / (to < was ? FADE_DOWN : FADE_UP))));
+    }
     this.runLines.clear();
-    this.runLinesLit.clear();
     const shift = ((now / 1000) * RUN_SPEED) % (RUN_DASH + RUN_GAP);
-    const shining = (k: number) => focus.has(k) || chosen.has(k);
-    for (const i of this.runWays) {
+    const runColour = mix(PALETTE.card, WORK().running, EDGE_RUNNING);
+    for (const [i, strength] of this.runStrength) {
       const p = t.parent[i];
       const d = t.depth[i];
       const [px, cx] = [x(d - 1) + NODE_W, x(d)];
       if (cx < 0 || px > width) continue;
       const [py, iy] = [y(d - 1, t.rank[p]), y(d, t.rank[i])];
       if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
-      this.dashed(shining(i) && shining(p) ? this.runLinesLit : this.runLines, px, py, cx, iy, shift);
+      this.dashed(px, py, cx, iy, shift);
+      this.runLines.stroke({ color: runColour, width: RUN_LINE, alpha: strength });
     }
-    const runColour = mix(PALETTE.card, WORK().running, EDGE_RUNNING);
-    this.runLines.stroke({ color: runColour, width: RUN_LINE, alpha: DIM_LINKS + (1 - DIM_LINKS) * this.dim });
-    this.runLinesLit.stroke({ color: runColour, width: RUN_LINE });
     for (const i of chosen) {
       const p = t.parent[i];
       if (p < 0) continue;
@@ -1711,7 +1706,7 @@ export class SnapScene {
       }
     };
     ease(this.glowing, chain);
-    ease(this.haloed, new Set(this.under < 0 ? [] : [this.under]));
+    ease(this.softLit, new Set(this.under < 0 ? [] : [this.under]));
     for (const [i, a] of this.glowing) {
       const p = t.parent[i];
       if (p < 0) continue;
@@ -1720,27 +1715,48 @@ export class SnapScene {
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
       this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
     }
-    this.glowGround.clear();
+    // The soft lights: behind the item selected, in the accent, and behind the item under the pointer, in the
+    // pointer's blue, as far as it has come in; over them, the page's ground at every item a light reaches, so that
+    // the light shows only round the cards and never through one drawn faint, nor as a box behind an item drawn with
+    // none.
     this.chosenGlow.clear();
-    for (const i of chosen) {
-      const d = t.depth[i];
-      const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-      if (i === picked) {
-        this.softLight(this.chosenGlow, gx, gy, gh, CHOSEN_SPREAD, PALETTE.chosen, SOFT_ALPHA);
-      }
-      const ring = i === picked ? CHOSEN_RING : RING;
-      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.chosen, width: ring });
-    }
     this.hoverGlow.clear();
-    for (const [i, a] of this.haloed) {
+    const lights: { gx: number; gy: number; gh: number; reach: number }[] = [];
+    const softLight = (g: Graphics, i: number, out: number, blur: number, colour: string, on: number) => {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-      this.softLight(this.hoverGlow, gx, gy, gh, SOFT_SPREAD, PALETTE.over, SOFT_ALPHA, a);
+      g.roundRect(gx - out, gy - gh - out, NODE_W + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out).fill({
+        color: colour,
+        alpha: SOFT_ALPHA * on,
+      });
+      lights.push({ gx, gy, gh, reach: out + BLUR_ROOM * blur });
+    };
+    if (picked >= 0) softLight(this.chosenGlow, picked, CHOSEN_SPREAD, CHOSEN_BLUR, PALETTE.chosen, 1);
+    for (const [i, a] of this.softLit) softLight(this.hoverGlow, i, SOFT_SPREAD, SOFT_BLUR, PALETTE.over, a);
+    this.glowGround.clear();
+    if (lights.length > 0) {
+      for (const j of drawn) {
+        const d = t.depth[j];
+        const [jx, jy, jh] = [x(d), y(d, t.rank[j]), half(d, t.rank[j])];
+        const reached = lights.some(
+          (l) => Math.abs(jx - l.gx) < NODE_W + l.reach && Math.abs(jy - l.gy) < jh + l.gh + l.reach,
+        );
+        if (reached) this.glowGround.roundRect(jx, jy - jh, NODE_W, 2 * jh, CARD_CORNER).fill(PALETTE.page);
+      }
     }
+    // The rings: of the item under the pointer and those above it, in the pointer's blue, as far as each has come in;
+    // over them, of the item selected and those above it, in the accent, the item selected's wider, so that the
+    // selection stands out under the pointer too.
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.over, width: RING, alpha: a });
+    }
+    for (const i of chosen) {
+      const d = t.depth[i];
+      const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
+      const ring = i === picked ? CHOSEN_RING : RING;
+      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.chosen, width: ring });
     }
     // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line
     // of blue.

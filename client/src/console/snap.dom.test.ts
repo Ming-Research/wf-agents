@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
-import { age, dashesAlong, moodOf, waysUp } from './snap';
+import { age, dashesAlong, moodOf, wayAims, waysUp } from './snap';
 
 const MINUTE = 60_000;
 
@@ -47,6 +47,19 @@ describe('the dashed ways of the items whose work runs', () => {
 
   it('take no link above a root', () => {
     expect(ways([0, 4])).toEqual([]);
+  });
+
+  it('stand at full strength while nothing is lit, and while something is, only where both ends are lit', () => {
+    const aims = (on: number[], lit: number[]) =>
+      Object.fromEntries([...wayAims(on, parent, new Set(lit))].map(([i, a]) => [i, a === 1 ? 'full' : 'dim']));
+    expect(aims([1, 2, 3], [])).toEqual({ 1: 'full', 2: 'full', 3: 'full' });
+    // Item 1 lit, with its root and the item under it.
+    expect(aims([1, 2, 3], [1, 0, 3])).toEqual({ 1: 'full', 2: 'dim', 3: 'full' });
+    // Item 2 lit with its root: the link from 3 joins nothing lit, and the link from 1 has only one end lit.
+    expect(aims([1, 2, 3], [2, 0])).toEqual({ 1: 'dim', 2: 'full', 3: 'dim' });
+    const dim = wayAims([1], parent, new Set([4])).get(1) ?? 1;
+    expect(dim).toBeGreaterThan(0);
+    expect(dim).toBeLessThan(1);
   });
 
   it('are dashed from the start, the dashes moving towards the end as time goes on, cut at the ends', () => {
