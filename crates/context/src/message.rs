@@ -310,7 +310,7 @@ pub fn given(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Given> {
     }
     let context = words.message.parts.iter().find(|p| p.part == Part::Context);
     let order = context.and_then(|p| p.order.as_deref()).unwrap_or_default();
-    given.sort_by_key(|g| std::cmp::Reverse(order.iter().position(|l| *l == g.list)));
+    given.sort_by_key(|g| order.iter().position(|l| *l == g.list));
     given
 }
 
