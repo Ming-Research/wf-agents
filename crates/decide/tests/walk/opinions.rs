@@ -121,7 +121,9 @@ fn the_owner_s_verdict_in_a_judge_s_place_leaves_the_points_it_wrote_before_new_
     // The owner rules that the work passes: the point runs nothing any more.
     w.person_sets("verdict", "yes");
     assert_eq!(w.decide(), resting());
-    // A point the judge writes after the ruling runs the implementation again.
+    // A point the judge writes after the ruling, on a change it judges again, runs the implementation again.
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
     w.run("review", &[("verdict", Value("no")), ("opinions", Matters)]);
     assert!(
         matches!(w.decide(), Decision::Run { ref cell, .. } if cell.as_str() == "implement"),

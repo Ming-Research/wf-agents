@@ -139,16 +139,27 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
                     choices: &choices,
                     returns: 3,
                     told: &told,
-                    // What answers an act is another rule's, and this test's returns write nothing.
+                    // What answers an act is another rule's, and this test's returns write nothing but a maker's
+                    // answer.
                     answered_by: &BTreeMap::new(),
                     dialogues: &cell.dialogues,
                     verdicts: &cell.verdicts,
                 };
+                // A maker woken by a point in its dialogue answers it there (design document `data-and-context`, 41).
+                let writes: Vec<decide::Write> = (cell.dialogues.contains_key(block))
+                    .then(|| decide::Write {
+                        block: block.clone(),
+                        meaning_unchanged: false,
+                        value: None,
+                        empty: false,
+                    })
+                    .into_iter()
+                    .collect();
                 let log = Log {
                     rounds: vec![Round {
                         returned: Some(Return::Came {
                             dealt_with: named.clone(),
-                            writes: Vec::new(),
+                            writes: writes.clone(),
                             calls: 0,
                             found: Vec::new(),
                             waits: false,
@@ -160,7 +171,7 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
                 };
                 let finish = Step::Finish {
                     dealt_with: vec![block.clone()],
-                    writes: Vec::new(),
+                    writes,
                 };
                 assert_eq!(
                     next(&log, requires, decide::run::Hold::Nothing),
