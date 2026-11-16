@@ -663,12 +663,24 @@ fn a_name_is_found_in_the_pages_code_and_not_in_an_apostrophe_or_a_comment() {
 }
 
 #[test]
+fn a_regular_expression_in_the_pages_code_opens_no_text_and_a_division_is_none() {
+    let text = "for (const m of t.matchAll(/`([^`\\n/]+)`/g)) f(m);\n\
+                const a = `x${y}`;\n\
+                const b = n / 2 + m / 3;\n\
+                const c = \"after\";\n\
+                return /\"[']/.test(s) ? 'yes' : 'no';\n";
+    let scanned = Scanner::scan(text, false);
+    let texts: Vec<(&str, usize)> = scanned.literals.iter().map(|l| (l.text.as_str(), l.line)).collect();
+    assert_eq!(texts, [("x${}", 2), ("after", 4), ("yes", 5), ("no", 5)]);
+}
+
+#[test]
 fn a_flow_gives_its_own_name_beside_those_of_its_cells_lines_groups_and_blocks() {
     let source = flow::Source {
-        flow: "name = \"greeting\"\norder = [\"say\"]\n\n[limits]\nruns = 1\nreturns = 1\ncalls = 1\n\n[blocks.request]\npeople = true\n\n[blocks.said]\n".to_string(),
+        flow: "name = \"greeting\"\norder = [\"say\"]\n\n[limits]\nruns = 1\nreturns = 1\ncalls = 1\n\n[blocks.request]\npeople = true\n\n[blocks.said]\npeople = true\n".to_string(),
         cells: [(
             "say".to_string(),
-            "title = \"Say\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"request\"]\noutputs = [\"said\"]\n".to_string(),
+            "title = \"Say\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"request\", \"said\"]\n".to_string(),
         )]
         .into_iter()
         .collect(),

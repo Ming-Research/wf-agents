@@ -33,7 +33,7 @@ const own = (cell: string, name: string, outside: string): Block => ({
   readBy: { cells: [cell], conditions: [], tests: [], shown: false },
 });
 
-/// The engineer's flow where the research's cell and the deep research's may ask the owner, as the definition says by
+/// The made-up flow where the research's cell and the deep research's may ask the owner, as the definition says by
 /// questions and words of their own among their outputs, and the review's cells may not.
 const ASKING: Flow = {
   ...FLOW,
@@ -69,10 +69,10 @@ const ENGINEER: Record<string, string> = { research: 'R1', deep_research: 'D1', 
 const engineer = <T,>(x: T): T =>
   JSON.parse(JSON.stringify(x).replace(/"(research|deep_research|implement)"/g, (_, id: string) => `"${ENGINEER[id]}"`)) as T;
 
-/// Where the engine says the owner's words go: what is said to the engineer's line reaches the implementation, and
+/// Where the engine says the owner's words go: what is said to the builder's line reaches the implementation, and
 /// no cell of the deep research's line can take any.
 const SPEAKING: Speaking[] = [
-  { to: { kind: 'line', line: 'engineer' }, cell: 'implement', refused: null },
+  { to: { kind: 'line', line: 'builder' }, cell: 'implement', refused: null },
   {
     to: { kind: 'line', line: 'deep_research' },
     cell: null,
@@ -272,17 +272,17 @@ describe('the panel of the item selected', () => {
     const el = draw(12, answered(sent, { reached: 'R1' }), undefined, true);
     // A button for each line that can ask the owner a question, and none for the review's line, which cannot: its line
     // and the cell the engine would give the words to, by its id, or the line alone where it has none.
-    expect(text(el, '.cw-to .switch-choice')).toEqual(['D1', 'engineer · I1']);
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['builder · I1', 'D1']);
     expect(button(el, 'D1').title).toBe(SPEAKING[1].refused);
-    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['engineer · I1']);
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['builder · I1']);
     expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
-    act(() => button(el, 'engineer · I1').click());
+    act(() => button(el, 'builder · I1').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
     expect(button(el, 'Send').disabled).toBe(true);
     type(el.querySelector('textarea') as HTMLTextAreaElement, '  Keep it to one table  ');
     expect(button(el, 'Send').disabled).toBe(false);
     await act(async () => button(el, 'Send').click());
-    expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'line', line: 'engineer' }, words: 'Keep it to one table' }]]);
+    expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'line', line: 'builder' }, words: 'Keep it to one table' }]]);
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
     expect(text(el, '.cw-done')).toEqual(['Said to Initial research']);
   });
@@ -311,14 +311,14 @@ describe('the panel of the item selected', () => {
   it('shows a button for each line that can ask the owner a question and none for one that cannot, and says words to the line of the button chosen', async () => {
     const sent: Sent = [];
     const speaking: Speaking[] = [
-      { to: { kind: 'line', line: 'engineer' }, cell: 'implement', refused: null },
+      { to: { kind: 'line', line: 'builder' }, cell: 'implement', refused: null },
       { to: { kind: 'line', line: 'deep_research' }, cell: 'deep_research', refused: null },
-      { to: { kind: 'line', line: 'review' }, cell: 'review', refused: null },
+      { to: { kind: 'line', line: 'judge' }, cell: 'review_code', refused: null },
     ];
     const i = itemOf(12);
     const el = draw(i, answered(sent, { reached: 'deep_research' }), pageOf(i, speaking));
     // Every button where the engine names a cell carries both its line and that cell's id.
-    expect(text(el, '.cw-to .switch-choice')).toEqual(['deep_research · deep_research', 'engineer · implement']);
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['builder · implement', 'deep_research · deep_research']);
     expect([...el.querySelectorAll('.cw-to .switch-choice')].map((b) => b.getAttribute('title'))).toEqual([null, null]);
     act(() => button(el, 'deep_research · deep_research').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Deep research']);
@@ -331,7 +331,7 @@ describe('the panel of the item selected', () => {
 
   it('offers, as `@` is typed, the line the message goes to while the work goes on, and names no line of its own', () => {
     const speaking: Speaking[] = [
-      { to: { kind: 'line', line: 'engineer' }, cell: 'implement', refused: null },
+      { to: { kind: 'line', line: 'builder' }, cell: 'implement', refused: null },
       { to: { kind: 'line', line: 'deep_research' }, cell: 'deep_research', refused: null },
     ];
     const i = itemOf(12);
@@ -345,10 +345,10 @@ describe('the panel of the item selected', () => {
     const i = itemOf(12);
     const page = pageOf(i);
     if (page === null || !('page' in page)) throw new Error('no page');
-    const flow: Flow = { ...ASKING, card: ['plan', 'request'] };
+    const flow: Flow = { ...ASKING, card: ['outline', 'request'] };
     const el = draw(i, answered([]), { page: { ...page.page, flow } });
     await act(async () => undefined);
-    expect(text(el, '.cw-body > .cw-fold > .cw-fold-head > span:last-child')).toEqual(['plan', 'request']);
+    expect(text(el, '.cw-body > .cw-fold > .cw-fold-head > span:last-child')).toEqual(['outline', 'request']);
     expect(text(el, '.cw-body > .cw-fold > .cw-fold-body > p.muted')).toEqual([
       'Nothing is written yet',
       'Nothing is written yet',
@@ -358,7 +358,7 @@ describe('the panel of the item selected', () => {
   it('takes a question a cell asked to the discussion, quoted, about that question, on the line of the cell that asked it', async () => {
     const sent: Sent = [];
     const speaking: Speaking[] = [
-      { to: { kind: 'line', line: 'engineer' }, cell: 'research', refused: null },
+      { to: { kind: 'line', line: 'builder' }, cell: 'research', refused: null },
       { to: { kind: 'cell', cell: 'research' }, cell: 'research', refused: null },
     ];
     // The work waits at the research for the owner's answer to its question, which its card at the plan's end shows.
@@ -372,7 +372,7 @@ describe('the panel of the item selected', () => {
     const asking = engineer({ page: { ...page.page, questions: [stale] } });
     const el = draw(1, answered(sent, { reached: 'R1' }), asking, true);
     await act(async () => button(el, 'Discuss').click());
-    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['engineer · R1']);
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['builder · R1']);
     expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
     // The discussion's box, not the one the question is answered in.
     type(discussion(el).querySelector('textarea') as HTMLTextAreaElement, 'Kept a day: say why not.');
@@ -391,8 +391,8 @@ describe('the panel of the item selected', () => {
 
   it('says why no cell can take a message, and sends it to no cell', async () => {
     const sent: Sent = [];
-    const refused = 'no cell of the line engineer has run yet, and the work stands at none of them';
-    const speaking: Speaking[] = [{ to: { kind: 'line', line: 'engineer' }, cell: null, refused }];
+    const refused = 'no cell of the line builder has run yet, and the work stands at none of them';
+    const speaking: Speaking[] = [{ to: { kind: 'line', line: 'builder' }, cell: null, refused }];
     const el = draw(12, answered(sent), engineer(pageOf(itemOf(12), speaking)), true);
     expect(text(el, '.write-readers')).toEqual([`No cell takes the words: ${refused}`]);
     type(el.querySelector('textarea') as HTMLTextAreaElement, 'Keep it to one table');
@@ -489,7 +489,7 @@ describe('the panel of the item selected', () => {
     act(() => button(el, 'Work').click());
     expect(text(el, '.pairs dt')).toEqual(['Rounds', 'Cost', 'Started', 'Sent back', 'Flow']);
     // Started at its first round.
-    expect(text(el, '.pairs dd')).toEqual(['61', '$7.31', '1.1d ago', '0', 'engineer']);
+    expect(text(el, '.pairs dd')).toEqual(['61', '$7.31', '1.1d ago', '0', 'building']);
   });
 
   it('names the cell its work waits at as a cell is shown, its id and its title, and leaves the question to the plan', () => {

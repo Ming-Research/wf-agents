@@ -53,7 +53,7 @@ function flowOf(
     id: c.id,
     title: c.title,
     kind: c.line === null ? 'engine' : 'agent',
-    line: c.line === undefined ? 'engineer' : c.line,
+    line: c.line === undefined ? 'builder' : c.line,
     task: c.task ?? null,
     taskFile: null,
     act: c.act ?? null,
@@ -145,7 +145,7 @@ const ruling = (t: Test, block: string): Wait =>
 /// plan, the implementation once the owner confirmed the plan, the tests, the review of the code, a check with the
 /// latest main, and the merge.
 export const FLOW: Flow = flowOf(
-  'engineer',
+  'building',
   [
     {
       id: 'research',
@@ -153,7 +153,7 @@ export const FLOW: Flow = flowOf(
       task: 'Research what the item asks for, and write the plan.\nSay whether it needs deep research.',
       preconditions: [REQUEST_READ],
       inputs: ['request', 'plan_opinions'],
-      outputs: ['plan', 'needs_deep_research'],
+      outputs: ['outline', 'needs_deep_research'],
     },
     {
       id: 'deep_research',
@@ -161,16 +161,16 @@ export const FLOW: Flow = flowOf(
       line: 'deep_research',
       task: 'Research what the plan leaves open, and write the solution.',
       condition: { on: 'block', block: 'needs_deep_research', value: 'yes' },
-      inputs: ['plan', 'plan_review_on_deep_research'],
+      inputs: ['outline', 'plan_review_on_deep_research'],
       outputs: ['solution'],
     },
     {
       id: 'review_plan',
       title: 'Review the plan',
       task: 'Review the solution and the plan against what the item asks for.',
-      line: 'review',
+      line: 'judge',
       condition: { on: 'block', block: 'needs_deep_research', value: 'yes' },
-      inputs: ['plan', 'solution'],
+      inputs: ['outline', 'solution'],
       outputs: ['plan_review_on_deep_research'],
     },
     {
@@ -178,7 +178,7 @@ export const FLOW: Flow = flowOf(
       title: 'Implement',
       task: 'Implement the plan and the solution.',
       preconditions: [PLAN_CONFIRMED],
-      inputs: ['plan', 'solution', 'code_opinions'],
+      inputs: ['outline', 'solution', 'code_opinions'],
       outputs: ['code'],
     },
     {
@@ -189,10 +189,10 @@ export const FLOW: Flow = flowOf(
       outputs: ['tests'],
     },
     {
-      id: 'review',
+      id: 'review_code',
       title: 'Review the code',
       task: 'Review the code and its tests, and say whether you are content.',
-      line: 'review',
+      line: 'judge',
       inputs: ['code', 'tests'],
       outputs: ['code_opinions', 'content'],
     },
@@ -210,7 +210,7 @@ export const FLOW: Flow = flowOf(
   {
     request: { people: true, shown: true },
     plan_opinions: { people: true },
-    plan: { shown: true },
+    outline: { shown: true },
     needs_deep_research: { values: ['yes', 'no'] },
     solution: { shown: true },
     plan_review_on_deep_research: { people: true },
@@ -328,7 +328,7 @@ export function fixtureItems(start = Date.now()): Items {
     2: {
       title: 'See every work at one glance',
       dependsOn: [8, 9, 22],
-      work: work(round('review', 6), cellsAt('review', 'running'), { hours: 30, dollars: 7.31, rounds: 61 }),
+      work: work(round('review_code', 6), cellsAt('review_code', 'running'), { hours: 30, dollars: 7.31, rounds: 61 }),
     },
     3: {
       title: 'Keep what each run costs',
