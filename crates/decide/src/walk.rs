@@ -1339,6 +1339,19 @@ pub(crate) fn read_runs(records: &Records) -> BTreeMap<RunId, RunView<'_>> {
 /// it. A run that did not, because the block's meaning was changed after it started, has a meaning of its own for what
 /// it wrote. A first version handed in as not mattering has none: it says nothing, and is new to no cell (design
 /// document `data-and-context`, 9).
+/// Whether a write gives its block a meaning of its own, the one reading of meaning (design document
+/// `data-and-context`, 9): of a choice, where this write or the version before it has a value, where the value is
+/// another than the one before, whatever its writer says, its first version always; of any other block, where it
+/// matters, or where its writer did not see the meaning it would keep. `over` is the value of the version before, none
+/// where there is none; a first version that does not matter says nothing.
+pub(crate) fn gives_meaning(value: Option<&str>, over: Option<Option<&str>>, matters: bool, saw: bool) -> bool {
+    match over {
+        Some(before) if value.is_some() || before.is_some() => value != before,
+        Some(_) => matters || !saw,
+        None => value.is_some() || matters,
+    }
+}
+
 pub(crate) fn read_versions<'a>(
     records: &'a Records,
     runs: &BTreeMap<RunId, RunView<'a>>,
@@ -1374,18 +1387,9 @@ pub(crate) fn read_versions<'a>(
         let started = of_block.iter().find(|v| Some(v.at) == from).map(|v| v.meaning);
         let saw = w.by.is_none() || (over.is_some() && started == over.map(|v| v.meaning));
         let meaning = match over {
-            // A choice changes its meaning when its value does, whatever its writer says.
-            Some(v) if w.value.is_some() || v.value.is_some() => {
-                if w.value == v.value {
-                    v.meaning
-                } else {
-                    Some(w.at)
-                }
-            }
-            Some(v) if !w.matters && saw => v.meaning,
-            // Handed in as changing nothing, with nothing before it, it says nothing, whoever its writer.
-            None if w.value.is_none() && !w.matters => None,
-            _ => Some(w.at),
+            _ if gives_meaning(w.value, over.map(|v| v.value), w.matters, saw) => Some(w.at),
+            Some(v) => v.meaning,
+            None => None,
         };
         of_block.push(Version {
             at: w.at,

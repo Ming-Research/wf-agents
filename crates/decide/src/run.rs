@@ -680,10 +680,18 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     }
     // A maker woken by a point of the other side owes the next word: an answer in the dialogue, a change of what the
     // other side watches, the work's head among it as the round committed it, or a question the work waits for; a
-    // judge's fail brings its points (design document `data-and-context`, 41, 42). A version handed in as changing
-    // nothing is new to no cell (9): it answers nothing, changes nothing the other side watches and brings no point.
+    // judge's fail brings its points (design document `data-and-context`, 41, 42). A version that changes nothing in
+    // meaning, as the walk reads it, is new to no cell (9): it answers nothing, changes nothing the other side watches
+    // and brings no point. The round saw what it writes over where it was told of the latest; one that did not is sent
+    // back for it, whatever it says.
     if calls == 0 && !told.waits {
-        let said = || (writes.iter()).filter(|w| !w.meaning_unchanged).map(|w| &w.block);
+        let changes = |w: &Write| {
+            let standing = told.outputs.get(&w.block).filter(|s| s.latest.is_some());
+            let over = standing.map(|s| s.value.as_deref());
+            let saw = standing.is_none_or(|s| s.added || s.told == s.latest);
+            crate::walk::gives_meaning(w.value.as_deref(), over, !w.meaning_unchanged, saw)
+        };
+        let said = || (writes.iter()).filter(|w| changes(w)).map(|w| &w.block);
         for (dialogue, watched) in requires.dialogues {
             let woken = told.points.contains(dialogue) && dealt_with.contains(dialogue);
             let answered = (said().chain(read)).any(|b| b == dialogue || watched.contains(b));
