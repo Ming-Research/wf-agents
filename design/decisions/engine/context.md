@@ -27,8 +27,8 @@ A version put into a round counts as held by the session only from a round befor
 Why: A version is put into a round as it begins, as one its return would have written over; counted held for that round itself, it would never be filled while the message names it, and the next return would write over it unseen.
 
 ### decision a-version-written-over-is-given-with-why
-Where a return was sent back for writing over a version it never saw, of a block the cell is not given, that version is given with why, in the words a datum given `latest` is given in; of a block the cell is given, the datum's own kind gives it.
-Why: With no tool to read the blocks, nothing else shows the agent what it is to write over.
+Where a return was sent back for writing over a version it never saw, that version is given once: by the context where the round's context gives it, as a block the cell watches or reads is given by its kind and one it only writes by its latest where the session lacks it (document data-and-context, 21); else with why, in the words a datum given `latest` is given in, as a version written while the round ran.
+Why: With no tool to read the blocks, nothing else shows the agent what it is to write over; given in both places, the session would hold it twice.
 
 ### decision a-version-is-held-by-what-it-is
 A version is held by what it is, never by its content, so a new version that says what an earlier one said is given; a latest version the session holds is given by `held`'s line, though the session lacks the version the cell last worked from.
@@ -48,8 +48,9 @@ where it is given from the writing run the records keep and the cell's line in t
 tree and the work's head a round's end read are that round's run's, by the version put into it. A version of a cell's
 questions is told by its own record: an ask by the asking run's line, an answer as the owner's, the engine's own
 question by nobody; a version an act of the engine or the outside wrote with no round says nobody. Past works are read
-by today's flow, so a run of a cell since moved to another line is told by the line it has now.
+by today's flow, as the records keep no line of a run: a run of a cell since moved to another line is told by the line
+it has now, until the flow each work ran on is kept (#261).
 Why: A stored label would be a second copy of what the records and the flow say (principle one-thing-one-place), and a
 line, not a cell, is what a round may know (principle a-cell-knows-only-its-data). Both sides of `plan_doubts` are on
-one line, so their versions share a label: settled with the owner, since the session holds them, the content tells a
-doubt from an answer, and who owes the next word is read by newness.
+one line, so their versions share a label, which is enough: the session holds them, the content tells a doubt from an
+answer, and who owes the next word is read by newness.
