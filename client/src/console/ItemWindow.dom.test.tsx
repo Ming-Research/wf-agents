@@ -287,22 +287,24 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.cw-done')).toEqual(['Said to Initial research']);
   });
 
-  it('says words to the cell the work waits at for an answer to its question, where the engine sends them', async () => {
+  it('says words to the line of the cell the work waits at for an answer to its question, which the engine says they reach', async () => {
     const sent: Sent = [];
     const i = itemOf(12);
     const waits = engineer({
       ...i,
       work: { ...i.work, now: { kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'one_table' }] } },
     } satisfies Item);
+    // The engine says words to the line reach the cell it has reached, the one that waits.
     const speaking: Speaking[] = [
-      ...SPEAKING,
+      { to: { kind: 'line', line: 'builder' }, cell: 'research', refused: null },
+      SPEAKING[1],
       { to: { kind: 'cell', cell: 'research' }, cell: 'research', refused: null },
     ];
     const el = draw(waits, answered(sent, { reached: 'R1' }), engineer(pageOf(i, speaking)));
     expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
     type(el.querySelector('textarea') as HTMLTextAreaElement, 'Why two tables?');
     await act(async () => button(el, 'Send').click());
-    expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'cell', cell: 'R1' }, words: 'Why two tables?' }]]);
+    expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'line', line: 'builder' }, words: 'Why two tables?' }]]);
     // To another line, they are said to that line, which the engine says no cell of can take them.
     act(() => button(el, 'D1').click());
     expect(text(el, '.write-readers')).toEqual([`No cell takes the words: ${SPEAKING[1].refused}`]);
@@ -382,7 +384,7 @@ describe('the panel of the item selected', () => {
         1,
         {
           kind: 'say',
-          to: { kind: 'cell', cell: 'R1' },
+          to: { kind: 'line', line: 'builder' },
           words: '> Should a stale run be abandoned at once or kept a day?\n> Abandon it at once\n\nKept a day: say why not.',
         },
       ],
