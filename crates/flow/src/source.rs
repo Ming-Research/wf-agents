@@ -601,6 +601,37 @@ impl InputKind {
     }
 }
 
+/// Where the flow's definition gives a cell a datum, as the `context` part of the message orders what a round is given
+/// (design document `data-and-context`, 14, 15, 21).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Listed {
+    /// What the flow gives every agent cell (`[every_agent]` of `flow.toml`).
+    EveryAgent,
+    /// What the cell only reads.
+    Reads,
+    /// What the cell watches.
+    Watches,
+    /// What the cell writes and is given by nothing else: its latest version, where the session lacks it, so that the
+    /// cell brings its outputs up to date from it.
+    Outputs,
+}
+
+impl Listed {
+    /// Every list, as the files write them.
+    pub const ALL: [Listed; 4] = [Listed::EveryAgent, Listed::Reads, Listed::Watches, Listed::Outputs];
+
+    /// The list's name, as it is written.
+    pub fn name(self) -> &'static str {
+        match self {
+            Listed::EveryAgent => "every_agent",
+            Listed::Reads => "reads",
+            Listed::Watches => "watches",
+            Listed::Outputs => "outputs",
+        }
+    }
+}
+
 /// The reasoning efforts an agent's round may run at, as the command line names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "lowercase")]

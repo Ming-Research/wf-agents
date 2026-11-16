@@ -14,7 +14,7 @@ use decide::run::Unmet;
 use decide::{BlockId, CallId, Seq};
 use flow::agents::{Agents, GivenKind, MessagePart, Only, Part};
 use flow::system::Settings;
-use flow::{CellSpec, Compiled, InputKind};
+use flow::{CellSpec, Compiled, Given, InputKind, Kind, Listed};
 use serde::{Deserialize, Serialize};
 
 use crate::text::{self, Piece, fill, filled, join, put, with_slots, written};
@@ -36,6 +36,9 @@ pub enum Stands {
     /// The session holds its latest version, and nothing of it is new to the cell since it last worked from it: nothing
     /// is sent of it.
     Holds,
+    /// The session holds no version of a datum whose versions the carrier compares itself, as the design tree, given
+    /// `last_and_latest`: its latest is sent whole, saying so (design document `data-and-context`, 23).
+    Unread,
 }
 
 impl Stands {
@@ -48,6 +51,7 @@ impl Stands {
             Stands::HoldsLatest => "holds_latest",
             Stands::HoldsNew => "holds_new",
             Stands::Holds => "holds",
+            Stands::Unread => "unread",
         }
     }
 }
@@ -285,6 +289,31 @@ pub struct Defined {
     pub after: Vec<Piece>,
 }
 
+/// What a round of the cell is given, in the order the `context` part names (design document `data-and-context`, 14,
+/// 15, 21): each datum the definition gives it, by where it gives it, each list in its own order; and, under
+/// `outputs`, each block an agent's cell writes that nothing else gives it, as `latest`, so that the cell brings its
+/// outputs up to date from their latest versions, whoever wrote them. Such a block is sent only where the session lacks
+/// its latest version.
+pub fn given(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Given> {
+    let mut given = cell.given.clone();
+    if cell.kind == Kind::Agent {
+        let place = flow.flow.place(&cell.id);
+        for block in place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]) {
+            if !given.iter().any(|g| &g.block == block) {
+                given.push(Given {
+                    block: block.clone(),
+                    kind: InputKind::Latest,
+                    list: Listed::Outputs,
+                });
+            }
+        }
+    }
+    let context = words.message.parts.iter().find(|p| p.part == Part::Context);
+    let order = context.and_then(|p| p.order.as_deref()).unwrap_or_default();
+    given.sort_by_key(|g| order.iter().position(|l| *l == g.list));
+    given
+}
+
 /// The message as the files define it for the cell: each part, each datum of its context a part of its own.
 pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined> {
     // The page shows the words as the files write them, each setting by its name alone.
@@ -312,16 +341,19 @@ pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined>
         };
         match part.part {
             Part::Context => {
-                for given in &cell.given {
+                for given in &self::given(flow, words, cell) {
                     let datum = build.datum(&given.block, given.kind);
+                    // What the cell writes and is given by nothing else is sent only where the session lacks it.
+                    let output = given.list == Listed::Outputs;
+                    let held_as = |held: Vec<Piece>| if output { Vec::new() } else { held };
                     out.push(Defined {
                         part: part.part,
                         block: Some(given.block.clone()),
                         kind: Some(given.kind),
                         only: None,
                         pieces: datum.text,
-                        held: datum.held,
-                        held_new: datum.held_new,
+                        held: held_as(datum.held),
+                        held_new: held_as(datum.held_new),
                         whole: datum.whole,
                         items: Vec::new(),
                         after: Vec::new(),
@@ -400,7 +432,7 @@ pub fn message(
         }
         match part.part {
             Part::Context => {
-                for given in &cell.given {
+                for given in &self::given(flow, words, cell) {
                     let name = given.block.as_str();
                     let stands = situation.data.get(name).copied().unwrap_or(Stands::Lacks);
                     if let Some((form, pieces)) = build.datum_as(&given.block, given.kind, stands) {
@@ -480,6 +512,7 @@ struct DatumForms {
     held: Vec<Piece>,
     held_new: Vec<Piece>,
     whole: Vec<Piece>,
+    unread: Vec<Piece>,
 }
 
 struct Build<'a> {
@@ -883,10 +916,13 @@ impl Build<'_> {
             (_, Some(datum)) => self.filled_by(form(&words.text), datum, &datum.latest),
             (_, None) => form(&words.text),
         };
-        let whole = (words.whole.as_deref()).map_or_else(Vec::new, |whole| match datum {
-            Some(datum) => self.filled_by(form(whole), datum, &datum.latest),
-            None => form(whole),
-        });
+        let whole_of = |text: Option<&str>| {
+            text.map_or_else(Vec::new, |whole| match datum {
+                Some(datum) => self.filled_by(form(whole), datum, &datum.latest),
+                None => form(whole),
+            })
+        };
+        let (whole, unread) = (whole_of(words.whole.as_deref()), whole_of(words.unread.as_deref()));
         let held_as = |text: &str| match datum {
             Some(datum) => self.filled_by(form(text), datum, &datum.latest),
             None => form(text),
@@ -896,6 +932,7 @@ impl Build<'_> {
             held: held_as(&given.held),
             held_new: held_as(&given.held_new),
             whole,
+            unread,
         }
     }
 
@@ -908,6 +945,9 @@ impl Build<'_> {
             Stands::HoldsLatest => Some((Form::Held, forms.held)),
             Stands::HoldsNew => Some((Form::Held, forms.held_new)),
             Stands::Lacks if whole => Some((Form::Whole, forms.whole)),
+            Stands::Unread if !forms.unread.is_empty() => Some((Form::Whole, forms.unread)),
+            Stands::Unread if whole => Some((Form::Whole, forms.whole)),
+            Stands::Unread => Some((Form::Text, forms.text)),
             Stands::Lacks | Stands::HoldsLast => Some((Form::Text, forms.text)),
         }
     }

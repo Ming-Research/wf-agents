@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use crate::InputKind;
+use crate::{InputKind, Listed};
 
 /// The directory beside the flows that holds what the engine says to every agent.
 pub const AGENTS_DIR: &str = "agents";
@@ -992,6 +992,9 @@ pub struct MessagePart {
     pub does: Option<String>,
     /// What follows the list.
     pub after: Option<String>,
+    /// Of the part `context`, the order of what a round is given, by where the cell's definition gives it: each list
+    /// named once, each in the order it names its data (design document `data-and-context`, 14, 15, 21).
+    pub order: Option<Vec<Listed>>,
 }
 
 /// What a part of a message is: what the engine puts into it.
@@ -1084,6 +1087,9 @@ pub struct GivenKind {
     pub text: String,
     /// What is sent in place of `text` where the session lacks what it needs, or `text` would be longer.
     pub whole: Option<String>,
+    /// Of a datum whose versions the engine compares itself, as the design tree, what is sent in place of `text` where
+    /// the session holds none of its versions: its latest whole, saying so (design document `data-and-context`, 23).
+    pub unread: Option<String>,
 }
 
 /// `agents/message/results.toml`: what a round is told of the results of the calls it is given. In a text, `{name}` is
@@ -1342,6 +1348,33 @@ pub fn read(root: &Path) -> Result<Agents, String> {
             return Err(format!("{}: {what}", file.display()));
         }
     }
+    let message_file = at.join("message").join("message.toml");
+    let message: Message = file(&message_file)?;
+    for part in &message.parts {
+        let order = part.order.as_deref().unwrap_or_default();
+        let wrong = match part.part {
+            Part::Context => {
+                let named = |list: Listed| order.iter().filter(|l| **l == list).count();
+                let lists: Vec<&str> = (Listed::ALL.into_iter())
+                    .filter(|l| named(*l) != 1)
+                    .map(Listed::name)
+                    .collect();
+                (!lists.is_empty()).then(|| {
+                    format!(
+                        "the part context names in `order` not once each of: {}",
+                        lists.join(", ")
+                    )
+                })
+            }
+            _ => part
+                .order
+                .is_some()
+                .then(|| format!("the part {} has an `order`, which only context has", part.part.name())),
+        };
+        if let Some(wrong) = wrong {
+            return Err(format!("{}: {wrong}", message_file.display()));
+        }
+    }
     let writes = writes(root)?;
     Ok(Agents {
         root: root.to_path_buf(),
@@ -1356,7 +1389,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         sent_back: file(&at.join("return").join("sent_back.toml"))?,
         fields,
         tools,
-        message: file(&at.join("message").join("message.toml"))?,
+        message,
         given: file(&at.join("message").join("given.toml"))?,
         results: file(&at.join("message").join("results.toml"))?,
         acts: writes.acts,

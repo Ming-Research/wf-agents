@@ -49,6 +49,8 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
     }
     // A setting a text names is given beside its name as a run gives it, its value the place `{name}`.
     let named = flow::system::Settings::of(&beside.project, &beside.installation, |key| Some(format!("{{{key}}}")));
+    // The blocks whose versions the engine compares itself, which a session that holds none of is told unread.
+    let compared = carry::compared(&compiled);
     let mut said = Vec::new();
     for cell in cells {
         let at = asked.out.join(cell.id.as_str());
@@ -59,7 +61,7 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
         std::fs::create_dir_all(&at).map_err(|e| format!("{}: {e}", at.display()))?;
         let form = flow::form::form(&compiled, &beside, cell.line.as_deref().unwrap_or_default())?;
         let system = system(&beside, &compiled, cell, asked.project, &named)?;
-        let all = situations::situations(&compiled, &beside, cell, driver::sessions::SESSION);
+        let all = situations::situations(&compiled, &beside, cell, driver::sessions::SESSION, &compared);
         for (n, situation) in all.iter().enumerate() {
             let sent = context::message(&compiled, &beside, cell, &situation.situation, Values::Slots(&named));
             let message = context::message::text(&sent);
@@ -67,7 +69,7 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
             let text = file(situation, &system, &message, &form);
             std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
         }
-        let every = situations::combinations(&compiled, &beside, cell, driver::sessions::SESSION);
+        let every = situations::combinations(&compiled, &beside, cell, driver::sessions::SESSION, &compared);
         said.push(format!(
             "{}: {} situations, in {}; {every} combinations of each datum's own state",
             cell.id.as_str(),

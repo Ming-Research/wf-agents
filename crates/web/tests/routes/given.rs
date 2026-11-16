@@ -287,9 +287,14 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
             let pieces = line.unwrap_or_else(|| panic!("{id}: what runs it lacks {name}"));
             assert!(text_of(&json!({ "pieces": pieces[1] })).contains(name), "{id}: {name}");
         }
-        // Each datum of its context, in the order it names them, in the kind it gives it in.
+        // Each datum of its context, in the order it names them, in the kind it gives it in; then each block it writes
+        // that none of them is, its latest (design document `data-and-context`, 21).
         let inputs: Vec<&serde_json::Value> = parts.iter().filter(|p| p["what"] == json!("input")).collect();
-        let given_blocks = strings(&cell["given"]);
+        let mut given_blocks = strings(&cell["given"]);
+        let written: Vec<String> = (strings(&cell["outputs"]).into_iter())
+            .filter(|b| !given_blocks.contains(b))
+            .collect();
+        given_blocks.extend(written.iter().cloned());
         assert_eq!(
             inputs.len(),
             given_blocks.len(),
@@ -300,6 +305,7 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
             let kind = match cell["input"][block]["given"]["kind"].as_str() {
                 Some("lastAndLatest") => "last_and_latest",
                 Some(kind) => kind,
+                None if written.contains(block) => "latest",
                 None => panic!("{id}: {block} is given in no kind"),
             };
             assert_eq!(part["kind"], json!(kind), "{id}: {block}");

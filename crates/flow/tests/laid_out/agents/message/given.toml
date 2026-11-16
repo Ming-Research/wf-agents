@@ -11,6 +11,7 @@ text = "## `{block}`, version {number}{choice}{by}\n\n{content}"
 [last_and_latest]
 text = "## `{block}`, what changed from version {last_number} to version {number}{by}\n\n{diff}"
 whole = "## `{block}`, version {number}{choice}{by}\n\n{content}"
+unread = "## `{block}`, version {number}{choice}{by}: this session has read none of it\n\n{content}"
 
 [all]
 text = "## `{block}`, version {first_number}{choice}{by}\n\n{content}\n\n{each_version}"

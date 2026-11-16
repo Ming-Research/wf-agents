@@ -26,9 +26,13 @@
 //! is given it or writes it, as the version last worked from or the latest, or as one the cell never worked from; of a
 //! group, one datum of the group at least is new. A datum it watches that did not run the cell, or one the
 //! cell alone writes, is new to it never: unwritten on a first entry, held on a later one, lacking on one reopened, and
-//! unwritten on either where it is not certainly written. Any other datum stands any way the entry allows: unwritten
+//! unwritten on either where it is not certainly written. A block the cell writes that nothing else gives it is given
+//! only where the session lacks its latest: lacking or, held from a cell of the line, held on a first entry where it
+//! may be written before; held on a later one, or lacking where another writes it too; lacking on one reopened; and
+//! unwritten on any where it is not certainly written. Any other datum stands any way the entry allows: unwritten
 //! where it is not certainly written, lacking, held from a cell of the line, or, on a later entry, held as last worked
-//! from, latest, or with nothing new.
+//! from, latest, or with nothing new. A datum whose versions the carrier compares itself, given `last_and_latest`, that
+//! stands lacking is unread: the session holds none of it.
 //!
 //! A datum's text is the builder's from its kind and from how the session stands with it alone, so a product of every
 //! datum's own states repeats the same texts: it is counted ([`combinations`]), and the situations hold every state of
@@ -44,7 +48,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use decide::{BlockId, Cell, Condition};
 use flow::agents::{Agents, Part};
 use flow::system::Settings;
-use flow::{CellSpec, Compiled, Kind, Watched};
+use flow::{CellSpec, Compiled, Given, InputKind, Kind, Listed, Watched};
 
 use crate::message::{CALLS, MAIN, Situation, Stands, Values, kept};
 
@@ -84,6 +88,8 @@ enum Class {
     Grouped,
     /// A datum never new to the cell.
     Never,
+    /// A block the cell writes that nothing else gives it.
+    Output,
     /// Any other.
     Rest,
 }
@@ -101,6 +107,10 @@ struct Reach<'a> {
     cell: &'a CellSpec,
     /// The source that writes a block as a line's session begins anew.
     reopened: &'a str,
+    /// The blocks whose versions the carrier compares itself.
+    compared: &'a BTreeSet<BlockId>,
+    /// What a round of the cell is given, in order ([`crate::message::given`]).
+    given: Vec<Given>,
     /// The data certainly written whenever the cell runs.
     certain: BTreeSet<BlockId>,
     /// Of those, what the work starts with.
@@ -111,9 +121,16 @@ struct Reach<'a> {
 
 /// Every situation an entry of the agent's cell can reach, as the module says, each once, in order: the first entry,
 /// the later and the reopened, each by the sets of what ran it, then the other things a round may be given. `reopened`
-/// is the source that writes a block as a line's session begins anew.
-pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &str) -> Vec<Named> {
-    let reach = Reach::of(flow, words, cell, reopened);
+/// is the source that writes a block as a line's session begins anew; `compared`, the blocks whose versions the carrier
+/// compares itself.
+pub fn situations(
+    flow: &Compiled,
+    words: &Agents,
+    cell: &CellSpec,
+    reopened: &str,
+    compared: &BTreeSet<BlockId>,
+) -> Vec<Named> {
+    let reach = Reach::of(flow, words, cell, reopened, compared);
     let mut out: Vec<Named> = Vec::new();
     let mut add = |named: Named| {
         if !out.iter().any(|o| o.situation == named.situation) {
@@ -141,14 +158,14 @@ pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &s
                             let wanted = match class {
                                 Class::Fired | Class::Grouped => new,
                                 Class::Rest => rest,
-                                Class::Never => allowed.first().copied(),
+                                Class::Never | Class::Output => allowed.first().copied(),
                             };
                             let instead = match allowed.contains(&Stands::Unwritten) {
                                 true => Stands::Unwritten,
                                 false => Stands::Lacks,
                             };
                             let stands = wanted.filter(|s| allowed.contains(s)).unwrap_or(instead);
-                            (block.to_string(), stands)
+                            (block.to_string(), reach.unread(block, stands))
                         })
                         .collect();
                     add(Named {
@@ -167,8 +184,14 @@ pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &s
 
 /// How many combinations of the entry, what ran the cell and each datum's own state the cell can reach,
 /// every datum apart, as the module says.
-pub fn combinations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &str) -> u128 {
-    let reach = Reach::of(flow, words, cell, reopened);
+pub fn combinations(
+    flow: &Compiled,
+    words: &Agents,
+    cell: &CellSpec,
+    reopened: &str,
+    compared: &BTreeSet<BlockId>,
+) -> u128 {
+    let reach = Reach::of(flow, words, cell, reopened, compared);
     let mut count: u128 = 0;
     for entry in Entry::ALL {
         for ran in reach.ran(entry) {
@@ -211,7 +234,13 @@ pub fn combinations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: 
 }
 
 impl<'a> Reach<'a> {
-    fn of(flow: &'a Compiled, words: &'a Agents, cell: &'a CellSpec, reopened: &'a str) -> Reach<'a> {
+    fn of(
+        flow: &'a Compiled,
+        words: &'a Agents,
+        cell: &'a CellSpec,
+        reopened: &'a str,
+        compared: &'a BTreeSet<BlockId>,
+    ) -> Reach<'a> {
         let place = flow.flow.place(&cell.id).unwrap_or(0);
         let spec = |id: &decide::CellId| flow.cells.iter().find(|c| c.id == *id);
         let before: Vec<&CellSpec> = (flow.flow.cells()[..place].iter())
@@ -223,13 +252,17 @@ impl<'a> Reach<'a> {
             words,
             cell,
             reopened,
+            compared,
+            given: crate::message::given(flow, words, cell),
             certain: BTreeSet::new(),
             starts: BTreeSet::new(),
             before,
         };
-        let given = || cell.given.iter().map(|g| &g.block);
-        reach.starts = given().filter(|b| reach.starts_with(b)).cloned().collect();
-        let certain = given().filter(|b| reach.starts.contains(*b) || reach.written_before(place, b));
+        let given: Vec<BlockId> = reach.given.iter().map(|g| g.block.clone()).collect();
+        reach.starts = given.iter().filter(|b| reach.starts_with(b)).cloned().collect();
+        let certain = given
+            .iter()
+            .filter(|b| reach.starts.contains(*b) || reach.written_before(place, b));
         reach.certain = certain.cloned().collect();
         reach
     }
@@ -338,6 +371,39 @@ impl<'a> Reach<'a> {
                 }
                 states
             }
+            Class::Output => {
+                let writers = self.flow.blocks.get(block).map(|d| &d.writers);
+                let others = writers
+                    .is_some_and(|w| w.people || w.outside.is_some() || w.cells.iter().any(|c| *c != self.cell.id));
+                let mut states = match entry {
+                    Entry::First => {
+                        let mut states = vec![Stands::Lacks];
+                        states.extend(self.may_hold(block).then_some(Stands::Holds));
+                        states
+                    }
+                    Entry::Later => {
+                        let mut states = vec![Stands::Holds];
+                        states.extend(others.then_some(Stands::Lacks));
+                        states
+                    }
+                    Entry::Reopened => vec![Stands::Lacks],
+                };
+                if unwritten {
+                    states.push(Stands::Unwritten);
+                }
+                states
+            }
+        }
+    }
+
+    /// How the datum stands, said of one whose versions the carrier compares itself, given `last_and_latest`: lacking
+    /// it, the session holds none of it, and it is unread.
+    fn unread(&self, block: &BlockId, stands: Stands) -> Stands {
+        let last_and_latest = (self.given.iter())
+            .any(|g| &g.block == block && g.kind == InputKind::LastAndLatest && g.list != Listed::Outputs);
+        match stands {
+            Stands::Lacks if last_and_latest && self.compared.contains(block) => Stands::Unread,
+            stands => stands,
         }
     }
 
@@ -421,8 +487,11 @@ impl<'a> Reach<'a> {
     /// The class of each datum of the cell's context, by its name, for what ran it.
     fn classes(&self, ran: &[&Watched]) -> BTreeMap<BlockId, Class> {
         let (flow, cell) = (self.flow, self.cell);
-        let given: Vec<&BlockId> = cell.given.iter().map(|g| &g.block).collect();
+        let given: Vec<&BlockId> = self.given.iter().map(|g| &g.block).collect();
         let mut classes: BTreeMap<BlockId, Class> = BTreeMap::new();
+        for g in self.given.iter().filter(|g| g.list == Listed::Outputs) {
+            classes.insert(g.block.clone(), Class::Output);
+        }
         for watched in ran.iter().filter(|t| !t.is_group()) {
             // What the agent reads for it is new with it: what the owner said, for words to the cell.
             for block in watched.blocks.iter() {
@@ -522,7 +591,7 @@ impl<'a> Reach<'a> {
             .map(|(block, class)| {
                 let stands = match class {
                     Class::Fired | Class::Grouped => Stands::HoldsLast,
-                    Class::Rest | Class::Never => Stands::Holds,
+                    Class::Rest | Class::Never | Class::Output => Stands::Holds,
                 };
                 (block.to_string(), stands)
             })

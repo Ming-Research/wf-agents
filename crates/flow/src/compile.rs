@@ -14,7 +14,7 @@ use serde::de::DeserializeOwned;
 use crate::agents::{RuleSetFile, Waits};
 use crate::source::{
     BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, ChangedBy, DATA_DIR, Effort, EveryAgentFile, FLOW_FILE, FlowFile,
-    InputKind, Keys, Kind, LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL,
+    InputKind, Keys, Kind, LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, Listed, OF_A_CELL,
     OF_A_LINE, RULES_DIR, Source, TESTS_DIR, Task, TestFile, Texts, WHEN_TEST, rules_file, waits_file,
 };
 
@@ -245,6 +245,8 @@ pub struct Given {
     pub block: BlockId,
     /// What the context of the cell's session must hold of the block when the cell runs.
     pub kind: InputKind,
+    /// Where the definition gives it.
+    pub list: Listed,
 }
 
 /// A block of a work's state, as the engine needs to know it.
@@ -1976,20 +1978,26 @@ impl<'a> Definition<'a> {
             }
         }
         let mut given: Vec<Given> = Vec::new();
-        let mut give = |block: BlockId, kind: Option<InputKind>| {
+        let mut give = |block: BlockId, kind: Option<InputKind>, list: Listed| {
             if !given.iter().any(|g| g.block == block) {
                 // A block given with no kind is a fault of the definition, which then compiles to nothing.
                 let kind = kind.unwrap_or(InputKind::Latest);
-                given.push(Given { block, kind });
+                given.push(Given { block, kind, list });
             }
         };
         for (written, block) in every(&self.every_watches).into_iter().chain(every(&self.every_reads)) {
-            give(BlockId(block), self.every.kinds.get(&written).copied());
+            give(
+                BlockId(block),
+                self.every.kinds.get(&written).copied(),
+                Listed::EveryAgent,
+            );
         }
-        for name in (file.reads.iter().chain(&file.watches)).filter(|_| agent) {
+        let named =
+            (file.reads.iter().map(|n| (n, Listed::Reads))).chain(file.watches.iter().map(|n| (n, Listed::Watches)));
+        for (name, list) in named.filter(|_| agent) {
             for block in self.members(name) {
                 let kind = (file.kinds.get(block.as_str()).copied()).or_else(|| self.every_kind(block.as_str()));
-                give(block, kind);
+                give(block, kind, list);
             }
         }
         Takes {

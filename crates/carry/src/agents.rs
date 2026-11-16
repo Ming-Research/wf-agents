@@ -472,9 +472,11 @@ impl Inner {
                 tools::keep_wholes(work, &of.beside.tools, &files).await?;
                 let results = tools::given(work, &of.beside.tools, &files);
                 let told = main.as_ref().and_then(CaughtUp::told);
+                let compared = branch::compared(flow);
                 let carried = context::Carried {
                     about,
                     main: told.as_ref(),
+                    compared: &compared,
                     changes: &changes,
                     named: &of.filling.named,
                     results: &results,

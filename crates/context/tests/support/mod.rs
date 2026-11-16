@@ -299,6 +299,7 @@ impl Sim {
         let carried = context::Carried {
             about: FOR,
             main: main.as_ref(),
+            compared: &compared(),
             changes,
             named: &self.named,
             results: &BTreeMap::new(),

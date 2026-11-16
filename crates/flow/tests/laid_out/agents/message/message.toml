@@ -28,6 +28,7 @@ between = ", "
 
 [[parts]]
 part = "context"
+order = ["every_agent", "reads", "watches", "outputs"]
 
 [[parts]]
 part = "outputs"

@@ -23,7 +23,7 @@ when = { needs_testing = "yes" }
 # Run when the review asks for it, and again when the implementation answers its red tests, not on every version of
 # the code: run on each, it found nothing in half its runs.
 watches = ["needs_testing", "acceptance", "testing"]
-reads = ["background", "plan_agent", "code", "evidence", "tests"]
+reads = ["background", "plan_agent", "code", "evidence"]
 outputs = ["tests", "testing", "testing_ok"]
 must_write = ["testing_ok"]
 
@@ -36,7 +36,6 @@ testing = """Run your tests on the new commit: accept each answer in `testing`, 
 needs_testing = "latest"
 # The tests the implementation removed, skipped or weakened, each judged by whether what it checked is still checked.
 evidence = "latest"
-tests = "latest"
 background = "latest"
 plan_agent = "latest"
 code = "last_and_latest"

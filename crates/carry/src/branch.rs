@@ -7,6 +7,7 @@
 //! doing and is written from outside, put into the round where the round's own act read it, as taking main in. A round
 //! that failed hands in nothing: what it committed is read at the end of the round that takes it up.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use decide::{BlockId, RunId};
@@ -194,6 +195,15 @@ impl Looking {
             .find(|k| k.datum == Datum::Head)
             .and_then(|k| k.last.as_deref())
     }
+}
+
+/// The blocks of the flow whose versions the engine compares itself, as git compares them: each a source of the work's
+/// branch writes (`context::Carried::compared`).
+pub fn compared(flow: &Compiled) -> BTreeSet<BlockId> {
+    (flow.blocks.iter())
+        .filter(|(_, declared)| declared.writers.outside.as_deref().and_then(Datum::of).is_some())
+        .map(|(block, _)| block.clone())
+        .collect()
 }
 
 /// What changed in the branch's data as the round of this number of the run began, as the context manager is given it

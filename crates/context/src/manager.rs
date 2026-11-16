@@ -12,20 +12,22 @@
 //! Everything is read as the records stood when the round began, so that a round given again is sent the same.
 //!
 //! The round is filled with what its cell is given and its session lacks, in the order of the message: which work it
-//! is, each datum of the cell's context by the kind the cell gives it in, what the cell returns, its task, and the
+//! is, each datum of the cell's context by the kind the cell gives it in, in the order the `context` part names, then
+//! the latest of each block the cell writes that nothing else gives it, what the cell returns, its task, and the
 //! results and the reasons for sending back that the round is given. A datum with no version yet is left out, and so
 //! is one the session holds, but for the line that says so where it is new to the cell.
 //!
 //! What changed in a datum given `last_and_latest` is what differs in its text, but for a datum whose versions the
 //! carrier compares itself, as git compares the versions of the design tree: the carrier gives what changed from each
 //! earlier version to the latest ([`Changes`]), which is sent as it is, and from the version the session holds where the
-//! cell last worked from none, since such a datum stands for what was read into the session.
+//! cell last worked from none, since such a datum stands for what was read into the session; where the session holds
+//! none of it, its latest is sent whole, saying so (design document `data-and-context`, 23).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, CallId, Records, RunId, Seq, VersionView, Writer};
 use flow::agents::{Agents, Part};
-use flow::{CellSpec, Compiled, InputKind};
+use flow::{CellSpec, Compiled, InputKind, Listed};
 use work::sessions::{began_at, number_at, of_line, of_round, start};
 use work::{Ask, Back, Call, Fill, Given, Why, Work};
 
@@ -55,6 +57,9 @@ pub type Changes = BTreeMap<(BlockId, Seq), String>;
 pub struct Carried<'a> {
     pub about: For<'a>,
     pub main: Option<&'a Main>,
+    /// The blocks whose versions the carrier compares itself, as git compares the design tree's: what changed in one
+    /// is what the carrier says, and a session that holds none of its versions is told it has read none of it.
+    pub compared: &'a BTreeSet<BlockId>,
     pub changes: &'a Changes,
     pub named: &'a flow::system::Settings,
     pub results: &'a BTreeMap<CallId, String>,
@@ -119,7 +124,7 @@ pub fn enter(
     situation.main = values.main.as_ref().map(|m| m.key().to_string());
     // What each datum fills, by its name.
     let mut filling: BTreeMap<&BlockId, Vec<Fill>> = BTreeMap::new();
-    for given in &cell.given {
+    for given in &message::given(flow, words, cell) {
         let block = &given.block;
         let all = versions.get(block).map_or(&[][..], Vec::as_slice);
         let Some(latest) = all.last() else {
@@ -149,10 +154,16 @@ pub fn enter(
             }]
         };
         let lacking: Vec<&VersionView> = all.iter().filter(|v| !holds(v.at)).collect();
-        let compared = changes.keys().any(|(b, _)| b == block);
+        let compared = carried.compared.contains(block);
         // A latest version the session holds is never sent again, though the session lacks the version the cell last
         // worked from: the change could not be told against it, and the whole would give the session what it holds.
-        let (stands, fills) = if given.kind == InputKind::All && !lacking.is_empty() {
+        let (stands, fills) = if given.list == Listed::Outputs {
+            // What the cell writes and is given by nothing else is sent only where the session lacks its latest.
+            match holds(latest.at) {
+                true => (Stands::Holds, Vec::new()),
+                false => (Stands::Lacks, whole(latest.at)),
+            }
+        } else if given.kind == InputKind::All && !lacking.is_empty() {
             datum.versions = lacking.iter().map(|v| version(v)).collect();
             let fills = lacking.iter().flat_map(|v| whole(v.at)).collect();
             let stands = if holds(all[0].at) {
@@ -199,7 +210,10 @@ pub fn enter(
                     (Stands::HoldsLast, vec![fill])
                 }
                 // Where the change is not sent, the latest is sent whole, as where the session lacks what the cell
-                // last worked from.
+                // last worked from; of a datum the carrier compares, saying so where the session holds none of it.
+                None if given.kind == InputKind::LastAndLatest && compared && lacking.len() == all.len() => {
+                    (Stands::Unread, whole(latest.at))
+                }
                 None if given.kind == InputKind::LastAndLatest => (Stands::Lacks, whole(latest.at)),
                 None if since.is_some() => (Stands::HoldsLast, whole(latest.at)),
                 None => (Stands::Lacks, whole(latest.at)),
