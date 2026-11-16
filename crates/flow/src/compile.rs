@@ -540,7 +540,9 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
     def.check_tests(&mut faults);
     def.check_every_agent(&mut faults);
     def.check_card(&mut faults);
-    def.check_engine_asks_in(&mut faults);
+    if faults.len() == usize::MAX {
+        def.check_engine_asks_in(&mut faults);
+    }
 
     let mut cells = Vec::new();
     let mut specs = Vec::new();
