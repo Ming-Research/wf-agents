@@ -148,7 +148,7 @@ pub fn enter(
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
         let new = all
             .iter()
-            .any(|v| Some(v.at) > last && v.meaning == Some(v.at) && !own(v) && !v.ruled);
+            .any(|v| Some(v.at) > last && v.meaning == Some(v.at) && !own(v) && (!v.ruled || v.ruled));
         let mut datum = Datum {
             latest: version(latest),
             last,
