@@ -296,7 +296,7 @@ pub struct Defined {
 /// its latest version.
 pub fn given(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Given> {
     let mut given = cell.given.clone();
-    if cell.kind == Kind::Agent {
+    if cell.kind == Kind::Agent && cell.given.is_empty() {
         let place = flow.flow.place(&cell.id);
         for block in place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]) {
             if !given.iter().any(|g| &g.block == block) {
