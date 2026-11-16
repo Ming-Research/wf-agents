@@ -131,7 +131,8 @@ impl W {
     }
 
     /// The work from its start to the review's yes on the implementation's code: the research hands in a plan with no
-    /// deeper look and no change of the tree, and the review asks for no testing.
+    /// deeper look and no change of the tree, both reviews of the plan find nothing to change, and the review asks for
+    /// no testing.
     pub(super) fn reviewed() -> W {
         let mut w = W::started();
         w.hands_in("S1", &[("place", None)], Vec::new());
@@ -147,6 +148,8 @@ impl W {
             Vec::new(),
         );
         w.hands_in("R2", &[], Vec::new());
+        w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
+        w.hands_in("D4", &[("tree_ok", Some("yes"))], Vec::new());
         w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
         w.hands_in(
             "T1",
@@ -180,9 +183,12 @@ pub(super) fn wrote(block: &str, by: Outsider, value: Option<&str>) -> Event {
     }
 }
 
+// Every plan is reviewed before it is built, for its design and against the tree (principle
+// every-plan-is-reviewed-before-it-is-built): a plan the research wrote, with no deep research, goes through the design
+// review and the review against the tree before the implementation, whether its edits of the tree hold an entry or none.
 #[test]
-fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is_skipped_where_they_hold_none() {
-    for (edits, next) in [("A decision that a call keeps what it took.", "D4"), (" \n", "I1")] {
+fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote_whether_or_not_it_edits_the_tree() {
+    for edits in ["A decision that a call keeps what it took.", " \n"] {
         let mut w = W::started();
         w.hands_in("S1", &[("place", None)], Vec::new());
         w.hands_in("R0", &[], Vec::new());
@@ -208,8 +214,46 @@ fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is
         });
         // The plan's second look finds no better way, and changes nothing.
         w.hands_in("R2", &[], Vec::new());
-        assert_eq!(w.round().1, next, "with tree_edits {edits:?}");
+        assert_eq!(w.round().1, "D3", "with tree_edits {edits:?}");
+        w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
+        assert_eq!(w.round().1, "D4", "with tree_edits {edits:?}");
+        w.hands_in("D4", &[("tree_ok", Some("yes"))], Vec::new());
+        assert_eq!(w.round().1, "I1", "with tree_edits {edits:?}");
     }
+}
+
+// The design review's points on a plan the research wrote go to the research, which answers them, and its answer runs
+// the review again.
+#[test]
+fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_answer_runs_the_review_again() {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    w.hands_in(
+        "R1",
+        &[
+            ("deep_needed", Some("no")),
+            ("plan_owner", None),
+            ("plan_agent", None),
+            ("acceptance", None),
+        ],
+        Vec::new(),
+    );
+    w.hands_in("R2", &[], Vec::new());
+    w.hands_in("D3", &[("plan_ok", Some("no")), ("plan_review", None)], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "R1", "the research takes the review's points");
+    assert_eq!(w.told(run, "R1"), ["on_plan_review"]);
+    w.hands_in(
+        "R1",
+        &[("deep_needed", Some("no")), ("reply_plan_review", None)],
+        Vec::new(),
+    );
+    let (run, cell) = w.round();
+    assert_eq!(cell, "D3", "the review takes the answer");
+    assert_eq!(w.told(run, "D3"), ["on_reply_plan_review"]);
+    w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
+    assert_eq!(w.round().1, "D4");
 }
 
 #[test]

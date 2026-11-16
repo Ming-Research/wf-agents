@@ -69,11 +69,13 @@ Whoever reviews is no less able than the engineer and knows what the engineer kn
 the engineer worked from.
 Why: Engineers mostly do what a review says, so a wrong demand turns good code into bad.
 
-### principle the-flow-scales-with-the-work
-The flow scales with the work: a fix of a few lines is through in minutes, and only what is large goes through the
-whole of the design.
-Why: Two hours for every work was too much: a fix of a few lines took an hour of the flow and four or five with the
-waiting, which the owner cannot wait for; and the heavier the flow, the more it rests on the items being written well.
+### principle every-plan-is-reviewed-before-it-is-built
+Every work's plan is reviewed before it is built, for its design and against the design tree, by a session that did
+not write it, whatever the size of the change; a change too small to be worth that is joined with related ones into
+one work, never run alone.
+Why: A small change reviewed carelessly can break what matters, and the damage is not small. A fix of a few lines
+that ran the flow alone took an hour and more with the waiting; what answers that is joining small things into one
+work, not leaving out the review.
 
 ### principle a-question-is-a-choice
 What is asked of a person is a question of yes or no, or a choice of one or more among options, with the answer its
