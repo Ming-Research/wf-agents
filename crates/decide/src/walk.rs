@@ -323,6 +323,35 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
     // which is what its round was entered for, whatever is answered while it runs.
     let before = records.before(r.started.at);
     let began = Walk::new(flow, &before);
+    // Of the dialogues the cell holds as the maker, each in which a point was new to it as its run began, while the
+    // dialogue was open: a version written since the one the cell consumed by a run of the other side, a cell that
+    // holds the dialogue as no maker; open while the verdict the flow pairs with the dialogue does not pass, or, of a
+    // doubt, which has none, while its latest version is the other side's (design document `data-and-context`, 41).
+    // Another maker's answer is no point.
+    let maker =
+        |id: &CellId, block: &BlockId| (flow.place(id)).is_some_and(|i| flow.cells()[i].dialogues.contains_key(block));
+    let other_side = |v: &Version<'_>, block: &BlockId| {
+        (v.by.and_then(|run| began.runs.get(&run))).is_some_and(|w| !maker(&w.started.cell, block))
+    };
+    let points = (r.started.because.iter())
+        .filter_map(|cause| match cause {
+            Cause::Changed { block, was, .. } if maker(&r.started.cell, block) => Some((block, *was)),
+            _ => None,
+        })
+        .filter(|&(block, was)| {
+            let point = (began.versions(block).iter())
+                .any(|v| Some(v.at) > was && v.meaning == Some(v.at) && !v.ruled && other_side(v, block));
+            let paired = (flow.cells().iter())
+                .flat_map(|c| &c.verdicts)
+                .find(|(_, of)| &of.dialogue == block);
+            let open = match paired {
+                Some((verdict, of)) => began.current(verdict).and_then(|v| v.value) == Some(of.fails.as_str()),
+                None => began.current(block).is_some_and(|v| other_side(v, block)),
+            };
+            point && open
+        })
+        .map(|(block, _)| block.clone())
+        .collect();
     let waits = flow
         .place(&r.started.cell)
         .is_some_and(|i| walk.owed(i).0.iter().any(|c| !given.contains(c)) || !began.held(i).is_empty());
@@ -350,6 +379,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
         .collect();
     Some(Told {
         ran_by,
+        points,
         outputs,
         waits,
         questions,

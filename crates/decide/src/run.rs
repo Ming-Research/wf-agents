@@ -207,6 +207,10 @@ pub struct Told {
     /// block put in to the round since that was not among them. Its return may name as dealt with each datum or group
     /// the cell watches that stands for one of them ([`flow::ran`]).
     pub ran_by: Vec<BlockId>,
+    /// Of what ran the round, each dialogue its cell holds as the maker in which a point of the other side was new as
+    /// the run began, while the dialogue was open: the maker owes the next word in it (design document
+    /// `data-and-context`, 41).
+    pub points: Vec<BlockId>,
     /// Of each block the cell may write, the version the round was told of and the latest.
     pub outputs: BTreeMap<BlockId, Standing>,
     /// Whether the round's cell still waits for the results of calls its runs asked for, or for the answer to a question
@@ -679,7 +683,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     // judge's fail brings its points (design document `data-and-context`, 41, 42).
     if calls == 0 && !told.waits {
         for (dialogue, watched) in requires.dialogues {
-            let woken = told.ran_by.contains(dialogue) && dealt_with.contains(dialogue);
+            let woken = told.points.contains(dialogue) && dealt_with.contains(dialogue);
             let answered = (writes.iter().map(|w| &w.block))
                 .chain(read)
                 .any(|b| b == dialogue || watched.contains(b));
