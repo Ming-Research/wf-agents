@@ -171,20 +171,30 @@ fn rare() -> Vec<String> {
     ]
 }
 
-/// What the coverage lacks: a rarely taken path not reached, and what was never reached against [`NEVER`].
+/// What the coverage lacks: a rarely taken path not reached, and what was never reached against [`NEVER`]; and an entry
+/// of [`NEVER`] that is reached, or that names nothing the exploration looks for, neither of the model's universe nor
+/// a rarely taken path.
 fn coverage(e: &Explored, m: &Model) -> Vec<String> {
-    let mut failures: Vec<String> = (rare().into_iter())
-        .filter(|r| !e.reached.contains_key(r) && !NEVER.iter().any(|(item, _)| item == r))
+    let (rare, universe) = (rare(), m.universe());
+    let mut failures: Vec<String> = (rare.iter())
+        .filter(|r| !e.reached.contains_key(*r) && !NEVER.iter().any(|(item, _)| *item == r.as_str()))
         .map(|r| format!("not reached: {r}"))
         .collect();
-    let never: Vec<String> = (m.universe().into_iter())
-        .filter(|u| !e.reached.contains_key(u))
-        .collect();
-    for n in never.iter().filter(|n| !NEVER.iter().any(|(item, _)| item == n)) {
+    let never: Vec<&String> = (universe.iter()).filter(|u| !e.reached.contains_key(*u)).collect();
+    for n in never
+        .iter()
+        .filter(|n| !NEVER.iter().any(|(item, _)| *item == n.as_str()))
+    {
         failures.push(format!("never reached, and not said why: {n}"));
     }
-    for (item, _) in NEVER.iter().filter(|(item, _)| e.reached.contains_key(*item)) {
-        failures.push(format!("said never reached, and reached: {item}"));
+    for (item, _) in NEVER {
+        if e.reached.contains_key(*item) {
+            failures.push(format!("said never reached, and reached: {item}"));
+        } else if !universe.iter().chain(&rare).any(|u| u.as_str() == *item) {
+            failures.push(format!(
+                "said never reached, and names nothing the exploration looks for: {item}"
+            ));
+        }
     }
     failures
 }
