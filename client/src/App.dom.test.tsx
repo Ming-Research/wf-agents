@@ -54,7 +54,7 @@ describe('the page on a server that gives the flow alone', () => {
     unmount = () => act(() => root.unmount());
     for (let i = 0; i < 3; i += 1) await settle();
     // The server was asked what it gives, and found to give the flow alone.
-    expect(asked).toContain('HEAD /api/v1/items');
+    expect(asked).toContain('HEAD /api/v1/levels');
     expect(window.location.hash).toBe('#/flow');
     expect(container.querySelector('.bar')).not.toBeNull();
     expect(container.querySelector('.engine')).toBeNull();

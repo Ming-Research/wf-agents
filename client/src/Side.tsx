@@ -19,7 +19,7 @@ import type {
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
 import { type ConditionRow, type LineRow, type Matrix, exclusive, where } from './matrix';
-import { Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
+import { Arrow, Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
   charactersWords,
   conditionWords,
@@ -408,9 +408,7 @@ export function CellPanel(props: {
                     <StandsOn trigger={t} onChoose={onChoose} />
                     {block && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
                     {back.length > 0 && (
-                      <span className="way-back">
-                        <Attr name="way_back" value={listed(back)} />
-                      </span>
+                      <Attr name="way_back" value={listed(back)} />
                     )}
                     {t.read.length > 0 && <Attr name="read" value={listed(t.read)} />}
                     {block && block.what !== null && <span className="row-note">{block.what}</span>}
@@ -502,9 +500,7 @@ export function CellPanel(props: {
                       <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
                     </span>
                     {sendsBack.length > 0 && (
-                      <span className="way-back">
-                        <Attr name="way_back" value={listed(sendsBack)} />
-                      </span>
+                      <Attr name="way_back" value={listed(sendsBack)} />
                     )}
                     {block.what !== null && <span className="row-note">{block.what}</span>}
                   </ListRow>
@@ -718,8 +714,9 @@ export function BlockPanel(props: {
           <ul className="uses">
             {backs.map(({ reader, writers, triggers }) => (
               <ListRow key={reader}>
-                <span className="way-back mono">
-                  {writers.join(', ')} → {reader}
+                <span className="mono">
+                  {writers.join(', ')} <Arrow to="right" />
+                  <span className="visually-hidden">to</span> {reader}
                 </span>
                 <Attr name="triggered_by" value={listed(triggers)} />
               </ListRow>
@@ -909,8 +906,9 @@ export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chos
           <ul className="uses">
             {backs.map(({ reader, writers }) => (
               <ListRow key={reader}>
-                <span className="way-back mono">
-                  {writers.join(', ')} → {reader}
+                <span className="mono">
+                  {writers.join(', ')} <Arrow to="right" />
+                  <span className="visually-hidden">to</span> {reader}
                 </span>
               </ListRow>
             ))}

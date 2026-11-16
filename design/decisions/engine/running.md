@@ -40,3 +40,11 @@ Why: A session holds what the engine gives it and what its agent reads; the prog
 engine never sees, and the program's own system prompt tells the agent to write there, against the rule the agents are
 given to keep nothing there. Its minimal mode, `--bare`, which turns the memory off as well, was turned down: it turns
 off the hooks the engine gives too.
+
+### decision the-pages-server-is-off-the-loops-thread
+The server of the pages and the interface runs on threads apart from the one the engine's loop takes things on, and
+the engine ends when either of the two ends.
+Why: The loop answers a read on its own thread, and a server waited on together with the loop on that thread accepted
+no connection while it did: with 337 works, a stylesheet asked for during a read of the items waited 2.4 s. Waiting on
+the two together on the loop's thread, the plain way to end the engine with either, was turned down for that. Why
+they share a process at all is decision one-process-serves-everything.

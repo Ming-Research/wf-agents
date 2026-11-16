@@ -82,8 +82,9 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    // The loop runs on this thread, so that what it does with the store holds up none of the threads that serve the
-    // pages or carry out the rounds.
+    // The loop runs on this thread, and the server of the pages on the runtime's other threads ([`loop_and_server`]),
+    // so that what the loop does with the store holds up none of the threads that serve the pages or carry out the
+    // rounds.
     runtime.block_on(async move {
         let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let listener = match tokio::net::TcpListener::bind(address).await {
@@ -215,17 +216,44 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                  them go on with `wf-agents resume --all`."
             );
         }
-        tokio::select! {
-            fault = service.run(inbox) => {
+        match loop_and_server(service.run(inbox), web::serve(listener, router)).await {
+            Ended::Loop(fault) => {
                 eprintln!("The engine stopped: {fault}. Started again, it goes on from the store.");
             }
-            served = web::serve(listener, router) => {
-                let why = served.err().map_or_else(|| "it ended".to_string(), |e| e.to_string());
+            Ended::Server(why) => {
                 eprintln!("The server of the pages stopped: {why}. Started again, the engine goes on from the store.");
             }
         }
         ExitCode::FAILURE
     })
+}
+
+/// Which of the engine's loop and the server of the pages ended first: the loop, with what it gave; or the server,
+/// in words.
+#[derive(Debug)]
+enum Ended<T> {
+    Loop(T),
+    Server(String),
+}
+
+/// Runs the engine's loop on this thread and the server of the pages on the runtime's other threads, until either
+/// ends. The server is spawned, not waited on together with the loop on this thread, where it would accept no
+/// connection while the loop takes one thing, such as a read of every work (decision
+/// the-pages-server-is-off-the-loops-thread).
+async fn loop_and_server<L, S>(engine: L, server: S) -> Ended<L::Output>
+where
+    L: Future,
+    S: Future<Output = std::io::Result<()>> + Send + 'static,
+{
+    let mut served = tokio::spawn(server);
+    tokio::select! {
+        ended = engine => Ended::Loop(ended),
+        served = &mut served => Ended::Server(match served {
+            Ok(Ok(())) => "it ended".to_string(),
+            Ok(Err(e)) => e.to_string(),
+            Err(e) => format!("it failed: {e}"),
+        }),
+    }
 }
 
 /// The settings as the page shows them: their file, read as the engine reads it, beside those the engine runs with.
@@ -554,6 +582,30 @@ fn read_script(script: &Path, flows: &[Compiled], compiled_all: bool, wrong: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_server_of_the_pages_runs_while_the_loop_holds_its_thread() {
+        // As `run` builds it: on one thread, what the loop takes holds that thread until it is done.
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (ran, heard) = std::sync::mpsc::channel();
+        let ended = runtime.block_on(loop_and_server(
+            // The loop takes one thing, which holds its thread until the server says it ran, at most ten seconds.
+            async move { heard.recv_timeout(std::time::Duration::from_secs(10)).is_ok() },
+            // Not at the first poll, which the loop's thread could give it before the loop takes its thing.
+            async move {
+                tokio::task::yield_now().await;
+                let _ = ran.send(());
+                std::future::pending::<std::io::Result<()>>().await
+            },
+        ));
+        assert!(
+            matches!(ended, Ended::Loop(true)),
+            "the server did not run while the loop held its thread: {ended:?}"
+        );
+    }
 
     /// The directory that holds the repository's flows.
     fn flows() -> PathBuf {

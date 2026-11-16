@@ -315,7 +315,7 @@ textarea:disabled {
   padding: 0 var(--space-4);
 }
 
-/* A segmented switch: two or three choices side by side, the one chosen on the card, the rest on the ground. */
+/* A segmented switch: a few choices side by side, the one chosen on the card, the rest on the ground. */
 .switch {
   display: inline-flex;
   height: var(--control);
@@ -383,13 +383,15 @@ textarea:disabled {
   flex-basis: 100%;
 }
 
-/* A word that opens something on the page: in the accent, underlined under the pointer. */
+/* A word that opens something on the page: in the accent, underlined under the pointer, a button and an anchor
+   alike. */
 .link {
   padding: 0;
   border: 0;
   background: none;
   color: var(--accent-text);
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
@@ -527,10 +529,6 @@ textarea:disabled {
 
 .dot-running {
   background: var(--running);
-}
-
-.dot-back {
-  background: var(--violet);
 }
 
 .drawer-body {
@@ -781,7 +779,7 @@ textarea:disabled {
 }
 
 /* The form of a return as a tree (FormTree.tsx): each property on a line, its type after it, muted, a required one
-   marked in red; a node that holds others folds at a press of its head, with the console's signs; where a return holds
+   marked in red; a node that holds others folds at a press of its head, by its drawn mark; where a return holds
    one of several, each in a box with an `or` line between two. A kind of return is strong, a tool green, the blocks a
    cell writes under their own names in the accent. */
 .form-tree {
@@ -799,15 +797,20 @@ textarea:disabled {
   display: none;
 }
 
-.form-tree summary::before {
-  display: inline-block;
-  width: var(--space-12);
-  color: var(--muted);
-  content: '▸';
+/* The mark of a part that folds (parts.tsx, FoldMark): on the line of the words, turned down while the part is open;
+   in the form tree, muted, as wide as a leaf stands in. */
+.fold-mark {
+  flex: none;
+  vertical-align: var(--mark-drop);
 }
 
-.form-tree details[open] > summary::before {
-  content: '▾';
+.fold-open,
+.form-tree details[open] > summary > .fold-mark {
+  transform: rotate(90deg);
+}
+
+.form-tree .fold-mark {
+  color: var(--muted);
 }
 
 .tree-leaf {

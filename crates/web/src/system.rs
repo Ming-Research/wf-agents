@@ -23,7 +23,9 @@ use service::Handle;
 use work::Time;
 
 use crate::interface::{fail, refused};
-use crate::works::{Against, Back, Broken, Call, Failure, Given, Judged, Line, Run, RunEnd, Spent, runs, time};
+use crate::works::{
+    Against, Back, Broken, Call, Failure, Given, Judged, Line, Run, RunEnd, Spent, runs, time, viewed_at,
+};
 
 /// What the view asks for: when each week of the span begins, joined by commas; none for all time.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -335,6 +337,8 @@ impl System {
             .collect();
         let mut by_cell: BTreeMap<(String, String), Spent> = BTreeMap::new();
         let mut by_model: BTreeMap<RanOn, Spent> = BTreeMap::new();
+        // What holds every work at once, worked out once for every work's view.
+        let at_once = driver.at_once();
         for kept in driver.works() {
             let (work, item) = (kept.head.number.0, kept.item.number.0);
             let runs = runs(kept)?;
@@ -501,7 +505,7 @@ impl System {
                     spent: of_work,
                 });
             }
-            match ended(driver, kept, &runs)? {
+            match ended(driver, kept, &runs, &at_once)? {
                 Some(Ending::Merged(at)) if within(at) => {
                     system.merged.push(Merged {
                         work,
@@ -563,13 +567,8 @@ enum Ending {
 
 /// How the work ended, where it has: merged when its last cell, the merge, finished, the latest run to finish; or
 /// cancelled when its item was.
-fn ended(driver: &Driver, kept: Kept<'_>, runs: &[Run]) -> Result<Option<Ending>, Broken> {
-    let Some(view) = driver.view(kept.head.number) else {
-        return Err(Broken(format!(
-            "the driver shows work {} and has no view of it",
-            kept.head.number.0
-        )));
-    };
+fn ended(driver: &Driver, kept: Kept<'_>, runs: &[Run], at_once: &driver::AtOnce) -> Result<Option<Ending>, Broken> {
+    let view = viewed_at(driver, kept.head.number, at_once)?;
     Ok(match view.decision {
         Decision::Ended(End::Merged) => (runs.iter())
             .filter_map(|run| match run.end {

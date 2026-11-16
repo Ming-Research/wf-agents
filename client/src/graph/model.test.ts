@@ -232,7 +232,8 @@ describe('the flowchart of the engineer flow', () => {
       'T2>c:T1 change',
       'M1>c:I1 check',
     ]);
-    expect(chart.waysBack).toBe(11);
+    // Eleven arrows; the two into the fork after R1 each stand for the ways back to both cells it leads to.
+    expect(chart.waysBack).toBe(13);
     const place = (id: string | null) => engineer.cells.findIndex((c) => c.id === id);
     for (const e of chart.edges.filter((x) => x.kind === 'arrow')) expect(e.back).toBe(place(e.from) > place(e.to));
   });

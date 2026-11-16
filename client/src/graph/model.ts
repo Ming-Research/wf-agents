@@ -11,7 +11,7 @@
 // What a cell is given is not drawn until the cell is chosen (`contextOf`). Pure, so that it is tested without drawing.
 
 import type { Block, Cell, Condition, Flow, InputKind } from '../api';
-import { exclusive } from '../matrix';
+import { exclusive, matrix } from '../matrix';
 
 /// The ids of the nodes: a cell's, the gate before it, the fork before it, and a tag of what the outside writes for
 /// it.
@@ -93,7 +93,9 @@ export interface Chart {
   /// For each cell in the order of the walk: the tags of its fork and gate, its fork, its gate, the cell, its tags.
   nodes: ChartNode[];
   edges: ChartEdge[];
-  /// How many arrows are ways back.
+  /// How many ways back the flow has, as the matrix counts them (`Matrix.waysBack`), so that the two views give one
+  /// count: an arrow stands for one for each trigger it carries, and one drawn into a fork for those of every cell it
+  /// leads to.
   waysBack: number;
 }
 
@@ -513,7 +515,7 @@ export function chartOf(flow: Flow): Chart {
     edges.push(link({ id: `t:${cell.id}`, source, target, kind: 'tie', to: cell.id }));
   });
 
-  return { nodes, edges, waysBack: edges.filter((e) => e.back).length };
+  return { nodes, edges, waysBack: matrix(flow).waysBack };
 }
 
 /// A block a cell is given, as the cell's `context` names it: with the kind it is given in, the cells that write it and

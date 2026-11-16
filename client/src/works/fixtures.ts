@@ -790,7 +790,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   {
     // A cell at its limit of ways round.
     const h = new History(hours(12));
-    upToReview(h, 'Draw the way back in its purple.', false);
+    upToReview(h, 'Draw the way back in the muted colour.', false);
     goRound(h, 3);
     h.ran('review', [{ block: 'opinions_implement', content: 'Finding 4: the arrow points the wrong way.' }, { block: 'content', content: '', value: 'no' }]);
     const limit: Wait = {

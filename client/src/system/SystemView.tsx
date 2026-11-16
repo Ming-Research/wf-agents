@@ -454,7 +454,7 @@ function SpentPart({ s, items }: { s: System; items: Map<number, Item> }) {
           <ViewTable heads={['Model', 'Rounds', 'Tokens', 'Cost', 'Share']} numbers={[1, 2, 3, 4]}>
             {s.byModel.map((m) => (
               <tr key={m.on.kind === 'model' ? m.on.model : m.on.kind}>
-                <td className="mono">{ranOnWords(m.on)}</td>
+                <td className={m.on.kind === 'model' ? 'mono' : undefined}>{ranOnWords(m.on)}</td>
                 <td className="num">{m.spent.rounds}</td>
                 <td className="num" title={tokensWords(m.spent)}>
                   {tokens(allTokens(m.spent))}

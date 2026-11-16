@@ -27,3 +27,10 @@ and red past an hour, however long.
 Why: Red says a problem, and a work not done within an hour is one, so it stands out as one; a fourth colour past a day
 would be one more meaning to learn. A line from the work's own history loses: it says nothing until the history holds
 enough works, and among works that all run long, a long one does not stand out.
+
+### decision a-card-stands-still
+A card neither glows nor moves: one that waits for the owner has no rings round it, and a running one no light going
+round its edge. What runs is shown by the pulse of its running cell's mark, and by the way from its item up to its
+root, dashed in the colour of a running card's edge, its dashes moving from the root's side to the item's.
+Why: Red rings round the cards that wait for the owner, and a light going round a running card's edge, were tried and
+turned down as too strong; this rests on the owner's judgment of the page (principle owner-taste-judges).

@@ -18,11 +18,18 @@ describe('opening on the flow', () => {
 });
 
 describe('what the server gives', () => {
-  it('is the flow alone when the server has no path for the items', async () => {
-    expect(await askServes('', async () => ({ status: 404 }))).toBe('flow');
+  it('is the flow alone when the server has no path for the levels', async () => {
+    const asked: string[] = [];
+    const ask = async (path: string) => {
+      asked.push(path);
+      return { status: 404 };
+    };
+    expect(await askServes('', ask)).toBe('flow');
+    // The levels, which a server with the items answers without reading a work; the items it would build whole.
+    expect(asked).toEqual(['/api/v1/levels']);
   });
 
-  it('is every view when the server answers for the items, whatever it answers', async () => {
+  it('is every view when the server answers for the levels, whatever it answers', async () => {
     expect(await askServes('', async () => ({ status: 200 }))).toBe('all');
     expect(await askServes('', async () => ({ status: 500 }))).toBe('all');
   });

@@ -3,9 +3,9 @@
 // is a mark where they cross. What runs a cell is a trigger, one to a row over the data's rows, a group's trigger
 // standing for all the group's blocks: a write of the block a trigger stands on, or of one of its group's, by a cell
 // right of one the trigger runs, is the work going back, and its line is drawn leftwards along the trigger's row to
-// each cell it sends the work back to, in the way back's purple, so that every way back shows at a glance. The blocks'
-// names stay in place as the chart scrolls sideways, and the cells' heads as it scrolls down, in the chart's own
-// frame.
+// each cell it sends the work back to, thicker than the row's line and with an arrow, so that every way back shows at a
+// glance. The blocks' names stay in place as the chart scrolls sideways, and the cells' heads as it scrolls down, in
+// the chart's own frame.
 //
 // A cell's column holds only marks, so it is only as wide as they are, and its head holds the cell's id alone. The
 // width this leaves, right of the marks, is a column of words, one line to a row: what the row's thing is, or, on the
@@ -37,7 +37,7 @@ import {
   type Spot,
   hasMark,
 } from './matrix';
-import { Edge, Sign } from './parts';
+import { Arrow, CROSS, Edge, Sign, TICK } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
 import { cellSays, headFacts, inputKindWords, keysWords, lineKeys, listed } from './words';
 
@@ -180,9 +180,9 @@ export function ConditionGlyph({ spot }: { spot: ConditionSpot }) {
   );
   const whenMark = () => {
     if (value === undefined || value === 'yes') {
-      return box('when', <path className="part holds" d="M5.5 12.5 L10 17 L18.5 7" />);
+      return box('when', <path className="part holds" d={TICK} />);
     }
-    if (value === 'no') return box('when', <path className="part holds" d="M7 7 L17 17 M17 7 L7 17" />);
+    if (value === 'no') return box('when', <path className="part holds" d={CROSS} />);
     return (
       <span key="when" className="spot-value">
         {value}
@@ -398,8 +398,12 @@ export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }:
               aria-label="Blocks down the side, cells across"
               onMouseEnter={unpoint}
             >
-              <span className="label corner-blocks">Blocks ↓</span>
-              <span className="label corner-cells">Cells →</span>
+              <span className="label corner-blocks">
+                Blocks <Arrow to="down" />
+              </span>
+              <span className="label corner-cells">
+                Cells <Arrow to="right" />
+              </span>
               <Edge
                 side="right"
                 label="Drag the width of the blocks' names"

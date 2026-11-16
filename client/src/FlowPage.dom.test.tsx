@@ -251,7 +251,7 @@ describe('the chart', () => {
     ]);
     click([...panel.querySelectorAll('button.link')].find((b) => b.textContent === 'opinions'));
     const block = page.querySelector('section[aria-label="Block opinions"]') as HTMLElement;
-    expect(items(block)).toEqual(['judge → plan triggered_by [on_opinions]']);
+    expect(items(block)).toEqual(['judge to plan triggered_by [on_opinions]']);
   });
 
   it('shows an agent’s cell’s task with its line breaks, and the act that carries out an engine’s cell', () => {
@@ -711,7 +711,7 @@ describe('a group’s trigger', () => {
       'on_plannedFires when one of the blocks of planned has a new version.',
     ]);
     // Its blocks, the cells it runs, and the way back through it: v writes b after r.
-    expect(items(panel)).toEqual(['a', 'b', 'r Review', 'v → r']);
+    expect(items(panel)).toEqual(['a', 'b', 'r Review', 'v to r']);
     expect(row.className).toContain('chosen');
   });
 
@@ -725,7 +725,7 @@ describe('a group’s trigger', () => {
     expect(items(triggered)).toEqual(['1 on_planned group planned way_back [v] read [a, b]']);
     click(rowOf(page, 'b').querySelector('.head-button'));
     const block = page.querySelector('section[aria-label="Block b"]') as HTMLElement;
-    expect(items(block)).toEqual(['v → r triggered_by [on_planned]']);
+    expect(items(block)).toEqual(['v to r triggered_by [on_planned]']);
   });
 });
 
@@ -755,7 +755,7 @@ describe('a way back between two cells that never both run', () => {
     expect(page.querySelectorAll('.arrow')).toHaveLength(1);
     click(rowOf(page, 'x').querySelector('.head-button'));
     const block = page.querySelector('section[aria-label="Block x"]') as HTMLElement;
-    expect(items(block)).toEqual(['both → reader triggered_by [on_x]']);
+    expect(items(block)).toEqual(['both to reader triggered_by [on_x]']);
   });
 
   it('is listed in neither cell’s panel', () => {
@@ -982,7 +982,8 @@ describe('the panel and the widths', () => {
 
   it('labels the corner for both: the cells to its right, the blocks under it', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    expect(texts(page, '.corner .label')).toEqual(['Blocks ↓', 'Cells →']);
+    expect(texts(page, '.corner .label')).toEqual(['Blocks', 'Cells']);
+    expect(page.querySelectorAll('.corner .label-arrow')).toHaveLength(2);
   });
 
   it('has a row for each line at the top, its name in the accent, a dot under each cell on it, joined along it', () => {
