@@ -68,7 +68,7 @@ pub(crate) fn own<'f>(flow: &'f Compiled, cell: &CellId, source: &str) -> Option
 /// cell's questions in the words of their file.
 pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId, engine: bool, asked: &[Question]) {
     let cell = match (engine, &flow.engine_asks_in) {
-        (true, Some(named)) if named.as_str().is_empty() => named,
+        (true, Some(named)) => named,
         _ => cell,
     };
     for question in asked {
