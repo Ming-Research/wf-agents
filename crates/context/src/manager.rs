@@ -124,7 +124,8 @@ pub fn enter(
     situation.main = values.main.as_ref().map(|m| m.key().to_string());
     // What each datum fills, by its name.
     let mut filling: BTreeMap<&BlockId, Vec<Fill>> = BTreeMap::new();
-    for given in &message::given(flow, words, cell) {
+    let data = message::given(flow, words, cell);
+    for given in &data {
         let block = &given.block;
         let all = versions.get(block).map_or(&[][..], Vec::as_slice);
         let Some(latest) = all.last() else {

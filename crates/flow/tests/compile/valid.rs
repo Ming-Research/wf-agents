@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use decide::{BlockId, Cell, Condition, TestName};
 use flow::{
-    Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Readers, RunsOn, Test, TestKind,
-    Texts, Watched, Writers,
+    Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Listed, Readers, RunsOn, Test,
+    TestKind, Texts, Watched, Writers,
 };
 
 use crate::support::{at, compiled, edit, faults, valid};
@@ -119,6 +119,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             .map(|&b| Given {
                 block: b.into(),
                 kind: InputKind::LastAndLatest,
+                list: Listed::Watches,
             })
             .collect(),
         watches: watches(inputs),
