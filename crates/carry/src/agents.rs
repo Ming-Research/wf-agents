@@ -284,8 +284,10 @@ impl Rounds for Agents {
             let inner = self.inner.clone();
             tokio::spawn(async move {
                 process::stop_left(&group, &dir).await;
-                let _ = (&inner, here);
-                reply.ended(Came::hands_in(Vec::new()), Spent::default());
+                let teller = reply.teller();
+                let _ = here;
+                let spent = inner.left_spent(&round, Some(&teller)).await;
+                reply.ended(Came::hands_in(Vec::new()), spent);
             });
         }
     }
@@ -352,8 +354,13 @@ impl Inner {
         // that try, where its program said it began, reached the service or printed its result: what the try kept of
         // its stream says what came of it. Nothing is taken in or read of the branch for it as it begins: what that try
         // committed is the round's, read as it ends.
-        let left = self.left(round, Some(teller)).await?;
-        let main = if round.cell.takes_main {
+        let left = match self.left(round, Some(teller)).await? {
+            Some(Left {
+                guarded: Some(failed), ..
+            }) => return Ok(failed),
+            left => left,
+        };
+        let main = if round.cell.takes_main && left.is_none() {
             self.caught_up(round, &place, of).await?
         } else {
             None
@@ -420,7 +427,12 @@ impl Inner {
         let (status, stream, stderr, compactions) = match left {
             // The try the engine that ended left, read as of a try that ended by itself, but for how its program ended,
             // which no process of the engine saw ([`Inner::left`]). Nothing is given the session again.
-            Some(left) => (None, left.stream, String::new(), left.compactions),
+            Some(left) => {
+                if left.anew {
+                    begin = Begin::New;
+                }
+                (None, left.stream, String::new(), left.compactions)
+            }
             None => {
                 // What the round is sent in the session as it stands, and in one that holds nothing: one begun under
                 // the round, or compacted during it.
@@ -820,8 +832,7 @@ impl Inner {
             .filter(|s| s.why == Why::Compacted && since.is_some_and(|at| at < s.at))
             .count();
         let compactions = marked(&base.with_extension("compacted")).await;
-        let _ = compacted;
-        let more = compactions;
+        let more = compactions.saturating_sub(u32::try_from(compacted).unwrap_or(u32::MAX));
         let measured = (work.measured.iter()).any(|m| m.run == round.run && m.round == round.number && m.attempt == n);
         // A stream kept before the start of each call was kept with it tells the calls' cost and not their prompts:
         // its measures are not known, and none are said, which no record would tell from a try that made no call.
@@ -834,8 +845,7 @@ impl Inner {
             );
         }
         let priced = !stream.has_result() && stream.priced().is_some();
-        let _ = (measured, starts);
-        let measures = true
+        let measures = (!measured && starts)
             .then(|| measures(&stream, given, before, crossing.is_some(), priced))
             .flatten();
         // The service served the round: a wait every work shares need not wait for its end (decision
