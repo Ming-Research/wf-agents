@@ -439,7 +439,7 @@ pub fn owed(flow: &Flow, records: &Records) -> BTreeMap<CellId, Vec<CallId>> {
 /// enters it again once nothing holds it back; none where the flow has no such cell, or where it is skipped now.
 pub fn new_to(flow: &Flow, records: &Records, cell: &CellId) -> Vec<BlockId> {
     let walk = Walk::new(flow, records);
-    let Some(i) = flow.place(cell) else {
+    let Some(i) = flow.place(cell).filter(|&i| walk.applies(i)) else {
         return Vec::new();
     };
     (walk.needs(i).into_iter())
