@@ -138,7 +138,8 @@ export type Declared = Partial<{
 /// The flow of these cells in this order, with these blocks, and the named tests the cells use; each line in a file of
 /// its own, with what `lines` writes of it; the flow's tools those its cells may ask for, and its groups those its
 /// cells name; and what `[every_agent]` names, which every agent cell watches and is given first, each block its own
-/// file does not name, by the block's name, in the kind `[every_agent]` gives the name that stands for it.
+/// file does not name by the block's own name (a group it names does not make the group's blocks its own, as the
+/// compiler has it), by the block's name, in the kind `[every_agent]` gives the name that stands for it.
 export function flowOf(
   listed: Cell[],
   blocks: Record<string, Declared>,
@@ -148,7 +149,7 @@ export function flowOf(
 ): Flow {
   const cells = listed.map((c): Cell => {
     if (c.kind !== 'agent') return c;
-    const own = named(c);
+    const own = [...c.watches.filter((w) => w.list === 'watches'), ...c.reads].map((n) => n.name);
     const alike: GivenBlock[] = [];
     const runs: Watch[] = [];
     const fresh = (blocks: string[]) => blocks.filter((b) => !own.includes(b) && !alike.some((g) => g.block === b));
@@ -163,7 +164,8 @@ export function flowOf(
         alike.push({ block, kind: every.kinds[n.name] ?? 'lastAndLatest', list: 'every_agent' });
       }
     }
-    return { ...c, watches: [...runs, ...c.watches], given: [...alike, ...c.given] };
+    const rest = c.given.filter((g) => !alike.some((a) => a.block === g.block));
+    return { ...c, watches: [...runs, ...c.watches], given: [...alike, ...rest] };
   });
   const keys = (c: Cell) => [...c.when, ...c.requires];
   const used = cells.flatMap((c) => keys(c).flatMap((k) => (k.on === 'test' ? [k.test] : [])));

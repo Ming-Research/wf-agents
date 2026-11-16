@@ -316,7 +316,7 @@ export function cellSays(cell: Cell, block: string, what: string | null = null):
   const read = cell.reads.find((r) => r.blocks.includes(block));
   if (itself) parts.push(`watches${kind}`);
   else if (group) parts.push(`watches ${group.name},${kind}`);
-  else if (read) parts.push(namesItself(read) ? `reads${kind}` : `reads ${read.name},${kind}`);
+  if (read && !itself) parts.push(namesItself(read) ? `reads${kind}` : `reads ${read.name},${kind}`);
   const writes = cell.outputs.includes(block);
   if (writes) parts.push(cell.mustWrite.includes(block) ? 'must_write' : 'outputs');
   const said = parts.join('; ');

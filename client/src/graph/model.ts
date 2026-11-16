@@ -510,7 +510,8 @@ export function chartOf(flow: Flow): Chart {
 }
 
 /// A block a cell's own file gives it, by what it reads or what it watches: with the kind it is given in, whether a
-/// new version of it runs the cell, the cells that write it and who else does.
+/// new version of it runs the cell (its own file watches it, by itself or through a group), the cells that write it and
+/// who else does.
 export interface ContextTag {
   block: string;
   kind: InputKind | null;
@@ -519,20 +520,22 @@ export interface ContextTag {
   outside: Outside | null;
 }
 
-/// What a cell's own file gives it, in the order it is given them: what it reads, then what it watches. What
-/// `[every_agent]` gives every agent's cell alike is the view line's, not the cell's.
+/// What a cell's own file gives it, in the order it is given them: each block of a name its file reads or watches.
+/// What `[every_agent]` gives every agent's cell alike, and no name of its file stands for, is the view line's.
 export function contextOf(flow: Flow, id: string): ContextTag[] {
   const cell = flow.cells.find((c) => c.id === id);
   if (!cell) return [];
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
+  const watched = new Set(cell.watches.filter((w) => w.list === 'watches').flatMap((w) => w.blocks));
+  const own = new Set([...watched, ...cell.reads.flatMap((r) => r.blocks)]);
   return cell.given
-    .filter((g) => g.list !== 'every_agent')
+    .filter((g) => own.has(g.block))
     .map((g) => {
       const block = blocks.get(g.block);
       return {
         block: g.block,
         kind: g.kind,
-        watched: g.list === 'watches',
+        watched: watched.has(g.block),
         writers: block?.writtenBy.cells ?? [],
         outside: block ? outsideOf([block]) : null,
       };
