@@ -647,7 +647,7 @@ export function fixtureSource(start = Date.now()): Source {
         // The answer is kept; a question the work waited for at its cell holds it no more, and the cell runs.
         const q = (questions[s.item] ?? []).find((x) => x.name === what.question && x.version === what.version);
         if (q === undefined) throw new Error(`There is no question ${what.question} at ${what.version}`);
-        q.answer = { option: what.option, at: Date.now(), why: what.why ?? null };
+        q.answer = { option: what.option, at: Date.now(), why: null };
         s.waits = (s.waits ?? []).filter((w) => w.key !== `answer-${q.name}`);
         if (s.now.kind === 'waits' && s.now.on.some((w) => w.kind === 'answer' && w.question === q.name))
           s.now = { kind: 'next', cell: q.cell };
