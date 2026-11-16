@@ -69,18 +69,21 @@ Whoever reviews is no less able than the engineer and knows what the engineer kn
 the engineer worked from.
 Why: Engineers mostly do what a review says, so a wrong demand turns good code into bad.
 
-### principle the-flow-scales-with-the-work
-The flow scales with the work: a fix of a few lines is through in minutes, and only what is large goes through the
-whole of the design.
-Why: Two hours for every work was too much: a fix of a few lines took an hour of the flow and four or five with the
-waiting, which the owner cannot wait for; and the heavier the flow, the more it rests on the items being written well.
+### principle every-plan-is-reviewed-before-it-is-built
+Every work's plan is reviewed before it is built, for its design and against the design tree, by a session that did
+not write it, whatever the size of the change; a change too small to be worth that is joined with related ones into
+one work, never run alone.
+Why: A small change reviewed carelessly can break what matters, and the damage is not small. A fix of a few lines that
+ran the flow alone took an hour and more with the waiting; what answers that is joining small things into one work,
+not leaving out the review.
 
 ### principle a-question-is-a-choice
 What is asked of a person is a question of yes or no, or a choice of one or more among options, with the answer its
-asker recommends; a no gives its reason. Only an answer given on the question answers it, and words beside it are
-remarks. What the engine itself asks, such as an approval the flow requires, judges nothing and recommends nothing.
-Why: A question in free words cannot be answered quickly, and words beside a question, taken for its answer, cannot be
-told from discussion.
+asker recommends. The answer is the option taken and nothing else: why, where the owner wants to say it, is said in
+the owner's words to the cell. What the engine itself asks, such as an approval the flow requires, judges nothing and
+recommends nothing.
+Why: A question in free words cannot be answered quickly, and words given with an answer, taken as part of it, could
+not be told from what the owner says to the cell.
 
 ### principle a-question-says-first-what-to-decide
 A question an agent puts to the owner says in its first sentence what is to be decided and what it affects, uses no
@@ -117,3 +120,26 @@ An agent works from its task and the data it is given, and knows nothing of the 
 as, not the other cells, not who reads what it writes. A cell's words name no other cell.
 Why: Carrying what one cell writes to the next is the flow's work (principle mechanical-engine). Words that tell an
 agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
+
+### principle a-cell-knows-only-its-data
+A cell knows nothing of the other cells: it watches some data, reads others, and writes its outputs from them alone.
+A version of a datum it watches that it did not write is the one thing that runs it: no trigger stands apart from the
+data, no datum is made only to run a cell, and nothing is sent to a cell by who wrote a version. This is the flow's
+side of principle an-agent-knows-only-its-task.
+Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no
+content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and
+versions sent on by who wrote them, none of which the design of data and context needs.
+
+### principle one-dialogue-for-each-source
+Each that judges or questions a cell's work, a cell or the owner, speaks to it in a dialogue of its own: one datum the
+two write in turn and both watch, so that an answer wakes only the one it answers. No datum holds the words of more
+than one source, and none is made for an answer.
+Why: One record for several sources woke every source at each answer, and a datum made for each answer doubled the data
+and the triggers of every pair, growing with each cell added.
+
+### principle the-one-woken-owes-the-next-word
+In a dialogue left open, the one woken owes the next word: a maker answers each point, done or why not, or changes
+what its judge watches; a judge hands in its verdict, a fail with a new point, a pass with no word, which closes the
+dialogue. The engine sends back a return that leaves an open dialogue owing on the one that handed it in.
+Why: A point left with no answer, or a fail with no point, left the work at the merge with nobody woken; a pass that
+wrote a word woke the maker for nothing.
