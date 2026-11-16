@@ -418,6 +418,10 @@ pub enum FaultKind {
     /// The cell writes the block, its own words, which the owner speaks to it in, and asks the owner nothing: a cell that
     /// asks nothing is not spoken to (principle who-asks-can-be-spoken-to).
     SpokenToAndAsksNothing { block: String },
+    /// The cell hands in the verdict, which pairs with the one dialogue its judge holds with the maker, and holds more
+    /// than one as the judge, these: which of them its points go in cannot be told (design document
+    /// `data-and-context`, 36, 37; principle one-dialogue-for-each-party).
+    VerdictOfDialogues { verdict: String, dialogues: Vec<String> },
     /// The cell watches or reads the block, a datum this line, not the cell's, has its own of (design document
     /// `data-and-context`, 25).
     LineDataOfAnother { block: String, line: String },

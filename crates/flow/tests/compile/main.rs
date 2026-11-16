@@ -8,6 +8,7 @@ mod blocks;
 mod cells;
 mod conditions;
 mod describes;
+mod dialogues;
 mod files;
 mod groups;
 mod laid_out;

@@ -447,6 +447,11 @@ pub enum What {
     SpokenToAndAsksNothing {
         block: String,
     },
+    /// The cell hands in a verdict and judges in more than one dialogue, which the verdict's points could go in.
+    VerdictOfDialogues {
+        verdict: String,
+        dialogues: Vec<String>,
+    },
     /// The cell watches or reads a datum of another line's own.
     LineDataOfAnother {
         block: String,
@@ -819,6 +824,7 @@ impl What {
             F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
             F::NotItsOwn { block } => What::NotItsOwn { block },
             F::SpokenToAndAsksNothing { block } => What::SpokenToAndAsksNothing { block },
+            F::VerdictOfDialogues { verdict, dialogues } => What::VerdictOfDialogues { verdict, dialogues },
             F::LineDataOfAnother { block, line } => What::LineDataOfAnother { block, line },
             F::CannotBeAskedIn { cell } => What::CannotBeAskedIn { cell },
             F::NeverNew {

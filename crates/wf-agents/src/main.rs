@@ -808,6 +808,10 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::SpokenToAndAsksNothing { block } => {
             format!("the cell writes {block}, its words with the owner, but asks the owner nothing")
         }
+        F::VerdictOfDialogues { verdict, dialogues } => format!(
+            "the cell hands in {verdict}, its verdict, and judges in {}, so its points could go in more than one",
+            dialogues.join(", ")
+        ),
         F::LineDataOfAnother { block, line } => {
             format!("{block} is the line {line}'s own, and the cell is not on that line")
         }

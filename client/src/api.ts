@@ -256,6 +256,8 @@ export type What =
   | { kind: 'notItsOwn'; block: string }
   /// The cell writes its own words, which the owner speaks to it in, and asks the owner nothing.
   | { kind: 'spokenToAndAsksNothing'; block: string }
+  /// The cell hands in a verdict and judges in more than one dialogue, which the verdict's points could go in.
+  | { kind: 'verdictOfDialogues'; verdict: string; dialogues: string[] }
   /// The cell watches or reads a datum of another line's own.
   | { kind: 'lineDataOfAnother'; block: string; line: string }
   /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
