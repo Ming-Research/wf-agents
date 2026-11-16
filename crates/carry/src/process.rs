@@ -436,7 +436,10 @@ mod tests {
     const TOLD: &str = "term.told";
 
     // Played by the test binary run again, and only so: runs a program that does not end, and goes on when told TERM,
-    // writing that it was, as a process of the engine runs an agent's program, until the process is ended.
+    // writing that it was, as a process of the engine runs an agent's program, until the process is ended. Its
+    // standard error goes nowhere: the shell says there that TERM ended its `sleep`, and said into the pipe of an
+    // engine that has ended, that would end the shell by SIGPIPE before its trap ran. Its standard output stays the
+    // pipe, unwritten, as the engine lets the overseer go once that closes.
     #[tokio::test]
     #[ignore = "run only by the test that ends it"]
     async fn an_engine_running_a_program_until_it_is_ended() {
@@ -445,7 +448,8 @@ mod tests {
         };
         let (file, told) = (Path::new(&dir).join(NAMED), Path::new(&dir).join(TOLD));
         let mut command = Command::new("sh");
-        let program = r#"trap 'echo TERM >> "$1"' TERM; echo ready >> "$1"; while :; do sleep 1; done"#;
+        let program =
+            r#"exec 2>/dev/null; trap 'echo TERM >> "$1"' TERM; echo ready >> "$1"; while :; do sleep 1; done"#;
         command.args(["-c", program, "program"]).arg(&told);
         let _ = run(command, None, Some(&file), &mut Stop::never()).await;
     }
