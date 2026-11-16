@@ -219,7 +219,6 @@ fn the_owners_answer_alone_to_the_checks_question_leads_to_the_merge() {
         question: "protected_files".to_string(),
         version,
         option: 1,
-        why: None,
     });
     w.hands_in("I1", &[], Vec::new());
     // The answer runs the check again by itself, which passes now, and the merge follows.

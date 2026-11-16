@@ -24,6 +24,7 @@ mod room;
 mod sessions;
 mod stalling;
 mod times;
+mod words;
 
 use std::collections::BTreeMap;
 

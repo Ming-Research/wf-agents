@@ -56,14 +56,7 @@ const BOUNDS: Bounds = Bounds {
 
 /// The breaches the flow's own definition makes, each by its property and its name, with why it is the flow's and not
 /// the engine's. Each is reported; none is mended here, since the flow changes only with the owner.
-const KNOWN: &[(Property, &str, &str)] = &[(
-    Property::Gates,
-    "M1 ran while a question of R1 waited for the owner, R1 being skipped",
-    "R1 asks a question that waits and, in the same return, says deep_needed = yes. The work waits for an \
-         answer only at a cell that applies, and R1 no longer does: the deep research, the implementation, the \
-         check and the merge go on, the question unanswered. The flow's check has no gate on the questions put to \
-         the owner.",
-)];
+const KNOWN: &[(Property, &str, &str)] = &[];
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
@@ -248,12 +241,6 @@ const NEVER: &[(&str, &str)] = &[
          bound.",
     ),
     (
-        "M1 ran on on_asked",
-        "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \
-         check's own question runs the check again, and the work merges on it, is the engine's test of a work taken \
-         to the merge on the answer alone (crates/engine/tests/engineer/merging.rs).",
-    ),
-    (
         "the work waited at M2 on checked = yes",
         "The merge waits on checked = yes only where nothing runs the check again after it said no, a stall, which no \
          path of the flow reaches: the implementation's return to a red check leaves what runs the check again, its \
@@ -261,11 +248,5 @@ const NEVER: &[(&str, &str)] = &[
          an-act-is-answered-by-what-runs-it), which the engineer's histories hold with questions in the records \
          (crates/engine/tests/engineer). How a stalled work is shown is the engine's test of stalling \
          (crates/engine/tests/loop/stalling.rs).",
-    ),
-    (
-        "the work waited at M1 on asked = answered",
-        "The exploration asks the owner by a call on the owner, and keeps no question in the records, so asked keeps \
-         its default, answered. The histories of questions (crates/engine/tests/questions.rs) check that the merge \
-         never begins while asked is waiting.",
     ),
 ];

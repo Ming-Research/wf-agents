@@ -1089,7 +1089,6 @@ impl Random {
                 question,
                 version,
                 option,
-                why: None,
             };
         }
         let event = match d.rng.below(100) {
@@ -1126,11 +1125,14 @@ impl Random {
             }
             77..=81 => (!lines.is_empty()).then(|| says(&lines[d.rng.below(lines.len())])),
             82..=84 => {
-                let standing: Vec<String> = (decide::questions::questions(&d.work.records).into_iter())
+                let standing: Vec<(String, CellId)> = (decide::questions::questions(&d.work.records).into_iter())
                     .filter(|(_, q)| q.stands())
-                    .map(|(name, _)| name.to_string())
+                    .map(|(name, q)| (name.to_string(), q.latest.cell.clone()))
                     .collect();
-                (!standing.is_empty()).then(|| remarks(&standing[d.rng.below(standing.len())]))
+                (!standing.is_empty()).then(|| {
+                    let (question, cell) = &standing[d.rng.below(standing.len())];
+                    remarks(question, cell)
+                })
             }
             67..=76 => Some(if paused {
                 Event::Resumed
@@ -1160,7 +1162,6 @@ impl Random {
                         question,
                         version,
                         option,
-                        why: None,
                     }
                 })
             }
@@ -1369,7 +1370,7 @@ fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
         .map(|line| says(&line))
         .or_else(|| {
             let spoken_to =
-                |c: &CellId| (d.flow.cells.iter()).any(|s| s.id == *c && spoken::trigger(&d.flow, s).is_some());
+                |c: &CellId| (d.flow.cells.iter()).any(|s| s.id == *c && spoken::words_of(&d.flow, s).is_some());
             if d.work.records.started.iter().any(|s| spoken_to(&s.cell)) {
                 return None;
             }
@@ -1392,10 +1393,10 @@ fn says(line: &str) -> Event {
     }
 }
 
-/// The owner's few words about the question.
-fn remarks(question: &str) -> Event {
+/// The owner's few words about the question, to the cell whose question it is.
+fn remarks(question: &str, cell: &CellId) -> Event {
     Event::Said {
-        to: To::Question(question.to_string()),
+        to: To::Cell(cell.clone()),
         words: format!("About {question}: say more"),
     }
 }
@@ -1741,7 +1742,6 @@ impl History {
                 question,
                 version,
                 option: 1,
-                why: None,
             };
             return Some((answer, false));
         }

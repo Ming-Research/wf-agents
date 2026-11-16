@@ -213,7 +213,7 @@ fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is
 }
 
 #[test]
-fn a_write_to_the_record_of_what_is_said_holds_nothing_by_the_entry_kept_not_by_the_words_handed_in() {
+fn a_write_of_a_cell_s_words_holds_nothing_by_the_answer_kept_not_by_the_words_handed_in() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
     w.hands_in("R0", &[], Vec::new());
@@ -225,10 +225,10 @@ fn a_write_to_the_record_of_what_is_said_holds_nothing_by_the_entry_kept_not_by_
         ("plan_owner", None),
         ("plan_agent", None),
         ("acceptance", None),
-        ("discussion", None),
+        ("r1_words", None),
     ];
     let mut came = w.read("R1", &names, &plan);
-    for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "discussion") {
+    for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "r1_words") {
         h.content = " \n".to_string();
     }
     w.on(Event::Returned {
@@ -243,14 +243,14 @@ fn a_write_to_the_record_of_what_is_said_holds_nothing_by_the_entry_kept_not_by_
     let kept = w
         .work
         .contents
-        .get(&("discussion".into(), at))
+        .get(&("r1_words".into(), at))
         .expect("the entry is kept");
     assert!(
         !kept.trim().is_empty(),
         "the entry has the reply's words around the handed in ones: {kept:?}"
     );
     let write = (finished.writes.iter())
-        .find(|x| x.block.as_str() == "discussion")
+        .find(|x| x.block.as_str() == "r1_words")
         .expect("written");
     assert!(!write.empty, "the entry kept holds something");
 }
