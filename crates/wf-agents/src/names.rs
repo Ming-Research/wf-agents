@@ -1,0 +1,523 @@
+//! The guard of names: no code of the engine's and none of the page's names a particular cell, line, group or block of
+//! a flow (principle engine-knows-no-cell). It compiles every flow the repository defines, collects every name those
+//! flows give (each cell, line, group and block, a datum each cell or each line has its own of by its name as made),
+//! leaves out what the engine itself declares, read from its declarations (the sources, acts, tools, system parts and
+//! details of what it has, its data beside the flows and their values, every place the words beside the flows fill,
+//! and the directories of the format), and fails where a source that is not a test holds one of the rest as a string
+//! literal: each Rust file of a crate's `src` outside its items marked `#[cfg(test)]` and the files they declare, and
+//! the page's code without its tests, fixtures, mocks and made-up data.
+//!
+//! It reads every source of the repository once and compiles the two flows, well under a second beside the crate's
+//! other tests. It is worth that: a name written in the code holds for one flow alone, and nothing else finds it until
+//! a flow renames the thing and the code silently stops finding it.
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use flow::{
+    BLOCKS_DIR, CELLS_DIR, DATA_DIR, FLOW_FILE, LINES_DIR, OF_A_CELL, OF_A_DATUM, OF_A_GROUP, OF_A_LINE, RULES_DIR,
+    TESTS_DIR, TRIGGERS_DIR,
+};
+
+use super::has;
+
+/// The repository's root.
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+}
+
+/// A string literal of a source: what stands between its quotes, and the line it begins on, counted from one.
+#[derive(Debug, PartialEq, Eq)]
+struct Literal {
+    text: String,
+    line: usize,
+}
+
+/// What a source holds that the guard reads: its string literals outside its comments and, in Rust, outside each item
+/// marked `#[cfg(test)]`; and the modules it declares as tests, each by its name, whose files are tests whole.
+#[derive(Debug, Default)]
+struct Scanned {
+    literals: Vec<Literal>,
+    tests: Vec<String>,
+}
+
+/// Reads a source, Rust or the page's TypeScript. In Rust a literal stands between `"` (a raw string between its own
+/// marks), and `'` begins a character or a lifetime; in the page's code it stands between `'`, `"` or `` ` ``, and a
+/// `'` or `"` not closed on its line begins none, being an apostrophe of a text or a mark of a regular expression.
+struct Scanner {
+    chars: Vec<char>,
+    at: usize,
+    rust: bool,
+    /// Where each line begins, by the index of its first character.
+    lines: Vec<usize>,
+    /// The depth of braces now.
+    depth: usize,
+    /// Of an item marked `#[cfg(test)]` being read: the depth of braces it began at, and whether its body opened.
+    test: Option<(usize, bool)>,
+    scanned: Scanned,
+}
+
+fn ident(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+impl Scanner {
+    fn scan(text: &str, rust: bool) -> Scanned {
+        let chars: Vec<char> = text.chars().collect();
+        let lines = std::iter::once(0)
+            .chain(
+                chars
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| **c == '\n')
+                    .map(|(i, _)| i + 1),
+            )
+            .collect();
+        let mut scanner = Scanner {
+            chars,
+            at: 0,
+            rust,
+            lines,
+            depth: 0,
+            test: None,
+            scanned: Scanned::default(),
+        };
+        scanner.code(false);
+        scanner.scanned
+    }
+
+    fn get(&self, i: usize) -> Option<char> {
+        self.chars.get(i).copied()
+    }
+
+    fn starts_at(&self, i: usize, s: &str) -> bool {
+        s.chars().enumerate().all(|(k, x)| self.get(i + k) == Some(x))
+    }
+
+    fn starts(&self, s: &str) -> bool {
+        self.starts_at(self.at, s)
+    }
+
+    fn line(&self, i: usize) -> usize {
+        self.lines.partition_point(|&start| start <= i)
+    }
+
+    fn found(&mut self, text: String, start: usize) {
+        if self.test.is_none() {
+            let line = self.line(start);
+            self.scanned.literals.push(Literal { text, line });
+        }
+    }
+
+    /// Reads code up to the end, or, inside a template's `${`, up to the brace that closes it.
+    fn code(&mut self, in_template: bool) {
+        let mut open = 0usize;
+        while let Some(c) = self.get(self.at) {
+            if self.starts("//") {
+                while self.get(self.at).is_some_and(|c| c != '\n') {
+                    self.at += 1;
+                }
+            } else if self.starts("/*") {
+                self.at += 2;
+                while self.get(self.at).is_some() && !self.starts("*/") {
+                    self.at += 1;
+                }
+                self.at += 2;
+            } else if self.rust && self.starts("#[cfg(test)]") {
+                self.at += "#[cfg(test)]".len();
+                self.test_module();
+                if self.test.is_none() {
+                    self.test = Some((self.depth, false));
+                }
+            } else if c == '"' {
+                self.string('"');
+            } else if c == '\'' && self.rust {
+                self.character();
+            } else if c == '\'' {
+                self.string('\'');
+            } else if c == '`' && !self.rust {
+                self.template();
+            } else if self.rust && c == 'r' && self.raw_begins() {
+                self.raw();
+            } else {
+                match c {
+                    '{' => {
+                        open += 1;
+                        self.depth += 1;
+                        if let Some((at, _)) = self.test {
+                            self.test = Some((at, true));
+                        }
+                    }
+                    '}' => {
+                        if in_template && open == 0 {
+                            self.at += 1;
+                            return;
+                        }
+                        open = open.saturating_sub(1);
+                        self.depth = self.depth.saturating_sub(1);
+                        if self.test == Some((self.depth, true)) {
+                            self.test = None;
+                        }
+                    }
+                    ';' if self.test == Some((self.depth, false)) => self.test = None,
+                    _ => {}
+                }
+                self.at += 1;
+            }
+        }
+    }
+
+    /// After `#[cfg(test)]`: where it marks `mod <name>;`, the module's name, whose file is a test whole.
+    fn test_module(&mut self) {
+        let mut i = self.at;
+        let blank = |i: &mut usize, s: &Scanner| {
+            while s.get(*i).is_some_and(char::is_whitespace) {
+                *i += 1;
+            }
+        };
+        let word = |i: &mut usize, s: &Scanner, w: &str| {
+            let fits = s.starts_at(*i, w);
+            if fits {
+                *i += w.chars().count();
+            }
+            fits
+        };
+        blank(&mut i, self);
+        if word(&mut i, self, "pub(crate)") || word(&mut i, self, "pub ") {
+            blank(&mut i, self);
+        }
+        if !word(&mut i, self, "mod ") {
+            return;
+        }
+        blank(&mut i, self);
+        let begins = i;
+        while self.get(i).is_some_and(ident) {
+            i += 1;
+        }
+        let name: String = self.chars[begins..i].iter().collect();
+        blank(&mut i, self);
+        if self.get(i) == Some(';') && !name.is_empty() {
+            self.scanned.tests.push(name);
+        }
+    }
+
+    /// A string between two `quote`s, a `\` taking the character after it; in the page's code one not closed on its
+    /// line is none, and reading goes on after its quote.
+    fn string(&mut self, quote: char) {
+        let start = self.at;
+        let mut text = String::new();
+        let mut i = self.at + 1;
+        while let Some(c) = self.get(i) {
+            if c == '\\' {
+                text.extend(self.get(i + 1));
+                i += 2;
+            } else if c == quote {
+                self.at = i + 1;
+                self.found(text, start);
+                return;
+            } else if c == '\n' && !self.rust {
+                self.at = start + 1;
+                return;
+            } else {
+                text.push(c);
+                i += 1;
+            }
+        }
+        self.at = self.chars.len();
+    }
+
+    /// In Rust, `'`: a character, whose quotes are passed over whole, or a lifetime, whose mark alone is.
+    fn character(&mut self) {
+        if self.get(self.at + 1) == Some('\\') {
+            let mut i = self.at + 3;
+            while self.get(i).is_some_and(|c| c != '\'') {
+                i += 1;
+            }
+            self.at = i + 1;
+        } else if self.get(self.at + 2) == Some('\'') {
+            self.at += 3;
+        } else {
+            self.at += 1;
+        }
+    }
+
+    /// Whether an `r` here begins a raw string: it stands alone or after a `b` that does, and a `"` or a `#` follows.
+    fn raw_begins(&self) -> bool {
+        let alone = |i: usize| i == 0 || !self.get(i - 1).is_some_and(ident);
+        let after_b = self.at >= 1 && self.get(self.at - 1) == Some('b') && alone(self.at - 1);
+        (alone(self.at) || after_b) && matches!(self.get(self.at + 1), Some('"' | '#'))
+    }
+
+    /// A raw string, from its `r` to its closing `"` and as many `#` as opened it; an `r#` with no `"` after its marks
+    /// begins a raw name, which is no literal.
+    fn raw(&mut self) {
+        let start = self.at;
+        let mut i = self.at + 1;
+        let mut hashes = 0;
+        while self.get(i) == Some('#') {
+            hashes += 1;
+            i += 1;
+        }
+        if self.get(i) != Some('"') {
+            self.at += 1;
+            return;
+        }
+        i += 1;
+        let begins = i;
+        while i < self.chars.len() {
+            if self.get(i) == Some('"') && (1..=hashes).all(|k| self.get(i + k) == Some('#')) {
+                let text = self.chars[begins..i].iter().collect();
+                self.at = i + 1 + hashes;
+                self.found(text, start);
+                return;
+            }
+            i += 1;
+        }
+        self.at = self.chars.len();
+    }
+
+    /// A template of the page's code, each `${` in it read as code up to its closing brace and standing in the text as
+    /// `${}`.
+    fn template(&mut self) {
+        let start = self.at;
+        let mut text = String::new();
+        self.at += 1;
+        while let Some(c) = self.get(self.at) {
+            if c == '\\' {
+                text.extend(self.get(self.at + 1));
+                self.at += 2;
+            } else if c == '`' {
+                self.at += 1;
+                self.found(text, start);
+                return;
+            } else if self.starts("${") {
+                text.push_str("${}");
+                self.at += 2;
+                self.code(true);
+            } else {
+                text.push(c);
+                self.at += 1;
+            }
+        }
+    }
+}
+
+/// Every file under `dir` whose extension is one of `extensions`, each directory's in order.
+fn files(dir: &Path, extensions: &[&str], into: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let mut entries: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            files(&path, extensions, into);
+        } else if path.extension().is_some_and(|e| extensions.iter().any(|x| e == *x)) {
+            into.push(path);
+        }
+    }
+}
+
+/// The directories of the flows the repository defines: each under `flow/` that holds a flow's file.
+fn flows() -> Vec<PathBuf> {
+    let mut flows: Vec<PathBuf> = fs::read_dir(root().join("flow"))
+        .expect("the flows' directory is read")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.join(FLOW_FILE).is_file())
+        .collect();
+    flows.sort();
+    flows
+}
+
+/// Every name in braces the files beside the flows write: the places their words fill.
+fn places() -> BTreeSet<String> {
+    fn walk(dir: &Path, into: &mut BTreeSet<String>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        for path in entries.filter_map(|e| e.ok().map(|e| e.path())) {
+            if path.is_dir() {
+                if !path.join(FLOW_FILE).is_file() {
+                    walk(&path, into);
+                }
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&path) else { continue };
+            for piece in text.split('{').skip(1) {
+                let Some((name, _)) = piece.split_once('}') else {
+                    continue;
+                };
+                if !name.is_empty() && name.chars().all(ident) {
+                    into.insert(name.to_string());
+                }
+            }
+        }
+    }
+    let mut places = BTreeSet::new();
+    walk(&root().join("flow"), &mut places);
+    places
+}
+
+/// The names the flows give that are not the engine's own: each cell, line, group and block of every flow the
+/// repository defines, without what the engine declares.
+fn flow_names() -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let mut engines = places();
+    let format = [
+        CELLS_DIR,
+        LINES_DIR,
+        BLOCKS_DIR,
+        TESTS_DIR,
+        RULES_DIR,
+        DATA_DIR,
+        TRIGGERS_DIR,
+        OF_A_CELL,
+        OF_A_LINE,
+        OF_A_DATUM,
+        OF_A_GROUP,
+    ];
+    let dirs = format.iter().filter_map(|d| Path::new(d).file_name());
+    engines.extend(dirs.map(|d| d.to_string_lossy().into_owned()));
+    for dir in flows() {
+        let source = flow::read(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        let has = has(&dir);
+        let compiled = flow::compile(&source, &has).unwrap_or_else(|f| panic!("{}: {f:?}", dir.display()));
+        for set in [&has.sources, &has.acts, &has.tools, &has.system, &has.details] {
+            engines.extend(set.iter().cloned());
+        }
+        for (name, block) in &compiled.blocks {
+            if Path::new(&block.file).parent() == Some(Path::new(DATA_DIR)) {
+                engines.insert(name.to_string());
+                engines.extend(block.values.iter().flatten().cloned());
+            }
+        }
+        names.extend(compiled.cells.iter().map(|c| c.id.as_str().to_string()));
+        names.extend(compiled.lines.keys().cloned());
+        names.extend(compiled.groups.keys().cloned());
+        names.extend(compiled.blocks.keys().map(ToString::to_string));
+    }
+    names.retain(|n| !engines.contains(n));
+    names
+}
+
+/// The Rust files of the crates that are no tests, each read: each under a crate's `src`, but the file of a module
+/// marked `#[cfg(test)]` and every file under it.
+fn rust_sources() -> Vec<(PathBuf, Scanned)> {
+    let mut all = Vec::new();
+    let crates = fs::read_dir(root().join("crates")).expect("the crates are read");
+    for krate in crates.filter_map(|e| e.ok()) {
+        files(&krate.path().join("src"), &["rs"], &mut all);
+    }
+    let scanned: Vec<(PathBuf, Scanned)> = (all.into_iter())
+        .map(|p| {
+            let text = fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+            let scanned = Scanner::scan(&text, true);
+            (p, scanned)
+        })
+        .collect();
+    let mut tests: Vec<PathBuf> = Vec::new();
+    for (path, s) in &scanned {
+        let root_of_its_own = path
+            .file_name()
+            .is_some_and(|n| n == "main.rs" || n == "lib.rs" || n == "mod.rs");
+        let base = if root_of_its_own {
+            path.parent().map(Path::to_path_buf)
+        } else {
+            path.parent().zip(path.file_stem()).map(|(p, s)| p.join(s))
+        };
+        let Some(base) = base else { continue };
+        for module in &s.tests {
+            tests.push(base.join(format!("{module}.rs")));
+            tests.push(base.join(module));
+        }
+    }
+    (scanned.into_iter())
+        .filter(|(p, _)| !tests.iter().any(|t| p.starts_with(t)))
+        .collect()
+}
+
+/// The page's code that is no test, each read: each TypeScript file under `client/src` whose name says no test,
+/// fixture, mock or made-up data.
+fn page_sources() -> Vec<(PathBuf, Scanned)> {
+    let mut all = Vec::new();
+    files(&root().join("client").join("src"), &["ts", "tsx"], &mut all);
+    (all.into_iter())
+        .filter(|p| {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            !["test", "fixture", "mock", "fake"].iter().any(|w| name.contains(w))
+        })
+        .map(|p| {
+            let text = fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+            let scanned = Scanner::scan(&text, false);
+            (p, scanned)
+        })
+        .collect()
+}
+
+#[test]
+fn no_source_names_a_cell_line_group_or_block_of_a_flow() {
+    let names = flow_names();
+    assert!(
+        names.contains("plan_owner"),
+        "the flows' names are collected: {names:?}"
+    );
+    let root = root();
+    let mut found = Vec::new();
+    for (path, scanned) in rust_sources().into_iter().chain(page_sources()) {
+        let at = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
+        for literal in scanned.literals.iter().filter(|l| names.contains(&l.text)) {
+            found.push(format!("{at}:{}: \"{}\"", literal.line, literal.text));
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "these sources name a cell, a line, a group or a block of a flow, which the code reads from the flow's \
+         definition instead:\n{}",
+        found.join("\n")
+    );
+}
+
+#[test]
+fn a_name_is_found_in_rust_code_and_not_in_its_comments_its_tests_or_its_characters() {
+    let text = r####"
+// "plan_owner" in a comment
+/* "plan_owner" in another */
+fn a() -> &'static str { let q = '"'; let e = '\''; "plan_owner" }
+#[cfg(test)]
+mod tests { fn t() { let x = "in_a_test"; } }
+#[cfg(test)]
+mod more;
+#[cfg(test)]
+fn helper() { "in_a_helper"; }
+fn b() { let raw = r#"raw "quoted""#; let x = br"bytes"; "after" }
+"####;
+    let scanned = Scanner::scan(text, true);
+    let texts: Vec<(&str, usize)> = scanned.literals.iter().map(|l| (l.text.as_str(), l.line)).collect();
+    assert_eq!(
+        texts,
+        [("plan_owner", 4), (r#"raw "quoted""#, 11), ("bytes", 11), ("after", 11)]
+    );
+    assert_eq!(scanned.tests, ["more"]);
+}
+
+#[test]
+fn a_name_is_found_in_the_pages_code_and_not_in_an_apostrophe_or_a_comment() {
+    let text = "// 'plan_owner' in a comment\n\
+                const a = <p>The owner's words</p>;\n\
+                const b = current('plan_owner');\n\
+                const c = `${x ? 'inside' : `deeper`}after`;\n\
+                const d = /[\"']/;\n\
+                const e = \"double\";\n";
+    let scanned = Scanner::scan(text, false);
+    let texts: Vec<(&str, usize)> = scanned.literals.iter().map(|l| (l.text.as_str(), l.line)).collect();
+    assert_eq!(
+        texts,
+        [
+            ("plan_owner", 3),
+            ("inside", 4),
+            ("deeper", 4),
+            ("${}after", 4),
+            ("double", 6)
+        ]
+    );
+}

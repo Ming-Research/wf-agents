@@ -47,6 +47,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                 "tests": [may_merge],
                 "tools": [],
                 "groups": [],
+                "card": [],
                 "cells": [
                     {
                         "id": "plan",

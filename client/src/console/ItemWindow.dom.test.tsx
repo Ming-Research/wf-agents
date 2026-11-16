@@ -334,6 +334,32 @@ describe('the panel of the item selected', () => {
     ]);
   });
 
+  it('offers, as `@` is typed, the line the message goes to while the work goes on, and names no line of its own', () => {
+    const speaking: Speaking[] = [
+      { to: { kind: 'line', line: 'engineer' }, cell: 'implement', refused: null },
+      { to: { kind: 'line', line: 'deep_research' }, cell: 'deep_research', refused: null },
+    ];
+    const i = itemOf(12);
+    const el = draw(i, answered([]), pageOf(i, speaking));
+    act(() => button(el, 'deep_research · deep_research').click());
+    type(el.querySelector('textarea') as HTMLTextAreaElement, 'Look at @');
+    expect(text(el, '.cw-names .button')).toEqual(['@deep_research', '@architect · Architect', '@assistant · Assistant']);
+  });
+
+  it("draws a section for each datum the flow's card names, in its order and by its name, saying where one has nothing yet", async () => {
+    const i = itemOf(12);
+    const page = pageOf(i);
+    if (page === null || !('page' in page)) throw new Error('no page');
+    const flow: Flow & { card: string[] } = { ...ASKING, card: ['plan', 'request'] };
+    const el = draw(i, answered([]), { page: { ...page.page, flow } });
+    await act(async () => undefined);
+    expect(text(el, '.cw-body > .cw-fold > .cw-fold-head > span:last-child')).toEqual(['plan', 'request']);
+    expect(text(el, '.cw-body > .cw-fold > .cw-fold-body > p.muted')).toEqual([
+      'Nothing is written yet',
+      'Nothing is written yet',
+    ]);
+  });
+
   it('takes a question a cell asked to the discussion, quoted, about that question, on the line of the cell that asked it', async () => {
     const sent: Sent = [];
     const speaking: Speaking[] = [

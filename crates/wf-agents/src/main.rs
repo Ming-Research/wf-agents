@@ -4,7 +4,10 @@
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
+//! - `names`, a test: no source names a cell, a line, a group or a block of a flow.
 
+#[cfg(test)]
+mod names;
 mod reference;
 mod running;
 mod situations;
