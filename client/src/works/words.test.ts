@@ -293,6 +293,15 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'unanswered', block: 'check' })).toBe(
       'it dealt with check, and committed nothing and asked nothing',
     );
+    expect(unmetWords({ kind: 'notATest', path: 'src/lib.rs' })).toBe(
+      'it changed src/lib.rs, which is none of the project\'s tests',
+    );
+    expect(unmetWords({ kind: 'wordOwed', name: 'review', watched: ['code', 'title'] })).toBe(
+      'it dealt with review, woken by a point in it, and answered none of its points, changed none of code, title, and asked no question the work waits for',
+    );
+    expect(unmetWords({ kind: 'noPoint', block: 'review_ok', value: 'no', name: 'review' })).toBe(
+      'it handed in review_ok as no, which does not pass, and gave no review',
+    );
   });
 });
 
