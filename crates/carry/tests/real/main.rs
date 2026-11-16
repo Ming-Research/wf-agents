@@ -353,9 +353,11 @@ fn compiled(on: On) -> Compiled {
         };
         let mut blocks = toml::Table::new();
         let mut questions = own("questions.toml");
-        questions.insert("outside".to_string(), questions.remove("from").expect("its source"));
+        let source = questions.remove("from").expect("its source");
+        questions.insert("outside".to_string(), source);
         let mut words = own("words.toml");
-        words.insert("outside".to_string(), words.remove("from").expect("its source"));
+        let source = words.remove("from").expect("its source");
+        words.insert("outside".to_string(), source);
         blocks.insert("build_questions".to_string(), questions.into());
         blocks.insert("build_words".to_string(), words.into());
         let mut whole = toml::Table::new();

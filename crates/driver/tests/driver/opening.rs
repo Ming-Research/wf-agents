@@ -380,34 +380,3 @@ fn a_work_at_fault_with_a_round_under_way_is_given_that_round_again_as_the_drive
     assert!(matches!(h.decision(wa), Decision::Fault(_)));
     assert_eq!(todos, given);
 }
-
-/// The engineer's flow as the repository defines it, compiled against what the engine has for it, as `wf-agents`
-/// compiles it.
-fn engineer() -> flow::Compiled {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
-    let beside = flow::agents::read(&root).expect("the files beside the flows are read");
-    let source = flow::read(&root.join("engineer")).expect("the engineer's flow is read");
-    let names = |names: &[&str]| {
-        (names.iter())
-            .map(|n| n.to_string())
-            .collect::<std::collections::BTreeSet<_>>()
-    };
-    let has = flow::Has {
-        sources: names(&[
-            "answer",
-            "asked",
-            "dependencies",
-            "main",
-            "session",
-            "start",
-            "head",
-            "tree",
-            "words",
-        ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
-        system: flow::system::reserved(&beside).into_iter().collect(),
-        details: names(&["files"]),
-    };
-    flow::compile(&source, &has).expect("the engineer's flow compiles")
-}
