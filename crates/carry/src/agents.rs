@@ -75,10 +75,11 @@
 //! nothing in, kept as a second name of the file an earlier try of the round keeps it in, so that it is stored once;
 //! `.compacted` holds a byte for each compaction of the session during the round, and `.again.md`, while the program
 //! runs and never past the round's tries, what the hook gives again; `.words.json` what the owner said that waits for
-//! the hook, and `.delivered.1.json` and on what the hook gave. The program's process group is stopped as the process of the engine
-//! ends, however it ends ([`process`]), and is written in `.pgid` there while the program runs; a group left named
-//! there all the same by a process of the engine that ended is stopped before the round is run again, or before the
-//! round's stop ends it, so that a session has one program at a time and a stopped round's program does not run on.
+//! the hook, and `.delivered.1.json` and on what the hook gave. The program's process group is stopped as the process
+//! of the engine ends, however it ends ([`process`]), and is written in `.pgid` there while the program runs; a group
+//! left named there all the same by a process of the engine that ended is stopped before the round is run again, or
+//! before the round's stop ends it, so that a session has one program at a time and a stopped round's program does
+//! not run on.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
