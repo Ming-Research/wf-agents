@@ -164,6 +164,8 @@ function NowPart({ items, engine, copies, copiesFailed }: {
     list: items.items.filter((item) => standingOf(item.work) === standing),
   }));
   const running = items.items.filter((item) => item.work.now.kind === 'round');
+  // The wait every work shares, said only where it holds a work.
+  const shared = items.outage ? outageWords(items.outage) : null;
   const opened = by.find((b) => b.standing === open);
   return (
     <PanelPart label="Now">
@@ -179,9 +181,7 @@ function NowPart({ items, engine, copies, copiesFailed }: {
         <dt title="Rounds of agents under way, of how many may be at once: agents.slots">Slots</dt>
         <dd>{engine === null ? 'not given' : `${engine.taken} taken of ${engine.slots}`}</dd>
         <dt>The wait every work shares</dt>
-        <dd className={items.outage ? 'failed' : undefined}>
-          {items.outage ? <Coded text={outageWords(items.outage)} /> : 'none'}
-        </dd>
+        <dd className={shared === null ? undefined : 'failed'}>{shared === null ? 'none' : <Coded text={shared} />}</dd>
         <dt>Copies of the database</dt>
         <dd>
           {copies === null ? (

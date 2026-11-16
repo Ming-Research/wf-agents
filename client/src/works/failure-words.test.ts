@@ -30,12 +30,13 @@ describe('the words of a round that failed and of the waits that follow', () => 
     expect(callWords({ kind: 'wait', until: 0, failed: 3 })).toMatch(/^the engine's wait until .*\(3 in a row\)$/);
   });
 
-  it('says a wait every work shares in three sentences: what is down since when, why, and what it holds', () => {
+  it('says a wait every work shares: what is down since when, what a check found, and what it holds', () => {
     const words = outageWords(outage({}));
     expect(words).toMatch(
-      /^The account's usage limit was reached since [^.]*\. You've hit your limit\. No agent's round begins until it runs again\.$/,
+      /^The account's usage limit was reached since [^.]*\. No agent's round begins until it runs again\.$/,
     );
     expect(words).not.toContain('W3');
+    expect(words).not.toContain("You've hit your limit");
     // What the owner does where the command line cannot run is the engine's to say, on the wait's card, once.
     expect(outageWords(outage({ failure: 'cannotRun' }))).not.toContain('install');
     // What the latest check found down is what is said down, with what it found, a sentence of its own.
@@ -45,13 +46,22 @@ describe('the words of a round that failed and of the waits that follow', () => 
       checked: { at: 0, taken: 2, found: { kind: 'down', failure: 'cannotRun', why: found } },
     });
     expect(outageWords(checked)).toMatch(/^The agents' command line cannot run since /);
+    // The check's day is not said where it is the day the wait began.
+    expect(outageWords(checked)).toMatch(/since \d\d-\d\d \d\d:\d\d\. At \d\d:\d\d the check found: /);
     expect(outageWords(checked)).toContain(` the check found: ${found} No agent's round begins until it runs again.`);
+    // A check on another day says it.
+    const later = outage({
+      failure: 'cannotRun',
+      checked: { at: 3 * 24 * 3600 * 1000, taken: 2, found: { kind: 'down', failure: 'cannotRun', why: found } },
+    });
+    expect(outageWords(later)).toMatch(/\. At \d\d-\d\d \d\d:\d\d the check found: /);
     const well = outage({
       holds: false,
       until: { kind: 'well', at: 0 },
       checked: { at: 0, taken: 1, found: { kind: 'well' } },
     });
-    expect(outageWords(well)).toMatch(/Every work goes on\.$/);
+    // It holds no work, so nothing is said: the owner has nothing to know or do.
+    expect(outageWords(well)).toBeNull();
     const host = outage({ service: 'host', failure: 'offline', until: { kind: 'looked', at: 0 } });
     expect(outageWords(host)).toMatch(/No act of the engine's begins until it is reached again\.$/);
   });

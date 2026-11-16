@@ -230,21 +230,22 @@ export function outageDown(outage: Outage): { failure: Failure; why: string } {
 /// A text with its first letter a capital, to begin a sentence.
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
-/// A wait every work shares, in three sentences: what is down and since when; why, as the latest check of the outside
-/// found it where it found it down, else as the round that met it said; and what it holds until it runs again, or
-/// that every work goes on where it holds nothing.
-/// A name or a value in backticks in what was found or said is marked so (`Coded` draws it).
-export function outageWords(outage: Outage): string {
+/// A wait every work shares, in sentences: what is down and since when; where the latest check of the outside found it
+/// down, what it found, in the engine's words (never the error of the round that met it); and what it holds until it
+/// runs again. None where it holds no work: nothing is then for the owner to know or do. A name or a value in backticks
+/// in what was found is marked so (`Coded` draws it).
+export function outageWords(outage: Outage): string | null {
+  if (!outage.holds) return null;
   const found = outage.checked?.found;
-  const checked = outage.checked && outage.holds && found?.kind === 'down' ? outage.checked : null;
   const down = outageDown(outage);
-  const why = checked && found?.kind === 'down' ? `At ${clock(checked.at)} the check found: ${sentence(found.why)}` : sentence(outage.why);
-  const held = !outage.holds
-    ? 'Every work goes on.'
-    : outage.service === 'host'
+  // The check's time, without its day where that is the day the wait began.
+  const at = (ms: number) => (dayOf(ms) === dayOf(outage.since) ? minuteOf(ms) : clock(ms));
+  const why = outage.checked && found?.kind === 'down' ? ` At ${at(outage.checked.at)} the check found: ${sentence(found.why)}` : '';
+  const held =
+    outage.service === 'host'
       ? "No act of the engine's begins until it is reached again."
       : "No agent's round begins until it runs again.";
-  return `${capital(failureWords(down.failure))} since ${clock(outage.since)}. ${why} ${held}`;
+  return `${capital(failureWords(down.failure))} since ${clock(outage.since)}.${why} ${held}`;
 }
 
 /// What a round asked for.
@@ -459,8 +460,6 @@ export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
             : null;
   return [word, cell, why === null ? null : plain(why)].filter((x) => x !== null && x !== '').join(' · ');
 }
-
-
 
 /// The tone of what a work does now, as its state takes it (`stateOf`).
 export const nowTone = (s: Pick<Summary, 'now' | 'cells' | 'waits'>): Tone => stateOf(s).tone;
