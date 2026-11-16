@@ -45,6 +45,35 @@ fn a_paused_work_runs_a_cell_for_what_a_person_wrote_to_it_since_it_last_ran() {
 }
 
 #[test]
+fn a_paused_work_runs_a_cell_for_the_owners_answer_to_its_question_as_for_a_note() {
+    // The owner's pauses stay as they are (design document `data-and-context`): a paused work still answers the owner,
+    // an answer as much as the owner's words, though an answer stops no round and enters no cell that waits.
+    let mut w = World::with_gate(vec![
+        cell("research", &["background", "research answered"], &["plan"]),
+        cell("implement", &["plan"], &["code"]),
+    ]);
+    w.answering("research answered");
+    let background = w.person_writes("background");
+    let plan = w.run("research", &[("plan", Matters)]);
+    w.run("implement", &[("code", Matters)]);
+    assert_eq!(w.decide(), resting());
+    w.pause();
+    let answer = w.outside_writes("research answered");
+    assert_eq!(
+        w.decide(),
+        runs(
+            "research",
+            vec![changed("research answered", None, false)],
+            &[
+                ("background", Some(background)),
+                ("research answered", Some(answer)),
+                ("plan", Some(plan))
+            ]
+        )
+    );
+}
+
+#[test]
 fn a_paused_work_does_not_answer_what_a_person_wrote_that_is_no_note() {
     let (mut w, ..) = ran();
     w.pause();

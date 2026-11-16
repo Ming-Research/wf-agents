@@ -19,6 +19,9 @@
 //!   for the owner turning to a cell before it.
 //! - `no-merge-on-what-is-not-settled`: no work merges while a precondition of the merge is not met, among them that
 //!   every judging cell is content, nor while something is new to a cell before it: a merge cannot be taken back.
+//! - `a-question-holds-its-cell`: while a question its cell waits for stands with no answer to its latest version, the
+//!   work stands at that cell, whether the cell applies now or not: no cell after it runs, goes on or is waited at, and
+//!   the work does not merge.
 //! - `a-work-comes-to-rest`: when people do nothing more and nothing outside the work changes, every work, after a
 //!   number of rounds its limits bound, waits, saying for what and for whom, is stalled, saying what it waits for and
 //!   why no cell that writes it runs, or has ended.
@@ -51,6 +54,8 @@ pub const REST: &str = "a run at rest goes on only while its cell applies";
 pub const HELD: &str = "a work is held only by a precondition that does not hold";
 pub const MAKERS: &str = "a precondition's wait names only those who write a block keeping it from holding";
 pub const STALLED_RIGHT: &str = "a stalled work names what it waits for, who writes it and why none of them runs";
+pub const QUESTION_HOLDS: &str =
+    "a question that waits holds the work at its cell, skipped or not, until it is answered";
 
 /// What the histories reached, each of which some history must reach: a property about a situation no history
 /// reaches checks nothing.
@@ -87,6 +92,8 @@ pub const REACHED: &[&str] = &[
     FAILED_IN_PASSING,
     FAILED_UNPAUSED,
     UNPAUSED_GOES_ON,
+    HELD_BY_A_QUESTION,
+    HELD_WHILE_SKIPPED,
 ];
 
 pub const PERSON_UNDER_WAY: &str = "a person writes while a round is under way";
@@ -123,6 +130,8 @@ pub const FAILED_GOES_ON: &str = "a run whose round failed goes on once the work
 pub const FAILED_IN_PASSING: &str = "a round fails in passing and its run waits for the engine";
 pub const FAILED_UNPAUSED: &str = "a round fails for a cause that does not pause its work";
 pub const UNPAUSED_GOES_ON: &str = "a run whose round failed without pausing its work goes on";
+const HELD_BY_A_QUESTION: &str = "a question that waits holds the work at its cell";
+const HELD_WHILE_SKIPPED: &str = "a question that waits holds the work at its cell while the cell is skipped";
 
 /// How often each situation was reached.
 #[derive(Default)]
@@ -496,6 +505,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
         v.fail(PURE, format!("the same records in another order give {other:?}"));
     }
 
+    question_holds(v, flow, reading, d);
     let merge = flow.cells().len() - 1;
     match d {
         Decision::Wait { at, on } => {
@@ -550,6 +560,42 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
     };
     if merge_begins {
         settled(v, flow, reading);
+    }
+}
+
+/// Property a-question-holds-its-cell (design document `data-and-context`, 32): while a question that waits holds the
+/// work, by the histories' own reading of the questions and the answers, the decision stands at its cell or before it,
+/// the first such cell in the order, whether that cell applies now or not: nothing after it runs, goes on, has a round
+/// under way or is waited or stalled at, and the work does not merge.
+fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision) {
+    let now = Seq(u64::MAX);
+    let held = (reading.holding(now).iter())
+        .filter_map(|(_, cell)| flow.place(cell))
+        .min();
+    let Some(q) = held else {
+        return;
+    };
+    v.count(HELD_BY_A_QUESTION);
+    if !reading.applies(flow, q) {
+        v.count(HELD_WHILE_SKIPPED);
+    }
+    let at = match d {
+        Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Busy { cell, .. } => flow.place(cell),
+        Decision::Wait { at, .. } | Decision::Stalled { at, .. } => flow.place(at),
+        Decision::Ended(End::Merged) => Some(flow.cells().len()),
+        _ => None,
+    };
+    if let Some(j) = at
+        && j > q
+    {
+        v.fail(
+            QUESTION_HOLDS,
+            format!(
+                "a question of {} holds the work there, applying {}, and the walk decides {d:?}",
+                flow.cells()[q].id,
+                reading.applies(flow, q)
+            ),
+        );
     }
 }
 

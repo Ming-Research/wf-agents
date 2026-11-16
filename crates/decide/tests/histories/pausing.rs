@@ -1,10 +1,10 @@
-//! What a pause holds back, checked after every step: a paused work still answers the owner, a note a person wrote to
-//! a cell or the owner turning to it, and begins nothing else. While the work is paused, a run starts only for a cell
-//! one of whose reasons is such a version written since the cell last ran; the pause alone holds back no cell one of
-//! whose reasons is one; and the engine gives a run at rest its next round under a pause exactly when the run started
-//! for one and its last round did not fail in a way that paused the work. All are judged by the histories' own reading
-//! of the reasons (`reading`); which cell the work would run once let on is what the walk says of the same records with
-//! the pause lifted, as `properties::reaches` takes it.
+//! What a pause holds back, checked after every step: a paused work still answers the owner, a note a person wrote to a
+//! cell or the owner acting on it, by words or by an answer, and begins nothing else. While the work is paused, a run
+//! starts only for a cell one of whose reasons is such a version written since the cell last ran; the pause alone holds
+//! back no cell one of whose reasons is one; and the engine gives a run at rest its next round under a pause exactly
+//! when the run started for one and its last round did not fail in a way that paused the work. All are judged by the
+//! histories' own reading of the reasons (`reading`); which cell the work would run once let on is what the walk says
+//! of the same records with the pause lifted, as `properties::reaches` takes it.
 
 use decide::run::Hold;
 use decide::{Cell, Decision, Flow, Pause, Pauser, Room, Seq, decide_in, hold_in};
@@ -26,10 +26,10 @@ pub const UNPAUSED_ANSWERS: &str =
     "a run for a note whose round failed without pausing the work goes on while the work is paused";
 
 /// Whether one of these reasons, of a run of the cell that starts or started at this place, is the owner's since the
-/// cell last ran: a version of a note that runs it that a person wrote, or of a block that interrupts that the outside
-/// wrote, changing its meaning, after the version the cell consumed, after the start of its latest run that finished
-/// dealing with something, or with none after the start of its first run, and before the place. A cell no run of which
-/// started before the place has not run, and has none.
+/// cell last ran: a version of a note that runs it that a person wrote, or of a block that is the owner acting on it
+/// (the owner's words or answers) that the outside wrote, changing its meaning, after the version the cell consumed,
+/// after the start of its latest run that finished dealing with something, or with none after the start of its first
+/// run, and before the place. A cell no run of which started before the place has not run, and has none.
 pub fn for_a_note(flow: &Flow, reading: &Reading, cell: &Cell, reasons: &[Reason], place: Seq) -> bool {
     // A run that only asked for calls dealt with nothing: the cell has not run for anything by it.
     let record = (reading.finished.values())
@@ -47,7 +47,7 @@ pub fn for_a_note(flow: &Flow, reading: &Reading, cell: &Cell, reasons: &[Reason
     let owners = |block, was: Option<Seq>| {
         (reading.of(block).iter()).any(|v| {
             let theirs = (flow.is_note(block) && v.by == Writer::Person)
-                || (flow.interrupts(block) && matches!(v.by, Writer::Person | Writer::Outside));
+                || (flow.owner_acts(block) && matches!(v.by, Writer::Person | Writer::Outside));
             theirs && v.changed_meaning() && v.at > since && v.at < place && Some(v.at) > was
         })
     };

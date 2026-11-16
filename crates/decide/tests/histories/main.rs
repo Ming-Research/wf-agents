@@ -17,13 +17,17 @@
 //!   the first test, drawn apart from the rest, a judge stands before the merge, run only while "flip" holds and
 //!   writing a verdict, yes or no; the merge then also waits while the verdict stands at no. In a third of the
 //!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
-//!   entered again for the results of what it asked for one to three times in a row.
+//!   entered again for the results of what it asked for one to three times in a row. In two histories of five, drawn
+//!   apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the owner's answers
+//!   to its own, a block a paused work answers that interrupts nothing.
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
 //!   or "ready"; letting a cell go on; pausing or resuming; speaking to the cell the words run; and, once in a hundred
 //!   acts, cancelling the work. At a rest they answer a call for them, or let a cell go on at a limit, three times in
-//!   five.
+//!   five. Where the cells ask, people answer a question that stands at any act now and then, the latest version of it
+//!   or an earlier one; and where the work waits for an answer, they give it in half their acts, and turn off the
+//!   condition of the cell it waits at in a quarter, so that the question holds the work at a cell that is skipped.
 //! - agents: each round ends with a return drawn from all the form allows, which the histories' engine judges with
 //!   `decide::run::next` and what `decide::told` gives, as the engine's loop does: it does the cell's work in most,
 //!   dealing with each of what ran the round with a chance of four in five and writing each output with three in five,
@@ -32,7 +36,9 @@
 //!   what the cell may not, or deals with nothing. A return that meets everything is taken at once, its calls made
 //!   before its run finishes; one that does not is sent back, the next round told of any version it would have written
 //!   over; at the limit of returns the owner is asked. From the third round of a run the agent returns what meets
-//!   everything. In half the histories of the first test that have no judge, a round before the third fails in twelve
+//!   everything. Where the cells ask, a return taken that asks for no call asks a question of its cell's in one in
+//!   five, of two names, waiting for it in half, or now and then withdraws one that stands. In half the histories of
+//!   the first test that have no judge, a round before the third fails in twelve
 //!   in a hundred, of a kind that pauses the work, in passing, or of a kind the run takes up itself.
 //! - the engine: while the work is paused, a run at rest has its next round only where it started for the owner's words
 //!   and its last round did not fail in a way that paused the work with no letting on since (`pausing`).
@@ -60,8 +66,8 @@ use std::sync::{Mutex, PoisonError};
 
 use decide::run::{self, Failure, Log, Requires, Return, Step, Unmet};
 use decide::{
-    BlockId, CallId, Called, Cell, CellId, Condition, Decision, End, Finished, PutIn, Returned, Room, Round, RunId,
-    Seq, Test, TestKind, TestName, Waited, Who, Write,
+    BlockId, CallId, Called, Cell, CellId, Condition, Decision, End, Finished, PutIn, Questioned, Returned, Room,
+    Round, RunId, Seq, Test, TestKind, TestName, Waited, Who, Write,
 };
 use properties::{Moment, Seen, Verdict};
 use reading::{Reading, Writer};
@@ -122,6 +128,11 @@ pub const UNREFUSED: &str = "the verdict is no refusal";
 
 /// The block that is the owner's words to a cell: it interrupts.
 const SPOKEN: &str = "spoken";
+
+/// The block that is the owner's answers to the questions of the cell it runs, which the engine's source writes where
+/// an answer to a question's latest version takes another option than the first, which the questions here recommend, or
+/// answers one the cell waits for: a paused work answers it, and it interrupts nothing.
+const ANSWERED: &str = "answered";
 
 /// From this round of a run on, its agent returns what meets everything the flow requires of it.
 const ROUNDS: usize = 3;
@@ -272,6 +283,11 @@ struct History {
     failing: Option<Rng>,
     /// Draws the room the engine leaves the work, apart from `rng`, in the histories where it changes.
     rooms: Option<Rng>,
+    /// Draws the questions the cells ask and the owner's answers, apart from `rng`, in the histories where cells ask,
+    /// so that the histories where they do not go as they did before questions were added.
+    asking: Option<Rng>,
+    /// The cell the owner's answers to its questions run, in the histories where cells ask.
+    answered: Option<CellId>,
     /// The room the engine leaves the work: the owner's pause of everything, and whether a slot is free.
     room: Room,
     /// Whether rounds fail more often than `ANY` draws them.
@@ -319,6 +335,13 @@ impl History {
                 c.slot = !rooms.chance(30);
             }
         }
+        let mut asks = Rng::new(seed ^ 0x0A5C_ED0F_0A11_5E7E);
+        let mut asking = asks.chance(40).then_some(asks);
+        let answered = asking.as_mut().map(|a| {
+            let i = a.below(cells.len());
+            cells[i].runs_on.push(ANSWERED.into());
+            cells[i].id.clone()
+        });
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
             judge.limit = 2;
@@ -337,6 +360,7 @@ impl History {
         };
         w.notes(&[BRIEF]);
         w.turning(SPOKEN);
+        w.answering(ANSWERED);
         w.person_writes(BRIEF);
         if rng.chance(40) || judged.is_some() {
             w.says(GATE, true);
@@ -358,6 +382,8 @@ impl History {
             judged,
             failing,
             rooms,
+            asking,
+            answered,
             room: Room::FREE,
             often: drawn.failing,
             backs: BTreeMap::new(),
@@ -670,6 +696,7 @@ impl History {
                     Some(Some(Back::Came { calls, .. })) => calls.clone(),
                     _ => Vec::new(),
                 };
+                let asked_for_calls = !calls.is_empty();
                 for on in calls {
                     let call = CallId(self.next_id());
                     let at = self.w.tick();
@@ -683,6 +710,9 @@ impl History {
                     dealt_with: Some(dealt_with),
                     waits_for: None,
                 });
+                if !asked_for_calls {
+                    self.ask(&cell.id);
+                }
             }
             Step::SendBack { unmet } => {
                 self.begin_round(run);
@@ -996,6 +1026,9 @@ impl History {
 
     /// A person acts: on what the work waits for, where there is something, or at random.
     fn person_acts(&mut self, at: Option<&CellId>, waited: &[Waited]) {
+        if self.answers(at, waited) {
+            return;
+        }
         for o in waited {
             match o {
                 Waited::Call { call, on: Some(_) } if self.rng.chance(60) => {
@@ -1095,6 +1128,114 @@ impl History {
                 self.w.let_go(c.as_str());
             }
             _ => self.toggle_pause(),
+        }
+    }
+
+    /// The cell's run that just finished asks a question of its cell's, in the histories where cells ask: one of two
+    /// names, waiting for the answer or not, or now and then withdraws one of them that stands. The merge asks nothing.
+    fn ask(&mut self, cell: &CellId) {
+        let merge = self.w.flow.cells().last().is_some_and(|c| c.id == *cell);
+        let Some(asking) = self.asking.as_mut().filter(|_| !merge) else {
+            return;
+        };
+        if !asking.chance(20) {
+            return;
+        }
+        let name = format!("{cell}-q{}", asking.below(2));
+        let stands = (self.w.records.questions.iter())
+            .rfind(|q| q.name == name)
+            .is_some_and(|q| !q.withdrawn);
+        if stands && asking.chance(25) {
+            self.note(format!("{cell} withdraws its question {name}"));
+            self.w.withdraws(cell.as_str(), &name);
+        } else {
+            let waits = asking.chance(50);
+            self.note(format!("{cell} asks the question {name}, waiting for it: {waits}"));
+            self.w.questions(cell.as_str(), &name, waits);
+        }
+    }
+
+    /// The owner answers a question, in the histories where cells ask: where the work waits for an answer, in half the
+    /// acts that one, and in a quarter turns off the condition of the cell it waits at, where it has one; at any other
+    /// act now and then a question that stands, its latest version or an earlier one. Says whether the owner acted.
+    fn answers(&mut self, at: Option<&CellId>, waited: &[Waited]) -> bool {
+        let Some(asking) = self.asking.as_mut() else {
+            return false;
+        };
+        let draw = asking.below(100);
+        let waited_for = waited.iter().find_map(|o| match o {
+            Waited::Answer { question } => Some(question.clone()),
+            _ => None,
+        });
+        if let Some(name) = waited_for {
+            if draw < 50 {
+                self.answer(&name, true);
+                return true;
+            }
+            if draw < 75 && at.is_some_and(|at| self.turn_off(at)) {
+                return true;
+            }
+            return false;
+        }
+        if draw >= 12 {
+            return false;
+        }
+        let r = &self.w.records;
+        let mut names: Vec<String> = r.questions.iter().map(|q| q.name.clone()).collect();
+        names.sort();
+        names.dedup();
+        if names.is_empty() {
+            return false;
+        }
+        let name = names[asking.below(names.len())].clone();
+        let latest = asking.chance(80);
+        self.answer(&name, latest);
+        true
+    }
+
+    /// The owner answers the question, its latest version or else its first, taking the first option or the second; a
+    /// version that withdraws it is answered never, and an answer to the version asked before it answers nothing. The
+    /// engine's source writes the owner's answers to the cell they run where the answer is to the latest version and
+    /// takes the second option, or the question waits.
+    fn answer(&mut self, name: &str, latest: bool) {
+        let of_it: Vec<&Questioned> = self.w.records.questions.iter().filter(|q| q.name == name).collect();
+        let asked: Vec<&&Questioned> = of_it.iter().filter(|q| !q.withdrawn).collect();
+        let (Some(first), Some(last), Some(now)) = (asked.first(), asked.last(), of_it.last()) else {
+            return;
+        };
+        let version = if latest { last.at } else { first.at };
+        let (cell, waits, now) = (now.cell.clone(), now.waits, now.at);
+        let option = 1 + self.asking.as_mut().map_or(0, |a| a.below(2)) as u64;
+        self.note(format!(
+            "the owner answers {name} at {version:?}, taking option {option}"
+        ));
+        self.w.answers(name, version, option);
+        if version == now && (option == 2 || waits) && self.answered.as_ref() == Some(&cell) {
+            self.note(format!("the outside writes {ANSWERED}"));
+            self.w.outside_writes(ANSWERED);
+        }
+    }
+
+    /// The owner turns off the condition of the cell, where it has one: the choice it reads to no, or the word "flip"
+    /// to no. Says whether it did.
+    fn turn_off(&mut self, at: &CellId) -> bool {
+        let Some(i) = self.w.flow.place(at) else {
+            return false;
+        };
+        let applies = self.w.flow.cells()[i].applies.clone();
+        match applies.first() {
+            Some(Condition::Is { block, .. }) => {
+                self.note(format!("a person sets {block} to no, turning off {at}"));
+                self.person_writes_now();
+                self.w.person_sets(block.as_str(), "no");
+                true
+            }
+            Some(Condition::Test(test)) => {
+                self.note(format!("the owner's word {test} comes to no, turning off {at}"));
+                self.w.says(test.as_str(), false);
+                true
+            }
+            None => false,
         }
     }
 

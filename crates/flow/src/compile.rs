@@ -97,6 +97,10 @@ pub const ANSWER: &str = "answer";
 /// ([`decide::Outsiders`]).
 pub const TURNING: [&str; 2] = [WORDS, ANSWER];
 
+/// The sources outside a work a new version of whose block is the owner acting on the cells it runs: the owner's words
+/// to a cell, and an answer ([`WORDS`], [`ANSWER`]) ([`decide::Outsiders::owner_acts`]).
+pub const OWNER_ACTS: [&str; 2] = [WORDS, ANSWER];
+
 /// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Has {
@@ -621,6 +625,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 outside: b.outside.clone(),
                 by_owner: b.changed_by == Some(ChangedBy::Owner),
                 interrupts: b.outside.as_deref().is_some_and(|source| TURNING.contains(&source)),
+                owner_acts: b.outside.as_deref().is_some_and(|source| OWNER_ACTS.contains(&source)),
                 entries: b.outside.as_deref().is_some_and(|source| record(name, source)),
             };
             (BlockId(name.clone()), outsiders)

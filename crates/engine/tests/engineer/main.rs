@@ -124,8 +124,8 @@ use std::sync::{Mutex, PoisonError};
 
 use decide::run::Failure;
 use decide::{
-    BlockId, Cause, CellId, Condition, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited, Who,
-    decide,
+    BlockId, Cause, CellId, Condition, Decision, End, Flow, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited,
+    Who, decide,
 };
 use engine::spoken::{self, To};
 use engine::{Ask, Came, Effect, Event, Handed, Question, Way};
@@ -532,10 +532,10 @@ fn answered_stood(records: &Records) -> bool {
     (decide::questions::questions(records).values()).any(|q| q.stands() && q.answer.is_some())
 }
 
-/// Whether the block was ever written.
-fn ever_written(records: &Records, block: &BlockId) -> bool {
-    (records.finished.iter()).any(|f| f.writes.iter().any(|w| &w.block == block))
-        || records.written.iter().any(|w| &w.block == block)
+/// Whether the block says something: a version of it changed its meaning, which a first version handed in as changing
+/// nothing did not (design document `data-and-context`, 9), by the histories' own reading.
+fn says_something(flow: &Flow, records: &Records, block: &BlockId) -> bool {
+    (Reading::new(flow, records, None).current(block)).is_some_and(|v| v.meaning.is_some())
 }
 
 fn wrote(block: &BlockId, by: Outsider, matters: bool, value: Option<String>) -> Event {
@@ -1260,7 +1260,7 @@ impl Content {
                 } else if opinion(&d.flow, b, i) {
                     None
                 } else {
-                    let matters = act || answering || !ever_written(&d.work.records, b);
+                    let matters = act || answering || !says_something(&d.flow.flow, &d.work.records, b);
                     Some(handed(b, cell, matters, None))
                 }
             })

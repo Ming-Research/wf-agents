@@ -249,19 +249,34 @@ fn any_answer_to_a_question_that_waits_runs_the_asking_cell_again() {
 }
 
 #[test]
-fn an_answer_taking_another_option_than_the_one_the_work_goes_by_stops_a_later_round_and_runs_the_cell() {
+fn an_answer_taking_another_option_than_the_one_the_work_goes_by_lets_a_later_round_end_and_then_runs_the_cell() {
+    // Design document `data-and-context`, 35: only the owner's words stop a round of a later cell.
     let (mut w, effects) = researched(vec![asked("which", false)]);
     let (implementing, ..) = round(&effects);
     let version = w.version("which");
     let effects = w.answers("which", version, 2);
-    assert_eq!(effects, [Effect::Stop { run: implementing }]);
-    let effects = w.returns(implementing, Came::hands_in(Vec::new()));
+    assert_eq!(effects, [], "the implementation's round goes on");
+    let effects = w.returns(implementing, hands_in(&[("code", None)]));
     let (_, cell, ..) = round(&effects);
     assert_eq!(cell, "research");
     // Answered again with the option the work now goes by, it runs nothing more.
     let before = w.written("answered");
     w.answers("which", version, 2);
     assert_eq!(w.written("answered"), before);
+}
+
+#[test]
+fn a_paused_work_still_runs_the_asking_cell_for_the_owners_answer() {
+    // The owner's pauses stay as they are (design document `data-and-context`): a paused work answers the owner.
+    let (mut w, _) = researched(vec![asked("which", true)]);
+    w.on(Event::Paused {
+        by: decide::Pauser::Owner,
+        why: None,
+    });
+    let version = w.version("which");
+    let effects = w.answers("which", version, 2);
+    let (_, cell, ..) = round(&effects);
+    assert_eq!(cell, "research");
 }
 
 #[test]

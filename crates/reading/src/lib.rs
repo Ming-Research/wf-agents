@@ -1,17 +1,17 @@
-//! The histories' own reading of a work's records, written from the design tree and not from the walk: the
-//! versions of each block, the meaning of each, what each cell consumed, what is new to it, what calls it is owed and
-//! why a run would start (design document `data-and-context`). The properties are judged by this reading, so that a
-//! fault in the walk's own reading is not repeated in the judging. It reads only the records and the flow, with its
-//! named tests, never what the deciding code works out of them: it takes the deciding code's types and calls none of
-//! its walk. It is read by every test that judges the deciding code by the records, the histories of crate `decide`
-//! and the exploration of the repository's own flow (crate `flow`, `tests/explored`), so it is one crate they share
-//! (principle `one-thing-one-place`).
+//! The histories' own reading of a work's records, written from the design tree and not from the walk: the versions of
+//! each block, the meaning of each, what each cell consumed, what is new to it, what calls it is owed, which questions
+//! hold the work and why a run would start (design document `data-and-context`). The properties are judged by this
+//! reading, so that a fault in the walk's own reading is not repeated in the judging. It reads only the records and the
+//! flow, with its named tests, never what the deciding code works out of them: it takes the deciding code's types and
+//! calls none of its walk. It is read by every test that judges the deciding code by the records, the histories of
+//! crate `decide` and the exploration of the repository's own flow (crate `flow`, `tests/explored`), so it is one crate
+//! they share (principle `one-thing-one-place`).
 
 use std::collections::BTreeMap;
 
 use decide::{
-    BlockId, CallId, Cause, Cell, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started, TestKind,
-    TestName,
+    BlockId, CallId, Cause, Cell, CellId, Condition, Finished, Flow, Outsider, Questioned, Records, RunId, Seq,
+    Started, TestKind, TestName,
 };
 
 /// Who wrote a version of a block.
@@ -29,8 +29,9 @@ pub struct Version {
     /// The place of the entry that wrote it, which names it.
     pub at: Seq,
     pub by: Writer,
-    /// The version at which what the block says last changed: this one, or an earlier one.
-    pub meaning: Seq,
+    /// The version at which what the block says last changed: this one, or an earlier one; none where the block has
+    /// said nothing yet, as of a first version handed in as changing nothing.
+    pub meaning: Option<Seq>,
     pub value: Option<String>,
     /// Whether it holds nothing.
     pub empty: bool,
@@ -39,7 +40,7 @@ pub struct Version {
 impl Version {
     /// Whether this write changed what the block says.
     pub fn changed_meaning(&self) -> bool {
-        self.meaning == self.at
+        self.meaning == Some(self.at)
     }
 }
 
@@ -60,13 +61,14 @@ pub struct Reading<'a> {
 }
 
 impl<'a> Reading<'a> {
-    /// The reading of these records. The meaning of each version follows decision meaning-told-by-the-writer: the first
-    /// version of a block has its own. A version that has a value, or follows one that has, is a choice: it changes the
-    /// meaning when the value differs from the one before, and only then, whoever writes it. Otherwise a person's
-    /// prose always changes the meaning; what the outside writes does unless it was approved as not mattering; a
-    /// cell's write does when the cell says so, and when it says not, it is taken at its word only if the version it
-    /// started from has the meaning of the version it writes over: a cell that did not see what it writes over is not
-    /// taken at its word.
+    /// The reading of these records. The meaning of each version follows decision meaning-told-by-the-writer: a
+    /// version that has a value, or follows one that has, is a choice: it changes the meaning when the value differs
+    /// from the one before, and only then, whoever writes it, the first version of a choice having its own. Otherwise
+    /// a person's prose always changes the meaning; what the outside writes does unless it was approved as not
+    /// mattering; a cell's write does when the cell says so, and when it says not, it is taken at its word only if the
+    /// version it started from has the meaning of the version it writes over: a cell that did not see what it writes
+    /// over is not taken at its word. A first version the outside or a cell hands in as changing nothing says nothing,
+    /// and is new to no cell (design document `data-and-context`, 9).
     pub fn new(records: &'a Records) -> Self {
         let started: BTreeMap<RunId, &Started> = records.started.iter().map(|s| (s.run, s)).collect();
         let finished: BTreeMap<RunId, &Finished> = records.finished.iter().map(|f| (f.run, f)).collect();
@@ -109,26 +111,30 @@ impl<'a> Reading<'a> {
         let mut versions: BTreeMap<BlockId, Vec<Version>> = BTreeMap::new();
         for e in entries {
             let of_block = versions.entry(e.block.clone()).or_default();
+            let own = Some(e.at);
             let meaning = match of_block.last() {
-                None => e.at,
+                // Handed in as changing nothing, with no version before it, a version says nothing: a person's prose
+                // and a choice excepted, whose meaning their writer does not tell.
+                None if e.value.is_none() && e.by != Writer::Person && !e.matters => None,
+                None => own,
                 Some(over) if e.value.is_some() || over.value.is_some() => {
                     if e.value == over.value {
                         over.meaning
                     } else {
-                        e.at
+                        own
                     }
                 }
                 Some(over) => match &e.by {
-                    Writer::Person => e.at,
-                    Writer::Outside if e.matters => e.at,
+                    Writer::Person => own,
+                    Writer::Outside if e.matters => own,
                     Writer::Outside => over.meaning,
-                    Writer::Cell(..) if e.matters => e.at,
+                    Writer::Cell(..) if e.matters => own,
                     Writer::Cell(_, run) => {
                         let from = started[run].basis.get(e.block).copied().flatten();
                         let seen = from
                             .and_then(|v| of_block.iter().find(|x| x.at == v))
                             .map(|x| x.meaning);
-                        if seen == Some(over.meaning) { over.meaning } else { e.at }
+                        if seen == Some(over.meaning) { over.meaning } else { own }
                     }
                 },
             };
@@ -259,14 +265,44 @@ impl<'a> Reading<'a> {
         self.records.done.iter().any(|d| d.call == call && d.at < place)
     }
 
+    /// The questions that hold the work before this place, each by its name with the cell it holds: its latest version
+    /// before the place asks, its cell waits for the answer, and no answer to that version was given before the place.
+    /// A question is the cell's of its latest version, and an answer to an earlier version answers it no more (design
+    /// document `data-and-context`, 30, 32).
+    pub fn holding(&self, place: Seq) -> Vec<(&str, &CellId)> {
+        let mut latest: BTreeMap<&str, &Questioned> = BTreeMap::new();
+        for q in self.records.questions.iter().filter(|q| q.at < place) {
+            let kept = latest.entry(q.name.as_str()).or_insert(q);
+            if q.at > kept.at {
+                *kept = q;
+            }
+        }
+        let answered = |name: &str, q: &Questioned| {
+            (self.records.answers.iter()).any(|a| a.question == name && a.version == q.at && a.at < place)
+        };
+        (latest.into_iter())
+            .filter(|(name, q)| q.waits && !q.withdrawn && !answered(name, q))
+            .map(|(name, q)| (name, &q.cell))
+            .collect()
+    }
+
+    /// Whether a question of the cell holds the work at it before this place ([`Reading::holding`]).
+    pub fn held(&self, cell: &CellId, place: Seq) -> bool {
+        self.holding(place).iter().any(|(_, c)| *c == cell)
+    }
+
     /// Why the cell would be entered at this place: what is new to it, and the results it is owed once all are in.
-    /// While one has no result, only the owner turning to it (a block that interrupts) enters it, by a version no run of
-    /// the cell started before the place and not abandoned before it was told (decision
+    /// While one has no result, or a question of its that it waits for holds it, only the owner's words to it (a block
+    /// that interrupts) enter it, by a version no run of the cell started before the place and not abandoned before it
+    /// was told; once every result is in, a cell its question holds is entered for them with every version of the
+    /// owner's words new to it (decisions a-question-that-waits-holds-its-cell and
     /// the-owner-turning-to-a-waiting-cell-enters-it-once).
     pub fn entering(&self, flow: &Flow, cell: &Cell, place: Seq) -> Vec<Reason> {
         let mut reasons = self.reasons(cell, place);
         let owed = self.owed(&cell.id, place);
-        if owed.iter().any(|c| !self.done(*c, place)) {
+        let open = owed.iter().any(|c| !self.done(*c, place));
+        if open || self.held(&cell.id, place) {
+            let results = !open && !owed.is_empty();
             let abandoned = |run: RunId| (self.records.abandoned.iter()).any(|a| a.run == run && a.at < place);
             let seen = |block: &BlockId| {
                 (self.started.values())
@@ -277,8 +313,12 @@ impl<'a> Reading<'a> {
             reasons.retain(|r| {
                 matches!(r, Reason::Changed { block, .. }
                     if flow.interrupts(block)
-                        && self.current_before(block, place).is_some_and(|v| Some(v.at) > seen(block)))
+                        && (results
+                            || self.current_before(block, place).is_some_and(|v| Some(v.at) > seen(block))))
             });
+            if results {
+                reasons.push(Reason::Results { calls: owed });
+            }
         } else if !owed.is_empty() {
             reasons.push(Reason::Results { calls: owed });
         }

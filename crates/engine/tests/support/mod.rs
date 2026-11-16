@@ -151,8 +151,8 @@ pub fn waited(records: &Records, started: &Started) -> bool {
     open || held
 }
 
-/// Whether the run started for a note a person wrote, or for the owner turning to its cell: one of its reasons is a
-/// note that a person wrote, or a block the owner turns to the cell by that the outside wrote, since its cell last ran
+/// Whether the run started for a note a person wrote, or for the owner acting on its cell: one of its reasons is a
+/// note that a person wrote, or a block of the owner's words or answers that the outside wrote, since its cell last ran
 /// (since the start of the run of its record, or with no record of its first run), after the version its cell's record
 /// knew, and before the run started; for a cell with no record, one the run started from. A cell no run of which
 /// started before has not run. Read from the records and the flow's notes; it does not ask whether the write changed
@@ -175,7 +175,7 @@ pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
     let by_person = |block: &decide::BlockId, was: Option<decide::Seq>| {
         let by = if flow.is_note(block) {
             Outsider::Person
-        } else if flow.interrupts(block) {
+        } else if flow.owner_acts(block) {
             Outsider::Outside
         } else {
             return false;

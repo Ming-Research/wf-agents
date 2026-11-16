@@ -79,6 +79,9 @@ pub struct Outsiders {
     /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls, and is
     /// answered while the work is paused, as a note is.
     pub interrupts: bool,
+    /// A new version of it is the owner acting on the cells it runs: the owner's words to a cell, or an answer to its
+    /// question (design document `data-and-context`, 30, 35).
+    pub owner_acts: bool,
     /// It is a record its source adds entries to, which a trigger of that source has its agent read: the record of
     /// what is said, or of the questions and the answers. A version of it, a cell's as much as its source's, is an
     /// entry added beside those before it, and replaces none.
@@ -210,6 +213,11 @@ impl Flow {
     /// Whether a new version of the block is the owner turning to the cells it runs ([`Outsiders::interrupts`]).
     pub fn interrupts(&self, block: &BlockId) -> bool {
         self.outsiders.get(block).is_some_and(|o| o.interrupts)
+    }
+
+    /// Whether a new version of the block is the owner acting on the cells it runs ([`Outsiders::owner_acts`]).
+    pub fn owner_acts(&self, block: &BlockId) -> bool {
+        self.outsiders.get(block).is_some_and(|o| o.owner_acts)
     }
 
     /// Whether a version of the block is an entry added to a record, which replaces none before it

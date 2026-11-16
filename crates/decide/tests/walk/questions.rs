@@ -10,7 +10,7 @@ fn asked(waits: bool) -> (World, Seq) {
         cell("research", &["brief", "research answered"], &["plan"]),
         cell("implement", &["plan"], &["code"]),
     ]);
-    w.turning("research answered");
+    w.answering("research answered");
     w.person_writes("brief");
     w.run("research", &[("plan", Matters)]);
     let version = w.questions("research", "which", waits);
@@ -73,6 +73,62 @@ fn a_question_withdrawn_holds_the_work_no_more() {
 }
 
 #[test]
+fn a_question_the_cell_waits_for_holds_the_work_at_the_cell_while_the_cell_is_skipped() {
+    // Design document `data-and-context`, 32: no later cell runs while it stands unanswered, whether or not its cell
+    // applies now.
+    let mut w = World::with_gate(vec![
+        cell("research", &["brief"], &["plan"]),
+        when("deep", "yes", cell("design", &["plan"], &["design"])),
+        cell("implement", &["plan", "design"], &["code"]),
+    ]);
+    w.person_writes("brief");
+    w.person_sets("deep", "yes");
+    w.run("research", &[("plan", Matters)]);
+    w.run("design", &[("design", Matters)]);
+    let version = w.questions("design", "how", true);
+    assert_eq!(w.decide(), waits_for("design", "how"));
+    w.person_sets("deep", "no");
+    assert_eq!(w.decide(), waits_for("design", "how"));
+    // Once answered, the skipped cell is passed, and the work goes on after it.
+    w.answers("how", version, 1);
+    assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "implement"));
+}
+
+#[test]
+fn the_owners_answer_to_a_cell_that_waits_for_the_results_of_its_calls_does_not_enter_it_and_runs_it_with_them() {
+    // Design document `data-and-context`, 32 and 35: only the owner's words are let in while a cell waits.
+    let mut w = World::with_gate(vec![
+        cell("research", &["brief", "research answered"], &["plan"]),
+        cell("implement", &["plan"], &["code"]),
+    ]);
+    w.answering("research answered");
+    w.person_writes("brief");
+    w.start("research");
+    let call = w.asks("research", None);
+    w.outside_writes("research answered");
+    assert_eq!(
+        w.decide(),
+        Decision::Wait {
+            at: "research".into(),
+            on: vec![Waited::Call { call, on: None }],
+        }
+    );
+    w.done(call);
+    let Decision::Run { cell, because, .. } = w.decide() else {
+        panic!("nothing runs: {:?}", w.decide())
+    };
+    assert_eq!(cell.as_str(), "research");
+    assert_eq!(
+        because,
+        vec![
+            changed("brief", None, false),
+            changed("research answered", None, false),
+            Cause::Results { calls: vec![call] }
+        ]
+    );
+}
+
+#[test]
 fn a_question_the_cell_does_not_wait_for_holds_nothing() {
     let (w, _) = asked(false);
     assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "implement"));
@@ -107,7 +163,7 @@ fn the_owner_speaking_to_a_cell_held_by_its_question_enters_it_and_it_goes_on_wa
         ),
         cell("implement", &["plan"], &["code"]),
     ]);
-    w.turning("research answered");
+    w.answering("research answered");
     w.turning("spoken to research");
     w.person_writes("brief");
     w.run("research", &[("plan", Matters)]);
@@ -174,7 +230,7 @@ fn spoken_to_while_held() -> (World, decide::RunId, Seq) {
         ),
         cell("implement", &["plan"], &["code"]),
     ]);
-    w.turning("research answered");
+    w.answering("research answered");
     w.turning("spoken to research");
     w.person_writes("brief");
     w.run("research", &[("plan", Matters)]);
