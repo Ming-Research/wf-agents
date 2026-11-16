@@ -779,3 +779,83 @@ fn the_guide_is_held_from_the_session_s_start_and_what_changed_in_it_is_sent() {
     };
     assert!(entered.fills.contains(&change), "{:?}", entered.fills);
 }
+
+/// A maker and its judge on one line, the judge's verdict read by the test the flow's last cell requires, so that the
+/// judge's points are its dialogue with the maker, and the owner may rule in the judge's place.
+fn judged() -> flow::Compiled {
+    let flow = "name = \"judged\"\norder = [\"make\", \"judge\", \"close\"]\n\n[limits]\nruns = 1000\nreturns = 1000\n\
+                calls = 1000\n\n[lines.one]\n\n[blocks.request]\npeople = true\n\n[blocks.work]\n\n[blocks.talk]\n\n\
+                [blocks.ok]\nvalues = [\"yes\", \"no\"]\npeople = true\n\n[tests.settled]\n\
+                says = \"The judge is content\"\nkind = \"none_standing\"\nreads = [\"ok\"]\nis = \"no\"\n";
+    let cell = |task: &str, rest: &str| {
+        format!("title = \"{task}\"\nkind = \"agent\"\neffort = \"high\"\nline = \"one\"\ntask = \"{task}\"\n{rest}")
+    };
+    let cells = [
+        (
+            "make",
+            cell(
+                "Make it.",
+                "watches = [\"request\", \"talk\"]\noutputs = [\"work\", \"talk\"]\n\n[kinds]\nrequest = \"latest\"\ntalk = \"all\"\n",
+            ),
+        ),
+        (
+            "judge",
+            cell(
+                "Judge it.",
+                "watches = [\"work\", \"talk\"]\noutputs = [\"talk\", \"ok\"]\n\n[kinds]\nwork = \"latest\"\ntalk = \"all\"\n",
+            ),
+        ),
+        (
+            "close",
+            cell(
+                "Close it.",
+                "requires = { test = \"settled\" }\nwatches = [\"work\"]\noutputs = []\n\n[kinds]\nwork = \"latest\"\n",
+            ),
+        ),
+    ];
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: cells.into_iter().map(|(id, text)| (id.to_string(), text)).collect(),
+        ..Default::default()
+    };
+    flow::compile(&source, &flow::Has::default()).expect("the judged flow compiles")
+}
+
+// The owner's ruling in a judge's place (design document `data-and-context`, 39): the points the judge wrote before it
+// are new to no cell, in what a round is given as in what runs it. The maker, run again by a new request, holds the
+// judge's last point in its session and last worked from an earlier one: the point is no change to it.
+#[test]
+fn a_judge_s_point_the_owner_ruled_on_is_held_as_no_change_to_its_maker() {
+    let mut sim = Sim::of(judged(), support::words());
+    let next = |sim: &mut Sim, cell: &str, blocks: &[(&str, &str, Option<&str>)]| {
+        let round = sim.round().expect("a round is given");
+        assert_eq!(sim.cell(&round).id.as_str(), cell);
+        let entered = sim.enter(&round, sim.begins(&round));
+        sim.tries(&round, 1, entered.fills);
+        sim.hands_in(&round, blocks);
+    };
+    sim.writes("request", "Greet the user.");
+    next(&mut sim, "make", &[("work", "Hello.", None)]);
+    next(
+        &mut sim,
+        "judge",
+        &[("ok", "", Some("no")), ("talk", "Name the user.", None)],
+    );
+    next(&mut sim, "make", &[("work", "Hello, Ann.", None)]);
+    next(
+        &mut sim,
+        "judge",
+        &[("ok", "", Some("no")), ("talk", "Greet warmly.", None)],
+    );
+    sim.wrote("ok", "", Some("yes"), Outsider::Person);
+    sim.writes("request", "Greet the user warmly.");
+    let round = loop {
+        let round = sim.round().expect("a round is given");
+        if sim.cell(&round).id.as_str() == "make" {
+            break round;
+        }
+        carry(&mut sim, &[]);
+    };
+    let entered = sim.enter(&round, sim.begins(&round));
+    assert_eq!(entered.situation.data["talk"], Stands::Holds, "{}", entered.text);
+}
