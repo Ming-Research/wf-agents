@@ -654,8 +654,7 @@ impl Inner {
                     true => no.why,
                     false => flow::agents::fill(&of.beside.cost.program.cut_off, &[("command", command.as_str())]),
                 };
-                let _ = no.spent;
-                return Ok(Carried::Failed(why, Failure::Passing, no.said, Spent::default()));
+                return failed(why, no.said, no.spent);
             }
         };
         match returns::came(&read.structured, flow, &round.cell, &of.beside) {
@@ -874,8 +873,7 @@ impl Inner {
             );
         }
         let priced = !stream.has_result() && stream.priced().is_some();
-        let _ = (measured, starts);
-        let measures = false
+        let measures = (!measured && starts)
             .then(|| measures(&stream, given, before, crossing.is_some(), priced))
             .flatten();
         // The service served the round: a wait every work shares need not wait for its end (decision
@@ -1512,8 +1510,11 @@ fn guarded(
 /// says, where it printed one, or else its calls at their models' prices; with its compactions.
 fn spent_of(round: &Round, line: &str, left: Left) -> Spent {
     let InSession { begin, before, .. } = cli::in_session(&round.flow, &round.kept, line, round.run, round.number);
-    let _ = (begin, before, left.anew);
-    let spent = left.stream.priced().unwrap_or_default();
+    let begin = if left.anew { Begin::New } else { begin };
+    let spent = match left.stream.read(begin, before) {
+        Ok(read) => read.spent,
+        Err(no) => no.spent.unwrap_or_default(),
+    };
     Spent {
         compactions: left.compactions,
         ..spent
