@@ -56,17 +56,16 @@
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
 //!   kind `all` looks for in three of five (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
-//! - a person who acts while the check's round is under way pauses the work, and while the pause then holds
-//!   the merge back after the check passed, writes an input of a judge that people write in two of five acts, writes
-//!   a verdict as its refusal in one of five and lets the work on in three of ten, so that a judge looks again, or a
-//!   person refuses, after the check passed. Where a question stands with no answer, the owner answers one, by either
-//!   option, in one act of two. Otherwise a person writes a
-//!   choice people write (a verdict), yes or no, in about a fifth of the acts; prose people write (the background, an
-//!   opinion for a cell) in three of twenty; the outside writes one of its blocks, a choice with the value a
-//!   precondition looks for in four of five, prose mattering in half, in three of twenty; the owner lets the cell at
-//!   its limit go on, or any cell where none is, in three of twenty; pauses or resumes in a tenth; answers a question
-//!   that stands, its latest version, by either option, in six of a hundred; cancels in one in a hundred; looks
-//!   otherwise.
+//! - a person who acts while the check's round is under way pauses the work, and while the pause then holds the merge
+//!   back after the check passed, writes an input of a judge that people write in two of five acts, writes a verdict as
+//!   its refusal in one of five and lets the work on in three of ten, so that a judge looks again, or a person refuses,
+//!   after the check passed. Where a question stands with no answer, the owner answers one, by either option, in one
+//!   act of two. Otherwise a person writes a choice people write (a verdict), yes or no, in about a fifth of the acts;
+//!   prose people write (the background, an opinion for a cell) in three of twenty; the outside writes one of its
+//!   blocks, a choice with the value a precondition looks for in four of five, prose mattering in half but its first
+//!   version always, in three of twenty; the owner lets the cell at its limit go on, or any cell where none is, in
+//!   three of twenty; pauses or resumes in a tenth; answers a question that stands, its latest version, by either
+//!   option, in six of a hundred; cancels in one in a hundred; looks otherwise.
 //!
 //! Seven histories of ten are steered, drawn by a generator of their own so that the other draws keep their order, each
 //! taking every random step it may. In three of ten, the work is paused while the check's round is under way; once
@@ -1109,8 +1108,10 @@ impl Random {
                     };
                     wrote(&b, Outsider::Outside, true, Some(value))
                 }
+                // What the outside writes is approved as not mattering only as a change of what the block said: a first
+                // version so written would say nothing, and run no cell (design document `data-and-context`, 9).
                 None => {
-                    let matters = d.rng.chance(50);
+                    let matters = d.rng.chance(50) || !ever_written(&d.work.records, &b);
                     wrote(&b, Outsider::Outside, matters, None)
                 }
             }),
