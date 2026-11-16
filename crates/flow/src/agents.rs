@@ -280,7 +280,7 @@ impl Agents {
     pub fn declared(&self, text: &str, at: &str) -> Result<Agents, String> {
         let project: Project = toml::from_str(text).map_err(|e| format!("{at}: {}", e.to_string().trim_end()))?;
         for part in &self.session.parts {
-            if let SessionPart::Project(ProjectPart { project: name }) = part
+            if let Some(name) = part.file()
                 && !project.files.contains_key(name)
             {
                 let session = self.root.join(AGENTS_DIR).join("session.toml");
@@ -477,9 +477,22 @@ pub struct Session {
 #[serde(untagged)]
 pub enum SessionPart {
     Project(ProjectPart),
+    Datum(DatumPart),
     Line(LinePart),
     Words(WordsPart),
     Returns(ReturnsPart),
+}
+
+impl SessionPart {
+    /// The file of the project the part holds, by its name in `project.toml`: a file of the project's, or the datum
+    /// that stands for one.
+    pub fn file(&self) -> Option<&str> {
+        match self {
+            SessionPart::Project(ProjectPart { project }) => Some(project),
+            SessionPart::Datum(DatumPart { datum }) => Some(datum),
+            SessionPart::Line(_) | SessionPart::Words(_) | SessionPart::Returns(_) => None,
+        }
+    }
 }
 
 /// A file of the project, by its name in `project.toml`.
@@ -487,6 +500,15 @@ pub enum SessionPart {
 #[serde(deny_unknown_fields)]
 pub struct ProjectPart {
     pub project: String,
+}
+
+/// A datum of the flow that stands for a file of the project of the same name in `project.toml`, as the work's branch
+/// has it: the version of it current as the session begins, which the session then holds (design document
+/// `data-and-context`, 24).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatumPart {
+    pub datum: String,
 }
 
 /// What the line names for its own system prompt.
@@ -1307,7 +1329,8 @@ pub fn read(root: &Path) -> Result<Agents, String> {
             SessionPart::Words(WordsPart { words: name }) => {
                 words.insert(name.clone(), text(&at.join(name))?);
             }
-            SessionPart::Project(ProjectPart { project: name }) if !project.files.contains_key(name) => {
+            part if part.file().is_some_and(|name| !project.files.contains_key(name)) => {
+                let name = part.file().unwrap_or_default();
                 let named = format!("names the file {name}, which {PROJECT_FILE} does not have");
                 return Err(format!("{}: {named}", session_file.display()));
             }

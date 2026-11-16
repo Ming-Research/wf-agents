@@ -387,6 +387,7 @@ impl Inner {
         let read_with = branch::Reading {
             tree: of.project.tree.clone(),
             main: of.main.clone(),
+            guide: of.project.guide.clone(),
         };
         let mut looking = branch::Looking::of(flow, work, read_with.clone());
         if main.is_some() && round.number == 1 {
@@ -422,9 +423,15 @@ impl Inner {
         let begun_with = || -> Result<(String, String), String> {
             let made = || {
                 let read = |path: &str| system::read_within(&dir, path);
+                // A datum the prompt holds is the version of it the session begins with, which it then holds.
+                let begun = context::begun_with(flow, &of.beside, work, round.run, round.number);
+                let datum = |name: &str| {
+                    let (block, at) = begun.iter().find(|(block, _)| block.as_str() == name)?;
+                    work.contents.get(&(block.clone(), *at)).cloned()
+                };
                 let tests = round.cell.tests_only.then(|| tests_only::paths(&of.beside.project));
                 let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths, tests);
-                system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read)
+                system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read, datum)
             };
             let kept_at = |what| system::kept_at(&self.data, session, what);
             let system = system::of_session(&kept_at(system::Begun::System), made)?;

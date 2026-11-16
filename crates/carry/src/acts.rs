@@ -307,6 +307,7 @@ impl<H: Host> Inner<H> {
         let read_with = branch::Reading {
             tree: project.tree.clone(),
             main: self.host.kept_main(),
+            guide: project.guide.clone(),
         };
         let looking = || Looking::of(&round.flow, &round.kept, read_with.clone());
         match act {
@@ -1406,6 +1407,7 @@ mod tests {
         let reading = branch::Reading {
             tree: repo.project.tree.clone(),
             main: crate::host::kept_main(&repo.project),
+            guide: repo.project.guide.clone(),
         };
         let mut looking = Looking::head_only(reading, last);
         let told = std::sync::Mutex::new(Vec::new());

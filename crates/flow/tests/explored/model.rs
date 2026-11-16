@@ -18,13 +18,15 @@ const WORDS: &str = "words";
 const ANSWER: &str = "answer";
 
 /// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines, each line
-/// writing a block of its own, the design tree, and the work's head, as a commit no round made moves it.
+/// writing a block of its own, the design tree, the work's head, as a commit no round made moves it, and the project's
+/// guide, read as the work's place is made.
 pub const START: &str = "start";
 pub const DEPENDENCIES: &str = "dependencies";
 pub const MAIN: &str = "main";
 pub const SESSION: &str = "session";
 pub const TREE: &str = "tree";
 pub const HEAD: &str = "head";
+pub const GUIDE: &str = "guide";
 
 /// The engine's act that checks the work before the merge.
 const CHECK: &str = "check";
@@ -286,7 +288,7 @@ impl Model {
             spoken.push(own(WORDS));
             answered.push(own(ANSWER));
         }
-        let sources = [START, DEPENDENCIES, MAIN, TREE, HEAD]
+        let sources = [START, DEPENDENCIES, MAIN, TREE, HEAD, GUIDE]
             .into_iter()
             .filter_map(|source| {
                 (compiled.blocks.iter())

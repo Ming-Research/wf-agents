@@ -219,7 +219,8 @@ async fn a_round_is_given_what_changed_from_each_earlier_version_of_the_tree_and
 }
 
 // The project's guide is read in the same step as the tree and the head (design document `data-and-context`, 24): its
-// text as the work's branch has it, a version only where the text changed, and none where the branch has no guide.
+// text as the work's branch has it, without the line breaks it ends with, a version only where the text changed, and
+// none where the branch has no guide.
 #[tokio::test]
 async fn the_guide_is_read_in_the_same_step_its_text_a_version_only_where_it_changed() {
     let (_repo, place) = started().await;
@@ -233,7 +234,7 @@ async fn the_guide_is_read_in_the_same_step_its_text_a_version_only_where_it_cha
     write(&place.dir, "AGENTS.md", "Write in English.\n");
     assert_eq!(
         looking.read(&place).await.unwrap(),
-        [(BlockId::from("guide"), "Write in English.\n".to_string())]
+        [(BlockId::from("guide"), "Write in English.".to_string())]
     );
     commit(&place.dir, "farewell.txt", "Bye.\n");
     assert_eq!(
@@ -244,7 +245,7 @@ async fn the_guide_is_read_in_the_same_step_its_text_a_version_only_where_it_cha
     write(&place.dir, "AGENTS.md", "Write in plain English.\n");
     assert_eq!(
         looking.read(&place).await.unwrap(),
-        [(BlockId::from("guide"), "Write in plain English.\n".to_string())]
+        [(BlockId::from("guide"), "Write in plain English.".to_string())]
     );
     // The engine compares the tree's versions and the head's itself, and no guide's: what changed in it is its text.
     assert_eq!(compared(&flow), [BlockId::from("tree")].into_iter().collect());

@@ -26,7 +26,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, CallId, Records, RunId, Seq, VersionView, Writer};
-use flow::agents::{Agents, Part};
+use flow::agents::{Agents, DatumPart, Part, SessionPart};
 use flow::{CellSpec, Compiled, InputKind, Listed};
 use work::sessions::{began_at, number_at, of_line, of_round, start};
 use work::{Ask, Back, Call, Fill, Given, Why, Work};
@@ -102,10 +102,14 @@ pub fn enter(
     let line = (cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", cell.id))?;
     let began = began_at(work, run, number).unwrap_or_else(|| work.tick());
     let records = work.records.before(began);
-    let held = match anew {
+    let mut held = match anew {
         true => Held::default(),
         false => held(flow, work, line, run, number, began),
     };
+    // What the session's system prompt began with it holds however it was reopened under its id since.
+    for (block, at) in begun_with(flow, words, work, run, number) {
+        held.versions.entry(block).or_default().insert(at);
+    }
     let versions = decide::versions(&records);
     let own = |v: &VersionView| matches!(v.by, Writer::Run(r) if of_cell(&records, r, cell));
     let mut situation = Situation {
@@ -332,6 +336,46 @@ pub fn enter(
         sent,
         fills,
     })
+}
+
+/// The versions of the data a session's system prompt holds, each `datum` part of `session.toml`, as they stood as the
+/// session the round runs in began: before the first round of its line in it, which made the prompt every later round
+/// of it is given, however the session is reopened under its id (design document `data-and-context`, 24). A datum with
+/// no version then is left out. The session holds them from its start, and the carrier makes the prompt from them.
+pub fn begun_with(flow: &Compiled, words: &Agents, work: &Work, run: RunId, number: usize) -> Vec<(BlockId, Seq)> {
+    let records = &work.records;
+    let spec = |r: RunId| {
+        let cell = records.started.iter().find(|s| s.run == r).map(|s| &s.cell);
+        cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell))
+    };
+    let Some(line) = spec(run).and_then(|c| c.line.as_deref()) else {
+        return Vec::new();
+    };
+    let on_line = |r: RunId| spec(r).and_then(|c| c.line.as_deref()) == Some(line);
+    let session = number_at(work, line, start(work, run, number));
+    // Where the first round of the line in the session began.
+    let mut counted: BTreeMap<RunId, usize> = BTreeMap::new();
+    let mut first = None;
+    for round in &records.rounds {
+        let k = counted.entry(round.run).or_default();
+        *k += 1;
+        if on_line(round.run) && number_at(work, line, start(work, round.run, *k)) == session {
+            first = Some(round.at);
+            break;
+        }
+    }
+    let began = (first.or_else(|| began_at(work, run, number))).unwrap_or_else(|| work.tick());
+    let versions = decide::versions(&records.before(began));
+    (words.session.parts.iter())
+        .filter_map(|part| match part {
+            SessionPart::Datum(DatumPart { datum }) => Some(BlockId::from(datum.as_str())),
+            _ => None,
+        })
+        .filter_map(|block| {
+            let at = versions.get(&block)?.last()?.at;
+            Some((block, at))
+        })
+        .collect()
 }
 
 /// Whether the part of this name is one the session keeps: one with a `kind`.

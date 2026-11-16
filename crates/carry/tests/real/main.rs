@@ -681,6 +681,7 @@ fn project(repo: &Path, check: &str) -> Project {
         github: None,
         commits: Default::default(),
         tree: "design/".to_string(),
+        guide: "AGENTS.md".to_string(),
     }
 }
 

@@ -49,6 +49,11 @@ fn settings() -> Settings {
     settings
 }
 
+/// The version of the datum `guide` a session begins with, as the records hold it: the project's guide.
+fn guide(name: &str) -> Option<String> {
+    (name == "guide").then(|| "# Working here\n\nThe guide.\n".to_string())
+}
+
 /// The project's files, by their paths in `project.toml`.
 fn project(path: &str) -> std::io::Result<String> {
     match path {
@@ -84,7 +89,16 @@ fn of(line: &str) -> String {
     let tests = cell.tests_only.then(|| crate::tests_only::paths(&beside.project));
     let permissions = Permissions::of(cell.reads_only, &[], &[], &Default::default());
     let your_line = permissions.told(&beside.your_line, protected, tests);
-    of_line(&beside, &filling(&settings, &beside), &flow, cell, &your_line, project).expect("it is made")
+    of_line(
+        &beside,
+        &filling(&settings, &beside),
+        &flow,
+        cell,
+        &your_line,
+        project,
+        guide,
+    )
+    .expect("it is made")
 }
 
 // The system prompt holds, in the order `session.toml` names them, the project's files each headed by its path, the
@@ -234,7 +248,9 @@ fn a_session_cut_off_and_begun_again_keeps_its_prompt() {
     }
     let make = || {
         let read = |path: &str| read_within(&worktree, path);
-        of_line(&beside, &filling, &flow, cell, "", read)
+        // The guide as the work's branch has it now, as a later version of the datum would give it.
+        let guide = |_: &str| std::fs::read_to_string(worktree.join("AGENTS.md")).ok();
+        of_line(&beside, &filling, &flow, cell, "", read, guide)
     };
     let at = kept_at(&dir.path().join("data"), Uuid::nil(), Begun::System);
     // The first try begins the session, and is cut off before the program runs.
@@ -255,7 +271,7 @@ fn a_projects_file_the_worktree_lacks_is_said() {
     };
     let cell = cell(&flow, "engineer");
     let filling = filling(&settings(), &beside);
-    let why = of_line(&beside, &filling, &flow, cell, "", lacking).expect_err("no tree rules");
+    let why = of_line(&beside, &filling, &flow, cell, "", lacking, guide).expect_err("no tree rules");
     assert!(
         why.starts_with("design/README.md cannot be read in the work's worktree"),
         "{why}"
@@ -331,7 +347,7 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
     let told = |beside: &Agents| {
         assert_eq!(faults(&settings(), beside, &flow), Vec::<String>::new());
         let cell = cell(&flow, "engineer");
-        of_line(beside, &filling(&settings(), beside), &flow, cell, "", project).expect("it is made")
+        of_line(beside, &filling(&settings(), beside), &flow, cell, "", project, guide).expect("it is made")
     };
     let declared = |checks: &[&str]| {
         let mut declared = beside.clone();
@@ -493,7 +509,7 @@ fn the_store_the_words_of_query_name_is_what_the_settings_say_of_it() {
     let (beside, flow) = (beside(), engineer());
     let closed = &beside.tools["query"].texts["closed"];
     let cell = cell(&flow, "engineer");
-    let prompt = |filling: &Filling| of_line(&beside, filling, &flow, cell, "", project).expect("it is made");
+    let prompt = |filling: &Filling| of_line(&beside, filling, &flow, cell, "", project, guide).expect("it is made");
     let settings = settings();
     assert!(
         !settings.query.open,
@@ -529,7 +545,7 @@ fn the_real_store_opened_to_agents_is_described_in_the_system_prompt_without_the
     open.query.open = true;
     assert_eq!(faults(&open, &beside, &flow), Vec::<String>::new());
     let cell = cell(&flow, "engineer");
-    let told = of_line(&beside, &filling(&open, &beside), &flow, cell, "", project).expect("it is made");
+    let told = of_line(&beside, &filling(&open, &beside), &flow, cell, "", project, guide).expect("it is made");
     let described = crate::store(&open, &beside).expect("the schema hides what agents may not read");
     assert!(told.contains(&described), "{told}");
     assert!(

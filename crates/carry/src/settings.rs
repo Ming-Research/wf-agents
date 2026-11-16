@@ -272,6 +272,10 @@ pub struct Project {
     /// project's declaration, `flow/project.toml` on its main, put here as the carriers are made.
     #[serde(skip)]
     pub tree: String,
+    /// The path of the project's guide for its agents in the repository: not in the settings, but in the project's
+    /// declaration (`[files.guide]`), put here as the carriers are made.
+    #[serde(skip)]
+    pub guide: String,
 }
 
 /// The project's repository on GitHub: the works' branches are pushed there, checked by its CI through a pull request

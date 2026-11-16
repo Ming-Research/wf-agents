@@ -23,8 +23,8 @@ use decide::{
 };
 
 use crate::model::{
-    BACKGROUND, DEPENDENCIES, Event, HEAD, MAIN, Model, START, TREE, Variant, dialogue_loop, ran, ran_back_on, ran_on,
-    show_key, skipped, waited_at_gate,
+    BACKGROUND, DEPENDENCIES, Event, GUIDE, HEAD, MAIN, Model, START, TREE, Variant, dialogue_loop, ran, ran_back_on,
+    ran_on, show_key, skipped, waited_at_gate,
 };
 use crate::support::World;
 use reading::{Reading, Reason, Writer};
@@ -290,7 +290,10 @@ impl Explorer<'_> {
     }
 
     /// The work as the owner starts it: the start written, the background written, the items the work depends on not
-    /// yet merged, and main written, as the watch of main writes it into every work that has not ended.
+    /// yet merged, and main written, as the watch of main writes it into every work that has not ended; and the
+    /// project's guide, which the start's act reads as it makes the work's place, before any agent's round. The guide
+    /// changes no more: a change of it runs every agent's cell again, and each brings its outputs up to date by the
+    /// same rule as for any datum it watches.
     fn first(&self) -> State {
         let m = self.model;
         let mut world = World::of(m.compiled.flow.clone());
@@ -298,6 +301,9 @@ impl Explorer<'_> {
         world.person_writes(BACKGROUND);
         world.outside_sets(m.sources[&DEPENDENCIES].as_str(), "waiting");
         world.outside_writes(m.sources[&MAIN].as_str());
+        if let Some(guide) = m.sources.get(&GUIDE) {
+            world.outside_writes(guide.as_str());
+        }
         State {
             world,
             logs: BTreeMap::new(),
