@@ -24,8 +24,8 @@ Leave out preferences: the engineer fixes nearly all a review raises, so a wrong
 With `review_ok` yes, leave `review` out of your return. Having said yes to `needs_testing`, keep it while the part of
 the change that made you say so is still there.
 '''
-watches = ["change", "reply_review"]
-reads = ["plan", "background", "review", "tree"]
+watches = ["change", "review"]
+reads = ["plan", "background", "tree"]
 outputs = ["review", "review_ok", "needs_testing"]
 must_write = ["review_ok", "needs_testing"]
 
@@ -35,13 +35,13 @@ must_write = ["review_ok", "needs_testing"]
 # implementation brings the code to it first, and no session is watched, since a reopened session gives a reviewer
 # nothing to do again.
 change = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-reply_review = """Look at what changed: accept each answer in `reply_review` or say why not; raise nothing new the fix did not bring."""
+review = """Look at what changed: accept each answer in `review` or say why not; raise nothing new the fix did not bring."""
 
 # `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
-review = "latest"
+review = "all"
 code = "last_and_latest"
 title = "latest"
 decisions = "last_and_latest"
@@ -52,5 +52,4 @@ acceptance = "last_and_latest"
 tree_edits = "last_and_latest"
 tests = "last_and_latest"
 head = "last_and_latest"
-reply_review = "latest"
 background = "latest"

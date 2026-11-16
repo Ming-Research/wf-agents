@@ -51,7 +51,7 @@ cell = "D1"
 run = 2
 hands_in = [
     { block = "plan_agent", content = "Give a call's result what it took; keep it in the table of results; sum rounds and calls into the run; a call withdrawn takes nothing." },
-    { block = "reply_plan_review", content = "Agreed: a withdrawn call takes nothing, and the plan now says so." },
+    { block = "plan_review", content = "Agreed: a withdrawn call takes nothing, and the plan now says so." },
 ]
 
 # Is there a better way: finds none, on the plan and on its revision, and changes nothing.
@@ -103,7 +103,7 @@ cell = "I1"
 run = 3
 hands_in = [
     { block = "code", content = "The call's cost is kept with its result and summed into the run; the page shows it per call." },
-    { block = "reply_review", content = "Done: the step's panel now shows what each call took." },
+    { block = "review", content = "Done: the step's panel now shows what each call took." },
 ]
 
 [[flows.engineer.rounds]]
@@ -111,7 +111,7 @@ cell = "I1"
 run = 4
 hands_in = [
     { block = "code", content = "As before, and a call with no result yet is counted as taking nothing." },
-    { block = "reply_testing", content = "Fixed: the sum no longer fails on a call that has no result." },
+    { block = "testing", content = "Fixed: the sum no longer fails on a call that has no result." },
 ]
 
 [[flows.engineer.rounds]]

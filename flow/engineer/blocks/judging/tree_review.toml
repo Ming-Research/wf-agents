@@ -1,3 +1,4 @@
-# What the review against the design tree says to the plan's writer. Only that review writes it, so that no one writes
-# over what it said; one block, which runs whichever cell writes the plan.
-what = "What the review against the design tree says to the plan's writer, in English: each point, where, what must change and why, what it rests on."
+# The dialogue of the review against the design tree with the plan's writer (design document `data-and-context`, 36): it
+# writes its points and the plan's writer its answers, each a version of it, and both watch it, so that each version is
+# new to the other side alone. Whichever cell writes the plan answers in it.
+what = "What the review against the design tree and the plan's writer say to each other, in English: each point, where, what must change and why, what it rests on; and the writer's answer to each, changed, or why not."

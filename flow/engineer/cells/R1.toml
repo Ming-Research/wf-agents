@@ -19,7 +19,7 @@ propose that in `tree_edits` rather than bend the solution; a principle or the c
 handing in, ask yourself where the plan is most likely wrong, and check that point.
 '''
 when = { deep_needed = "no" }
-watches = ["background", "tree_review", "plan_doubts", "r1_questions", "r1_words"]
+watches = ["background", "plan_review", "tree_review", "plan_doubts", "r1_questions", "r1_words"]
 reads = ["plan_owner", "plan_agent", "acceptance", "tree_edits", "tree"]
 outputs = [
   "deep_needed",
@@ -29,8 +29,9 @@ outputs = [
   "r1_questions",
   "acceptance",
   "tree_edits",
-  "reply_tree_review",
-  "reply_plan_doubts",
+  "plan_review",
+  "tree_review",
+  "plan_doubts",
   "r1_words",
 ]
 must_write = ["deep_needed"]
@@ -38,8 +39,9 @@ must_write = ["deep_needed"]
 # What the cell does when each datum it watches is new; a datum with none is the task's alone.
 [do]
 background = """See what changed from the version you last worked from, the whole of it where you worked from none, and bring the research and the plan up to date for it."""
-tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
-plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
+plan_review = """Take each point of `plan_review`: change the plan where it touches, only there, or say why not, and answer it in `plan_review`."""
+tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `tree_review`."""
+plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `plan_doubts`."""
 r1_questions = """The owner has answered one of your questions in `r1_questions` with another option than yours, or one you wait for: bring the plan to it."""
 r1_words = """The owner has said something to you in `r1_words`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `r1_words`."""
 
@@ -49,8 +51,9 @@ r1_words = """The owner has said something to you in `r1_words`: that comes firs
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
 background = "last_and_latest"
-tree_review = "latest"
-plan_doubts = "latest"
+plan_review = "all"
+tree_review = "all"
+plan_doubts = "all"
 plan_owner = "latest"
 plan_agent = "latest"
 acceptance = "latest"

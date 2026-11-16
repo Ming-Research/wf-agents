@@ -50,8 +50,9 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
     let mut sim = Sim::of(engineer(), beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     sim.writes("background", "Greet the user by name.");
-    // The start, the reading, the plan with no deep research and no edit of the tree, and the plan thought through
-    // again, each as the engine hands it out, until the implementation is entered.
+    // The start, the reading, the plan with no deep research and no edit of the tree, the plan thought through again,
+    // and both reviews of the plan finding nothing to change, each as the engine hands it out, until the implementation
+    // is entered.
     let round = loop {
         let round = sim.round().expect("a round is given");
         let id = sim.cell(&round).id.as_str().to_string();
@@ -65,6 +66,8 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
                 ("acceptance", "The greeting names the user.", None),
             ],
             "R2" => &[],
+            "D3" => &[("plan_ok", "", Some("yes"))],
+            "D4" => &[("tree_ok", "", Some("yes"))],
             "I1" => break round,
             other => panic!("{other} is entered before the implementation"),
         };
@@ -91,14 +94,15 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
     }
 }
 
-/// A work of the engineer's flow, carried out with the plan written by the research and nothing better found, until
-/// the round of this cell is given, which is not carried out: gives the work and that round.
+/// A work of the engineer's flow, carried out with the plan written by the research, nothing better found and the
+/// plan's reviews content, until the round of this cell is given, which is not carried out: gives the work and that
+/// round.
 fn until(id: &str) -> (Sim, support::Given) {
     carried_until(id, false)
 }
 
 /// A work of the engineer's flow, carried out with the plan written by the deep research, nothing better found and the
-/// plan's review content, until the round of this cell is given, which is not carried out: gives the work and that
+/// plan's reviews content, until the round of this cell is given, which is not carried out: gives the work and that
 /// round.
 fn deeply_until(id: &str) -> (Sim, support::Given) {
     carried_until(id, true)
@@ -133,6 +137,7 @@ fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
             "D1" => plan.to_vec(),
             "R2" | "D2" => vec![],
             "D3" => vec![("plan_ok", "", Some("yes"))],
+            "D4" => vec![("tree_ok", "", Some("yes"))],
             "I1" => vec![("code", "abc", None)],
             other => panic!("{other} is entered before {id}"),
         };
@@ -559,12 +564,15 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_giv
     // with it.
     let round = loop {
         let round = sim.round().expect("a round is given");
-        if round.cell.as_str() == "T1" {
-            break round;
-        }
-        assert_eq!(round.cell.as_str(), "I1", "only the implementation comes between");
+        let blocks: &[(&str, &str, Option<&str>)] = match round.cell.as_str() {
+            "T1" => break round,
+            "D3" => &[("plan_ok", "", Some("yes"))],
+            "D4" => &[("tree_ok", "", Some("yes"))],
+            "I1" => &[("code", "abc", None)],
+            other => panic!("{other} comes between: only the plan's reviews and the implementation do"),
+        };
         tried(&mut sim, &round);
-        sim.hands_in(&round, &[("code", "abc", None)]);
+        sim.hands_in(&round, blocks);
     };
     let entered = sim.enter(&round, sim.begins(&round));
     assert!(given_with_its_question(&entered.text), "{}", entered.text);

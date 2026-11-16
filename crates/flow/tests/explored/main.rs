@@ -153,9 +153,8 @@ fn rare() -> Vec<String> {
     let cell = |id: &str| CellId::from(id);
     let block = |id: &str| BlockId::from(id);
     vec![
-        // The deep research, and the review of the tree.
+        // The deep research.
         ran(&cell("D1")),
-        ran(&cell("D4")),
         // Each dialogue going round.
         dialogue_loop(&block("plan_review")),
         dialogue_loop(&block("tree_review")),
@@ -232,12 +231,6 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
 /// What of the flow the exploration never reaches, each with why: what the flow's definition holds and no path can
 /// reach, or what lies past the bound.
 const NEVER: &[(&str, &str)] = &[
-    (
-        "D3 ran back on plan, written by a cell after it",
-        "I1's opinion in acceptance reaches D2 first, and D2's plan reaches D3 with it, so D3 runs for D2's version \
-         too. That it runs for I1's alone takes D2 handing in no plan: a third return besides the content, past the \
-         bound.",
-    ),
     (
         "the work waited at M2 on checked = yes",
         "The merge waits on checked = yes only where nothing runs the check again after it said no, a stall, which no \

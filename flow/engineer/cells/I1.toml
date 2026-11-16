@@ -15,7 +15,7 @@ what it can make slower as well as what it is for.
 
 Where the plan does not hold (its direction is wrong, or it needs a tree decision changed or a choice the owner has
 not made, such as accepting a slowdown), do not work around it: say where and why in `plan_doubts`; the
-answer comes in `reply_plan_doubts`: judge it, and write `plan_doubts` again only where a doubt still stands.
+answer comes there too: judge it, and write `plan_doubts` again only where a doubt still stands.
 
 Commit everything in the worktree, and hand in `code`, `decisions` and `evidence` once the project's check passes on
 your last commit: `title` with your first `code` and again when what the change does changes, `decisions` only where
@@ -26,22 +26,22 @@ fix or have the owner rule. If what the item asks needs no change, ask the owner
 '''
 watches = [
   "plan",
-  "reply_plan_doubts",
+  "plan_doubts",
   "review",
   "testing",
   "check",
   "i1_questions",
   "i1_words",
 ]
-reads = ["background", "plan_doubts", "tree"]
+reads = ["background", "tree"]
 outputs = [
   "code",
   "title",
   "decisions",
   "evidence",
   "acceptance",
-  "reply_review",
-  "reply_testing",
+  "review",
+  "testing",
   "plan_doubts",
   "i1_questions",
   "i1_words",
@@ -52,8 +52,8 @@ outputs = [
 plan = """See what changed in the plan since the version you last built from, the whole of it where you built from none, and bring the code to it."""
 i1_words = """The owner has said something to you in `i1_words`: that comes first. Do what it says, and answer it in `i1_words`: what you changed for it, or why not."""
 i1_questions = """The owner has answered one of your questions in `i1_questions` with another option than yours, or one you wait for: follow the option the owner took."""
-review = """Answer each point of `review` in `reply_review`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
-testing = """Answer each point of `testing` in `reply_testing`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
+review = """Answer each point of `review` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
+testing = """Answer each point of `testing` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 check = """Fix what `check` found and commit; where you judge it not this change's to fix, ask the owner."""
 
 # `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest. The cell's own
@@ -63,11 +63,10 @@ check = """Fix what `check` found and commit; where you judge it not this change
 tree = "last_and_latest"
 background = "latest"
 plan_owner = "last_and_latest"
-plan_doubts = "latest"
+plan_doubts = "all"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
 tree_edits = "last_and_latest"
-reply_plan_doubts = "latest"
-review = "latest"
-testing = "latest"
+review = "all"
+testing = "all"
 check = "latest"

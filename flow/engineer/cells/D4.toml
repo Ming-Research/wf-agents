@@ -1,38 +1,43 @@
-# Why this cell exists: so that what a plan would write into the design tree, and a decision it goes against, are
-# judged before it is built, by a session that did not write it, as a judgment of its own, where the plan changes the
-# tree; a decision a plan from the deep research goes against with no entry is D3's. On the line of the review of the
-# plan, after it.
+# Why this cell exists: so that every plan is judged against the design tree before it is built, by a session that did
+# not write it, as a judgment of its own: what it goes against, what its change makes untrue, what it leaves out, and
+# each entry it would write. On the line of the review of the plan, after D3.
 title = "Design tree review"
 kind = "agent"
 line = "plan_reviewer"
 effort = "xhigh"
 task = '''
-You review the plan against the design tree, in a session that did not write it. Read the principles, and whole each
-file of decisions whose topic the plan or `tree_edits` touches, where this session has not. The plan is
-`plan_owner`, `plan_agent` and `tree_edits`, with the questions its writer asked the owner.
+You review the plan against the design tree, in a session that did not write it. Where this session has not yet read
+the tree for this item, first understand what `background` asks, then read the tree for it as the tree's rules say, and
+the code the plan changes. The plan is `plan_owner`, `plan_agent`, `acceptance` and `tree_edits`, with the questions
+its writer asked the owner.
 
 Judge it by the tree's rules, on each of these points:
-1. Each entry of `tree_edits`, as one that must earn its place: whether the tree holds such a thing at all, or a
-   principle already says it; whether its reason is the real one; a decision it contradicts or repeats; a file or a
-   document it belongs in instead; its form; and what the code says by itself, its reason too, or only this work
-   does, which stays out of the tree.
-2. A decision the plan goes against, or a rule later works must follow, that no entry covers.
-3. An entry that changes a principle or the constitution, with no question of its writer's that asks the owner.
+1. What it goes against: an article of the constitution, a principle, a decision, or a design document, which may be
+   ahead of the code: the plan builds toward it, never away from it.
+2. What its change makes untrue: each entry that will no longer say what the code does, which `tree_edits` must
+   rewrite or delete.
+3. What it leaves out: a way it weighed and turned down, something done on purpose that would look like a fault, a
+   relation between two places that neither shows, or a rule later works must follow, which no entry records.
+4. Each entry of `tree_edits`, as one that must earn its place: its kind and its concept in the tree, whether its
+   reason is the real one, an entry it contradicts or repeats, its form, and whether it says what this plan builds and
+   no more.
+5. A change of a principle or the constitution with no question of its writer's that asks the owner.
 
 In the why of `tree_ok`, answer each point by its number: none, or what you found. Write what the writer must take in
 `tree_review`, every point at once: this is your one chance, and nothing is raised later that could be raised now.
 With `tree_ok` yes, leave `tree_review` out of your return. Leave out what you are not sure is better.
 '''
-when = { test = "changes_tree" }
-watches = ["plan", "reply_tree_review"]
-reads = ["background", "tree_review", "tree"]
+watches = ["plan", "tree_review"]
+reads = ["background", "tree"]
 outputs = ["tree_review", "tree_ok"]
 must_write = ["tree_ok"]
 
+# What the cell does when each datum it watches is new; a datum with none is the task's alone.
 [do]
 plan = """See what changed in the plan since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-reply_tree_review = """Where the writer answered an earlier point in `reply_tree_review`, accept the answer or say why not; never raise a point again without saying so, and raise nothing new the answers did not bring."""
+tree_review = """Where the writer answered an earlier point in `tree_review`, accept the answer or say why not; never raise a point again without saying so, and raise nothing new the answers did not bring."""
 
+# `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
@@ -41,5 +46,4 @@ plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
 tree_edits = "last_and_latest"
-tree_review = "latest"
-reply_tree_review = "latest"
+tree_review = "all"
