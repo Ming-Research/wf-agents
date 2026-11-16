@@ -88,24 +88,29 @@ const RUN_PIECES = 32;
 const DWELL_ON = 100;
 const DWELL_OFF = 180;
 const GLOW_OUT = 160;
-/// The ring round an item lit, the one selected or under the pointer or one above them: its edge's width.
+/// The ring round an item lit, the one selected or under the pointer or one above them: its edge's width; the item
+/// selected's own a little wider, so that it stands out from the item under the pointer, lit the same way.
 const RING = 2;
+const CHOSEN_RING = 3;
 /// How far in from the side of the room an item brought into view stands.
 const INSET = 24;
-/// The soft light round the item selected, and round the item under the pointer, in place of a ring of light: a fill
-/// of the accent (or of the pointer's blue) behind its card, this many pixels past its edge, blurred this much, at
-/// this strength, so that the light shows only as a narrow glow round the card; and the room the blur is drawn in
-/// past the fill, wide enough that the blur fades out before its edge.
+/// The soft light round the item under the pointer, and round the item selected, in place of a ring of light: a band
+/// of the pointer's blue (or of the accent) round its card, from its edge to this many pixels past it, the card's own
+/// place cut out so that none of it shows through a card drawn faint, blurred this much, at
+/// this strength, so that the light shows only as a narrow glow round the card; the item selected's a little wider
+/// and softer, so that it stands out from the one under the pointer. The room the blur is drawn in past the fill is
+/// wide enough that the blur fades out before its edge.
 const SOFT_SPREAD = 2;
 const SOFT_BLUR = 6;
 const SOFT_ALPHA = 0.45;
-const SOFT_ROOM = 4 * SOFT_BLUR;
+const CHOSEN_SPREAD = 4;
+const CHOSEN_BLUR = 9;
 
-/// The blur of a soft light round an item, with its room: set after the filter is made, which sets its own from its
-/// strength, too narrow for the blur to fade out in.
-function softBlur(): BlurFilter {
-  const blur = new BlurFilter({ strength: SOFT_BLUR });
-  blur.padding = SOFT_ROOM;
+/// The blur of a soft light round an item, this strong, with its room: set after the filter is made, which sets its
+/// own from its strength, too narrow for the blur to fade out in.
+function softBlur(strength: number): BlurFilter {
+  const blur = new BlurFilter({ strength });
+  blur.padding = 4 * strength;
   return blur;
 }
 /// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it.
@@ -549,8 +554,8 @@ export class SnapScene {
   private runLines = new Graphics();
   /// The soft lights behind the item selected and the item under the pointer, drawn anew each frame where they stand,
   /// blurred.
-  private chosenGlow = new Graphics({ filters: [softBlur()] });
-  private hoverGlow = new Graphics({ filters: [softBlur()] });
+  private chosenGlow = new Graphics({ filters: [softBlur(CHOSEN_BLUR)] });
+  private hoverGlow = new Graphics({ filters: [softBlur(SOFT_BLUR)] });
   /// The items, by their place in the tree, whose link to the one above them is on the way from an item whose work
   /// runs up to its root ([`waysUp`]).
   private runWays = new Set<number>();
@@ -1219,6 +1224,15 @@ export class SnapScene {
       .closePath();
   }
 
+  /// Adds to a soft light the band round the card standing at `gx` and `gy`, `gh` half its height: from its edge to
+  /// `out` pixels past it, the card's own place cut out.
+  private softLight(g: Graphics, gx: number, gy: number, gh: number, out: number, colour: string, alpha: number) {
+    g.roundRect(gx - out, gy - gh - out, NODE_W + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out)
+      .fill({ color: colour, alpha })
+      .roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER)
+      .cut();
+  }
+
   /// Adds to the running ways the dashed curve from `(px, py)` to `(cx, cy)`, bent as a funnel is, its dashes moved on
   /// `shift` pixels from its start ([`dashesAlong`]).
   private dashed(px: number, py: number, cx: number, cy: number, shift: number) {
@@ -1687,21 +1701,16 @@ export class SnapScene {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       if (i === picked) {
-        const out = SOFT_SPREAD;
-        this.chosenGlow
-          .roundRect(gx - out, gy - gh - out, NODE_W + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out)
-          .fill({ color: PALETTE.chosen, alpha: SOFT_ALPHA });
+        this.softLight(this.chosenGlow, gx, gy, gh, CHOSEN_SPREAD, PALETTE.chosen, SOFT_ALPHA);
       }
-      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.chosen, width: RING });
+      const ring = i === picked ? CHOSEN_RING : RING;
+      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.chosen, width: ring });
     }
     this.hoverGlow.clear();
     for (const [i, a] of this.haloed) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-      const out = SOFT_SPREAD;
-      this.hoverGlow
-        .roundRect(gx - out, gy - gh - out, NODE_W + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out)
-        .fill({ color: PALETTE.over, alpha: SOFT_ALPHA * a });
+      this.softLight(this.hoverGlow, gx, gy, gh, SOFT_SPREAD, PALETTE.over, SOFT_ALPHA * a);
     }
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];
