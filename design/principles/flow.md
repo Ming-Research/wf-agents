@@ -124,11 +124,15 @@ agent about the flow copy the flow, go stale when it changes, and invite the age
 ### principle a-cell-knows-only-its-data
 A cell knows nothing of the other cells: it is given only the data it watches and reads, and is run only by a version
 of a datum it watches that is new to it, which a version it wrote never is (design document `data-and-context`, which
-says what else is new to no cell). Nothing else runs a cell: no trigger apart from the data, no datum made only to run
-one, and no version sent to some of the cells that watch it and kept from others.
+says what else is new to no cell). Nothing else runs a cell, and no cell is excepted: no trigger apart from the data,
+no datum made only to run one, no version sent to some of the cells that watch it and kept from others, and what a
+cell hands in rests on what it is given and on the checkout at the versions it is given; a need this cannot meet is a
+fault of the design, mended there (principles solve-within-the-design-first and engine-knows-no-cell).
 Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no
 content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and
-versions sent on by who wrote them. This is the flow's side of principle an-agent-knows-only-its-task.
+versions sent on by who wrote them. Each met one case; together they made a work's way through the flow something the
+owner, watching one work go back from the implementation through the plan's cells, had to ask about at each of three
+steps. This is the flow's side of principle an-agent-knows-only-its-task.
 
 ### principle one-dialogue-for-each-party
 Each agent's cell that judges or doubts another cell's work has a dialogue of its own with that cell, and so has the
