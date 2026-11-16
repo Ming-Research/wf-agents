@@ -2,7 +2,7 @@
 //!
 //! A work's state is its data, each with versions. A cell names the blocks that run it; one of them is new to the cell
 //! while it has a version, changing its meaning, later than the one the cell consumed, that the cell did not write
-//! itself; a first version the outside writes as changing nothing in meaning says nothing, and is new to no cell. A run
+//! itself; a first version handed in as changing nothing in meaning says nothing, and is new to no cell. A run
 //! consumes, as its return is taken, what the return says it dealt with, up to the version its round was told of; a
 //! round that fails, a return sent back and a run stopped consume nothing, and nothing else does. The engine keeps no
 //! place where a work is. Each time a round ends or something else happens to the work, it walks the cells from the
@@ -700,7 +700,7 @@ pub(crate) struct Version<'a> {
     /// Which of a person and the outside wrote it, where no run did.
     pub(crate) outsider: Option<Outsider>,
     /// The version at which the meaning it has last changed; none where the block has said nothing yet, as of a first
-    /// version the outside wrote as changing nothing.
+    /// version handed in as changing nothing.
     pub(crate) meaning: Option<Seq>,
     /// The block's value, where it has one.
     pub(crate) value: Option<&'a str>,
@@ -1295,8 +1295,8 @@ pub(crate) fn read_runs(records: &Records) -> BTreeMap<RunId, RunView<'_>> {
 /// meaning, and so does a write that matters; a write that does not matter keeps the meaning of the version before it,
 /// provided its writer saw that meaning: the outside always did, and a run did when the version it started from has
 /// it. A run that did not, because the block's meaning was changed after it started, has a meaning of its own for what
-/// it wrote. A first version the outside writes as not mattering has none: it says nothing, and is new to no cell
-/// (design document `data-and-context`, 9); a run's first version has its own, whatever the run says.
+/// it wrote. A first version handed in as not mattering has none: it says nothing, and is new to no cell (design
+/// document `data-and-context`, 9).
 pub(crate) fn read_versions<'a>(
     records: &'a Records,
     runs: &BTreeMap<RunId, RunView<'a>>,
@@ -1341,8 +1341,8 @@ pub(crate) fn read_versions<'a>(
                 }
             }
             Some(v) if !w.matters && saw => v.meaning,
-            // Written from outside as changing nothing, with nothing before it, it says nothing.
-            None if w.value.is_none() && !w.matters && w.by.is_none() => None,
+            // Handed in as changing nothing, with nothing before it, it says nothing, whoever its writer.
+            None if w.value.is_none() && !w.matters => None,
             _ => Some(w.at),
         };
         of_block.push(Version {

@@ -340,7 +340,7 @@ export interface Version {
   time: number;
   by: Writer;
   /// The version at which the meaning it has last changed: itself, or an earlier one; none where the block has said
-  /// nothing yet, as of a first version the outside wrote as changing nothing.
+  /// nothing yet, as of a first version handed in as changing nothing.
   meaning: number | null;
   value: string | null;
   /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.

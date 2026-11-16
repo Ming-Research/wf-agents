@@ -65,8 +65,7 @@ pub struct VersionView {
     pub at: Seq,
     pub by: Writer,
     /// The version at which the meaning it has last changed: itself, or an earlier one; none where the block has said
-    /// nothing yet, as of a first version the outside wrote as changing nothing (design document `data-and-context`,
-    /// 9).
+    /// nothing yet, as of a first version handed in as changing nothing (design document `data-and-context`, 9).
     pub meaning: Option<Seq>,
     /// The block's value, where it is a choice.
     pub value: Option<String>,

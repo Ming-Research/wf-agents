@@ -25,7 +25,7 @@ pub struct Version {
     pub at: Seq,
     pub by: Writer,
     /// The version at which what the block says last changed: this one, or an earlier one; none where the block has
-    /// said nothing yet, as of a first version the outside wrote as changing nothing.
+    /// said nothing yet, as of a first version handed in as changing nothing.
     pub meaning: Option<Seq>,
     pub value: Option<String>,
     /// Whether it holds nothing.
@@ -54,10 +54,10 @@ impl<'a> Reading<'a> {
     /// The reading of the entries placed before `before`, or of all of them. The meaning of each version follows
     /// decision meaning-told-by-the-writer: a version that has a value, or follows one that has, is a choice: it
     /// changes the meaning when its value differs from the one before, and only then, the first version of a choice
-    /// having its own. A person's prose always changes the meaning; what the outside writes does when it matters, and
-    /// one that does not with no version before it says nothing (design document `data-and-context`, 9); a run's write
-    /// does when the run says so, its first version always, and when it says not, it is taken at its word only if the
-    /// version it started from has the meaning of the version it writes over.
+    /// having its own. A person's prose always changes the meaning; what the outside writes does when it matters; a
+    /// run's write does when the run says so, and when it says not, it is taken at its word only if the version it
+    /// started from has the meaning of the version it writes over. A first version the outside or a run hands in as
+    /// changing nothing says nothing, and is new to no cell (design document `data-and-context`, 9).
     pub fn new(flow: &'a Flow, records: &'a Records, before: Option<Seq>) -> Self {
         let counts = |at: Seq| before.is_none_or(|b| at < b);
         let started: BTreeMap<RunId, &Started> = (records.started.iter())
@@ -106,7 +106,7 @@ impl<'a> Reading<'a> {
             let of_block = versions.entry(e.block.clone()).or_default();
             let own = Some(e.at);
             let meaning = match of_block.last() {
-                None if e.value.is_none() && e.by == Writer::Outside && !e.matters => None,
+                None if e.value.is_none() && e.by != Writer::Person && !e.matters => None,
                 None => own,
                 Some(over) if e.value.is_some() || over.value.is_some() => {
                     if e.value == over.value {

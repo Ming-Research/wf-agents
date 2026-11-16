@@ -30,7 +30,7 @@ pub struct Version {
     pub at: Seq,
     pub by: Writer,
     /// The version at which what the block says last changed: this one, or an earlier one; none where the block has
-    /// said nothing yet, as of a first version the outside wrote as changing nothing.
+    /// said nothing yet, as of a first version handed in as changing nothing.
     pub meaning: Option<Seq>,
     pub value: Option<String>,
     /// Whether it holds nothing.
@@ -65,10 +65,10 @@ impl<'a> Reading<'a> {
     /// version that has a value, or follows one that has, is a choice: it changes the meaning when the value differs
     /// from the one before, and only then, whoever writes it, the first version of a choice having its own. Otherwise
     /// a person's prose always changes the meaning; what the outside writes does unless it was approved as not
-    /// mattering, and one so approved with no version before it says nothing, and is new to no cell (design document
-    /// `data-and-context`, 9); a cell's write does when the cell says so, its first version always, and when it says
-    /// not, it is taken at its word only if the version it started from has the meaning of the version it writes over:
-    /// a cell that did not see what it writes over is not taken at its word.
+    /// mattering; a cell's write does when the cell says so, and when it says not, it is taken at its word only if the
+    /// version it started from has the meaning of the version it writes over: a cell that did not see what it writes
+    /// over is not taken at its word. A first version the outside or a cell hands in as changing nothing says nothing,
+    /// and is new to no cell (design document `data-and-context`, 9).
     pub fn new(records: &'a Records) -> Self {
         let started: BTreeMap<RunId, &Started> = records.started.iter().map(|s| (s.run, s)).collect();
         let finished: BTreeMap<RunId, &Finished> = records.finished.iter().map(|f| (f.run, f)).collect();
@@ -113,9 +113,9 @@ impl<'a> Reading<'a> {
             let of_block = versions.entry(e.block.clone()).or_default();
             let own = Some(e.at);
             let meaning = match of_block.last() {
-                // Written from outside as changing nothing, with no version before it, a version says nothing: a
-                // choice excepted, whose meaning its writer does not tell.
-                None if e.value.is_none() && e.by == Writer::Outside && !e.matters => None,
+                // Handed in as changing nothing, with no version before it, a version says nothing: a person's prose
+                // and a choice excepted, whose meaning their writer does not tell.
+                None if e.value.is_none() && e.by != Writer::Person && !e.matters => None,
                 None => own,
                 Some(over) if e.value.is_some() || over.value.is_some() => {
                     if e.value == over.value {

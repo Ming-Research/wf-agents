@@ -795,7 +795,7 @@ pub struct Version {
     pub time: u64,
     pub by: Writer,
     /// The version at which the meaning it has last changed: itself, or an earlier one; none where the block has said
-    /// nothing yet, as of a first version the outside wrote as changing nothing.
+    /// nothing yet, as of a first version handed in as changing nothing.
     pub meaning: Option<u64>,
     /// The block's value, where it is a choice.
     pub value: Option<String>,
