@@ -69,18 +69,21 @@ Whoever reviews is no less able than the engineer and knows what the engineer kn
 the engineer worked from.
 Why: Engineers mostly do what a review says, so a wrong demand turns good code into bad.
 
-### principle the-flow-scales-with-the-work
-The flow scales with the work: a fix of a few lines is through in minutes, and only what is large goes through the
-whole of the design.
-Why: Two hours for every work was too much: a fix of a few lines took an hour of the flow and four or five with the
-waiting, which the owner cannot wait for; and the heavier the flow, the more it rests on the items being written well.
+### principle every-plan-is-reviewed-before-it-is-built
+Every work's plan is reviewed before it is built, for its design and against the design tree, by a session that did
+not write it, whatever the size of the change; a change too small to be worth that is joined with related ones into
+one work, never run alone.
+Why: A small change left unreviewed can break what matters, and the damage is not small (a judgment, with no case
+behind it). A fix of a few lines that ran the flow alone took an hour and more with the waiting; what answers that is
+joining small things into one work, not leaving out the review.
 
 ### principle a-question-is-a-choice
 What is asked of a person is a question of yes or no, or a choice of one or more among options, with the answer its
-asker recommends; a no gives its reason. Only an answer given on the question answers it, and words beside it are
-remarks. What the engine itself asks, such as an approval the flow requires, judges nothing and recommends nothing.
-Why: A question in free words cannot be answered quickly, and words beside a question, taken for its answer, cannot be
-told from discussion.
+asker recommends. The answer is the option taken and nothing else: why, where the owner wants to say it, is said in
+the owner's words to the cell. What the engine itself asks, such as an approval the flow requires, judges nothing and
+recommends nothing.
+Why: A question in free words cannot be answered quickly, and words given with an answer, taken as part of it, could
+not be told from what the owner says to the cell.
 
 ### principle a-question-says-first-what-to-decide
 A question an agent puts to the owner says in its first sentence what is to be decided and what it affects, uses no
@@ -117,3 +120,29 @@ An agent works from its task and the data it is given, and knows nothing of the 
 as, not the other cells, not who reads what it writes. A cell's words name no other cell.
 Why: Carrying what one cell writes to the next is the flow's work (principle mechanical-engine). Words that tell an
 agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
+
+### principle a-cell-knows-only-its-data
+A cell knows nothing of the other cells: it is given only the data it watches and reads, and is run only by a version
+of a datum it watches that is new to it, which a version it wrote never is (design document `data-and-context`, which
+says what else is new to no cell). Nothing else runs a cell: no trigger apart from the data, no datum made only to run
+one, and no version sent to some of the cells that watch it and kept from others.
+Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no
+content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and
+versions sent on by who wrote them. This is the flow's side of principle an-agent-knows-only-its-task.
+
+### principle one-dialogue-for-each-party
+Each agent's cell that judges or doubts another cell's work has a dialogue of its own with that cell, and so has the
+owner with each cell it speaks to: one datum only the two parties write, so that each word is new to the other party
+alone (design document `data-and-context`). An act of the engine reads no words and is no party: it is answered by
+what runs it again (decision an-act-is-answered-by-what-runs-it).
+Why: One record for several parties woke every party at each answer, and a datum made for each answer doubled the
+data and the triggers of every pair, growing with each cell added.
+
+### principle the-one-woken-owes-the-next-word
+In an open dialogue the party woken owes the next word, and a judge's pass, which closes the dialogue, is written as
+its verdict alone (design document `data-and-context`). The engine sends back a return that plainly leaves the word
+owed, as the document says when it does.
+Why: Were every side to answer whenever it is woken, a judge could never pass without a word, and a pass with a word
+would wake the maker for nothing; owing the next word only in an open dialogue holds both (a judgment, with no case
+behind it). A side left owing with nothing to send it back stalls the work with nobody woken, as a red check answered
+in words alone did (decision an-act-is-answered-by-what-runs-it).

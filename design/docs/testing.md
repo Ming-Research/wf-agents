@@ -45,8 +45,8 @@ and the scripts that stand in for agents are built; what is not is said at the e
    The deciding code's own walk goes through it every way a work can go within a bound, or through many random
    histories, checking at each decision the properties that flow must keep, such as no merge on what is not settled
    and every work coming to rest. This layer is the one to catch a change of a definition (a cell, a block, a
-   trigger, the words beside the flows) that opens a way nobody ran or sends what it should not. A fault of a flow's
-   routing, wherever it was seen, is written here as a property of that flow.
+   datum a cell watches, the words beside the flows) that opens a way nobody ran or sends what it should not. A
+   fault of a flow's routing, wherever it was seen, is written here as a property of that flow.
 
 6. **The edge with the outside.** The carriers are run against what the engine does not control: git, in a
    repository made for each test; a stand-in for the agents' command line that keeps what it was given and prints a
