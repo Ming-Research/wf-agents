@@ -690,7 +690,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         let withdrawn = |name: &str| questions.iter().any(|q| q.withdrawn && q.name == name);
         let to_come = waits
             || questions.iter().any(|q| !q.withdrawn)
-            || (told.questions.iter()).any(|(name, q)| q.unanswered && !withdrawn(name));
+            || (told.questions.iter()).any(|(name, q)| q.stands && !withdrawn(name));
         for block in consumed(dealt_with, requires) {
             let Some(answer) = requires.answered_by.get(&block) else {
                 continue;
@@ -698,7 +698,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             let written = (writes.iter().map(|w| &w.block))
                 .chain(read)
                 .any(|b| answer.runs.contains(b));
-            if !written && !answer.new && !(answer.question && to_come) {
+            if !written && !(answer.question && to_come) {
                 unmet.push(Unmet::Unanswered { block });
             }
         }
