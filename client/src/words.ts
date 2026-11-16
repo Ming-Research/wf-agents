@@ -82,6 +82,8 @@ export function faultWords(fault: Fault): string {
       return fault.field === 'tools'
         ? `The cell names ${w.name} of its own, and the flow already gives its agent cells theirs.`
         : `${w.name} is named a second time in the same list.`;
+    case 'takenTwice':
+      return `${w.block} is taken by two names, ${w.first} and ${w.also}, which says twice how the cell takes it.`;
     case 'limitOutOfRange':
       return `The limit ${w.value} is not a whole number from 1 to the largest count the engine keeps.`;
     case 'noLine':
@@ -311,8 +313,9 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
 export function cellSays(cell: Cell, block: string, what: string | null = null): string {
   const parts: string[] = [];
   const kind = kindAfter(kindOf(cell, block));
-  const itself = cell.watches.find((w) => w.list === 'watches' && w.name === block && namesItself(w));
-  const group = cell.watches.find((w) => w.list === 'watches' && !namesItself(w) && w.blocks.includes(block));
+  const own = cell.watches.filter((w) => w.list === 'watches');
+  const itself = own.find((w) => w.name === block && namesItself(w));
+  const group = own.find((w) => !namesItself(w) && w.blocks.includes(block));
   const read = cell.reads.find((r) => r.blocks.includes(block));
   if (itself) parts.push(`watches${kind}`);
   else if (group) parts.push(`watches ${group.name},${kind}`);
@@ -328,7 +331,7 @@ export function cellSays(cell: Cell, block: string, what: string | null = null):
 /// file names the group, `outputs` and the blocks of it the cell writes; then, after a colon, what the cell does when
 /// the group is new.
 export function groupSays(cell: Cell, group: string, blocks: string[]): string {
-  const watched = cell.watches.find((w) => w.list === 'watches' && w.name === group);
+  const watched = cell.watches.filter((w) => w.list === 'watches').find((w) => w.name === group);
   const written = blocks.filter((b) => cell.outputs.includes(b));
   const said = [...(watched ? ['watches'] : []), ...(written.length > 0 ? [`outputs ${written.join(', ')}`] : [])].join(
     '; ',

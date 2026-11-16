@@ -66,6 +66,29 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'cells/a.toml', field: 'tools', what: { kind: 'twice', name: 'tools' } })).toBe(
       'The cell names tools of its own, and the flow already gives its agent cells theirs.',
     );
+    // A name read that the cell watches already, in its own file or in what every agent cell takes, as the command line
+    // says it.
+    expect(faultWords({ file: 'cells/a.toml', field: 'reads[0]', what: { kind: 'twice', name: 'plan' } })).toBe(
+      'plan is watched already, and is given with what is watched.',
+    );
+    expect(faultWords({ file: 'flow.toml', field: 'every_agent.reads[1]', what: { kind: 'twice', name: 'guide' } })).toBe(
+      'guide is watched already, and is given with what is watched.',
+    );
+    // A block a cell takes by two names: by itself and through a group, or through two groups.
+    expect(
+      faultWords({
+        file: 'cells/a.toml',
+        field: 'reads[0]',
+        what: { kind: 'takenTwice', block: 'acceptance', first: 'plan', also: 'acceptance' },
+      }),
+    ).toBe('acceptance is taken by two names, plan and acceptance, which says twice how the cell takes it.');
+    expect(
+      faultWords({
+        file: 'cells/a.toml',
+        field: 'reads[0]',
+        what: { kind: 'takenTwice', block: 'opinions', first: 'planned', also: 'talked' },
+      }),
+    ).toBe('opinions is taken by two names, planned and talked, which says twice how the cell takes it.');
     expect(
       faultWords({
         file: 'flow.toml',

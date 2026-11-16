@@ -352,6 +352,11 @@ pub enum What {
     Twice {
         name: String,
     },
+    TakenTwice {
+        block: String,
+        first: String,
+        also: String,
+    },
     LimitOutOfRange {
         value: i64,
     },
@@ -791,6 +796,7 @@ impl What {
             F::NoCellFile { cell } => What::NoCellFile { cell },
             F::NotInOrder { cell } => What::NotInOrder { cell },
             F::Twice { name } => What::Twice { name },
+            F::TakenTwice { block, first, also } => What::TakenTwice { block, first, also },
             F::LimitOutOfRange { value } => What::LimitOutOfRange { value },
             F::NoLine => What::NoLine,
             F::EngineHasLine { line } => What::EngineHasLine { line },

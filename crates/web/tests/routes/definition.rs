@@ -700,12 +700,12 @@ async fn the_engineer_flow_s_cells_are_given_as_their_files_write_what_they_watc
             .flat_map(|n| blocks_of(&n))
             .collect();
         // What runs it: of an agent's cell, each datum every agent cell watches that its own file does not name, by
-        // the datum's name, with what `[every_agent]` says to do; then what its own file watches.
+        // the datum's name, what `[every_agent]` says to do of it given once, with `[every_agent]` (principle
+        // say-a-thing-once); then what its own file watches, each with what its file says to do.
         let mut watches: Vec<Value> = Vec::new();
         for written_name in written(every, "watches").iter().filter(|_| agent) {
             for block in every_blocks(written_name).into_iter().filter(|b| !mine.contains(b)) {
-                let does = every_does.get(written_name);
-                watches.push(json!({ "name": block, "blocks": [block], "do": does, "list": "every_agent" }));
+                watches.push(json!({ "name": block, "blocks": [block], "list": "every_agent" }));
             }
         }
         for name in written(own, "watches") {

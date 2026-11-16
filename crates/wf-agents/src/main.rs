@@ -745,6 +745,9 @@ fn words(what: &FaultKind, field: &str) -> String {
             format!("{name} is watched already, and is given with what is watched")
         }
         F::Twice { name } => format!("{name} is named a second time in the same list"),
+        F::TakenTwice { block, first, also } => {
+            format!("{block} is taken by two names, {first} and {also}, which says twice how the cell takes it")
+        }
         F::LimitOutOfRange { value } => {
             format!("the limit {value} is not a whole number from 1 to the largest count the engine keeps")
         }
@@ -915,6 +918,30 @@ fn a_name_given_twice_says_where_it_was_given_twice() {
     assert_eq!(
         twice("tools", "tools"),
         "the cell names tools of its own, and the flow already gives its agent cells theirs"
+    );
+    assert_eq!(
+        twice("plan", "reads[0]"),
+        "plan is watched already, and is given with what is watched"
+    );
+}
+
+#[test]
+fn a_block_taken_by_two_names_says_both_names() {
+    let taken = |block: &str, first: &str, also: &str| {
+        let what = FaultKind::TakenTwice {
+            block: block.to_string(),
+            first: first.to_string(),
+            also: also.to_string(),
+        };
+        words(&what, "reads[0]")
+    };
+    assert_eq!(
+        taken("acceptance", "plan", "acceptance"),
+        "acceptance is taken by two names, plan and acceptance, which says twice how the cell takes it"
+    );
+    assert_eq!(
+        taken("opinions", "planned", "talked"),
+        "opinions is taken by two names, planned and talked, which says twice how the cell takes it"
     );
 }
 

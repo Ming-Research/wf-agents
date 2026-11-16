@@ -789,6 +789,56 @@ describe('a way back between two cells that never both run', () => {
   });
 });
 
+describe('a way back from a cell whose condition is on a block it writes itself', () => {
+  // writer runs when deep is yes and writes deep: once it has, deep may be no, and its write of x runs reader, which
+  // runs when deep is no. The flowchart draws that way back, and every panel lists it, by the one rule.
+  const deep = (value: string) => [{ on: 'block' as const, block: 'deep', value }];
+  const flow = () =>
+    flowOf(
+      [
+        cell('first', { outputs: ['deep'] }),
+        cell('reader', { watches: ['x'], when: deep('no') }),
+        cell('writer', { outputs: ['x', 'deep'], when: deep('yes') }),
+      ],
+      { x: {}, deep: { values: ['yes', 'no'] } },
+    );
+  const partOf = (panel: HTMLElement, label: string) =>
+    [...panel.querySelectorAll('.panel-part')].find((p) =>
+      p.querySelector('.panel-part-label')?.textContent?.startsWith(label),
+    ) as HTMLElement;
+
+  it('is counted in the legend and listed in the block’s panel and in each cell’s', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
+    click(rowOf(page, 'x').querySelector('.head-button'));
+    const block = page.querySelector('section[aria-label="Block x"]') as HTMLElement;
+    expect(items(block)).toEqual(['writer to reader watches [x]']);
+    const heads = page.querySelectorAll('thead .cell-head .head-button');
+    click(heads[1]);
+    const reader = page.querySelector('section[aria-label="Cell reader"]') as HTMLElement;
+    expect(items(partOf(reader, 'watches'))).toEqual(['1 x kind last_and_latest written_by writer way_back [writer]']);
+    click(heads[2]);
+    const writer = page.querySelector('section[aria-label="Cell writer"]') as HTMLElement;
+    expect(items(partOf(writer, 'outputs')).find((i) => i.startsWith('x '))).toBe('x read_by cells reader way_back [reader]');
+  });
+
+  it('is listed in a group’s panel', () => {
+    const grouped = flowOf(
+      [
+        cell('first', { outputs: ['a', 'deep'] }),
+        cell('r', { watches: [{ group: 'planned', blocks: ['a', 'b'] }], when: deep('no') }),
+        cell('v', { outputs: ['b', 'deep'], when: deep('yes') }),
+      ],
+      { a: {}, b: {}, deep: { values: ['yes', 'no'] } },
+    );
+    const page = draw({ state: 'compiled', flow: grouped });
+    click(rowOf(page, 'planned').querySelector('.head-button'));
+    const panel = page.querySelector('section[aria-label="Group planned"]') as HTMLElement;
+    expect(texts(panel, '.panel-part-label')).toEqual(['blocks 2', 'watches 1', 'way_back 1']);
+    expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
+  });
+});
+
 describe('a definition that does not compile', () => {
   it('shows its faults, each with its file and field, in place of the chart', () => {
     const page = draw({

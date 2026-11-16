@@ -447,6 +447,22 @@ describe('a way back between two cells that never both run', () => {
     expect(m.waysBack).toBe(1);
     expect(row(m).map((spot) => spot.back)).toEqual(['none', 'right', 'left', 'none']);
   });
+
+  // The writer's own key on a block it writes may no longer hold once it has written it: its write runs the watcher
+  // that needs the other value, as the flowchart draws it, by the one rule both decide by.
+  it('counts the write of a later cell whose condition is on a block it writes itself, as the flowchart does', () => {
+    const f = flowOf(
+      [
+        cell('first', { outputs: ['deep'] }),
+        cell('reader', { watches: ['x'], when: [{ on: 'block', block: 'deep', value: 'no' }] }),
+        cell('writer', { outputs: ['x', 'deep'], when: [{ on: 'block', block: 'deep', value: 'yes' }] }),
+      ],
+      { x: {}, deep: { values: ['yes', 'no'] } },
+    );
+    const m = matrix(f);
+    expect(m.waysBack).toBe(1);
+    expect(row(m).map((spot) => spot.backTo)).toEqual([false, true, false]);
+  });
 });
 
 describe('the mark of a cell on a datum, wherever the page draws one', () => {

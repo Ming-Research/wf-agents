@@ -85,3 +85,78 @@ fn a_group_names_blocks_of_the_flow_and_a_name_no_block_has() {
         [at(FLOW_FILE, "groups.planned", empty)]
     );
 }
+
+/// The small flow with the groups `planned`, of the plan and the opinions, and `talked`, of the opinions and the comments,
+/// whose design watches and reads these, given each block it takes.
+fn design_taking(watches: &str, reads: &str) -> Source {
+    let source = grouped("planned = [\"plan\", \"opinions\"]\ntalked = [\"opinions\", \"comments\"]");
+    let source = edit(
+        source,
+        "cells/design.toml",
+        "watches = [\"plan\"]",
+        &format!("watches = {watches}\nreads = {reads}"),
+    );
+    let comments = match format!("{watches}{reads}").contains("talked") {
+        true => "\ncomments = \"latest\"",
+        false => "",
+    };
+    edit(
+        source,
+        "cells/design.toml",
+        "plan = \"last_and_latest\"",
+        &format!("plan = \"last_and_latest\"\nopinions = \"latest\"{comments}"),
+    )
+}
+
+// A cell takes a block by one name among what it watches and reads, the block's own or one group's: by two, what the
+// block does for the cell would be said twice, and where one is watched and the other read, the two would contradict
+// each other (decision a-cell-names-a-block-once). The second name is refused, saying both.
+#[test]
+fn a_block_a_cell_takes_by_two_names_is_refused_at_the_second() {
+    let taken = |block: &str, first: &str, also: &str| TakenTwice {
+        block: block.to_string(),
+        first: first.to_string(),
+        also: also.to_string(),
+    };
+    let cases = [
+        (
+            r#"["planned", "plan"]"#,
+            "[]",
+            "watches[1]",
+            taken("plan", "planned", "plan"),
+        ),
+        (
+            r#"["plan", "planned"]"#,
+            "[]",
+            "watches[1]",
+            taken("plan", "plan", "planned"),
+        ),
+        (
+            r#"["planned"]"#,
+            r#"["plan"]"#,
+            "reads[0]",
+            taken("plan", "planned", "plan"),
+        ),
+        (
+            r#"["plan"]"#,
+            r#"["planned"]"#,
+            "reads[0]",
+            taken("plan", "plan", "planned"),
+        ),
+        (
+            r#"["planned"]"#,
+            r#"["talked"]"#,
+            "reads[0]",
+            taken("opinions", "planned", "talked"),
+        ),
+    ];
+    for (watches, reads, field, what) in cases {
+        assert_eq!(
+            faults(&design_taking(watches, reads)),
+            [at("cells/design.toml", field, what)],
+            "watches = {watches}, reads = {reads}"
+        );
+    }
+    // Two groups the cell names apart, sharing no block, are taken as they are.
+    assert!(faults(&design_taking(r#"["planned"]"#, "[]")).is_empty());
+}

@@ -54,10 +54,9 @@ function compiled(listed: Cell[], blocks: Record<string, Declared>, all: EveryAg
     const own = [...c.watches.filter((w) => w.list === 'watches'), ...c.reads].map((n) => n.name);
     const taken = (names: { name: string; blocks: string[] }[]) =>
       names.flatMap((n) => n.blocks.filter((b) => !own.includes(b)).map((block) => ({ name: n.name, block })));
-    const runs: Watch[] = taken(all.watches).map(({ name, block }) => ({
+    const runs: Watch[] = taken(all.watches).map(({ block }) => ({
       name: block,
       blocks: [block],
-      do: all.watches.find((w) => w.name === name)?.do ?? null,
       list: 'every_agent' as const,
     }));
     const alike: GivenBlock[] = [];

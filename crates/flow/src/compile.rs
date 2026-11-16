@@ -359,6 +359,9 @@ pub enum FaultKind {
     /// The name is given a second time in the same list; or, named `tools`, an agent cell names tools of its own in a
     /// flow whose `flow.toml` names the tools of every agent cell of it.
     Twice { name: String },
+    /// The cell takes the block by two names among what it watches and reads, `first` and then `also`: by itself and
+    /// through a group, or through two groups.
+    TakenTwice { block: String, first: String, also: String },
     /// A limit is not a whole number from one to the largest count the engine keeps.
     LimitOutOfRange { value: i64 },
     /// The cell names no line, and needs one: an agent cell runs in its line's session.

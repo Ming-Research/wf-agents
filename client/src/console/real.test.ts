@@ -88,7 +88,7 @@ describe("the item's body, read from the data the flow's card names", () => {
       flow,
       cells: [],
       blocks: [
-        { name: 'background', versions: [version(1, { kind: 'outside' }, 16)] },
+        { name: 'background', versions: [version(1, { kind: 'owner' }, 16)] },
         { name: 'why', versions: [version(2, by, 21)] },
         { name: 'how', versions: [version(3, by, 15), version(4, by, 8)] },
         { name: 'plan_owner', versions: [version(5, by, 23)] },
@@ -124,7 +124,7 @@ describe("the messages of a work, read from each cell's own words", () => {
       blocks: [
         {
           name: 'implement_words',
-          versions: [version(5, { kind: 'outside' }, 60), version(9, { kind: 'run', run: 3, cell: 'implement' }, 30)],
+          versions: [version(5, { kind: 'owner' }, 60), version(9, { kind: 'run', run: 3, cell: 'implement' }, 30)],
         },
       ],
       steps: [],
@@ -149,8 +149,8 @@ describe("the messages of a work, read from each cell's own words", () => {
       flow: SPOKEN,
       cells: [],
       blocks: [
-        { name: 'implement_words', versions: [version(12, { kind: 'outside' }, 25)] },
-        { name: 'research_words', versions: [version(14, { kind: 'outside' }, 25)] },
+        { name: 'implement_words', versions: [version(12, { kind: 'owner' }, 25)] },
+        { name: 'research_words', versions: [version(14, { kind: 'owner' }, 25)] },
       ],
       steps: [],
     };

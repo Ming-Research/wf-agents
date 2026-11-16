@@ -210,7 +210,7 @@ class History {
     return v;
   }
 
-  wrote(block: string, by: 'person' | 'outside', content: string, value: string | null = null, minutes = 5) {
+  wrote(block: string, by: 'owner' | 'outside', content: string, value: string | null = null, minutes = 5) {
     const at = this.next(minutes);
     const v = this.version(block, { kind: by }, content, value, true);
     this.steps.push({ kind: 'wrote', at, time: this.time, block, by: { kind: by }, changed: v.meaning === at, value, chars: v.chars });
@@ -519,7 +519,7 @@ const REQUEST_TEXT = (what: string) =>
 
 /// The plan and the implementation of a small work, up to a review that is content.
 function upToReview(h: History, what: string, deepResearch: boolean) {
-  h.wrote('request', 'person', REQUEST_TEXT(what));
+  h.wrote('request', 'owner', REQUEST_TEXT(what));
   h.ran('plan', [
     { block: 'plan', content: prose('Plan', [what, 'Add the part to parts.tsx', 'Test it in happy-dom']) },
     { block: 'needs_deep_research', content: '', value: deepResearch ? 'yes' : 'no' },
@@ -593,7 +593,7 @@ function long(start: number): Built {
   const h = new History(start);
   h.wrote(
     'request',
-    'person',
+    'owner',
     REQUEST_TEXT('Show what each round of a work cost, in dollars and tokens, on the works page.'),
   );
   // The plan reads the item through the engine's tool, then hands in.
@@ -640,7 +640,7 @@ function long(start: number): Built {
   });
   // ...meanwhile the owner writes an opinion for the plan, which runs again first: what it changes makes the
   // implementation's run stale, and it is abandoned.
-  h.wrote('opinions_plan', 'person', 'The plan must say where the totals of a whole item are shown too.', null, 20);
+  h.wrote('opinions_plan', 'owner', 'The plan must say where the totals of a whole item are shown too.', null, 20);
   h.ran('plan', [
     {
       block: 'plan',
@@ -713,7 +713,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   {
     // A round under way.
     const h = new History(hours(1));
-    h.wrote('request', 'person', REQUEST_TEXT('Keep the panel\'s width when the page is loaded again.'));
+    h.wrote('request', 'owner', REQUEST_TEXT('Keep the panel\'s width when the page is loaded again.'));
     h.ran('plan', [
       { block: 'plan', content: prose('Plan', ['Keep the width in the browser']) },
       { block: 'needs_deep_research', content: '', value: 'no' },
@@ -727,7 +727,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   {
     // Waiting for the owner's answer to a question.
     const h = new History(hours(5));
-    h.wrote('request', 'person', REQUEST_TEXT('List the works of every item, those that wait for the owner first.'));
+    h.wrote('request', 'owner', REQUEST_TEXT('List the works of every item, those that wait for the owner first.'));
     const run = h.start('plan');
     h.round(run, {
       asks: [{ kind: 'question', who: 'owner', question: 'Should the list show the works of cancelled items, or leave them out?' }],
@@ -753,7 +753,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   {
     // A run at its limit of returns sent back.
     const h = new History(hours(8));
-    h.wrote('request', 'person', REQUEST_TEXT('Say a choice\'s values after its name.'));
+    h.wrote('request', 'owner', REQUEST_TEXT('Say a choice\'s values after its name.'));
     h.ran('plan', [
       { block: 'plan', content: prose('Plan', ['The values after the name, muted']) },
       { block: 'needs_deep_research', content: '', value: 'no' },
@@ -813,7 +813,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   {
     // Paused.
     const h = new History(hours(20));
-    h.wrote('request', 'person', REQUEST_TEXT('Fold the panel away with Escape.'));
+    h.wrote('request', 'owner', REQUEST_TEXT('Fold the panel away with Escape.'));
     h.ran('plan', [
       { block: 'plan', content: prose('Plan', ['Escape lets go of what is chosen']) },
       { block: 'needs_deep_research', content: '', value: 'no' },
@@ -831,7 +831,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     // Paused by the engine: the implementation's round given the result of its tool failed, and is given again once
     // the owner lets the work on.
     const h = new History(hours(3));
-    h.wrote('request', 'person', REQUEST_TEXT('Say why a work is paused.'));
+    h.wrote('request', 'owner', REQUEST_TEXT('Say why a work is paused.'));
     h.ran('plan', [
       { block: 'plan', content: prose('Plan', ['The reason beside the pause']) },
       { block: 'needs_deep_research', content: '', value: 'no' },
@@ -860,7 +860,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.ran('review', [{ block: 'content', content: '', value: 'yes' }]);
     h.wrote('main', 'outside', 'main at 9e8d7c6', null, 20);
     h.ran('check', [{ block: 'ci', content: 'Passed.', value: 'green' }], { minutes: 12, usd: 0 });
-    h.wrote('approval', 'person', 'Approved.', 'yes', 40);
+    h.wrote('approval', 'owner', 'Approved.', 'yes', 40);
     h.ran('merge', [], { minutes: 1, usd: 0 });
     keep({ page: h.page(47, 147, 'Show a block\'s signs', { kind: 'merged' }), history: h });
   }
@@ -882,7 +882,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   {
     // A fault in the records.
     const h = new History(hours(26));
-    h.wrote('request', 'person', REQUEST_TEXT('Read the flow again on a change.'));
+    h.wrote('request', 'owner', REQUEST_TEXT('Read the flow again on a change.'));
     h.ran('plan', [
       { block: 'plan', content: prose('Plan', ['Read again on the event']) },
       { block: 'needs_deep_research', content: '', value: 'no' },

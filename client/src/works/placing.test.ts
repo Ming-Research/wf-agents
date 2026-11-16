@@ -66,7 +66,7 @@ describe('the rows and columns of a history', () => {
     const blocks: Block[] = [
       { name: 'x', versions: [version(5, { kind: 'run', run: 1, cell: 'review' })] },
       { name: 'y', versions: [version(6, { kind: 'run', run: 2, cell: 'check' })] },
-      { name: 'z', versions: [version(7, { kind: 'person' })] },
+      { name: 'z', versions: [version(7, { kind: 'owner' })] },
     ];
     const behind = (block: string): Cause => ({ kind: 'changed', block, was: null, behind: true });
     const steps: Step[] = [
@@ -87,7 +87,7 @@ describe('the rows and columns of a history', () => {
   it('marks a condition that reads what was written and the cell let go, and shows the day where it changes', () => {
     const t = Date.UTC(2026, 10, 9, 12);
     const steps: Step[] = [
-      { kind: 'wrote', at: 1, time: t, block: 'needs_deep_research', by: { kind: 'person' }, changed: true, value: 'yes', chars: 0 },
+      { kind: 'wrote', at: 1, time: t, block: 'needs_deep_research', by: { kind: 'owner' }, changed: true, value: 'yes', chars: 0 },
       { kind: 'letGo', at: 2, time: t + 1000, cell: 'implement' },
       { kind: 'paused', at: 3, time: t + DAY, by: 'owner', why: null },
     ];
@@ -95,6 +95,25 @@ describe('the rows and columns of a history', () => {
     expect(rows.map((r) => [...r.marks])).toEqual([[[1, 'condition']], [[2, 'letGo']], []]);
     expect(rows.map((r) => r.column)).toEqual([null, null, null]);
     expect(rows.map((r) => r.newDay)).toEqual([true, false, true]);
+  });
+
+  // Who wrote a write is named as a round is told it: the owner, whose words to a cell and answers are the owner's as a
+  // request is; a cell's question by the run that asked it; the outside.
+  it('names who wrote a write: the owner, a run, or the outside', () => {
+    const wrote = (block: string, by: Writer): Step => ({
+      kind: 'wrote',
+      at: 1,
+      time: 0,
+      block,
+      by,
+      changed: true,
+      value: null,
+      chars: 5,
+    });
+    expect(stepWords(wrote('r1_words', { kind: 'owner' }), FLOW)).toBe('the owner wrote r1_words');
+    expect(stepWords(wrote('r1_questions', { kind: 'owner' }), FLOW)).toBe('the owner wrote r1_questions');
+    expect(stepWords(wrote('r1_questions', { kind: 'run', run: 7, cell: 'R1' }), FLOW)).toBe('run 7 wrote r1_questions');
+    expect(stepWords(wrote('main', { kind: 'outside' }), FLOW)).toBe('the outside wrote main');
   });
 });
 

@@ -335,7 +335,7 @@ export interface CellDetail {
   inputs: Input[];
 }
 
-export type Writer = { kind: 'person' } | { kind: 'outside' } | { kind: 'run'; run: number; cell: string };
+export type Writer = { kind: 'owner' } | { kind: 'outside' } | { kind: 'run'; run: number; cell: string };
 
 /// A version of a block: one write of it.
 export interface Version {

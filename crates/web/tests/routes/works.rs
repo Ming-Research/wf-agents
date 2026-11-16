@@ -118,7 +118,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "versions": [{
                         "at": 3,
                         "time": START,
-                        "by": { "kind": "person" },
+                        "by": { "kind": "owner" },
                         "meaning": 3,
                         "value": null,
                         "saidTo": null,
@@ -144,7 +144,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "at": 3,
                     "time": START,
                     "block": "request",
-                    "by": { "kind": "person" },
+                    "by": { "kind": "owner" },
                     "changed": true,
                     "value": null,
                     "chars": 23,

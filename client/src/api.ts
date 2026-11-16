@@ -54,13 +54,11 @@ export type Kind = 'agent' | 'engine';
 export type List = 'every_agent' | 'reads' | 'watches';
 
 /// A datum or group a cell watches: its name as the definition writes it, the blocks it stands for (of a datum, the
-/// datum alone), what the cell does when it is new, and the list that names it.
-export interface Watch {
-  name: string;
-  blocks: string[];
-  do: string | null;
-  list: 'every_agent' | 'watches';
-}
+/// datum alone), and the list that names it; of what its own file watches, what the cell does when it is new, which
+/// of what `[every_agent]` watches `[every_agent]` says once (principle say-a-thing-once).
+export type Watch =
+  | { name: string; blocks: string[]; list: 'watches'; do: string | null }
+  | { name: string; blocks: string[]; list: 'every_agent' };
 
 /// A name `[every_agent]` watches: as written, with the data it stands for and what a cell does when one is new.
 export interface EveryWatch {
@@ -200,6 +198,9 @@ export type What =
   | { kind: 'noCellFile'; cell: string }
   | { kind: 'notInOrder'; cell: string }
   | { kind: 'twice'; name: string }
+  /// The cell takes the block by two names among what it watches and reads, `first` and then `also`: by itself and
+  /// through a group, or through two groups.
+  | { kind: 'takenTwice'; block: string; first: string; also: string }
   | { kind: 'limitOutOfRange'; value: number }
   | { kind: 'noLine' }
   | { kind: 'engineHasLine'; line: string }

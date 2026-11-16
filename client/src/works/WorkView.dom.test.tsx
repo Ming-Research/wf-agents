@@ -469,7 +469,7 @@ describe('the panel of a step', () => {
     const { page } = drawWork(41);
     await chooseStep(page, 4);
     const panel = page.querySelector('aside[aria-label="Write of opinions_plan"]') as HTMLElement;
-    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('written by a person');
+    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('written by the owner');
     expect(panel.textContent).toContain('Changed its meaning');
     expect(panel.textContent).toContain('Read by plan');
     await click(button(panel, 'Show content'));
@@ -504,7 +504,7 @@ describe('the panel of a step', () => {
     const panel = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
     expect(panel.querySelector('.status-word')?.textContent).toBe('1 block');
     expect(texts(panel, '.panel-part-label')).toEqual(['request 1']);
-    expect(panel.querySelector('.list-row')?.textContent).toContain('a person');
+    expect(panel.querySelector('.list-row')?.textContent).toContain('the owner');
     await click(button(panel, 'Show content'));
     expect(panel.querySelector('pre.content')?.textContent).toContain('List the works of every item');
   });

@@ -60,7 +60,7 @@ export function stepParts(step: Step, flow?: Flow): Part[] {
       return gone ? [{ name: step.cell }, ', which the flow no longer has: ', ...why] : why;
     }
     case 'wrote': {
-      const who = step.by.kind === 'person' ? 'a person' : step.by.kind === 'outside' ? 'the outside' : `run ${step.by.run}`;
+      const who = step.by.kind === 'owner' ? 'a person' : step.by.kind === 'outside' ? 'the outside' : `run ${step.by.run}`;
       return [
         `${who} wrote `,
         { name: step.block },
@@ -251,7 +251,7 @@ function StepRow(props: {
   const { step } = row;
   const words = stepWords(step, flow);
   const wayRound = step.kind === 'run' && isWayRound(step);
-  const sign = step.kind === 'wrote' && step.by.kind !== 'run' ? (step.by.kind === 'person' ? 'people' : 'outside') : null;
+  const sign = step.kind === 'wrote' && step.by.kind !== 'run' ? (step.by.kind === 'owner' ? 'people' : 'outside') : null;
   return (
     <tr className={`row step-row step-${step.kind} ${chosen ? 'chosen' : ''}`} onClick={onChoose}>
       <th scope="row" className="lead step-lead">

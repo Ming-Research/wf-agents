@@ -156,7 +156,7 @@ export function flowOf(
     for (const n of every.watches) {
       for (const block of fresh(n.blocks)) {
         alike.push({ block, kind: every.kinds[n.name] ?? 'lastAndLatest', list: 'every_agent' });
-        runs.push({ name: block, blocks: [block], do: n.do, list: 'every_agent' });
+        runs.push({ name: block, blocks: [block], list: 'every_agent' });
       }
     }
     for (const n of every.reads) {
