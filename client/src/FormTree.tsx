@@ -5,6 +5,8 @@
 
 import { Fragment, type ReactNode } from 'react';
 
+import { FoldMark } from './parts';
+
 /// The part of JSON Schema the form is written in.
 interface Schema {
   type?: string;
@@ -122,7 +124,10 @@ function Item({
   if (!holdsAny(schema)) return <div className="tree-leaf">{head}</div>;
   return (
     <details open>
-      <summary>{head}</summary>
+      <summary>
+        <FoldMark />
+        {head}
+      </summary>
       <div className="tree-children">{inside(schema, name, top)}</div>
     </details>
   );

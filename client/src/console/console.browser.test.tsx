@@ -18,6 +18,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 
+import type { Items } from '../works-api';
 import { fixtureSource } from './fixtures';
 import type { Heard } from './source';
 import { ConsolePage } from './index';
@@ -483,6 +484,7 @@ describe('the console page, as things happen', () => {
     const source = fixtureSource();
     const answers: Array<() => void> = [];
     let asked = 0;
+    let answered = 0;
     const stream: { on: ((heard: Heard) => void) | null } = { on: null };
     const container = document.createElement('div');
     container.style.cssText = 'position: fixed; inset: 0; display: flex';
@@ -495,7 +497,9 @@ describe('the console page, as things happen', () => {
           ...source,
           loadItems: () => {
             asked += 1;
-            return new Promise((answer) => answers.push(() => answer(source.loadItems())));
+            return new Promise<Items>((answer) => answers.push(() => answer(source.loadItems()))).finally(() => {
+              answered += 1;
+            });
           },
           changes: (on) => {
             stream.on = on;
@@ -510,7 +514,9 @@ describe('the console page, as things happen', () => {
     answers.shift()?.();
     await expect.poll(() => asked).toBe(2);
     answers.shift()?.();
-    await expect.poll(() => (window as { consoleScene?: SnapScene }).consoleScene?.stats.items ?? 0).toBeGreaterThan(0);
+    // Once the second read has ended, no third is asked for: nothing happened while it was under way.
+    await expect.poll(() => answered).toBe(2);
+    await new Promise((then) => setTimeout(then, 50));
     expect(asked).toBe(2);
     root.unmount();
     container.remove();

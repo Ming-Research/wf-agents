@@ -15,7 +15,7 @@ import { type ReactNode, useState } from 'react';
 import type { Condition, Flow } from '../api';
 import { type Chosen, ConditionGlyph, DataGlyphs } from '../Chart';
 import { NO_MARK } from '../matrix';
-import { Sign } from '../parts';
+import { CROSS, Sign, TICK } from '../parts';
 import { headFacts, keyWords } from '../words';
 import { type DataLabel } from './data';
 import { type Box, type Laid, pathOf, type Size } from './layout';
@@ -556,7 +556,8 @@ function Holds({ holds }: { holds: boolean }) {
       role="img"
       aria-label={holds ? 'holds' : 'does not hold'}
     >
-      <path d={holds ? 'M5.5 12.5 L10 17 L18.5 7' : 'M7 7 L17 17 M17 7 L7 17'} />
+      <title>{holds ? 'holds' : 'does not hold'}</title>
+      <path d={holds ? TICK : CROSS} />
     </svg>
   );
 }

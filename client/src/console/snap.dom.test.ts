@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
-import { age, moodOf, ringsAlpha } from './snap';
+import { age, moodOf } from './snap';
 
 const MINUTE = 60_000;
 
@@ -17,13 +17,6 @@ describe("a work's age on its card", () => {
     expect(age(90 * MINUTE).tone).toBe('danger');
     expect(age(30 * 60 * MINUTE).tone).toBe('danger');
     expect(age(3 * 24 * 60 * MINUTE)).toEqual({ label: '3d', tone: 'danger' });
-  });
-});
-
-describe("a card's rings", () => {
-  it('stand still on a card that needs the owner', () => {
-    const strengths = [0, 400, 1300, 2000, 2600, 9999].map((t) => ringsAlpha(false, t));
-    expect(new Set(strengths)).toEqual(new Set([1]));
   });
 });
 

@@ -297,8 +297,8 @@
   color: var(--muted);
 }
 
-/* A run in its cell's column: its state at its left edge in its colour, dashed where it was abandoned; its lines in
-   small text, each cut to the column. */
+/* A run in its cell's column: its state at its left edge in its colour, dashed where it was abandoned; its one line
+   in small text, cut to the column. */
 .step-spot {
   text-align: left;
   vertical-align: top;

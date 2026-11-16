@@ -2309,7 +2309,8 @@ impl WorkPage {
         let Some(kept) = driver.work(number) else {
             return Ok(None);
         };
-        let view = viewed(driver, number)?;
+        let every = EveryWork::of(driver);
+        let view = viewed_at(driver, number, &every.at_once)?;
         let work = kept.work;
         let writer = |by: &WriterOf| -> Result<Writer, Broken> {
             Ok(match by {
@@ -2424,7 +2425,7 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view, driver, &EveryWork::of(driver), now)?,
+            summary: Summary::of(kept, &view, driver, &every, now)?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             project: kept.item.project.clone(),
@@ -2671,18 +2672,10 @@ impl Changed {
     }
 }
 
-/// The deciding code's view of the work, which the driver holds.
-fn viewed(driver: &Driver, number: WorkNumber) -> Result<View, Broken> {
-    driver.view(number).ok_or_else(|| no_view(number))
-}
-
-/// The deciding code's view of the work, in the room what holds every work at once leaves it.
+/// The deciding code's view of the work, which the driver holds, in the room what holds every work at once leaves it.
 pub(crate) fn viewed_at(driver: &Driver, number: WorkNumber, at_once: &driver::AtOnce) -> Result<View, Broken> {
-    driver.view_at(number, at_once).ok_or_else(|| no_view(number))
-}
-
-fn no_view(number: WorkNumber) -> Broken {
-    Broken(format!("the driver shows work {} and has no view of it", number.0))
+    (driver.view_at(number, at_once))
+        .ok_or_else(|| Broken(format!("the driver shows work {} and has no view of it", number.0)))
 }
 
 /// The link of the CI run a round or a call runs as, where what carries it out says it does.

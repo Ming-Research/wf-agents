@@ -1129,8 +1129,23 @@ impl H {
                 (k.head.item, end)
             })
             .collect();
+        // What holds every work at once, worked out once as a read of many works does.
+        let at_once = d.at_once();
         for kept in d.works() {
             let number = kept.head.number;
+            // A read of many works gives each work what the forms that read it alone give.
+            assert_eq!(
+                d.view_at(number, &at_once),
+                d.view(number),
+                "work {} is seen otherwise by a read of every work",
+                number.0
+            );
+            assert_eq!(
+                d.held_at(number, &at_once),
+                d.held(number),
+                "work {} is held otherwise by a read of every work",
+                number.0
+            );
             let stored = self.reader.load(number).expect("the work loads");
             assert_eq!(
                 &stored, kept.work,

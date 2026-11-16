@@ -7,7 +7,7 @@ The driver's readings of one work (its view, what holds back its next round, wha
 holds every work at once (the pause of everything, the waits of the services, the works taking a slot) from their
 caller, which works it out once for its read: the read of the items, the lines of what waits for the owner, the System
 view and a work's own page. The forms that read one work alone work it out each time.
-Why: Each working out goes over every work's records, so worked out for each work a read of many works costs their
-square: with 337 works a read of the items took 1.24 s, about nine tenths of it there, and AFTER once worked out once.
-Keeping it beside the records, worked out again as they change, was turned down: worked out once for a read it costs
-little (principle state-from-records).
+Why: The waits and the slots taken are each worked out from every work's records, so worked out for each work a read
+of many works costs their square: with 337 works a read of the items took 1.24 s, about nine tenths of it there, and
+0.04 to 0.1 s once worked out once. Keeping it beside the records, worked out again as they change, was turned down:
+worked out once for a read it costs little (principle state-from-records).

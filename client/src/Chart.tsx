@@ -37,7 +37,7 @@ import {
   type Spot,
   hasMark,
 } from './matrix';
-import { Arrow, Edge, Sign } from './parts';
+import { Arrow, CROSS, Edge, Sign, TICK } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
 import { cellSays, headFacts, inputKindWords, keysWords, lineKeys, listed } from './words';
 
@@ -180,9 +180,9 @@ export function ConditionGlyph({ spot }: { spot: ConditionSpot }) {
   );
   const whenMark = () => {
     if (value === undefined || value === 'yes') {
-      return box('when', <path className="part holds" d="M5.5 12.5 L10 17 L18.5 7" />);
+      return box('when', <path className="part holds" d={TICK} />);
     }
-    if (value === 'no') return box('when', <path className="part holds" d="M7 7 L17 17 M17 7 L7 17" />);
+    if (value === 'no') return box('when', <path className="part holds" d={CROSS} />);
     return (
       <span key="when" className="spot-value">
         {value}

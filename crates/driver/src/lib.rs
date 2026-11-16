@@ -318,10 +318,10 @@ pub struct Slots {
 }
 
 /// What holds every work at once as the driver stands: the owner's pause of everything, the wait of each service the
-/// works reach, and the works whose round under way takes a slot. Each is worked out from the records of every work,
-/// so a reader of many works works it out once ([`Driver::at_once`]) and hands it to its reading of each
-/// ([`Driver::view_at`], [`Driver::held_at`], [`Driver::waits_on_owner_at`]); a reader of one work has it worked out
-/// for that one.
+/// works reach, and the works whose round under way takes a slot. The waits and the slots taken are worked out from the
+/// records of every work, so a reader of many works works them out once ([`Driver::at_once`]) and hands them to its
+/// reading of each ([`Driver::view_at`], [`Driver::held_at`], [`Driver::waits_on_owner_at`]); the forms that read one
+/// work alone work them out for it.
 #[derive(Clone, Debug)]
 pub struct AtOnce {
     /// The pause of everything, while it holds.
@@ -1533,19 +1533,9 @@ impl Driver {
         held(kept.flow, kept.work, self.room_at(number, at_once))
     }
 
-    /// What the work waits on the owner for now, as the one definition of it says ([`owner::waits`]), with what holds
-    /// every work at once as it stands: the pause of everything, and the agents' wait where their command line cannot
-    /// run. None where there is no such work.
-    pub fn waits_on_owner(&self, number: WorkNumber) -> Vec<owner::Waiting> {
-        let at_once = self.at_once();
-        let Some(view) = self.view_at(number, &at_once) else {
-            return Vec::new();
-        };
-        self.waits_on_owner_at(number, &view, self.held_at(number, &at_once), &at_once)
-    }
-
-    /// What the work waits on the owner for now ([`Driver::waits_on_owner`]), of its view and what holds back its next
-    /// round as the reader already has them, with what holds every work at once.
+    /// What the work waits on the owner for now, as the one definition of it says ([`owner::waits`]), of its view and
+    /// what holds back its next round as the reader has them, with what holds every work at once: the pause of
+    /// everything, and the agents' wait where their command line cannot run. None where there is no such work.
     pub fn waits_on_owner_at(
         &self,
         number: WorkNumber,

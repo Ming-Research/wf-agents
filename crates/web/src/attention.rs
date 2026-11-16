@@ -159,7 +159,7 @@ impl Attention {
                     },
                     Heed::Agents { outage } => Line::Agents {
                         since,
-                        outage: Outage::of(outage, driver.gate().holds_agents()),
+                        outage: Outage::of(outage, at_once.gate().holds_agents()),
                         mend: (outage.down().0 == decide::run::Failure::CannotRun)
                             .then(|| driver.work(outage.work))
                             .flatten()

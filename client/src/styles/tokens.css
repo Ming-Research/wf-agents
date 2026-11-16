@@ -14,6 +14,8 @@
   --weight: 400;
   --weight-strong: 600;
   --label-spacing: 0.04em;
+  /* How far below the words' baseline a drawn mark among them sits, so that it stands in the middle of their line. */
+  --mark-drop: -2px;
 
   /* Space: a 4px grid. */
   --space-2: 2px;

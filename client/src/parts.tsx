@@ -471,12 +471,25 @@ export function Arrow({ to }: { to: 'right' | 'down' }) {
   );
 }
 
-/// The mark of a part that folds: a small triangle drawn by the page, to the right while it is folded, down while it is
-/// open, in the colour of the words round it.
-export function FoldMark({ open }: { open: boolean }) {
+/// The mark of a part that folds: a small triangle drawn by the page, to the right while it is folded and turned down
+/// while it is open (by `open`, or by the styles where a `details` element folds it), in the colour of the words round
+/// it.
+export function FoldMark({ open }: { open?: boolean }) {
   return (
-    <svg className="label-arrow" viewBox="0 0 12 12" width="12" height="12" fill="currentColor" aria-hidden="true">
-      <path d={open ? 'M2.5 4h7L6 9z' : 'M4 2.5v7L9 6z'} />
+    <svg
+      className={open ? 'fold-mark fold-open' : 'fold-mark'}
+      viewBox="0 0 12 12"
+      width="12"
+      height="12"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M4 2.5v7L9 6z" />
     </svg>
   );
 }
+
+/// The matrix's tick, where a cell runs when a test holds or a block is yes, and its cross, where it runs when the
+/// block is no, as paths on a box 24 wide: drawn so wherever the page marks a branch so.
+export const TICK = 'M5.5 12.5 L10 17 L18.5 7';
+export const CROSS = 'M7 7 L17 17 M17 7 L7 17';

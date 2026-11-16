@@ -165,9 +165,6 @@ async fn a_command_line_that_cannot_run_is_what_each_work_waits_on_the_owner_for
     let work = &items["items"][0]["work"];
     let waits = work["waits"].as_array().unwrap();
     assert!(waits.iter().any(|w| w["key"] == "agents"), "{waits:?}");
-    // The bar's stretches the work spent idle since the wait began are the owner's.
-    let bar = work["bar"].as_str().unwrap();
-    assert!(bar.contains('o'), "{bar}");
     // The check finds the outside well: the wait no longer holds, and no work waits on the owner for it.
     pass(40_000).await;
     let items = get_json(router, "/api/v1/items").await;

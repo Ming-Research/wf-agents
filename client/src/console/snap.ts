@@ -14,12 +14,12 @@
 // the first item under it and the last. Two items are lit, each with the way from it to its root, and from each of its
 // shadows to theirs, by rings and by ribbons joining each to the one above: the item under the pointer in a light blue,
 // faded out once the pointer leaves, and the item selected by a click in the accent, until it is let go; a click on a
-// shadow selects the item it points to and brings it to the middle of the screen. A card that needs the owner has rings of
-// red round it, which stand still; one whose work runs has a light going round its edge. The mark of a cell running
-// pulses. Every column fades out into the page near the top and the bottom of the screen; at those two edges the
-// column under the pointer has a line of blue, faded in as the pointer comes. Only what is on the screen is drawn. What
-// it draws and how fast is kept in `stats`. A call the engine carries out for a cell, a tool's or an act of its own, keeps its card
-// running as a round does, and its cell's mark, in the yellow of a call, pulses as a running cell's does.
+// shadow selects the item it points to and brings it to the middle of the screen. A card whose work runs has a light
+// going round its edge. The mark of a cell running pulses. Every column fades out into the page near the top and the
+// bottom of the screen; at those two edges the column under the pointer has a line of blue, faded in as the pointer
+// comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. A call the engine carries
+// out for a cell, a tool's or an act of its own, keeps its card running as a round does, and its cell's mark, in the
+// yellow of a call, pulses as a running cell's does.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
 // every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
@@ -409,30 +409,11 @@ const EDGE_RUNNING = 0.9;
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
 const CARD_INSET = 10;
-/// The glow of a card that needs the owner or runs: how far out each ring stands and how strong it is. A red card's
-/// rings stand still; a running card's light goes round its edge.
-const CARD_GLOW: [number, number][] = [
-  [1, 0.34],
-  [2.5, 0.2],
-  [4, 0.11],
-  [5.5, 0.05],
-];
-/// How a glow moves: how long a breath of a running card's rings takes, where it has them, and how faint they are at its
-/// low point; how long the light on a running card's edge takes to go round, and the light's length as so many parts
-/// of so many pixels.
-const BREATH_MS = 2600;
-const BREATH_LOW = 0.35;
+/// The light on a running card's edge: how long it takes to go round, and its length as so many parts of so many
+/// pixels.
 const TRAIL_MS = 3200;
 const TRAIL_PARTS = 16;
 const TRAIL_PART = 7;
-/// TRIAL: whether a running card has the glowing rings as well as the light going round its edge.
-const RUNNING_RINGS = false;
-
-/// How strong a card's rings are drawn at the time `now`: a running card's, where it has them, breathe; those of a card
-/// that needs the owner stand still, at their full strength.
-export function ringsAlpha(running: boolean, now: number): number {
-  return running ? BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * ((now / BREATH_MS) % 1)) ** 2 : 1;
-}
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
 /// The height of the line under a deliverable, which has no card.
@@ -558,9 +539,8 @@ export class SnapScene {
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
-  /// The glow of each card that runs or needs the owner: its rings, which stand still on a card that needs the owner,
-  /// and for a card whose work runs the light that goes round its edge, moved each frame.
-  private glows = new Map<number, { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string }>();
+  /// The light that goes round the edge of each card whose work runs, moved each frame.
+  private glows = new Map<number, { trail: Graphics; top: number; high: number; colour: string }>();
   /// The same for the glow around the item under the pointer itself, which those lit with it do not have.
   private haloed = new Map<number, number>();
   /// The column last scrolled, or whose item was last brought to the middle, which the others follow.
@@ -797,17 +777,6 @@ export class SnapScene {
     // of the items under it, so that the cards of the items that are worked on stand out from it.
     if (item.deliver) view.addChild(new Graphics().rect(0, top + h - DELIVER_LINE, NODE_W, DELIVER_LINE).fill(PALETTE.faint));
     else {
-      // A card that needs the owner or whose work is running glows in its colour: a few rings fading outward, which
-      // on the dark ground make it the first thing seen.
-      if (filled && state !== null) {
-        const glow = new Graphics();
-        for (const [out, alpha] of CARD_GLOW)
-          glow
-            .roundRect(-out, top - out, NODE_W + 2 * out, h + 2 * out, CARD_CORNER + out)
-            .stroke({ color: state, width: 2, alpha });
-        view.addChild(glow);
-        this.glows.set(k, { rings: glow, trail: null, top, high: h, colour: state });
-      }
       view.addChild(
         card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
           color:
@@ -821,10 +790,10 @@ export class SnapScene {
       );
     }
     // A card whose work runs has a light going round its edge, drawn anew each frame over the card.
-    const moving = this.glows.get(k);
-    if (moving !== undefined && mood === 'running') {
-      moving.trail = new Graphics();
-      view.addChild(moving.trail);
+    if (!item.deliver && mood === 'running' && state !== null) {
+      const trail = new Graphics();
+      view.addChild(trail);
+      this.glows.set(k, { trail, top, high: h, colour: state });
     }
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
@@ -1049,23 +1018,10 @@ export class SnapScene {
     return view;
   }
 
-  /// Moves a card's glow on by a frame. A card that needs the owner has rings that stand still: a breath of them could
-  /// hardly be seen. A card whose work runs has a short light going round its edge, bright at its head and fading
-  /// behind it, in step on every such card, so that what is being worked on is seen moving.
-  private moveGlow(
-    glow: { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string },
-    now: number,
-  ) {
+  /// Moves the light on a running card's edge on by a frame: a short light going round its edge, bright at its head
+  /// and fading behind it, in step on every such card, so that what is being worked on is seen moving.
+  private moveGlow(glow: { trail: Graphics; top: number; high: number; colour: string }, now: number) {
     const trail = glow.trail;
-    if (trail === null) {
-      // A card that needs the owner: its rings stand still.
-      glow.rings.alpha = ringsAlpha(false, now);
-      return;
-    }
-    // A card whose work runs: its rings are off for now (TRIAL: the owner is trying it without them), and the light
-    // on its edge goes round in step with every other running card's.
-    glow.rings.visible = RUNNING_RINGS;
-    if (RUNNING_RINGS) glow.rings.alpha = ringsAlpha(true, now);
     const [w, h, top] = [NODE_W, glow.high, glow.top];
     const round = 2 * (w + h);
     // A point of the card's edge, by how far round it from its top left corner, clockwise.
@@ -1579,8 +1535,8 @@ export class SnapScene {
     const tip = this.trackTip(t, x, y);
     if (this.app.canvas.title !== tip) this.app.canvas.title = tip;
     const chain = lit(this.under);
-    // The item selected, the same way, in the accent, under the light blue; only the item itself glows, those lit with it are
-    // only ringed, so that it stands out among them.
+    // The item selected, the same way, in the accent, under the light blue; only the item itself glows, those lit
+    // with it are only ringed, so that it stands out among them.
     const picked = this.selected === null ? -1 : (this.real.get(this.selected) ?? -1);
     const chosen = lit(picked);
     // While the pointer or the selection lights something, every other item drawn is dimmed, more under the pointer

@@ -1,6 +1,6 @@
 /* The flow's chart: the blocks down the side, the cells across, a mark where they cross, each block's line along its
-   row, and the ways back in the muted colour, thicker than a block's line and with an arrow. The blocks' names stay in place as the frame scrolls sideways, and the
-   cells' heads as it scrolls down. */
+   row, and the ways back in the muted colour, thicker than a block's line and with an arrow. The blocks' names stay in
+   place as the frame scrolls sideways, and the cells' heads as it scrolls down. */
 
 /* The view under the view's line: the chart's frame, and the docked panel at its right while one is open. */
 .view-body {
@@ -162,11 +162,16 @@ tr.row.chosen > .block-head {
   font-size: var(--size-small);
 }
 
-/* On one line, cut at the column's edge, whole on the pointer's tip. */
 .cell-title {
+  font-weight: var(--weight-strong);
+  hyphens: auto;
+  overflow-wrap: break-word;
+}
+
+/* In the history of a work, a cell's title stays on one line, cut at the column's edge, whole on the pointer's tip. */
+.history .cell-title {
   max-width: 100%;
   overflow: hidden;
-  font-weight: var(--weight-strong);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -284,7 +289,7 @@ tr.row.chosen > .block-head {
 /* An arrow beside a label, on the label's line. */
 .label-arrow {
   flex: none;
-  vertical-align: -2px;
+  vertical-align: var(--mark-drop);
 }
 
 /* A crossing: the row's line through it, the way back when there is one, and the mark. */

@@ -82,8 +82,9 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    // The loop runs on this thread, and the server of the pages on the runtime's other threads ([`loop_and_server`]), so that
-    // what the loop does with the store holds up none of the threads that serve the pages or carry out the rounds.
+    // The loop runs on this thread, and the server of the pages on the runtime's other threads ([`loop_and_server`]),
+    // so that what the loop does with the store holds up none of the threads that serve the pages or carry out the
+    // rounds.
     runtime.block_on(async move {
         let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let listener = match tokio::net::TcpListener::bind(address).await {
@@ -580,6 +581,8 @@ fn read_script(script: &Path, flows: &[Compiled], compiled_all: bool, wrong: &mu
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn the_server_of_the_pages_runs_while_the_loop_holds_its_thread() {
         // As `run` builds it: on one thread, what the loop takes holds that thread until it is done.
@@ -588,7 +591,7 @@ mod tests {
             .build()
             .unwrap();
         let (ran, heard) = std::sync::mpsc::channel();
-        let ended = runtime.block_on(super::loop_and_server(
+        let ended = runtime.block_on(loop_and_server(
             // The loop takes one thing, which holds its thread until the server says it ran, at most ten seconds.
             async move { heard.recv_timeout(std::time::Duration::from_secs(10)).is_ok() },
             // Not at the first poll, which the loop's thread could give it before the loop takes its thing.
@@ -599,12 +602,10 @@ mod tests {
             },
         ));
         assert!(
-            matches!(ended, super::Ended::Loop(true)),
+            matches!(ended, Ended::Loop(true)),
             "the server did not run while the loop held its thread: {ended:?}"
         );
     }
-
-    use super::*;
 
     /// The directory that holds the repository's flows.
     fn flows() -> PathBuf {
