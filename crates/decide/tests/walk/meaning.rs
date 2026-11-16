@@ -24,9 +24,7 @@ fn a_row_of_writes_each_said_not_to_matter_keeps_the_first_meaning() {
 }
 
 #[test]
-fn a_first_version_a_run_hands_in_as_changing_nothing_is_new_to_no_cell_and_one_that_matters_runs_the_cells_after() {
-    // Design document `data-and-context`, 9: a version its writer hands in as changing nothing in meaning is kept, and
-    // is new to no cell, whoever its writer.
+fn the_first_version_a_run_writes_of_a_block_has_a_meaning_of_its_own_whatever_the_run_says() {
     let mut w = World::with_gate(vec![
         cell("research", &["background"], &["plan"]),
         cell("implement", &["plan"], &[]),
@@ -36,10 +34,7 @@ fn a_first_version_a_run_hands_in_as_changing_nothing_is_new_to_no_cell_and_one_
     // No plan has a version, so nothing runs the implementation.
     assert_eq!(w.decide(), resting());
     w.person_writes("background");
-    w.run("research", &[("plan", DoesNotMatter)]);
-    assert_eq!(w.decide(), resting());
-    w.person_writes("background");
-    let plan = w.run("research", &[("plan", Matters)]);
+    let plan = w.run("research", &[("plan", DoesNotMatter)]);
     assert_eq!(
         w.decide(),
         runs("implement", vec![changed("plan", None, false)], &[("plan", Some(plan))])
@@ -49,7 +44,7 @@ fn a_first_version_a_run_hands_in_as_changing_nothing_is_new_to_no_cell_and_one_
 #[test]
 fn a_first_version_the_outside_writes_as_changing_nothing_is_new_to_no_cell_and_neither_is_what_keeps_its_meaning() {
     // Design document `data-and-context`, 9: a version its writer hands in as changing nothing in meaning is kept, and
-    // is new to no cell.
+    // is new to no cell; written from outside with no version before it, it has no meaning it could keep.
     let mut w = World::with_gate(vec![cell("answer", &["asked"], &["reply"])]);
     w.written_outside("asked", "answer");
     w.outside_writes_not_mattering("asked");
