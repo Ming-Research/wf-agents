@@ -1284,7 +1284,7 @@ mod tests {
         let source = flow::read(&dir).unwrap();
         let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
         let has = flow::Has {
-            sources: names(&["tree", "main"]),
+            sources: names(&["tree", "main", "guide"]),
             acts: names(&["start", "check", "merge"]),
             ..Default::default()
         };

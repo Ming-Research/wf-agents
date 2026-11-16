@@ -16,7 +16,9 @@ reads_only = true
 [blocks.request]
 people = true
 
+# Where the work is done, which the start makes and the owner reads.
 [blocks.place]
+shown = true
 
 # The project's guide for its agents as the work's branch has it, which the start's act reads as it makes the work's
 # place and every session begins with.

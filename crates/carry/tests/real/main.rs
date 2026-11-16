@@ -331,11 +331,11 @@ fn compiled(on: On) -> Compiled {
     if let Some(build) = source
         .cells
         .get_mut("build")
-        .filter(|build| build.contains("watches = [\"plan\", \"opinions\"]"))
+        .filter(|build| build.contains("watches = [\"guide\", \"plan\", \"opinions\"]"))
     {
         *build = (build.replace(
-            "watches = [\"plan\", \"opinions\"]",
-            "watches = [\"plan\", \"opinions\", \"build_questions\", \"build_words\"]",
+            "watches = [\"guide\", \"plan\", \"opinions\"]",
+            "watches = [\"guide\", \"plan\", \"opinions\", \"build_questions\", \"build_words\"]",
         ))
         .replace(
             "outputs = [\"code\"]",

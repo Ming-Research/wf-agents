@@ -3,9 +3,10 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Build what the plan says."
-watches = ["plan", "opinions"]
+watches = ["guide", "plan", "opinions"]
 outputs = ["code"]
 
 [kinds]
+guide = "last_and_latest"
 plan = "last_and_latest"
 opinions = "last_and_latest"
