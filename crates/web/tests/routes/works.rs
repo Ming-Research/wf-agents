@@ -40,6 +40,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "number": 1,
                 "item": 1,
                 "flow": "trial",
+                "delivers": false,
                 "added": START,
                 "paused": null,
                 "now": {
@@ -156,7 +157,11 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "at": 5,
                     "time": resumed,
                     "because": for_the_request,
-                    "basis": [{ "block": "plan", "version": null }, { "block": "request", "version": 3 }],
+                    "basis": [
+                        { "block": "guide", "version": null },
+                        { "block": "plan", "version": null },
+                        { "block": "request", "version": 3 },
+                    ],
                     "rounds": [{
                         "number": 1,
                         "began": resumed,
