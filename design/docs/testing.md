@@ -76,8 +76,8 @@ of each part.
 
 ## Each cell on its data
 
-10. A cell knows only its data (principle a-cell-knows-only-its-data): what it hands in rests on its words, on what
-    it is given and on the checkout at the versions it is given. Which cell runs, and what it is given, in every
+10. A cell knows only its data (principle a-cell-knows-only-its-data): nothing of the work reaches it but its words,
+    what it is given and the checkout at the versions it is given. Which cell runs, and what it is given, in every
     situation is kept right by the suite (4, 5); how a model reads the words is not, and is tested here, cell by cell
     in the situations works bring it most, before a work meets them, and in trials.
 
@@ -90,28 +90,32 @@ of each part.
     twenty. The other situations, more than a thousand in the engineer flow, are met only in trials, where what goes
     wrong becomes a case.
 
-12. **Its data and its session.** A case's data are made for it, or taken from the latest of this repository's own
-    works that had them; the made ones cover each kind of work the flow serves, so that the words are not tuned to one
-    project's works. Every case runs as its cell does after its line's session is reopened: in a new session, where a
-    cell of the line that only reads the tree runs first and writes nothing, and the cell is then filled from the top
-    with all its data ask for (design document `data-and-context`, 15, 25). Every work can reach that, and nothing a
-    round before it wrote stands beside the case's data; the same situation in a session that still holds earlier
-    rounds differs only in what is filled, and is met in trials. A judgment is tested on data whose answer is known: a
-    review on a plan that leaves a condition of the item unmet, which it must fail with a point that names it, and on
-    one it must pass. A case and what it says the cell owes are made by an agent that did not write the cell's words,
-    kept beside the flows as scripts are (21), and come in by a pull request, reviewed as any change is.
+12. **Its data and its session.** A case's data are made for it, covering each kind of work the flow serves so that
+    the words are not tuned to one project's works, in a repository made for the tests; or taken as they were from
+    the latest work of the installation that had them. Every case runs in the form its situation takes after its
+    line's session is reopened: in a new session, where a cell of the line that only reads the tree runs first and
+    writes nothing, and the cell is then filled from the top with all its data ask for (design document
+    `data-and-context`, 15, 25). Every work can reach that form, and nothing a round before it wrote stands beside the
+    case's data; how the cell reads the same situation in a session that still holds earlier rounds, with what they
+    read and reasoned, only a trial shows. A judgment is tested on data whose answer is known: a review on a plan that
+    leaves a condition of the item unmet, which it must fail with a point that names it, and on one it must pass. A
+    case and what it says the cell owes are made by an agent that did not write the cell's words. Made cases are kept
+    beside the flows as scripts are (21), and come in by a pull request, reviewed as any change is; cases taken from
+    works, which hold the owner's language and the installation's own, stay in its data directory (principle
+    harness-only).
 
 13. **How it runs.** A program runs each case on an installation apart from the real one, in a copy of a checkout at
     the case's versions, so that nothing it does reaches a project. It runs the real program on the model of the
     lowest level of the settings, with the cell's effort; the agent is not told it is tested (34). A call the round
     asks for is answered with the result the case holds for it, and the case goes on to the round that hands in; a
-    call the case holds no result for fails it. Each case runs once, and one that fails runs twice more, so that a
-    fault of the words is told from one that comes and goes; one that failed only sometimes is recorded as an
-    observation as well (9). A round on the lowest level's model cost $0.0135 on average over the 73 rounds of three
-    small works run with every level on it; on the real installation a round of the second level's model cost $0.1475
-    on average over 233, and of the third's $0.5126 over 12. So a cell's twenty cases come to well under a dollar on
-    a project of that size, more where the tree is larger, and each case that a reading judges or that runs again on
-    its cell's model (15) adds a round on that model.
+    call the case holds no result for fails it. A case whose reading cell's round fails, before its own cell runs,
+    fails as that reading cell's case. Each case runs once, and one that fails runs twice more, so that a fault of the
+    words is told from one that comes and goes; one that failed only sometimes is recorded as an observation as well
+    (9). A round on the lowest level's model cost $0.0135 on average over the 73 rounds of three small works run with
+    every level on it; on the real installation a round of the second level's model cost $0.1493 on average over 229,
+    and of the third's $0.5126 over 12, and a reading round of this repository's tree, on the second level's model,
+    $0.1724 over 10. So a cell's twenty cases come to well under a dollar on a small project and some dollars on this
+    one, and each case that a reading judges or that runs again on its cell's model (15) adds a round on that model.
 
 14. **How it is judged.** First mechanically, by the engine's own checks of a return and against what the case says
     the cell owes: a return sent back, a block owed and left out, a verdict other than the case expects, a point where
@@ -123,20 +127,21 @@ of each part.
 
 15. **A case that fails** runs again, whole and in a new session, on the model its cell runs at: that of the level of
     the item its data come from, made data taking the default level, raised by the line's levels above as far as the
-    highest level. Where it passes there, the case passes, and the failure is recorded as what the cheaper model
-    cannot do; where it fails there too, a fork of that round's session is asked about the cell's text (34), and what
-    failed is mended: words that can be read otherwise are rewritten (principle lean-agent-input), a definition that
-    does not give the cell what it needs or a case that expects wrongly is put right, and no exception is made for the
-    case (principle a-cell-knows-only-its-data); where rewriting cannot stop the mistake, principle
+    highest level. It runs there as on the cheaper model, once and twice more where it fails. Where it passes there,
+    the case passes, and its failure on the cheaper model is recorded as an observation of what that model cannot do;
+    where it fails there too, a fork of that round's session is asked about the cell's text (34), and what failed is
+    mended: words that can be read otherwise are rewritten (principle lean-agent-input), a definition that does not
+    give the cell what it needs or a case that expects wrongly is put right, and no exception is made for the case
+    (principle a-cell-knows-only-its-data); where rewriting cannot stop the mistake, principle
     locate-and-price-the-fix says what may be added. A situation where a real run went wrong and no case held becomes
     a case.
 
 16. **When it runs.** A cell's cases run where the text any of its situations is sent changed, as the situations
     written before and after the change show (5): in the work that makes the change, before it merges, its results in
     its pull request for the owner, each case passed or failed, with its returns before and after the change side by
-    side (principle change-cells-after-their-cases). Where the agents' program changes, every cell's cases run; where
-    the model of a level changes, the cases of the cells that run at that level run on the new model; both before the
-    installation runs the new one, the results shown to the owner first.
+    side (principle change-cells-after-their-cases). Where the agents' program or the lowest level's model changes,
+    every case runs; where the model of another level changes, the cases whose cell's model is that level's run on it;
+    both before the installation runs the new one, the results shown to the owner first.
 
 17. Not built: the program that builds, runs and judges the cases; the step of the flow that runs them in a work that
     changes a cell's text; holding a new program or model until its cases pass; and the results on the page. Until
