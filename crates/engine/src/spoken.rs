@@ -88,7 +88,7 @@ pub fn receiver(flow: &Compiled, work: &Work, to: &To) -> Result<CellId, NoOne> 
     }
     let cell = match to {
         To::Cell(cell) => {
-            if flow.flow.place(cell).is_none() && cell.as_str().is_empty() {
+            if flow.flow.place(cell).is_none() {
                 return Err(NoOne::NoSuchCell(cell.clone()));
             }
             cell.clone()
@@ -110,7 +110,7 @@ pub fn receiver(flow: &Compiled, work: &Work, to: &To) -> Result<CellId, NoOne> 
             if can.is_empty() {
                 return Err(NoOne::NoneOfTheLine(line.clone()));
             }
-            (can.first().cloned()).ok_or_else(|| NoOne::NotReached(line.clone()))?
+            decide::reached(&flow.flow, records, &can).ok_or_else(|| NoOne::NotReached(line.clone()))?
         }
     };
     if words_of(flow, &cell).is_none() {
@@ -141,7 +141,7 @@ pub(crate) fn said(
     );
     let number = write(work, &block, entry.clone());
     // A round of the cell under way is told of them as it runs; they are put into it once it was.
-    if let Some(run) = under_way(work, &cell).filter(|_| words.is_empty()) {
+    if let Some(run) = under_way(work, &cell) {
         let watched = (flow.cells.iter())
             .find(|c| c.id == cell)
             .and_then(|c| c.watches.iter().find(|w| w.name == block.as_str()));
