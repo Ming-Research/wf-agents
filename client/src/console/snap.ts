@@ -14,12 +14,13 @@
 // the first item under it and the last. Two items are lit, each with the way from it to its root, and from each of its
 // shadows to theirs, by rings and by ribbons joining each to the one above: the item under the pointer in a light blue,
 // faded out once the pointer leaves, and the item selected by a click in the accent, until it is let go; a click on a
-// shadow selects the item it points to and brings it to the middle of the screen. A card whose work runs has a light
-// going round its edge. The mark of a cell running pulses. Every column fades out into the page near the top and the
-// bottom of the screen; at those two edges the column under the pointer has a line of blue, faded in as the pointer
-// comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. A call the engine carries
-// out for a cell, a tool's or an act of its own, keeps its card running as a round does, and its cell's mark, in the
-// yellow of a call, pulses as a running cell's does.
+// shadow selects the item it points to and brings it to the middle of the screen. The mark of a cell running pulses,
+// while its card stands still. The way from each item whose work runs up to its root is dashed in the colour of a
+// running card's edge, its dashes moving from the root's side to the item's. Every column fades out into the page near
+// the top and the bottom of the screen; at those two edges the column under the pointer has a line of blue, faded in as
+// the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. A call the
+// engine carries out for a cell, a tool's or an act of its own, keeps its card running as a round does, and its cell's
+// mark, in the yellow of a call, pulses as a running cell's does.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
 // every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
@@ -68,6 +69,13 @@ const GLOW_IN = 30;
 /// milliseconds.
 const DIM = 0.35;
 const DIM_LINKS = 0.4;
+/// The way from each item whose work runs up to its root, dashed in the colour of a running card's edge and moving
+/// from the root's side to the item's: a dash's length and the gap after it, in pixels; how fast the dashes move, in
+/// pixels a second; and the line's width.
+const RUN_DASH = 5;
+const RUN_GAP = 4;
+const RUN_SPEED = 18;
+const RUN_LINE = 1.5;
 const FADE_DOWN = 220;
 const FADE_UP = 110;
 /// How long the pointer rests on an item before it is the one in focus, and how long it is off every item before the
@@ -409,11 +417,6 @@ const EDGE_RUNNING = 0.9;
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
 const CARD_INSET = 10;
-/// The light on a running card's edge: how long it takes to go round, and its length as so many parts of so many
-/// pixels.
-const TRAIL_MS = 3200;
-const TRAIL_PARTS = 16;
-const TRAIL_PART = 7;
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
 /// The height of the line under a deliverable, which has no card.
@@ -483,6 +486,10 @@ export class SnapScene {
   private world = new Container();
   /// The funnels from each item to the items under it; and the rings of the items lit.
   private links = new Graphics();
+  /// The dashed ways from the items whose work runs up to their roots, drawn anew each frame over the funnels.
+  private runLines = new Graphics();
+  /// The items whose work runs.
+  private running = new Set<number>();
   private marks = new Graphics();
   private layer = new Container();
   /// The fade of every column into the page at the top and the bottom of the screen, each a gradient in the shape's own
@@ -539,9 +546,8 @@ export class SnapScene {
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
-  /// The light that goes round the edge of each card whose work runs, moved each frame.
-  private glows = new Map<number, { trail: Graphics; top: number; high: number; colour: string }>();
-  /// The same for the glow around the item under the pointer itself, which those lit with it do not have.
+  /// How far the glow around the item under the pointer itself has come in, as `glowing` says of its rings; those lit
+  /// with it have none.
   private haloed = new Map<number, number>();
   /// The column last scrolled, or whose item was last brought to the middle, which the others follow.
   private driver = 0;
@@ -602,7 +608,7 @@ export class SnapScene {
     root.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     media.addEventListener('change', this.retheme);
     this.themes = { media, root };
-    this.world.addChild(this.links, this.layer, this.marks);
+    this.world.addChild(this.links, this.runLines, this.layer, this.marks);
     this.app.stage.addChild(this.world, this.edges, this.map);
     this.map.position.set(MAP_INSET, MAP_INSET);
     this.map.addChild(this.mapFrame);
@@ -704,7 +710,7 @@ export class SnapScene {
       for (let p = k; p >= 0 && this.begun[p] === 0; p = tree.parent[p]) this.begun[p] = 1;
     });
     this.pulses = new Map();
-    this.glows = new Map();
+    this.running = new Set();
     ({ measures: this.measures, looks: this.looks } = cellLooks());
     this.drawnStrips = new Map();
     this.glowing = new Map();
@@ -767,6 +773,7 @@ export class SnapScene {
     const row1 = top + NODE_H / 2;
     if (item.shadow) return this.shadow(item, view, top, h, row1);
     const mood = item.work !== null ? moodOf(item.work) : null;
+    if (mood === 'running') this.running.add(k);
     const card = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER);
     // A card whose work is running, or that needs the owner (it waits for the owner, or the engine stopped it), is
     // filled with its state's colour, and its edge is a deeper shade of it. A card stopped for anything else has an
@@ -788,12 +795,6 @@ export class SnapScene {
           width: EDGE_WIDTH,
         }),
       );
-    }
-    // A card whose work runs has a light going round its edge, drawn anew each frame over the card.
-    if (!item.deliver && mood === 'running' && state !== null) {
-      const trail = new Graphics();
-      view.addChild(trail);
-      this.glows.set(k, { trail, top, high: h, colour: state });
     }
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
@@ -1018,35 +1019,6 @@ export class SnapScene {
     return view;
   }
 
-  /// Moves the light on a running card's edge on by a frame: a short light going round its edge, bright at its head
-  /// and fading behind it, in step on every such card, so that what is being worked on is seen moving.
-  private moveGlow(glow: { trail: Graphics; top: number; high: number; colour: string }, now: number) {
-    const trail = glow.trail;
-    const [w, h, top] = [NODE_W, glow.high, glow.top];
-    const round = 2 * (w + h);
-    // A point of the card's edge, by how far round it from its top left corner, clockwise.
-    const at = (far: number): [number, number] => {
-      const d = ((far % round) + round) % round;
-      if (d < w) return [d, top];
-      if (d < w + h) return [w, top + d - w];
-      if (d < 2 * w + h) return [w - (d - w - h), top + h];
-      return [0, top + h - (d - 2 * w - h)];
-    };
-    const head = ((now / TRAIL_MS) % 1) * round;
-    trail.clear();
-    for (let j = 0; j < TRAIL_PARTS; j += 1) {
-      const [x1, y1] = at(head - j * TRAIL_PART);
-      const [x2, y2] = at(head - (j + 1) * TRAIL_PART);
-      // A part that turns a corner is drawn as its two straight ends meet, through the corner.
-      trail.moveTo(x1, y1);
-      if (x1 !== x2 && y1 !== y2) {
-        const corner: [number, number] = y1 === top || y1 === top + h ? [x2, y1] : [x1, y2];
-        trail.lineTo(corner[0], corner[1]);
-      }
-      trail.lineTo(x2, y2).stroke({ color: PALETTE.onTag, width: 2, alpha: 0.9 * (1 - j / TRAIL_PARTS) ** 2 });
-    }
-  }
-
   /// Puts at the right of an item's second row how long its work has gone on, when the label has changed.
   private age(k: number) {
     const a = this.ages.get(k);
@@ -1178,6 +1150,41 @@ export class SnapScene {
       .lineTo(cx, last)
       .bezierCurveTo(cx - bend, last, px + bend, bottom, px, bottom)
       .closePath();
+  }
+
+  /// Adds to the running ways the dashed curve from `(px, py)` to `(cx, cy)`, bent as a funnel is, its dashes moved on
+  /// `shift` pixels from its start.
+  private dashed(px: number, py: number, cx: number, cy: number, shift: number) {
+    const bend = (cx - px) / 2;
+    const at = (u: number): [number, number] => {
+      const v = 1 - u;
+      return [
+        v * v * v * px + 3 * v * v * u * (px + bend) + 3 * v * u * u * (cx - bend) + u * u * u * cx,
+        v * v * v * py + 3 * v * v * u * py + 3 * v * u * u * cy + u * u * u * cy,
+      ];
+    };
+    const steps = 32;
+    const period = RUN_DASH + RUN_GAP;
+    let walked = 0;
+    let [x1, y1] = at(0);
+    for (let n = 1; n <= steps; n += 1) {
+      const [x2, y2] = at(n / steps);
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      // Along this piece, each stretch that falls in a dash, as far along the curve as it is, less the shift.
+      let from = 0;
+      while (from < len) {
+        const phase = (((walked + from - shift) % period) + period) % period;
+        const inDash = phase < RUN_DASH;
+        const to = Math.min(len, from + (inDash ? RUN_DASH - phase : period - phase));
+        if (inDash) {
+          const [a, b] = [from / len, to / len];
+          this.runLines.moveTo(x1 + (x2 - x1) * a, y1 + (y2 - y1) * a).lineTo(x1 + (x2 - x1) * b, y1 + (y2 - y1) * b);
+        }
+        from = to;
+      }
+      walked += len;
+      [x1, y1] = [x2, y2];
+    }
   }
 
   /// The rank of the item of column `d` at `place` rows from its top, the first whose place is not above it.
@@ -1477,8 +1484,6 @@ export class SnapScene {
         view.position.set(cx, yy);
         const p = this.pulses.get(item);
         if (p !== undefined) p.alpha = pulse;
-        const glow = this.glows.get(item);
-        if (glow !== undefined) this.moveGlow(glow, now);
         this.age(item);
         nowShown.add(view);
         drawn.push(item);
@@ -1503,6 +1508,32 @@ export class SnapScene {
       }
     }
     this.links.fill({ color: PALETTE.other, alpha: PALETTE.otherAlpha * (DIM_LINKS + (1 - DIM_LINKS) * this.dim) });
+    // The way from each item whose work runs up to its root, dashed in the colour of a running card's edge, its dashes
+    // moving from the root's side to the item's: each link from an item to the one above it drawn once, however many
+    // running items it is on.
+    this.runLines.clear();
+    const onWay = new Set<number>();
+    for (const k of this.running) {
+      for (let i = k; i >= 0 && t.parent[i] >= 0; i = t.parent[i]) {
+        if (onWay.has(i)) break;
+        onWay.add(i);
+      }
+    }
+    const shift = ((now / 1000) * RUN_SPEED) % (RUN_DASH + RUN_GAP);
+    for (const i of onWay) {
+      const p = t.parent[i];
+      const d = t.depth[i];
+      const [px, cx] = [x(d - 1) + NODE_W, x(d)];
+      if (cx < 0 || px > width) continue;
+      const [py, iy] = [y(d - 1, t.rank[p]), y(d, t.rank[i])];
+      if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
+      this.dashed(px, py, cx, iy, shift);
+    }
+    this.runLines.stroke({
+      color: mix(PALETTE.card, WORK().running, EDGE_RUNNING),
+      width: RUN_LINE,
+      alpha: DIM_LINKS + (1 - DIM_LINKS) * this.dim,
+    });
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
     // blue and ringed in blue, over everything else, the item itself glowing too; each comes in quickly, and fades out
     // once the pointer has left.
