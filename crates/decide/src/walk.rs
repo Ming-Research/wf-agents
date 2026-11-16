@@ -336,7 +336,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
             let asked = Asked {
                 own: q.latest.cell == r.started.cell && !q.latest.engine,
                 stands: q.stands(),
-                unanswered: q.stands() && !records.answers.iter().any(|a| a.question == *name),
+                unanswered: q.unanswered(),
             };
             (name.to_string(), asked)
         })
