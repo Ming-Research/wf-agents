@@ -506,7 +506,12 @@ impl History {
                             let Unmet::WrittenOver { block, version } = u else {
                                 continue;
                             };
-                            let given = cell.given.iter().any(|g| &g.block == block);
+                            // Given by the cell's definition, or by the context already as the latest it writes.
+                            let in_context = fills.contains(&Fill::Whole {
+                                block: block.clone(),
+                                version: *version,
+                            });
+                            let given = in_context || cell.given.iter().any(|g| &g.block == block);
                             let written = versions
                                 .get(block)
                                 .is_some_and(|vs| vs.iter().any(|v| v.at == *version));

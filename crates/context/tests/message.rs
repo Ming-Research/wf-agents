@@ -609,14 +609,14 @@ fn a_return_that_would_write_over_a_version_it_never_saw_is_sent_back_with_that_
     let put_in = (sim.work.records.put_in.iter()).any(|p| p.run == round.run && p.version.0 == over);
     assert!(put_in, "the version is put into the round");
     let entered = sim.enter(&round, false);
-    // The review is not given the verdict: the version is given with why the return was sent back, and filled, the
-    // version put into the round not being held by its session for that.
-    let sent_back = format!(
-        "## Sent back\n\n- `verdict` has version {over} since.\n\n## `verdict`, version {over}, with the value `yes`, written by the owner\n\n\
-         yes\n\nReturn again."
-    );
+    // The review writes the verdict and reads it not: the version is given as the latest of what it writes, its session
+    // lacking it (the version put into the round not being held by its session for that), and why the return was sent
+    // back says it, and gives it no second time.
+    let given = format!("## `verdict`, version {over}, with the value `yes`, written by the owner\n\nyes");
+    assert!(entered.text.contains(&given), "{}", entered.text);
+    let sent_back = format!("## Sent back\n\n- `verdict` has version {over} since.\n\nReturn again.");
     assert!(entered.text.contains(&sent_back), "{}", entered.text);
-    assert_eq!(entered.fills, [Fill::SentBack { round: 2 }, whole("verdict", over)]);
+    assert_eq!(entered.fills, [whole("verdict", over), Fill::SentBack { round: 2 }]);
 }
 
 #[test]

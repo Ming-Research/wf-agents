@@ -266,12 +266,18 @@ pub fn enter(
                 let round = (k < number).then_some(k);
                 values.sent_back.push((round, unmet.clone()));
                 // The version the round's own return would have written over, of a block the cell is not given, is
-                // given with it where the session lacks it, so that the agent sees what it is to write over.
+                // given with it where the session lacks it, so that the agent sees what it is to write over; but where
+                // the context gives it already, as the latest of what the cell writes.
                 for u in unmet.iter().filter(|_| k == number) {
                     let Unmet::WrittenOver { block, version } = u else {
                         continue;
                     };
-                    let given = cell.given.iter().any(|g| &g.block == block);
+                    let whole = Fill::Whole {
+                        block: block.clone(),
+                        version: *version,
+                    };
+                    let in_context = filling.get(block).is_some_and(|f| f.contains(&whole));
+                    let given = in_context || cell.given.iter().any(|g| &g.block == block);
                     let held = held.versions.get(block).is_some_and(|h| h.contains(version));
                     let of = versions.get(block).and_then(|vs| vs.iter().find(|v| v.at == *version));
                     if let (false, false, Some(v)) = (given, held, of) {

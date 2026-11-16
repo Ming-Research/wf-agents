@@ -139,8 +139,12 @@ fn what_the_cell_only_writes_stands_held_or_lacking_and_the_tree_lacking_stands_
         };
         assert!(can.contains(&verdict), "{}: {verdict:?}", named.name);
     }
-    let lacking = |n: &&Named| n.name.starts_with("reopened") && n.situation.data["verdict"] == Stands::Lacks;
-    assert!(review.iter().any(|n| lacking(&n)));
+    // Lacking where the session holds nothing, a reopened one standing as a first entry does; held on a later entry.
+    let stands: Vec<Stands> = review.iter().map(|n| n.situation.data["verdict"]).collect();
+    assert!(
+        stands.contains(&Stands::Lacks) && stands.contains(&Stands::Holds),
+        "{stands:?}"
+    );
     let plan = of("plan");
     assert!(plan.iter().any(|n| n.situation.data["tree"] == Stands::Unread));
     assert!(plan.iter().all(|n| n.situation.data["tree"] != Stands::Lacks));
