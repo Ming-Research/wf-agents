@@ -324,19 +324,47 @@ fn compiled(on: On) -> Compiled {
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");
     }
-    // A build the owner's answer runs may ask the owner: the record of the work's questions, which the engine's source
-    // of answers writes, is among its outputs, and the owner's words run it as well, as they run every cell that may ask.
+    // A build of the trial flows may ask the owner: its own questions, which the engine's source of answers writes, are
+    // among its outputs and run it, and so do its own words, as they run every cell that may ask; each in the words the
+    // repository's flows write them in.
     if let Some(build) = source
         .cells
         .get_mut("build")
-        .filter(|build| build.contains("\"answered\"]"))
+        .filter(|build| build.contains("inputs = [\"plan\", \"opinions\"]"))
     {
-        *build = (build.replace("\"answered\"]", "\"answered\", \"build_spoken_to\"]"))
-            .replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
-        source.flow.push_str(
-            "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n\n\
-             [blocks.build_spoken_to]\noutside = \"words\"\n",
+        *build = (build.replace(
+            "inputs = [\"plan\", \"opinions\"]",
+            "inputs = [\"plan\", \"opinions\", \"build_questions\", \"build_words\"]",
+        ))
+        .replace(
+            "outputs = [\"code\"]",
+            "outputs = [\"code\", \"build_questions\", \"build_words\"]",
         );
+        let own = |file: &str| {
+            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../flow/data/of_a_cell")
+                .join(file);
+            let text = std::fs::read_to_string(&path).expect("the file of a cell's own datum is read");
+            let mut table: toml::Table = toml::from_str(&text).expect("the file is TOML");
+            table.remove("name");
+            table.remove("what");
+            table.remove("words");
+            table
+        };
+        let mut blocks = toml::Table::new();
+        let mut questions = own("questions.toml");
+        questions.insert("outside".to_string(), questions.remove("from").expect("its source"));
+        let mut words = own("words.toml");
+        words.insert("outside".to_string(), words.remove("from").expect("its source"));
+        blocks.insert("build_questions".to_string(), questions.into());
+        blocks.insert("build_words".to_string(), words.into());
+        let mut whole = toml::Table::new();
+        whole.insert("blocks".to_string(), blocks.into());
+        source.flow = (source.flow).replacen("\n[limits]", "\nengine_asks_in = \"build\"\n\n[limits]", 1);
+        source.flow.push('\n');
+        source
+            .flow
+            .push_str(&toml::to_string(&whole).expect("the blocks are TOML"));
     }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
@@ -472,11 +500,11 @@ case "$first" in
         checked=no
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
         answered=no
-        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `answered`' && answered=yes
+        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
         if [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
             # It leaves all that ran it for after the answer.
             dealt=''
-            out='"q_and_a":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
+            out='"build_questions":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
         elif [ "$results" = no ] && [ '{then_asks}' = yes ]; then
             built
             calls='"query":[{{"sql":"select the check"}}]'
@@ -781,14 +809,13 @@ impl Real {
             .map(|(name, q)| (name.to_string(), q.latest.at))
     }
 
-    /// The owner answers the question the work waits for with its first option, saying why.
-    pub fn answer(&mut self, work: WorkNumber, why: &str) {
+    /// The owner answers the question the work waits for with its first option.
+    pub fn answer(&mut self, work: WorkNumber) {
         let (question, version) = self.waited_question(work).expect("the work waits for an answer");
         let act = Act::Answer {
             question,
             version,
             option: 1,
-            why: Some(why.to_string()),
         };
         self.act(work, act);
     }

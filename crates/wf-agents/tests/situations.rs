@@ -51,8 +51,8 @@ fn each_situation_of_a_cell_is_written_with_its_system_prompt_its_message_and_th
     let written = fs::read_dir(&dir).expect("the cell's directory is read").count();
     let said = String::from_utf8_lossy(&ran.stdout);
     assert!(said.starts_with(&format!("R2: {written} situations, in ")), "{said}");
-    let text = file(&dir, "later-on_plan-ran_holds_last-rest_lacks");
-    assert!(text.starts_with("situation = \"later-on_plan-ran_holds_last-rest_lacks\"\n"));
+    let text = file(&dir, "later-plan-ran_holds_last-rest_lacks");
+    assert!(text.starts_with("situation = \"later-plan-ran_holds_last-rest_lacks\"\n"));
     for part in ["system prompt", "message", "return form"] {
         assert!(text.contains(&format!("\n===== {part} =====\n\n")), "{part}");
     }
@@ -66,12 +66,9 @@ fn a_datum_given_latest_the_session_lacks_is_sent_whole_and_one_it_holds_new_its
     let out = tempfile::tempdir().expect("a directory");
     assert!(situations(out.path(), "R2").status.success());
     let dir = out.path().join("R2");
-    let lacks = datum(&file(&dir, "later-on_plan-ran_holds_last-rest_lacks"), "background");
-    let holds_latest = datum(
-        &file(&dir, "later-on_plan-ran_holds_last-rest_holds_latest"),
-        "background",
-    );
-    let holds = datum(&file(&dir, "later-on_plan-ran_holds_last-rest_holds"), "background");
+    let lacks = datum(&file(&dir, "later-plan-ran_holds_last-rest_lacks"), "background");
+    let holds_latest = datum(&file(&dir, "later-plan-ran_holds_last-rest_holds_latest"), "background");
+    let holds = datum(&file(&dir, "later-plan-ran_holds_last-rest_holds"), "background");
     assert!(lacks.ends_with("{content}"), "{lacks}");
     assert!(
         !holds_latest.is_empty() && !holds_latest.contains("{content}"),

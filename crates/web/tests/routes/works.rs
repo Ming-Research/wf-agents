@@ -177,17 +177,17 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             ],
             // The plan's question is a call of the earlier form: no question of the work's own is asked.
             "questions": [],
-            // The owner's words run no cell of the trial flow.
+            // No cell of the trial flow has words of its own.
             "speaking": [
                 {
                     "to": { "kind": "line", "line": "engineer" },
                     "cell": null,
-                    "refused": "the owner's words run no cell of the line engineer",
+                    "refused": "no cell of the line engineer has words of its own",
                 },
                 {
                     "to": { "kind": "line", "line": "reviewer" },
                     "cell": null,
-                    "refused": "the owner's words run no cell of the line reviewer",
+                    "refused": "no cell of the line reviewer has words of its own",
                 },
             ],
         })

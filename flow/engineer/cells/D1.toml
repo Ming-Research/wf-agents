@@ -19,64 +19,51 @@ If the solution falls into parts each mergeable on its own, too large for one wo
 that waits, naming them in order.
 '''
 when = { deep_needed = "yes" }
-triggered_by = [
-  "on_background",
-  "on_found",
-  "on_session",
-  "on_spoken",
-  "on_answer",
-  "on_plan_review",
-  "on_tree_review",
-  "on_plan_doubts",
-]
-context = [
+watches = [
   "background",
   "found",
-  "discussion",
   "plan_review",
   "tree_review",
   "plan_doubts",
-  "plan_owner",
-  "plan_agent",
-  "q_and_a",
-  "acceptance",
-  "tree_edits",
-  "tree",
+  "r1_questions",
+  "d1_questions",
+  "d1_words",
 ]
+reads = ["plan_owner", "plan_agent", "acceptance", "tree_edits", "tree"]
 outputs = [
   "plan_owner",
   "plan_agent",
-  "q_and_a",
+  "d1_questions",
   "acceptance",
   "tree_edits",
   "reply_plan_review",
   "reply_tree_review",
   "reply_plan_doubts",
-  "discussion",
+  "d1_words",
 ]
 
-# What the cell does when each trigger fires; a trigger with none is the task's alone.
+# What the cell does when each datum it watches is new; a datum with none is the task's alone. No session is watched:
+# the task has the cell read the tree where its session has not.
 [do]
-on_background = """See what changed from the version you last worked from, the whole of it where you worked from none, and bring the research and the plan up to date for it."""
-on_plan_review = """Take each point of `plan_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_review`."""
-on_tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
-on_plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
-on_answer = """The owner has answered one of your questions in `q_and_a` with another option than yours, or one you wait for: bring the plan to it."""
-on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `discussion`."""
-on_session = """Read the tree from the start: the session holds nothing of what you read before."""
+background = """See what changed from the version you last worked from, the whole of it where you worked from none, and bring the research and the plan up to date for it."""
+plan_review = """Take each point of `plan_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_review`."""
+tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
+plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
+r1_questions = """The owner has answered a question in `r1_questions` with another option than it recommends, or one that waited: bring the plan to it."""
+d1_questions = """The owner has answered one of your questions in `d1_questions` with another option than yours, or one you wait for: bring the plan to it."""
+d1_words = """The owner has said something to you in `d1_words`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `d1_words`."""
 
-# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+# `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest. The cell's own
+# questions and words, and the research's questions, are of the kind every agent cell takes them in.
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
 background = "last_and_latest"
 found = "latest"
-discussion = "all"
 plan_review = "latest"
 tree_review = "latest"
 plan_doubts = "latest"
 plan_owner = "latest"
 plan_agent = "latest"
-q_and_a = "all"
 acceptance = "latest"
 tree_edits = "latest"

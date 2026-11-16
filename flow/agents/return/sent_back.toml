@@ -38,11 +38,11 @@ unchanged_not_written = "`{block}` is named in `meaning_unchanged`, and this ret
 # A question the return writes that is not its cell's own: another cell's, or one the engine asked.
 question_taken = "`{name}` is the name of a question this cell did not ask: give a question of yours a name of its own."
 no_such_question = "`{name}` is withdrawn, and no question of this cell of that name stands."
-question_twice = "`{name}` is written twice in `q_and_a`."
+question_twice = "`{name}` is written twice among the questions this return asks."
 not_an_option = "The question `{name}` recommends none of its options: `recommends` counts them from 1."
-# A return that names the owner's words in `dealt_with` and writes no words in `outputs` of the record they are
-# answered in, which the trigger of the owner's words has its agent read.
-not_answered = "`{name}` is named in `dealt_with`, and the return gives no `discussion`: answer there what the owner said."
+# A return that names the cell's words in `dealt_with` and writes no answer in them (design document
+# `data-and-context`, 35).
+not_answered = "`{name}` is named in `dealt_with`, and the return gives no `{name}`: answer there what the owner said."
 # Of a return read before a cell could ask only where it writes the work's questions, which asked from a cell no answer
 # runs.
 not_answerable = "The question `{name}` cannot be asked from this cell: no answer runs it again, so none could reach you. Decide it yourself."

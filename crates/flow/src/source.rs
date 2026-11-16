@@ -275,6 +275,9 @@ pub struct FlowFile {
     /// (`../triggers/of_a_group/`), which fires for a new version of any of them.
     #[serde(default)]
     pub groups: BTreeMap<String, Vec<String>>,
+    /// The cell in whose questions the engine asks what it asks of a work, as in a flow laid out one thing to a file;
+    /// none where the flow names none.
+    pub engine_asks_in: Option<String>,
 }
 
 /// `flow.toml` of a flow laid out one thing to a file: what is the flow's as a whole. Its lines, blocks and named tests

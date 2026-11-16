@@ -454,9 +454,8 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             question,
             version,
             option,
-            why,
         } => {
-            asked::answer(flow, work, question, version, option, why)?;
+            asked::answer(flow, work, question, version, option)?;
             asked::tell(flow, work);
         }
         Event::Said { to, words } => spoken::said(flow, work, to, words, effects)?,
@@ -769,9 +768,9 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
 }
 
 /// Takes the run's return, which met everything the flow requires: the calls it asks for are made, and the run
-/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish, of a
-/// record of what is said the cell's entry of it ([`spoken::entry`]), and then the questions it asks, asks anew or
-/// withdraws, each a version of its own of its cell. A return of the form
+/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish, of the
+/// cell's words its answer in them ([`spoken::entry`]), and then the questions it asks, asks anew or withdraws, each a
+/// version of its own and of its cell's questions. A return of the form
 /// before a return that asks ended its run made all its calls at once as it was taken, and its run rested at them,
 /// unless the owner's word at the limit of calls was asked for first: such a run finishes making none again, or all it
 /// asked for where it made none, and its cell is owed those it made. The run keeps, as it finishes, the observations
@@ -927,8 +926,8 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
 /// The run so far, as the deciding code reads it. A return of the form before a return said what it dealt with reads
 /// as one that dealt with nothing where it asked, and with everything that ran its round where it handed in.
 pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run::Log {
-    // Whether a write holds nothing is told of the content the engine keeps of it, which of a record of what is said is
-    // the cell's entry of what it handed in ([`spoken::entry`]).
+    // Whether a write holds nothing is told of the content the engine keeps of it, which of a cell's words is its answer
+    // in the words of their file ([`spoken::entry`]).
     let writes = |handed: &[work::Handed]| {
         (handed.iter())
             .map(|h| Write {

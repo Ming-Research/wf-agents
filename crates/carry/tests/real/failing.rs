@@ -158,8 +158,8 @@ async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs
     real.act(work, Act::Resume);
     // The build's question waits for the owner: the work waits at the build until the owner answers.
     real.until(|real| real.waited_question(work).is_some()).await;
-    let answer = "Greet them by their first name.";
-    real.answer(work, answer);
+    real.answer(work);
+    let answer = "answered: option 1, the first name";
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
     // The plan, the build's question, its query of the check once the owner answered, the run entered for the check's

@@ -350,8 +350,9 @@ pub enum Unmet {
     /// read before a cell could ask only where it writes the work's questions were sent back so; a question of a cell
     /// that does not write them is now a block that is not among its outputs.
     NotAnswerable { name: String },
-    /// The return names as dealt with the owner's words, by this trigger, and writes no answer in the record of what is
-    /// said that the trigger has its agent read (design document `data-and-context`, 38).
+    /// The return names as dealt with its cell's own words, of this name, and writes no answer in them (design document
+    /// `data-and-context`, 35). Returns read before a cell's words were its own named so the trigger of the owner's
+    /// words, whose record they wrote no answer in.
     NotAnswered { name: String },
     /// The work's branch, as the round left it, changes the file of this path, which the project protects, and neither
     /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking

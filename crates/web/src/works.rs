@@ -618,28 +618,28 @@ pub struct Speaking {
 pub enum SpokenTo {
     /// A line of the work's flow.
     Line { line: String },
-    /// A question of the work, by its name: the words are about it.
-    Question { name: String },
+    /// A cell of the work's flow, by its id.
+    Cell { cell: String },
 }
 
 impl SpokenTo {
     fn taken(self) -> engine::spoken::To {
         match self {
             SpokenTo::Line { line } => engine::spoken::To::Line(line),
-            SpokenTo::Question { name } => engine::spoken::To::Question(name),
+            SpokenTo::Cell { cell } => engine::spoken::To::Cell(CellId(cell)),
         }
     }
 }
 
 impl Speaking {
-    /// Where the owner's words would go now, to each line of the work's flow and about each question that stands.
+    /// Where the owner's words would go now, to each line of the work's flow and to each cell that has words of its
+    /// own.
     fn all(kept: &Kept) -> Vec<Speaking> {
         let lines = (kept.flow.lines.keys()).map(|line| SpokenTo::Line { line: line.clone() });
-        let standing = decide::questions::questions(&kept.work.records);
-        let questions = (standing.into_iter())
-            .filter(|(_, q)| q.stands())
-            .map(|(name, _)| SpokenTo::Question { name: name.to_string() });
-        (lines.chain(questions))
+        let cells = (kept.flow.cells.iter())
+            .filter(|c| engine::spoken::words_of(kept.flow, &c.id).is_some())
+            .map(|c| SpokenTo::Cell { cell: c.id.to_string() });
+        (lines.chain(cells))
             .map(|to| {
                 let chosen = engine::spoken::receiver(kept.flow, kept.work, &to.clone().taken());
                 Speaking {
@@ -799,7 +799,8 @@ pub struct Version {
     pub meaning: Option<u64>,
     /// The block's value, where it is a choice.
     pub value: Option<String>,
-    /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
+    /// The cell it is said to, where a record kept before a cell's words were its own says one: as the owner's entry of
+    /// the one record of what is said was.
     pub said_to: Option<String>,
     /// How long its content is, in characters.
     pub chars: usize,
@@ -1179,7 +1180,7 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
-    /// It deals with the owner's words, by this trigger, and writes no answer in the record of what is said.
+    /// It deals with its cell's own words, of this name, and writes no answer in them.
     NotAnswered { name: String },
     /// The work's branch changes this file the project protects, and nothing says why.
     Unexplained { path: String },
@@ -1591,19 +1592,16 @@ pub enum Act {
     },
     /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
     Result { call: u64, result: String },
-    /// Answers a version of a question, the one the page shows, taking an option, counted from one, and saying why
-    /// where the owner does.
+    /// Answers a version of a question, the one the page shows, taking an option, counted from one, and nothing else.
     Answer {
         question: String,
         version: u64,
         option: u64,
-        #[serde(default)]
-        why: Option<String>,
     },
     /// Has the line begin a new session at its next round.
     NewSession { line: String },
-    /// Says words to a line of the work's flow, or about a question of the work: to the cell the engine chooses, which
-    /// the work's page shows (`speaking`), and which the act answers with ([`Said`]).
+    /// Says words to a cell of the work's flow, or to a line of it: to the cell the engine chooses, which the work's
+    /// page shows (`speaking`), and which the act answers with ([`Said`]).
     Say { to: SpokenTo, words: String },
 }
 
@@ -2585,12 +2583,10 @@ impl Act {
                 question,
                 version,
                 option,
-                why,
             } => service::Act::Answer {
                 question,
                 version: Seq(version),
                 option,
-                why,
             },
             Act::NewSession { line } => service::Act::NewSession { line },
             Act::Say { to, words } => service::Act::Say { to: to.taken(), words },

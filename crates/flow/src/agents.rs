@@ -944,8 +944,8 @@ pub struct Message {
     /// What a session compacted during a round is told before the round's message is given again, whole.
     pub compacted: String,
     /// What the owner says to a round while it runs, as its session is given it after its next use of a tool: `{entry}`
-    /// the owner's entry of the record of what is said, `{block}` the record's name, `{number}` the entry's version,
-    /// `{trigger}` the trigger it is new to the round as, `{do}` what the cell does for it.
+    /// the owner's version of the cell's words, `{block}` their name, `{number}` the version's place, `{trigger}` the
+    /// name it is new to the round as, `{do}` what the cell does for it.
     pub said: String,
 }
 

@@ -166,7 +166,6 @@ fn rare() -> Vec<String> {
         "a return was sent back".to_string(),
         A_QUESTION_WAITED.to_string(),
         ran_on(&cell("R0"), "on_session"),
-        ran_on(&cell("D1"), "on_session"),
         MAIN_WHILE_THE_CHECK_WAITS.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
         "stop: the work merged".to_string(),
@@ -248,5 +247,12 @@ const NEVER: &[(&str, &str)] = &[
          an-act-is-answered-by-what-runs-it), which the engineer's histories hold with questions in the records \
          (crates/engine/tests/engineer). How a stalled work is shown is the engine's test of stalling \
          (crates/engine/tests/loop/stalling.rs).",
+    ),
+    (
+        "the work waited at M1 on asked = answered",
+        "Every question the exploration asks waits, and a question that waits holds the work at its cell, before M1, \
+         whether or not the cell applies, so asked is waiting only while nothing after that cell runs. That the merge \
+         never begins while a question that does not wait stands unanswered is the histories of questions' \
+         (crates/engine/tests/questions.rs).",
     ),
 ];

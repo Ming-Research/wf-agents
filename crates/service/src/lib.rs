@@ -183,17 +183,16 @@ pub enum Act {
         call: CallId,
         result: String,
     },
-    /// Says these words to a line of the work's flow, or about a question of the work: to the cell the engine chooses.
+    /// Says these words to a cell of the work's flow, or to a line of it: to the cell the engine chooses.
     Say {
         to: engine::spoken::To,
         words: String,
     },
-    /// Answers this version of a question, taking this option, counted from one, for this reason where one is given.
+    /// Answers this version of a question, taking this option, counted from one, and nothing else.
     Answer {
         question: String,
         version: decide::Seq,
         option: u64,
-        why: Option<String>,
     },
     /// Has the line begin a new session at its next round.
     NewSession {
@@ -586,12 +585,10 @@ impl Service {
                 question,
                 version,
                 option,
-                why,
             } => Event::Answer {
                 question,
                 version,
                 option,
-                why,
             },
             Act::Result { call, result } => {
                 // A call the engine makes has its result from what makes it: a person's answer to it would be a

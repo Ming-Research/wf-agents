@@ -318,18 +318,17 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Says something to a work: about a question of it, or to a line of its flow. The engine chooses the cell it
-    /// reaches, the one that asked the question or the one the line has reached, and refuses it, saying why, where no
-    /// cell can take it.
+    /// Says something to a work: to a cell of its flow, or to a line of it. The engine chooses the cell it reaches, the
+    /// cell itself or the one the line has reached, and refuses it, saying why, where no cell can take it.
     Say {
         work: u64,
         words: String,
         /// The line of the work's flow it is said to.
-        #[arg(long, conflicts_with = "question", required_unless_present = "question")]
+        #[arg(long, conflicts_with = "cell", required_unless_present = "cell")]
         line: Option<String>,
-        /// The question of the work it is about, by its name.
+        /// The cell of the work's flow it is said to, by its id.
         #[arg(long)]
-        question: Option<String>,
+        cell: Option<String>,
         #[command(flatten)]
         at: At,
     },
@@ -339,9 +338,6 @@ enum Command {
         question: String,
         version: u64,
         option: u64,
-        /// Why, in a sentence, where there is something to say: kept with the answer, which the asking cell is given.
-        #[arg(long)]
-        why: Option<String>,
         #[command(flatten)]
         at: At,
     },
@@ -604,14 +600,12 @@ fn main() -> ExitCode {
             question,
             version,
             option,
-            why,
             at,
         } => {
             let act = Act::Answer {
                 question,
                 version,
                 option,
-                why,
             };
             talk::ask(at.port, Asked::Act(work, act))
         }
@@ -619,13 +613,13 @@ fn main() -> ExitCode {
             work,
             words,
             line,
-            question,
+            cell,
             at,
         } => {
-            let to = match (line, question) {
-                (_, Some(name)) => SpokenTo::Question { name },
+            let to = match (line, cell) {
+                (_, Some(cell)) => SpokenTo::Cell { cell },
                 (Some(line), None) => SpokenTo::Line { line },
-                (None, None) => unreachable!("the command line asks for a line or a question"),
+                (None, None) => unreachable!("the command line asks for a line or a cell"),
             };
             talk::ask(at.port, Asked::Act(work, Act::Say { to, words }))
         }
@@ -649,13 +643,11 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
-/// `answer`, written by the engine's loop, the record of the questions and the answers as a question is asked, asked
-/// anew or withdrawn and as the owner answers one, and the answering cell's block of an answer that takes another
-/// option than the one the work goes by; `asked`, as the questions and their answers come to stand otherwise; `main`,
-/// written by the acts' watch of main on the host; `tree` and `head`, read by the carriers of the design tree and of
-/// the work's head on a work's branch, written from outside or handed in with the round that committed them; and
-/// `words`, written by the engine's loop as the owner speaks to a cell, the record of what is said and the cell's block
-/// that it was spoken to.
+/// `answer`, written by the engine's loop, a cell's own questions, as a question of it is asked, asked anew or
+/// withdrawn and as the owner answers one; `asked`, as the questions and their answers come to stand otherwise;
+/// `main`, written by the acts' watch of main on the host; `tree` and `head`, read by the carriers of the design tree
+/// and of the work's head on a work's branch, written from outside or handed in with the round that committed them;
+/// and `words`, written by the engine's loop as the owner speaks to a cell, the cell's own words.
 const SOURCES: [&str; 9] = [
     "answer",
     "asked",

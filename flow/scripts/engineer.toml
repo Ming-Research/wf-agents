@@ -33,7 +33,7 @@ run = 2
 hands_in = [
     { block = "deep_needed", value = "yes" },
     { block = "found", content = "The rounds keep their cost; the calls keep none. Two ways to keep it were found; which one holds after a restart is open." },
-    { block = "discussion", content = "As you answered, the cost is kept for each call as well." },
+    { block = "r1_words", content = "As you answered, the cost is kept for each call as well." },
 ]
 
 # Deep research: the plan in full, and after the objection of the plan's review a revised plan with an answer.

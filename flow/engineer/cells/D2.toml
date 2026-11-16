@@ -7,39 +7,29 @@ line = "deep_researcher"
 effort = "xhigh"
 task = { file = "tasks/better_way.md" }
 when = { deep_needed = "yes" }
-triggered_by = ["on_plan", "on_spoken", "on_answer"]
-context = [
-  "background",
-  "discussion",
-  "plan_owner",
-  "plan_agent",
-  "acceptance",
-  "q_and_a",
-  "tree_edits",
-  "tree",
-]
+watches = ["plan", "r2_questions", "d2_questions", "d2_words"]
+reads = ["background", "tree"]
 outputs = [
   "plan_owner",
   "plan_agent",
-  "q_and_a",
+  "d2_questions",
   "acceptance",
   "tree_edits",
-  "discussion",
+  "d2_words",
 ]
 
 # Each version of the plan is thought through once; one it wrote itself runs it not again.
 [do]
-on_plan = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
-on_answer = """The owner has answered one of your questions in `q_and_a` with another option than yours, or one you wait for: bring the plan to it."""
-on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `discussion`."""
+plan = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
+r2_questions = """The owner has answered a question in `r2_questions` with another option than it recommends, or one that waited: bring the plan to it."""
+d2_questions = """The owner has answered one of your questions in `d2_questions` with another option than yours, or one you wait for: bring the plan to it."""
+d2_words = """The owner has said something to you in `d2_words`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `d2_words`."""
 
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
 background = "latest"
-discussion = "all"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
-q_and_a = "all"
 tree_edits = "last_and_latest"

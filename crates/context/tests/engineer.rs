@@ -1,6 +1,6 @@
 //! What a cell of the repository's engineer flow is sent, its work taken through the engine's own loop: a cell's first
 //! entry in the session of its line names each datum the session holds already, with its version; and the owner's
-//! words reach the cell the engine chooses, in that cell's own message.
+//! words reach the cell the engine chooses, as a version of that cell's own words.
 
 mod support;
 
@@ -155,25 +155,18 @@ fn receiver(sim: &Sim, to: To) -> Result<CellId, NoOne> {
     spoken::receiver(&sim.flow, &sim.work, &to)
 }
 
-/// The content of the latest version of `discussion`.
-fn last_entry(sim: &Sim) -> &str {
-    let at = *sim.versions("discussion").last().expect("the record has an entry");
-    sim.content("discussion", at)
+/// The content of the latest version of the block.
+fn last_entry<'s>(sim: &'s Sim, block: &str) -> &'s str {
+    let at = *sim.versions(block).last().expect("the block has a version");
+    sim.content(block, at)
 }
 
-/// The cell each of the owner's entries of `discussion` is kept said to, in order.
-fn said_to(sim: &Sim) -> Vec<&str> {
-    (sim.work.records.written.iter())
-        .filter(|w| w.block.as_str() == "discussion")
-        .map(|w| w.said_to.as_ref().map_or("", |c| c.as_str()))
-        .collect()
-}
-
-/// Each datum `discussion` of the message, up to the next heading of the message, as the cell is given it.
-fn record_given(text: &str) -> Vec<&str> {
+/// Each version of the block in the message, up to the next heading of the message, as the cell is given it.
+fn record_given<'t>(text: &'t str, block: &str) -> Vec<&'t str> {
+    let heading = format!("## `{block}`");
     let mut given = Vec::new();
     let mut rest = text;
-    while let Some(at) = rest.find("## `discussion`") {
+    while let Some(at) = rest.find(&heading) {
         let from = &rest[at..];
         let end = from[1..].find("\n#").map_or(from.len(), |n| n + 1);
         given.push(&from[..end]);
@@ -188,7 +181,7 @@ fn names_a_cell(flow: &Compiled, text: &str) -> bool {
 }
 
 #[test]
-fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_under_discussion() {
+fn words_to_r2_while_its_question_waits_reach_it_and_its_message_holds_them_under_its_words() {
     let (mut sim, round) = until("R2");
     tried(&mut sim, &round);
     let asked = Question::Asked {
@@ -218,19 +211,19 @@ fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_und
     };
     sim.returns(&round, came, 0);
     assert_eq!(sim.round(), None, "the work waits for the answer at R2");
-    // Words about the question go to the cell that asked it, and words to its line to it as well, which holds the
-    // work; a line no cell of which ran, and that the work stands at none of, takes none.
-    assert_eq!(receiver(&sim, To::Question("naming".into())), Ok(CellId::from("R2")));
+    // Words to the cell that asked go to it, and words to its line to it as well, which holds the work; a line no cell
+    // of which ran, and that the work stands at none of, takes none; nor does a cell the flow does not have.
+    assert_eq!(receiver(&sim, To::Cell("R2".into())), Ok(CellId::from("R2")));
     assert_eq!(receiver(&sim, To::Line("engineer".into())), Ok(CellId::from("R2")));
     let deep = To::Line("deep_researcher".into());
     assert_eq!(receiver(&sim, deep), Err(NoOne::NotReached("deep_researcher".into())));
     assert_eq!(
-        receiver(&sim, To::Question("none".into())),
-        Err(NoOne::NoSuchQuestion("none".into()))
+        receiver(&sim, To::Cell("none".into())),
+        Err(NoOne::NoSuchCell("none".into()))
     );
 
     sim.take(Event::Said {
-        to: To::Question("naming".into()),
+        to: To::Cell("R2".into()),
         words: "Why not the name the item gives?".to_string(),
     });
     let round = sim
@@ -238,29 +231,29 @@ fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_und
         .expect("R2 is entered for the owner's words while its question waits");
     assert_eq!(round.cell.as_str(), "R2");
     let entered = sim.enter(&round, sim.begins(&round));
-    // The entry is kept said to R2, and its words, as R2 is given them, name no cell.
-    assert_eq!(said_to(&sim), ["R2"]);
+    // The words are a version of R2's own, and, as R2 is given them, name no cell.
+    assert_eq!(sim.versions("r2_words").len(), 1);
     let entry = "The owner:\n\nWhy not the name the item gives?";
-    assert!(entered.text.contains("## `discussion`, version "), "{}", entered.text);
+    assert!(entered.text.contains("## `r2_words`, version "), "{}", entered.text);
     assert!(
         entered.text.contains(entry),
         "the owner's words are not in R2's message:\n{}",
         entered.text
     );
-    let given = record_given(&entered.text);
+    let given = record_given(&entered.text, "r2_words");
     assert!(
         !given.is_empty() && !given.iter().any(|g| names_a_cell(&sim.flow, g)),
         "{given:?}"
     );
-    assert!(entered.text.contains("- `on_spoken`"), "{}", entered.text);
+    assert!(entered.text.contains("- `r2_words`"), "{}", entered.text);
 
-    // R2 answers in `discussion`, held to nothing its cell must write while its question waits; the answer is its
-    // entry of the record.
+    // R2 answers in its words, held to nothing its cell must write while its question waits; the answer is their next
+    // version.
     sim.tries(&round, 1, entered.fills);
     let came = Came {
-        dealt_with: Some(vec![BlockId::from("r2_spoken_to")]),
+        dealt_with: Some(vec![BlockId::from("r2_words")]),
         writes: vec![Handed {
-            block: BlockId::from("discussion"),
+            block: BlockId::from("r2_words"),
             content: "The item gives none: the first name it is.".to_string(),
             matters: true,
             value: None,
@@ -269,7 +262,7 @@ fn words_about_the_question_r2_waits_for_reach_r2_and_its_message_holds_them_und
     };
     sim.returns(&round, came, 0);
     assert_eq!(
-        last_entry(&sim),
+        last_entry(&sim, "r2_words"),
         "An agent:\n\nThe item gives none: the first name it is."
     );
     assert_eq!(sim.round(), None, "the work waits for the answer at R2 again");
@@ -299,7 +292,7 @@ fn words_to_a_line_go_to_its_cell_under_way_and_stay_new_to_it_until_its_round_w
     assert_eq!(again.cell.as_str(), "I1");
     let entered = sim.enter(&again, sim.begins(&again));
     assert!(entered.text.contains("Keep the greeting short."), "{}", entered.text);
-    assert!(entered.text.contains("- `on_spoken`"), "{}", entered.text);
+    assert!(entered.text.contains("- `i1_words`"), "{}", entered.text);
 }
 
 #[test]
@@ -330,7 +323,7 @@ fn words_a_round_under_way_was_told_are_consumed_by_its_return() {
                 value: None,
             },
             Handed {
-                block: BlockId::from("discussion"),
+                block: BlockId::from("i1_words"),
                 content: "Kept short.".to_string(),
                 matters: true,
                 value: None,
@@ -339,7 +332,7 @@ fn words_a_round_under_way_was_told_are_consumed_by_its_return() {
         ..Came::default()
     };
     sim.returns(&round, came, 0);
-    assert_eq!(last_entry(&sim), "An agent:\n\nKept short.");
+    assert_eq!(last_entry(&sim, "i1_words"), "An agent:\n\nKept short.");
     let next = sim.round().expect("a round is given");
     assert_ne!(
         next.cell.as_str(),
@@ -353,14 +346,14 @@ fn words_to_a_work_that_has_ended_are_refused_and_go_to_no_cell() {
     let (mut sim, _) = until("I1");
     sim.take(Event::Cancelled { why: None });
     assert_eq!(receiver(&sim, To::Line("engineer".into())), Err(NoOne::Ended));
-    let entries = sim.versions("discussion").len();
+    let entries = sim.versions("i1_words").len();
     let said = Event::Said {
         to: To::Line("engineer".into()),
         words: "Too late.".to_string(),
     };
     let refused = engine::handle(&sim.flow, &mut sim.work, engine::Time(1_000), said);
     assert_eq!(refused, Err(engine::Refused::NoOneSpokenTo(NoOne::Ended)));
-    assert_eq!(sim.versions("discussion").len(), entries, "nothing is written");
+    assert_eq!(sim.versions("i1_words").len(), entries, "nothing is written");
 }
 
 #[test]
@@ -382,7 +375,7 @@ fn a_reopened_session_s_reading_of_the_tree_leaves_the_line_where_its_cell_that_
 fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
     let (mut sim, implement) = deeply_until("I1");
     tried(&mut sim, &implement);
-    // The reviews ask nothing, and the owner's words run none of their cells: words to their lines are refused, the
+    // The reviews ask nothing, and none of their cells has words of its own: words to their lines are refused, the
     // plan's review having run.
     for review in ["plan_reviewer", "code_reviewer"] {
         let to = To::Line(review.into());
@@ -437,15 +430,15 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
         "given again:\n{}",
         entered.text
     );
-    // Each entry is kept said to its cell; the implementation is given the one said to the deep research, which names
-    // no cell.
-    assert_eq!(said_to(&sim), ["I1", "D2"]);
-    let given = record_given(&entered.text);
+    // Each cell's words hold what was said to it; the implementation is given the deep research's too, which names no
+    // cell.
+    assert_eq!((sim.versions("i1_words").len(), sim.versions("d2_words").len()), (1, 1));
+    let given = record_given(&entered.text, "d2_words");
     assert!(
         !given.is_empty() && !given.iter().any(|g| names_a_cell(&sim.flow, g)),
         "{given:?}"
     );
-    assert!(entered.text.contains("- `on_spoken`"), "{}", entered.text);
+    assert!(entered.text.contains("- `i1_words`"), "{}", entered.text);
 }
 
 // A cell is told how to write a block, in the words of the block's own file, after the list of what it returns, only
@@ -458,7 +451,7 @@ fn a_cell_is_told_how_to_write_a_block_only_where_it_writes_it() {
         declared.words.clone().expect("the block's file says how it is written")
     };
     let (sim, research) = until("R1");
-    let (questions, discussion) = (words(&sim, "q_and_a"), words(&sim, "discussion"));
+    let (questions, discussion) = (words(&sim, "r1_questions"), words(&sim, "r1_words"));
     let entered = sim.enter(&research, sim.begins(&research));
     for told in [&questions, &discussion] {
         assert!(
@@ -496,11 +489,11 @@ fn naming() -> Question {
     }
 }
 
-// Each question a cell asks and each answer of the owner's is an entry of the record of questions and answers, a
-// version of it the engine writes, which runs no cell; the answer runs the asking cell and no other; and every cell that
-// takes the record is given it whole, so that it reads the work's questions and an answer comes with its question.
+// Each question a cell asks and each answer of the owner's is a version of the cell's own questions, which the engine
+// writes; the question runs no cell, and the answer runs the cells that watch them; and every agent cell is given every
+// cell's questions whole, so that it reads the work's questions and an answer comes with its question.
 #[test]
-fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_answer_runs_the_asking_cell_alone() {
+fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_given_whole_to_every_agent() {
     let (mut sim, round) = until("R2");
     tried(&mut sim, &round);
     let came = Came {
@@ -512,9 +505,9 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
     };
     sim.returns(&round, came, 0);
     let version = sim.work.records.questions.last().expect("the question is kept").at;
-    let entries = sim.versions("q_and_a");
-    assert_eq!(entries.len(), 1, "the question is an entry");
-    let question = sim.content("q_and_a", entries[0]).to_string();
+    let entries = sim.versions("r2_questions");
+    assert_eq!(entries.len(), 1, "the question is a version");
+    let question = sim.content("r2_questions", entries[0]).to_string();
     let head = format!(
         "`naming`, version {}, asked: Which name does the greeting use?",
         version.0
@@ -531,29 +524,28 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
     assert_eq!(
         sim.round(),
         None,
-        "the work waits for the answer at R2, the record running no cell"
+        "the work waits for the answer at R2, the question running no cell"
     );
 
     sim.take(Event::Answer {
         question: "naming".to_string(),
         version,
         option: 2,
-        why: Some("It is formal.".to_string()),
     });
-    let entries = sim.versions("q_and_a");
-    assert_eq!(entries.len(), 2, "the answer is an entry");
-    let answer = sim.content("q_and_a", entries[1]).to_string();
+    let entries = sim.versions("r2_questions");
+    assert_eq!(entries.len(), 2, "the answer is a version");
+    let answer = sim.content("r2_questions", entries[1]).to_string();
     let said = format!(
-        "`naming`, version {}, answered: option 2, The full name: Longer. Why: It is formal.",
+        "`naming`, version {}, answered: option 2, The full name: Longer.",
         version.0
     );
     assert_eq!(answer, said);
-    // The answer runs the cell that asked, by its trigger's own block, and no other cell.
+    // The answer is the one version of any cell's questions that changes their meaning, which runs the cell that asked.
     let answered: Vec<&str> = (sim.work.records.written.iter())
+        .filter(|w| w.matters && w.block.as_str().ends_with("_questions"))
         .map(|w| w.block.as_str())
-        .filter(|b| b.ends_with("_answered"))
         .collect();
-    assert_eq!(answered, ["r2_answered"]);
+    assert_eq!(answered, ["r2_questions"]);
     let round = sim.round().expect("R2 is entered for the answer");
     assert_eq!(round.cell.as_str(), "R2");
     let given_with_its_question = |text: &str| {
@@ -564,7 +556,8 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
     assert!(given_with_its_question(&entered.text), "{}", entered.text);
     sim.tries(&round, 1, entered.fills);
     sim.hands_in(&round, &[]);
-    // The code review, of a line of its own, takes the record too: it reads the question, and the answer with it.
+    // The code review, of a line of its own, is given every cell's questions too: it reads the question, and the answer
+    // with it.
     let round = loop {
         let round = sim.round().expect("a round is given");
         if round.cell.as_str() == "T1" {
@@ -578,9 +571,8 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
     assert!(given_with_its_question(&entered.text), "{}", entered.text);
 }
 
-// An answer to the owner is an entry added to the record of what is said, which replaces none before it: a cell that
-// answers while the owner speaks to a cell after it, an entry its round was never told of, has its answer taken and not
-// sent back.
+// An answer to the owner is a version of the cell's own words, which replaces none before it: a cell that answers while
+// the owner speaks to a cell after it has its answer taken and not sent back.
 #[test]
 fn an_answer_added_while_another_cell_was_spoken_to_in_its_round_is_taken() {
     let (mut sim, implement) = deeply_until("I1");
@@ -594,7 +586,7 @@ fn an_answer_added_while_another_cell_was_spoken_to_in_its_round_is_taken() {
     let rethought = sim.round().expect("a round is given");
     assert_eq!(rethought.cell.as_str(), "D2");
     tried(&mut sim, &rethought);
-    // While it runs, the owner speaks to the implementation, after it: its round goes on, never told of the entry.
+    // While it runs, the owner speaks to the implementation, after it: its round goes on, never told of the words.
     assert_eq!(receiver(&sim, To::Line("engineer".into())), Ok(CellId::from("I1")));
     let effects = sim.take(Event::Said {
         to: To::Line("engineer".into()),
@@ -606,9 +598,9 @@ fn an_answer_added_while_another_cell_was_spoken_to_in_its_round_is_taken() {
             .any(|e| matches!(e, Effect::Stop { run } if *run == rethought.run))
     );
     let came = Came {
-        dealt_with: Some(vec![BlockId::from("d2_spoken_to")]),
+        dealt_with: Some(vec![BlockId::from("d2_words")]),
         writes: vec![Handed {
-            block: BlockId::from("discussion"),
+            block: BlockId::from("d2_words"),
             content: "Shorter it is.".to_string(),
             matters: true,
             value: None,
@@ -618,7 +610,7 @@ fn an_answer_added_while_another_cell_was_spoken_to_in_its_round_is_taken() {
     sim.returns(&rethought, came, 0);
     let finished = (sim.work.records.finished.iter()).any(|f| f.run == rethought.run);
     assert!(finished, "the answer is taken, not sent back");
-    assert_eq!(last_entry(&sim), "An agent:\n\nShorter it is.");
+    assert_eq!(last_entry(&sim, "d2_words"), "An agent:\n\nShorter it is.");
 }
 
 // What the owner reads is written in the owner's language: a cell whose list of what it returns has a block the owner

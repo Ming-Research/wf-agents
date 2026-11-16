@@ -273,6 +273,43 @@ fn a_datum_watched_that_no_writer_can_write_where_the_cell_runs_is_refused() {
 }
 
 #[test]
+fn a_datum_a_cell_has_its_own_of_takes_its_kind_from_what_every_agent_cell_takes_where_its_file_gives_none() {
+    let mut source = answer_asks();
+    let answer = source.cells.get_mut("answer").expect("the answering cell");
+    *answer = answer.replace("answer_questions = \"all\"\nanswer_words = \"all\"", "");
+    source.flow.push_str(
+        "\n[every_agent]\nreads = [\"{each}_questions\"]\n\n[every_agent.kinds]\n\"{each}_questions\" = \"all\"\n",
+    );
+    // Its words, of which every agent cell takes no kind, have none.
+    let what = NoKind {
+        block: "answer_words".to_string(),
+    };
+    assert_eq!(
+        faults_with(&source, &has_all()),
+        [at("cells/answer.toml", "watches[3]", what)]
+    );
+    source.flow = (source.flow)
+        .replace(
+            "reads = [\"{each}_questions\"]",
+            "reads = [\"{each}_questions\", \"{each}_words\"]",
+        )
+        .replace(
+            "\"{each}_questions\" = \"all\"\n",
+            "\"{each}_questions\" = \"all\"\n\"{each}_words\" = \"latest\"\n",
+        );
+    let compiled = compiled_all(&source);
+    let given = given(cell(&compiled, "answer"));
+    assert!(
+        given.contains(&("answer_questions".to_string(), InputKind::All)),
+        "{given:?}"
+    );
+    assert!(
+        given.contains(&("answer_words".to_string(), InputKind::Latest)),
+        "{given:?}"
+    );
+}
+
+#[test]
 fn what_every_agent_cell_watches_and_reads_is_given_it_first_and_to_no_engine_cell() {
     let mut source = plan_takes("watches = [\"opinions\"]");
     let source = {

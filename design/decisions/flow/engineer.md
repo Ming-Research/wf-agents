@@ -15,8 +15,8 @@ Why: Fixing them once the first design is made is too strict.
 
 ### decision opinions-are-inputs
 What someone has to say to a cell about what it did is written into a block that cell reads: the owner's words into
-the record of what is said to the work (data-and-context 30 to 38), a judging cell's findings into a block for that
-pair. The flow has no cell for fixing
+the cell's own words (data-and-context 35), a judging cell's findings into a block for that pair. The flow has no
+cell for fixing
 and none for checking a fix: what was objected to is fixed by its cell running again, and the fix is looked at by the
 judging cell running again, because what it judged changed.
 Why: Going back is then the same thing as going on: an input changed. Cells of their own for the two needed rules of
@@ -59,5 +59,5 @@ change whether every question is answered (`asked`), as well as on the work's he
 Why: The watch of main writes main into every work, and before anything is judged the check's other gates hold: a
 research that handed in no plan, or an implementation that handed in nothing, let main run the check on a branch no one
 reviewed, holding the research's commits or nothing, whose CI passed and which merged. The old flow merged only after
-its review approved. The answer to a question the check asks reaches the last cell with a trigger of an answer, the
-implementation, which may have nothing to do: run only by what it writes, the check never looked again.
+its review approved. The answer to a question the check asks is asked in the implementation's questions, and the
+implementation may have nothing to do for it: run only by what it writes, the check never looked again.

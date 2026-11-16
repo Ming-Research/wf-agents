@@ -3,18 +3,34 @@ name = "engineer"
 # The order of the walk, from the first cell to the merge.
 order = ["S1", "R0", "R1", "R2", "D1", "D2", "D3", "D4", "I1", "T1", "T2", "M1", "M2"]
 
-# The engine's own data this flow uses, each defined once in `../data/`. The flow's own data are in `blocks/`, its
-# lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each. What runs a cell is named on
-# the cell, from `../triggers/`.
-data = ["background", "dependencies", "q_and_a", "asked", "discussion", "tree", "head"]
+# The engine's own data this flow uses, each defined once in `../data/`; a datum each cell or each line has its own of,
+# in `../data/of_a_cell/` or `../data/of_a_line/`, is used where a cell names it. The flow's own data are in `blocks/`,
+# its lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each. What runs a cell written
+# with `triggered_by` is named on the cell, from `../triggers/`.
+data = ["background", "dependencies", "asked", "tree", "head"]
 
 # What the item's card shows the owner of the work, in this order: the page shows what this names, and names no datum
 # of its own.
 card = ["background", "plan_owner"]
 
+# The cell in whose questions the engine asks what it asks of a work, such as whether a change of a file the project
+# protects may merge: one that can change the work as the answer asks, and can be spoken to (design document
+# `data-and-context`, 34).
+engine_asks_in = "I1"
+
 # The engine's tools every agent cell of the flow may ask for, each defined once in `../agents/tools/`. The form of a
 # return holds them, the same for every line of the flow (`../agents/return/return.toml`).
 tools = ["query", "run_tests"]
+
+# What every agent cell of the flow reads beside what its own file names, given first: every cell's questions and
+# every cell's words, so that what was asked, answered and said is known to the whole work (design document
+# `data-and-context`, 15, 33, 35). `{each}_` names each cell's own datum.
+[every_agent]
+reads = ["{each}_questions", "{each}_words"]
+
+[every_agent.kinds]
+"{each}_questions" = "all"
+"{each}_words" = "all"
 
 # The blocks of the plan, which a cell that reviews or rethinks the plan is run by as one: a new version of any of them
 # runs it once (`../triggers/of_a_group/`).

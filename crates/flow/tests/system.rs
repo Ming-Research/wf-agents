@@ -172,12 +172,12 @@ fn how_you_return_holds_each_fields_and_each_flow_tools_words() {
     for name in tools {
         assert!(told.contains(agents.tools[name].words.trim_end()), "{name}:\n{told}");
     }
-    // What a cell that writes a block is told of writing it is no part of what the line shares: the work's questions
-    // and the record of what is said among them.
+    // What a cell that writes a block is told of writing it is no part of what the line shares: a cell's questions and
+    // its words among them.
     let words: Vec<(&str, &str)> = (flow.blocks.iter())
         .filter_map(|(name, b)| b.words.as_deref().map(|w| (name.as_str(), w)))
         .collect();
-    assert!(words.iter().any(|(name, _)| *name == "q_and_a"), "{words:?}");
+    assert!(words.iter().any(|(name, _)| *name == "r1_questions"), "{words:?}");
     for (name, words) in words {
         assert!(!told.contains(words.trim()), "{name}:\n{told}");
     }

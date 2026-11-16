@@ -511,7 +511,7 @@ fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
             let cell = said.map_or("the cell the engine chose", |s| s.reached.as_str());
             match to {
                 SpokenTo::Line { line } => format!("Said to {cell} of work {work}, where the line {line} stands."),
-                SpokenTo::Question { name } => format!("Said to {cell} of work {work}, about the question {name}."),
+                SpokenTo::Cell { .. } => format!("Said to {cell} of work {work}."),
             }
         }
     }

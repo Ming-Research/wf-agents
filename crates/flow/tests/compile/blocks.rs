@@ -242,10 +242,10 @@ fn a_cell_that_writes_the_work_s_questions_is_run_by_the_owner_s_answer_and_by_t
     assert!(compiled.is_ok(), "{:?}", compiled.err());
 }
 
-// The records a source of the engine's adds entries to are the blocks of that source a trigger of it has its agent read,
-// but the one it stands on: the record of what is said and that of the questions and the answers, and no other.
+// The blocks each version of which is an entry beside those before it are those of the sources of the owner's words and
+// of the answers: each cell's own words and questions, and no other.
 #[test]
-fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() {
+fn the_blocks_entries_are_added_to_are_each_cell_s_own_questions_and_words() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
     let source = flow::read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
@@ -271,7 +271,21 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
         .filter(|b| compiled.flow.adds_entries(b))
         .map(|b| b.as_str())
         .collect();
-    assert_eq!(records, ["discussion", "q_and_a"]);
+    assert_eq!(
+        records,
+        [
+            "d1_questions",
+            "d1_words",
+            "d2_questions",
+            "d2_words",
+            "i1_questions",
+            "i1_words",
+            "r1_questions",
+            "r1_words",
+            "r2_questions",
+            "r2_words",
+        ]
+    );
 }
 
 #[test]
@@ -298,18 +312,21 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
     };
     let compiled = flow::compile(&source, &has);
     assert!(compiled.is_ok(), "{:?}", compiled.err());
-    // R2, which may ask the owner and wait, as the work-4 case: without the owner's words among its triggers.
+    // R2, which may ask the owner and wait, as the work-4 case: not watching its own words.
     let r2 = source.cells.get_mut("R2").expect("the flow has R2");
-    let (with, without) = (r#""on_plan", "on_spoken", "on_answer""#, r#""on_plan", "on_answer""#);
+    let (with, without) = (
+        r#"watches = ["plan", "r2_questions", "r2_words"]"#,
+        r#"watches = ["plan", "r2_questions"]"#,
+    );
     assert!(r2.contains(with), "{r2}");
     *r2 = (r2.lines())
-        .filter(|line| !line.starts_with("on_spoken = "))
+        .filter(|line| !line.starts_with("r2_words = "))
         .collect::<Vec<_>>()
         .join("\n")
         .replace(with, without);
     let refused = flow::compile(&source, &has).expect_err("R2 asks and cannot be spoken to");
     let what = AsksAndCannotBeSpokenTo {
-        block: "q_and_a".to_string(),
+        block: "r2_questions".to_string(),
     };
     assert!(
         refused.iter().any(|f| f.file == "cells/R2.toml" && f.what == what),

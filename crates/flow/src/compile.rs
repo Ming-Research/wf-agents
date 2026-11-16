@@ -86,21 +86,25 @@ pub struct Limits {
     pub calls: u32,
 }
 
-/// The source of the block a new version of which is the owner speaking to the cell it runs (design document
-/// `data-and-context`, 35).
+/// The source of a cell's words, its dialogue with the owner: the engine writes a version of it each time the owner
+/// speaks to the cell, and the cell writes its answer (design document `data-and-context`, 35).
 pub const WORDS: &str = "words";
 
-/// The source of the block a new version of which is the owner answering a question of the cell it runs with another
-/// option than the one the work goes by, or one the cell waits for (design document `data-and-context`, 30, 31). The
-/// engine writes it as the owner answers; and the record of the work's questions and the owner's answers, which the
-/// trigger of an answer has its agent read ([`Trigger::records`]): a block of this source a cell writes holds the
-/// questions it asks, and the cells that write one are those that may ask.
+/// The source of a cell's questions: the engine writes a version of them for each question the cell asks, asks anew or
+/// withdraws, which changes nothing, and for each answer of the owner's, which changes their meaning where it takes
+/// another option than the one the work goes by, or answers one the cell waits for (design document `data-and-context`,
+/// 30, 31). A block of this source a cell writes holds the questions it asks, and the cells that write one are those
+/// that may ask.
 pub const ANSWER: &str = "answer";
 
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
 /// to a cell, and an answer ([`WORDS`], [`ANSWER`]). Such a block stops a round under way of a later cell
 /// ([`decide::Outsiders`]).
 pub const TURNING: [&str; 2] = [WORDS, ANSWER];
+
+/// The sources whose blocks are each a dialogue, every version of which is an entry beside those before it: a cell's
+/// words and its questions ([`WORDS`], [`ANSWER`]).
+const ENTRIES: [&str; 2] = [WORDS, ANSWER];
 
 /// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -215,21 +219,6 @@ impl Trigger {
     pub fn of_source<'f>(&'f self, flow: &Compiled, source: &str) -> Option<&'f BlockId> {
         let writes = |b: &&BlockId| flow.blocks.get(*b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
         self.blocks().iter().find(writes)
-    }
-
-    /// Of the trigger of this source outside the work, the records its agent reads for it that the same source writes
-    /// entries of, but the block it stands on: of the owner's words ([`WORDS`]), the record of what is said, where the
-    /// owner's entries are written and the cell answers them; of an answer ([`ANSWER`]), the record of the work's
-    /// questions and the owner's answers. None of another trigger.
-    pub fn records<'f>(&'f self, flow: &'f Compiled, source: &'f str) -> impl Iterator<Item = &'f BlockId> + 'f {
-        let of = move |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
-        self.reads_of(of)
-    }
-
-    /// The same records, `of` saying whether the source writes a block.
-    fn reads_of<'f>(&'f self, of: impl Fn(&BlockId) -> bool + Copy + 'f) -> impl Iterator<Item = &'f BlockId> + 'f {
-        let own = self.blocks().iter().find(move |b| of(b));
-        (self.read.iter()).filter(move |b| own.is_some_and(|own| *b != own) && of(b))
     }
 }
 
@@ -466,9 +455,9 @@ pub enum FaultKind {
     /// The cell writes the block, which holds the work's questions (one the source [`ANSWER`] writes), and no block of
     /// the source [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
     AsksAndCannotBeSpokenTo { block: String },
-    /// The cell, which names what it watches, writes a block of the source [`ANSWER`] or [`WORDS`] that is not its own:
-    /// a cell asks in its own questions and answers the owner in its own words, which no other cell writes (design
-    /// document `data-and-context`, 30, 35).
+    /// The cell, which names what it watches, writes a block of the source [`ANSWER`] or [`WORDS`] that is not its own,
+    /// another cell's or one another cell writes too: a cell asks in its own questions and answers the owner in its
+    /// own words, which no other cell writes (design document `data-and-context`, 30, 35).
     NotItsOwn { block: String },
     /// The cell writes the block, its own words, which the owner speaks to it in, and asks the owner nothing: a cell that
     /// asks nothing is not spoken to (principle who-asks-can-be-spoken-to).
@@ -477,8 +466,8 @@ pub enum FaultKind {
     /// `data-and-context`, 25).
     LineDataOfAnother { block: String, line: String },
     /// The flow names this cell for the engine to ask in, and it cannot change the work as the answer asks, being of an
-    /// engine or of a line that only reads, or cannot be spoken to, having no words of its own (design document
-    /// `data-and-context`, 34).
+    /// engine or of a line that only reads, or writes no questions of its own to ask in, or cannot be spoken to, having
+    /// no words of its own (design document `data-and-context`, 34).
     CannotBeAskedIn { cell: String },
     /// A trigger of the cell stands on a block that each of its writers, cells only (no person or outside writes it),
     /// writes only where a block has a value that the cell's own condition rules out, and that block no cell can
@@ -628,13 +617,6 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
             (TestName(name.clone()), test)
         })
         .collect();
-    // A block a trigger of its source has its agent read, but the one it stands on, is a record that source adds
-    // entries to ([`Trigger::records`]).
-    let source_of = |b: &BlockId| flow_file.blocks.get(b.as_str()).and_then(|d| d.outside.as_deref());
-    let record = |name: &str, source: &str| {
-        let of = |b: &BlockId| source_of(b) == Some(source);
-        (specs.iter().flat_map(|s| &s.triggers)).any(|t| t.reads_of(of).any(|b| b.as_str() == name))
-    };
     let outsiders = (flow_file.blocks.iter())
         .filter(|(_, b)| b.people || b.outside.is_some())
         .map(|(name, b)| {
@@ -644,7 +626,9 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 outside: b.outside.clone(),
                 by_owner: b.changed_by == Some(ChangedBy::Owner),
                 interrupts: b.outside.as_deref().is_some_and(|source| TURNING.contains(&source)),
-                entries: b.outside.as_deref().is_some_and(|source| record(name, source)),
+                // A cell's questions and its words are each a dialogue, every version of which is an entry beside those
+                // before it (design document `data-and-context`, 30, 35).
+                entries: b.outside.as_deref().is_some_and(|source| ENTRIES.contains(&source)),
             };
             (BlockId(name.clone()), outsiders)
         })
@@ -718,7 +702,7 @@ struct Parsed {
     faults: Vec<Fault>,
     /// Of a flow laid out one thing to a file, what the item's card shows, as `flow.toml` names it.
     card: Vec<String>,
-    /// Of a flow laid out one thing to a file, the cell the engine asks in, as `flow.toml` names it.
+    /// The cell the engine asks in, as `flow.toml` names it.
     engine_asks_in: Option<String>,
     /// Of a flow laid out one thing to a file, what every agent cell watches and reads, as `flow.toml` names it.
     every_agent: EveryAgentFile,
@@ -726,9 +710,9 @@ struct Parsed {
     own: Own,
 }
 
-/// What `flow.toml` of a flow laid out one thing to a file says of the flow as a whole beside what one written before
-/// says: the engine's data it uses, the tools of every agent cell, what the item's card shows, the cell the engine
-/// asks in, and what every agent cell watches and reads.
+/// What `flow.toml` says of the flow as a whole beside its order, limits and groups: of a flow laid out one thing to a
+/// file, the engine's data it uses, the tools of every agent cell, what the item's card shows and what every agent
+/// cell watches and reads; and of any flow, the cell the engine asks in.
 #[derive(Default)]
 struct Whole {
     data: Vec<String>,
@@ -844,7 +828,13 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
             waits: (source.files.get(&waits_file())).and_then(|text| shape(&waits_file(), text, &mut faults)),
             ..LaidOut::default()
         };
-        flow.map(|flow| (Whole::default(), flow, files))
+        flow.map(|flow| {
+            let whole = Whole {
+                engine_asks_in: flow.engine_asks_in.clone(),
+                ..Whole::default()
+            };
+            (whole, flow, files)
+        })
     };
     match parsed {
         Some((whole, mut flow, files)) if faults.is_empty() => {
@@ -1016,6 +1006,7 @@ impl From<LaidOutFlowFile> for FlowFile {
             blocks: BTreeMap::new(),
             tests: BTreeMap::new(),
             groups: flow.groups,
+            engine_asks_in: flow.engine_asks_in,
         }
     }
 }
@@ -2270,6 +2261,17 @@ impl<'a> Definition<'a> {
         takes(file, triggers)
     }
 
+    /// The kind `[every_agent.kinds]` gives a datum each cell has its own of, under the `{each}_` name that stands for
+    /// it: what a cell that names its own takes it as, where its file gives no kind of its own.
+    fn every_kind(&self, block: &str) -> Option<InputKind> {
+        (self.every.kinds.iter())
+            .filter(|(written, _)| written.contains(EACH))
+            .find(|(written, _)| {
+                (self.own.made.get(&written.replace(EACH, CELL))).is_some_and(|made| made.iter().any(|m| m == block))
+            })
+            .map(|(_, kind)| *kind)
+    }
+
     /// The blocks a name a cell watches or reads stands for: a group's, where it names a group of the flow, else the
     /// datum itself.
     fn members(&self, name: &str) -> Vec<BlockId> {
@@ -2356,7 +2358,7 @@ impl<'a> Definition<'a> {
         }
         for name in (file.reads.iter().chain(&file.watches)).filter(|_| agent) {
             for block in self.members(name) {
-                let kind = file.kinds.get(block.as_str()).copied();
+                let kind = (file.kinds.get(block.as_str()).copied()).or_else(|| self.every_kind(block.as_str()));
                 give(block, kind);
             }
         }
@@ -2385,7 +2387,8 @@ impl<'a> Definition<'a> {
             for (i, name) in names.iter().enumerate() {
                 let again = names[..i].contains(name) || (list == "reads" && file.watches.contains(name));
                 let other_line = (self.own.lines.get(name)).filter(|line| file.line.as_ref() != Some(*line));
-                let kindless = (self.members(name).into_iter()).find(|b| !file.kinds.contains_key(b.as_str()));
+                let kindless = (self.members(name).into_iter())
+                    .find(|b| !file.kinds.contains_key(b.as_str()) && self.every_kind(b.as_str()).is_none());
                 let what = if again {
                     FaultKind::Twice { name: name.clone() }
                 } else if !known(name) {
@@ -2463,7 +2466,11 @@ impl<'a> Definition<'a> {
                 continue;
             }
             let field = format!("outputs[{i}]");
-            if self.own.cells.get(block).map(String::as_str) != Some(id) {
+            // Another cell's own, or written by another cell of the order as well.
+            let another_s = self.own.cells.get(block).is_some_and(|whose| whose != id);
+            let shared = (self.cells.iter())
+                .any(|(other, f)| other != id && self.place.contains_key(other) && f.outputs.contains(block));
+            if another_s || shared {
                 found.push((field, FaultKind::NotItsOwn { block: block.clone() }));
             } else if of == Some(ANSWER) {
                 questions.get_or_insert((field, block));
@@ -2541,8 +2548,8 @@ impl<'a> Definition<'a> {
     }
 
     /// The fault of the cell the engine asks in: one the order does not name, and one that cannot change the work, of
-    /// an engine or of a line that only reads, or cannot be spoken to, writing no words of its own (design document
-    /// `data-and-context`, 34).
+    /// an engine or of a line that only reads, that writes no questions to ask in, or that cannot be spoken to, writing
+    /// no words (design document `data-and-context`, 34).
     fn check_engine_asks_in(&self, faults: &mut Vec<Fault>) {
         let Some(cell) = self.engine_asks_in else {
             return;
@@ -2552,11 +2559,11 @@ impl<'a> Definition<'a> {
             Some(file) => {
                 let reads_only =
                     (file.line.as_ref()).is_some_and(|l| self.flow.lines.get(l).is_some_and(|l| l.reads_only));
-                let words = (file.outputs.iter()).any(|b| {
-                    self.flow.blocks.get(b).and_then(|d| d.outside.as_deref()) == Some(WORDS)
-                        && self.own.cells.get(b).map(String::as_str) == Some(cell)
-                });
-                if file.kind == Kind::Agent && !reads_only && words {
+                let writes = |source: &str| {
+                    (file.outputs.iter())
+                        .any(|b| self.flow.blocks.get(b).and_then(|d| d.outside.as_deref()) == Some(source))
+                };
+                if file.kind == Kind::Agent && !reads_only && writes(ANSWER) && writes(WORDS) {
                     return;
                 }
                 FaultKind::CannotBeAskedIn { cell: cell.to_string() }

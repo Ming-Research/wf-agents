@@ -404,7 +404,6 @@ fn history(d: &mut Driver) {
         question: "which".to_string(),
         version,
         option: 2,
-        why: Some("The long way reads better.".to_string()),
     });
     // Sent back twice, then the owner is called at the limit of returns and lets the run go on.
     for _ in 0..3 {

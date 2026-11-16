@@ -5,7 +5,7 @@
 use super::*;
 
 fn form() -> Value {
-    json!({"outcome": {"dealt_with": ["on_request"], "outputs": {"plan": "Greet."}}})
+    json!({"outcome": {"dealt_with": ["request"], "outputs": {"plan": "Greet."}}})
 }
 
 fn planned(content: &str) -> Result<Came, String> {
@@ -19,8 +19,8 @@ fn planned(content: &str) -> Result<Came, String> {
 #[test]
 fn a_null_unknown_field_in_a_question_still_fails() {
     for r in [
-        json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "withdrawn": "x", "bogus": null}]}}}),
-        json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
+        json!({"outcome": {"outputs": {"write_questions": [{"name": "q", "withdrawn": "x", "bogus": null}]}}}),
+        json!({"outcome": {"outputs": {"write_questions": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
             "options": [], "bogus": null}]}}}),
     ] {
         assert!(read(&r).is_err(), "{r} is taken");
@@ -39,7 +39,7 @@ fn a_null_unknown_field_in_a_kind_or_the_form_still_fails() {
 
 #[test]
 fn a_question_with_both_shapes_filled_fails() {
-    let r = json!({"outcome": {"outputs": {"q_and_a": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
+    let r = json!({"outcome": {"outputs": {"write_questions": [{"name": "q", "waits": false, "recommends": 1, "ask": "Which?",
         "options": [], "withdrawn": "No longer."}]}}});
     assert!(read(&r).is_err());
 }
@@ -90,7 +90,7 @@ fn a_string_of_a_non_object_or_with_other_trailing_text_fails() {
 #[test]
 fn a_content_that_looks_like_json_is_kept_whole() {
     let content = r#"{"outcome": {}}}"#;
-    let r = json!({"outcome": {"dealt_with": ["on_request"], "outputs": {"plan": content}}});
+    let r = json!({"outcome": {"dealt_with": ["request"], "outputs": {"plan": content}}});
     assert_eq!(read(&r), planned(content));
     assert_eq!(read(&json!({"o": r.clone()})), planned(content));
     assert_eq!(read(&json!(r.to_string())), planned(content));
@@ -123,7 +123,7 @@ fn a_choice_of_more_or_other_members_than_its_value_and_why_is_not_one() {
         json!(["yes", "x"]),
         json!(null),
     ] {
-        let r = json!({"outcome": {"dealt_with": ["on_request"], "outputs": {"ok": choice}}});
+        let r = json!({"outcome": {"dealt_with": ["request"], "outputs": {"ok": choice}}});
         let came = read(&r).expect("it is read");
         assert_eq!(came.found, [Unmet::NoValue { block: "ok".into() }], "{choice}");
         assert!(came.writes.is_empty(), "{choice}");

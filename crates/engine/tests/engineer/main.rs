@@ -1370,7 +1370,7 @@ fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
         .map(|line| says(&line))
         .or_else(|| {
             let spoken_to =
-                |c: &CellId| (d.flow.cells.iter()).any(|s| s.id == *c && spoken::words_of(&d.flow, s).is_some());
+                |c: &CellId| (d.flow.cells.iter()).any(|s| s.id == *c && spoken::words_of(&d.flow, &s.id).is_some());
             if d.work.records.started.iter().any(|s| spoken_to(&s.cell)) {
                 return None;
             }

@@ -10,15 +10,13 @@ use decide::run::{Answer, Return, Told};
 use decide::{BlockId, CallId, Cell, CellId, Condition, TestKind, Write};
 use flow::{Compiled, Kind};
 
-/// The data of the engine's that the owner's acts write: what the item asks, what the owner says to the work, and the
-/// record of the questions and the answers.
+/// The datum of the engine's that the owner writes: what the item asks.
 pub const BACKGROUND: &str = "background";
-pub const DISCUSSION: &str = "discussion";
-pub const Q_AND_A: &str = "q_and_a";
 
-/// The triggers of a cell's own that the owner fires: speaking to it, and answering one of its questions.
-const SPOKEN: &str = "on_spoken";
-const ANSWERED: &str = "on_answer";
+/// The sources of a cell's own words and of its own questions, which the engine writes as the owner speaks to the
+/// cell, asks and answers.
+const WORDS: &str = "words";
+const ANSWER: &str = "answer";
 
 /// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines, each line
 /// writing a block of its own, the design tree, and the work's head, as a commit no round made moves it.
@@ -33,7 +31,7 @@ pub const HEAD: &str = "head";
 const CHECK: &str = "check";
 
 /// The source of the questions' standing, which the engine writes.
-const ASKED: &str = "asked";
+pub const ASKED: &str = "asked";
 
 /// What a round of a cell returns.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -96,15 +94,16 @@ impl fmt::Display for Variant {
 /// What the outside writes, or the owner does, beside the cells.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Event {
-    /// The owner speaks to the cell: its block of `on_spoken`, and `discussion`.
+    /// The owner speaks to the cell: a version of its words.
     Speaks(CellId),
     /// The owner writes the background again.
     Background,
-    /// The owner answers the call: a question's, with `answers` and the asking cell's block of `on_answer` where it
-    /// has one; or the owner's word at a run's limit of returns, letting the run go on.
+    /// The owner's word at a run's limit of returns, letting the run go on.
     Answers(CallId),
-    /// The owner answers a question of the cell's with another option than its own: `answers`, and its block of
-    /// `on_answer`.
+    /// The owner answers the question of this name, which the work waits for: a version of the asking cell's questions.
+    Answer(String),
+    /// The owner answers a question of the cell's that stands with another option than the one the work goes by: a
+    /// version of its questions.
     OtherOption(CellId),
     /// The owner lets the cell go on at its limit.
     LetsGo(CellId),
@@ -122,6 +121,7 @@ impl fmt::Display for Event {
             Event::Speaks(cell) => write!(f, "the owner speaks to {cell}"),
             Event::Background => write!(f, "the owner changes the background"),
             Event::Answers(call) => write!(f, "the owner answers the call {}", call.0),
+            Event::Answer(question) => write!(f, "the owner answers the question {question}"),
             Event::OtherOption(cell) => write!(f, "the owner takes another option for a question of {cell}"),
             Event::LetsGo(cell) => write!(f, "the owner lets {cell} go on at its limit"),
             Event::Source(MAIN) => write!(f, "main moves"),
@@ -143,8 +143,8 @@ pub struct Model {
     pub passing: BTreeMap<BlockId, String>,
     /// Each block a test of content reads.
     pub contents: BTreeSet<BlockId>,
-    /// Of each cell by its place, the blocks it writes that are no choice: those only cells after it run, those a
-    /// cell before it runs, and those that run no cell. A cell whose condition wants another value of a block than
+    /// Of each cell by its place, the blocks it writes that are no choice and not its own questions: those only cells
+    /// after it run, those a cell before it runs, and those that run no cell. A cell whose condition wants another value of a block than
     /// the writer's does is no reader, unless the writer writes that block itself: the two never run one after the
     /// other.
     pub forward: Vec<Vec<BlockId>>,
@@ -154,9 +154,11 @@ pub struct Model {
     pub triggers: Vec<BTreeMap<BlockId, String>>,
     /// Of each cell by its place, its groups' triggers, each with its blocks.
     pub groups: Vec<BTreeMap<String, Vec<BlockId>>>,
-    /// Of each cell by its place, its block of `on_spoken` and of `on_answer`, where it has them.
+    /// Of each cell by its place, its own words and its own questions, where it has them.
     pub spoken: Vec<Option<BlockId>>,
     pub answered: Vec<Option<BlockId>>,
+    /// The block of the questions' standing, which the engine writes.
+    pub asked: Option<BlockId>,
     /// Each pair of cells whose conditions want another value of a block, by their places, with the block.
     pub contradicting: Vec<(usize, usize, BlockId)>,
     /// The block each source outside the work but `session` writes.
@@ -228,10 +230,16 @@ impl Model {
             (contradicting.iter())
                 .any(|(a, b, x)| ((*a == i && *b == j) || (*a == j && *b == i)) && !cells[i].outputs.contains(x))
         };
+        // A cell's own questions are no block its round writes: the engine writes them as the round asks.
+        let questions = |b: &BlockId| compiled.blocks.get(b).and_then(|d| d.writers.outside.as_deref()) == Some(ANSWER);
         let (mut forward, mut backward, mut silent) = (Vec::new(), Vec::new(), Vec::new());
         for (i, cell) in cells.iter().enumerate() {
             let (mut f, mut b, mut s) = (Vec::new(), Vec::new(), Vec::new());
-            for block in cell.outputs.iter().filter(|b| !choices.contains_key(*b)) {
+            for block in cell
+                .outputs
+                .iter()
+                .filter(|b| !choices.contains_key(*b) && !questions(b))
+            {
                 let readers: Vec<usize> = (cells.iter().enumerate())
                     .filter(|(j, c)| *j != i && c.runs_on.contains(block) && !apart(i, *j))
                     .map(|(j, _)| j)
@@ -267,9 +275,15 @@ impl Model {
             }
             triggers.push(of_cell);
             groups.push(of_groups);
-            let own = |name: &str| (spec.triggers.iter()).find(|t| t.name == name).map(|t| t.block.clone());
-            spoken.push(own(SPOKEN));
-            answered.push(own(ANSWERED));
+        }
+        for cell in cells {
+            let own = |source: &str| {
+                (cell.outputs.iter())
+                    .find(|b| compiled.blocks.get(*b).and_then(|d| d.writers.outside.as_deref()) == Some(source))
+                    .cloned()
+            };
+            spoken.push(own(WORDS));
+            answered.push(own(ANSWER));
         }
         let sources = [START, DEPENDENCIES, MAIN, TREE, HEAD]
             .into_iter()
@@ -309,6 +323,7 @@ impl Model {
                 answers
             })
             .collect();
+        let asked = asked.map(|(id, _)| id.clone());
         let stray = (cells.iter())
             .map(|cell| {
                 (compiled.blocks.keys())
@@ -330,6 +345,7 @@ impl Model {
             groups,
             spoken,
             answered,
+            asked,
             contradicting,
             sources,
             sessions,
@@ -566,8 +582,7 @@ impl Model {
             .collect();
         let asks = matches!(variant, Variant::Asks(_));
         // A round that deals with what an act after its cell wrote commits its fix, which moves the work's head, read
-        // as the round ends; where it asks as well it commits all the same, since the exploration keeps no question in
-        // the records and never writes the questions' standing, which would run the act on the answer.
+        // as the round ends; where it asks as well it commits all the same.
         let read = (self.commits(i).filter(|head| {
             (dealt_with.iter())
                 .filter_map(|block| self.answered_by[i].get(block))

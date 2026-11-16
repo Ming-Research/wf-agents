@@ -71,7 +71,7 @@ pub struct Outsiders {
     pub note: bool,
     /// The source outside the work that writes it, where one does.
     pub outside: Option<String>,
-    /// What that source writes of it changes only as the owner acts, as the record of the questions changes only as the
+    /// What that source writes of it changes only as the owner acts, as the standing of the questions changes only as the
     /// owner answers them: the owner, and not the source, makes a precondition that reads it hold.
     pub by_owner: bool,
     /// A new version of it is the owner turning to the cells it runs: the owner's words to a cell, or an answer that
@@ -79,9 +79,8 @@ pub struct Outsiders {
     /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls or for the
     /// answer to its question, and is answered while the work is paused, as a note is.
     pub interrupts: bool,
-    /// It is a record its source adds entries to, which a trigger of that source has its agent read: the record of
-    /// what is said, or of the questions and the answers. A version of it, a cell's as much as its source's, is an
-    /// entry added beside those before it, and replaces none.
+    /// It is a dialogue its source adds to: a cell's words or its questions. A version of it, a cell's as much as its
+    /// source's, is an entry added beside those before it, and replaces none.
     pub entries: bool,
 }
 
