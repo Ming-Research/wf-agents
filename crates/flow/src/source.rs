@@ -521,6 +521,7 @@ pub struct TestFile {
 
 /// The file of one cell.
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CellFile {
     /// What the cell is called on the chart.
     pub title: String,
