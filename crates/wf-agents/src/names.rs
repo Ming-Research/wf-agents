@@ -149,6 +149,8 @@ impl Scanner {
                 self.string('\'');
             } else if c == '`' && !self.rust {
                 self.template();
+            } else if c == '/' && !self.rust && self.regex_begins() {
+                self.regex();
             } else if self.rust && c == 'r' && self.raw_begins() {
                 self.raw();
             } else if !self.rust && ident(c) && self.key_begins() {
@@ -355,6 +357,57 @@ impl Scanner {
                 self.at += 1;
             }
         }
+    }
+
+    /// Whether a `/` here begins a regular expression in the page's code, not a division: what comes before it, past
+    /// blanks, is nothing, a mark after which a value begins, an arrow, or a word after which one does.
+    fn regex_begins(&self) -> bool {
+        let mut i = self.at;
+        while i > 0 && self.get(i - 1).is_some_and(char::is_whitespace) {
+            i -= 1;
+        }
+        let Some(before) = i.checked_sub(1).and_then(|i| self.get(i)) else {
+            return true;
+        };
+        if ident(before) {
+            let mut begins = i;
+            while begins > 0 && self.get(begins - 1).is_some_and(ident) {
+                begins -= 1;
+            }
+            let word: String = self.chars[begins..i].iter().collect();
+            return [
+                "return", "typeof", "case", "in", "of", "void", "delete", "throw", "yield", "await",
+            ]
+            .contains(&word.as_str());
+        }
+        let arrow = before == '>' && i >= 2 && self.get(i - 2) == Some('=');
+        arrow || "(,=:[!&|?{;".contains(before)
+    }
+
+    /// A regular expression, from its `/` to the `/` that closes it outside a class, and its flags: no text of the
+    /// page's, so that its quotes and backticks open none. One not closed on its line is a division after all.
+    fn regex(&mut self) {
+        let mut i = self.at + 1;
+        let mut class = false;
+        while let Some(c) = self.get(i) {
+            match c {
+                '\\' => i += 1,
+                '\n' => break,
+                '[' => class = true,
+                ']' => class = false,
+                '/' if !class => {
+                    i += 1;
+                    while self.get(i).is_some_and(ident) {
+                        i += 1;
+                    }
+                    self.at = i;
+                    return;
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        self.at += 1;
     }
 }
 
