@@ -1716,10 +1716,10 @@ impl Items {
     /// Every item the driver holds, each with its work, as they stand at this time.
     pub fn of(driver: &Driver, now: Time) -> Result<Items, Broken> {
         let mut items = Vec::new();
-        let outages = Outages::of(driver);
-        let outage = outages.agents.clone();
+        let every = EveryWork::of(driver);
+        let outage = every.outages.agents.clone();
         for kept in driver.works() {
-            let view = viewed(driver, kept.head.number)?;
+            let view = viewed_at(driver, kept.head.number, &every.at_once)?;
             items.push(Item {
                 number: kept.item.number.0,
                 title: kept.item.title.clone(),
@@ -1729,7 +1729,7 @@ impl Items {
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
                 tags: kept.item.tags.clone(),
                 history: ItemHistory::of(kept.item),
-                work: Summary::of(kept, &view, driver, &outages, now)?,
+                work: Summary::of(kept, &view, driver, &every, now)?,
             });
         }
         items.sort_by_key(|item| item.number);
@@ -1774,14 +1774,20 @@ impl ItemChanged {
 }
 
 impl Summary {
-    /// The work in brief, from what the driver holds of it, the deciding code's view of it, the waits every work
-    /// shares as the driver works them out, and what the driver says of the rest: what holds back the round it would
+    /// The work in brief, from what the driver holds of it, the deciding code's view of it, what every work reads
+    /// alike as the driver works it out, and what the driver says of the rest: what holds back the round it would
     /// begin next, where each round or call under way stands, as what carries it out says, and what it waits on the
     /// owner for; at the time `when` by the loop's clock.
-    pub fn of(kept: Kept<'_>, view: &View, driver: &Driver, outages: &Outages, when: Time) -> Result<Summary, Broken> {
+    pub(crate) fn of(
+        kept: Kept<'_>,
+        view: &View,
+        driver: &Driver,
+        every: &EveryWork,
+        when: Time,
+    ) -> Result<Summary, Broken> {
         let work = kept.work;
         let number = kept.head.number;
-        let held = driver.held(number);
+        let held = driver.held_at(number, &every.at_once);
         let along = &driver.along_of(number);
         let runs = runs(kept)?;
         let engine = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Engine);
@@ -1791,7 +1797,14 @@ impl Summary {
                 matches!(under, Under::Round { run: of, .. } if *of == run) && matches!(said, Along::Turn { .. })
             })
         };
-        let now = Now::of(kept, &view.decision, held, outages, along, &driver.unmerged(number))?;
+        let now = Now::of(
+            kept,
+            &view.decision,
+            held,
+            &every.outages,
+            along,
+            &driver.unmerged(number),
+        )?;
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
             Now::Waits { at, on } => (on.iter())
@@ -1836,7 +1849,9 @@ impl Summary {
             flow: kept.head.flow.clone(),
             added: kept.head.added.0,
             paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
-            waits: (driver.waits_on_owner(number).into_iter()).map(Wait::of).collect(),
+            waits: (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
+                .map(Wait::of)
+                .collect(),
             now,
             cells,
             spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
@@ -1844,7 +1859,7 @@ impl Summary {
             pinged: pinged(work, &|_| true),
             last: work.moments.last().map(|moment| moment.at.0),
             from: (runs.iter().flat_map(|run| &run.rounds)).map(|round| round.began).min(),
-            bar: bar(kept, &runs, &HeldAll::of(driver), when),
+            bar: bar(kept, &runs, &every.held, when),
             sent_back: (runs.iter().flat_map(|run| &run.rounds))
                 .filter(|round| matches!(round.given, Given::SentBack { .. }))
                 .count(),
@@ -1862,14 +1877,10 @@ struct HeldAll {
 }
 
 impl HeldAll {
-    fn of(driver: &Driver) -> HeldAll {
-        let outage = driver.outage().filter(driver::Outage::holds);
+    fn of(driver: &Driver, at_once: &driver::AtOnce) -> HeldAll {
         HeldAll {
             everything: driver.everything_spans().to_vec(),
-            cannot_run: outage.and_then(|outage| {
-                let (failure, why) = outage.down();
-                (failure == FailureOf::CannotRun).then(|| (outage.since, why.to_string()))
-            }),
+            cannot_run: at_once.cannot_run().map(|(since, why)| (since, why.to_string())),
         }
     }
 
@@ -2413,7 +2424,7 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view, driver, &Outages::of(driver), now)?,
+            summary: Summary::of(kept, &view, driver, &EveryWork::of(driver), now)?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             project: kept.item.project.clone(),
@@ -2662,9 +2673,16 @@ impl Changed {
 
 /// The deciding code's view of the work, which the driver holds.
 fn viewed(driver: &Driver, number: WorkNumber) -> Result<View, Broken> {
-    driver
-        .view(number)
-        .ok_or_else(|| Broken(format!("the driver shows work {} and has no view of it", number.0)))
+    driver.view(number).ok_or_else(|| no_view(number))
+}
+
+/// The deciding code's view of the work, in the room what holds every work at once leaves it.
+pub(crate) fn viewed_at(driver: &Driver, number: WorkNumber, at_once: &driver::AtOnce) -> Result<View, Broken> {
+    driver.view_at(number, at_once).ok_or_else(|| no_view(number))
+}
+
+fn no_view(number: WorkNumber) -> Broken {
+    Broken(format!("the driver shows work {} and has no view of it", number.0))
 }
 
 /// The link of the CI run a round or a call runs as, where what carries it out says it does.
@@ -3037,13 +3055,32 @@ pub struct Outages {
 
 impl Outages {
     /// The waits as the driver works them out, each saying whether it holds its rounds now.
-    pub(crate) fn of(driver: &Driver) -> Outages {
-        let gate = driver.gate();
+    pub(crate) fn of(at_once: &driver::AtOnce) -> Outages {
+        let gate = at_once.gate();
         let (agents, host) = (gate.holds_agents(), gate.holds_acts());
         Outages {
-            agents: driver.outage().map(|outage| Outage::of(&outage, agents)),
-            host: driver.host_outage().map(|outage| Outage::of(&outage, host)),
-            everything: driver.everything_paused().map(|paused| Pauser::of(paused.by)),
+            agents: at_once.agents.as_ref().map(|outage| Outage::of(outage, agents)),
+            host: at_once.host.as_ref().map(|outage| Outage::of(outage, host)),
+            everything: at_once.everything.map(|paused| Pauser::of(paused.by)),
+        }
+    }
+}
+
+/// What every work's summary reads alike, worked out once for a read of many works or of one: what holds every work
+/// at once as the driver gives it ([`driver::AtOnce`]), and as the pages show it and the bar reads it.
+pub(crate) struct EveryWork {
+    pub(crate) at_once: driver::AtOnce,
+    pub(crate) outages: Outages,
+    held: HeldAll,
+}
+
+impl EveryWork {
+    pub(crate) fn of(driver: &Driver) -> EveryWork {
+        let at_once = driver.at_once();
+        EveryWork {
+            outages: Outages::of(&at_once),
+            held: HeldAll::of(driver, &at_once),
+            at_once,
         }
     }
 }

@@ -16,6 +16,7 @@ use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
+use decide::{Holder, View};
 use driver::Driver;
 use driver::attention::{self as of, Heed, Mark};
 use serde::{Deserialize, Serialize};
@@ -124,11 +125,15 @@ pub struct Asked {
 impl Attention {
     /// The answer as the pages read it, each line with its work as it does now.
     pub fn of(driver: &Driver, attention: &of::Attention) -> Result<Attention, Broken> {
-        let outages = Outages::of(driver);
-        // The work a line is of, with its item, and what it does now.
-        let of_work = |work: WorkNumber| -> Result<(Of, Now), Broken> {
+        let at_once = driver.at_once();
+        let outages = Outages::of(&at_once);
+        // The work a line is of, with its item, and what it does now; with its view and what holds back its next
+        // round, which what it waits on the owner for reads.
+        let of_work = |work: WorkNumber| -> Result<(Of, Now, View, Option<Holder>), Broken> {
             let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work {}", work.0)))?;
-            let view = (driver.view(work)).ok_or_else(|| Broken(format!("work {} has no view", work.0)))?;
+            let view =
+                (driver.view_at(work, &at_once)).ok_or_else(|| Broken(format!("work {} has no view", work.0)))?;
+            let held = driver.held_at(work, &at_once);
             let of = Of {
                 work: work.0,
                 item: kept.item.number.0,
@@ -137,12 +142,12 @@ impl Attention {
             let now = Now::of(
                 kept,
                 &view.decision,
-                driver.held(work),
+                held,
                 &outages,
                 &driver.along_of(work),
                 &driver.unmerged(work),
             )?;
-            Ok((of, now))
+            Ok((of, now, view, held))
         };
         let lines = (attention.lines.iter())
             .map(|line| {
@@ -161,20 +166,22 @@ impl Attention {
                             .map(|kept| kept.flow.waits.owner.mend.clone()),
                     },
                     Heed::Fault { work } => {
-                        let (of, now) = of_work(*work)?;
+                        let (of, now, ..) = of_work(*work)?;
                         Line::Fault { of, since, now }
                     }
                     Heed::ForAPerson { work } => {
-                        let (of, now) = of_work(*work)?;
-                        let waits = (driver.waits_on_owner(*work).into_iter()).map(Wait::of).collect();
+                        let (of, now, view, held) = of_work(*work)?;
+                        let waits = (driver.waits_on_owner_at(*work, &view, held, &at_once).into_iter())
+                            .map(Wait::of)
+                            .collect();
                         Line::ForAPerson { of, since, now, waits }
                     }
                     Heed::Stalled { work } => {
-                        let (of, now) = of_work(*work)?;
+                        let (of, now, ..) = of_work(*work)?;
                         Line::Stalled { of, since, now }
                     }
                     Heed::Idle { work, items } => {
-                        let (of, now) = of_work(*work)?;
+                        let (of, now, ..) = of_work(*work)?;
                         let items = (items.iter())
                             .map(|idle| Idle {
                                 item: idle.item.0,
@@ -184,7 +191,7 @@ impl Attention {
                         Line::Idle { of, since, now, items }
                     }
                     Heed::Ended { work, .. } => {
-                        let (of, now) = of_work(*work)?;
+                        let (of, now, ..) = of_work(*work)?;
                         Line::Ended { of, since, now }
                     }
                 })

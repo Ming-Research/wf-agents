@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 
 import { fixtureSource } from './fixtures';
+import type { Heard } from './source';
 import { ConsolePage } from './index';
 import type { Shown } from './items';
 import { KEEP, NODE_W, PACE, PITCH, ROW, SnapScene, themed } from './snap';
@@ -474,6 +475,45 @@ describe('the console page, opened at an item the address names', () => {
       root.unmount();
       container.remove();
     }
+  });
+});
+
+describe('the console page, as things happen', () => {
+  it('reads the items at most once at a time, and once more after however many things happened meanwhile', async () => {
+    const source = fixtureSource();
+    const answers: Array<() => void> = [];
+    let asked = 0;
+    const stream: { on: ((heard: Heard) => void) | null } = { on: null };
+    const container = document.createElement('div');
+    container.style.cssText = 'position: fixed; inset: 0; display: flex';
+    document.body.append(container);
+    delete (window as { consoleScene?: SnapScene }).consoleScene;
+    const root = createRoot(container);
+    root.render(
+      <ConsolePage
+        source={{
+          ...source,
+          loadItems: () => {
+            asked += 1;
+            return new Promise((answer) => answers.push(() => answer(source.loadItems())));
+          },
+          changes: (on) => {
+            stream.on = on;
+            return () => undefined;
+          },
+        }}
+      />,
+    );
+    await expect.poll(() => asked).toBe(1);
+    for (let i = 0; i < 3; i += 1) stream.on?.('everything');
+    expect(asked).toBe(1);
+    answers.shift()?.();
+    await expect.poll(() => asked).toBe(2);
+    answers.shift()?.();
+    await expect.poll(() => (window as { consoleScene?: SnapScene }).consoleScene?.stats.items ?? 0).toBeGreaterThan(0);
+    expect(asked).toBe(2);
+    root.unmount();
+    container.remove();
   });
 });
 

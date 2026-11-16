@@ -115,6 +115,9 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
     });
     let items = get_json(router, "/api/v1/items").await;
     assert_eq!(items["outage"], outage);
+    // A usage limit is no command line that cannot run: no work waits on the owner for it.
+    let waits = items["items"][0]["work"]["waits"].as_array().unwrap().clone();
+    assert!(!waits.iter().any(|w| w["key"] == "agents"), "{waits:?}");
     let page = get_json(router, "/api/v1/works/1").await;
     assert_eq!(
         page["summary"]["now"],
@@ -134,4 +137,45 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
     let now = &page["summary"]["now"];
     let held = now["kind"] == "waits" && now["on"].as_array().unwrap().iter().any(|w| w["kind"] == "agents");
     assert!(!held, "{now}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_command_line_that_cannot_run_is_what_each_work_waits_on_the_owner_for_while_it_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut script = trial_script();
+    let plan = script.flows.get_mut("trial").unwrap();
+    let mut failing = plan.rounds[0].clone();
+    failing.run = 2;
+    failing.asks = None;
+    failing.took = Default::default();
+    failing.fails = Some("It is not signed in.".to_string());
+    failing.failure = Some(Failure::CannotRun);
+    plan.rounds.push(failing);
+    let running = running_scripted(Box::new(store), dir, script);
+    let router = &running.router;
+    greeted(router).await;
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    post(router, "/api/v1/works/1/acts", &answer).await;
+    // Within the half minute before the engine's first check of the outside, the wait holds.
+    pass(5000).await;
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(items["outage"]["failure"], "cannotRun", "{}", items["outage"]);
+    assert_eq!(items["outage"]["holds"], true);
+    let work = &items["items"][0]["work"];
+    let waits = work["waits"].as_array().unwrap();
+    assert!(waits.iter().any(|w| w["key"] == "agents"), "{waits:?}");
+    // The bar's stretches the work spent idle since the wait began are the owner's.
+    let bar = work["bar"].as_str().unwrap();
+    assert!(bar.contains('o'), "{bar}");
+    // The check finds the outside well: the wait no longer holds, and no work waits on the owner for it.
+    pass(40_000).await;
+    let items = get_json(router, "/api/v1/items").await;
+    assert!(
+        items["outage"].is_null() || items["outage"]["holds"] == false,
+        "{}",
+        items["outage"]
+    );
+    let waits = items["items"][0]["work"]["waits"].as_array().unwrap().clone();
+    assert!(!waits.iter().any(|w| w["key"] == "agents"), "{waits:?}");
 }

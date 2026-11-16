@@ -29,3 +29,9 @@ its row is not drawn again.
 Why: A browser keeps only a few connections to one host open at once, and a stream for each part that listened took
 four of them on the list of works alone. With 500 works a change of one drew the whole list again in about 120 ms of
 rendering, measured on the owner's machine, and its row alone in about 8.
+
+### decision the-server-is-asked-for-the-levels
+To learn whether its server has the items and the works, the page asks for the levels items are added at, never for
+the items.
+Why: Only a server with the items has the levels, and it answers them without reading a work, while it answers even
+the head of the items by building every item, on the way to the page's first view: 1.24 s with 337 works.
