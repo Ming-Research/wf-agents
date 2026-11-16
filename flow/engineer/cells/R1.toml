@@ -6,9 +6,8 @@ kind = "agent"
 line = "engineer"
 effort = "high"
 task = '''
-Research how to do what the item asks with code, going on from the tree you read. First ask `query` whether the item
-was worked on before; where it was, see how far that got, and keep what still holds. Then check that what the item
-says holds, where it shows: a fault it reports, seen as it happens, such as on the page in a real browser or in the
+Research how to do what the item asks with code, going on from the tree you read. Check that what the item says
+holds, where it shows: a fault it reports, seen as it happens, such as on the page in a real browser or in the
 program on its own data, and its root cause (a cause read from the code, or a test in a stand-in such as a simulated
 page, has not seen it); what it asks for, not there already. Where it does not hold after looking as far as the tools
 reach, ask the owner how to go on, with a question that waits. A test goes with the project's tests, anything else you
