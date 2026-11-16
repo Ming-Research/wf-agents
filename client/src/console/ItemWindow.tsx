@@ -1081,20 +1081,16 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   sent: (message: Message) => void;
 }) {
   const read = pageIn(page);
-  // Words to the line of the cell the work waits at for the owner's answer to a question of the work's are said to that
-  // cell, whose question it is: a question asked by a call has no cell of its own, and its asker's line takes them.
+  // The line of the cell the work waits at, which the box offers first.
   const now = work.now;
-  const held =
-    now.kind === 'waits' ? now.on.find((w): w is Extract<Waited, { kind: 'answer' }> => w.kind === 'answer') : undefined;
-  const heldAt = now.kind === 'waits' && held !== undefined ? now.at : undefined;
   const heldOn = now.kind === 'waits' ? read?.flow.cells.find((c) => c.id === now.at)?.line : undefined;
-  // The lines one of whose cells has words of its own, each with what the words said to it would reach.
+  // The lines one of whose cells has words of its own, each with the cell the engine says the words said to it reach:
+  // the one of its cells the work has reached, which waits for the answer to its question where it waits for one.
   const flow = read?.flow;
   const targets = (flow?.lines ?? [])
     .filter((l) => flow !== undefined && flow.cells.some((c) => c.line === l.name && wordsOf(flow, c.id) !== undefined))
     .map((l) => {
-      const to: SpokenTo =
-        heldAt !== undefined && heldOn === l.name ? { kind: 'cell', cell: heldAt } : { kind: 'line', line: l.name };
+      const to: SpokenTo = { kind: 'line', line: l.name };
       return { line: l.name, to, speaking: read?.speaking?.find((s) => sameTo(s.to, to)) };
     });
   // The one chosen, else the line the work stands at, else the first the engine has a cell for, or says why it has none.
