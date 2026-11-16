@@ -769,6 +769,10 @@ fn a_name_inside_a_longer_text_is_found_where_it_is_written_as_a_name_or_is_no_w
     assert_eq!(named("the plan holds", &names), Vec::<&str>::new());
     assert_eq!(named("`plan` is new", &names), ["plan"]);
     assert_eq!(named("M1.75 2.5h10", &names), Vec::<&str>::new());
+    assert_eq!(
+        named("M1 6c1.4-2.3 3-3.5 5-3.5S2.4 8.3 1 6z", &names),
+        Vec::<&str>::new()
+    );
     assert_eq!(named("see plan_owner.", &names), ["plan_owner"]);
     assert_eq!(named("plan", &names), ["plan"]);
 }
