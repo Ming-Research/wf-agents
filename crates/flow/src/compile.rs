@@ -1741,11 +1741,19 @@ impl<'a> Definition<'a> {
         (cell, spec)
     }
 
-    /// The blocks the cell of this id watches, each block of a group among them; none of a cell the order lacks.
-    fn watched_by(&self, id: &str) -> Vec<BlockId> {
-        (self.cells.get(id).filter(|_| self.place.contains_key(id)))
-            .map(|file| self.watching(file).runs_on.into_iter().map(|r| r.block).collect())
-            .unwrap_or_default()
+    /// The blocks the cell of this id watches by its own file, each group by its blocks: what should make it judge
+    /// again (design document `data-and-context`, 38), not what the flow has every agent cell watch.
+    fn judges_by(&self, id: &str) -> Vec<BlockId> {
+        let file = self.cells.get(id).filter(|_| self.place.contains_key(id));
+        let mut out: Vec<BlockId> = Vec::new();
+        for name in file.into_iter().flat_map(|f| &f.watches) {
+            for block in self.members(name) {
+                if !out.contains(&block) {
+                    out.push(block);
+                }
+            }
+        }
+        out
     }
 
     /// The other side of each dialogue the cell of this id holds (design document `data-and-context`, 36): of each datum
@@ -1762,7 +1770,7 @@ impl<'a> Definition<'a> {
                 if !self.cells.get(other).is_some_and(|f| f.watches.contains(block)) {
                     continue;
                 }
-                let theirs = self.watched_by(other);
+                let theirs = self.judges_by(other);
                 let maker = (theirs.iter()).any(|t| t.as_str() != block.as_str() && file.outputs.contains(&t.0));
                 sides.push((BlockId(block.clone()), other, maker));
             }
@@ -1770,9 +1778,11 @@ impl<'a> Definition<'a> {
         sides
     }
 
-    /// Of each dialogue the cell holds as the maker, the blocks the other side watches that the cell's round can
-    /// change: those it writes, and those a source outside the work writes, which its round's end may read, such as the
-    /// work's head; never a cell's own questions or words with the owner (design document `data-and-context`, 41).
+    /// Of each dialogue the cell holds as the maker, the blocks the other side watches by its own file that the cell's
+    /// round can change: those it writes, and those a source outside the work writes, which its round's end may read,
+    /// such as the work's head; never a cell's own questions or words with the owner, and nothing the flow has every
+    /// agent cell watch, which is not what should make the other side judge again (design document
+    /// `data-and-context`, 38, 41).
     fn dialogues(&self, id: &str, file: &CellFile) -> BTreeMap<BlockId, Vec<BlockId>> {
         let mut dialogues: BTreeMap<BlockId, Vec<BlockId>> = BTreeMap::new();
         for (dialogue, other, maker) in self.sides(id, file) {
@@ -1785,7 +1795,7 @@ impl<'a> Definition<'a> {
             };
             let watched = dialogues.entry(dialogue.clone()).or_default();
             for b in self
-                .watched_by(other)
+                .judges_by(other)
                 .into_iter()
                 .filter(|b| *b != dialogue && changes(b))
             {
