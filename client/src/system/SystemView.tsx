@@ -8,12 +8,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { PanelPart, Switch } from '../parts';
+import { Coded, PanelPart, Switch } from '../parts';
 import { hashOf, type Period } from '../route';
 import type { Copies, Engine, Item, Items, Spent } from '../works-api';
 import { copiesTone, copiesWords } from '../works/Copies';
 import { NowLine } from '../works/marks';
 import { useChanges, useItems, useReading, useSource } from '../works/source';
+import { waitingCount } from '../works/waiting';
 import {
   allTokens,
   clock,
@@ -24,6 +25,7 @@ import {
   outageWords,
   tokens,
   tokensWords,
+  waitCounted,
 } from '../works/words';
 import { type RanOn, type System, useSystemSource } from './api';
 import { ItemName, Tile, Tiles, ViewTable, WorkLink } from './parts';
@@ -162,6 +164,8 @@ function NowPart({ items, engine, copies, copiesFailed }: {
     list: items.items.filter((item) => standingOf(item.work) === standing),
   }));
   const running = items.items.filter((item) => item.work.now.kind === 'round');
+  // The wait every work shares, said only where it holds a work.
+  const shared = items.outage ? outageWords(items.outage) : null;
   const opened = by.find((b) => b.standing === open);
   return (
     <PanelPart label="Now">
@@ -177,7 +181,7 @@ function NowPart({ items, engine, copies, copiesFailed }: {
         <dt title="Rounds of agents under way, of how many may be at once: agents.slots">Slots</dt>
         <dd>{engine === null ? 'not given' : `${engine.taken} taken of ${engine.slots}`}</dd>
         <dt>The wait every work shares</dt>
-        <dd className={items.outage ? 'failed' : undefined}>{items.outage ? outageWords(items.outage) : 'none'}</dd>
+        <dd className={shared === null ? undefined : 'failed'}>{shared === null ? 'none' : <Coded text={shared} />}</dd>
         <dt>Copies of the database</dt>
         <dd>
           {copies === null ? (
@@ -190,16 +194,20 @@ function NowPart({ items, engine, copies, copiesFailed }: {
         </dd>
       </dl>
       <Tiles>
-        {by.map(({ standing, list }) => (
-          <Tile
-            key={standing}
-            value={list.length}
-            label={STANDING_WORDS[standing].name}
-            title={STANDING_WORDS[standing].title}
-            open={open === standing}
-            onOpen={list.length > 0 ? () => setOpen(open === standing ? null : standing) : undefined}
-          />
-        ))}
+        {by.map(({ standing, list }) => {
+          // What waits for the owner is counted by the one count, the things that wait, not the works they wait in.
+          const waiting = standing === 'owner' ? waitingCount(list.map((item) => item.work)) : null;
+          return (
+            <Tile
+              key={standing}
+              value={waiting ?? list.length}
+              label={waiting === null ? STANDING_WORDS[standing].name : waitCounted(waiting)}
+              title={STANDING_WORDS[standing].title}
+              open={open === standing}
+              onOpen={list.length > 0 ? () => setOpen(open === standing ? null : standing) : undefined}
+            />
+          );
+        })}
       </Tiles>
       {opened !== undefined && opened.list.length > 0 && (
         <ViewTable heads={['Work', 'Item', 'Now', 'Last']} label={STANDING_WORDS[opened.standing].name}>
@@ -212,7 +220,7 @@ function NowPart({ items, engine, copies, copiesFailed }: {
                 <ItemName item={item.number} title={item.title} />
               </td>
               <td className="view-cell-wide">
-                <NowLine now={item.work.now} paused={item.work.paused} />
+                <NowLine work={item.work} />
               </td>
               <td className="small muted" title={item.work.last === null ? undefined : fullTime(item.work.last)}>
                 {item.work.last === null ? 'nothing yet' : clock(item.work.last)}

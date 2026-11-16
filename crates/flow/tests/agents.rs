@@ -320,3 +320,17 @@ fn the_files_of_the_real_flow_hold_every_text_the_engine_says_of_each_tool() {
     }
     assert!(read.tools["query"].given_bytes.is_some());
 }
+
+#[test]
+fn a_reason_is_a_sentence_ended_as_one_in_english_or_in_chinese_and_given_a_full_stop_where_it_has_none() {
+    assert_eq!(
+        agents::sentence("The agent could not start"),
+        "The agent could not start."
+    );
+    assert_eq!(agents::sentence("Which way? "), "Which way?");
+    assert_eq!(agents::sentence("It spent $4."), "It spent $4.");
+    assert_eq!(agents::sentence("选哪一种？"), "选哪一种？");
+    assert_eq!(agents::sentence("先做这个。"), "先做这个。");
+    assert_eq!(agents::sentence("快！"), "快！");
+    assert_eq!(agents::sentence(""), "");
+}

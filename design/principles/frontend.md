@@ -102,7 +102,5 @@ Why: The owner reads the page in English, and one catalogue makes the name of ea
 shows it.
 
 ### principle one-count-of-what-waits
-The owner sees one count, of what waits on the owner: the questions that now hold a work. Only these notify, once as
-each comes and again each hour while any is left; everything else is only marked as unread, and a question a work has
-gone on past is shown as still to confirm and raises nothing until the merge waits for it.
-Why: Several counts with different meanings did not agree with one another, and nobody trusted them.
+The owner is shown one count of what waits on them, and each thing it counts is shown where the owner can act on it: every count, mark and notification of what waits reads one list of it (principle one-thing-one-place).
+Why: Counts with different meanings did not agree, and nobody trusted them; a count with nothing to act on behind it left the owner searching for what it counted.

@@ -23,7 +23,7 @@ use std::sync::Arc;
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::history::Lines;
-use driver::{Found, Policy};
+use driver::{Along, Found, Policy, Under};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -459,6 +459,16 @@ impl RoundReply {
         }
     }
 
+    /// The way to say where the round of this number of the run, the first being one, stands as it goes, while it is
+    /// under way.
+    pub fn saying(&self, round: usize) -> Saying {
+        Saying {
+            work: self.work,
+            under: Under::Round { run: self.run, round },
+            to: self.to.clone(),
+        }
+    }
+
     /// The round ended: this came back, and it took this.
     pub fn ended(self, came: Came, spent: Spent) {
         let event = Event::Returned {
@@ -533,6 +543,28 @@ pub struct Teller {
     work: WorkNumber,
     run: RunId,
     to: mpsc::UnboundedSender<Message>,
+}
+
+/// The way to say where a round or a call stands as it goes, which no record holds: the engine keeps the latest while
+/// it is under way, and the page shows it (crate `driver`, module `along`). Said again and again, it costs nothing
+/// where nothing changed.
+#[derive(Clone, Debug)]
+pub struct Saying {
+    work: WorkNumber,
+    under: Under,
+    to: mpsc::UnboundedSender<Message>,
+}
+
+impl Saying {
+    /// Where it stands now; none where it no longer stands anywhere it says, as once a turn it waited for is taken.
+    pub fn say(&self, along: Option<Along>) {
+        // Where the loop has ended, the process is stopping: what is given again says it again.
+        let _ = self.to.send(Message::Along {
+            work: self.work,
+            under: self.under,
+            along,
+        });
+    }
 }
 
 impl Teller {
@@ -624,6 +656,15 @@ impl CallReply {
     /// to read what the carrier says.
     pub fn new(work: WorkNumber, call: CallId, to: mpsc::UnboundedSender<Message>) -> Self {
         CallReply { work, call, to }
+    }
+
+    /// The way to say where the call stands as it goes, while it has no result.
+    pub fn saying(&self) -> Saying {
+        Saying {
+            work: self.work,
+            under: Under::Call(self.call),
+            to: self.to.clone(),
+        }
     }
 
     /// The call has this result.

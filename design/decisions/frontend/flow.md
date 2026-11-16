@@ -15,3 +15,9 @@ The flowchart is laid out with the main path and the ways back alone; the arrows
 layout afterwards, those into and out of the cell chosen, or every one while the owner asks for them all.
 Why: Laid out with the rest, each arrow shown or hidden would move the cells, and arrows not drawn would still bend
 the main path, which is what the chart is for; by judgment.
+
+### decision the-flowchart-opens-at-its-own-size
+The flowchart opens at 100%, its top in view, fitted to its width only where it is wider than the view; the rest is
+scrolled to.
+Why: Fitted whole to the window, a flow as long as the engineer's opened at about 62%, where the owner could not read
+its cells and labels.

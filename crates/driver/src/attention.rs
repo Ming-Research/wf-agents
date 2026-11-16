@@ -1,16 +1,15 @@
 //! What needs whoever plans the work, since they last looked: the owner's assistant now, an architect's cell later.
 //!
 //! A line is a work that stands where only someone outside its flow can move it, and came to stand so since the mark
-//! the planner gives: it ended, merged or cancelled; it rests for a person, at a cell's question, a ruling only a person
-//! can give, a limit, a pause the engine made with its reason, or stalled, no cell able to write what it waits for; it
-//! waits for items none of which is going on; or its
-//! records cannot be those of a work. A work going on from one cell to the next is nothing for the planner, and neither
-//! is one the owner paused, which shows only as the reason why a work waiting for it is idle. A work that ended and
-//! could not let go of what it held, which the engine paused saying why, rests for a person. One line is about no
-//! work: the wait every work shares, while no agent's round begins; a work whose round it holds is going on. So is the
-//! pause of everything, the owner's or the engine's as it started with works going on, its own line about no work,
-//! under which every work is read as if it did not hold: a work held by it alone goes on, and is no reason for another
-//! to be idle. A wait for a slot is going on.
+//! the planner gives: it ended, merged or cancelled; it waits on the owner, for what the one definition of that names
+//! ([`crate::owner`]), the engine's pause among it, and a work that ended and could not let go of what it held, which
+//! the engine paused saying why; it is stalled, no cell able to write what it waits for; it waits for items none of
+//! which is going on; or its records cannot be those of a work. A work going on from one cell to the next is nothing
+//! for the planner, and neither is one the owner paused, which shows only as the reason why a work waiting for it is
+//! idle. One line is about no work: the wait every work shares, while no agent's round begins; a work whose round it
+//! holds is going on. So is the pause of everything, the owner's or the engine's as it started with works going on,
+//! its own line about no work, under which every work is read as if it did not hold: a work held by it alone goes on,
+//! and is no reason for another to be idle. A wait for a slot is going on.
 //!
 //! Everything here is read from the records (principle state-from-records). How a work stands is what the deciding
 //! code decides on its records; since when it stands so is the first of the moments after which it has stood so
@@ -23,6 +22,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use decide::{CellId, Decision, End, Maker, Pauser, RecordFault, Records, Seq, Waited, decide};
+
+use crate::owner::{self, Shared};
 use store::{ItemNumber, WorkNumber};
 use work::{Moment, Time};
 
@@ -60,9 +61,10 @@ pub enum Heed {
     Agents { outage: Outage },
     /// The work's records cannot be those of a work: nothing is decided on them.
     Fault { work: WorkNumber },
-    /// The work rests for a person: a call a person answers, a precondition a person can make hold, a limit, a pause
-    /// the engine made with its reason, or stalled, no cell able to write what it waits for.
+    /// The work waits on the owner, for what the one definition of that names ([`crate::owner`]).
     ForAPerson { work: WorkNumber },
+    /// The work is stalled: no cell will write what it waits for, and nothing pauses it.
+    Stalled { work: WorkNumber },
     /// The work waits for these items, none of which is going on.
     Idle { work: WorkNumber, items: Vec<Idle> },
     /// The work ended.
@@ -81,8 +83,10 @@ pub struct Idle {
 pub enum Stuck {
     /// The owner paused its work, or it was added paused and not let on.
     Paused,
-    /// Its work rests for a person.
+    /// Its work waits on the owner.
     ForAPerson,
+    /// Its work is stalled.
+    Stalled,
     /// Its work waits in turn for items none of which is going on.
     Idle,
     /// It was cancelled: the work waits for it for good.
@@ -248,26 +252,15 @@ impl Driver {
     }
 }
 
-/// Whether what the work rests for is the engine's pause, with its reason, rather than what its decision says it waits
-/// for: as when it ended and could not let go of what it held, or waits for what the engine will give.
-pub fn rests_for_the_engines_pause(kept: &Kept<'_>) -> bool {
-    matches!(Standing::of(kept, &kept.work.records), Standing::PausedByEngine { .. })
-}
-
 /// How a work stands, as far as the planner is concerned, and what tells one such standing from the next of the same
 /// kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Standing {
     Fault(RecordFault),
     Ended(End),
-    /// It waits at the cell for each of these, each for a person.
-    Asked {
-        at: CellId,
-        on: Vec<Waited>,
-    },
-    /// The engine paused it, by the pause at this place.
-    PausedByEngine {
-        at: Seq,
+    /// It waits on the owner, for each of these, by their keys.
+    Owner {
+        keys: Vec<String>,
     },
     /// It waits at the cell for the items its item depends on, and for nothing else.
     Items {
@@ -285,65 +278,36 @@ enum Standing {
 }
 
 impl Standing {
-    /// How the work stands on these records, which are its own or as they were at a moment.
+    /// How the work stands on these records, which are its own or as they were at a moment. What holds every work at
+    /// once is its own line, and is not read here.
     fn of(kept: &Kept<'_>, records: &Records) -> Standing {
+        let decision = decide(&kept.flow.flow, records);
+        let waits = owner::waits(kept, records, &decision, None, Shared::default());
+        if !waits.is_empty() {
+            return Standing::Owner {
+                keys: waits.into_iter().map(|wait| wait.key).collect(),
+            };
+        }
         let paused = || match decide::pause(records) {
-            Some(pause) if pause.by == Pauser::Engine => Standing::PausedByEngine { at: pause.at },
             Some(pause) => Standing::PausedByOwner { at: pause.at },
             None => Standing::Going,
         };
-        match decide(&kept.flow.flow, records) {
+        match decision {
             Decision::Fault(fault) => Standing::Fault(fault),
-            // What the work held outside the engine could not be let go, and the engine paused it with why: only the
-            // owner, letting it on, has it tried again.
-            Decision::Ended(end) => match decide::pause(records) {
-                Some(pause) if pause.by == Pauser::Engine && ended_at(records, end).is_some_and(|at| pause.at > at) => {
-                    Standing::PausedByEngine { at: pause.at }
-                }
-                _ => Standing::Ended(end),
-            },
+            Decision::Ended(end) => Standing::Ended(end),
             Decision::Paused => paused(),
             // A run at rest holds its next round while the work is paused, as the pages show it.
             Decision::GoOn { .. } if decide::paused(records) => paused(),
-            Decision::Wait { at, on } => {
-                let person: Vec<Waited> = on.iter().filter(|waited| for_a_person(waited)).cloned().collect();
-                if !person.is_empty() {
-                    Standing::Asked { at, on: person }
-                } else if let Some(pause) = decide::pause(records).filter(|pause| pause.by == Pauser::Engine) {
-                    // What it waits for may come, but the engine's pause holds it once it does, until the owner lets it
-                    // on: it rests for a person from the pause, not from when the wait ends.
-                    Standing::PausedByEngine { at: pause.at }
-                } else if on.iter().all(on_items) {
-                    Standing::Items { at }
-                } else {
-                    Standing::Going
-                }
-            }
-            // A stalled work that a pause holds is the pauser's to let on: the engine's pause says why it stalled.
+            Decision::Wait { at, on } if !on.is_empty() && on.iter().all(on_items) => Standing::Items { at },
+            // A stalled work that its own pause holds is the pauser's to let on.
             Decision::Stalled { .. } if decide::paused(records) => paused(),
             Decision::Stalled { .. } => Standing::Still,
-            Decision::Busy { .. } | Decision::Run { .. } | Decision::GoOn { .. } | Decision::Abandon { .. } => {
-                Standing::Going
-            }
+            Decision::Wait { .. }
+            | Decision::Busy { .. }
+            | Decision::Run { .. }
+            | Decision::GoOn { .. }
+            | Decision::Abandon { .. } => Standing::Going,
         }
-    }
-}
-
-/// Whether only a person can give what the work waits for.
-fn for_a_person(waited: &Waited) -> bool {
-    match waited {
-        Waited::Call { on, .. } => on.is_some(),
-        // What the engine writes of the questions changes only as the owner answers them.
-        Waited::Precondition { by, .. } => (by.iter()).any(|maker| match maker {
-            Maker::Owner => true,
-            Maker::Outside { source } => source == engine::asked::ASKED,
-            Maker::Cell { .. } => false,
-        }),
-        Waited::Limit { .. } | Waited::Calls { .. } | Waited::Answer { .. } => true,
-        // The engine gives it as soon as a round of another work ends.
-        Waited::Slot => false,
-        // The source outside the work gives it, as main moves.
-        Waited::Outside { .. } => false,
     }
 }
 
@@ -363,23 +327,17 @@ fn on_items(waited: &Waited) -> bool {
     }
 }
 
-/// The place at which the work ended: its merge's finish, or its cancel.
-fn ended_at(records: &Records, end: End) -> Option<Seq> {
-    match end {
-        End::Merged => records.finished.iter().map(|finished| finished.at).max(),
-        End::Cancelled => records.cancelled(),
-    }
-}
-
 /// The work the line is of; for the wait every work shares, the work whose round began it, whose place in the next
 /// mark says whether it is given again; none for the pause of everything.
 fn work_of(heed: &Heed) -> Option<WorkNumber> {
     match heed {
         Heed::Everything { .. } => None,
         Heed::Agents { outage } => Some(outage.work),
-        Heed::Fault { work } | Heed::ForAPerson { work } | Heed::Idle { work, .. } | Heed::Ended { work, .. } => {
-            Some(*work)
-        }
+        Heed::Fault { work }
+        | Heed::ForAPerson { work }
+        | Heed::Stalled { work }
+        | Heed::Idle { work, .. }
+        | Heed::Ended { work, .. } => Some(*work),
     }
 }
 
@@ -457,9 +415,8 @@ impl Reader<'_> {
     fn line(&self, number: WorkNumber) -> Option<(u8, Line)> {
         let (rank, heed) = match &self.standing[&number] {
             Standing::Fault(_) => (1, Heed::Fault { work: number }),
-            Standing::Asked { .. } | Standing::PausedByEngine { .. } | Standing::Still => {
-                (2, Heed::ForAPerson { work: number })
-            }
+            Standing::Still => (1, Heed::Stalled { work: number }),
+            Standing::Owner { .. } => (2, Heed::ForAPerson { work: number }),
             Standing::Items { .. } => {
                 let items = self.idle[&number].clone()?;
                 (3, Heed::Idle { work: number, items })
@@ -557,7 +514,8 @@ impl Reader<'_> {
                 Standing::Ended(End::Merged) => continue,
                 Standing::Ended(End::Cancelled) => Stuck::Cancelled,
                 Standing::Fault(_) => Stuck::Fault,
-                Standing::Asked { .. } | Standing::PausedByEngine { .. } | Standing::Still => Stuck::ForAPerson,
+                Standing::Owner { .. } => Stuck::ForAPerson,
+                Standing::Still => Stuck::Stalled,
                 Standing::PausedByOwner { .. } => Stuck::Paused,
                 Standing::Items { .. } => {
                     self.idle.get(on)?.as_ref()?;

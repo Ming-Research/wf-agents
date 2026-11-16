@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use service::{Along, Saying};
 use tokio::sync::oneshot;
 
 /// The rounds or the calls a carrier was given, by their key.
@@ -38,12 +39,15 @@ pub(crate) enum Failing<R> {
 }
 
 /// What carries a round or a call out is told by this to stop. It may be waited for again and again, as between the
-/// looks of a wait: once told, it comes at once each time.
+/// looks of a wait: once told, it comes at once each time. Through it, too, what carries it out says where it stands as
+/// it goes, where it was given the way to.
 pub(crate) struct Stop {
     /// The way it is told, until it was told or can no longer be.
     told: Option<oneshot::Receiver<()>>,
     /// Whether it was told.
     stopped: bool,
+    /// The way to say where it stands, and what was said last; none where nobody listens.
+    saying: Option<(Saying, Option<Along>)>,
 }
 
 impl Stop {
@@ -56,6 +60,24 @@ impl Stop {
         Stop {
             told: Some(told),
             stopped: false,
+            saying: None,
+        }
+    }
+
+    /// The stop, through which where it stands is said this way.
+    pub(crate) fn saying(mut self, saying: Saying) -> Stop {
+        self.saying = Some((saying, None));
+        self
+    }
+
+    /// Says where what is carried out stands now, or that it no longer stands anywhere it says; said once for each
+    /// change.
+    pub(crate) fn say(&mut self, along: Option<Along>) {
+        if let Some((saying, said)) = self.saying.as_mut()
+            && *said != along
+        {
+            saying.say(along.clone());
+            *said = along;
         }
     }
 
@@ -199,6 +221,41 @@ mod tests {
         for _ in 0..3 {
             assert!(tokio::time::timeout(soon, never.told()).await.is_err(), "never told");
         }
+    }
+
+    #[test]
+    fn where_it_stands_is_said_once_for_each_change() {
+        let (to, mut came) = tokio::sync::mpsc::unbounded_channel();
+        let reply = service::CallReply::new(store::WorkNumber(1), decide::CallId(2), to);
+        let saying = reply.saying();
+        let held: Held<u8, service::CallReply> = Held::new();
+        let mut stop = held.hold(1, reply).expect("held").saying(saying);
+        let turn = Along::Turn {
+            holder: store::WorkNumber(3),
+        };
+        let runs = Along::Runs {
+            at: "https://github.example/actions/runs/1".to_string(),
+        };
+        for along in [
+            Some(turn.clone()),
+            Some(turn.clone()),
+            None,
+            Some(runs.clone()),
+            Some(runs.clone()),
+        ] {
+            stop.say(along);
+        }
+        let mut said = Vec::new();
+        while let Ok(message) = came.try_recv() {
+            if let service::Message::Along { along, .. } = message {
+                said.push(along);
+            }
+        }
+        assert_eq!(said, [Some(turn), None, Some(runs)]);
+        // Where nobody listens, nothing is said.
+        Stop::never().say(Some(Along::Turn {
+            holder: store::WorkNumber(3),
+        }));
     }
 
     #[test]

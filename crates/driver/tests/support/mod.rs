@@ -48,13 +48,19 @@ pub fn has() -> Has {
     }
 }
 
-/// A flow compiled from the text of its files.
+/// A flow compiled from the text of its files, beside it the words the engine says to the owner, as beside the
+/// repository's flows.
 pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
     let source = Source {
         flow: flow.to_string(),
         cells: (cells.iter())
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        files: [(
+            flow::waits_file(),
+            include_str!("../../../../flow/agents/waits.toml").to_string(),
+        )]
+        .into(),
         ..Default::default()
     };
     compile(&source, &has()).expect("the definition compiles")
@@ -441,6 +447,10 @@ impl Storage for Failing {
     fn pause_everything(&mut self, paused: bool, by: Pauser, at: Time) -> Result<(), store::Fault> {
         self.call(Op::PauseEverything)?;
         self.store.pause_everything(paused, by, at)
+    }
+
+    fn everything_pauses(&self) -> Result<Vec<store::PauseOfEverything>, store::Fault> {
+        self.store.everything_pauses()
     }
 }
 

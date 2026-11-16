@@ -25,7 +25,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::time::Instant;
 
 use crate::interface::{fail, refused};
-use crate::works::{Broken, Now, Outage, Outages, Pauser};
+use crate::works::{Broken, Now, Outage, Outages, Pauser, Wait};
 
 /// What needs the planner since the mark it gave, most pressing first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,13 +47,26 @@ pub enum Line {
     /// Everything was paused, at this time, by the owner or by the engine as it started with works going on: no work
     /// begins a round but to answer a person's words to its cell, until the owner lifts it. It is about no work.
     Everything { since: u64, by: Pauser },
-    /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work.
-    Agents { since: u64, outage: Outage },
+    /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work. Where
+    /// the cause is the agents' command line, which cannot run until the owner mends it, what the owner does, in the
+    /// words beside the flow of the work whose round met it (`owner.mend`), said here alone.
+    Agents {
+        since: u64,
+        outage: Outage,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mend: Option<String>,
+    },
     /// The work's records cannot be those of a work.
     Fault { of: Of, since: u64, now: Now },
-    /// The work rests for a person: what it waits for, or why the engine paused it, is what it does now; for a work
-    /// that ended and could not let go of what it held, the engine's pause.
-    ForAPerson { of: Of, since: u64, now: Now },
+    /// The work waits on the owner, for each of these, as the one definition of that says.
+    ForAPerson {
+        of: Of,
+        since: u64,
+        now: Now,
+        waits: Vec<Wait>,
+    },
+    /// The work is stalled: no cell will write what it waits for, and nothing pauses it.
+    Stalled { of: Of, since: u64, now: Now },
     /// The work waits for these items, none of which is going on.
     Idle {
         of: Of,
@@ -88,8 +101,10 @@ pub struct Idle {
 pub enum Stuck {
     /// The owner paused its work, or it was added paused and not let on.
     Paused,
-    /// Its work rests for a person.
+    /// Its work waits on the owner.
     ForAPerson,
+    /// Its work is stalled.
+    Stalled,
     /// Its work waits in turn for items none of which is going on.
     Idle,
     Cancelled,
@@ -111,7 +126,7 @@ impl Attention {
     pub fn of(driver: &Driver, attention: &of::Attention) -> Result<Attention, Broken> {
         let outages = Outages::of(driver);
         // The work a line is of, with its item, and what it does now.
-        let of_work = |work: WorkNumber, person: bool| -> Result<(Of, Now), Broken> {
+        let of_work = |work: WorkNumber| -> Result<(Of, Now), Broken> {
             let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work {}", work.0)))?;
             let view = (driver.view(work)).ok_or_else(|| Broken(format!("work {} has no view", work.0)))?;
             let of = Of {
@@ -119,12 +134,14 @@ impl Attention {
                 item: kept.item.number.0,
                 title: kept.item.title.clone(),
             };
-            // A work resting for the engine's pause is shown by the pause, which says why, whatever else it waits for.
-            let now = if person && of::rests_for_the_engines_pause(&kept) {
-                Now::paused(kept.work)?
-            } else {
-                Now::of(kept, &view.decision, driver.held(work), &outages)?
-            };
+            let now = Now::of(
+                kept,
+                &view.decision,
+                driver.held(work),
+                &outages,
+                &driver.along_of(work),
+                &driver.unmerged(work),
+            )?;
             Ok((of, now))
         };
         let lines = (attention.lines.iter())
@@ -138,17 +155,26 @@ impl Attention {
                     Heed::Agents { outage } => Line::Agents {
                         since,
                         outage: Outage::of(outage, driver.gate().holds_agents()),
+                        mend: (outage.down().0 == decide::run::Failure::CannotRun)
+                            .then(|| driver.work(outage.work))
+                            .flatten()
+                            .map(|kept| kept.flow.waits.owner.mend.clone()),
                     },
                     Heed::Fault { work } => {
-                        let (of, now) = of_work(*work, false)?;
+                        let (of, now) = of_work(*work)?;
                         Line::Fault { of, since, now }
                     }
                     Heed::ForAPerson { work } => {
-                        let (of, now) = of_work(*work, true)?;
-                        Line::ForAPerson { of, since, now }
+                        let (of, now) = of_work(*work)?;
+                        let waits = (driver.waits_on_owner(*work).into_iter()).map(Wait::of).collect();
+                        Line::ForAPerson { of, since, now, waits }
+                    }
+                    Heed::Stalled { work } => {
+                        let (of, now) = of_work(*work)?;
+                        Line::Stalled { of, since, now }
                     }
                     Heed::Idle { work, items } => {
-                        let (of, now) = of_work(*work, false)?;
+                        let (of, now) = of_work(*work)?;
                         let items = (items.iter())
                             .map(|idle| Idle {
                                 item: idle.item.0,
@@ -158,7 +184,7 @@ impl Attention {
                         Line::Idle { of, since, now, items }
                     }
                     Heed::Ended { work, .. } => {
-                        let (of, now) = of_work(*work, false)?;
+                        let (of, now) = of_work(*work)?;
                         Line::Ended { of, since, now }
                     }
                 })
@@ -177,6 +203,7 @@ impl Stuck {
         match why {
             of::Stuck::Paused => Stuck::Paused,
             of::Stuck::ForAPerson => Stuck::ForAPerson,
+            of::Stuck::Stalled => Stuck::Stalled,
             of::Stuck::Idle => Stuck::Idle,
             of::Stuck::Cancelled => Stuck::Cancelled,
             of::Stuck::Fault => Stuck::Fault,

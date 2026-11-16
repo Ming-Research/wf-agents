@@ -11,6 +11,13 @@ Why: A wait of the walk's own for the merge, which a cell would have named by a 
 would be a kind of wait the flow's conditions cannot say and the page cannot show as it shows every precondition
 (Article 7). Written only where it changes, it runs no cell.
 
+### decision the-answers-are-the-owners-by-what-the-datum-declares
+The datum `asked` declares that only the owner's acts change what its source writes (`changed_by = "owner"`), so that
+the walk says the owner can make a precondition on it hold, and what waits on the owner gives, for that precondition,
+each question that stands without the owner's answer. No reader of what a work waits for knows the datum by its name.
+Why: Known by name, the page, the planner's list and the bar each held a copy of the rule, and a datum renamed or a
+second one of its kind would have split them (principle one-thing-one-place).
+
 ### decision an-answer-runs-its-cell-by-the-engines-source
 The block of the trigger an answer runs is written by the engine's source `answer` as the owner answers, never by the
 owner nor by anything outside the work: the owner's act is the answer, and the engine works out from the question

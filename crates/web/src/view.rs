@@ -301,6 +301,10 @@ pub struct WrittenBy {
     pub note: bool,
     /// The source outside the work that writes it; none where the outside does not.
     pub outside: Option<String>,
+    /// Who changes what that source writes of it by their acts, as its file writes it (`owner`); none where its file
+    /// says nobody.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_by: Option<String>,
 }
 
 /// Who reads a block.
@@ -394,6 +398,10 @@ pub enum What {
     ValuesEmpty,
     /// The block is a note, and people do not write it.
     NoteNotByPeople {
+        block: String,
+    },
+    /// The block says who changes what a source outside the work writes of it, and no such source writes it.
+    ChangedByWithoutSource {
         block: String,
     },
     /// The block is a note, and a choice.
@@ -695,6 +703,9 @@ impl Flow {
                     people: block.writers.people,
                     note: block.writers.note,
                     outside: block.writers.outside.clone(),
+                    changed_by: block.writers.changed_by.map(|by| match by {
+                        flow::ChangedBy::Owner => flow::OWNER.to_string(),
+                    }),
                 },
                 read_by: ReadBy {
                     cells: names(&block.readers.cells),
@@ -810,6 +821,7 @@ impl What {
             F::ReadsOnlyAndTestsOnly => What::ReadsOnlyAndTestsOnly,
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
+            F::ChangedByWithoutSource { block } => What::ChangedByWithoutSource { block },
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },

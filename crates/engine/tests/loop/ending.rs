@@ -63,7 +63,9 @@ fn what_could_not_be_let_go_pauses_the_ended_work_saying_why_and_letting_it_on_t
     let why = "the worktree is locked".to_string();
     assert_eq!(w.on(Event::NotReleased { why: why.clone() }), vec![]);
     let pause = decide::pause(&w.work.records).expect("the work is paused");
-    assert_eq!((pause.by, pause.why.as_deref()), (Pauser::Engine, Some(why.as_str())));
+    // Said in the words beside the flows, with what the act said, a sentence of its own.
+    let said = format!("Letting go of what the work held failed. {why}.");
+    assert_eq!((pause.by, pause.why.as_deref()), (Pauser::Engine, Some(said.as_str())));
     assert_eq!(pending(&w.flow, &w.work), vec![], "it waits for the owner");
     assert_eq!(w.on(Event::Look), vec![]);
     assert_eq!(w.on(Event::Resumed), vec![MERGED], "let on, it is tried again");

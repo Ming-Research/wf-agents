@@ -17,7 +17,7 @@ fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_
     let engine = Engine::start(&place);
     assert_eq!(
         engine.says(&["wait", "--for", "0"]),
-        "Nothing waits for you.\nNext: wf-agents wait --since 0\n"
+        "Nothing waits for the owner.\nNext: wf-agents wait --since 0\n"
     );
     engine.says(&[
         "add",
@@ -35,16 +35,14 @@ fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_
     let said = engine.says(&["wait"]);
     let (lines, mark) = split(&said);
     assert!(
-        lines.starts_with(
-            "Item 1 \"Greet the user\", work 1: waits at plan for the owner to answer call 2: \"Should the greeting \
-             name the user?\", for "
-        ),
+        lines.starts_with("Item 1 \"Greet the user\", work 1: waits for the owner at plan for ")
+            && lines.ends_with(": Should the greeting name the user?"),
         "{said}"
     );
     assert_eq!(lines.lines().count(), 1, "{said}");
     assert_eq!(
         engine.says(&["wait", "--since", mark, "--for", "0"]),
-        format!("Nothing for you since the mark.\nNext: wf-agents wait --since {mark}\n")
+        format!("Nothing for the owner since the mark.\nNext: wf-agents wait --since {mark}\n")
     );
     engine.says(&["result", "1", "2", "Yes, by name."]);
     let said = engine.says(&["wait", "--since", mark]);

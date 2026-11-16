@@ -193,6 +193,18 @@ impl World {
         self.install(self.flow.cells().to_vec());
     }
 
+    /// Makes this source outside the work the writer of the block, what it writes changing only as the owner acts, as
+    /// the record of the questions changes only as the owner answers them.
+    pub fn written_outside_by_owner(&mut self, block: &str, source: &str) {
+        let outsiders = Outsiders {
+            outside: Some(source.to_string()),
+            by_owner: true,
+            ..Outsiders::default()
+        };
+        self.outsiders.insert(block.into(), outsiders);
+        self.install(self.flow.cells().to_vec());
+    }
+
     /// Makes the block the owner turning to the cells it runs: written from outside by the source of the owner's
     /// words, each new version stops a round under way of a later cell.
     pub fn turning(&mut self, block: &str) {
