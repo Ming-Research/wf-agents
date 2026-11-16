@@ -116,6 +116,9 @@ async fn run_with(
     let overseer = match group.map(Overseer::of).transpose() {
         Ok(overseer) => overseer,
         Err(why) => {
+            // The program is killed by the system's call itself, and its group by `kill`: where no shell can start,
+            // as where the process table is full, `kill` most likely cannot either.
+            let _ = child.start_kill();
             if let Some(group) = group {
                 signal(group, "KILL").await;
             }
