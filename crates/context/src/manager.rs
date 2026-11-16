@@ -144,7 +144,7 @@ pub fn enter(
             content: content(work, block, v.at).to_string(),
             by: by(flow, &records, block, v),
         };
-        let last = last_worked_from(flow, &records, cell, block);
+        let last = last_worked_from(flow, &records, cell, block, all);
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
         let new = all
             .iter()
@@ -239,8 +239,9 @@ pub fn enter(
         let latest = (watched.blocks.iter())
             .filter_map(|b| versions.get(b).and_then(|vs| vs.last()).map(|v| v.at))
             .max();
+        let of = |b: &BlockId| versions.get(b).map_or(&[][..], Vec::as_slice);
         let last = (watched.blocks.iter())
-            .filter_map(|b| last_worked_from(flow, &records, cell, b))
+            .filter_map(|b| last_worked_from(flow, &records, cell, b, of(b)))
             .max();
         if let Some(latest) = latest {
             values.new.insert(watched.name.clone(), NewVersions { last, latest });
@@ -443,8 +444,16 @@ fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView
 /// The version of the datum the cell last worked from: the latest it consumed, where the datum runs the cell (design
 /// document `data-and-context`, 10); of another, the latest its last finished run was given, which is the one written
 /// last before that run's last round began, every round being filled with the latest; and in either case the latest
-/// a run of the cell wrote, where that is later, a cell's own version being no change to it.
-fn last_worked_from(flow: &Compiled, records: &Records, cell: &CellSpec, block: &BlockId) -> Option<Seq> {
+/// a run of the cell wrote, where that is later, a cell's own version being no change to it, and the latest of the
+/// block's `versions` the owner ruled on, where that is later, as the walk reads them: a point the owner ruled on is
+/// new to no cell (39), so what came before it is no change to the cell.
+fn last_worked_from(
+    flow: &Compiled,
+    records: &Records,
+    cell: &CellSpec,
+    block: &BlockId,
+    versions: &[VersionView],
+) -> Option<Seq> {
     let finished = (records.finished.iter()).filter(|f| of_cell(records, f.run, cell));
     let wrote = (finished.clone())
         .filter(|f| f.writes.iter().any(|w| &w.block == block))
@@ -462,7 +471,8 @@ fn last_worked_from(flow: &Compiled, records: &Records, cell: &CellSpec, block: 
         let versions = decide::versions(records).remove(block).unwrap_or_default();
         round.and_then(|round| versions.iter().map(|v| v.at).filter(|at| *at < round).max())
     };
-    worked.max(wrote)
+    let ruled = (versions.iter()).filter(|v| v.ruled).map(|v| v.at).max();
+    worked.max(wrote).max(ruled)
 }
 
 /// A call whose result the round is given, as the carrier gives it, or else as the work holds it.
