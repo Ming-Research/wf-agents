@@ -70,7 +70,7 @@ const GLOW_IN = 30;
 /// How bright the items not in focus are drawn while an item is in focus or selected; how much of the links' own
 /// strength is left when the items are fully dimmed; and how long an item takes to fade down and to come back up, in
 /// milliseconds.
-const DIM = 0.35;
+export const DIM = 0.35;
 const DIM_LINKS = 0.4;
 const FADE_DOWN = 220;
 const FADE_UP = 110;
@@ -224,13 +224,39 @@ export function waysUp(running: Iterable<number>, parent: ArrayLike<number>): Se
   return on;
 }
 
+/// How strong the links between the items are drawn, as bright as the items not lit are (`dim`): fully while nothing is
+/// lit, and no fainter than [`DIM_LINKS`] of their own strength.
+export function linksStrength(dim: number): number {
+  return DIM_LINKS + (1 - DIM_LINKS) * dim;
+}
+
 /// How strong each of the dashed `ways` is to be drawn, by the item whose link up it is: every one at full strength
 /// while nothing is `lit`; while something is, one whose two ends are both lit at full strength, and the others as dim
-/// as the links ([`DIM_LINKS`]).
+/// as the links once the items are dimmed.
 export function wayAims(ways: Iterable<number>, parent: ArrayLike<number>, lit: Set<number>): Map<number, number> {
   const aims = new Map<number, number>();
-  for (const i of ways) aims.set(i, lit.size === 0 || (lit.has(i) && lit.has(parent[i])) ? 1 : DIM_LINKS);
+  for (const i of ways) aims.set(i, lit.size === 0 || (lit.has(i) && lit.has(parent[i])) ? 1 : linksStrength(DIM));
   return aims;
+}
+
+/// One frame's step, `step` milliseconds long, of a brightness from `was` towards `to`: about two thirds of the way in
+/// [`FADE_DOWN`] going down and in [`FADE_UP`] going up, so that nothing lit jumps as the light moves or goes out.
+export function eased(was: number, to: number, step: number): number {
+  return was + (to - was) * (1 - Math.exp(-step / (to < was ? FADE_DOWN : FADE_UP)));
+}
+
+/// A soft light: the item it is behind, where its card stands (`gx`, and `gy` with `gh` half its height), and how far
+/// past the card it reaches.
+export type Light = { item: number; gx: number; gy: number; gh: number; reach: number };
+
+/// Whether the page's ground goes under `item`, standing at `x`, and `y` with `h` half its height, over the `lights`:
+/// where one reaches it and it has a box, or the light is its own; so that the lights show only round the cards, and an
+/// item drawn with no box neither cuts another's light along a box no one sees nor shows its own light filling one.
+export function grounded(item: number, x: number, y: number, h: number, boxed: boolean, lights: Light[]): boolean {
+  return lights.some(
+    (l) =>
+      (boxed || l.item === item) && Math.abs(x - l.gx) < NODE_W + l.reach && Math.abs(y - l.gy) < h + l.gh + l.reach,
+  );
 }
 
 /// The dashes along a line `length` long, each from and to how far along it: one `RUN_DASH` long every
@@ -1606,10 +1632,10 @@ export class SnapScene {
         this.funnel(px, py - ph, py + ph, cx, top, bottom);
       }
     }
-    this.links.fill({ color: PALETTE.other, alpha: PALETTE.otherAlpha * (DIM_LINKS + (1 - DIM_LINKS) * this.dim) });
+    this.links.fill({ color: PALETTE.other, alpha: PALETTE.otherAlpha * linksStrength(this.dim) });
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
-    // blue and ringed in blue, over everything else, the item itself glowing too; each comes in quickly, and fades out
-    // once the pointer has left.
+    // blue and ringed in blue, under the selection's rings alone, the item itself glowing too; each comes in quickly,
+    // and fades out once the pointer has left.
     // Over a shadow, the item it points to and those above it light too; over an item, each of its shadows and those
     // above each, up to its root, which depend on it too. The items straight under it, which it depends on, light
     // as well, one level and no further, so that both what waits for it and what it waits for show at once.
@@ -1659,11 +1685,11 @@ export class SnapScene {
     else if (this.under < 0 && rested > DWELL_OFF) this.inFocus = new Set();
     const focus = this.inFocus;
     const aim = focus.size > 0 || chosen.size > 0 ? DIM : 1;
-    this.dim += (aim - this.dim) * (1 - Math.exp(-step / (aim < this.dim ? FADE_DOWN : FADE_UP)));
+    this.dim = eased(this.dim, aim, step);
     for (const i of drawn) {
       const view = this.views[i];
       const to = aim === 1 || focus.has(i) || chosen.has(i) ? 1 : DIM;
-      view.alpha += (to - view.alpha) * (1 - Math.exp(-step / (to < view.alpha ? FADE_DOWN : FADE_UP)));
+      view.alpha = eased(view.alpha, to, step);
     }
     // The way from each item whose work runs up to its root, dashed in the colour of a running card's edge, its dashes
     // moving from the root's side to the item's: each link from an item to the one above it drawn once, however many
@@ -1672,8 +1698,7 @@ export class SnapScene {
     // goes out.
     const shining = new Set([...focus, ...chosen]);
     for (const [i, to] of wayAims(this.runWays, t.parent, shining)) {
-      const was = this.runStrength.get(i) ?? to;
-      this.runStrength.set(i, was + (to - was) * (1 - Math.exp(-step / (to < was ? FADE_DOWN : FADE_UP))));
+      this.runStrength.set(i, eased(this.runStrength.get(i) ?? to, to, step));
     }
     this.runLines.clear();
     const shift = ((now / 1000) * RUN_SPEED) % (RUN_DASH + RUN_GAP);
@@ -1716,12 +1741,11 @@ export class SnapScene {
       this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
     }
     // The soft lights: behind the item selected, in the accent, and behind the item under the pointer, in the
-    // pointer's blue, as far as it has come in; over them, the page's ground at every item a light reaches, so that
-    // the light shows only round the cards and never through one drawn faint, nor as a box behind an item drawn with
-    // none.
+    // pointer's blue, as far as it has come in; over them, the page's ground where [`grounded`] says, so that the light
+    // shows only round the cards and never through one drawn faint.
     this.chosenGlow.clear();
     this.hoverGlow.clear();
-    const lights: { gx: number; gy: number; gh: number; reach: number }[] = [];
+    const lights: Light[] = [];
     const softLight = (g: Graphics, i: number, out: number, blur: number, colour: string, on: number) => {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
@@ -1729,7 +1753,7 @@ export class SnapScene {
         color: colour,
         alpha: SOFT_ALPHA * on,
       });
-      lights.push({ gx, gy, gh, reach: out + BLUR_ROOM * blur });
+      lights.push({ item: i, gx, gy, gh, reach: out + BLUR_ROOM * blur });
     };
     if (picked >= 0) softLight(this.chosenGlow, picked, CHOSEN_SPREAD, CHOSEN_BLUR, PALETTE.chosen, 1);
     for (const [i, a] of this.softLit) softLight(this.hoverGlow, i, SOFT_SPREAD, SOFT_BLUR, PALETTE.over, a);
@@ -1738,10 +1762,9 @@ export class SnapScene {
       for (const j of drawn) {
         const d = t.depth[j];
         const [jx, jy, jh] = [x(d), y(d, t.rank[j]), half(d, t.rank[j])];
-        const reached = lights.some(
-          (l) => Math.abs(jx - l.gx) < NODE_W + l.reach && Math.abs(jy - l.gy) < jh + l.gh + l.reach,
-        );
-        if (reached) this.glowGround.roundRect(jx, jy - jh, NODE_W, 2 * jh, CARD_CORNER).fill(PALETTE.page);
+        const boxed = this.shadows[j] === 1 || !this.shownItems[j].deliver;
+        if (!grounded(j, jx, jy, jh, boxed, lights)) continue;
+        this.glowGround.roundRect(jx, jy - jh, NODE_W, 2 * jh, CARD_CORNER).fill(PALETTE.page);
       }
     }
     // The rings: of the item under the pointer and those above it, in the pointer's blue, as far as each has come in;
