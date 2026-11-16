@@ -53,7 +53,7 @@ told of the change could keep (principle keep-what-was-paid-for).
 A question a cell waits for holds the work at that cell while it stands with no answer to its latest version: no later cell runs, and the cell is entered meanwhile only for the owner turning to it, by a version no run of it has seen, and for the results of the calls such a run asked for, its round held to nothing its cell must write, as the cell stood when the round began; a run of it that is at rest still goes on to hand its return in. The answer runs the cell again by its trigger of an answer; the wait is read from the questions and the answers, and is no call.
 Why: Put to the owner as a call, the question was its run's and not the work's: it could not be asked anew or withdrawn
 under its name, an answer to an older version could not be told from one to the latest, and an answer came back twice,
-as the call's result and as the trigger of an answer (design document `data-and-context`, 35). Entering the cell
+as the call's result and as the trigger of an answer (design document `data-and-context`, 30, 32). Entering the cell
 meanwhile for something else new to it was turned down: that round could settle nothing the answer may not undo, and
 what is new stays new for the round the answer begins (a judgment, with no case behind it). The owner's words are let
 in, since the cell answers them at once and goes on waiting: words about the question a cell waited on reached no

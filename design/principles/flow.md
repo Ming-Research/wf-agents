@@ -122,10 +122,10 @@ Why: Carrying what one cell writes to the next is the flow's work (principle mec
 agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
 
 ### principle a-cell-knows-only-its-data
-A cell knows nothing of the other cells: it is given only the data it watches and reads, and a new version of a datum
-it watches runs it, unless it wrote that version itself (design document `data-and-context`). Nothing else runs a
-cell: no trigger apart from the data, no datum made only to run one, and no version sent to some of the cells that
-watch it and kept from others.
+A cell knows nothing of the other cells: it is given only the data it watches and reads, and is run only by a version
+of a datum it watches that is new to it, which a version it wrote never is (design document `data-and-context`, which
+says what else is new to no cell). Nothing else runs a cell: no trigger apart from the data, no datum made only to run
+one, and no version sent to some of the cells that watch it and kept from others.
 Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no
 content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and
 versions sent on by who wrote them. This is the flow's side of principle an-agent-knows-only-its-task.
@@ -139,11 +139,9 @@ Why: One record for several parties woke every party at each answer, and a datum
 data and the triggers of every pair, growing with each cell added.
 
 ### principle the-one-woken-owes-the-next-word
-In an open dialogue the party woken owes the next word: a maker answers the points, changes what its judge watches, or
-puts the dispute to the owner as a question the work waits for; a judge hands in its verdict, a fail with the points
-that still stand, or a pass, which writes no point and closes the dialogue (design document `data-and-context`). The
-engine sends back a return that plainly leaves the word owed: a maker's that answers no point, changes nothing its
-judge watches and asks nothing; a judge's fail with no point.
+In an open dialogue the party woken owes the next word, and a judge's pass, which closes the dialogue, is written as
+its verdict alone (design document `data-and-context`). The engine sends back a return that plainly leaves the word
+owed, as the document says when it does.
 Why: Were every side to answer whenever it is woken, a judge could never pass without a word, and a pass with a word
 would wake the maker for nothing; owing the next word only in an open dialogue holds both (a judgment, with no case
 behind it). A side left owing with nothing to send it back stalls the work with nobody woken, as a red check answered

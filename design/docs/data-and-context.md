@@ -14,13 +14,14 @@ the owner's pauses, when a work is at its end.
 1. Everything a cell works from and everything it produces is data. Each piece of data has versions. A new version is
    added to the ones before it, and none is written over.
 
-2. A new version comes from outside or from a cell. From outside: the architect writes the item's background; the
+2. A new version comes from outside or from a cell. From outside: whoever made the item writes its background; the
    owner answers, speaks or rules; the owner lets the work on, first or after the item was reopened (`start`); the
    items the work depends on merge (`dependencies`); the branch the works merge into moves (`main`); a file of the
-   project that the cells work under changes (`AGENTS.md`, the design tree); a session is reopened (25). Each of these
-   says that something happened outside the work, and runs a cell only where a cell watches it. From a cell: what it
-   hands in when a round of it ends. The code a round commits is handed in by that round, read from the branch as it
-   ends (`head`).
+   project that the cells work under changes (`AGENTS.md`, the design tree); a cell's specification changes (design
+   document `changed-flow-walks-the-records`); a session is reopened (25). Each of these says that something happened
+   outside the work, and runs a cell only where a cell watches it. From a cell: what it hands in when a round of it
+   ends. The code a round commits is handed in by that round, read from the branch as it ends (`head`). One datum is
+   neither: `asked`, which the engine works out from the questions (33).
 
 3. A file's version is its content. It has a new version whenever its content changed, whoever changed it and
    wherever: on the branch the works merge into, or in the work itself.
@@ -129,7 +130,8 @@ new session lacks it.
     manager fills it into each new session, and a cell runs again because of it only when its content changed.
 
 25. The design tree is read by the agent, which chooses what bears on the problem. A session that has not read the tree
-    for the work reads it in the first round entered in it, before that round's own work (23). On a line with a cell
+    for the work reads it in the first round of a cell that reads `tree` entered in it, before that round's own work
+    (23). On a line with a cell
     whose work is only that reading, as the engineer line has, that cell does it for the cells after it, and so that it
     does it again in a session reopened it watches its line's `session`: data that stand for the session of that line,
     with a new version each time the session is reopened. Only such a line has them. The tree runs no cell: a changed
@@ -163,8 +165,9 @@ new session lacks it.
 30. A cell that may ask the owner a question has a datum of its own for its questions, which it writes and watches. A
     question asks for a choice and says whether the work waits for the answer (principle a-question-is-a-choice). The
     owner's answer is the option taken and nothing else, written as the next version of that datum. A version that
-    asks, whoever wrote it, is new to no cell: an answer is new to the cell whose questions it answers, which follows
-    the option taken. A session reopened is filled with the answer as with any datum.
+    asks, whoever wrote it, is new to no cell: an answer is new to the cells that watch the questions it answers, the
+    cell that asked and the one that took charge from it (28), and the one that acts follows the option taken. A
+    session reopened is filled with the answer as with any datum.
 
 31. An answer that changes nothing the cell goes by is kept, and is new to no cell (9): one that takes the option the
     cell recommends, to a question the work does not wait for; and one to a question as it was asked before it was
@@ -224,15 +227,16 @@ new session lacks it.
 37. Each that judges hands in its verdict, a choice of its own (passed or not), at every round, and the check before
     the merge reads the verdicts. A doubt has no verdict.
 
-38. Each judge watches what its verdict rests on, and judges again when it changes. The reviews of the plan and the
-    review of the code watch all that the maker makes. The adversarial testing watches only what asks for it, the
-    review's word that the change needs testing and the conditions the work is accepted by, besides its dialogue: run
-    on each version of the code, it found nothing in half its runs.
+38. Each judge watches what should make it judge again, besides its dialogue. The reviews of the plan watch the plan,
+    and the review of the code watches the change. The adversarial testing watches only what asks for it, the
+    review's word that the change needs testing and the conditions the work is accepted by: run on each version of the
+    code, it found nothing in half its runs.
 
-39. Where the two sides do not agree, the owner may rule: on a judge's dialogue by writing the verdict in the judge's
-    place, on a doubt by words to the maker or to the doubter (35). The points a ruling settles are new to no cell from
-    then on (9). A verdict the owner wrote stands until what the judge watches changes; the judge then judges again,
-    and raises nothing the owner ruled on.
+39. Where the two sides do not agree, the owner may rule. On a judge's dialogue the owner writes the verdict in the
+    judge's place: the dialogue's points written before it are new to no cell from then on (9), and the verdict stands
+    until something the judge watches is new to it; the judge then judges again, and raises nothing the owner ruled
+    on. On a doubt the owner speaks to the maker or to the doubter (35): the points stay as they are, and the one
+    spoken to answers them by the owner's words.
 
 40. The engine's acts, such as the check before the merge, read no words, and are no party to a dialogue. What the
     check finds, `check`, is a datum the maker watches, and the maker answers it only by what runs the check again: a
@@ -248,7 +252,8 @@ new session lacks it.
     - the judge, woken by an answer or a change, hands in its verdict: a pass, which closes the dialogue and writes no
       point, or a fail, with the points that still stand.
 
-    The doubter, woken by an answer, owes nothing: it writes the points that still stand, or writes no more.
+    The doubter, woken by an answer, owes nothing: it writes the points that still stand, or writes no more. A dialogue
+    of the owner's words is open while its last version is the owner's, and the cell owes its answer (35).
 
 42. The engine sends back a return that plainly leaves the word owed on the one that handed it in: the maker's, woken
     by a point, that answers no point, changes nothing its judge watches and asks no question the work waits for; a
@@ -277,7 +282,7 @@ new session lacks it.
     | R1 Initial research | no deep research | `background`, `plan_review`, `tree_review`, `plan_doubts` | `tree` | `deep_needed` every time, `found`, plan, answers in its dialogues, questions |
     | R2 Is there a better way | no deep research | plan | `background`, `tree` | plan, where it finds a better way; questions |
     | D1 Deep research | deep research | `background`, `found`, `plan_review`, `tree_review`, `plan_doubts`, R1's questions | `tree` | plan, answers in its dialogues, questions |
-    | D2 Is there a better way | deep research | plan | `background`, `tree` | plan, where it finds a better way; questions |
+    | D2 Is there a better way | deep research | plan, R2's questions | `background`, `tree` | plan, where it finds a better way; questions |
     | D3 Design review | | plan, `plan_review` | `background`, `found`, `tree` | `plan_ok` every time; points in `plan_review` where it fails |
     | D4 Design tree review | | plan, `tree_review` | `background`, `tree` | `tree_ok` every time; points in `tree_review` where it fails |
     | I1 Implement | | plan, `plan_doubts`, `review`, `testing`, `check` | `background`, `tree` | `code`, `title`, `decisions`, `evidence`, `acceptance`, `head` by its commits; answers in `review` and `testing`; doubts in `plan_doubts`; questions, which hold the engine's (34) |
