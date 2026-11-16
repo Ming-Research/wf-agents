@@ -140,6 +140,14 @@ pub struct EverythingPaused {
     pub by: Pauser,
 }
 
+/// A pause of everything set, or lifted, at this time, by this pauser: what the store keeps of it, every one in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PauseOfEverything {
+    pub paused: bool,
+    pub by: Pauser,
+    pub at: Time,
+}
+
 /// The items and the works, kept in one SQLite database.
 pub struct Store {
     db: Connection,
@@ -242,6 +250,9 @@ pub trait Storage {
 
     /// Keeps that everything was paused, or that pause lifted, by this pauser at this time.
     fn pause_everything(&mut self, paused: bool, by: Pauser, at: Time) -> Result<(), Fault>;
+
+    /// Every pause of everything set or lifted, in the order they were kept.
+    fn everything_pauses(&self) -> Result<Vec<PauseOfEverything>, Fault>;
 }
 
 impl Store {
@@ -401,5 +412,22 @@ impl Storage for Store {
             rusqlite::params![paused, pauser, at.0],
         )?;
         Ok(())
+    }
+
+    fn everything_pauses(&self) -> Result<Vec<PauseOfEverything>, Fault> {
+        let mut query = (self.db).prepare("SELECT paused, pauser, time FROM everything_paused ORDER BY n")?;
+        let rows = query.query_map([], |row| {
+            Ok((row.get::<_, bool>(0)?, row.get::<_, String>(1)?, row.get::<_, u64>(2)?))
+        })?;
+        let mut pauses = Vec::new();
+        for row in rows {
+            let (paused, pauser, time) = row?;
+            pauses.push(PauseOfEverything {
+                paused,
+                by: tables::from_name("everything_paused", pauser)?,
+                at: Time(time),
+            });
+        }
+        Ok(pauses)
     }
 }

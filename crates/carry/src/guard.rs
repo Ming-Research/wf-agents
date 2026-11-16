@@ -142,7 +142,7 @@ impl Crossing {
             true => words.no_tools.clone(),
             false => named.join(&words.between),
         };
-        let stopped = fill(
+        let measured = fill(
             said,
             &[
                 ("value", &whole(self.value)),
@@ -153,10 +153,11 @@ impl Crossing {
                 ("tools", &tools),
             ],
         );
-        match again {
-            true => fill(&words.again, &[("stopped", &stopped)]),
-            false => stopped,
-        }
+        let stopped = match again {
+            true => &words.again,
+            false => &words.stopped,
+        };
+        format!("{stopped}{}{measured}", words.then)
     }
 }
 
@@ -235,9 +236,11 @@ mod tests {
     #[test]
     fn the_reason_names_the_signal_its_lines_where_they_come_from_and_the_last_tools() {
         let words = GuardWords {
+            stopped: "Stopped.".to_string(),
+            again: "Stopped again.".to_string(),
+            then: " / ".to_string(),
             growth: "grew {value} past {line}, {per} past {per_line}, from {from}; tools: {tools}".to_string(),
             jump: "jumped".to_string(),
-            again: "again: {stopped}".to_string(),
             from: "{samples} rounds {scope}".to_string(),
             scope: ScopeWords {
                 cell: "of its cell".to_string(),
@@ -255,12 +258,16 @@ mod tests {
             .map(|i| (format!("t{i}"), "Read".to_string(), format!("{{\"n\":{i}}}")))
             .collect();
         let said = stopped.words(&words, &tools, false);
-        assert!(said.starts_with("grew 1600 past 1000, 800 past 100, from 19 rounds of its cell; tools: "));
+        // Its two sentences joined by the flow's word.
+        assert!(said.starts_with("Stopped. / grew 1600 past 1000, 800 past 100, from 19 rounds of its cell; tools: "));
         assert!(
             said.contains("Read {\"n\":2}") && !said.contains("Read {\"n\":1}"),
             "the last eight: {said}"
         );
         assert!(stopped.words(&words, &[], false).ends_with("tools: none"));
-        assert!(stopped.words(&words, &[], true).starts_with("again: grew 1600"));
+        // Stopped again, it says so once, in place of the first sentence.
+        let again = stopped.words(&words, &[], true);
+        assert!(again.starts_with("Stopped again. / grew 1600"), "{again}");
+        assert_eq!(again.matches("Stopped").count(), 1, "{again}");
     }
 }

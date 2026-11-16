@@ -11,11 +11,15 @@ import type {
   CellNow,
   CellState,
   Changed,
+  Ends,
   Item,
   Items,
   Now,
+  Pauser,
+  Question,
   Spent,
   Summary,
+  Wait,
   Waited,
   WorkPage,
 } from '../works-api';
@@ -125,6 +129,17 @@ const MAY_MERGE = test('may_merge', 'The reviews are content and the owner lets 
 
 /// A precondition not met that the owner makes hold.
 const owners = (t: Test): Waited => ({ kind: 'precondition', test: t.name, words: t.words, by: [{ kind: 'owner' }] });
+
+/// What the engine says a work waits on the owner for, made up in the words beside the flows.
+const wait = (key: string, why: string, ends: Ends): Wait => ({ key, why, ends });
+
+/// The block a test reads that the owner writes, keeping the cell's `requires` from holding, as the engine says it.
+const ruling = (t: Test, block: string): Wait =>
+  wait(`write-${block}`, `\`${block}\` keeps \`test = ${t.name}\` from holding.`, {
+    kind: 'write',
+    block,
+    value: 'yes',
+  });
 
 /// A made-up flow of an engineer's work: the initial research, deep research when it asks for it, the review of its
 /// plan, the implementation once the owner confirmed the plan, the tests, the review of the code, a check with the
@@ -262,15 +277,16 @@ export function fixtureItems(start = Date.now()): Items {
   const work = (
     now: Now,
     cells: CellNow[],
-    o: { hours?: number; dollars?: number; rounds?: number; quiet?: number; paused?: boolean } = {},
+    o: { hours?: number; dollars?: number; rounds?: number; quiet?: number; paused?: Pauser; waits?: Wait[] } = {},
   ): Made['work'] => {
     const hours = o.hours ?? 2;
     return {
       number: next++,
       added: start - hours * HOUR,
-      paused: o.paused ?? false,
+      paused: o.paused ?? null,
       now,
       cells,
+      waits: o.waits ?? [],
       spent: spentOf(o.dollars ?? 1.2, Math.min(hours, 1.5), o.rounds ?? 9),
       last: start - (o.quiet ?? 3) * MINUTE,
       // Its first round a little after it was added, and where its time went since, made up; none before it began.
@@ -292,21 +308,22 @@ export function fixtureItems(start = Date.now()): Items {
       title: 'Run works without anyone watching',
       dependsOn: [5, 6, 7],
       work: work(
-          {
-            kind: 'waits',
-            at: 'research',
-            on: [
-              {
-                kind: 'call',
-                call: 7,
-                who: 'owner',
-                what: { kind: 'question', who: 'owner', question: 'Should a stale run be abandoned at once or kept a day?' },
-              },
-            ],
-          },
-          cellsAt('research', 'resting'),
-          { hours: 9, dollars: 0.84, rounds: 4, quiet: 95 },
-        ),
+        { kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'stale-runs' }] },
+        cellsAt('research', 'resting'),
+        {
+          hours: 9,
+          dollars: 0.84,
+          rounds: 4,
+          quiet: 95,
+          waits: [
+            wait('answer-stale-runs', 'Should a stale run be abandoned at once or kept a day?', {
+              kind: 'answer',
+              question: 'stale-runs',
+              version: 12,
+            }),
+          ],
+        },
+      ),
     },
     2: {
       title: 'See every work at one glance',
@@ -316,16 +333,28 @@ export function fixtureItems(start = Date.now()): Items {
     3: {
       title: 'Keep what each run costs',
       dependsOn: [11, 12],
-      work: work({ kind: 'paused', by: 'owner', why: null }, notStarted, { hours: 1, dollars: 0, rounds: 0, paused: true }),
+      work: work({ kind: 'paused', by: 'owner', why: null }, notStarted, { hours: 1, dollars: 0, rounds: 0, paused: 'owner' }),
     },
     4: {
       title: 'Let the owner write to any cell',
       dependsOn: [13, 9],
       // Paused by the engine: the implementation's last round failed.
       work: work(
-        { kind: 'paused', by: 'engine', why: "The agent's program exited with an error: the session could not be resumed." },
+        { kind: 'paused', by: 'engine', why: "the agent's program exited with an error: the session could not be resumed" },
         cellsAt('implement', 'failed'),
-        { hours: 50, dollars: 3.02, rounds: 22, paused: true },
+        {
+          hours: 50,
+          dollars: 3.02,
+          rounds: 22,
+          paused: 'engine',
+          waits: [
+            wait(
+              'pause',
+              "The engine paused the work. The agent's program exited with an error: the session could not be resumed.",
+              { kind: 'resume' },
+            ),
+          ],
+        },
       ),
     },
     5: {
@@ -335,7 +364,7 @@ export function fixtureItems(start = Date.now()): Items {
           hours: 0.7,
           dollars: 2.4,
           rounds: 17,
-          paused: true,
+          paused: 'owner',
         }),
     },
     6: {
@@ -357,7 +386,7 @@ export function fixtureItems(start = Date.now()): Items {
       work: work(
           { kind: 'waits', at: 'implement', on: [owners(PLAN_CONFIRMED)] },
           cellsAt('implement', 'notYet'),
-          { hours: 3, dollars: 1.9, rounds: 14, quiet: 40 },
+          { hours: 3, dollars: 1.9, rounds: 14, quiet: 40, waits: [ruling(PLAN_CONFIRMED, 'plan_confirmed')] },
         ),
     },
     8: {
@@ -408,6 +437,12 @@ export function fixtureItems(start = Date.now()): Items {
           dollars: 9.8,
           rounds: 70,
           quiet: 300,
+          waits: [
+            wait('limit', 'The cell ran 3 times in a row for what a cell after it wrote, its limit.', {
+              kind: 'letGo',
+              cell: 'review_plan',
+            }),
+          ],
         }),
     },
     13: {
@@ -426,7 +461,7 @@ export function fixtureItems(start = Date.now()): Items {
       work: work(
           { kind: 'waits', at: 'merge', on: [owners(MAY_MERGE)] },
           cellsAt('merge', 'notYet'),
-          { hours: 7, dollars: 5.05, rounds: 44, quiet: 25 },
+          { hours: 7, dollars: 5.05, rounds: 44, quiet: 25, waits: [ruling(MAY_MERGE, 'merge_allowed')] },
         ),
     },
     16: {
@@ -468,7 +503,16 @@ export function fixtureItems(start = Date.now()): Items {
             ],
           },
           cellsAt('implement', 'resting'),
-          { hours: 2.5, dollars: 2.2, rounds: 19, quiet: 12 },
+          {
+            hours: 2.5,
+            dollars: 2.2,
+            rounds: 19,
+            quiet: 12,
+            waits: [
+              wait('call-12', 'May a page keep its stream open while hidden?', { kind: 'reply', call: 12 }),
+              ruling(PLAN_CONFIRMED, 'plan_confirmed'),
+            ],
+          },
         ),
     },
     21: {
@@ -504,6 +548,7 @@ export function fixtureItems(start = Date.now()): Items {
         hours: 0.5,
         dollars: 0,
         rounds: 0,
+        waits: [ruling(REQUEST_READ, 'request_read')],
       }),
     },
   };
@@ -523,8 +568,45 @@ export function fixtureItems(start = Date.now()): Items {
   };
 }
 
+/// The questions put to the owner, by the item whose work they are of: one the work waits for at its cell, and one it
+/// went on past, still to confirm.
+const QUESTIONS: Record<number, Question[]> = {
+  1: [
+    {
+      name: 'stale-runs',
+      cell: 'research',
+      version: 12,
+      engine: false,
+      waits: true,
+      withdrawn: null,
+      ask: 'Should a stale run be abandoned at once or kept a day?',
+      options: [
+        { does: 'Abandon it at once', follows: 'Its round is stopped and its cell runs again' },
+        { does: 'Keep it a day', follows: 'It is abandoned the next day, unless it goes on' },
+      ],
+      recommends: 1,
+      answer: null,
+    },
+    {
+      name: 'stale-limit',
+      cell: 'research',
+      version: 9,
+      engine: false,
+      waits: false,
+      withdrawn: null,
+      ask: 'How long may a run rest before it is stale?',
+      options: [
+        { does: 'An hour', follows: 'Most runs that rest longer were lost' },
+        { does: 'A day', follows: 'A run waiting for a person is left alone overnight' },
+      ],
+      recommends: 2,
+      answer: null,
+    },
+  ],
+};
+
 /// A work as its page gives it: the details the console does not read are left empty.
-function pageOf(item: Item, summary: Summary): WorkPage {
+function pageOf(item: Item, summary: Summary, questions: Record<number, Question[]>): WorkPage {
   const cells: CellDetail[] = FLOW.cells.map((c) => ({
     cell: c.id,
     needs: [],
@@ -540,12 +622,14 @@ function pageOf(item: Item, summary: Summary): WorkPage {
     cells,
     blocks: [],
     steps: [],
+    questions: questions[item.number] ?? [],
   };
 }
 
 /// The made-up items as a source the console reads: what the owner does changes them, and the console is told.
 export function fixtureSource(start = Date.now()): Source {
   const data = fixtureItems(start);
+  const questions = structuredClone(QUESTIONS);
   const listeners = new Set<(c: Changed) => void>();
   const find = (work: number) => {
     const item = data.items.find((i) => i.work.number === work);
@@ -559,14 +643,25 @@ export function fixtureSource(start = Date.now()): Source {
   const change = (s: Summary, what: Act) => {
     const ended = s.now.kind === 'merged' || s.now.kind === 'cancelled';
     switch (what.kind) {
+      case 'answer': {
+        // The answer is kept; a question the work waited for at its cell holds it no more, and the cell runs.
+        const q = (questions[s.item] ?? []).find((x) => x.name === what.question && x.version === what.version);
+        if (q === undefined) throw new Error(`There is no question ${what.question} at ${what.version}`);
+        q.answer = { option: what.option, at: Date.now(), why: what.why ?? null };
+        s.waits = (s.waits ?? []).filter((w) => w.key !== `answer-${q.name}`);
+        if (s.now.kind === 'waits' && s.now.on.some((w) => w.kind === 'answer' && w.question === q.name))
+          s.now = { kind: 'next', cell: q.cell };
+        return;
+      }
       case 'pause':
         if (ended) throw new Error('The work has ended');
-        s.paused = true;
+        s.paused = 'owner';
         if (s.now.kind !== 'round') s.now = { kind: 'paused', by: 'owner', why: null };
         return;
       case 'resume': {
         if (ended) throw new Error('The work has ended');
-        s.paused = false;
+        s.paused = null;
+        s.waits = (s.waits ?? []).filter((w) => w.ends.kind !== 'resume');
         // A cell whose last round failed has that round again: its run is at rest until it begins.
         s.cells = s.cells.map((c) => (c.state === 'failed' ? { ...c, state: 'resting' } : c));
         const at = s.cells.find((c) => c.state !== 'done' && c.state !== 'skipped')?.cell ?? ORDER[0];
@@ -580,6 +675,7 @@ export function fixtureSource(start = Date.now()): Source {
       case 'write':
         if (!FLOW.blocks.some((b) => b.name === what.block && b.writtenBy.people))
           throw new Error(`People do not write ${what.block}`);
+        s.waits = (s.waits ?? []).filter((w) => w.key !== `write-${what.block}`);
         return;
       default:
         throw new Error(`The made-up items do not take ${what.kind}`);
@@ -590,7 +686,7 @@ export function fixtureSource(start = Date.now()): Source {
     loadWork: (work) => {
       try {
         const { item, summary } = find(work);
-        return Promise.resolve(structuredClone(pageOf(item, summary)));
+        return Promise.resolve(structuredClone(pageOf(item, summary, questions)));
       } catch (e) {
         return Promise.reject(e instanceof Error ? e : new Error(String(e)));
       }

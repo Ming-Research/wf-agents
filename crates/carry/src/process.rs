@@ -29,6 +29,28 @@ pub const TAIL: usize = 4000;
 /// records, and cut only where it is given to an agent.
 pub const KEPT_WHOLE: usize = 1 << 30;
 
+/// Why a run of the agents' program failed where it ended with this status and no result to read, in the words beside
+/// the flows: with its command line and the end of what it said.
+pub(crate) fn ended(words: &flow::agents::ProgramWords, command: &str, status: ExitStatus, said: &str) -> String {
+    use std::os::unix::process::ExitStatusExt;
+    match (status.code(), status.signal()) {
+        (Some(code), _) => {
+            let code = code.to_string();
+            flow::agents::fill(
+                &words.exited,
+                &[("command", command), ("code", code.as_str()), ("said", said)],
+            )
+        }
+        (None, signal) => {
+            let signal = signal.map_or_else(String::new, |signal| signal.to_string());
+            flow::agents::fill(
+                &words.signal,
+                &[("command", command), ("signal", signal.as_str()), ("said", said)],
+            )
+        }
+    }
+}
+
 /// What came of running a program.
 pub(crate) enum Ran {
     /// It ended by itself.

@@ -4,13 +4,13 @@
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
-import type { CellNow, CellState, Now } from '../works-api';
+import type { CellNow, CellState, Summary } from '../works-api';
 import { markStyle, stripStyle } from './state-marks';
-import { STATE_WORDS, nowTone, nowWords } from './words';
+import { STATE, STATE_WORDS, nowTone, nowWords, stateOf } from './words';
 
-/// A cell's state as a square: filled green when done, filled blue while running, a blue ring at rest, a red ring when
-/// its last round failed, an orange ring when it runs again, a hairline ring before its first run, a dash when skipped. Its look is `state-marks.ts`'s, which
-/// the console's cards draw too.
+/// A cell's state as a square: filled when done, filled in a deep step while running, a ring of that step at rest, a
+/// red ring when its last round failed, a ring of done's colour when it runs again, a hairline ring before its first
+/// run, a dash when skipped. Its look is `state-marks.ts`'s, which the console's cards draw too.
 export function StateMark({ state, title }: { state: CellState; title?: string }) {
   return (
     <span
@@ -40,7 +40,7 @@ export function Strip({ cells }: { cells: CellNow[] }) {
 
 /// The legend of the states' marks.
 export function StateLegend() {
-  const states: CellState[] = ['done', 'running', 'resting', 'failed', 'again', 'notYet', 'skipped'];
+  const states: CellState[] = ['done', 'running', 'calling', 'resting', 'failed', 'again', 'notYet', 'skipped'];
   return (
     <ul className="legend" aria-label="What the marks of a cell's state mean">
       {states.map((s) => (
@@ -52,20 +52,25 @@ export function StateLegend() {
   );
 }
 
-/// Whether the owner's pause is to be said beside what a work does now: only where that says something else, a round
-/// still under way or something it waits for, since a work that has ended or says it is paused needs no more.
-export function pauseDiffers(now: Now, paused: boolean): boolean {
-  return paused && now.kind !== 'paused' && now.kind !== 'merged' && now.kind !== 'cancelled';
+/// Whether the owner's pause of a work is to be said beside its state: wherever it holds the work and the state says
+/// something else, a round still under way or whatever it waits for, what waits on the owner among it, so that the head
+/// says each thing that holds it (principle the-head-says-what-holds-it). The engine's pause is said by the state
+/// itself, as what waits on the owner, and a work that has ended is held by no pause of the owner's.
+export function pauseDiffers(work: Pick<Summary, 'now' | 'cells' | 'waits' | 'paused'>): boolean {
+  const { word } = stateOf(work);
+  const ended = work.now.kind === 'merged' || work.now.kind === 'cancelled';
+  return work.paused === 'owner' && !ended && word !== STATE.paused;
 }
 
-/// What a work does now: a dot in its tone, and its words.
-export function NowLine({ now, paused = false }: { now: Now; paused?: boolean }) {
-  const words = nowWords(now);
+/// What a work does now: a dot in its tone, its state's words, the state's word first, from the one catalogue; and its
+/// pause where the state says something else.
+export function NowLine({ work }: { work: Pick<Summary, 'now' | 'cells' | 'waits' | 'paused'> }) {
+  const words = nowWords(work);
   return (
-    <span className={`now now-${nowTone(now)}`} title={words}>
+    <span className={`now now-${nowTone(work)}`} title={words}>
       <span className="now-dot" aria-hidden="true" />
       <span className="now-words">{words}</span>
-      {pauseDiffers(now, paused) && <span className="now-paused">paused</span>}
+      {pauseDiffers(work) && <span className="now-paused">{STATE.paused}</span>}
     </span>
   );
 }

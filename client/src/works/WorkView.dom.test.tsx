@@ -5,7 +5,7 @@ import { type ReactNode, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { Act, Changed, WorkPage } from '../works-api';
+import type { Act, Changed, Now, Pauser, Wait, WorkPage } from '../works-api';
 import {
   fixtureCall,
   fixtureCopies,
@@ -172,11 +172,15 @@ describe('the list of works', () => {
   it('lists the work of every item, those waiting for the owner first and edged, and a row opens its work', async () => {
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     const rows = [...page.querySelectorAll('tbody tr.work-row')] as HTMLElement[];
-    expect(rows.map((r) => Number(r.dataset.work))).toEqual([43, 44, 45, 41, 50, 49, 42, 46, 47, 48]);
-    expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([true, true, true, true, false, false, false, false, false, false]);
-    expect(rows[0].querySelector('.now-words')?.textContent).toBe("Waits at plan for the owner's answer to a question");
-    expect(rows[0].querySelectorAll('.strip .state-mark')).toHaveLength(6);
-    await click(rows[3]);
+    // The work the engine paused waits for the owner, as the engine's list says, and the fault comes after.
+    expect(rows.map((r) => Number(r.dataset.work))).toEqual([50, 43, 44, 45, 41, 49, 42, 46, 47, 48]);
+    expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([true, true, true, true, true, false, false, false, false, false]);
+    // The cell it waits at, once, in its place, then what it asks.
+    expect(rows[1].querySelector('.now-words')?.textContent).toBe(
+      'Waiting for you · plan · Should the list show the works of cancelled items, or leave them out?',
+    );
+    expect(rows[1].querySelectorAll('.strip .state-mark')).toHaveLength(6);
+    await click(rows[4]);
     expect(window.location.hash).toBe('#/works/41');
   });
 
@@ -188,24 +192,24 @@ describe('the list of works', () => {
     expect(select.value).toBe('');
     expect(listed(page)).toHaveLength(10);
     const facts = () => page.querySelector('.view-facts')?.textContent;
-    expect(facts()).toBe('10 works, 4 waiting for the owner');
-    // The works waiting for the owner of the other project, 44 and 41, stay; the counts stay those of every work.
+    expect(facts()).toBe('10 works, 5 things wait for you');
+    // The works waiting for the owner of the other project, 50, 44 and 41, stay; the counts stay those of every work.
     pick(select, 'Whitefoot');
-    expect(listed(page)).toEqual([43, 44, 45, 41, 47]);
-    expect(facts()).toBe('10 works, 4 waiting for the owner, 5 shown');
+    expect(listed(page)).toEqual([50, 43, 44, 45, 41, 47]);
+    expect(facts()).toBe('10 works, 5 things wait for you, 6 shown');
     // An item added before items had projects is shown only with none chosen, as it waits for nobody.
     pick(select, 'wf-agents');
-    expect(listed(page)).toEqual([43, 44, 45, 41, 50, 42, 46, 48]);
+    expect(listed(page)).toEqual([50, 43, 44, 45, 41, 42, 46, 48]);
     pick(select, '');
     expect(listed(page)).toHaveLength(10);
-    expect(facts()).toBe('10 works, 4 waiting for the owner');
+    expect(facts()).toBe('10 works, 5 things wait for you');
   });
 
   it('keeps no project chosen once the list is drawn anew, and takes no room for a choice with one project', async () => {
     const names = fixtureProjects().names;
     const first = draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource());
     pick(first.querySelector('select'), 'Whitefoot');
-    expect(listed(first)).toHaveLength(5);
+    expect(listed(first)).toHaveLength(6);
     expect(listed(draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource()))).toHaveLength(10);
     const one = draw(<WorksList />, fixtureSource({ loadProjects: async () => ({ names: ['Whitefoot'] }) }));
     await settle();
@@ -220,22 +224,33 @@ describe('the list of works', () => {
     expect(listed(page)).toHaveLength(10);
   });
 
-  it('says why the engine paused a work, in the tone of what failed', () => {
+  it("says that a work the engine paused waits for you, and why, in the owner's tone, and a fault in the tone of what failed", () => {
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     const row = page.querySelector('[data-work="50"]') as HTMLElement;
-    expect(row.querySelector('.now-words')?.textContent).toBe(`Paused by the engine: ${FAILED}`);
-    expect(row.querySelector('.now')?.className).toContain('now-failed');
+    expect(row.querySelector('.now-words')?.textContent).toBe(`Waiting for you · The engine paused the work. ${FAILED}`);
+    expect(row.querySelector('.now')?.className).toContain('now-owner');
     expect(row.querySelector('.now-paused')).toBeNull();
     expect(row.querySelectorAll('.strip .state-failed')).toHaveLength(1);
+    const fault = page.querySelector('[data-work="49"]') as HTMLElement;
+    expect(fault.querySelector('.now-words')?.textContent).toBe('Halted · Two entries of the work at place 3');
+    expect(fault.querySelector('.now')?.className).toContain('now-failed');
   });
 
-  it('says a work is paused only where what it does now says something else', () => {
-    expect(pauseDiffers({ kind: 'paused', by: 'owner', why: null }, true)).toBe(false);
-    expect(pauseDiffers({ kind: 'paused', by: 'engine', why: 'A round failed.' }, true)).toBe(false);
-    expect(pauseDiffers({ kind: 'waits', at: 'plan', on: [] }, true)).toBe(true);
-    expect(pauseDiffers({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, true)).toBe(true);
-    expect(pauseDiffers({ kind: 'merged' }, true)).toBe(false);
-    expect(pauseDiffers({ kind: 'waits', at: 'plan', on: [] }, false)).toBe(false);
+  it("says the owner's pause beside its state wherever it holds the work, and the engine's pause by the state alone", () => {
+    const at = (now: Now, paused: Pauser | null, waits: Wait[] = []) => ({ now, cells: [], waits, paused });
+    const pause: Wait = { key: 'pause', why: 'x', ends: { kind: 'resume' } };
+    const question: Wait = { key: 'answer-scope', why: 'Which scope?', ends: { kind: 'answer', question: 'scope', version: 3 } };
+    const merge: Now = { kind: 'waits', at: 'merge', on: [{ kind: 'precondition', test: 'asked', words: 'asked', by: [{ kind: 'owner' }] }] };
+    expect(pauseDiffers(at({ kind: 'paused', by: 'owner', why: null }, 'owner'))).toBe(false);
+    expect(pauseDiffers(at({ kind: 'paused', by: 'engine', why: 'A round failed.' }, 'engine', [pause]))).toBe(false);
+    // The owner's pause holds a work that waits for the owner as well: both are said.
+    expect(pauseDiffers(at(merge, 'owner', [question]))).toBe(true);
+    // The engine's pause beside what else waits for the owner is said by the state alone.
+    expect(pauseDiffers(at(merge, 'engine', [pause, question]))).toBe(false);
+    expect(pauseDiffers(at({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }, 'owner'))).toBe(true);
+    expect(pauseDiffers(at({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 'owner'))).toBe(true);
+    expect(pauseDiffers(at({ kind: 'merged' }, 'owner'))).toBe(false);
+    expect(pauseDiffers(at({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }, null))).toBe(false);
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     expect(page.querySelector('[data-work="46"] .now-paused')).toBeNull();
   });
@@ -371,7 +386,7 @@ describe('a work whose round failed', () => {
     const run = rows[2].querySelectorAll('td')[2].querySelector('.run');
     expect(run?.className).toContain('run-failed');
     expect(run?.querySelector('.run-word')?.textContent).toBe('round failed');
-    expect(texts(page, '.step-lead .step-words')[3]).toBe(`the engine paused the work: ${FAILED}`);
+    expect(texts(page, '.step-lead .step-words')[3]).toBe(`The engine paused the work. ${FAILED}`);
   });
 
   it('shows in the panel of the run the round that failed, why, and that it is given again once the work is let on', async () => {
@@ -385,7 +400,7 @@ describe('a work whose round failed', () => {
     await chooseStep(page, 3);
     const pause = page.querySelector('aside[aria-label="Paused"]') as HTMLElement;
     expect(pause.textContent).toContain(
-      `The engine paused the work: only a note to a cell is answered until the owner lets it on. Why: ${FAILED}`,
+      `The engine paused the work. Only a note to a cell is answered until the owner lets it on. ${FAILED}`,
     );
   });
 });
@@ -539,24 +554,35 @@ describe('what the owner does', () => {
     expect(source.acts.map((a) => a.what)).toEqual([{ kind: 'pause' }, { kind: 'cancel', why: 'Joined into #3' }]);
   });
 
-  it('tries letting go of what an ended work held again, where it failed, and offers nothing else', async () => {
+  it("says the engine's pause of an ended work whose letting go failed in one place, and lets it on from one button", async () => {
     const merged = fixtureWork(47);
     const last = merged.steps.reduce((at, s) => Math.max(at, 'at' in s ? s.at : 0), 0);
-    const why = 'GitHub did not close the pull request: HTTP 502';
+    const why = 'GitHub did not close the pull request: HTTP 502.';
+    const said = `The engine paused the work. Letting go of what the work held failed. ${why}`;
     const failed: WorkPage = {
       ...merged,
-      summary: { ...merged.summary, paused: true },
+      summary: { ...merged.summary, paused: 'engine', waits: [{ key: 'pause', why: said, ends: { kind: 'resume' } }] },
       steps: [...merged.steps, { kind: 'paused', at: last + 1, time: Date.now(), by: 'engine', why }],
     };
     const source = fixtureSource();
     const page = draw(<WorkScreen page={failed} onActed={() => undefined} />, source);
-    expect(page.textContent).toContain(`Letting go of what it held failed: ${why}`);
+    // The state line says why, and nothing beside it says it again.
+    expect(page.querySelector('.view-line .now-words')?.textContent).toBe(`Waiting for you · ${said}`);
+    expect(page.querySelector('.view-line')?.textContent?.split('Letting go').length).toBe(2);
+    expect(button(page, 'Try again')).toBeUndefined();
     expect(button(page, 'Pause')).toBeUndefined();
     expect(button(page, 'Cancel')).toBeUndefined();
-    await click(button(page, 'Try again'));
+    expect(button(page, 'Resume')?.title).not.toBe('');
+    await click(button(page, 'Resume'));
     expect(source.acts.map((a) => a.what)).toEqual([{ kind: 'resume' }]);
     // A merged work that let go of what it held has no act at all.
     const done = drawWork(47).page;
-    expect(button(done, 'Try again')).toBeUndefined();
+    expect(button(done, 'Resume')).toBeUndefined();
+  });
+
+  it("lets the engine's pause of a work going on from the button every card of it has, not from Start", () => {
+    const engine = drawWork(50).page;
+    expect(button(engine, 'Resume')).toBeDefined();
+    expect(button(engine, 'Start')).toBeUndefined();
   });
 });

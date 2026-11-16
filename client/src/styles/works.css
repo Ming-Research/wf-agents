@@ -42,8 +42,8 @@
   color: var(--red-text);
 }
 
-/* A cell's state as a square, in the colour of its state: done green, running blue, at rest a blue ring, runs again
-   an orange ring, not run yet a hairline ring, skipped a dash. Its size, ring, corners and colours are set on it from
+/* A cell's state as a square, in the colour of its state: done filled, running filled in a deep step, at rest a ring of
+   it, runs again a ring of done's colour, not run yet a hairline ring, skipped a dash. Its size, ring, corners and colours are set on it from
    works/state-marks.ts, which the console's cards draw from too. */
 .state-mark {
   display: inline-block;
@@ -86,12 +86,13 @@
   background: var(--running);
 }
 
+/* What waits for the owner and what the engine halted are both a stop: red, the one colour of a stop. */
 .now-owner .now-dot {
-  background: var(--orange);
+  background: var(--red);
 }
 
 .now-owner .now-words {
-  color: var(--orange-text);
+  color: var(--red-text);
 }
 
 .now-done .now-dot {
@@ -157,9 +158,9 @@
   background: var(--step);
 }
 
-/* A work that waits for the owner is edged in orange at its left. */
+/* A work that waits for the owner is edged in red at its left. */
 .work-row.for-owner > td:first-child {
-  box-shadow: inset var(--focus) 0 var(--orange);
+  box-shadow: inset var(--focus) 0 var(--red);
 }
 
 .work-title a {
@@ -285,10 +286,8 @@
   color: var(--red-text);
 }
 
-.state-text-again {
-  color: var(--orange-text);
-}
-
+/* Runs again in done's colour, as its mark is a ring of done's: orange is kept for a change of a block's meaning. */
+.state-text-again,
 .state-text-done {
   color: var(--green-text);
 }

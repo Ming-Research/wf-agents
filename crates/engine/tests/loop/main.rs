@@ -99,12 +99,18 @@ fn judged_source() -> Source {
         inputs = ["text", "verdict"]
         outputs = ["merged"]
     "#;
+    // Beside it, the words the engine says to the owner, as beside the repository's flows.
     Source {
         flow: flow.to_string(),
         cells: [("write", write), ("judge", judge), ("merge", merge)]
             .iter()
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        files: [(
+            flow::waits_file(),
+            include_str!("../../../../flow/agents/waits.toml").to_string(),
+        )]
+        .into(),
         ..Default::default()
     }
 }

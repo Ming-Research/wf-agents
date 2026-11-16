@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Block as FlowBlock, Flow } from '../api';
-import type { Version, VersionPage, WorkPage } from '../works-api';
+import type { Version, VersionPage, Wait, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { readBody, readRulings } from './real';
 
@@ -121,7 +121,7 @@ describe('the messages of a work, read from the record of what is said', () => {
 });
 
 describe('what the owner may rule of a precondition the work waits for', () => {
-  it('keeps a test of content from holding by what the engine recorded as holding nothing, never by a length', async () => {
+  it("is each block the engine's list says the owner may write, with what its latest version says, and no other", async () => {
     const item = fixtureItems().items[0];
     const people = (name: string, values: string[] | null): FlowBlock => ({
       name,
@@ -138,10 +138,15 @@ describe('what the owner may rule of a precondition the work waits for', () => {
       blocks: [...FLOW.blocks, people('edits', null), people('more', ['yes', 'no'])],
     };
     const by = { kind: 'run', run: 1, cell: 'research' } as const;
+    // The engine found which blocks keep the test from holding, by what it recorded of each: only `edits`, which holds
+    // nothing but whitespace; `more`, a choice with no words beside it, holds its value.
+    const why = 'research requires test = changes, which edits keeps from holding.';
+    const waits: Wait[] = [{ key: 'write-edits', why, ends: { kind: 'write', block: 'edits', value: null } }];
     const page: WorkPage = {
       summary: {
         ...item.work,
         now: { kind: 'waits', at: 'research', on: [{ kind: 'precondition', test: 'changes', words, by: [{ kind: 'owner' }] }] },
+        waits,
       },
       title: item.title,
       level: item.level,
@@ -150,15 +155,15 @@ describe('what the owner may rule of a precondition the work waits for', () => {
       flow,
       cells: [],
       blocks: [
-        // Only whitespace, which holds nothing.
         { name: 'edits', versions: [{ ...version(4, by, 3), empty: true }] },
-        // A choice with no words beside it, which holds its value.
         { name: 'more', versions: [{ ...version(5, by, 0), value: 'yes', empty: false }] },
       ],
       steps: [],
     };
     const load = (_: number, block: string, at: number): Promise<VersionPage> =>
       Promise.resolve({ block, at, content: ' \n ' });
-    expect(await readRulings(page, load)).toEqual([{ block: 'edits', at: 4, by, text: ' \n ', value: null }]);
+    expect(await readRulings(page, waits, load)).toEqual([
+      { key: 'write-edits', why, block: 'edits', at: 4, values: [], now: null, holding: null, text: ' \n ' },
+    ]);
   });
 });

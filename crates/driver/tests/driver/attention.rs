@@ -1,5 +1,5 @@
-//! What needs whoever plans the work since a mark (`driver::attention`): a work that ended, one that rests for a person,
-//! and one that waits for items none of which is going on, each once from the mark after it came to stand so, since the
+//! What needs whoever plans the work since a mark (`driver::attention`): a work that ended, one that waits on the owner,
+//! one that is stalled, and one that waits for items none of which is going on, each once from the mark after it came to stand so, since the
 //! time it did; never a work going on; the same answer for the same mark, a restart between or not; at most a number
 //! of lines, the rest coming again.
 
@@ -153,10 +153,11 @@ fn a_work_that_stalls_is_a_line_until_what_runs_a_cell_moves_it_on() {
     let kept = h.d().work(w).expect("the work is there");
     assert!(!decide::paused(&kept.work.records), "nothing pauses a stalled work");
     let answer = since(&h, Some(&mark));
+    // Not the owner's to end: a line of its own, which comes with the faults.
     assert_eq!(
         answer.lines,
         vec![Line {
-            heed: Heed::ForAPerson { work: w },
+            heed: Heed::Stalled { work: w },
             since: stalled,
         }]
     );

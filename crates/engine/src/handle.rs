@@ -432,7 +432,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                         paused: true,
                         at,
                         by: Pauser::Engine,
-                        why: Some(pausing_words(&pausing, &why)),
+                        why: Some(pausing_words(&flow.waits.paused, &pausing, &why)),
                     });
                 }
             }
@@ -558,7 +558,10 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 paused: true,
                 at,
                 by: Pauser::Engine,
-                why: Some(why),
+                why: Some(flow::agents::fill(
+                    &flow.waits.paused.let_go,
+                    &[("why", &flow::agents::sentence(&why))],
+                )),
             });
         }
         Event::Released => {
@@ -1100,23 +1103,19 @@ fn open_calls(work: &Work, run: RunId) -> Vec<CallId> {
         .collect()
 }
 
-/// Why the engine pauses the work as a round fails, in words, after the reason whatever carried the round out gave.
-fn pausing_words(pausing: &Pausing, why: &str) -> String {
+/// Why the engine pauses the work as a round fails, in the words beside the flows ([`flow::agents::PausedWords`]), with
+/// the reason whatever carried the round out gave: a cause its kind adds nothing to is said by that reason alone.
+fn pausing_words(words: &flow::agents::PausedWords, pausing: &Pausing, why: &str) -> String {
+    let fill = |text: &str, failed: Option<u32>| {
+        let failed = failed.map(|n| n.to_string()).unwrap_or_default();
+        flow::agents::fill(text, &[("why", &flow::agents::sentence(why)), ("failed", &failed)])
+    };
     match pausing {
-        Pausing::Failed(Failure::PromptTooLong) => {
-            format!("the prompt is too long for the model, and running the round again cannot help: {why}")
-        }
+        Pausing::Failed(Failure::PromptTooLong) => fill(&words.too_long, None),
         Pausing::Failed(_) => why.to_string(),
-        Pausing::Passing { failed } => {
-            format!("the round failed in passing {failed} times in a row, and running it again has not helped: {why}")
-        }
-        Pausing::Outside { failed } => format!(
-            "the round failed {failed} times in a row for a cause outside every work, tried again each time the \
-             engine's check found the outside well: {why}"
-        ),
-        Pausing::FlaggedAgain => {
-            format!("the service's safety check flagged the round again, in the new session its line was given: {why}")
-        }
+        Pausing::Passing { failed } => fill(&words.passing, Some(*failed)),
+        Pausing::Outside { failed } => fill(&words.outside, Some(*failed)),
+        Pausing::FlaggedAgain => fill(&words.flagged_again, None),
         // The carrier's reason says that it stopped the round again, in the words beside the flows.
         Pausing::GuardedAgain => why.to_string(),
     }

@@ -8,6 +8,12 @@ engine counts into the weeks it is given.
 Why: The engine knows no time zone with its changes of clocks. Cut by the engine at a fixed offset the page sent, a
 week across the end of summer time began an hour off, and four weeks came back as five.
 
+### decision the-shared-wait-is-said-without-the-trace
+The wait every work shares is said as what is down since when, what the engine's check found where it found it down, and
+what it holds; it says nothing where it holds no work, and never the round that met it, its error, or when the engine
+checks next. `wf-agents wait` and `list` say the round and the next check.
+Why: The owner has nothing to do with either, and the assistant traces a stop with both (Article 8).
+
 ### decision a-number-standing-alone-has-no-border
 A number of the system's view that stands alone, with what it counts under it, has no border round it.
 Why: With a border it reads as the frame of an agent's words, which the page draws in frames.

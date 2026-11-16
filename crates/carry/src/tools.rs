@@ -87,9 +87,11 @@ impl<H: Host> ToolsTrait for Tools<H> {
     fn call(&self, call: ToolCall, reply: CallReply) {
         self.prune(&call);
         let key = (call.work, call.call);
-        let Some(mut stop) = self.inner.held.hold(key, reply) else {
+        let saying = reply.saying();
+        let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
+        let mut stop = stop.saying(saying);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let answered = if call.name == QUERY {
