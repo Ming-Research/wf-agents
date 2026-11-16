@@ -141,6 +141,8 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
                     told: &told,
                     // What answers an act is another rule's, and this test's returns write nothing.
                     answered_by: &BTreeMap::new(),
+                    dialogues: &cell.dialogues,
+                    verdicts: &cell.verdicts,
                 };
                 let log = Log {
                     rounds: vec![Round {

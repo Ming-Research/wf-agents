@@ -54,6 +54,9 @@ pub enum Reason {
 
 pub struct Reading<'a> {
     pub records: &'a Records,
+    /// Of each judge of the flow, each verdict it hands in with the dialogue it writes its points in, as the flow pairs
+    /// them: (the judge, the verdict, the dialogue).
+    pub rulings: Vec<(CellId, BlockId, BlockId)>,
     /// Every version of every block, in the order they were written.
     pub versions: BTreeMap<BlockId, Vec<Version>>,
     pub started: BTreeMap<RunId, &'a Started>,
@@ -68,8 +71,9 @@ impl<'a> Reading<'a> {
     /// mattering; a cell's write does when the cell says so, and when it says not, it is taken at its word only if the
     /// version it started from has the meaning of the version it writes over: a cell that did not see what it writes
     /// over is not taken at its word. A first version the outside or a cell hands in as changing nothing says nothing,
-    /// and is new to no cell (design document `data-and-context`, 9).
-    pub fn new(records: &'a Records) -> Self {
+    /// and is new to no cell (design document `data-and-context`, 9). A judge's point the owner ruled on is new to no
+    /// cell from the ruling on (39): the flow says which verdict is whose, and of which dialogue.
+    pub fn new(flow: &Flow, records: &'a Records) -> Self {
         let started: BTreeMap<RunId, &Started> = records.started.iter().map(|s| (s.run, s)).collect();
         let finished: BTreeMap<RunId, &Finished> = records.finished.iter().map(|f| (f.run, f)).collect();
         struct Entry<'b> {
@@ -146,12 +150,27 @@ impl<'a> Reading<'a> {
                 empty: e.empty,
             });
         }
+        let rulings = (flow.cells().iter())
+            .flat_map(|c| (c.verdicts.iter()).map(|(verdict, of)| (c.id.clone(), verdict.clone(), of.dialogue.clone())))
+            .collect();
         Self {
             records,
+            rulings,
             versions,
             started,
             finished,
         }
+    }
+
+    /// Whether this version of the block, a judge's point in its dialogue, was ruled on before this place: a person
+    /// wrote the judge's verdict after the point (design document `data-and-context`, 39).
+    pub fn ruled(&self, block: &BlockId, version: &Version, place: Seq) -> bool {
+        (self.rulings.iter())
+            .filter(|(_, _, dialogue)| dialogue == block)
+            .any(|(judge, verdict, _)| {
+                matches!(&version.by, Writer::Cell(c, _) if c == judge)
+                    && (self.of(verdict).iter()).any(|w| w.by == Writer::Person && w.at > version.at && w.at < place)
+            })
     }
 
     pub fn of(&self, block: &BlockId) -> &[Version] {
@@ -209,12 +228,13 @@ impl<'a> Reading<'a> {
     }
 
     /// The versions of the block written before this place that are new to the cell: after the one it consumed,
-    /// changing what the block says, and not written by a run of the cell itself.
+    /// changing what the block says, not written by a run of the cell itself, and no judge's point ruled on.
     pub fn new_to(&self, cell: &CellId, block: &BlockId, place: Seq) -> Vec<&Version> {
         let was = self.consumed(cell, block, place);
         (self.of(block).iter())
             .filter(|v| v.at < place && Some(v.at) > was && v.changed_meaning())
             .filter(|v| !matches!(&v.by, Writer::Cell(c, _) if c == cell))
+            .filter(|v| !self.ruled(block, v, place))
             .collect()
     }
 

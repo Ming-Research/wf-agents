@@ -418,7 +418,7 @@ impl Explorer<'_> {
 
     /// Whether a run of the cell at this place for these reasons runs for what the write from outside reached.
     fn tainted(&self, s: &State, i: usize, because: &[Cause], taint: &Taint) -> bool {
-        let r = Reading::new(&s.world.records);
+        let r = Reading::new(self.flow(), &s.world.records);
         let cell = &self.model.cells()[i].id;
         because.iter().any(|cause| match cause {
             Cause::Changed { block, .. } => (r.new_to(cell, block, NOW).iter()).any(|v| taint.versions.contains(&v.at)),
@@ -475,6 +475,8 @@ impl Explorer<'_> {
             returns: spec.returns,
             told: &told,
             answered_by: &m.answered_by[i],
+            dialogues: &m.cells()[i].dialogues,
+            verdicts: &m.cells()[i].verdicts,
         };
         let step = run::next(log, requires, Hold::Nothing);
         let sent_back = variant.as_ref() == Some(&Variant::SentBack);
@@ -702,7 +704,7 @@ impl Explorer<'_> {
     fn events(&self, s: &State, d: &Decision) -> Vec<Event> {
         let m = self.model;
         let r = &s.world.records;
-        let reading = Reading::new(r);
+        let reading = Reading::new(&m.compiled.flow, r);
         let applies = |i: usize| reading.applies(&m.compiled.flow, i);
         let mut events = vec![Event::Background];
         for (i, cell) in m.cells().iter().enumerate() {
@@ -863,7 +865,7 @@ impl Explorer<'_> {
         let m = self.model;
         let flow = self.flow();
         let records = &s.world.records;
-        let r = Reading::new(records);
+        let r = Reading::new(flow, records);
         let mut h = DefaultHasher::new();
         for block in m.choices.keys() {
             match r.current(block) {
@@ -964,7 +966,7 @@ impl Explorer<'_> {
     fn check_run(&mut self, s: &State, cell: &CellId, because: &[Cause]) {
         let m = self.model;
         let flow = &m.compiled.flow;
-        let r = Reading::new(&s.world.records);
+        let r = Reading::new(flow, &s.world.records);
         let i = m.place(cell);
         let def = &m.cells()[i];
         let trace = &s.trace;
@@ -1189,7 +1191,7 @@ impl Explorer<'_> {
         let m = self.model;
         let flow = &m.compiled.flow;
         let cells = m.cells();
-        let r = Reading::new(&s.world.records);
+        let r = Reading::new(flow, &s.world.records);
         let i = m.place(at);
         let mut wrong = Vec::new();
         let unmet: Vec<&Condition> = (cells[i].requires.iter())
@@ -1303,7 +1305,7 @@ impl Explorer<'_> {
         let Some(t) = &s.outside else {
             return;
         };
-        let r = Reading::new(&s.world.records);
+        let r = Reading::new(&m.compiled.flow, &s.world.records);
         let upto = match d {
             Decision::Wait { at, .. } => m.place(at),
             Decision::Stalled { at, on, .. } if !on.is_empty() => m.place(at),

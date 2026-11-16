@@ -15,7 +15,8 @@
 //!   first in one history of four; the merge's precondition holds in two histories of five. Each of these tests is the
 //!   owner's word, a choice people write of the same name, and the merge is run by its own. In half the histories of
 //!   the first test, drawn apart from the rest, a judge stands before the merge, run only while "flip" holds and
-//!   writing a verdict, yes or no; the merge then also waits while the verdict stands at no. In a third of the
+//!   writing a verdict, yes or no, and its points in a dialogue with each cell that writes what it judges, which
+//!   watches it and answers there; the merge then also waits while the verdict stands at no. In a third of the
 //!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
 //!   entered again for the results of what it asked for one to three times in a row. In two histories of five, drawn
 //!   apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the owner's answers
@@ -36,10 +37,11 @@
 //!   what the cell may not, or deals with nothing. A return that meets everything is taken at once, its calls made
 //!   before its run finishes; one that does not is sent back, the next round told of any version it would have written
 //!   over; at the limit of returns the owner is asked. From the third round of a run the agent returns what meets
-//!   everything. Where the cells ask, a return taken that asks for no call asks a question of its cell's in one in
-//!   five, of two names, waiting for it in half, or now and then withdraws one that stands. In half the histories of
-//!   the first test that have no judge, a round before the third fails in twelve
-//!   in a hundred, of a kind that pauses the work, in passing, or of a kind the run takes up itself.
+//!   everything, a maker answering a point new to it and a judge's fail bringing its points. Where the cells ask, a
+//!   return taken that asks for no call asks a question of its cell's in one in five, of two names, waiting for it in
+//!   half, or now and then withdraws one that stands. In half the histories of the first test that have no judge, a
+//!   round before the third fails in twelve in a hundred, of a kind that pauses the work, in passing, or of a kind the
+//!   run takes up itself.
 //! - the engine: while the work is paused, a run at rest has its next round only where it started for the owner's words
 //!   and its last round did not fail in a way that paused the work with no letting on since (`pausing`).
 //! - the room the engine leaves the work (`room`), as before: the owner's pause of everything and the slot come and go
@@ -122,6 +124,10 @@ const WRITTEN: [&str; 6] = ["b0", "b1", "b2", "op0", "op1", CHOICE];
 
 /// The judge's verdict, a choice of yes or no that only the judge and the owner write.
 pub const VERDICT: &str = "verdict";
+
+/// The judge's points, the dialogue it holds with each cell before it that writes what it judges, `b0`: each writes and
+/// watches it, the judge its points and the maker its answers (design document `data-and-context`, 36).
+pub const POINTS: &str = "points";
 
 /// The merge's precondition in the histories with a judge: the verdict does not stand at no.
 pub const UNREFUSED: &str = "the verdict is no refusal";
@@ -343,8 +349,20 @@ impl History {
             cells[i].id.clone()
         });
         let mut w = if judged.is_some() {
-            let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
+            let mut judge = when_flipped(cell("judge", &[BRIEF, "b0", POINTS], &[VERDICT, POINTS]));
             judge.limit = 2;
+            let verdict = decide::Verdict {
+                fails: "no".to_string(),
+                dialogue: POINTS.into(),
+            };
+            judge.verdicts = BTreeMap::from([(VERDICT.into(), verdict)]);
+            // Each cell that writes what the judge judges is a maker in the dialogue: an answer is a version of it, or
+            // a change of what it judges.
+            for maker in cells.iter_mut().filter(|c| c.outputs.contains(&"b0".into())) {
+                maker.runs_on.push(POINTS.into());
+                maker.outputs.push(POINTS.into());
+                maker.dialogues.insert(POINTS.into(), vec!["b0".into()]);
+            }
             cells.push(judge);
             let mut merge = gate();
             merge.requires.push(UNREFUSED.into());
@@ -567,7 +585,7 @@ impl History {
                 "a round is under way and the walk decides {decision:?}"
             );
         }
-        let reading = Reading::new(r);
+        let reading = Reading::new(&self.w.flow, r);
         let flow = &self.w.flow;
         let v = &mut self.verdict;
         let (started, finished) = self.looked_at;
@@ -579,6 +597,7 @@ impl History {
         }
         self.looked_at = (r.started.len(), r.finished.len());
         properties::consumption(v, flow, &reading);
+        properties::rulings(v, flow, &reading, Seq(properties::last_place(r).0 + 1));
         let seed = properties::last_place(r).0;
         let paused = decide::paused(r) || self.room.paused;
         properties::decision(v, flow, &reading, decision, self.room, paused, seed);
@@ -599,7 +618,7 @@ impl History {
     /// Whether the run at rest has its next round in the room the engine leaves the work, as the engine gives it by
     /// `decide::hold_in`, which `pausing` and `room` judge.
     fn goes_on_held(&mut self, run: RunId) -> bool {
-        let reading = Reading::new(&self.w.records);
+        let reading = Reading::new(&self.w.flow, &self.w.records);
         let failed = self.unseen.contains(&run);
         pausing::goes_on(&mut self.verdict, &self.w.flow, &reading, run, failed, self.room)
     }
@@ -686,10 +705,26 @@ impl History {
             told: &told,
             // No act of the engine's is in these flows.
             answered_by: &BTreeMap::new(),
+            dialogues: &cell.dialogues,
+            verdicts: &cell.verdicts,
         };
         let hold = decide::hold_in(&flow, &self.w.records, run, self.room);
         let step = run::next(&self.log_of(run), requires, hold);
         self.note(format!("run {run:?} of {}: {step:?}", cell.id));
+        if let Some(Some(Back::Came {
+            dealt_with,
+            writes,
+            calls,
+        })) = self.backs.get(&run).and_then(|b| b.last())
+        {
+            let reading = Reading::new(&flow, &self.w.records);
+            let came = properties::Came {
+                dealt_with,
+                writes,
+                calls: !calls.is_empty(),
+            };
+            properties::next_word(&mut self.verdict, &flow, &reading, &started, came, &step);
+        }
         match step {
             Step::Finish { dealt_with, writes } => {
                 let calls = match self.backs[&run].last() {
@@ -896,6 +931,21 @@ impl History {
                     writes.push(write(rng, b, true));
                 }
             }
+            // What meets everything leaves no word owed: a maker woken by a point answers it, and a judge's fail brings
+            // its points (design document `data-and-context`, 41, 42).
+            for (dialogue, watched) in &spec.dialogues {
+                let answered = (writes.iter()).any(|w: &Write| &w.block == dialogue || watched.contains(&w.block));
+                if told.ran_by.contains(dialogue) && !answered {
+                    writes.push(write(rng, dialogue, true));
+                }
+            }
+            for (verdict, of) in &spec.verdicts {
+                let fails =
+                    (writes.iter()).any(|w| &w.block == verdict && w.value.as_deref() == Some(of.fails.as_str()));
+                if fails && !writes.iter().any(|w| w.block == of.dialogue) {
+                    writes.push(write(rng, &of.dialogue, true));
+                }
+            }
             return Back::Came {
                 dealt_with: told.ran_by.clone(),
                 writes,
@@ -1005,7 +1055,7 @@ impl History {
     /// otherwise any block cells write.
     fn prose_block(&mut self, at: Option<&CellId>) -> &'static str {
         let open = self.open_run().map(|(cell, _)| cell);
-        let reading = Reading::new(&self.w.records);
+        let reading = Reading::new(&self.w.flow, &self.w.records);
         let mut bearing: Vec<&BlockId> = Vec::new();
         for (i, c) in self.w.flow.cells().iter().enumerate() {
             if Some(&c.id) == at || !reading.applies(&self.w.flow, i) {
@@ -1242,7 +1292,7 @@ impl History {
     /// Counts what the whole history reached: a block both a person and a cell wrote, and a block two cells wrote of
     /// which the later in the order is not run by it.
     fn count_blocks(&mut self) {
-        let reading = Reading::new(&self.w.records);
+        let reading = Reading::new(&self.w.flow, &self.w.records);
         let cells = self.w.flow.cells();
         for (block, versions) in &reading.versions {
             let writers: Vec<usize> = (versions.iter())

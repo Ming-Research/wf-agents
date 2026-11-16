@@ -71,7 +71,7 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
     let outputs = returns(&["- `plan`: "]);
     let expected = message(&[
         "# Plan".to_string(),
-        format!("## `request`, version {request}\n\nGreet the user."),
+        format!("## `request`, version {request}, written by the owner\n\nGreet the user."),
         outputs.clone(),
         "Write the plan for the request.".to_string(),
         ran_by(&[("request", None, request)]),
@@ -102,8 +102,8 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_
     let expected = message(&[
         format!("Kept: `plan` {plan}"),
         "# Build".to_string(),
-        format!("## `request`, version {request}, in this session already"),
-        format!("## `plan`, version {plan}, in this session already"),
+        format!("## `request`, version {request}, written by the owner, in this session already"),
+        format!("## `plan`, version {plan}, written on the line `engineer`, in this session already"),
         outputs.clone(),
         "Build what the plan says.".to_string(),
         ran_by(&[("plan", None, plan)]),
@@ -131,8 +131,11 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
     ]);
     let expected = message(&[
         "# Review".to_string(),
-        format!("## `plan`, version {plan}\n\nGreet by name."),
-        format!("## `code`, version {code}\n\n{}", CODE.trim_end()),
+        format!("## `plan`, version {plan}, written on the line `engineer`\n\nGreet by name."),
+        format!(
+            "## `code`, version {code}, written on the line `engineer`\n\n{}",
+            CODE.trim_end()
+        ),
         outputs.clone(),
         "Review the code.".to_string(),
         ran_by(&[("code", None, code)]),
@@ -150,7 +153,7 @@ fn a_cell_entered_again_is_sent_what_is_new_and_its_task_by_its_held_line() {
     let expected = message(&[
         format!("Kept: `code` {code}"),
         "# Plan".to_string(),
-        format!("## `opinions`, version {opinions}\n\nName the error."),
+        format!("## `opinions`, version {opinions}, written on the line `reviewer`\n\nName the error."),
         "As given before in this session.".to_string(),
         ran_by(&[("opinions", None, opinions)]),
     ]);
@@ -169,7 +172,9 @@ fn a_datum_the_session_holds_that_is_new_to_the_cell_is_sent_its_held_line() {
     let expected = message(&[
         format!("Kept: `plan` {plan}"),
         "# Build".to_string(),
-        format!("## `plan`, version {plan}, in this session already; last worked from {first}"),
+        format!(
+            "## `plan`, version {plan}, written on the line `engineer`, in this session already; last worked from {first}"
+        ),
         "As given before in this session.".to_string(),
         ran_by(&[("plan", Some(first), plan)]),
     ]);
@@ -210,12 +215,14 @@ fn a_datum_given_latest_is_sent_whole_where_the_session_lacks_it_and_its_held_li
     };
     assert_eq!(
         sent(&lacking),
-        Some(format!("## `request`, version {request}\n\nGreet the user by name."))
+        Some(format!(
+            "## `request`, version {request}, written by the owner\n\nGreet the user by name."
+        ))
     );
     assert_eq!(
         sent(&holding),
         Some(format!(
-            "## `request`, version {request}, in this session already; last worked from {first}"
+            "## `request`, version {request}, written by the owner, in this session already; last worked from {first}"
         ))
     );
     assert_ne!(lacking.text, holding.text);
@@ -249,12 +256,12 @@ fn what_changed_since_the_version_the_session_holds_is_sent_as_a_change_that_reb
     assert_eq!(entered.fills, fills);
     let text = &entered.text;
     let change = format!(
-        "## `code`, what changed from version {} to version {}\n\n{diff}",
+        "## `code`, what changed from version {} to version {}, written on the line `engineer`\n\n{diff}",
         first.0, code.0
     );
     assert!(text.contains(&change), "{text}");
     let notes = format!(
-        "## `notes`, version {}\n\nfirst\n\n## `notes`, version {}\n\nsecond\n\n",
+        "## `notes`, version {}, written by the owner\n\nfirst\n\n## `notes`, version {}, written by the owner\n\nsecond\n\n",
         notes[0].0, notes[1].0
     );
     assert!(text.contains(&notes), "{text}");
@@ -494,7 +501,8 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     // The build worked from no version of the tree, and its session read the first: what changed since is the files the
     // carrier says, whatever their length.
     let files = changed(Seq(first), Seq(latest));
-    let change = format!("## `tree`, what changed from version {first} to version {latest}\n\n{files}");
+    let change =
+        format!("## `tree`, what changed from version {first} to version {latest}, written by the owner\n\n{files}");
     assert!(entered.text.contains(&change), "{}", entered.text);
     let fill = Fill::Change {
         block: BlockId::from("tree"),
@@ -505,7 +513,8 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     // Where the session lacks every version, the latest is sent as any datum's.
     let anew = sim.enter(&round, true);
     assert!(
-        anew.text.contains(&format!("## `tree`, version {latest}\n\nc2 t2")),
+        anew.text
+            .contains(&format!("## `tree`, version {latest}, written by the owner\n\nc2 t2")),
         "{}",
         anew.text
     );
@@ -563,7 +572,7 @@ fn a_return_that_would_write_over_a_version_it_never_saw_is_sent_back_with_that_
     // The review is not given the verdict: the version is given with why the return was sent back, and filled, the
     // version put into the round not being held by its session for that.
     let sent_back = format!(
-        "## Sent back\n\n- `verdict` has version {over} since.\n\n## `verdict`, version {over}, with the value `yes`\n\n\
+        "## Sent back\n\n- `verdict` has version {over} since.\n\n## `verdict`, version {over}, with the value `yes`, written by the owner\n\n\
          yes\n\nReturn again."
     );
     assert!(entered.text.contains(&sent_back), "{}", entered.text);
