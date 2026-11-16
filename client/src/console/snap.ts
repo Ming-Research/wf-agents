@@ -96,10 +96,20 @@ const INSET = 24;
 const HALO = 5;
 const HALO_ALPHA = 0.32;
 /// The soft light round the item selected, in place of a ring of light: a fill of the accent behind its card, this many
-/// pixels past its edge, blurred this much, at this strength, so that the card glows from behind.
-const CHOSEN_SPREAD = 4;
-const CHOSEN_BLUR = 10;
-const CHOSEN_ALPHA = 0.7;
+/// pixels past its edge, blurred this much, at this strength, so that the light shows only as a narrow glow round the
+/// card; and the room the blur is drawn in past the fill, wide enough that the blur fades out before its edge.
+const CHOSEN_SPREAD = 2;
+const CHOSEN_BLUR = 6;
+const CHOSEN_ALPHA = 0.45;
+const CHOSEN_ROOM = 4 * CHOSEN_BLUR;
+
+/// The blur of the soft light round the item selected, with its room: set after the filter is made, which sets its
+/// own from its strength, too narrow for the blur to fade out in.
+function softBlur(): BlurFilter {
+  const blur = new BlurFilter({ strength: CHOSEN_BLUR });
+  blur.padding = CHOSEN_ROOM;
+  return blur;
+}
 /// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it.
 /// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the mark goes at its faintest.
 const PULSE_MS = 750;
@@ -540,7 +550,7 @@ export class SnapScene {
   /// The dashed ways from the items whose work runs up to their roots, drawn anew each frame over the funnels.
   private runLines = new Graphics();
   /// The soft light behind the item selected, drawn anew each frame where it stands, blurred.
-  private chosenGlow = new Graphics({ filters: [new BlurFilter({ strength: CHOSEN_BLUR })] });
+  private chosenGlow = new Graphics({ filters: [softBlur()] });
   /// The items, by their place in the tree, whose link to the one above them is on the way from an item whose work
   /// runs up to its root ([`waysUp`]).
   private runWays = new Set<number>();
