@@ -347,9 +347,9 @@ describe('the tree in columns', () => {
   });
 
   it("draws in the console's own colours in light, and in the tokens' in dark", () => {
-    expect(themed()).toMatchObject({ page: '#f6f7f9', card: '#ffffff', ink: '#1f2937', running: '#8b5cf6', halted: '#e5484d' });
+    expect(themed()).toMatchObject({ page: '#f6f7f9', card: '#ffffff', ink: '#1f2937', running: '#3673f5', halted: '#e5484d' });
     document.documentElement.setAttribute('data-theme', 'dark');
-    expect(themed()).toMatchObject({ page: '#17191e', card: '#1f2127', ink: '#c8ccd4', running: '#a78bfa' });
+    expect(themed()).toMatchObject({ page: '#17191e', card: '#1f2127', ink: '#c8ccd4', running: '#739ffa' });
   });
 });
 

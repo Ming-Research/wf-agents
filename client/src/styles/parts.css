@@ -383,13 +383,15 @@ textarea:disabled {
   flex-basis: 100%;
 }
 
-/* A word that opens something on the page: in the accent, underlined under the pointer. */
+/* A word that opens something on the page: in the accent, underlined under the pointer, a button and an anchor
+   alike. */
 .link {
   padding: 0;
   border: 0;
   background: none;
   color: var(--accent-text);
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
@@ -527,10 +529,6 @@ textarea:disabled {
 
 .dot-running {
   background: var(--running);
-}
-
-.dot-back {
-  background: var(--violet);
 }
 
 .drawer-body {
@@ -799,15 +797,19 @@ textarea:disabled {
   display: none;
 }
 
+/* The mark of a part that folds, drawn: a small triangle in the muted colour, to the right while folded, turned down
+   while open. */
 .form-tree summary::before {
   display: inline-block;
-  width: var(--space-12);
-  color: var(--muted);
-  content: '▸';
+  margin-right: var(--space-4);
+  border-top: var(--chart-arrow) solid transparent;
+  border-bottom: var(--chart-arrow) solid transparent;
+  border-left: var(--chart-arrow-length) solid var(--muted);
+  content: '';
 }
 
 .form-tree details[open] > summary::before {
-  content: '▾';
+  transform: rotate(90deg);
 }
 
 .tree-leaf {

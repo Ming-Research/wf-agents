@@ -10,7 +10,7 @@ import { type CSSProperties, useLayoutEffect, useMemo, useRef, useState } from '
 import type { Flow } from '../api';
 import { Breakable, MarkGlyph, WIDTHS, tableWidth, useWheel } from '../Chart';
 import { NO_MARK, type Spot } from '../matrix';
-import { Edge, Sign } from '../parts';
+import { Arrow, Edge, Sign } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { CellNow, Step, WorkPage } from '../works-api';
 import { type HistoryRow, type RowMark, placeSteps } from './placing';
@@ -48,39 +48,57 @@ function spotOf(mark: RowMark): Spot {
   };
 }
 
-/// The words of a row at its left: why a run ran, or what was done. A run of a cell the flow no longer has, which
-/// stands in no column, says which cell it was.
-export function stepWords(step: Step, flow?: Flow): string {
+/// A piece of a row's words: the page's own words, or a name or a value from the flow, drawn in monospace.
+type Part = string | { name: string };
+
+/// Names joined by commas, each a name.
+const names = (all: string[]): Part[] => all.flatMap((name, i) => (i === 0 ? [{ name }] : [', ', { name }]));
+
+/// The words of a row at its left, in pieces: why a run ran, or what was done. A run of a cell the flow no longer has,
+/// which stands in no column, says which cell it was.
+export function stepParts(step: Step, flow?: Flow): Part[] {
   switch (step.kind) {
     case 'run': {
       const changed = step.because.flatMap((c) => (c.kind === 'changed' ? [c.block] : []));
-      const why = isWayRound(step)
-        ? `way round for ${changed.join(', ')}`
+      const why: Part[] = isWayRound(step)
+        ? ['way round for ', ...names(changed)]
         : changed.length > 0
-          ? `for ${changed.join(', ')}`
-          : `${step.cell} had no record`;
+          ? ['for ', ...names(changed)]
+          : [{ name: step.cell }, ' had no record'];
       const gone = flow && !flow.cells.some((c) => c.id === step.cell);
-      return gone ? `${step.cell}, which the flow no longer has: ${why}` : why;
+      return gone ? [{ name: step.cell }, ', which the flow no longer has: ', ...why] : why;
     }
     case 'wrote': {
       const who = step.by.kind === 'person' ? 'a person' : step.by.kind === 'outside' ? 'the outside' : `run ${step.by.run}`;
-      return `${who} wrote ${step.block}${step.value !== null ? ` = ${step.value}` : ''}${step.changed ? '' : ', same meaning'}`;
+      return [
+        `${who} wrote `,
+        { name: step.block },
+        ...(step.value !== null ? [' = ', { name: step.value }] : []),
+        step.changed ? '' : ', same meaning',
+      ];
     }
     case 'letGo':
-      return `the owner let ${step.cell} go on`;
+      return ['the owner let ', { name: step.cell }, ' go on'];
     case 'paused':
-      return pauseWords(step.by, step.why);
+      return [pauseWords(step.by, step.why)];
     case 'resumed':
-      return 'the owner let the work on';
+      return ['the owner let the work on'];
     case 'cancelled':
-      return 'the owner cancelled the work';
+      return ['the owner cancelled the work'];
     case 'reopened':
-      return 'the work was reopened';
+      return ['the work was reopened'];
     case 'session':
       return step.why.kind === 'compacted'
-        ? `the session of the line ${step.line} was compacted: ${sessionWords(step.why)}`
-        : `the line ${step.line} began a session: ${sessionWords(step.why)}`;
+        ? ['the session of the line ', { name: step.line }, ` was compacted: ${sessionWords(step.why)}`]
+        : ['the line ', { name: step.line }, ` began a session: ${sessionWords(step.why)}`];
   }
+}
+
+/// The words of a row at its left, as one text.
+export function stepWords(step: Step, flow?: Flow): string {
+  return stepParts(step, flow)
+    .map((p) => (typeof p === 'string' ? p : p.name))
+    .join('');
 }
 
 export function HistoryChart({ page, chosen, onChoose }: {
@@ -131,8 +149,12 @@ export function HistoryChart({ page, chosen, onChoose }: {
         <thead>
           <tr>
             <th className="lead corner" scope="col" aria-label="Steps down the side, cells across">
-              <span className="label corner-cells">Cells →</span>
-              <span className="label corner-blocks">Steps ↓</span>
+              <span className="label corner-cells">
+                Cells <Arrow to="right" />
+              </span>
+              <span className="label corner-blocks">
+                Steps <Arrow to="down" />
+              </span>
               <Edge
                 side="right"
                 label="Drag the width of the steps' column"
@@ -203,7 +225,9 @@ function HistoryHead(props: {
         <span className="cell-id">
           <Breakable name={cell} />
         </span>
-        <span className="cell-title">{c?.title ?? cell}</span>
+        <span className="cell-title" title={c?.title ?? cell}>
+          {c?.title ?? cell}
+        </span>
         {now && (
           <span className={`cell-state state-text-${now.state}`} title={cellNowWords(now)}>
             <StateMark state={now.state} /> {STATE_WORDS[now.state]}
@@ -256,7 +280,15 @@ function StepRow(props: {
           {sign && <Sign name={sign} />}
           <span className={`step-words ${wayRound ? 'way-back' : ''}`} title={words}>
             {step.kind === 'run' && <span className="mono muted">{step.run} </span>}
-            {words}
+            {stepParts(step, flow).map((p, i) =>
+              typeof p === 'string' ? (
+                p
+              ) : (
+                <span key={i} className="mono">
+                  {p.name}
+                </span>
+              ),
+            )}
           </span>
         </button>
       </th>
@@ -297,8 +329,8 @@ function StepRow(props: {
   );
 }
 
-/// A run in its cell's column: how it stands and how many rounds it had; how long it took and what it cost; what it
-/// wrote.
+/// A run in its cell's column, on one line cut at the column's edge and whole on the pointer's tip: how it stands and
+/// how many rounds it had; how long it took and what it cost; what it wrote.
 function RunBox({ run, now, back }: { run: Step & { kind: 'run' }; now: number; back: boolean }) {
   const state = runState(run);
   const writes = run.end?.kind === 'finished' ? run.end.writes.map((w) => w.block) : [];
@@ -315,10 +347,12 @@ function RunBox({ run, now, back }: { run: Step & { kind: 'run' }; now: number; 
       {back && <span className="run-arrow" aria-hidden="true" />}
       <span className="run-line">
         <span className="run-word">{RUN_WORDS[state]}</span>
-        <span className="muted"> {run.rounds.length} round{run.rounds.length === 1 ? '' : 's'}</span>
+        <span className="muted">
+          {' '}
+          {run.rounds.length} round{run.rounds.length === 1 ? '' : 's'} · {facts}
+        </span>
+        {writes.length > 0 && <span className="mono run-writes"> {writes.join(' ')}</span>}
       </span>
-      <span className="run-line muted">{facts}</span>
-      {writes.length > 0 && <span className="run-line mono run-writes">{writes.join(' ')}</span>}
     </span>
   );
 }

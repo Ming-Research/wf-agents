@@ -141,7 +141,10 @@ describe('the lines of the flowchart', () => {
     // Nine steps, two of them out of the fork on needs_design and two out of the fork on has_comment, and the ways
     // through the two gates.
     expect(lines(page, 'main')).toBe(11);
-    expect(labels(page, 'main')).toEqual(expect.arrayContaining(['plan', 'yes', 'no', '✓', '✗ design']));
+    expect(labels(page, 'main')).toEqual(expect.arrayContaining(['plan', 'yes', 'no', 'design']));
+    // A branch on a test is marked by the matrix's tick or cross, drawn.
+    const marks = [...page.querySelectorAll('.graph-label.main .graph-holds')].map((m) => m.getAttribute('aria-label'));
+    expect(marks).toEqual(expect.arrayContaining(['holds', 'does not hold']));
     // plan's write runs judge, the next cell on the path: its name is on the step, with no second line.
     const onPath = [...page.querySelectorAll('.graph-label.main .graph-name')].find((b) => b.textContent === 'plan');
     expect(onPath?.getAttribute('aria-label')).toBe('Block plan, plan to judge');

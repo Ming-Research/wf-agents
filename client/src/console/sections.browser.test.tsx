@@ -67,8 +67,8 @@ describe("a section of the console's window", () => {
 
   it("leaves the other views' panels their heads in the head's colour, with a line after them", () => {
     for (const [theme, head] of [
-      ['light', '#6a3fd0'],
-      ['dark', '#a78bfa'],
+      ['light', '#285bb2'],
+      ['dark', '#739ffa'],
     ]) {
       document.documentElement.setAttribute('data-theme', theme);
       const look = drawnIn('panel');

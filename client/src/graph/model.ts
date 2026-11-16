@@ -93,7 +93,9 @@ export interface Chart {
   /// For each cell in the order of the walk: the tags of its fork and gate, its fork, its gate, the cell, its tags.
   nodes: ChartNode[];
   edges: ChartEdge[];
-  /// How many arrows are ways back.
+  /// How many ways back the flow has, counted as the matrix counts them: each trigger of a cell that a later cell's
+  /// write runs, of two cells that can both run in one work. An arrow stands for one for each trigger it carries, and
+  /// one drawn into a fork for those of every cell it leads to, so that the two views give one count.
   waysBack: number;
 }
 
@@ -513,7 +515,7 @@ export function chartOf(flow: Flow): Chart {
     edges.push(link({ id: `t:${cell.id}`, source, target, kind: 'tie', to: cell.id }));
   });
 
-  return { nodes, edges, waysBack: edges.filter((e) => e.back).length };
+  return { nodes, edges, waysBack: back.reduce((n, a) => n + a.carries.length, 0) };
 }
 
 /// A block a cell is given, as the cell's `context` names it: with the kind it is given in, the cells that write it and

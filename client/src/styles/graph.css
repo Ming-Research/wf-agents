@@ -1,6 +1,6 @@
 /* The flowchart: the cells as boxes on the card in a pan-and-zoom view on the ground, the lines between them under
    them: the main path thick in the text's colour, the arrows a write runs thin in the muted colour, a way back thin in
-   the way back's purple, an arrow from what the outside writes dashed, the arrow under the pointer in the accent; the
+   the muted colour, an arrow from what the outside writes dashed, the arrow under the pointer in the accent; the
    cell chosen on the accent's tint, the cells that write what it is given edged in the accent, and what it is given
    beside it; the map of the whole chart over its top left corner. */
 
@@ -64,7 +64,7 @@
 }
 
 .graph-edge-back {
-  stroke: var(--violet);
+  stroke: var(--muted);
 }
 
 .graph-edge-outside {
@@ -91,7 +91,7 @@
 }
 
 .graph-head-back path {
-  fill: var(--violet);
+  fill: var(--muted);
 }
 
 .graph-head-pointed path,
@@ -117,9 +117,6 @@
   color: var(--text);
 }
 
-.graph-label.back {
-  color: var(--violet);
-}
 
 .graph-label.pointed {
   color: var(--accent-text);
@@ -381,7 +378,7 @@ button.graph-node:hover {
 }
 
 .legend-arrow.back {
-  background: var(--violet);
+  background: var(--muted);
 }
 
 .legend-arrow.outside {
@@ -432,4 +429,9 @@ button.graph-node:hover {
 .graph-place > .graph {
   position: absolute;
   inset: 0;
+}
+
+/* A branch's tick or cross, on the line of the label's words. */
+.graph-holds {
+  vertical-align: -2px;
 }

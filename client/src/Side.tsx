@@ -19,7 +19,7 @@ import type {
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
 import { type ConditionRow, type LineRow, type Matrix, exclusive, where } from './matrix';
-import { Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
+import { Arrow, Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
   charactersWords,
   conditionWords,
@@ -719,7 +719,7 @@ export function BlockPanel(props: {
             {backs.map(({ reader, writers, triggers }) => (
               <ListRow key={reader}>
                 <span className="way-back mono">
-                  {writers.join(', ')} → {reader}
+                  {writers.join(', ')} <Arrow to="right" /> {reader}
                 </span>
                 <Attr name="triggered_by" value={listed(triggers)} />
               </ListRow>
@@ -910,7 +910,7 @@ export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chos
             {backs.map(({ reader, writers }) => (
               <ListRow key={reader}>
                 <span className="way-back mono">
-                  {writers.join(', ')} → {reader}
+                  {writers.join(', ')} <Arrow to="right" /> {reader}
                 </span>
               </ListRow>
             ))}

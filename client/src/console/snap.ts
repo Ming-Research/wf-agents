@@ -12,9 +12,9 @@
 // Under each item that depends on an item besides its main dependent, a shadow of it stands: a white card with a dashed
 // edge and grey words, pointing to where the item stands. A filled funnel, grey, joins each item's top and bottom to
 // the first item under it and the last. Two items are lit, each with the way from it to its root, and from each of its
-// shadows to theirs, by rings and by ribbons joining each to the one above: the item under the pointer in blue, faded
-// out once the pointer leaves, and the item selected by a click in purple, until it is let go; a click on a shadow
-// selects the item it points to and brings it to the middle of the screen. A card that needs the owner has rings of
+// shadows to theirs, by rings and by ribbons joining each to the one above: the item under the pointer in a light blue,
+// faded out once the pointer leaves, and the item selected by a click in the accent, until it is let go; a click on a
+// shadow selects the item it points to and brings it to the middle of the screen. A card that needs the owner has rings of
 // red round it, which stand still; one whose work runs has a light going round its edge. The mark of a cell running
 // pulses. Every column fades out into the page near the top and the bottom of the screen; at those two edges the
 // column under the pointer has a line of blue, faded in as the pointer comes. Only what is on the screen is drawn. What
@@ -126,17 +126,17 @@ const LIGHT = {
   /// The ground the tree is drawn on: a very light grey, the cards white on it as paper.
   page: '#f6f7f9',
   /// A card's edge above a work.
-  branch: '#c7cdfd',
+  branch: '#abd3fd',
   /// The ribbons from the item under the pointer up to its root.
-  hoverRibbon: '#e4dcfd',
+  hoverRibbon: '#d5e2ff',
   /// The ring round the item selected and those on its way to its root, and the ribbons between them.
-  chosen: '#8b5cf6',
-  chosenRibbon: '#e2d7fd',
+  chosen: '#3673f5',
+  chosenRibbon: '#d0ddff',
   /// A column's bar on the map, light, so that the marks across it show.
-  mapBar: '#aab6fd',
+  mapBar: '#7cc0fd',
   /// The colours of works, which tint their cards: running in the accent, green being kept for what is done; paused, and
   /// waiting for something else, grey; stopped, for the owner or by the engine, red.
-  running: '#8b5cf6',
+  running: '#3673f5',
   paused: '#8b93a1',
   halted: '#e5484d',
   waiting: '#e8cc6a',
@@ -144,16 +144,16 @@ const LIGHT = {
   red: '#e5484d',
   green: '#2f9e6e',
   /// The item under the pointer, and those above it, ringed; the lines at the edges of the column under it.
-  over: '#a78bfa',
+  over: '#6d9bf9',
   /// The words on a filled tag.
   onTag: '#ffffff',
   /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
-  unseen: '#8b5cf6',
-  accent: '#8b5cf6',
+  unseen: '#3673f5',
+  accent: '#3673f5',
   /// Where a work's time went, in the colours of the track in the item's window (styles/parts.css): a model's, the
   /// tools', idle, and the ground they lie on with how far it lets the card through. An idle stretch takes the colour
   /// of what the work waited for: the owner's red, a pause's muted grey, or idle.
-  model: '#8b5cf6',
+  model: '#3673f5',
   tools: '#14a3a8',
   idle: '#e8ecf2',
   track: '#818b98',
@@ -581,7 +581,7 @@ export class SnapScene {
   /// what points to an item.
   private real = new Map<number, number>();
   /// The item selected, by its number, or none: it and the way from it to its root, and from each of its shadows to
-  /// theirs, stay lit in purple until it is let go.
+  /// theirs, stay lit in the accent until it is let go.
   private selected: number | null = null;
   /// Told the item selected each time it changes, or is drawn afresh: the window beside the tree shows it.
   onSelect: ((item: Shown | null) => void) | null = null;
@@ -1297,8 +1297,8 @@ export class SnapScene {
   }
 
   /// Draws each column on the map as one bar from its first item to its last, moved as the column is: in a light accent,
-  /// or a deeper blue while the pointer is over it, marked red where works wait for the owner, and purple where the item
-  /// selected stands.
+  /// or a deeper blue while the pointer is over it, marked red where works wait for the owner, and in the accent where
+  /// the item selected stands.
   private drawMap(t: Tree) {
     const mid = MAP_HIGH / 2;
     this.mapBars.clear();
@@ -1318,7 +1318,7 @@ export class SnapScene {
         this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.red);
       }
     });
-    // Where the item selected stands, purple across its column's bar, over every other mark, a little wider, so that
+    // Where the item selected stands, the accent across its column's bar, over every other mark, a little wider, so that
     // it is found again from anywhere.
     const chosen = this.selected === null ? undefined : this.real.get(this.selected);
     if (chosen !== undefined) {
@@ -1579,7 +1579,7 @@ export class SnapScene {
     const tip = this.trackTip(t, x, y);
     if (this.app.canvas.title !== tip) this.app.canvas.title = tip;
     const chain = lit(this.under);
-    // The item selected, the same way, in purple, under the blue; only the item itself glows, those lit with it are
+    // The item selected, the same way, in the accent, under the light blue; only the item itself glows, those lit with it are
     // only ringed, so that it stands out among them.
     const picked = this.selected === null ? -1 : (this.real.get(this.selected) ?? -1);
     const chosen = lit(picked);

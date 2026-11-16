@@ -5,10 +5,10 @@
 // matrix's square; a tag of what the outside writes with the matrix's sign; an arrow's label the value of its branch,
 // where it leaves a fork, and the names of the triggers it stands for. Three kinds of line: the main path thick in the
 // text's colour, over the others; an arrow a write runs thin in the muted colour, behind it, drawn only where it was
-// routed over the layout (`data.ts`); a way back thin in the way back's purple. An arrow from a tag is dashed; the
-// arrow under the pointer is in the accent. The cell chosen is on the accent's tint, the cells that write what it is
-// given are edged in the accent, and beside it stand the blocks it is given, each with the kind it is given in as the
-// matrix marks it.
+// routed over the layout (`data.ts`); a way back thin in the muted colour, a step stronger than those. An arrow from a
+// tag is dashed; the arrow under the pointer is in the accent. The cell chosen is on the accent's tint, the cells that
+// write what it is given are edged in the accent, and beside it stand the blocks it is given, each with the kind it is
+// given in as the matrix marks it.
 
 import { type ReactNode, useState } from 'react';
 
@@ -19,7 +19,7 @@ import { Sign } from '../parts';
 import { headFacts, keyWords } from '../words';
 import { type DataLabel } from './data';
 import { type Box, type Laid, pathOf, type Size } from './layout';
-import { type Chart, type ChartEdge, type ChartNode, contextOf, litBy, type Outside } from './model';
+import { type Chart, type ChartEdge, type ChartNode, contextOf, FAILS, HOLDS, litBy, type Outside } from './model';
 
 /// A size the page's tokens give, in pixels: read from the page where it runs, else the size the token has.
 function sizeOf(token: string, fallback: number): number {
@@ -488,7 +488,7 @@ export function Sheet({ flow, chart, laid, measured, pad, dataLabels, aside, cho
           >
             {e.branch !== null && (
               <span className="graph-branch">
-                {e.branch}
+                {e.branch === HOLDS || e.branch === FAILS ? <Holds holds={e.branch === HOLDS} /> : e.branch}
                 {e.carries.length > 0 && ' '}
               </span>
             )}
@@ -538,5 +538,25 @@ export function Sheet({ flow, chart, laid, measured, pad, dataLabels, aside, cho
       {chart.nodes.map(nodeOf)}
       {context}
     </div>
+  );
+}
+
+/// The mark of a branch out of a fork on several keys or a named test: the matrix's tick where it holds and its cross
+/// where it does not, drawn at the size of the label's words.
+function Holds({ holds }: { holds: boolean }) {
+  return (
+    <svg
+      className="graph-holds"
+      viewBox="0 0 24 24"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      role="img"
+      aria-label={holds ? 'holds' : 'does not hold'}
+    >
+      <path d={holds ? 'M5.5 12.5 L10 17 L18.5 7' : 'M7 7 L17 17 M17 7 L7 17'} />
+    </svg>
   );
 }

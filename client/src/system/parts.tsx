@@ -75,7 +75,9 @@ export function ViewTable({ heads, numbers = [], children, label }: {
 
 /// A work by its number, which opens it.
 export function WorkLink({ work }: { work: number }) {
-  return <a href={`#/works/${work}`} className="mono">{`W${work}`}</a>;
+  return (
+    <a href={`#/works/${work}`} className="link mono">{`W${work}`}</a>
+  );
 }
 
 /// An item by its number and its title; its number alone where its title is not known.

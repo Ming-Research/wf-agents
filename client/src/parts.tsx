@@ -365,7 +365,8 @@ export function Drawer({
 }
 
 /// The colours a status line's dot takes: none; green for done; red for a stop, for the owner or because something
-/// failed; orange for a change of a block's meaning; the running colour for running; the way back's violet.
+/// failed; orange for a change of a block's meaning; the running colour for running; a way back none of its own, the
+/// muted grey.
 export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
 
 /// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.
@@ -447,6 +448,35 @@ export function Sign({ name, className }: { name: SignName; className?: string }
     >
       <title>{SIGN_WORDS[name]}</title>
       {shape}
+    </svg>
+  );
+}
+
+/// An arrow that says which way a label's things run, to the right or down, drawn by the page as the signs are, in the
+/// colour of the words round it; the words say what it means.
+export function Arrow({ to }: { to: 'right' | 'down' }) {
+  return (
+    <svg
+      className="label-arrow"
+      viewBox="0 0 12 12"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      aria-hidden="true"
+    >
+      <path d={to === 'right' ? 'M1.5 6h9M7 2.5 10.5 6 7 9.5' : 'M6 1.5v9M2.5 7 6 10.5 9.5 7'} />
+    </svg>
+  );
+}
+
+/// The mark of a part that folds: a small triangle drawn by the page, to the right while it is folded, down while it is
+/// open, in the colour of the words round it.
+export function FoldMark({ open }: { open: boolean }) {
+  return (
+    <svg className="label-arrow" viewBox="0 0 12 12" width="12" height="12" fill="currentColor" aria-hidden="true">
+      <path d={open ? 'M2.5 4h7L6 9z' : 'M4 2.5v7L9 6z'} />
     </svg>
   );
 }
