@@ -243,6 +243,10 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
 /// reach, or what lies past the bound.
 const NEVER: &[(&str, &str)] = &[
     (
+        "a path no model has",
+        "Wrong on purpose: an entry that names nothing the exploration looks for.",
+    ),
+    (
         "the work waited at M2 on checked = yes",
         "The merge waits on checked = yes only where nothing runs the check again after it said no, a stall, which no \
          path of the flow reaches: the implementation's return to a red check leaves what runs the check again, its \
