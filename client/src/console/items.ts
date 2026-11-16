@@ -141,7 +141,7 @@ export function shownTree(data: Items): Shown[] {
       title: i?.title ?? '',
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w),
-      deliver: deliverable || w?.delivers === true,
+      deliver: deliverable || w?.flow === 'deliver',
       blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,
@@ -149,7 +149,7 @@ export function shownTree(data: Items): Shown[] {
       begun: w !== undefined && started(w),
       shadow: false,
       work:
-        w !== undefined && drawn(w) && !deliverable && !w.delivers
+        w !== undefined && drawn(w) && !deliverable && w.flow !== 'deliver'
           ? {
               number: w.number,
               now: w.now,
