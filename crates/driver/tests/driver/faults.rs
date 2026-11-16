@@ -76,9 +76,9 @@ fn a_kind_of_new_session_the_flow_gives_no_words_for_is_a_fault_on_the_file_that
     let dir = copied();
     without(dir.path(), "triggers/of_a_line/on_session.toml", "lost = ");
     let faults = driver::faults(&engineer(dir.path()));
-    // One for the block of each line a cell of which loads its session: the engineer's and the deep researcher's.
-    assert_eq!(faults.len(), 2, "{faults:?}");
-    for (fault, line) in faults.iter().zip(["deep_researcher", "engineer"]) {
+    // One for the block of each line a cell of which loads its session: the engineer's alone.
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    for (fault, line) in faults.iter().zip(["engineer"]) {
         assert!(fault.contains("triggers/of_a_line/on_session.toml"), "{fault}");
         assert!(fault.contains(&format!("the block {line}_session ")), "{fault}");
         assert!(fault.ends_with("its writes must give lost"), "{fault}");

@@ -550,13 +550,7 @@ fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own(
         .collect();
     assert_eq!(
         read,
-        [
-            (
-                "deep_researcher_session".to_string(),
-                vec!["D1 on deep_researcher".to_string()]
-            ),
-            ("engineer_session".to_string(), vec!["R0 on engineer".to_string()]),
-        ]
+        [("engineer_session".to_string(), vec!["R0 on engineer".to_string()])]
     );
 }
 

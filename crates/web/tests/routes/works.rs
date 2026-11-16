@@ -85,7 +85,6 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "inputs": [
                         input("plan", Value::Null),
                         input("opinions", Value::Null),
-                        input("answered", Value::Null),
                     ],
                 },
                 { "cell": "review", "needs": [], "inputs": [input("code", Value::Null)] },

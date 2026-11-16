@@ -1098,10 +1098,19 @@ impl<'a> Walk<'a> {
                     .max()
             };
             let results = open.is_empty() && !calls.is_empty();
+            // The latest version the cell did not write itself: a dialogue the cell answers in holds its own answer
+            // after what it was told, which is never new to it.
+            let others = |block: &BlockId| {
+                (self.versions(block).iter().rev())
+                    .find(|v| {
+                        !v.by
+                            .is_some_and(|run| self.runs.get(&run).is_some_and(|r| &r.started.cell == cell))
+                    })
+                    .map(|v| v.at)
+            };
             because.retain(|cause| {
                 matches!(cause, Cause::Changed { block, .. }
-                    if self.flow.interrupts(block)
-                        && (results || self.current(block).is_some_and(|v| Some(v.at) > seen(block))))
+                    if self.flow.interrupts(block) && (results || others(block) > seen(block)))
             });
             if results {
                 because.push(Cause::Results { calls });

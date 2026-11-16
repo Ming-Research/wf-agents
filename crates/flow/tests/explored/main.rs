@@ -234,7 +234,7 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
 /// reach, or what lies past the bound.
 const NEVER: &[(&str, &str)] = &[
     (
-        "D3 ran back on on_plan, written by a cell after it",
+        "D3 ran back on plan, written by a cell after it",
         "I1's opinion in acceptance reaches D2 first, and D2's plan reaches D3 with it, so D3 runs for D2's version \
          too. That it runs for I1's alone takes D2 handing in no plan: a third return besides the content, past the \
          bound.",
@@ -247,6 +247,14 @@ const NEVER: &[(&str, &str)] = &[
          an-act-is-answered-by-what-runs-it), which the engineer's histories hold with questions in the records \
          (crates/engine/tests/engineer). How a stalled work is shown is the engine's test of stalling \
          (crates/engine/tests/loop/stalling.rs).",
+    ),
+    (
+        "D2 ran on r2_questions",
+        "R2 asks the owner only where the research wrote the plan, deep_needed = no, and D2 runs only where it is \
+         yes: an answer to R2's question reaches D2 only once the research has written yes since R2 asked, which takes \
+         R2's question, a write from outside that runs the research again and a return of it with yes, past the bound. \
+         That D1 runs on an answer to R1's question, which the work waits for at R1, skipped once deep_needed is yes, \
+         is reached.",
     ),
     (
         "the work waited at M1 on asked = answered",

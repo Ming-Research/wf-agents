@@ -244,7 +244,7 @@ fn a_block_that_is_not_among_the_cell_s_outputs_is_found_the_questions_and_the_r
     r["outcome"]["outputs"]["nowhere"] = json!("x");
     let came = came(&r, &narrow, cell(&narrow), &words()).expect("it is read").came;
     let not = |block: &str| Unmet::NotAnOutput { block: block.into() };
-    assert_eq!(came.found, [not("write_words"), not("nowhere"), not("write_questions")]);
+    assert_eq!(came.found, [not("nowhere"), not("write_questions"), not("write_words")]);
     assert_eq!(came.writes, worked().writes);
     assert!(came.said.questions.is_empty(), "{:?}", came.said);
     // The cell that writes them takes them.

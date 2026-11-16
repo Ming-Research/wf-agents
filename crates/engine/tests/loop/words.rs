@@ -60,7 +60,11 @@ fn words_said_to_a_cell_are_the_next_version_of_its_words_which_runs_it_and_stop
             }],
         ),
     );
-    assert_eq!(versions(&w, "research_words")[1].2, "Shortened.");
+    let finish = w.last_finished();
+    assert_eq!(
+        w.work.contents[&(BlockId::from("research_words"), finish)],
+        "Shortened."
+    );
 }
 
 #[test]

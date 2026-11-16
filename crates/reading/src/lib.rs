@@ -310,11 +310,17 @@ impl<'a> Reading<'a> {
                     .filter_map(|s| self.told_before(s.run, block, place))
                     .max()
             };
+            // The latest version before the place that the cell did not write itself: a dialogue the cell answers in
+            // holds its own answer after what it was told, which is never new to it.
+            let others = |block: &BlockId| {
+                (self.of(block).iter().rev())
+                    .filter(|v| v.at < place)
+                    .find(|v| !matches!(&v.by, Writer::Cell(c, _) if *c == cell.id))
+                    .map(|v| v.at)
+            };
             reasons.retain(|r| {
                 matches!(r, Reason::Changed { block, .. }
-                    if flow.interrupts(block)
-                        && (results
-                            || self.current_before(block, place).is_some_and(|v| Some(v.at) > seen(block))))
+                    if flow.interrupts(block) && (results || others(block) > seen(block)))
             });
             if results {
                 reasons.push(Reason::Results { calls: owed });

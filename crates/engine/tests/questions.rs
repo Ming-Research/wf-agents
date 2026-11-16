@@ -321,9 +321,11 @@ fn check(work: &Work, checked: &mut Checked) {
         let before = r.before(started.at);
         let standing = questions(&before);
         // Meanwhile only the owner turning to it, by an answer written since its last run began, enters it, or the
-        // results of the calls a run of it asked for, with what the owner wrote that no run of it dealt with.
+        // results of the calls a run of it asked for, with what the owner wrote that no run of it dealt with. A run
+        // abandoned dealt with nothing: what it was entered for is still the owner's turning.
+        let abandoned = |run: RunId| before.abandoned.iter().any(|a| a.run == run);
         let last = (before.started.iter())
-            .filter(|s| s.cell == started.cell)
+            .filter(|s| s.cell == started.cell && !abandoned(s.run))
             .map(|s| s.at)
             .max();
         let results = (started.because.iter()).any(|c| matches!(c, Cause::Results { .. }));
