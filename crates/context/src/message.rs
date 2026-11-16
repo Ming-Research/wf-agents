@@ -144,6 +144,19 @@ pub struct Version {
     /// Its value, where the datum is a choice.
     pub value: Option<String>,
     pub content: String,
+    /// Who wrote it, as the round is told it.
+    pub by: By,
+}
+
+/// Who wrote a version, as a round is told it (design document `data-and-context`, 29): the line of the cell whose run
+/// wrote it, or the owner; nobody where an act of the engine wrote it, or the outside with no round. A round is never
+/// told the cell.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum By {
+    Line(String),
+    Owner,
+    #[default]
+    Nobody,
 }
 
 /// What came of taking main in as a run started, where the work's branch did not hold it already: `name` is the main
@@ -807,6 +820,15 @@ impl Build<'_> {
             Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
             Unmet::NotATest { path } => (&f.not_a_test, vec![("path", path.clone())]),
             Unmet::Unanswered { block } => (&f.unanswered, vec![("block", block.to_string())]),
+            Unmet::WordOwed { name, watched } => {
+                let ticked: Vec<String> = watched.iter().map(|b| format!("`{b}`")).collect();
+                let watched = ticked.join(&words.between);
+                (&f.word_owed, vec![("name", name.to_string()), ("watched", watched)])
+            }
+            Unmet::NoPoint { block: b, value, name } => (
+                &f.no_point,
+                vec![block(b), ("value", value.clone()), ("name", name.to_string())],
+            ),
         };
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))
@@ -904,7 +926,14 @@ impl Build<'_> {
     fn filled_by(&self, pieces: Vec<Piece>, datum: &Datum, version: &Version) -> Vec<Piece> {
         let number = version.number.0.to_string();
         let last = datum.last.map(|l| l.0.to_string()).unwrap_or_default();
+        let given = &self.words.given;
+        let by = match &version.by {
+            By::Line(line) => given.by_line.replace("{line}", line),
+            By::Owner => given.by_owner.clone(),
+            By::Nobody => String::new(),
+        };
         let places = [
+            ("by", by.as_str()),
             ("number", number.as_str()),
             ("last_number", last.as_str()),
             ("first_number", number.as_str()),

@@ -779,6 +779,12 @@ pub struct SentBackFaults {
     pub not_a_test: String,
     /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
     pub unanswered: String,
+    /// `{name}` a dialogue the cell answers as the maker, named as dealt with and answered in nothing, and `{watched}`
+    /// what the other side watches, each between backticks, joined by `between` (design document `data-and-context`,
+    /// 42).
+    pub word_owed: String,
+    /// `{block}` a verdict written with `{value}`, which does not pass, and no version of its dialogue, `{name}`.
+    pub no_point: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -1062,6 +1068,10 @@ pub struct Given {
     /// cell worked from an earlier version, `held_new` where it never worked from it.
     pub held: String,
     pub held_new: String,
+    /// Who wrote a version, as a round is told it at `{by}` in each heading of a version: the line of the cell whose
+    /// run wrote it, `{line}`; or the owner. Nothing where neither did (design document `data-and-context`, 29).
+    pub by_line: String,
+    pub by_owner: String,
     pub latest: GivenKind,
     pub last_and_latest: GivenKind,
     pub all: GivenKind,

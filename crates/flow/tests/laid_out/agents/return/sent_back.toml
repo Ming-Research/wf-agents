@@ -32,6 +32,8 @@ not_answered = "`{name}` is not answered."
 unexplained = "`{path}` is protected: say why, or take it back."
 not_a_test = "`{path}` is no test: take it back."
 unanswered = "`{block}` is not answered: commit, or ask."
+word_owed = "`{name}` owes its answer, none of {watched} changed."
+no_point = "`{block}` is `{value}` with no `{name}`."
 
 [unread]
 not_of_its_form = "Not of its form: {error}"

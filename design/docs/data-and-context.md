@@ -157,7 +157,7 @@ new session lacks it.
     another also watches that cell's questions, so that an answer the other can no longer act on reaches the cell that
     can.
 
-29. A round is not told who wrote a version: nothing in this design needs it.
+29. A round is told the line of the cell that wrote each version, or that the owner wrote it, and never the cell.
 
 ## Questions to the owner
 

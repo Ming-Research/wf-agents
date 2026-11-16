@@ -891,6 +891,8 @@ pub(crate) fn requires<'a>(
         returns: spec.returns,
         told,
         answered_by,
+        dialogues: &flow.flow.cells()[place].dialogues,
+        verdicts: &flow.flow.cells()[place].verdicts,
     })
 }
 

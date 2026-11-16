@@ -30,7 +30,7 @@ use work::sessions::{began_at, number_at, of_line, of_round, start};
 use work::{Ask, Back, Call, Fill, Given, Why, Work};
 
 use crate::diff;
-use crate::message::{self, Called, Datum, Form, Main, NewVersions, Run, Sent, Situation, Stands, Values, Version};
+use crate::message::{self, By, Called, Datum, Form, Main, NewVersions, Run, Sent, Situation, Stands, Values, Version};
 use crate::text::as_written;
 use decide::run::Unmet;
 
@@ -130,6 +130,7 @@ pub fn enter(
             number: v.at,
             value: v.value.clone(),
             content: content(work, block, v.at).to_string(),
+            by: by(flow, &records, block, v),
         };
         let last = last_worked_from(flow, &records, cell, block);
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
@@ -263,6 +264,7 @@ pub fn enter(
                             number: v.at,
                             value: v.value.clone(),
                             content: content(work, block, v.at).to_string(),
+                            by: by(flow, &records, block, v),
                         };
                         values.written_over.push((block.clone(), written));
                     }
@@ -330,6 +332,51 @@ fn of_cell(records: &Records, run: RunId, cell: &CellSpec) -> bool {
 /// document `data-and-context`, 10); of another, the latest its last finished run was given, which is the one written
 /// last before that run's last round began, every round being filled with the latest; and in either case the latest
 /// a run of the cell wrote, where that is later, a cell's own version being no change to it.
+/// Who wrote a version, as a round is told it, worked out from the records and the flow, never stored (design document
+/// `data-and-context`, 29): a run's version by its cell's line, as the flow declares it, nobody where the cell is on no
+/// line; a person's by the owner. Of what the outside writes, the owner's words by the owner; a version of a cell's
+/// questions by its own record, which the engine writes in the same act, just before it: an ask by the asking run's
+/// line, an answer by the owner, and the engine's own question by nobody; and what a round's end read, the design tree
+/// and the work's head among it, by that round's line, as the version put into it says. Anything else the outside
+/// wrote, and what an act of the engine wrote, by nobody.
+fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView) -> By {
+    let line_of_run = |run: RunId| {
+        let cell = (records.started.iter()).find(|s| s.run == run).map(|s| &s.cell);
+        let line = cell.and_then(|cell| flow.cells.iter().find(|c| &c.id == cell)?.line.clone());
+        line.map_or(By::Nobody, By::Line)
+    };
+    match version.by {
+        Writer::Run(run) => line_of_run(run),
+        Writer::Person => By::Owner,
+        Writer::Outside => {
+            let source = (flow.blocks.get(block)).and_then(|b| b.writers.outside.as_deref());
+            match source {
+                Some(flow::WORDS) => By::Owner,
+                Some(flow::ANSWER) => {
+                    let asked = (records.questions.iter())
+                        .filter(|q| q.at < version.at)
+                        .max_by_key(|q| q.at);
+                    let answered = (records.answers.iter())
+                        .filter(|a| a.at < version.at)
+                        .map(|a| a.at)
+                        .max();
+                    match asked {
+                        Some(q) if answered.is_none_or(|a| a < q.at) => match q.engine {
+                            true => By::Nobody,
+                            false => line_of_run(q.run),
+                        },
+                        _ if answered.is_some() => By::Owner,
+                        _ => By::Nobody,
+                    }
+                }
+                _ => (records.put_in.iter())
+                    .find(|p| &p.block == block && p.version == version.at)
+                    .map_or(By::Nobody, |p| line_of_run(p.run)),
+            }
+        }
+    }
+}
+
 fn last_worked_from(flow: &Compiled, records: &Records, cell: &CellSpec, block: &BlockId) -> Option<Seq> {
     let finished = (records.finished.iter()).filter(|f| of_cell(records, f.run, cell));
     let wrote = (finished.clone())

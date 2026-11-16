@@ -1189,6 +1189,11 @@ pub enum Unmet {
     /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
     /// answer to come.
     Unanswered { block: String },
+    /// It names as dealt with a dialogue it answers as the maker, and answers none of its points there, changes none of
+    /// what the other side watches and asks no question the work waits for.
+    WordOwed { name: String, watched: Vec<String> },
+    /// It writes a verdict with the value that does not pass, and no version of its dialogue.
+    NoPoint { block: String, value: String, name: String },
 }
 
 /// What came back at the end of a round.
@@ -2818,6 +2823,15 @@ impl Unmet {
             UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
+            },
+            UnmetOf::WordOwed { name, watched } => Unmet::WordOwed {
+                name: name.to_string(),
+                watched: watched.iter().map(BlockId::to_string).collect(),
+            },
+            UnmetOf::NoPoint { block, value, name } => Unmet::NoPoint {
+                block: block.to_string(),
+                value: value.clone(),
+                name: name.to_string(),
             },
         }
     }

@@ -7,7 +7,7 @@
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
+use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName, Verdict};
 
 use serde::de::DeserializeOwned;
 
@@ -1695,6 +1695,8 @@ impl<'a> Definition<'a> {
             limit: runs,
             calls: limits.calls,
             slot: file.kind == Kind::Agent,
+            dialogues: self.dialogues(id, file),
+            verdicts: self.verdicts(id, file),
         };
         let spec = CellSpec {
             id: CellId(id.to_string()),
@@ -1735,6 +1737,95 @@ impl<'a> Definition<'a> {
             watches: takes.watches,
         };
         (cell, spec)
+    }
+
+    /// The blocks the cell of this id watches, each block of a group among them; none of a cell the order lacks.
+    fn watched_by(&self, id: &str) -> Vec<BlockId> {
+        (self.cells.get(id).filter(|_| self.place.contains_key(id)))
+            .map(|file| self.watching(file).runs_on.into_iter().map(|r| r.block).collect())
+            .unwrap_or_default()
+    }
+
+    /// The other side of each dialogue the cell of this id holds (design document `data-and-context`, 36): of each block
+    /// it writes and watches, the other cells of the order that write and watch it too, each with whether the cell is
+    /// the maker: the other side watches something else it writes.
+    fn sides(&self, id: &str, file: &CellFile) -> Vec<(BlockId, &'a str, bool)> {
+        let own = self.watched_by(id);
+        let mut sides = Vec::new();
+        for block in (file.outputs.iter()).filter(|b| own.iter().any(|o| o.as_str() == b.as_str())) {
+            let Some(uses) = self.uses.get(block.as_str()) else {
+                continue;
+            };
+            for &(_, other) in uses.writers.iter().filter(|(_, other)| *other != id) {
+                let theirs = self.watched_by(other);
+                if !theirs.iter().any(|t| t.as_str() == block.as_str()) {
+                    continue;
+                }
+                let maker = (theirs.iter()).any(|t| t.as_str() != block.as_str() && file.outputs.contains(&t.0));
+                sides.push((BlockId(block.clone()), other, maker));
+            }
+        }
+        sides
+    }
+
+    /// Of each dialogue the cell holds as the maker, the blocks the other side watches that the cell's round can
+    /// change: those it writes, and those a source outside the work writes, which its round's end may read, such as the
+    /// work's head; never a cell's own questions or words with the owner (design document `data-and-context`, 41).
+    fn dialogues(&self, id: &str, file: &CellFile) -> BTreeMap<BlockId, Vec<BlockId>> {
+        let mut dialogues: BTreeMap<BlockId, Vec<BlockId>> = BTreeMap::new();
+        for (dialogue, other, maker) in self.sides(id, file) {
+            if !maker {
+                continue;
+            }
+            let changes = |b: &BlockId| {
+                let source = self.flow.blocks.get(b.as_str()).and_then(|d| d.outside.as_deref());
+                file.outputs.contains(&b.0) || source.is_some_and(|s| s != ANSWER && s != WORDS)
+            };
+            let watched = dialogues.entry(dialogue.clone()).or_default();
+            for b in self
+                .watched_by(other)
+                .into_iter()
+                .filter(|b| *b != dialogue && changes(b))
+            {
+                if !watched.contains(&b) {
+                    watched.push(b);
+                }
+            }
+        }
+        dialogues
+    }
+
+    /// Of each verdict the cell hands in as a judge, the value that does not pass and the dialogue it writes its points
+    /// in: a choice the cell writes that a test of what stands reads, the value that test looks for being the one that
+    /// does not pass, paired with the one dialogue the cell holds as the judge, not the maker (design document
+    /// `data-and-context`, 37). A cell holding no such dialogue, or more than one, pairs none.
+    fn verdicts(&self, id: &str, file: &CellFile) -> BTreeMap<BlockId, Verdict> {
+        let judged: Vec<BlockId> = (self.sides(id, file).into_iter())
+            .filter(|(_, _, maker)| !maker)
+            .map(|(dialogue, _, _)| dialogue)
+            .fold(Vec::new(), |mut all, d| {
+                if !all.contains(&d) {
+                    all.push(d);
+                }
+                all
+            });
+        let [dialogue] = judged.as_slice() else {
+            return BTreeMap::new();
+        };
+        let mut verdicts = BTreeMap::new();
+        for block in &file.outputs {
+            let choice = self.flow.blocks.get(block).is_some_and(|b| b.values.is_some());
+            let test = (self.flow.tests.values())
+                .find(|t| t.kind == TestKind::NoneStanding && t.reads.contains(block) && t.is.is_some());
+            if let (true, Some(test)) = (choice, test) {
+                let verdict = Verdict {
+                    fails: test.is.clone().unwrap_or_default(),
+                    dialogue: dialogue.clone(),
+                };
+                verdicts.insert(BlockId(block.clone()), verdict);
+            }
+        }
+        verdicts
     }
 
     /// The faults of what a cell watches that can never be new to it where it runs: a datum or group whose every block

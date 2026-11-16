@@ -276,6 +276,21 @@ pub struct Cell {
     /// Whether each round of the cell takes one of the slots, which bound how many such rounds go on at once: an
     /// agent's rounds do, and the engine's own acts do not.
     pub slot: bool,
+    /// Of each dialogue the cell holds as the maker with a cell that judges or doubts what it makes (design document
+    /// `data-and-context`, 36), by the dialogue's block, the blocks the other side watches that the cell writes: an
+    /// answer to a point is a version of the dialogue, or a change of one of these (41).
+    pub dialogues: BTreeMap<BlockId, Vec<BlockId>>,
+    /// Of each verdict the cell hands in as a judge, by its block, the value that does not pass and the dialogue the
+    /// cell writes its points in (design document `data-and-context`, 37, 41).
+    pub verdicts: BTreeMap<BlockId, Verdict>,
+}
+
+/// A judge's verdict: the value of it that does not pass, and the dialogue the judge writes its points in, which the
+/// flow pairs with it by the cell that writes both.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Verdict {
+    pub fails: String,
+    pub dialogue: BlockId,
 }
 
 impl Cell {
@@ -300,6 +315,8 @@ impl Cell {
             limit: 3,
             calls: 3,
             slot: true,
+            dialogues: BTreeMap::new(),
+            verdicts: BTreeMap::new(),
         }
     }
 }

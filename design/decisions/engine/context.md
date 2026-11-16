@@ -41,3 +41,15 @@ Why: The builder words a datum from its kind and how the session stands with it 
 ### decision the-situations-follow-what-the-flow-can-reach
 The situations written are those the flow's definition lets a cell reach: a cell first on its line is entered first holding nothing, another after the cell of its line before it; what only the cell or cells after it write is unwritten on its first entry; what the work starts with, and what earlier cells write whichever way the conditions go, is never unwritten; a reopened session holds nothing; results and a return sent back come after a return that handed nothing in.
 Why: Situations the flow cannot reach gave the models that read them findings that were not faults. A cell that may write a block is taken to write it, since the flow says no more than what a cell must write; where that is too much, `must_write` on the cell says what it always writes.
+
+### decision a-version-is-told-by-the-line-that-wrote-it
+Each version a round is given says the line of the cell whose run wrote it, or that the owner wrote it, worked out
+where it is given from the writing run the records keep and the cell's line in the flow, and never stored; the design
+tree and the work's head a round's end read are that round's run's, by the version put into it. A version of a cell's
+questions is told by its own record: an ask by the asking run's line, an answer as the owner's, the engine's own
+question by nobody; a version an act of the engine or the outside wrote with no round says nobody. Past works are read
+by today's flow, so a run of a cell since moved to another line is told by the line it has now.
+Why: A stored label would be a second copy of what the records and the flow say (principle one-thing-one-place), and a
+line, not a cell, is what a round may know (principle a-cell-knows-only-its-data). Both sides of `plan_doubts` are on
+one line, so their versions share a label: settled with the owner, since the session holds them, the content tells a
+doubt from an answer, and who owes the next word is read by newness.

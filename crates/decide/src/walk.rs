@@ -705,6 +705,9 @@ pub(crate) struct Version<'a> {
     pub(crate) value: Option<&'a str>,
     /// Whether it holds nothing.
     pub(crate) empty: bool,
+    /// A judge's point in its dialogue that the owner ruled on: written before a version of the judge's verdict a
+    /// person wrote in its place, it is new to no cell from then on (design document `data-and-context`, 39).
+    pub(crate) ruled: bool,
 }
 
 /// A write of a block, by a run as it finished or by a person or the outside.
@@ -732,7 +735,8 @@ pub(crate) struct Walk<'a> {
 impl<'a> Walk<'a> {
     pub(crate) fn new(flow: &'a Flow, records: &'a Records) -> Self {
         let runs = read_runs(records);
-        let versions = read_versions(records, &runs);
+        let mut versions = read_versions(records, &runs);
+        rule(flow, &runs, &mut versions);
         Self {
             flow,
             records,
@@ -871,7 +875,7 @@ impl<'a> Walk<'a> {
         let was = self.consumed(cell, block);
         let own = |v: &Version<'a>| (v.by.and_then(|run| self.runs.get(&run))).is_some_and(|r| &r.started.cell == cell);
         let new = (self.versions(block).iter())
-            .filter(|v| Some(v.at) > was && v.meaning == Some(v.at) && !own(v))
+            .filter(|v| Some(v.at) > was && v.meaning == Some(v.at) && !own(v) && !v.ruled)
             .collect();
         (was, new)
     }
@@ -1360,7 +1364,32 @@ pub(crate) fn read_versions<'a>(
             meaning,
             value: w.value,
             empty: w.empty,
+            ruled: false,
         });
     }
     versions
+}
+
+/// Marks each judge's point the owner ruled on: of each verdict a cell hands in as a judge, the versions of its
+/// dialogue a run of the judge wrote before a version of the verdict a person wrote (design document
+/// `data-and-context`, 39).
+fn rule(flow: &Flow, runs: &BTreeMap<RunId, RunView<'_>>, versions: &mut BTreeMap<&BlockId, Vec<Version<'_>>>) {
+    for judge in flow.cells() {
+        for (verdict, of) in &judge.verdicts {
+            let ruling = (versions.get(verdict).into_iter().flatten())
+                .filter(|v| v.outsider == Some(Outsider::Person))
+                .map(|v| v.at)
+                .max();
+            let Some(ruling) = ruling else {
+                continue;
+            };
+            let by_judge =
+                |v: &Version<'_>| (v.by.and_then(|run| runs.get(&run))).is_some_and(|r| r.started.cell == judge.id);
+            for v in versions.get_mut(&of.dialogue).into_iter().flatten() {
+                if v.at < ruling && by_judge(v) {
+                    v.ruled = true;
+                }
+            }
+        }
+    }
 }

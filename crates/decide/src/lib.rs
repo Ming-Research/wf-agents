@@ -24,7 +24,7 @@ pub mod run;
 pub mod view;
 pub mod walk;
 
-pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
+pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName, Verdict};
 pub use records::{
     Abandoned, Answered, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, Pauser, PutIn, Questioned,
     RecordFault, Records, Returned, Round, RunId, Seq, Started, Who, Write, Written, holds_nothing,

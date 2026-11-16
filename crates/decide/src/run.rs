@@ -251,6 +251,12 @@ pub struct Requires<'a> {
     pub told: &'a Told,
     /// Of each block that runs the cell and that an act of the engine's after it writes, what runs that act again.
     pub answered_by: &'a BTreeMap<BlockId, Answer>,
+    /// Of each dialogue the cell holds as the maker, the blocks the other side watches that it writes
+    /// ([`crate::Cell::dialogues`]).
+    pub dialogues: &'a BTreeMap<BlockId, Vec<BlockId>>,
+    /// Of each verdict the cell hands in as a judge, the value that does not pass and its dialogue
+    /// ([`crate::Cell::verdicts`]).
+    pub verdicts: &'a BTreeMap<BlockId, crate::Verdict>,
 }
 
 /// What a run does next.
@@ -332,6 +338,18 @@ pub enum Unmet {
     /// both kinds whatever each holds: a return that asks for calls asks for nothing else, and deals with nothing
     /// (design document `data-and-context`, 30).
     AsksAndWorks,
+    /// The round was run by a point of the other side in a dialogue the cell holds as the maker, and the return names
+    /// the dialogue as dealt with and writes no version of it, none of `watched`, what the other side watches, and no
+    /// question the work waits for: the next word stays owed (design document `data-and-context`, 41, 42).
+    WordOwed { name: BlockId, watched: Vec<BlockId> },
+    /// The return hands in the verdict, `block`, with the value that does not pass, `value`, and no version of its
+    /// dialogue, `name`: a judge's fail brings the points that still stand (design document `data-and-context`, 41,
+    /// 42).
+    NoPoint {
+        block: BlockId,
+        value: String,
+        name: BlockId,
+    },
     /// The return names as dealt with a name that is none of what its cell watches, as it wrote it. Kept under its
     /// earlier name too, in the reasons of rounds sent back before.
     #[serde(alias = "NotATrigger")]
@@ -655,6 +673,36 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     // A question that waits stops the work at the cell, which may leave all that ran it for after the answer.
     if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() && !waits {
         unmet.push(Unmet::DealtWithNothing);
+    }
+    // A maker woken by a point of the other side owes the next word: an answer in the dialogue, a change of what the
+    // other side watches, the work's head among it as the round committed it, or a question the work waits for; a
+    // judge's fail brings its points (design document `data-and-context`, 41, 42).
+    if calls == 0 && !told.waits {
+        for (dialogue, watched) in requires.dialogues {
+            let woken = told.ran_by.contains(dialogue) && dealt_with.contains(dialogue);
+            let answered = (writes.iter().map(|w| &w.block))
+                .chain(read)
+                .any(|b| b == dialogue || watched.contains(b));
+            if woken && !answered && !waits {
+                unmet.push(Unmet::WordOwed {
+                    name: dialogue.clone(),
+                    watched: watched.clone(),
+                });
+            }
+        }
+        for write in writes {
+            let Some(verdict) = requires.verdicts.get(&write.block) else {
+                continue;
+            };
+            let fails = write.value.as_deref() == Some(verdict.fails.as_str());
+            if fails && !writes.iter().any(|w| w.block == verdict.dialogue) {
+                unmet.push(Unmet::NoPoint {
+                    block: write.block.clone(),
+                    value: verdict.fails.clone(),
+                    name: verdict.dialogue.clone(),
+                });
+            }
+        }
     }
     // A block written in a shape it does not take was handed in, and is said to be wrong only for its shape.
     let misshapen = |block: &BlockId| {
