@@ -122,11 +122,13 @@ fn guided_until(id: &str, guide: &str) -> (Sim, support::Given) {
 fn carried_until(id: &str, deep: bool, guide: Option<&str>) -> (Sim, support::Given) {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
     let mut sim = Sim::of(engineer(), beside);
-    sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
-    sim.writes("background", "Greet the user by name.");
+    // The guide comes first: written once the background is, it would reach the reading of the tree while its first
+    // round is under way, which the background began, and the line's session would begin with none.
     if let Some(text) = guide {
         sim.wrote("guide", text, None, Outsider::Outside);
     }
+    sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
+    sim.writes("background", "Greet the user by name.");
     let plan = [
         ("plan_owner", "Greet by name.", None),
         ("plan_agent", "Add the name to the greeting.", None),
