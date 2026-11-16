@@ -595,6 +595,7 @@ fn asking_then_checked() -> Compiled {
         outside = "head"
         [blocks.plan]
         [blocks.code]
+        shown = true
         [blocks.passed]
         values = ["yes", "no"]
         [blocks.failures]
