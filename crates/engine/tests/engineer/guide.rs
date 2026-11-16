@@ -172,10 +172,11 @@ fn dispute() -> Question {
 // by an answer or a change"), and hands in its verdict as it stands, every time, with no point. Expected by 22 and 9:
 // the return is taken, it is new to no cell, the change ends there, and the work waits at the check again.
 //
-// Red on c04979ee4: the run's check sends the return back as `NoPoint` (42), which it applies to every fail, whatever
-// woke the judge, where `WordOwed` looks at what woke the maker (`Told::points`). The only returns the review can then
-// have taken are a pass, which says the work passes though nothing it judges changed, or points that change meaning,
-// which wake the implementation, a change that does not end where 22 says it does. Left red: 22 must hold.
+// 42 sends back a judge's fail that brings no point as a return that plainly leaves the word owed on the judge, which
+// owes it only woken by an answer or a change (41), as a maker owes its word only woken by a point. Were this return
+// sent back for bringing no point, the only returns the review could have taken would be a pass, saying the work passes
+// though nothing it judges changed, or points that change meaning, which wake the implementation: a change that does
+// not end where 22 says it does.
 #[test]
 fn a_review_whose_fail_stands_and_that_the_guide_alone_runs_hands_in_its_fail_unchanged_and_the_change_ends_there() {
     let mut w = failed_by_the_review();
@@ -238,8 +239,8 @@ fn a_review_whose_fail_stands_and_that_the_guide_alone_runs_hands_in_its_fail_un
 // touches nothing it judges: it hands in its fail as it stands, with no point, since the only points it has are those
 // the owner ruled on; expected by 22, 39 and 41, the return is taken, the change ending there.
 //
-// Red on c04979ee4, as the test before it: `NoPoint` leaves the review only a pass, against the owner's ruling and
-// its own judgment, or points it may not raise. Left red: 22 and 39 must hold.
+// Sent back for bringing no point, as the test before says it may not be, the review would be left only a pass, against
+// the owner's ruling and its own judgment, or points it may not raise (39).
 #[test]
 fn a_review_the_owner_ruled_at_no_that_the_guide_alone_runs_hands_in_its_fail_unchanged_and_the_change_ends_there() {
     let mut w = W::started();

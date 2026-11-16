@@ -697,10 +697,9 @@ fn the_plan_changed_by_the_owner_s_words(sim: &mut Sim, words: &str, plan: &str)
 // with E on a plan changed since: the second ruling marks the points before it, D among them, and neither E nor the
 // research's answer, and the research is told the dialogue is new since D.
 //
-// Every check is made, and each that fails is said, in one run. Red on c04979ee4 in the context alone: the research is
-// told the dialogue is new since the version it last consumed or wrote, none at first and its own answer later, so that
-// the points the owner ruled on, A and B and then D, are told to it as new (`NewVersions::last` is the version the cell
-// worked from, read without the ruling). Left red: 39 says they are new to no cell.
+// Every check is made, and each that fails is said, in one run. A round told the dialogue is new since the version its
+// cell last consumed or wrote, none at first and its own answer later, would be told the points the owner ruled on, A
+// and B and then D, as new to it, which 39 says they are to no cell.
 #[test]
 fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_and_in_the_context_alike() {
     let (mut sim, review) = until("D3");
