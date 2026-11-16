@@ -6,7 +6,21 @@ import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
-import { age, dashesAlong, moodOf, waysUp } from './snap';
+import {
+  age,
+  dashesAlong,
+  DIM,
+  eased,
+  grounded,
+  type Light,
+  linksStrength,
+  moodOf,
+  NODE_W,
+  PITCH,
+  ROW,
+  wayAims,
+  waysUp,
+} from './snap';
 
 const MINUTE = 60_000;
 
@@ -49,6 +63,32 @@ describe('the dashed ways of the items whose work runs', () => {
     expect(ways([0, 4])).toEqual([]);
   });
 
+  it('stand at full strength while nothing is lit, and while something is, only where both ends are lit', () => {
+    const aims = (on: number[], lit: number[]) =>
+      Object.fromEntries([...wayAims(on, parent, new Set(lit))].map(([i, a]) => [i, a === 1 ? 'full' : 'dim']));
+    expect(aims([1, 2, 3], [])).toEqual({ 1: 'full', 2: 'full', 3: 'full' });
+    // Item 1 lit, with its root and the item under it.
+    expect(aims([1, 2, 3], [1, 0, 3])).toEqual({ 1: 'full', 2: 'dim', 3: 'full' });
+    // Item 2 lit with its root: the link from 3 joins nothing lit, and the link from 1 has only one end lit.
+    expect(aims([1, 2, 3], [2, 0])).toEqual({ 1: 'dim', 2: 'full', 3: 'dim' });
+    // Dimmed, a way is as strong as the links it lies on once the items are dimmed.
+    expect(wayAims([1], parent, new Set([4])).get(1)).toBe(linksStrength(DIM));
+    expect(linksStrength(1)).toBe(1);
+  });
+
+  it('ease to their strength over frames, and come to it, as the items do', () => {
+    const frame = 16;
+    const dimmed = linksStrength(DIM);
+    // One frame after the light goes off a way, it has gone only a little of the way down.
+    const once = eased(1, dimmed, frame);
+    expect(once).toBeLessThan(1);
+    expect(once).toBeGreaterThan(1 - (1 - dimmed) / 4);
+    let a = dimmed;
+    for (let n = 0; n < 60; n += 1) a = eased(a, 1, frame);
+    expect(a).toBeCloseTo(1, 3);
+    expect(eased(0.7, 0.7, frame)).toBe(0.7);
+  });
+
   it('are dashed from the start, the dashes moving towards the end as time goes on, cut at the ends', () => {
     expect(dashesAlong(40, 0).slice(0, 2)).toEqual([
       [0, 5],
@@ -67,5 +107,33 @@ describe('the dashed ways of the items whose work runs', () => {
       expect(to - from).toBeLessThanOrEqual(5);
     }
     expect(dashesAlong(0, 3)).toEqual([]);
+  });
+});
+
+describe('the ground of the page under the soft lights', () => {
+  // A light behind item 0, a card two rows high at the top of its column, reaching 40 pixels past it.
+  const light: Light = { item: 0, gx: 0, gy: ROW, gh: ROW / 2, reach: 40 };
+  const under = (item: number, x: number, rows: number, boxed = true) =>
+    grounded(item, x, ROW + rows * ROW, ROW / 2, boxed, [light]);
+
+  it('lies under the card lit and under the cards beside it in its column that the light reaches', () => {
+    expect(under(0, 0, 0)).toBe(true);
+    expect(under(1, 0, 1)).toBe(true);
+    expect(under(2, 0, -1)).toBe(true);
+  });
+
+  it('lies under no card the light does not reach: one further down the column, or one in the next column', () => {
+    expect(under(3, 0, 4)).toBe(false);
+    expect(under(4, PITCH, 0)).toBe(false);
+    expect(PITCH).toBeGreaterThan(NODE_W + light.reach);
+  });
+
+  it('lies under an item with no box only where the light is its own', () => {
+    expect(under(1, 0, 1, false)).toBe(false);
+    expect(under(0, 0, 0, false)).toBe(true);
+  });
+
+  it('lies nowhere while nothing is lit', () => {
+    expect(grounded(0, 0, ROW, ROW / 2, true, [])).toBe(false);
   });
 });
