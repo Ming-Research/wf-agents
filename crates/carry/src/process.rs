@@ -205,7 +205,7 @@ async fn wait(
 
 /// What a program's overseer runs, the group being `$1` and the wait `$2`: it waits for its standard input to close,
 /// then stops the group as a stop does, TERM and then KILL.
-const OVERSEEING: &str = r#"read -r line; kill -s TERM -- "-$1"; sleep "$2"; kill -s KILL -- "-$1""#;
+const OVERSEEING: &str = r#"read -r line; kill -s KILL -- "-$1""#;
 
 /// What stops a program's process group as the process of the engine that runs it ends, however it ends. The group is
 /// out of reach of the terminal's signals, and no handler of the engine's sees a crash or a `kill -9`: so a small shell
