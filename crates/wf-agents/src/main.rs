@@ -750,6 +750,9 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::Twice { name } if field == "tools" => {
             format!("the cell names {name} of its own, and the flow already gives its agent cells theirs")
         }
+        F::Twice { name } if field.starts_with("reads[") || field.starts_with("every_agent.reads[") => {
+            format!("{name} is watched already, and is given with what is watched")
+        }
         F::Twice { name } => format!("{name} is named a second time in the same list"),
         F::LimitOutOfRange { value } => {
             format!("the limit {value} is not a whole number from 1 to the largest count the engine keeps")
@@ -796,7 +799,9 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
-        F::TwoForms => "name them one way: inputs, runs_on and given, or triggered_by and context".to_string(),
+        F::TwoForms => {
+            "name them one way: inputs, runs_on and given, triggered_by and context, or watches and reads".to_string()
+        }
         F::NoSuchData { name } => {
             format!("the flow names {name} among the engine's own data, but no file of ../data/ defines {name}")
         }
@@ -830,6 +835,18 @@ fn words(what: &FaultKind, field: &str) -> String {
                 "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
             )
         }
+        F::NotItsOwn { block } => {
+            format!("the cell writes {block}, a block of the owner's answers or words that is not its own")
+        }
+        F::SpokenToAndAsksNothing { block } => {
+            format!("the cell writes {block}, its words with the owner, but asks the owner nothing")
+        }
+        F::LineDataOfAnother { block, line } => {
+            format!("{block} is the line {line}'s own, and the cell is not on that line")
+        }
+        F::CannotBeAskedIn { cell } => format!(
+            "the engine cannot ask in {cell}: it must be an agent's cell, on a line that may change the work, with words of its own"
+        ),
         F::TriggerNeverRuns {
             trigger,
             block,

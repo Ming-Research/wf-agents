@@ -37,7 +37,9 @@ pub const TESTS_DIR: &str = "tests";
 pub const TASK_EXTENSION: &str = "md";
 
 /// The directory beside the flows, from a flow's directory, that holds the engine's own data, as deep as is useful:
-/// each defined once for every flow, and used by a flow that names it.
+/// each defined once for every flow, and used by a flow that names it. In its `of_a_cell/` ([`OF_A_CELL`]) and
+/// `of_a_line/` ([`OF_A_LINE`]), each a datum every cell or every line has its own of, its file's `name` holding
+/// `{cell}`, the cell's id in small letters, or `{line}`, the line's name: such a datum is made where a cell names it.
 pub const DATA_DIR: &str = "../data";
 
 /// The directory beside the flows, from a flow's directory, that holds what runs a cell: in it, as deep as is useful,
@@ -297,9 +299,41 @@ pub struct LaidOutFlowFile {
     pub tools: Vec<String>,
     /// The groups of the flow's blocks, by a name no block, datum or other group has, each with its blocks as the flow
     /// names them: a cell names a group's trigger (`../triggers/of_a_group/`), which fires for a new version of any of
-    /// them.
+    /// them; or watches or reads the group by its name, a new version of any of its blocks being new to the cell.
     #[serde(default)]
     pub groups: BTreeMap<String, Vec<String>>,
+    /// What the item's card shows the owner of the work, in this order: data of the flow, each by its name. The page
+    /// shows what this names, and names no datum of its own.
+    #[serde(default)]
+    pub card: Vec<String>,
+    /// The cell in whose questions the engine asks what it asks of a work, such as whether a change of a file the
+    /// project protects may merge: one that can change the work as the answer asks, and can be spoken to (design
+    /// document `data-and-context`, 34). None where the flow names none.
+    pub engine_asks_in: Option<String>,
+    /// What every agent cell of the flow watches and reads beside what its own file names, given it first.
+    #[serde(default)]
+    pub every_agent: EveryAgentFile,
+}
+
+/// What every agent cell of a flow watches and reads, as its `flow.toml` writes it: each the engine's datum the flow
+/// names in `data`, or `{each}_` and the rest of the name of a datum each cell has its own of (`../data/of_a_cell/`),
+/// standing for that datum of each cell that has one. A cell watches or reads a datum this names only once, as its
+/// own file names it where it does.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EveryAgentFile {
+    /// The data whose new version runs every agent cell, in the order named.
+    #[serde(default)]
+    pub watches: Vec<String>,
+    /// The data every agent cell is given that run nothing, in the order named.
+    #[serde(default)]
+    pub reads: Vec<String>,
+    /// The kind each is given in, by its name as written.
+    #[serde(default)]
+    pub kinds: BTreeMap<String, InputKind>,
+    /// What a cell does when a datum it watches so is new, by its name as written.
+    #[serde(default, rename = "do")]
+    pub does: BTreeMap<String, String>,
 }
 
 /// The limits as written. They are read as any whole number so that one that is not positive is a fault of the
@@ -555,12 +589,22 @@ pub struct CellFile {
     pub when: Option<Keys>,
     /// What must hold before the cell: every key; the work waits before the cell while one does not.
     pub requires: Option<Keys>,
+    /// What runs the cell, by its data: each datum, or group of the flow's blocks, whose version new to the cell runs
+    /// it, by its name, in the order it names them (design document `data-and-context`, 5, 12). A file names these and
+    /// its `reads`, or one of the forms before them, not two.
+    #[serde(default)]
+    pub watches: Vec<String>,
+    /// The data the cell is given that run nothing, each a datum or a group by its name, in the order it names them, none
+    /// it watches. Only an agent cell is given data.
+    #[serde(default)]
+    pub reads: Vec<String>,
     /// What runs the cell, written `triggered_by`: each a trigger by its name, in the order it names them, a trigger of
     /// `../triggers/` or of its `of_a_cell/` or `of_a_line/` by the name of its file, or one a rule of
     /// `../triggers/of_a_datum/` makes of a datum of the flow. A file names these and its `context`, or one of the forms before them, not two.
     #[serde(default, rename = "triggered_by")]
     pub triggers: Vec<String>,
-    /// What the cell does for a trigger, by the trigger's name: each among `triggered_by`.
+    /// What the cell does for a trigger, by the trigger's name: each among `triggered_by`; of a cell that names what it
+    /// watches, what it does when a datum or group it watches is new, by its name.
     #[serde(default, rename = "do")]
     pub does: BTreeMap<String, String>,
     /// The data the cell's session must hold, its context, in the order it names them: each filled in by its kind.
@@ -568,7 +612,8 @@ pub struct CellFile {
     #[serde(default)]
     pub context: Vec<String>,
     /// The kind the cell is given each datum of its `context` in, by the datum's name: each among `context`, and each
-    /// datum of `context` has one.
+    /// datum of `context` has one. Of a cell that names what it watches and reads, the kind of each block it watches or
+    /// reads, a group's each by its name.
     #[serde(default)]
     pub kinds: BTreeMap<String, InputKind>,
     /// The blocks whose new version runs the cell, in the order it names them.

@@ -150,7 +150,7 @@ export function faultWords(fault: Fault): string {
     case 'takenNotRead':
       return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'twoForms':
-      return 'Name them one way: inputs, runs_on and given, or triggered_by and context.';
+      return 'Name them one way: inputs, runs_on and given, triggered_by and context, or watches and reads.';
     case 'noSuchData':
       return `The flow names ${w.name} among the engine's own data, but no file of ../data/ defines ${w.name}.`;
     case 'definedTwice':
@@ -169,6 +169,14 @@ export function faultWords(fault: Fault): string {
       return `The cell writes ${w.block}, the work's questions, but no answer runs it: the owner's answer would run no cell.`;
     case 'asksAndCannotBeSpokenTo':
       return `The cell writes ${w.block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell.`;
+    case 'notItsOwn':
+      return `The cell writes ${w.block}, a block of the owner's answers or words that is not its own.`;
+    case 'spokenToAndAsksNothing':
+      return `The cell writes ${w.block}, its words with the owner, but asks the owner nothing.`;
+    case 'lineDataOfAnother':
+      return `${w.block} is the line ${w.line}'s own, and the cell is not on that line.`;
+    case 'cannotBeAskedIn':
+      return `The engine cannot ask in ${w.cell}: it must be an agent's cell, on a line that may change the work, with words of its own.`;
     case 'unknownDetail':
       return `The engine fills no place named "${w.detail}".`;
     case 'readNotInContext':

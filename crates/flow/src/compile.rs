@@ -13,10 +13,10 @@ use serde::de::DeserializeOwned;
 
 use crate::agents::{RuleSetFile, Waits};
 use crate::source::{
-    BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, ChangedBy, DATA_DIR, Effort, FLOW_FILE, FlowFile, InputKind, Keys,
-    Kind, LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL, OF_A_DATUM, OF_A_GROUP,
-    OF_A_LINE, OfADatumFile, RULES_DIR, Source, TESTS_DIR, TRIGGERS_DIR, Task, TestFile, Texts, TriggerFile, WHEN_TEST,
-    rules_file, waits_file, who_writes,
+    BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, ChangedBy, DATA_DIR, Effort, EveryAgentFile, FLOW_FILE, FlowFile,
+    InputKind, Keys, Kind, LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL,
+    OF_A_DATUM, OF_A_GROUP, OF_A_LINE, OfADatumFile, RULES_DIR, Source, TESTS_DIR, TRIGGERS_DIR, Task, TestFile, Texts,
+    TriggerFile, WHEN_TEST, rules_file, waits_file, who_writes,
 };
 
 /// A flow's definition compiled.
@@ -49,6 +49,11 @@ pub struct Compiled {
     /// flows says it ([`crate::agents::WAITS_FILE`]); every text empty where there is no such file, a flow the engine
     /// refuses to run (crate `driver`, `faults`).
     pub waits: Waits,
+    /// What the item's card shows the owner of the work, in the order the flow names them; none where it names none.
+    pub card: Vec<BlockId>,
+    /// The cell in whose questions the engine asks what it asks of a work (design document `data-and-context`, 34);
+    /// none where the flow names none.
+    pub engine_asks_in: Option<CellId>,
 }
 
 /// A line: the cells of a work that share one session, as its file writes it.
@@ -429,7 +434,8 @@ pub enum FaultKind {
     NotAnOutput { block: String },
     /// In the old form, the cell says how or why it takes the block, and the block is not among its `inputs`.
     TakenNotRead { block: String },
-    /// The cell names what it takes in two forms of three: `inputs`; `runs_on` and `given`; `triggered_by` and `context`.
+    /// The cell names what it takes in two forms of four: `inputs`; `runs_on` and `given`; `triggered_by` and
+    /// `context`; `watches` and `reads`.
     TwoForms,
     /// The flow names among the engine's own data one that no file of `../data/` defines.
     NoSuchData { name: String },
@@ -460,6 +466,20 @@ pub enum FaultKind {
     /// The cell writes the block, which holds the work's questions (one the source [`ANSWER`] writes), and no block of
     /// the source [`WORDS`] runs it: the owner's words about a question it asks would reach no cell.
     AsksAndCannotBeSpokenTo { block: String },
+    /// The cell, which names what it watches, writes a block of the source [`ANSWER`] or [`WORDS`] that is not its own:
+    /// a cell asks in its own questions and answers the owner in its own words, which no other cell writes (design
+    /// document `data-and-context`, 30, 35).
+    NotItsOwn { block: String },
+    /// The cell writes the block, its own words, which the owner speaks to it in, and asks the owner nothing: a cell that
+    /// asks nothing is not spoken to (principle who-asks-can-be-spoken-to).
+    SpokenToAndAsksNothing { block: String },
+    /// The cell watches or reads the block, a datum this line, not the cell's, has its own of (design document
+    /// `data-and-context`, 25).
+    LineDataOfAnother { block: String, line: String },
+    /// The flow names this cell for the engine to ask in, and it cannot change the work as the answer asks, being of an
+    /// engine or of a line that only reads, or cannot be spoken to, having no words of its own (design document
+    /// `data-and-context`, 34).
+    CannotBeAskedIn { cell: String },
     /// A trigger of the cell stands on a block that each of its writers, cells only (no person or outside writes it),
     /// writes only where a block has a value that the cell's own condition rules out, and that block no cell can
     /// change from the writer's value to the cell's: the trigger could never run the cell. `needs` is the cell's own
@@ -576,6 +596,9 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
     def.check_blocks(has, &mut faults);
     def.check_groups(&mut faults);
     def.check_tests(&mut faults);
+    def.check_every_agent(&mut faults);
+    def.check_card(&mut faults);
+    def.check_engine_asks_in(&mut faults);
     for (path, trigger, _) in &parsed.trigger_files {
         if let Some(detail) = trigger.detail.as_ref().filter(|d| !has.details.contains(*d)) {
             let what = FaultKind::UnknownDetail { detail: detail.clone() };
@@ -663,6 +686,8 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         // Every set of rules is one a line names, or it would have been a fault.
         rules: source.rules.clone(),
         waits: parsed.waits.clone(),
+        card: parsed.card.iter().map(|b| BlockId(b.clone())).collect(),
+        engine_asks_in: parsed.engine_asks_in.as_ref().map(|c| CellId(c.clone())),
     })
 }
 
@@ -691,6 +716,39 @@ struct Parsed {
     /// datum of the engine's the flow names that is not there, and a file beside the flows that lacks the name that
     /// stands for each cell or each datum.
     faults: Vec<Fault>,
+    /// Of a flow laid out one thing to a file, what the item's card shows, as `flow.toml` names it.
+    card: Vec<String>,
+    /// Of a flow laid out one thing to a file, the cell the engine asks in, as `flow.toml` names it.
+    engine_asks_in: Option<String>,
+    /// Of a flow laid out one thing to a file, what every agent cell watches and reads, as `flow.toml` names it.
+    every_agent: EveryAgentFile,
+    /// The data each cell or each line has its own of that the flow's cells name.
+    own: Own,
+}
+
+/// What `flow.toml` of a flow laid out one thing to a file says of the flow as a whole beside what one written before
+/// says: the engine's data it uses, the tools of every agent cell, what the item's card shows, the cell the engine
+/// asks in, and what every agent cell watches and reads.
+#[derive(Default)]
+struct Whole {
+    data: Vec<String>,
+    tools: Vec<String>,
+    card: Vec<String>,
+    engine_asks_in: Option<String>,
+    every_agent: EveryAgentFile,
+}
+
+/// The data each cell or each line has its own of that the flow's cells name, each made from its file beside the flows
+/// where a cell names it: by its name, whose own it is.
+#[derive(Default)]
+struct Own {
+    /// Of each datum a cell has its own of, the cell's id.
+    cells: BTreeMap<String, String>,
+    /// Of each datum a line has its own of, the line.
+    lines: BTreeMap<String, String>,
+    /// The data each file of `../data/of_a_cell/` made, by the name it writes, `{cell}` in it, each list in the order of
+    /// the cells whose own they are.
+    made: BTreeMap<String, Vec<String>>,
 }
 
 /// Where the things of a definition are written.
@@ -769,7 +827,16 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
     let parsed = if source.laid_out {
         let flow = shape::<LaidOutFlowFile>(FLOW_FILE, &source.flow, &mut faults);
         let files = LaidOut::parse(&source.files, &mut faults);
-        flow.map(|flow| (flow.data.clone(), flow.tools.clone(), FlowFile::from(flow), files))
+        flow.map(|flow| {
+            let whole = Whole {
+                data: flow.data.clone(),
+                tools: flow.tools.clone(),
+                card: flow.card.clone(),
+                engine_asks_in: flow.engine_asks_in.clone(),
+                every_agent: flow.every_agent.clone(),
+            };
+            (whole, FlowFile::from(flow), files)
+        })
     } else {
         let flow = shape::<FlowFile>(FLOW_FILE, &source.flow, &mut faults);
         // A flow written before it was laid out takes from beside the flows only the words the engine says to the owner.
@@ -777,15 +844,16 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
             waits: (source.files.get(&waits_file())).and_then(|text| shape(&waits_file(), text, &mut faults)),
             ..LaidOut::default()
         };
-        flow.map(|flow| (Vec::new(), Vec::new(), flow, files))
+        flow.map(|flow| (Whole::default(), flow, files))
     };
     match parsed {
-        Some((data, tools, mut flow, files)) if faults.is_empty() => {
-            let rule_sets = files.gather(&mut flow, &data, &mut places, &mut faults);
+        Some((whole, mut flow, files)) if faults.is_empty() => {
+            let rule_sets = files.gather(&mut flow, &whole.data, &mut places, &mut faults);
             let (triggers, trigger_blocks) = files.resolve(&cells, &mut flow, &mut places, &mut faults);
+            let own = files.own(&cells, &mut flow, &mut places);
             Ok(Parsed {
                 flow,
-                tools,
+                tools: whole.tools,
                 cells,
                 tasks,
                 places,
@@ -795,10 +863,14 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
                 trigger_files: files.triggers,
                 waits: files.waits.unwrap_or_default(),
                 faults,
+                card: whole.card,
+                engine_asks_in: whole.engine_asks_in,
+                every_agent: whole.every_agent,
+                own,
             })
         }
         parsed => {
-            let place = (parsed.as_ref()).map(|(_, _, flow, _)| first_places(&flow.order, &source.cells));
+            let place = (parsed.as_ref()).map(|(_, flow, _)| first_places(&flow.order, &source.cells));
             sort(&mut faults, place.as_ref(), &places);
             Err(faults)
         }
@@ -886,6 +958,54 @@ fn shape<T: DeserializeOwned>(file: &str, text: &str, faults: &mut Vec<Fault>) -
         .ok()
 }
 
+/// The file of a datum each cell or each line has its own of, read into its shape: the name it writes, which a fault
+/// says is missing where it is, holding `placeholder`, beside what any datum's file writes.
+fn own_datum(
+    path: &str,
+    text: &str,
+    placeholder: &str,
+    faults: &mut Vec<Fault>,
+) -> Option<(String, String, LaidOutBlockFile)> {
+    let mut table: toml::Table = shape(path, text, faults)?;
+    let Some(toml::Value::String(name)) = table.remove("name") else {
+        let what = FaultKind::MissingPlaceholder {
+            placeholder: placeholder.to_string(),
+        };
+        faults.push(fault(path, "name", what));
+        return None;
+    };
+    match table.try_into::<LaidOutBlockFile>() {
+        Ok(file) => Some((path.to_string(), name, file)),
+        Err(e) => {
+            faults.push(unreadable(path.to_string(), &e));
+            None
+        }
+    }
+}
+
+/// What stands for whose own a datum is in its name, `placeholder`, as this name of the datum fills it: what lies
+/// between the name's text before and after the placeholder; none where the name is not made so.
+fn whose<'n>(written: &str, placeholder: &str, name: &'n str) -> Option<&'n str> {
+    let (before, after) = written.split_once(placeholder)?;
+    let middle = name.strip_prefix(before)?.strip_suffix(after)?;
+    (!middle.is_empty()).then_some(middle)
+}
+
+/// The file of a datum each cell or each line has its own of, as a datum's, what stands for whose own it is filled in
+/// its words.
+fn own_block(file: &LaidOutBlockFile, placeholder: &str, small: &str) -> BlockFile {
+    let fill = |text: &String| text.replace(placeholder, small);
+    let mut block = file.clone();
+    block.what = block.what.as_ref().map(fill);
+    block.words = block.words.as_ref().map(fill);
+    block.writes = Texts(
+        (block.writes.0.iter())
+            .map(|(name, text)| (name.clone(), fill(text)))
+            .collect(),
+    );
+    BlockFile::from(block)
+}
+
 impl From<LaidOutFlowFile> for FlowFile {
     fn from(flow: LaidOutFlowFile) -> Self {
         FlowFile {
@@ -914,6 +1034,10 @@ struct LaidOut {
     blocks: Vec<(String, LaidOutBlockFile)>,
     tests: Vec<(String, TestFile)>,
     data: Vec<(String, LaidOutBlockFile)>,
+    /// The data each cell has its own of, by their files, each with the name it writes, which holds `{cell}`.
+    cell_data: Vec<(String, String, LaidOutBlockFile)>,
+    /// The data each line has its own of, by their files, each with the name it writes, which holds `{line}`.
+    line_data: Vec<(String, String, LaidOutBlockFile)>,
     /// The triggers by their files, each with whose own it is.
     triggers: Vec<(String, TriggerFile, Whose)>,
     of_a_datum: Vec<(String, OfADatumFile)>,
@@ -937,6 +1061,10 @@ impl LaidOut {
                 laid.blocks.extend(shape(&path, text, faults).map(|f| (path, f)));
             } else if under(&path, TESTS_DIR) {
                 laid.tests.extend(shape(&path, text, faults).map(|f| (path, f)));
+            } else if under(&path, &format!("{DATA_DIR}/{OF_A_CELL}")) {
+                laid.cell_data.extend(own_datum(&path, text, CELL, faults));
+            } else if under(&path, &format!("{DATA_DIR}/{OF_A_LINE}")) {
+                laid.line_data.extend(own_datum(&path, text, LINE, faults));
             } else if under(&path, DATA_DIR) {
                 laid.data.extend(shape(&path, text, faults).map(|f| (path, f)));
             } else if under(&path, &format!("{TRIGGERS_DIR}/{OF_A_DATUM}")) {
@@ -1047,6 +1175,25 @@ impl LaidOut {
                     placeholder: placeholder.to_string(),
                 };
                 faults.push(fault(path, "block", what));
+            }
+        }
+        // A datum each cell or each line has its own of is named by the name its file writes, which holds what stands
+        // for whose own it is.
+        let mut own: BTreeMap<&str, &str> = BTreeMap::new();
+        for (path, name, placeholder) in (self.cell_data.iter().map(|(p, n, _)| (p, n, CELL)))
+            .chain(self.line_data.iter().map(|(p, n, _)| (p, n, LINE)))
+        {
+            if !name.contains(placeholder) {
+                let what = FaultKind::MissingPlaceholder {
+                    placeholder: placeholder.to_string(),
+                };
+                faults.push(fault(path, "name", what));
+            } else if let Some(first) = own.get(name.as_str()) {
+                let mut refused = twice(name, path, first);
+                refused.field = "name".to_string();
+                faults.push(refused);
+            } else {
+                own.insert(name, path);
             }
         }
         for (path, rule) in &self.of_a_group {
@@ -1285,6 +1432,53 @@ impl LaidOut {
         }
         (resolved, declarers.into_keys().collect())
     }
+
+    /// Makes each datum each cell or each line has its own of that a cell of the order names among what it watches,
+    /// reads or writes, and that the flow does not define otherwise: a name a file of `../data/of_a_cell/` makes of the
+    /// id of a cell of the order, in small letters, or one of `../data/of_a_line/` makes of a line of the flow. Each is
+    /// declared in the file that makes it.
+    fn own(&self, cells: &BTreeMap<String, CellFile>, flow: &mut FlowFile, places: &mut Places) -> Own {
+        let mut own = Own::default();
+        let order = flow.order.clone();
+        let named = (order.iter().filter_map(|id| cells.get(id)))
+            .flat_map(|file| file.watches.iter().chain(&file.reads).chain(&file.outputs));
+        for name in named {
+            if flow.blocks.contains_key(name) {
+                continue;
+            }
+            let of_a_cell = (self.cell_data.iter()).find_map(|(path, written, file)| {
+                let small = whose(written, CELL, name)?;
+                let id = order.iter().find(|id| id.to_lowercase() == small)?;
+                Some((path, written, own_block(file, CELL, small), id))
+            });
+            if let Some((path, written, block, id)) = of_a_cell {
+                flow.blocks.insert(name.clone(), block);
+                places.files.insert(("blocks", name.clone()), path.clone());
+                own.cells.insert(name.clone(), id.clone());
+                own.made.entry(written.clone()).or_default().push(name.clone());
+                continue;
+            }
+            let of_a_line = (self.line_data.iter()).find_map(|(path, written, file)| {
+                let line = whose(written, LINE, name).filter(|line| flow.lines.contains_key(*line))?;
+                Some((path, own_block(file, LINE, line), line.to_string()))
+            });
+            if let Some((path, block, line)) = of_a_line {
+                flow.blocks.insert(name.clone(), block);
+                places.files.insert(("blocks", name.clone()), path.clone());
+                own.lines.insert(name.clone(), line);
+            }
+        }
+        // Each in the order of the cells whose own it is.
+        for made in own.made.values_mut() {
+            made.sort_by_key(|name| order.iter().position(|id| own.cells.get(name) == Some(id)));
+        }
+        // The names of the files of data each cell has its own of, which `{each}_` stands for in what every agent cell
+        // takes, though no cell names a datum of one.
+        for (_, written, _) in &self.cell_data {
+            own.made.entry(written.clone()).or_default();
+        }
+        own
+    }
 }
 
 fn unreadable(file: String, error: &toml::de::Error) -> Fault {
@@ -1410,11 +1604,48 @@ struct Definition<'a> {
     uses: BTreeMap<&'a str, Uses<'a>>,
     /// The tests a cell of the order uses, as its condition or a precondition.
     used: BTreeSet<&'a str>,
+    /// What every agent cell watches and reads, as `flow.toml` writes it.
+    every: &'a EveryAgentFile,
+    /// What every agent cell watches, each name with the data it stands for, in the order written.
+    every_watches: Vec<Named>,
+    /// What every agent cell reads, each name with the data it stands for, in the order written.
+    every_reads: Vec<Named>,
+    /// The data each cell or each line has its own of that the flow's cells name.
+    own: &'a Own,
+    /// What the item's card shows, as `flow.toml` names it.
+    card: &'a [String],
+    /// The cell the engine asks in, as `flow.toml` names it.
+    engine_asks_in: Option<&'a str>,
+}
+
+/// What stands in the name every agent cell watches or reads for each cell that has its own of a datum, the rest of the
+/// name being that datum's file's name with `{cell}` in its place.
+const EACH: &str = "{each}";
+
+/// A name of what every agent cell watches or reads, as written, with the data it stands for: the datum it names, or of
+/// a name holding `{each}`, the datum of each cell that has its own of it, in the order of the walk.
+struct Named {
+    written: String,
+    blocks: Vec<String>,
 }
 
 impl<'a> Definition<'a> {
     fn new(parsed: &'a Parsed) -> Self {
         let (flow, cells) = (&parsed.flow, &parsed.cells);
+        let named = |names: &[String]| -> Vec<Named> {
+            (names.iter())
+                .map(|written| {
+                    let blocks = match written.contains(EACH) {
+                        true => (parsed.own.made.get(&written.replace(EACH, CELL)).cloned()).unwrap_or_default(),
+                        false => vec![written.clone()],
+                    };
+                    Named {
+                        written: written.clone(),
+                        blocks,
+                    }
+                })
+                .collect()
+        };
         let mut def = Self {
             flow,
             tasks: &parsed.tasks,
@@ -1427,6 +1658,12 @@ impl<'a> Definition<'a> {
             place: first_places(&flow.order, cells),
             uses: BTreeMap::new(),
             used: BTreeSet::new(),
+            every: &parsed.every_agent,
+            every_watches: named(&parsed.every_agent.watches),
+            every_reads: named(&parsed.every_agent.reads),
+            own: &parsed.own,
+            card: &parsed.card,
+            engine_asks_in: parsed.engine_asks_in.as_deref(),
         };
         let mut uses: BTreeMap<&'a str, Uses<'a>> = flow.blocks.keys().map(|b| (b.as_str(), Uses::default())).collect();
         for (place, id, file) in def.ordered() {
@@ -1814,6 +2051,7 @@ impl<'a> Definition<'a> {
                 found.push((key.to_string(), FaultKind::NotLaidOut));
             }
             Form::Triggers => found.extend(self.check_triggers(id, file)),
+            Form::Watches => found.extend(self.check_watches(file)),
         }
         found.extend(check_list(&file.outputs, "outputs", with_content));
         // A cell that may ask the owner is run by the answer and by the owner's words, which may be about what it
@@ -1821,7 +2059,9 @@ impl<'a> Definition<'a> {
         let source = |block: &str| self.flow.blocks.get(block).and_then(|b| b.outside.as_deref());
         let run_by = |of: &str| takes.runs_on.iter().any(|r| source(r.block.as_str()) == Some(of));
         let (answered, spoken_to) = (run_by(ANSWER), run_by(WORDS));
-        if !unread_triggers {
+        if takes.form == Form::Watches {
+            found.extend(self.check_own(id, file, &takes));
+        } else if !unread_triggers {
             for (i, block) in file.outputs.iter().enumerate() {
                 if self.flow.blocks.get(block).and_then(|b| b.outside.as_deref()) != Some(ANSWER) {
                     continue;
@@ -1836,8 +2076,14 @@ impl<'a> Definition<'a> {
                 }
             }
         }
-        if takes.form == Form::Triggers && !unread_triggers {
-            found.extend(self.check_dead_triggers(id, file, &takes.triggers));
+        match takes.form {
+            Form::Triggers if !unread_triggers => {
+                found.extend(self.check_dead_triggers(id, file, "triggered_by", &file.triggers, &takes.triggers));
+            }
+            Form::Watches => {
+                found.extend(self.check_dead_triggers(id, file, "watches", &file.watches, &takes.triggers));
+            }
+            _ => {}
         }
         // Whether a block is declared is said once, where the outputs name it.
         found.extend(check_list(&file.must_write, "must_write", |block| {
@@ -1923,7 +2169,16 @@ impl<'a> Definition<'a> {
     /// and which no cell can change from that value. A person or the outside writing a block, or a writer with no
     /// condition on a block the cell reads, makes the trigger live; so does a test, which is not read here, and a block
     /// that stands only for a trigger, which the engine fires.
-    fn check_dead_triggers(&self, id: &str, file: &CellFile, triggers: &[Trigger]) -> Vec<(String, FaultKind)> {
+    /// The triggers are as the cell names them in the list of this name, of which a trigger it does not name, such as
+    /// one of what every agent cell watches, is not looked at.
+    fn check_dead_triggers(
+        &self,
+        id: &str,
+        file: &CellFile,
+        list: &str,
+        named: &[String],
+        triggers: &[Trigger],
+    ) -> Vec<(String, FaultKind)> {
         let needs = keys_of(file).filter(|(k, _)| *k != WHEN_TEST).collect::<Vec<_>>();
         if needs.is_empty() {
             return Vec::new();
@@ -1954,7 +2209,7 @@ impl<'a> Definition<'a> {
                     never
                 })
             });
-            let Some(i) = file.triggers.iter().position(|t| *t == trigger.name).filter(|_| dead) else {
+            let Some(i) = named.iter().position(|t| *t == trigger.name).filter(|_| dead) else {
                 continue;
             };
             let what = FaultKind::TriggerNeverRuns {
@@ -1963,7 +2218,7 @@ impl<'a> Definition<'a> {
                 needs: written(file),
                 writers: writers.iter().map(|&(w, f)| (w.to_string(), written(f))).collect(),
             };
-            found.push((format!("triggered_by[{i}]"), what));
+            found.push((format!("{list}[{i}]"), what));
         }
         found
     }
@@ -2006,10 +2261,308 @@ impl<'a> Definition<'a> {
 
     /// What the cell of this id and file takes, its triggers worked out.
     fn takes(&self, id: &str, file: &CellFile) -> Takes {
+        if in_watches_form(file) {
+            return self.watching(file);
+        }
         let triggers: Vec<Trigger> = (self.triggers.get(id).into_iter().flatten())
             .filter_map(|(_, worked)| worked.as_ref().ok().cloned())
             .collect();
         takes(file, triggers)
+    }
+
+    /// The blocks a name a cell watches or reads stands for: a group's, where it names a group of the flow, else the
+    /// datum itself.
+    fn members(&self, name: &str) -> Vec<BlockId> {
+        match self
+            .flow
+            .groups
+            .get(name)
+            .filter(|_| !self.flow.blocks.contains_key(name))
+        {
+            Some(group) => group.iter().map(|b| BlockId(b.clone())).collect(),
+            None => vec![BlockId(name.to_string())],
+        }
+    }
+
+    /// What a cell in the form of `watches` takes (design document `data-and-context`, 5 to 12, 17). Each datum it
+    /// watches is a trigger of the datum's name, which runs it on the datum and which its agent reads, what it does
+    /// for it being what its `[do]` says; a group's, on each of the group's blocks. An agent cell watches what every
+    /// agent cell watches first, and is given, in this order, what every agent cell watches and reads, then what it
+    /// reads, then what it watches, each block in the kind its `[kinds]` gives it, or `[every_agent.kinds]` of what
+    /// every agent cell takes; a datum it names itself it takes as it names it. An engine cell is given nothing.
+    fn watching(&self, file: &CellFile) -> Takes {
+        let agent = file.kind == Kind::Agent;
+        let its_own = |block: &str| file.watches.iter().chain(&file.reads).any(|n| n == block);
+        // Of what every agent cell watches or reads, each block with the name written that stands for it, but those the
+        // cell names itself; none of an engine cell.
+        let every = |named: &[Named]| -> Vec<(String, String)> {
+            let mut blocks = Vec::new();
+            for n in named.iter().filter(|_| agent) {
+                for block in n.blocks.iter().filter(|b| !its_own(b.as_str())) {
+                    blocks.push((n.written.clone(), block.clone()));
+                }
+            }
+            blocks
+        };
+        let mut triggers: Vec<Trigger> = Vec::new();
+        for (written, block) in every(&self.every_watches) {
+            triggers.push(Trigger {
+                name: block.clone(),
+                what: None,
+                block: BlockId(block.clone()),
+                group: Vec::new(),
+                read: vec![BlockId(block)],
+                detail: None,
+                does: self.every.does.get(&written).cloned(),
+            });
+        }
+        for name in &file.watches {
+            if triggers.iter().any(|t| &t.name == name) {
+                continue;
+            }
+            let members = self.members(name);
+            let group = self.flow.groups.contains_key(name) && !self.flow.blocks.contains_key(name);
+            triggers.push(Trigger {
+                name: name.clone(),
+                what: None,
+                block: BlockId(name.clone()),
+                group: if group { members.clone() } else { Vec::new() },
+                read: if agent { members } else { Vec::new() },
+                detail: None,
+                does: file.does.get(name).cloned(),
+            });
+        }
+        let mut runs_on: Vec<RunsOn> = Vec::new();
+        for trigger in &triggers {
+            for block in trigger.blocks() {
+                if !runs_on.iter().any(|r| &r.block == block) {
+                    runs_on.push(RunsOn {
+                        block: block.clone(),
+                        why: trigger.does.clone(),
+                    });
+                }
+            }
+        }
+        let mut given: Vec<Given> = Vec::new();
+        let mut give = |block: BlockId, kind: Option<InputKind>| {
+            if !given.iter().any(|g| g.block == block) {
+                // A block given with no kind is a fault of the definition, which then compiles to nothing.
+                let kind = kind.unwrap_or(OLD_FORM_KIND);
+                given.push(Given { block, kind, why: None });
+            }
+        };
+        for (written, block) in every(&self.every_watches).into_iter().chain(every(&self.every_reads)) {
+            give(BlockId(block), self.every.kinds.get(&written).copied());
+        }
+        for name in (file.reads.iter().chain(&file.watches)).filter(|_| agent) {
+            for block in self.members(name) {
+                let kind = file.kinds.get(block.as_str()).copied();
+                give(block, kind);
+            }
+        }
+        Takes {
+            form: Form::Watches,
+            runs_on,
+            given,
+            triggers,
+        }
+    }
+
+    /// The faults of what a cell in the form of `watches` names that it takes: an agent cell that nothing runs; a
+    /// datum or group named twice, or both watched and read; one the flow does not have; a block that stands only for
+    /// a trigger; a datum of a line's own that is not the cell's line's; one an engine cell reads; a block an agent cell
+    /// is given whose kind it does not say; a kind of a block it is not given; what it does for a datum it does not
+    /// watch; a kind or what it does, of an engine cell; the file naming another form as well.
+    fn check_watches(&self, file: &CellFile) -> Vec<(String, FaultKind)> {
+        let mut found = Vec::new();
+        let agent = file.kind == Kind::Agent;
+        let every_watched = self.every_watches.iter().any(|n| !n.blocks.is_empty());
+        if agent && file.watches.is_empty() && !every_watched {
+            found.push(("watches".to_string(), FaultKind::RunByNothing));
+        }
+        let known = |name: &str| self.flow.blocks.contains_key(name) || self.flow.groups.contains_key(name);
+        for (list, names) in [("watches", &file.watches), ("reads", &file.reads)] {
+            for (i, name) in names.iter().enumerate() {
+                let again = names[..i].contains(name) || (list == "reads" && file.watches.contains(name));
+                let other_line = (self.own.lines.get(name)).filter(|line| file.line.as_ref() != Some(*line));
+                let kindless = (self.members(name).into_iter()).find(|b| !file.kinds.contains_key(b.as_str()));
+                let what = if again {
+                    FaultKind::Twice { name: name.clone() }
+                } else if !known(name) {
+                    FaultKind::NoSuchBlock { block: name.clone() }
+                } else if let Some(what) = self.trigger_only(name) {
+                    what
+                } else if let Some(line) = other_line {
+                    FaultKind::LineDataOfAnother {
+                        block: name.clone(),
+                        line: line.clone(),
+                    }
+                } else if !agent && list == "reads" {
+                    FaultKind::EngineIsGiven { block: name.clone() }
+                } else if let Some(block) = kindless.filter(|_| agent) {
+                    FaultKind::NoKind {
+                        block: block.to_string(),
+                    }
+                } else {
+                    continue;
+                };
+                found.push((format!("{list}[{i}]"), what));
+            }
+        }
+        let given: Vec<BlockId> = (file.watches.iter().chain(&file.reads))
+            .flat_map(|name| self.members(name))
+            .collect();
+        for block in file.kinds.keys() {
+            let what = if !agent {
+                FaultKind::EngineIsGiven { block: block.clone() }
+            } else if !given.iter().any(|g| g.as_str() == block) {
+                FaultKind::NotGiven { block: block.clone() }
+            } else {
+                continue;
+            };
+            found.push((format!("kinds.{block}"), what));
+        }
+        for datum in file.does.keys() {
+            let what = if !agent {
+                FaultKind::EngineHasTask
+            } else if !file.watches.contains(datum) {
+                FaultKind::NotRunOn { block: datum.clone() }
+            } else {
+                continue;
+            };
+            found.push((format!("do.{datum}"), what));
+        }
+        let other = [
+            ("triggered_by", file.triggers.is_empty()),
+            ("context", file.context.is_empty()),
+            ("runs_on", file.runs_on.is_empty()),
+            ("run", file.run.is_empty()),
+            ("given", file.given.is_empty()),
+            ("give", file.give.is_empty()),
+            ("inputs", file.inputs.is_empty()),
+            ("input", file.input.is_empty()),
+        ];
+        if let Some((key, _)) = other.iter().find(|(_, empty)| !empty) {
+            found.push((key.to_string(), FaultKind::TwoForms));
+        }
+        found
+    }
+
+    /// The faults of the questions and the owner's words of a cell in the form of `watches` (design document
+    /// `data-and-context`, 30, 35): a block of either it writes that is not its own; its questions, where it asks, that
+    /// it does not watch, so that the owner's answer would run no cell; its questions with no words of its own that it
+    /// watches, so that the owner's words about them would reach no cell; and words of its own where it asks nothing.
+    fn check_own(&self, id: &str, file: &CellFile, takes: &Takes) -> Vec<(String, FaultKind)> {
+        let mut found = Vec::new();
+        let source = |block: &str| self.flow.blocks.get(block).and_then(|b| b.outside.as_deref());
+        let watched = |block: &str| takes.runs_on.iter().any(|r| r.block.as_str() == block);
+        let (mut questions, mut words) = (None, None);
+        for (i, block) in file.outputs.iter().enumerate() {
+            let of = source(block.as_str());
+            if of != Some(ANSWER) && of != Some(WORDS) {
+                continue;
+            }
+            let field = format!("outputs[{i}]");
+            if self.own.cells.get(block).map(String::as_str) != Some(id) {
+                found.push((field, FaultKind::NotItsOwn { block: block.clone() }));
+            } else if of == Some(ANSWER) {
+                questions.get_or_insert((field, block));
+            } else {
+                words.get_or_insert((field, block));
+            }
+        }
+        match (questions, words) {
+            (Some((field, asks)), words) => {
+                if !watched(asks.as_str()) {
+                    let what = FaultKind::AsksWithNoAnswer { block: asks.clone() };
+                    found.push((field.clone(), what));
+                }
+                if words.is_none_or(|(_, words): (String, &String)| !watched(words.as_str())) {
+                    let what = FaultKind::AsksAndCannotBeSpokenTo { block: asks.clone() };
+                    found.push((field, what));
+                }
+            }
+            (None, Some((field, words))) => {
+                let what = FaultKind::SpokenToAndAsksNothing { block: words.clone() };
+                found.push((field, what));
+            }
+            (None, None) => {}
+        }
+        found
+    }
+
+    /// The faults of what every agent cell watches and reads: a name given twice, or both watched and read; one that is
+    /// neither the engine's datum the flow names nor, with `{each}`, a datum each cell has its own of; one with no kind;
+    /// a kind of what is not named; what is done for what is not watched. All in `flow.toml`.
+    fn check_every_agent(&self, faults: &mut Vec<Fault>) {
+        let every = self.every;
+        let known = |written: &str| match written.contains(EACH) {
+            true => self.own.made.contains_key(&written.replace(EACH, CELL)),
+            false => self.places.data.contains_key(written),
+        };
+        for (list, names) in [("watches", &every.watches), ("reads", &every.reads)] {
+            for (i, name) in names.iter().enumerate() {
+                let what = if names[..i].contains(name) || (list == "reads" && every.watches.contains(name)) {
+                    FaultKind::Twice { name: name.clone() }
+                } else if !known(name.as_str()) {
+                    FaultKind::NoSuchData { name: name.clone() }
+                } else if !every.kinds.contains_key(name) {
+                    FaultKind::NoKind { block: name.clone() }
+                } else {
+                    continue;
+                };
+                faults.push(fault(FLOW_FILE, format!("every_agent.{list}[{i}]"), what));
+            }
+        }
+        for name in every.kinds.keys() {
+            if !(every.watches.contains(name) || every.reads.contains(name)) {
+                let what = FaultKind::NotGiven { block: name.clone() };
+                faults.push(fault(FLOW_FILE, format!("every_agent.kinds.{name}"), what));
+            }
+        }
+        for name in every.does.keys() {
+            if !every.watches.contains(name) {
+                let what = FaultKind::NotRunOn { block: name.clone() };
+                faults.push(fault(FLOW_FILE, format!("every_agent.do.{name}"), what));
+            }
+        }
+    }
+
+    /// The faults of what the item's card shows: a name given twice, and one that is no datum of the flow.
+    fn check_card(&self, faults: &mut Vec<Fault>) {
+        for (field, what) in check_list(self.card, "card", |block| {
+            let what = FaultKind::NoSuchBlock {
+                block: block.to_string(),
+            };
+            (!self.flow.blocks.contains_key(block)).then_some(what)
+        }) {
+            faults.push(fault(FLOW_FILE, field, what));
+        }
+    }
+
+    /// The fault of the cell the engine asks in: one the order does not name, and one that cannot change the work, of
+    /// an engine or of a line that only reads, or cannot be spoken to, writing no words of its own (design document
+    /// `data-and-context`, 34).
+    fn check_engine_asks_in(&self, faults: &mut Vec<Fault>) {
+        let Some(cell) = self.engine_asks_in else {
+            return;
+        };
+        let what = match self.cells.get(cell).filter(|_| self.place.contains_key(cell)) {
+            None => FaultKind::NoCellFile { cell: cell.to_string() },
+            Some(file) => {
+                let reads_only =
+                    (file.line.as_ref()).is_some_and(|l| self.flow.lines.get(l).is_some_and(|l| l.reads_only));
+                let words = (file.outputs.iter()).any(|b| {
+                    self.flow.blocks.get(b).and_then(|d| d.outside.as_deref()) == Some(WORDS)
+                        && self.own.cells.get(b).map(String::as_str) == Some(cell)
+                });
+                if file.kind == Kind::Agent && !reads_only && words {
+                    return;
+                }
+                FaultKind::CannotBeAskedIn { cell: cell.to_string() }
+            }
+        };
+        faults.push(fault(FLOW_FILE, "engine_asks_in", what));
     }
 
     /// The faults of what a cell names that it takes by its triggers and its context: an agent cell that nothing runs;
@@ -2329,6 +2882,11 @@ impl<'a> Definition<'a> {
     }
 }
 
+/// Whether the cell's file names what it takes in the form of `watches`: it names what it watches or what it reads.
+fn in_watches_form(file: &CellFile) -> bool {
+    !(file.watches.is_empty() && file.reads.is_empty())
+}
+
 /// What a cell names that it takes, in whichever form its file is written: the blocks that run it and those it is
 /// given, each list in the order the file names them, with why and how where the file says, and its triggers.
 struct Takes {
@@ -2347,6 +2905,9 @@ enum Form {
     RunsOn,
     /// What runs it, `triggered_by`, each an event worked out to a block, and the data it is given, `context`.
     Triggers,
+    /// The data it watches, `watches`, each a datum or a group, and those it only reads, `reads` (design document
+    /// `data-and-context`, 5).
+    Watches,
 }
 
 /// What an agent cell in the old form is given of a block of its `inputs` whose `[input.<block>]` names no kind: the

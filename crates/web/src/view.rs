@@ -457,6 +457,23 @@ pub enum What {
     AsksAndCannotBeSpokenTo {
         block: String,
     },
+    /// The cell writes a block of the owner's answers or words that is not its own.
+    NotItsOwn {
+        block: String,
+    },
+    /// The cell writes its own words, which the owner speaks to it in, and asks the owner nothing.
+    SpokenToAndAsksNothing {
+        block: String,
+    },
+    /// The cell watches or reads a datum of another line's own.
+    LineDataOfAnother {
+        block: String,
+        line: String,
+    },
+    /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
+    CannotBeAskedIn {
+        cell: String,
+    },
     /// A trigger of the cell stands on a block whose every writer runs only where the cell cannot.
     TriggerNeverRuns {
         trigger: String,
@@ -836,6 +853,10 @@ impl What {
             F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
             F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
+            F::NotItsOwn { block } => What::NotItsOwn { block },
+            F::SpokenToAndAsksNothing { block } => What::SpokenToAndAsksNothing { block },
+            F::LineDataOfAnother { block, line } => What::LineDataOfAnother { block, line },
+            F::CannotBeAskedIn { cell } => What::CannotBeAskedIn { cell },
             F::TriggerNeverRuns {
                 trigger,
                 block,

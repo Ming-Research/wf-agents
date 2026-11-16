@@ -230,7 +230,7 @@ export type What =
   | { kind: 'notAnOutput'; block: string }
   /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
   | { kind: 'takenNotRead'; block: string }
-  /// The cell names what it takes in two forms of three.
+  /// The cell names what it takes in two forms of four.
   | { kind: 'twoForms' }
   /// The flow names among the engine's own data one that no file beside the flows defines.
   | { kind: 'noSuchData'; name: string }
@@ -250,6 +250,14 @@ export type What =
   | { kind: 'asksWithNoAnswer'; block: string }
   /// The cell writes the work's questions, and the owner's words do not run it.
   | { kind: 'asksAndCannotBeSpokenTo'; block: string }
+  /// The cell writes a block of the owner's answers or words that is not its own.
+  | { kind: 'notItsOwn'; block: string }
+  /// The cell writes its own words, which the owner speaks to it in, and asks the owner nothing.
+  | { kind: 'spokenToAndAsksNothing'; block: string }
+  /// The cell watches or reads a datum of another line's own.
+  | { kind: 'lineDataOfAnother'; block: string; line: string }
+  /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
+  | { kind: 'cannotBeAskedIn'; cell: string }
   /// The trigger says what happened by a place the engine does not fill.
   | { kind: 'unknownDetail'; detail: string }
   /// A trigger of an agent's cell has its agent read a datum that the cell's context does not hold.

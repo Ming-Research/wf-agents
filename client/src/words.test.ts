@@ -102,7 +102,7 @@ describe('the words of the page', () => {
       faultWords({ file: 'check.toml', field: 'input.main.kind', what: { kind: 'engineIsGiven', block: 'main' } }),
     ).toBe("An engine's cell says how it is given main, but it has no session.");
     expect(faultWords({ file: 'plan.toml', field: 'inputs', what: { kind: 'twoForms' } })).toBe(
-      'Name them one way: inputs, runs_on and given, or triggered_by and context.',
+      'Name them one way: inputs, runs_on and given, triggered_by and context, or watches and reads.',
     );
     expect(
       faultWords({
