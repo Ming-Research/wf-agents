@@ -392,15 +392,15 @@ fn what_a_cell_reads_and_what_every_agent_cell_takes_are_kept_as_written() {
     // A group a cell reads is kept by its name, with its blocks.
     let mut grouped = plan_takes("watches = [\"request\"]\nreads = [\"heard\"]");
     grouped.flow.push_str("\n[groups]\nheard = [\"opinions\"]\n");
-    let compiled = compiled(&grouped);
+    let read = compiled(&grouped);
     assert_eq!(
-        cell(&compiled, "plan").reads,
+        cell(&read, "plan").reads,
         [Taken {
             name: "heard".to_string(),
             blocks: vec!["opinions".into()]
         }]
     );
-    assert_eq!(compiled.every_agent, flow::EveryAgent::default());
+    assert_eq!(read.every_agent, flow::EveryAgent::default());
 }
 
 #[test]

@@ -615,7 +615,7 @@ function pageOf(item: Item, summary: Summary, questions: Record<number, Question
   const cells: CellDetail[] = FLOW.cells.map((c) => ({
     cell: c.id,
     needs: [],
-    inputs: c.inputs.map((block) => ({ block, current: null, known: null, changed: false })),
+    inputs: c.watches.flatMap((w) => w.blocks).map((block) => ({ block, current: null, known: null, changed: false })),
   }));
   return {
     summary,
