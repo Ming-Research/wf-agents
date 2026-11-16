@@ -26,8 +26,8 @@ fn seen(w: &W) -> Vec<(String, Option<String>)> {
 }
 
 /// The work from its start to the review's yes on the implementation's code, which its round committed at the head
-/// `c1`: the research hands in a plan with no deeper look and no change of the tree, and the review asks for no
-/// testing.
+/// `c1`: the research hands in a plan with no deeper look and no change of the tree, both reviews of the plan find
+/// nothing to change, and the review asks for no testing.
 fn reviewed_at_c1() -> W {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
@@ -43,6 +43,8 @@ fn reviewed_at_c1() -> W {
         Vec::new(),
     );
     w.hands_in("R2", &[], Vec::new());
+    w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("D4", &[("tree_ok", Some("yes"))], Vec::new());
     w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
     w.hands_in(
         "T1",

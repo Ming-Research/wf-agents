@@ -161,9 +161,8 @@ fn rare() -> Vec<String> {
     let cell = |id: &str| CellId::from(id);
     let block = |id: &str| BlockId::from(id);
     vec![
-        // The deep research, and the review of the tree.
+        // The deep research.
         ran(&cell("D1")),
-        ran(&cell("D4")),
         // The loops of a review and its reply.
         reply_loop(&block("plan_review"), &block("reply_plan_review")),
         reply_loop(&block("tree_review"), &block("reply_tree_review")),
@@ -174,6 +173,7 @@ fn rare() -> Vec<String> {
         A_QUESTION_WAITED.to_string(),
         ran_on(&cell("R0"), "on_session"),
         ran_on(&cell("D1"), "on_session"),
+        ran_on(&cell("D3"), "on_session"),
         MAIN_WHILE_THE_CHECK_WAITS.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
         "stop: the work merged".to_string(),
@@ -241,12 +241,6 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
 /// What of the flow the exploration never reaches, each with why: what the flow's definition holds and no path can
 /// reach, or what lies past the bound.
 const NEVER: &[(&str, &str)] = &[
-    (
-        "D3 ran back on on_plan, written by a cell after it",
-        "I1's opinion in acceptance reaches D2 first, and D2's plan reaches D3 with it, so D3 runs for D2's version \
-         too. That it runs for I1's alone takes D2 handing in no plan: a third return besides the content, past the \
-         bound.",
-    ),
     (
         "M1 ran on on_asked",
         "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \

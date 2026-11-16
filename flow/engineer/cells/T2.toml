@@ -16,8 +16,8 @@ and one of the engineer's, say so in `testing`. One red
 after the change, check against its reference first; hand on only what stays red. Commit your tests on the work's
 branch.
 
-Hand in `tests`, and what stays red or stays suspect in `testing`. With `testing_ok` yes, leave `testing` out of your
-return.
+Hand in `tests`, and what stays red or stays suspect in `testing`, every point at once: this is your one chance, and
+nothing is raised later that could be raised now. With `testing_ok` yes, leave `testing` out of your return.
 '''
 when = { needs_testing = "yes" }
 # Run when the review asks for it, and again when the implementation answers its red tests, not on every version of
