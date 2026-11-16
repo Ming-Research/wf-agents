@@ -239,7 +239,6 @@ const refusal = (e: unknown): string => (e instanceof Error ? e.message : String
 
 /// The words for who writes a message or is named in one that is no cell of a flow.
 const WRITER: Record<string, string> = {
-  R1: 'Research',
   owner: 'You',
   architect: 'Architect',
   assistant: 'Assistant',
