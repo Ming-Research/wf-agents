@@ -1,7 +1,7 @@
 # What is said to a work
 
 How the owner's words reach the cell the engine chooses, and how what is said is kept (design document
-`data-and-context`, 30 to 38).
+`data-and-context`, 30 to 35).
 
 ### decision words-go-only-to-a-cell-that-can-take-them
 The owner's words go only to a cell they run whose condition is met now, the engine choosing it and the page showing its choice before and after the words are sent; where there is none, or the work has ended, they are refused with why and go to no other cell. A line none of whose cells the owner's words run is not counted as standing anywhere.

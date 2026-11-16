@@ -73,9 +73,9 @@ Why: Engineers mostly do what a review says, so a wrong demand turns good code i
 Every work's plan is reviewed before it is built, for its design and against the design tree, by a session that did
 not write it, whatever the size of the change; a change too small to be worth that is joined with related ones into
 one work, never run alone.
-Why: A small change reviewed carelessly can break what matters, and the damage is not small. A fix of a few lines that
-ran the flow alone took an hour and more with the waiting; what answers that is joining small things into one work,
-not leaving out the review.
+Why: A small change left unreviewed can break what matters, and the damage is not small (a judgment, with no case
+behind it). A fix of a few lines that ran the flow alone took an hour and more with the waiting; what answers that is
+joining small things into one work, not leaving out the review.
 
 ### principle a-question-is-a-choice
 What is asked of a person is a question of yes or no, or a choice of one or more among options, with the answer its
@@ -122,24 +122,29 @@ Why: Carrying what one cell writes to the next is the flow's work (principle mec
 agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
 
 ### principle a-cell-knows-only-its-data
-A cell knows nothing of the other cells: it watches some data, reads others, and writes its outputs from them alone.
-A version of a datum it watches that it did not write is the one thing that runs it: no trigger stands apart from the
-data, no datum is made only to run a cell, and nothing is sent to a cell by who wrote a version. This is the flow's
-side of principle an-agent-knows-only-its-task.
+A cell knows nothing of the other cells: it is given only the data it watches and reads, and a new version of a datum
+it watches runs it, unless it wrote that version itself (design document `data-and-context`). Nothing else runs a
+cell: no trigger apart from the data, no datum made only to run one, and no version sent to some of the cells that
+watch it and kept from others.
 Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no
 content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and
-versions sent on by who wrote them, none of which the design of data and context needs.
+versions sent on by who wrote them. This is the flow's side of principle an-agent-knows-only-its-task.
 
-### principle one-dialogue-for-each-source
-Each that judges or questions a cell's work, a cell or the owner, speaks to it in a dialogue of its own: one datum the
-two write in turn and both watch, so that an answer wakes only the one it answers. No datum holds the words of more
-than one source, and none is made for an answer.
-Why: One record for several sources woke every source at each answer, and a datum made for each answer doubled the data
-and the triggers of every pair, growing with each cell added.
+### principle one-dialogue-for-each-party
+Each agent's cell that judges or doubts another cell's work has a dialogue of its own with that cell, and so has the
+owner with each cell it speaks to: one datum only the two parties write, so that each word is new to the other party
+alone (design document `data-and-context`). An act of the engine reads no words and is no party: it is answered by
+what runs it again (decision an-act-is-answered-by-what-runs-it).
+Why: One record for several parties woke every party at each answer, and a datum made for each answer doubled the
+data and the triggers of every pair, growing with each cell added.
 
 ### principle the-one-woken-owes-the-next-word
-In a dialogue left open, the one woken owes the next word: a maker answers each point, done or why not, or changes
-what its judge watches; a judge hands in its verdict, a fail with a new point, a pass with no word, which closes the
-dialogue. The engine sends back a return that leaves an open dialogue owing on the one that handed it in.
-Why: A point left with no answer, or a fail with no point, left the work at the merge with nobody woken; a pass that
-wrote a word woke the maker for nothing.
+In an open dialogue the party woken owes the next word: a maker answers the points, changes what its judge watches, or
+puts the dispute to the owner as a question the work waits for; a judge hands in its verdict, a fail with the points
+that still stand, or a pass, which writes no point and closes the dialogue (design document `data-and-context`). The
+engine sends back a return that plainly leaves the word owed: a maker's that answers no point, changes nothing its
+judge watches and asks nothing; a judge's fail with no point.
+Why: Were every side to answer whenever it is woken, a judge could never pass without a word, and a pass with a word
+would wake the maker for nothing; owing the next word only in an open dialogue holds both (a judgment, with no case
+behind it). A side left owing with nothing to send it back stalls the work with nobody woken, as a red check answered
+in words alone did (decision an-act-is-answered-by-what-runs-it).
