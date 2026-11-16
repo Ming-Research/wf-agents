@@ -371,7 +371,7 @@ describe('the history of a work', () => {
     // The run abandoned is in the implementation's column, and says so.
     expect(rows[3].querySelectorAll('td')[2].querySelector('.run')?.className).toContain('run-abandoned');
     expect(texts(page, '.step-lead .step-words')[3]).toBe('3 implement had no record');
-    // The ways round are drawn in the way back's purple, from the review to the implementation.
+    // The ways round are drawn as the flow chart draws a way back, from the review to the implementation.
     expect(page.querySelectorAll('.run-arrow')).toHaveLength(2);
     expect(texts(page, '.step-words.way-back')).toEqual(['8 way round for opinions_implement', '10 way round for opinions_implement']);
     expect(texts(page, '.step-lead .step-words')[13]).toBe('the outside wrote main');

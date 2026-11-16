@@ -100,8 +100,15 @@ export function Views({
 function FlowAlone({ route }: { route: Route }) {
   return (
     <p className="message">
-      This server gives the flow alone: it has no items and no works to show. <a href="#/flow">Open the flow</a>, or{' '}
-      <a href={`?fixtures${hashOf(route)}`}>look at this view with sample data</a>.
+      This server gives the flow alone: it has no items and no works to show.{' '}
+      <a className="link" href="#/flow">
+        Open the flow
+      </a>
+      , or{' '}
+      <a className="link" href={`?fixtures${hashOf(route)}`}>
+        look at this view with sample data
+      </a>
+      .
     </p>
   );
 }

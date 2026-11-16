@@ -1,6 +1,6 @@
 /* The flow's chart: the blocks down the side, the cells across, a mark where they cross, each block's line along its
-   row, and the ways back in the way-back colour. The blocks' names stay in place as the frame scrolls sideways, and the
-   cells' heads as it scrolls down. */
+   row, and the ways back in the muted colour, thicker than a block's line and with an arrow. The blocks' names stay in
+   place as the frame scrolls sideways, and the cells' heads as it scrolls down. */
 
 /* The view under the view's line: the chart's frame, and the docked panel at its right while one is open. */
 .view-body {
@@ -76,8 +76,8 @@
   text-align: left;
 }
 
-/* The corner stands for both: "Cells →" at its top right beside the cells' heads, "Blocks ↓" at its bottom left over
-   the names. */
+/* The corner stands for both: "Cells" with an arrow to the right at its top right beside the cells' heads, and the
+   rows' label with an arrow down at its bottom left over the names. */
 .matrix thead th.corner {
   z-index: 3;
   height: 1px;
@@ -166,6 +166,14 @@ tr.row.chosen > .block-head {
   font-weight: var(--weight-strong);
   hyphens: auto;
   overflow-wrap: break-word;
+}
+
+/* In the history of a work, a cell's title stays on one line, cut at the column's edge, whole on the pointer's tip. */
+.history .cell-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The flow's chart. A cell's column is as wide as its marks, so its head holds the id alone, in the middle. The
@@ -278,6 +286,12 @@ tr.row.chosen > .block-head {
   color: var(--accent);
 }
 
+/* An arrow beside a label, on the label's line. */
+.label-arrow {
+  flex: none;
+  vertical-align: var(--mark-drop);
+}
+
 /* A crossing: the row's line through it, the way back when there is one, and the mark. */
 .spot {
   position: relative;
@@ -318,7 +332,7 @@ tr.row.chosen > .block-head {
 
 .seg.back {
   height: var(--chart-back);
-  background: var(--violet);
+  background: var(--muted);
 }
 
 /* Where a way back runs along the row's line, each keeps to its lane: the line above the middle, the way back and
@@ -339,7 +353,7 @@ tr.row.chosen > .block-head {
   left: calc(50% + var(--chart-mark-half));
   transform: translateY(-50%);
   border-top: var(--chart-arrow) solid transparent;
-  border-right: var(--chart-arrow-length) solid var(--violet);
+  border-right: var(--chart-arrow-length) solid var(--muted);
   border-bottom: var(--chart-arrow) solid transparent;
 }
 
@@ -430,7 +444,7 @@ tr.row.chosen > .block-head {
   display: inline-block;
   width: var(--space-12);
   height: var(--chart-back);
-  background: var(--violet);
+  background: var(--muted);
 }
 
 /* The faults of a definition that does not compile, in place of the chart. */
@@ -441,10 +455,6 @@ tr.row.chosen > .block-head {
 
 .faults-view > p {
   padding-bottom: var(--space-8);
-}
-
-.way-back {
-  color: var(--violet);
 }
 
 /* An edge that drags a width: the cursor of a resize, and a hairline in the accent under the pointer. */

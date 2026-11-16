@@ -12,24 +12,28 @@
 // Under each item that depends on an item besides its main dependent, a shadow of it stands: a white card with a dashed
 // edge and grey words, pointing to where the item stands. A filled funnel, grey, joins each item's top and bottom to
 // the first item under it and the last. Two items are lit, each with the way from it to its root, and from each of its
-// shadows to theirs, by rings and by ribbons joining each to the one above: the item under the pointer in blue, faded
-// out once the pointer leaves, and the item selected by a click in purple, until it is let go; a click on a shadow
-// selects the item it points to and brings it to the middle of the screen. A card that needs the owner has rings of
-// red round it, which stand still; one whose work runs has a light going round its edge. The mark of a cell running
-// pulses. Every column fades out into the page near the top and the bottom of the screen; at those two edges the
-// column under the pointer has a line of blue, faded in as the pointer comes. Only what is on the screen is drawn. What
-// it draws and how fast is kept in `stats`. A call the engine carries out for a cell, a tool's or an act of its own, keeps its card
-// running as a round does, and its cell's mark, in the yellow of a call, pulses as a running cell's does.
+// shadows to theirs, by rings and by ribbons joining each to the one above: the item under the pointer in a light blue,
+// faded out once the pointer leaves, and the item selected by a click in the accent, until it is let go; a click on a
+// shadow selects the item it points to and brings it to the middle of the screen. The mark of a cell running pulses,
+// while its card stands still. The way from each item whose work runs up to its root is dashed in the colour of a
+// running card's edge, its dashes moving from the root's side to the item's. Every column fades out into the page near
+// the top and the bottom of the screen; at those two edges the column under the pointer has a line of blue, faded in as
+// the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. A call the
+// engine carries out for a cell, a tool's or an act of its own, keeps its card running as a round does, and its cell's
+// mark, in the yellow of a call, pulses as a running cell's does.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
 // every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
 // it drew the stages; what the new interface has nothing for
 // yet (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`); the colours the
-// page's tokens came from are read from the tokens, so that the canvas follows light and dark; and the canvas follows
-// the size of what holds it, besides the window's.
+// page's tokens came from are read from the tokens, so that the canvas follows light and dark; the canvas follows the
+// size of what holds it, besides the window's; the links dim with the items they join while an item is lit
+// (`DIM_LINKS`); and the way from each item whose work runs up to its root is dashed and moving (`RUN_*`), where a
+// running card had a light going round its edge and a card that waits for the owner rings round it.
 
-import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
+import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
+import { accentNow, onAccent, turning } from '../accent';
 import { MARK, MARKS } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { STATE, stateOf } from '../works/words';
@@ -70,18 +74,45 @@ const DIM = 0.35;
 const DIM_LINKS = 0.4;
 const FADE_DOWN = 220;
 const FADE_UP = 110;
+/// The way from each item whose work runs up to its root, dashed in the colour of a running card's edge and moving
+/// from the root's side to the item's: a dash's length and the gap after it, in pixels; how fast the dashes move, in
+/// pixels a second; and the line's width.
+const RUN_DASH = 5;
+const RUN_GAP = 4;
+const RUN_SPEED = 18;
+const RUN_LINE = 1.5;
+/// How many straight pieces a dashed way's curve is drawn in: enough that a dash on its bend reads as curved.
+const RUN_PIECES = 32;
 /// How long the pointer rests on an item before it is the one in focus, and how long it is off every item before the
 /// focus is let go, in milliseconds.
 const DWELL_ON = 100;
 const DWELL_OFF = 180;
 const GLOW_OUT = 160;
-/// The ring round an item lit, the one selected or under the pointer or one above them: its edge's width, and the halo
-/// outside it, how wide and how strong, within the room between two items.
+/// The ring round an item lit, the one selected or under the pointer or one above them: its edge's width; the item
+/// selected's own a little wider, so that it stands out from the item under the pointer, lit the same way.
 const RING = 2;
+const CHOSEN_RING = 3;
 /// How far in from the side of the room an item brought into view stands.
 const INSET = 24;
-const HALO = 5;
-const HALO_ALPHA = 0.32;
+/// The soft light round the item under the pointer, and round the item selected, in place of a ring of light: a fill
+/// of the pointer's blue (or of the accent) behind its card, this many pixels past its edge, blurred this much, at this
+/// strength, so that the light shows only as a narrow glow round the card; the item selected's a little wider and
+/// softer, so that it stands out from the one under the pointer. Over the light and under the card lies the card's
+/// own ground, so that none of the light shows through a card drawn faint. The room the blur is drawn in past the
+/// fill is wide enough that the blur fades out before its edge.
+const SOFT_SPREAD = 2;
+const SOFT_BLUR = 6;
+const SOFT_ALPHA = 0.45;
+const CHOSEN_SPREAD = 4;
+const CHOSEN_BLUR = 9;
+
+/// The blur of a soft light round an item, this strong, with its room: set after the filter is made, which sets its
+/// own from its strength, too narrow for the blur to fade out in.
+function softBlur(strength: number): BlurFilter {
+  const blur = new BlurFilter({ strength });
+  blur.padding = 4 * strength;
+  return blur;
+}
 /// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it.
 /// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the mark goes at its faintest.
 const PULSE_MS = 750;
@@ -113,7 +144,9 @@ export const PACE = 1.5;
 
 /// The console's colours: words, marks and lines in greys; one accent for what runs; red for a stop, what waits for the
 /// owner or what the engine halted; and for a work's age amber, then red past an hour. These are the
-/// console's own, in light; `themed` gives those the page's tokens came from as the tokens say, light or dark.
+/// console's own, in light, those of the accent's hue in the default accent; `themed` gives those the page's tokens
+/// came from as the tokens say, light or dark, and turns the others of the accent's hue to the accent picked in the
+/// Settings view.
 const LIGHT = {
   ink: '#1f2937',
   muted: '#6b7280',
@@ -126,17 +159,17 @@ const LIGHT = {
   /// The ground the tree is drawn on: a very light grey, the cards white on it as paper.
   page: '#f6f7f9',
   /// A card's edge above a work.
-  branch: '#c7cdfd',
+  branch: '#abd3fd',
   /// The ribbons from the item under the pointer up to its root.
-  hoverRibbon: '#e4dcfd',
+  hoverRibbon: '#d5e2ff',
   /// The ring round the item selected and those on its way to its root, and the ribbons between them.
-  chosen: '#8b5cf6',
-  chosenRibbon: '#e2d7fd',
+  chosen: '#3673f5',
+  chosenRibbon: '#d0ddff',
   /// A column's bar on the map, light, so that the marks across it show.
-  mapBar: '#aab6fd',
+  mapBar: '#7cc0fd',
   /// The colours of works, which tint their cards: running in the accent, green being kept for what is done; paused, and
   /// waiting for something else, grey; stopped, for the owner or by the engine, red.
-  running: '#8b5cf6',
+  running: '#3673f5',
   paused: '#8b93a1',
   halted: '#e5484d',
   waiting: '#e8cc6a',
@@ -144,16 +177,16 @@ const LIGHT = {
   red: '#e5484d',
   green: '#2f9e6e',
   /// The item under the pointer, and those above it, ringed; the lines at the edges of the column under it.
-  over: '#a78bfa',
+  over: '#6d9bf9',
   /// The words on a filled tag.
   onTag: '#ffffff',
   /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
-  unseen: '#8b5cf6',
-  accent: '#8b5cf6',
+  unseen: '#3673f5',
+  accent: '#3673f5',
   /// Where a work's time went, in the colours of the track in the item's window (styles/parts.css): a model's, the
   /// tools', idle, and the ground they lie on with how far it lets the card through. An idle stretch takes the colour
   /// of what the work waited for: the owner's red, a pause's muted grey, or idle.
-  model: '#8b5cf6',
+  model: '#3673f5',
   tools: '#14a3a8',
   idle: '#e8ecf2',
   track: '#818b98',
@@ -176,10 +209,48 @@ function token(name: string, fallback: string): string {
 /// The colour a part `k` of the way from `a` to `b`, as `#rrggbb`.
 const between = (a: string, b: string, k: number) => `#${mix(a, b, k).toString(16).padStart(6, '0')}`;
 
+/// The items, by their place in the tree, whose link to the one above them is on the way from one of `running` up to
+/// its root: each link once, however many of them it is on; a root has none.
+export function waysUp(running: Iterable<number>, parent: ArrayLike<number>): Set<number> {
+  const on = new Set<number>();
+  for (const k of running) {
+    for (let i = k; i >= 0 && parent[i] >= 0; i = parent[i]) {
+      if (on.has(i)) break;
+      on.add(i);
+    }
+  }
+  return on;
+}
+
+/// The dashes along a line `length` long, each from and to how far along it: one `RUN_DASH` long every
+/// `RUN_DASH + RUN_GAP`, the first beginning `shift` from the line's start, so that as `shift` grows they move towards
+/// its end; those cut by the line's ends are cut there.
+export function dashesAlong(length: number, shift: number): [number, number][] {
+  const period = RUN_DASH + RUN_GAP;
+  const dashes: [number, number][] = [];
+  for (let start = shift - period * Math.ceil(shift / period); start < length; start += period) {
+    const [from, to] = [Math.max(0, start), Math.min(length, start + RUN_DASH)];
+    if (to > from) dashes.push([from, to]);
+  }
+  return dashes;
+}
+
 /// The scene's colours as the page's theme has them. Those the page's tokens came from are read from the
-/// tokens, which in light are the console's own; in dark, the colours the tokens have no step for are worked out from
-/// the tokens, keeping their relations to the card and the ground, as the console had no dark ground.
+/// tokens, which in light are the console's own; the console's others of the accent's hue are turned to the accent in
+/// force, as the accent's own tones are (accent.ts). In dark, the colours the tokens have no step for are worked out
+/// from the tokens and those turned colours, keeping their relations to the card and the ground, as the console had no
+/// dark ground.
 export function themed(): typeof LIGHT {
+  const turn = turning(accentNow());
+  const own = {
+    unseen: turn(LIGHT.unseen, 'read'),
+    accent: turn(LIGHT.accent, 'read'),
+    over: turn(LIGHT.over, 'read'),
+    branch: turn(LIGHT.branch, 'read'),
+    mapBar: turn(LIGHT.mapBar, 'read'),
+    hoverRibbon: turn(LIGHT.hoverRibbon, 'tint'),
+    chosenRibbon: turn(LIGHT.chosenRibbon, 'tint'),
+  };
   const t = {
     ink: token('--text', LIGHT.ink),
     muted: token('--muted', LIGHT.muted),
@@ -196,18 +267,19 @@ export function themed(): typeof LIGHT {
     tools: token('--track-tool', LIGHT.tools),
     idle: token('--track-gap', LIGHT.idle),
   };
-  if (getComputedStyle(document.documentElement).colorScheme !== 'dark') return { ...LIGHT, ...t };
+  if (getComputedStyle(document.documentElement).colorScheme !== 'dark') return { ...LIGHT, ...own, ...t };
   return {
     ...LIGHT,
+    ...own,
     ...t,
     faint: between(t.muted, t.card, 0.3),
     pale: between(t.muted, t.card, 0.55),
     line: between(t.hair, t.muted, 0.35),
     edge: t.hair,
-    branch: between(t.card, LIGHT.over, 0.45),
-    hoverRibbon: between(t.card, LIGHT.over, 0.3),
+    branch: between(t.card, own.over, 0.45),
+    hoverRibbon: between(t.card, own.over, 0.3),
     chosenRibbon: between(t.card, t.chosen, 0.3),
-    mapBar: between(t.card, LIGHT.over, 0.6),
+    mapBar: between(t.card, own.over, 0.6),
     paused: t.muted,
     amber: token('--orange-text', LIGHT.amber),
     other: '#656c76',
@@ -409,30 +481,6 @@ const EDGE_RUNNING = 0.9;
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
 const CARD_INSET = 10;
-/// The glow of a card that needs the owner or runs: how far out each ring stands and how strong it is. A red card's
-/// rings stand still; a running card's light goes round its edge.
-const CARD_GLOW: [number, number][] = [
-  [1, 0.34],
-  [2.5, 0.2],
-  [4, 0.11],
-  [5.5, 0.05],
-];
-/// How a glow moves: how long a breath of a running card's rings takes, where it has them, and how faint they are at its
-/// low point; how long the light on a running card's edge takes to go round, and the light's length as so many parts
-/// of so many pixels.
-const BREATH_MS = 2600;
-const BREATH_LOW = 0.35;
-const TRAIL_MS = 3200;
-const TRAIL_PARTS = 16;
-const TRAIL_PART = 7;
-/// TRIAL: whether a running card has the glowing rings as well as the light going round its edge.
-const RUNNING_RINGS = false;
-
-/// How strong a card's rings are drawn at the time `now`: a running card's, where it has them, breathe; those of a card
-/// that needs the owner stand still, at their full strength.
-export function ringsAlpha(running: boolean, now: number): number {
-  return running ? BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * ((now / BREATH_MS) % 1)) ** 2 : 1;
-}
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
 /// The height of the line under a deliverable, which has no card.
@@ -502,6 +550,19 @@ export class SnapScene {
   private world = new Container();
   /// The funnels from each item to the items under it; and the rings of the items lit.
   private links = new Graphics();
+  /// The dashed ways from the items whose work runs up to their roots, drawn anew each frame over the funnels: those
+  /// that dim while something is lit, and those on the way of what is lit, which do not.
+  private runLines = new Graphics();
+  private runLinesLit = new Graphics();
+  /// The soft lights behind the item selected and the item under the pointer, drawn anew each frame where they stand,
+  /// blurred.
+  private chosenGlow = new Graphics({ filters: [softBlur(CHOSEN_BLUR)] });
+  private hoverGlow = new Graphics({ filters: [softBlur(SOFT_BLUR)] });
+  /// The ground of each card lit by a soft light, over the light and under the card.
+  private glowGround = new Graphics();
+  /// The items, by their place in the tree, whose link to the one above them is on the way from an item whose work
+  /// runs up to its root ([`waysUp`]).
+  private runWays = new Set<number>();
   private marks = new Graphics();
   private layer = new Container();
   /// The fade of every column into the page at the top and the bottom of the screen, each a gradient in the shape's own
@@ -558,10 +619,8 @@ export class SnapScene {
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
-  /// The glow of each card that runs or needs the owner: its rings, which stand still on a card that needs the owner,
-  /// and for a card whose work runs the light that goes round its edge, moved each frame.
-  private glows = new Map<number, { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string }>();
-  /// The same for the glow around the item under the pointer itself, which those lit with it do not have.
+  /// How far the glow around the item under the pointer itself has come in, as `glowing` says of its rings; those lit
+  /// with it have none.
   private haloed = new Map<number, number>();
   /// The column last scrolled, or whose item was last brought to the middle, which the others follow.
   private driver = 0;
@@ -581,7 +640,7 @@ export class SnapScene {
   /// what points to an item.
   private real = new Map<number, number>();
   /// The item selected, by its number, or none: it and the way from it to its root, and from each of its shadows to
-  /// theirs, stay lit in purple until it is let go.
+  /// theirs, stay lit in the accent until it is let go.
   private selected: number | null = null;
   /// Told the item selected each time it changes, or is drawn afresh: the window beside the tree shows it.
   onSelect: ((item: Shown | null) => void) | null = null;
@@ -593,9 +652,9 @@ export class SnapScene {
   private gone = false;
   /// The items as last given to `show`, drawn again in the new colours when the theme changes.
   private roots: Shown[] | null = null;
-  /// What follows the size of what holds the canvas, and the theme; let go when the scene is.
+  /// What follows the size of what holds the canvas, the theme and the accent; let go when the scene is.
   private sized: ResizeObserver | null = null;
-  private themes: { media: MediaQueryList; root: MutationObserver } | null = null;
+  private themes: { media: MediaQueryList; root: MutationObserver; accent: () => void } | null = null;
 
   async mount(host: HTMLElement): Promise<void> {
     Object.assign(PALETTE, themed());
@@ -616,13 +675,22 @@ export class SnapScene {
     // dragged, not only when the window does.
     this.sized = new ResizeObserver(() => this.app.queueResize());
     this.sized.observe(host);
-    // Light or dark, the system's or the page's switch's: drawn again in the theme's colours.
+    // Light or dark, the system's or the page's switch's, and the accent picked: drawn again in the theme's colours.
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const root = new MutationObserver(this.retheme);
     root.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     media.addEventListener('change', this.retheme);
-    this.themes = { media, root };
-    this.world.addChild(this.links, this.layer, this.marks);
+    this.themes = { media, root, accent: onAccent(this.retheme) };
+    this.world.addChild(
+      this.links,
+      this.runLines,
+      this.runLinesLit,
+      this.hoverGlow,
+      this.chosenGlow,
+      this.glowGround,
+      this.layer,
+      this.marks,
+    );
     this.app.stage.addChild(this.world, this.edges, this.map);
     this.map.position.set(MAP_INSET, MAP_INSET);
     this.map.addChild(this.mapFrame);
@@ -650,6 +718,7 @@ export class SnapScene {
     this.sized?.disconnect();
     this.themes?.root.disconnect();
     this.themes?.media.removeEventListener('change', this.retheme);
+    this.themes?.accent();
     if (this.ready) this.app.destroy(true, { children: true, texture: true });
   }
 
@@ -724,7 +793,10 @@ export class SnapScene {
       for (let p = k; p >= 0 && this.begun[p] === 0; p = tree.parent[p]) this.begun[p] = 1;
     });
     this.pulses = new Map();
-    this.glows = new Map();
+    this.runWays = waysUp(
+      items.flatMap((i, k) => (!i.shadow && i.work !== null && moodOf(i.work) === 'running' ? [k] : [])),
+      tree.parent,
+    );
     ({ measures: this.measures, looks: this.looks } = cellLooks());
     this.drawnStrips = new Map();
     this.glowing = new Map();
@@ -797,17 +869,6 @@ export class SnapScene {
     // of the items under it, so that the cards of the items that are worked on stand out from it.
     if (item.deliver) view.addChild(new Graphics().rect(0, top + h - DELIVER_LINE, NODE_W, DELIVER_LINE).fill(PALETTE.faint));
     else {
-      // A card that needs the owner or whose work is running glows in its colour: a few rings fading outward, which
-      // on the dark ground make it the first thing seen.
-      if (filled && state !== null) {
-        const glow = new Graphics();
-        for (const [out, alpha] of CARD_GLOW)
-          glow
-            .roundRect(-out, top - out, NODE_W + 2 * out, h + 2 * out, CARD_CORNER + out)
-            .stroke({ color: state, width: 2, alpha });
-        view.addChild(glow);
-        this.glows.set(k, { rings: glow, trail: null, top, high: h, colour: state });
-      }
       view.addChild(
         card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
           color:
@@ -819,12 +880,6 @@ export class SnapScene {
           width: EDGE_WIDTH,
         }),
       );
-    }
-    // A card whose work runs has a light going round its edge, drawn anew each frame over the card.
-    const moving = this.glows.get(k);
-    if (moving !== undefined && mood === 'running') {
-      moving.trail = new Graphics();
-      view.addChild(moving.trail);
     }
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
@@ -1049,48 +1104,6 @@ export class SnapScene {
     return view;
   }
 
-  /// Moves a card's glow on by a frame. A card that needs the owner has rings that stand still: a breath of them could
-  /// hardly be seen. A card whose work runs has a short light going round its edge, bright at its head and fading
-  /// behind it, in step on every such card, so that what is being worked on is seen moving.
-  private moveGlow(
-    glow: { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string },
-    now: number,
-  ) {
-    const trail = glow.trail;
-    if (trail === null) {
-      // A card that needs the owner: its rings stand still.
-      glow.rings.alpha = ringsAlpha(false, now);
-      return;
-    }
-    // A card whose work runs: its rings are off for now (TRIAL: the owner is trying it without them), and the light
-    // on its edge goes round in step with every other running card's.
-    glow.rings.visible = RUNNING_RINGS;
-    if (RUNNING_RINGS) glow.rings.alpha = ringsAlpha(true, now);
-    const [w, h, top] = [NODE_W, glow.high, glow.top];
-    const round = 2 * (w + h);
-    // A point of the card's edge, by how far round it from its top left corner, clockwise.
-    const at = (far: number): [number, number] => {
-      const d = ((far % round) + round) % round;
-      if (d < w) return [d, top];
-      if (d < w + h) return [w, top + d - w];
-      if (d < 2 * w + h) return [w - (d - w - h), top + h];
-      return [0, top + h - (d - 2 * w - h)];
-    };
-    const head = ((now / TRAIL_MS) % 1) * round;
-    trail.clear();
-    for (let j = 0; j < TRAIL_PARTS; j += 1) {
-      const [x1, y1] = at(head - j * TRAIL_PART);
-      const [x2, y2] = at(head - (j + 1) * TRAIL_PART);
-      // A part that turns a corner is drawn as its two straight ends meet, through the corner.
-      trail.moveTo(x1, y1);
-      if (x1 !== x2 && y1 !== y2) {
-        const corner: [number, number] = y1 === top || y1 === top + h ? [x2, y1] : [x1, y2];
-        trail.lineTo(corner[0], corner[1]);
-      }
-      trail.lineTo(x2, y2).stroke({ color: PALETTE.onTag, width: 2, alpha: 0.9 * (1 - j / TRAIL_PARTS) ** 2 });
-    }
-  }
-
   /// Puts at the right of an item's second row how long its work has gone on, when the label has changed.
   private age(k: number) {
     const a = this.ages.get(k);
@@ -1224,6 +1237,63 @@ export class SnapScene {
       .closePath();
   }
 
+  /// Adds to a soft light the fill behind the card standing at `gx` and `gy`, `gh` half its height, `out` pixels past
+  /// its edge; and the card's ground over it, as strong as the light is come in.
+  private softLight(
+    g: Graphics,
+    gx: number,
+    gy: number,
+    gh: number,
+    out: number,
+    colour: string,
+    alpha: number,
+    on = 1,
+  ) {
+    g.roundRect(gx - out, gy - gh - out, NODE_W + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out).fill({
+      color: colour,
+      alpha: alpha * on,
+    });
+    this.glowGround.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).fill({ color: PALETTE.card, alpha: on });
+  }
+
+  /// Adds to the running ways `g` the dashed curve from `(px, py)` to `(cx, cy)`, bent as a funnel is, its dashes moved
+  /// on `shift` pixels from its start ([`dashesAlong`]).
+  private dashed(g: Graphics, px: number, py: number, cx: number, cy: number, shift: number) {
+    const bend = (cx - px) / 2;
+    const points = Array.from({ length: RUN_PIECES + 1 }, (_, n): [number, number] => {
+      const u = n / RUN_PIECES;
+      const v = 1 - u;
+      return [
+        v * v * v * px + 3 * v * v * u * (px + bend) + 3 * v * u * u * (cx - bend) + u * u * u * cx,
+        v * v * v * py + 3 * v * v * u * py + 3 * v * u * u * cy + u * u * u * cy,
+      ];
+    });
+    // How far along the curve each point stands.
+    const along = [0];
+    for (let n = 1; n <= RUN_PIECES; n += 1) {
+      along.push(along[n - 1] + Math.hypot(points[n][0] - points[n - 1][0], points[n][1] - points[n - 1][1]));
+    }
+    // The point that stands `at` along the curve, in the piece from point `n`.
+    const point = (n: number, at: number): [number, number] => {
+      const len = along[n + 1] - along[n];
+      const k = len > 0 ? (at - along[n]) / len : 0;
+      return [
+        points[n][0] + (points[n + 1][0] - points[n][0]) * k,
+        points[n][1] + (points[n + 1][1] - points[n][1]) * k,
+      ];
+    };
+    let n = 0;
+    for (const [from, to] of dashesAlong(along[RUN_PIECES], shift)) {
+      while (n < RUN_PIECES - 1 && along[n + 1] <= from) n += 1;
+      g.moveTo(...point(n, from));
+      while (n < RUN_PIECES - 1 && along[n + 1] < to) {
+        n += 1;
+        g.lineTo(points[n][0], points[n][1]);
+      }
+      g.lineTo(...point(n, to));
+    }
+  }
+
   /// The rank of the item of column `d` at `place` rows from its top, the first whose place is not above it.
   private rankAt(d: number, place: number): number {
     let lo = 0;
@@ -1297,8 +1367,8 @@ export class SnapScene {
   }
 
   /// Draws each column on the map as one bar from its first item to its last, moved as the column is: in a light accent,
-  /// or a deeper blue while the pointer is over it, marked red where works wait for the owner, and purple where the item
-  /// selected stands.
+  /// or a deeper blue while the pointer is over it, marked red where works wait for the owner, and in the accent where
+  /// the item selected stands.
   private drawMap(t: Tree) {
     const mid = MAP_HIGH / 2;
     this.mapBars.clear();
@@ -1318,7 +1388,7 @@ export class SnapScene {
         this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.red);
       }
     });
-    // Where the item selected stands, purple across its column's bar, over every other mark, a little wider, so that
+    // Where the item selected stands, the accent across its column's bar, over every other mark, a little wider, so that
     // it is found again from anywhere.
     const chosen = this.selected === null ? undefined : this.real.get(this.selected);
     if (chosen !== undefined) {
@@ -1521,8 +1591,6 @@ export class SnapScene {
         view.position.set(cx, yy);
         const p = this.pulses.get(item);
         if (p !== undefined) p.alpha = pulse;
-        const glow = this.glows.get(item);
-        if (glow !== undefined) this.moveGlow(glow, now);
         this.age(item);
         nowShown.add(view);
         drawn.push(item);
@@ -1579,8 +1647,8 @@ export class SnapScene {
     const tip = this.trackTip(t, x, y);
     if (this.app.canvas.title !== tip) this.app.canvas.title = tip;
     const chain = lit(this.under);
-    // The item selected, the same way, in purple, under the blue; only the item itself glows, those lit with it are
-    // only ringed, so that it stands out among them.
+    // The item selected, the same way, in the accent, under the light blue; only the item itself glows, those lit
+    // with it are only ringed, so that it stands out among them.
     const picked = this.selected === null ? -1 : (this.real.get(this.selected) ?? -1);
     const chosen = lit(picked);
     // While the pointer or the selection lights something, every other item drawn is dimmed, more under the pointer
@@ -1605,6 +1673,26 @@ export class SnapScene {
       const to = aim === 1 || focus.has(i) || chosen.has(i) ? 1 : DIM;
       view.alpha += (to - view.alpha) * (1 - Math.exp(-step / (to < view.alpha ? FADE_DOWN : FADE_UP)));
     }
+    // The way from each item whose work runs up to its root, dashed in the colour of a running card's edge, its dashes
+    // moving from the root's side to the item's: each link from an item to the one above it drawn once, however many
+    // running items it is on. While something is lit, the links on its way stand at full strength and the others dim
+    // with the items they join.
+    this.runLines.clear();
+    this.runLinesLit.clear();
+    const shift = ((now / 1000) * RUN_SPEED) % (RUN_DASH + RUN_GAP);
+    const shining = (k: number) => focus.has(k) || chosen.has(k);
+    for (const i of this.runWays) {
+      const p = t.parent[i];
+      const d = t.depth[i];
+      const [px, cx] = [x(d - 1) + NODE_W, x(d)];
+      if (cx < 0 || px > width) continue;
+      const [py, iy] = [y(d - 1, t.rank[p]), y(d, t.rank[i])];
+      if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
+      this.dashed(shining(i) && shining(p) ? this.runLinesLit : this.runLines, px, py, cx, iy, shift);
+    }
+    const runColour = mix(PALETTE.card, WORK().running, EDGE_RUNNING);
+    this.runLines.stroke({ color: runColour, width: RUN_LINE, alpha: DIM_LINKS + (1 - DIM_LINKS) * this.dim });
+    this.runLinesLit.stroke({ color: runColour, width: RUN_LINE });
     for (const i of chosen) {
       const p = t.parent[i];
       if (p < 0) continue;
@@ -1632,21 +1720,22 @@ export class SnapScene {
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
       this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
     }
+    this.glowGround.clear();
+    this.chosenGlow.clear();
     for (const i of chosen) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-      if (i === picked)
-        this.marks
-          .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, CARD_CORNER + HALO / 2)
-          .stroke({ color: PALETTE.chosen, width: HALO, alpha: HALO_ALPHA });
-      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.chosen, width: RING });
+      if (i === picked) {
+        this.softLight(this.chosenGlow, gx, gy, gh, CHOSEN_SPREAD, PALETTE.chosen, SOFT_ALPHA);
+      }
+      const ring = i === picked ? CHOSEN_RING : RING;
+      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.chosen, width: ring });
     }
+    this.hoverGlow.clear();
     for (const [i, a] of this.haloed) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-      this.marks
-        .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, CARD_CORNER + HALO / 2)
-        .stroke({ color: PALETTE.over, width: HALO, alpha: HALO_ALPHA * a });
+      this.softLight(this.hoverGlow, gx, gy, gh, SOFT_SPREAD, PALETTE.over, SOFT_ALPHA, a);
     }
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];

@@ -1,6 +1,7 @@
 // What the server the page came from gives. `wf-agents flow page` gives the flow alone: it has no items and no works,
 // and answers that it has no such path. The page asks once, so that the console and the works can say so plainly and
-// offer the flow, where they would otherwise show a failed read.
+// offer the flow, where they would otherwise show a failed read. It asks for the levels items are added at, which only
+// a server with the items has and which it answers without reading a work (decision the-server-is-asked-for-the-levels).
 
 import { useEffect, useState } from 'react';
 
@@ -14,12 +15,13 @@ type Ask = (path: string) => Promise<{ status: number }>;
 /// Asks for the path's head alone: the answer's status is all that is read, and no list is sent.
 const askInterface: Ask = (path) => fetch(path, { method: 'HEAD' });
 
-/// Whether the server has the items and the works. A page answered from the fixtures has them and asks nothing. A
-/// server that cannot be asked is taken to have them: the views then say what failed.
+/// Whether the server has the items and the works, as its answer for the levels says. A page answered from the
+/// fixtures has them and asks nothing. A server that cannot be asked is taken to have them: the views then say what
+/// failed.
 export async function askServes(search: string, ask: Ask = askInterface): Promise<Serves> {
   if (sourceOf(search) !== INTERFACE) return 'all';
   try {
-    return (await ask('/api/v1/items')).status === 404 ? 'flow' : 'all';
+    return (await ask('/api/v1/levels')).status === 404 ? 'flow' : 'all';
   } catch {
     return 'all';
   }

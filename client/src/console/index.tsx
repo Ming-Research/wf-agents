@@ -1,14 +1,15 @@
-// The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn again
-// as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
+// The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn
+// again as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
 // (`fixtures.ts`). Beside the tree, a window shows the item selected (`ItemWindow.tsx`). Selecting an item slides the
 // window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which case
 // it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item selected
 // brings it out again. The window coming out over the item selected, or an item selected half under it or half off the
 // screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item go while the
-// tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the items are read again and
-// drawn where they stand, the item selected and the panel as they were; when the stream opens again after a cut,
-// everything is. An answer older than the one shown is dropped. An item the address names is selected once the tree
-// shows it, as from a notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
+// tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the
+// items are read again, at most one read at a time and one more after it, and drawn where they stand, the item selected
+// and the panel as they were; when the stream opens again after a cut, everything is. An item the address names is
+// selected once the tree shows it, as from a notification of a question it waits on. The page's shell mounts it lazily
+// (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
 // the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel is too).
@@ -19,7 +20,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Drawer } from '../parts';
 import type { Items, WorkPage } from '../works-api';
-import { useSource } from '../works/source';
+import { oneAtATime, useSource } from '../works/source';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
 import { type Shown, shownTree } from './items';
@@ -41,28 +42,28 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
 
-  // The items, read at first and again each time something happened, an answer older than the one shown dropped.
+  // The items, read at first and again each time something happened, at most one read at a time.
   const heard = useRef<(h: Heard) => void>(() => undefined);
   useEffect(() => {
     let alive = true;
-    const take = inOrder();
-    const read = () =>
-      take(
-        source.loadItems(),
+    const reads = oneAtATime(() =>
+      source.loadItems().then(
         (items) => {
           if (!alive) return;
           setData(items);
           setFailed(null);
         },
-        (why) => alive && setFailed(why),
-      );
-    read();
+        (e: unknown) => alive && setFailed(e instanceof Error ? e.message : String(e)),
+      ),
+    );
+    reads.ask();
     const stop = source.changes((h) => {
-      if (h === 'everything' || h.items || h.works.length > 0) read();
+      if (h === 'everything' || h.items || h.works.length > 0) reads.ask();
       heard.current(h);
     });
     return () => {
       alive = false;
+      reads.stop();
       stop();
     };
   }, [source]);

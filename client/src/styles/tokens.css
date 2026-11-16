@@ -14,6 +14,8 @@
   --weight: 400;
   --weight-strong: 600;
   --label-spacing: 0.04em;
+  /* How far below the words' baseline a drawn mark among them sits, so that it stands in the middle of their line. */
+  --mark-drop: -2px;
 
   /* Space: a 4px grid. */
   --space-2: 2px;
@@ -73,42 +75,46 @@
   --text: #1f2937;
   --muted: #6b7280;
   --line: #e3e6ea;
-  /* What is chosen, a link and the focus: the console's purple. Its tint fills a row or a column chosen. */
-  --accent: #8b5cf6;
-  --accent-text: #7c4ddb;
-  --accent-tint: #f1ecfe;
+  /* The accent: what is chosen, a link and the focus, and what runs. The default is a blue. A colour the owner picks
+     in the Settings view gives each tone of the accent here an `--own-` one, worked out from it (accent.ts),
+     `--own-<tone>` in light and `--own-<tone>-dark` in dark, each `#rrggbb`, set on the root; a tone takes its own
+     where one is set, and else the default. Its tint fills a row or a column chosen. */
+  --accent: var(--own-accent, #3673f5);
+  --accent-text: var(--own-accent-text, #3163d9);
+  --accent-tint: var(--own-accent-tint, #e9efff);
   /* The head of a section, its name and the line after it, in the panel and the console's window: a deeper step of the
      accent than its text step, so that the heads stand over the text. */
-  --head: #6a3fd0;
+  --head: var(--own-head, #285bb2);
   /* The marks of a work's cells, in the accent's hue: a cell done a light step of it, the cell running a deep one. */
-  --mark-done: #c4b5fd;
-  --mark-running: #6d28d9;
+  --mark-done: var(--own-mark-done, #a0bffd);
+  --mark-running: var(--own-mark-running, #134dcb);
   /* What a hover adds to the background under it: one step. */
   --step: rgb(0 0 0 / 4%);
   /* The shadow of the window that floats over a view: Primer's overlay shadow, as the console drew it. */
   --window-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
 
-  /* The meanings, and only these: done; a change of a block's meaning; running; a problem, red: a stop, for the owner
-     or because something failed, or a work not done within an hour; the way back; a call under way. A mark or a tag
-     takes the colour itself; small text takes its text step, a darker step where the colour does not read on white; a
-     fill takes its tint. */
+  /* The meanings, and only these: done; a change of a block's meaning; running, in the accent; a problem, red: a stop,
+     for the owner or because something failed, or a work not done within an hour; a call under way. A way back has no
+     colour of its own: it is drawn in the muted colour and told by its shape. A mark or a tag takes the colour itself;
+     small text takes its text step, a darker step where the colour does not read on white; a fill takes its tint. Only
+     running follows a colour the owner picks: the others keep theirs, and a colour too near one the accent keeps clear
+     of (accent.ts) is not taken. */
   --green: #2f9e6e;
   --orange: #f5840c;
-  --running: #8b5cf6;
+  --running: var(--accent);
   --red: #e5484d;
-  /* The way back: the purple the flow chart has drawn it in, Primer's done colour. */
-  --violet: #8250df;
   /* A call under way: the engine runs a tool or an act of its own for a cell, and the cell's mark is filled in it. */
   --yellow: #eab308;
   --green-text: #23795a;
-  --running-text: #7c4ddb;
+  --running-text: var(--accent-text);
   --orange-text: #b45309;
   --red-text: #c53030;
   --on-colour: #ffffff;
 
-  /* Where a work's time went: a model's stretches in the accent, the tools' in a teal no meaning has, those nothing
-     ran in a light grey, on a muted ground. A stretch nothing ran in takes the colour of what the work waited for:
-     the owner's red, a pause's muted grey, and this light grey for the items it depends on as for anything else. */
+  /* Where a work's time went: a model's stretches in the accent, the tools' in a teal of their own, which no other
+     meaning has and the accent keeps clear of, those nothing ran in a light grey, on a muted ground. A stretch nothing
+     ran in takes the colour of what the work waited for: the owner's red, a pause's muted grey, and this light grey for
+     the items it depends on as for anything else. */
   --track-ground: #818b981f;
   --track-model: var(--accent);
   --track-tool: #14a3a8;
@@ -126,24 +132,21 @@
     --text: #c8ccd4;
     --muted: #8b8f98;
     --line: #30333b;
-    --accent: #a78bfa;
-    --accent-text: #a78bfa;
-    --accent-tint: #2b2444;
+    --accent: var(--own-accent-dark, #739ffa);
+    --accent-text: var(--accent);
+    --accent-tint: var(--own-accent-tint-dark, #192845);
     /* On the dark ground the heads are as light as the accent, the panel's tab: a deeper step reads as too dark. */
     --head: var(--accent);
     /* On the dark ground the cell done stands back and the cell running is the bright one. */
-    --mark-done: #5f4fa6;
-    --mark-running: #b9a3ff;
+    --mark-done: var(--own-mark-done-dark, #3f6093);
+    --mark-running: var(--own-mark-running-dark, #8fb3ff);
     --step: rgb(255 255 255 / 5%);
     --window-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
     --green: #45c08a;
     --orange: #ff9a3c;
-    --running: #a78bfa;
     --red: #ff6b70;
-    --violet: #ab7df8;
     --yellow: #facc15;
     --green-text: #45c08a;
-    --running-text: #a78bfa;
     --orange-text: #ff9a3c;
     --red-text: #ff6b70;
     --on-colour: #0f1012;
@@ -160,22 +163,19 @@
   --text: #c8ccd4;
   --muted: #8b8f98;
   --line: #30333b;
-  --accent: #a78bfa;
-  --accent-text: #a78bfa;
-  --accent-tint: #2b2444;
+  --accent: var(--own-accent-dark, #739ffa);
+  --accent-text: var(--accent);
+  --accent-tint: var(--own-accent-tint-dark, #192845);
   --head: var(--accent);
-  --mark-done: #5f4fa6;
-  --mark-running: #b9a3ff;
+  --mark-done: var(--own-mark-done-dark, #3f6093);
+  --mark-running: var(--own-mark-running-dark, #8fb3ff);
   --step: rgb(255 255 255 / 5%);
   --window-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
   --green: #45c08a;
   --orange: #ff9a3c;
-  --running: #a78bfa;
   --red: #ff6b70;
-  --violet: #ab7df8;
   --yellow: #facc15;
   --green-text: #45c08a;
-  --running-text: #a78bfa;
   --orange-text: #ff9a3c;
   --red-text: #ff6b70;
   --on-colour: #0f1012;

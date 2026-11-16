@@ -313,6 +313,45 @@ pub struct Slots {
     pub taken: usize,
 }
 
+/// What holds every work at once as the driver stands: the owner's pause of everything, the wait of each service the
+/// works reach, and the works whose round under way takes a slot. The waits and the slots taken are worked out from the
+/// records of every work, so a reader of many works works them out once ([`Driver::at_once`]) and hands them to its
+/// reading of each ([`Driver::view_at`], [`Driver::held_at`], [`Driver::waits_on_owner_at`]); the forms that read one
+/// work alone work them out for it.
+#[derive(Clone, Debug)]
+pub struct AtOnce {
+    /// The pause of everything, while it holds.
+    pub everything: Option<EverythingPaused>,
+    /// The wait of the agents' service, if one stands.
+    pub agents: Option<Outage>,
+    /// The wait of the acts' host, if one stands.
+    pub host: Option<Outage>,
+    /// The works whose round under way takes a slot.
+    taking: BTreeSet<WorkNumber>,
+}
+
+impl AtOnce {
+    /// The agents' wait where it holds the rounds now and their command line cannot run: since when, and what it said.
+    pub fn cannot_run(&self) -> Option<(Time, &str)> {
+        let outage = self.agents.as_ref().filter(|outage| outage.holds())?;
+        let (failure, why) = outage.down();
+        (failure == Failure::CannotRun).then_some((outage.since, why))
+    }
+
+    /// Which rounds may begin now, as these waits say ([`Driver::gate`]).
+    pub fn gate(&self) -> Gate {
+        gate_of_waits(self.agents.as_ref(), self.host.as_ref())
+    }
+
+    /// What every work's waits on the owner read alike ([`owner::Shared`]).
+    fn shared(&self) -> owner::Shared<'_> {
+        owner::Shared {
+            everything: self.everything.map(|paused| paused.by),
+            cannot_run: self.cannot_run().map(|(_, why)| why),
+        }
+    }
+}
+
 /// A work as the driver holds it: what the store holds of it, with its item and its flow at hand.
 #[derive(Clone)]
 struct Held {
@@ -1290,15 +1329,7 @@ impl Driver {
     /// Which rounds may begin now, as the waits every work shares say: the agents' wait holds the agents' rounds until
     /// a check of the outside finds it well, and the acts' wait the acts' until a look at their host reaches it.
     pub fn gate(&self) -> Gate {
-        let agents = match self.outage() {
-            Some(outage) if outage.holds() => Gate::Agents,
-            _ => Gate::Open,
-        };
-        let acts = match self.host_outage() {
-            Some(outage) if outage.holds() => Gate::Acts,
-            _ => Gate::Open,
-        };
-        agents.and(acts)
+        gate_of_waits(self.outage().as_ref(), self.host_outage().as_ref())
     }
 
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and
@@ -1440,7 +1471,9 @@ impl Driver {
 
     /// The work of this number.
     pub fn work(&self, number: WorkNumber) -> Option<Kept<'_>> {
-        self.shown().find(|held| held.head.number == number).map(Held::kept)
+        (self.works.get(&number))
+            .filter(|_| self.fault.is_none())
+            .map(Held::kept)
     }
 
     /// The flows the driver was given, in the order of their names.
@@ -1450,9 +1483,15 @@ impl Driver {
 
     /// The work as it is now, in the room the engine leaves it: what it does next, each cell's state, every version of
     /// every block.
+    /// This is the form for a reader of one work: what holds every work at once is worked out for it.
     pub fn view(&self, number: WorkNumber) -> Option<View> {
+        self.view_at(number, &self.at_once())
+    }
+
+    /// The work as it is now ([`Driver::view`]), in the room what holds every work at once leaves it.
+    pub fn view_at(&self, number: WorkNumber, at_once: &AtOnce) -> Option<View> {
         let kept = self.work(number)?;
-        let mut view = decide::view_in(&kept.flow.flow, &kept.work.records, self.room(Some(number), true));
+        let mut view = decide::view_in(&kept.flow.flow, &kept.work.records, self.room_at(number, at_once));
         // A work held at fault by the driver, though the walk finds its records sound, is one the deciding code goes
         // round on without end ([`step`]): it shows as that fault.
         let at_fault = self
@@ -1467,28 +1506,42 @@ impl Driver {
 
     /// What holds back the round the work would begin next: its own pause, the owner's pause of everything, or a slot;
     /// none where nothing does, the work would begin no round, or there is no such work.
+    /// This is the form for a reader of one work: what holds every work at once is worked out for it.
     pub fn held(&self, number: WorkNumber) -> Option<Holder> {
-        let kept = self.work(number)?;
-        held(kept.flow, kept.work, self.room(Some(number), true))
+        self.held_at(number, &self.at_once())
     }
 
-    /// What the work waits on the owner for now, as the one definition of it says ([`owner::waits`]), with what holds
-    /// every work at once as it stands: the pause of everything, and the agents' wait where their command line cannot
-    /// run. None where there is no such work.
-    pub fn waits_on_owner(&self, number: WorkNumber) -> Vec<owner::Waiting> {
-        let (Some(kept), Some(view)) = (self.work(number), self.view(number)) else {
+    /// What holds back the round the work would begin next ([`Driver::held`]), in the room what holds every work at
+    /// once leaves it.
+    pub fn held_at(&self, number: WorkNumber, at_once: &AtOnce) -> Option<Holder> {
+        let kept = self.work(number)?;
+        held(kept.flow, kept.work, self.room_at(number, at_once))
+    }
+
+    /// What the work waits on the owner for now, as the one definition of it says ([`owner::waits`]), of its view and
+    /// what holds back its next round as the reader has them, with what holds every work at once: the pause of
+    /// everything, and the agents' wait where their command line cannot run. None where there is no such work.
+    pub fn waits_on_owner_at(
+        &self,
+        number: WorkNumber,
+        view: &View,
+        held: Option<Holder>,
+        at_once: &AtOnce,
+    ) -> Vec<owner::Waiting> {
+        let Some(kept) = self.work(number) else {
             return Vec::new();
         };
-        let outage = self.outage().filter(Outage::holds);
-        let cannot_run = (outage.as_ref())
-            .map(Outage::down)
-            .filter(|(failure, _)| *failure == Failure::CannotRun)
-            .map(|(_, why)| why);
-        let shared = owner::Shared {
-            everything: self.paused.map(|paused| paused.by),
-            cannot_run,
-        };
-        owner::waits(&kept, &kept.work.records, &view.decision, self.held(number), shared)
+        owner::waits(&kept, &kept.work.records, &view.decision, held, at_once.shared())
+    }
+
+    /// What holds every work at once as it stands ([`AtOnce`]), worked out from every work's records.
+    pub fn at_once(&self) -> AtOnce {
+        AtOnce {
+            everything: self.paused,
+            agents: self.outage(),
+            host: self.host_outage(),
+            taking: self.taking(),
+        }
     }
 
     /// The slots, as they stand.
@@ -1559,13 +1612,19 @@ impl Driver {
         }
     }
 
-    /// How many works have a round under way that takes a slot, but this one. A work at fault takes none: nothing more
-    /// is decided of it, so a slot it held would be held for good.
+    /// How many works have a round under way that takes a slot ([`Driver::taking`]), but this one.
     fn taken(&self, but: Option<WorkNumber>) -> usize {
+        taken_among(&self.taking(), but)
+    }
+
+    /// The works that have a round under way that takes a slot. A work at fault takes none: nothing more is decided of
+    /// it, so a slot it held would be held for good.
+    fn taking(&self) -> BTreeSet<WorkNumber> {
         (self.works.values())
-            .filter(|held| Some(held.head.number) != but && held.standing != Standing::AtFault)
+            .filter(|held| held.standing != Standing::AtFault)
             .filter(|held| taking_slot(&held.flow.flow, &held.work.records))
-            .count()
+            .map(|held| held.head.number)
+            .collect()
     }
 
     /// The room the engine leaves a work: the pause of everything, as it stands; and, where `slot` says a slot
@@ -1574,6 +1633,15 @@ impl Driver {
         Room {
             paused: self.paused.is_some(),
             slot: slot && self.taken(work) < self.slots,
+        }
+    }
+
+    /// The room the engine leaves a work ([`Driver::room`], a slot given where one is free), as what holds every work
+    /// at once says.
+    fn room_at(&self, work: WorkNumber, at_once: &AtOnce) -> Room {
+        Room {
+            paused: at_once.everything.is_some(),
+            slot: taken_among(&at_once.taking, Some(work)) < self.slots,
         }
     }
 
@@ -1784,6 +1852,24 @@ fn start(flow: &Compiled, work: &Work) -> Option<Event> {
         matters: true,
         value: None,
     })
+}
+
+/// How many of the works that take a slot are works but this one.
+fn taken_among(taking: &BTreeSet<WorkNumber>, but: Option<WorkNumber>) -> usize {
+    taking.iter().filter(|work| Some(**work) != but).count()
+}
+
+/// Which rounds may begin, as the agents' wait and the acts' wait say: each holds its own rounds while it holds.
+fn gate_of_waits(agents: Option<&Outage>, host: Option<&Outage>) -> Gate {
+    let agents = match agents {
+        Some(outage) if outage.holds() => Gate::Agents,
+        _ => Gate::Open,
+    };
+    let acts = match host {
+        Some(outage) if outage.holds() => Gate::Acts,
+        _ => Gate::Open,
+    };
+    agents.and(acts)
 }
 
 /// When the driver is to be told the time for a wait, as its kind says, with whether a look at the acts' host is then

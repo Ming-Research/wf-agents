@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { sourceOf } from './source';
+import { oneAtATime, sourceOf } from './source';
 
 /// A stream of server-sent events that keeps what was opened, as the browser's would be.
 class Stream {
@@ -62,5 +62,32 @@ describe('the stream of changes', () => {
     expect(stream.closed).toBe(false);
     stopOther();
     expect(stream.closed).toBe(true);
+  });
+});
+
+describe('a read one at a time', () => {
+  it('runs once more after the read under way, however often it was asked meanwhile, and no more once stopped', async () => {
+    const ends: Array<(failed: boolean) => void> = [];
+    let runs = 0;
+    const reads = oneAtATime(() => {
+      runs += 1;
+      return new Promise<void>((done, fail) => ends.push((failed) => (failed ? fail(new Error('no answer')) : done())));
+    });
+    const settle = () => new Promise((then) => setTimeout(then, 0));
+    reads.ask();
+    reads.ask();
+    reads.ask();
+    expect(runs).toBe(1);
+    // A read that failed lets the next run as one that answered does.
+    ends.shift()?.(true);
+    await settle();
+    expect(runs).toBe(2);
+    reads.ask();
+    reads.stop();
+    ends.shift()?.(false);
+    await settle();
+    expect(runs).toBe(2);
+    reads.ask();
+    expect(runs).toBe(2);
   });
 });

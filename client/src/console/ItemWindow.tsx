@@ -38,7 +38,7 @@ import {
   useState,
 } from 'react';
 
-import { Button, Coded, Confirm, PanelPart, Switch } from '../parts';
+import { Button, Coded, Confirm, FoldMark, PanelPart, Switch } from '../parts';
 import { mocksShown } from '../mock-data';
 import {
   type Act,
@@ -839,7 +839,7 @@ function Fold({ title, count, children }: { title: string; count?: number; child
     <section className="cw-fold">
       <button type="button" className="cw-fold-head" aria-expanded={!folded} onClick={turn}>
         <span className="cw-fold-sign" aria-hidden="true">
-          {folded ? '▸' : '▾'}
+          <FoldMark open={!folded} />
         </span>
         <span>{title}</span>
         {count !== undefined && <span className="cw-fold-count mono">{count}</span>}

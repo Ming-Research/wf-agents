@@ -101,10 +101,11 @@ export function Confirm({ title, children, verb, ready, onAnswer }: {
   );
 }
 
-/// A segmented switch between two or three choices, each a button pressed while chosen.
+/// A segmented switch between a few choices, each a button pressed while chosen, named in words or with a mark beside
+/// them.
 export function Switch<T extends string>({ label, choices, value, onChange }: {
   label: string;
-  choices: { value: T; name: string; title?: string }[];
+  choices: { value: T; name: ReactNode; title?: string }[];
   value: T;
   onChange: (value: T) => void;
 }) {
@@ -365,7 +366,8 @@ export function Drawer({
 }
 
 /// The colours a status line's dot takes: none; green for done; red for a stop, for the owner or because something
-/// failed; orange for a change of a block's meaning; the running colour for running; the way back's violet.
+/// failed; orange for a change of a block's meaning; the running colour for running; a way back none of its own, the
+/// muted grey.
 export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
 
 /// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.
@@ -450,3 +452,44 @@ export function Sign({ name, className }: { name: SignName; className?: string }
     </svg>
   );
 }
+
+/// An arrow that says which way a label's things run, to the right or down, drawn by the page as the signs are, in the
+/// colour of the words round it; the words say what it means.
+export function Arrow({ to }: { to: 'right' | 'down' }) {
+  return (
+    <svg
+      className="label-arrow"
+      viewBox="0 0 12 12"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      aria-hidden="true"
+    >
+      <path d={to === 'right' ? 'M1.5 6h9M7 2.5 10.5 6 7 9.5' : 'M6 1.5v9M2.5 7 6 10.5 9.5 7'} />
+    </svg>
+  );
+}
+
+/// The mark of a part that folds: a small triangle drawn by the page, to the right while it is folded and turned down
+/// while it is open (by `open`, or by the styles where a `details` element folds it), in the colour its place gives it.
+export function FoldMark({ open }: { open?: boolean }) {
+  return (
+    <svg
+      className={open ? 'fold-mark fold-open' : 'fold-mark'}
+      viewBox="0 0 12 12"
+      width="12"
+      height="12"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M4 2.5v7L9 6z" />
+    </svg>
+  );
+}
+
+/// The matrix's tick, where a cell runs when a test holds or a block is yes, and its cross, where it runs when the
+/// block is no, as paths on a box 24 wide: drawn so wherever the page marks a branch so.
+export const TICK = 'M5.5 12.5 L10 17 L18.5 7';
+export const CROSS = 'M7 7 L17 17 M17 7 L7 17';

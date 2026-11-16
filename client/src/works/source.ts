@@ -128,11 +128,46 @@ export function useChanges(onChanged: (changed: Changed) => void, onOpened: () =
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/// A read of one load under way, and whether it is to be read once more when it ends.
+/// A read that runs at most once at a time: asked for while it is under way, it runs once more after it, however many
+/// times it was asked for meanwhile; and once stopped, it runs no more, the read under way left to end.
+export interface OneAtATime {
+  ask: () => void;
+  stop: () => void;
+}
+
+/// Runs `read` at most once at a time ([`OneAtATime`]). `read` says itself what came of it: what it gives is not read.
+export function oneAtATime(read: () => Promise<unknown>): OneAtATime {
+  let going = false;
+  let again = false;
+  let stopped = false;
+  const ask = () => {
+    if (stopped) return;
+    if (going) {
+      again = true;
+      return;
+    }
+    going = true;
+    const done = () => {
+      going = false;
+      if (again && !stopped) {
+        again = false;
+        ask();
+      }
+    };
+    read().then(done, done);
+  };
+  return {
+    ask,
+    stop: () => {
+      stopped = true;
+    },
+  };
+}
+
+/// The reads of one load, at most one at a time.
 interface Flight<T> {
   load: () => Promise<T>;
-  going: boolean;
-  again: boolean;
+  reads: OneAtATime;
 }
 
 /// What a view shows, read at once and again on `read`. A read that fails keeps what was shown and says why. One read
@@ -144,34 +179,23 @@ export function useReading<T>(load: () => Promise<T>): { value: T | null; failed
   const flight = useRef<Flight<T> | null>(null);
   const read = useCallback(() => {
     if (flight.current === null || flight.current.load !== load) {
-      flight.current = { load, going: false, again: false };
+      flight.current?.reads.stop();
+      const mine: Flight<T> = {
+        load,
+        reads: oneAtATime(() =>
+          load().then(
+            (value) => {
+              if (flight.current === mine) setState({ value, failed: null });
+            },
+            (e: unknown) => {
+              if (flight.current === mine) setState((s) => ({ value: s.value, failed: message(e) }));
+            },
+          ),
+        ),
+      };
+      flight.current = mine;
     }
-    const mine = flight.current;
-    if (mine.going) {
-      mine.again = true;
-      return;
-    }
-    const go = () => {
-      mine.going = true;
-      mine
-        .load()
-        .then(
-          (value) => {
-            if (flight.current === mine) setState({ value, failed: null });
-          },
-          (e: unknown) => {
-            if (flight.current === mine) setState((s) => ({ value: s.value, failed: message(e) }));
-          },
-        )
-        .finally(() => {
-          mine.going = false;
-          if (mine.again && flight.current === mine) {
-            mine.again = false;
-            go();
-          }
-        });
-    };
-    go();
+    flight.current.reads.ask();
   }, [load]);
   useEffect(read, [read]);
   return { ...state, read };
@@ -181,8 +205,7 @@ export function useReading<T>(load: () => Promise<T>): { value: T | null; failed
 interface ItemsStore {
   state: { value: Items | null; failed: string | null };
   shown: Set<() => void>;
-  going: boolean;
-  again: boolean;
+  reads: OneAtATime;
   stop: (() => void) | null;
 }
 
@@ -191,7 +214,13 @@ const itemsStores = new WeakMap<Source, ItemsStore>();
 function itemsStore(source: Source): ItemsStore {
   let store = itemsStores.get(source);
   if (store === undefined) {
-    store = { state: { value: null, failed: null }, shown: new Set(), going: false, again: false, stop: null };
+    const made: ItemsStore = {
+      state: { value: null, failed: null },
+      shown: new Set(),
+      reads: oneAtATime(() => readItems(source, made)),
+      stop: null,
+    };
+    store = made;
     itemsStores.set(source, store);
   }
   return store;
@@ -216,33 +245,20 @@ export function keptSame(before: Items, now: Items): Items {
   return { ...now, items, outage };
 }
 
-/// Reads the items again for every part that shows them: at once, or once more after the read under way.
-function readItems(source: Source, store: ItemsStore) {
-  if (store.going) {
-    store.again = true;
-    return;
-  }
-  store.going = true;
+/// Reads the items for every part that shows them, and tells each what came of it. The store's reads run it at most
+/// once at a time.
+function readItems(source: Source, store: ItemsStore): Promise<void> {
   const set = (state: ItemsStore['state']) => {
     store.state = state;
     [...store.shown].forEach((tell) => tell());
   };
-  source
-    .loadItems()
-    .then(
-      (fresh) => {
-        const before = store.state.value;
-        set({ value: before === null ? fresh : keptSame(before, fresh), failed: null });
-      },
-      (e: unknown) => set({ value: store.state.value, failed: message(e) }),
-    )
-    .finally(() => {
-      store.going = false;
-      if (store.again) {
-        store.again = false;
-        readItems(source, store);
-      }
-    });
+  return source.loadItems().then(
+    (fresh) => {
+      const before = store.state.value;
+      set({ value: before === null ? fresh : keptSame(before, fresh), failed: null });
+    },
+    (e: unknown) => set({ value: store.state.value, failed: message(e) }),
+  );
 }
 
 /// The items, read once for every part of the page that shows them, as the list of works and the bar both do: at
@@ -257,11 +273,11 @@ export function useItems(): { value: Items | null; failed: string | null; read: 
       if (store.shown.size === 1) {
         store.stop = source.changes(
           (changed) => {
-            if (changed.items || changed.works.length > 0) readItems(source, store);
+            if (changed.items || changed.works.length > 0) store.reads.ask();
           },
-          () => readItems(source, store),
+          () => store.reads.ask(),
         );
-        readItems(source, store);
+        store.reads.ask();
       }
       return () => {
         store.shown.delete(tell);
@@ -274,6 +290,6 @@ export function useItems(): { value: Items | null; failed: string | null; read: 
     [source, store],
   );
   const state = useSyncExternalStore(subscribe, () => store.state);
-  const read = useCallback(() => readItems(source, store), [source, store]);
+  const read = useCallback(() => store.reads.ask(), [store]);
   return { ...state, read };
 }
