@@ -1,7 +1,13 @@
 # The item's window
 
-What the console opens for an item: its background, its problem and its plan, the questions in them and the
-discussion.
+What the console opens for an item: what its flow's card names, the questions in it and the discussion.
+
+### decision the-card-is-the-flows
+What the item's card shows the owner is named by the work's flow in its own `flow.toml` (`card`), data of the flow in
+their order; the page draws a section of each by its name, and names no datum and no flow of its own.
+Why: The page told one flow by its name and read three blocks by theirs, which held for those two flows alone
+(principle engine-knows-no-cell). A key on each block's file saying it is shown was turned down: the order is the
+flow's, and is said once there.
 
 ### decision an-option-is-picked-by-pressing-it
 An option of a question is a button: pressing it picks it, and pressing the one picked lets it go. It carries its radio
