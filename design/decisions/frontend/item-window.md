@@ -4,10 +4,12 @@ What the console opens for an item: what its flow's card names, the questions in
 
 ### decision the-card-is-the-flows
 What the item's card shows the owner is named by the work's flow in its own `flow.toml` (`card`), data of the flow in
-their order; the page draws a section of each by its name, and names no datum and no flow of its own.
-Why: The page told one flow by its name and read three blocks by theirs, which held for those two flows alone
-(principle engine-knows-no-cell). A key on each block's file saying it is shown was turned down: the order is the
-flow's, and is said once there.
+their order; the page draws a section of each by its name, and names no datum, no cell and no flow of its own: a
+cell is called by its title in the flow, and an item is a deliverable where its flow has no agent's cell, as the
+work's route says.
+Why: The page told one flow by its name, read three blocks by theirs and called three cells by words of its own, which
+held for those flows alone (principle engine-knows-no-cell). A key on each block's file saying it is shown was turned
+down: the order is the flow's, and is said once there.
 
 ### decision an-option-is-picked-by-pressing-it
 An option of a question is a button: pressing it picks it, and pressing the one picked lets it go. It carries its radio

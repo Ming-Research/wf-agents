@@ -226,6 +226,10 @@ pub struct Summary {
     pub item: u64,
     /// The name of the flow it runs on.
     pub flow: String,
+    /// Its flow has no agent's cell: it does no work of its own, and delivers what its item is made of, which the page
+    /// shows as a deliverable rather than as a work.
+    #[serde(default)]
+    pub delivers: bool,
     pub added: u64,
     /// Who paused the work, where it is paused: no round of it begins but those of a run that answers a note, a
     /// person's words to its cell. A round under way goes on, and what it hands in is taken.
@@ -1838,6 +1842,7 @@ impl Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
             flow: kept.head.flow.clone(),
+            delivers: !(kept.flow.cells.iter()).any(|spec| spec.kind == Kind::Agent),
             added: kept.head.added.0,
             paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
             waits: (driver.waits_on_owner(number).into_iter()).map(Wait::of).collect(),

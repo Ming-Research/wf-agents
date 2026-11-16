@@ -237,18 +237,15 @@ function useSending(act: (what: Act) => Promise<unknown>) {
 /// Why what the owner did was refused, in words.
 const refusal = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/// The words for who writes a message or is named in one: a cell by the name the owner calls it.
+/// The words for who writes a message or is named in one that is no cell of a flow.
 const WRITER: Record<string, string> = {
   owner: 'You',
   architect: 'Architect',
   assistant: 'Assistant',
-  R1: 'Research',
-  D1: 'Deep research',
-  I1: 'Implementation',
 };
 
-/// Who writes a message or is named in one, in words: any other cell, such as one that asked a question, by its title
-/// in the work's flow.
+/// Who writes a message or is named in one, in words: a cell, such as one that asked a question, by its title in the
+/// work's flow.
 const writerOf = (x: Who | MessageCell, page: WorkPage | null): string =>
   Object.hasOwn(WRITER, x) ? WRITER[x] : titleOf(page, x);
 

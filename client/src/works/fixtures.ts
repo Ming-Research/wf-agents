@@ -488,6 +488,7 @@ class History {
         number,
         item,
         flow: FLOW.name,
+        delivers: false,
         added: this.steps[0]?.time ?? this.time,
         paused: o.paused ?? null,
         now,

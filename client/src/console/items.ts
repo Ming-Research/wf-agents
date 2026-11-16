@@ -129,7 +129,8 @@ export function shownTree(data: Items): Shown[] {
     const mock = i === undefined ? null : itemOf(i);
     // MOCK rule, until the engine says what kind an item is: an item with open items under it whose own work has not
     // begun is a deliverable, made of what is under it. It shows no state of its own: no row of its work.
-    // With the mocks off the engine's own word decides alone: the item's flow.
+    // With the mocks off the engine's own word decides alone: the item's flow, which delivers where it has no agent's
+    // cell.
     const deliverable =
       mocksShown() &&
       w !== undefined &&
@@ -140,7 +141,7 @@ export function shownTree(data: Items): Shown[] {
       title: i?.title ?? '',
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w),
-      deliver: deliverable || w?.flow === 'deliver',
+      deliver: deliverable || w?.delivers === true,
       blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,
@@ -148,7 +149,7 @@ export function shownTree(data: Items): Shown[] {
       begun: w !== undefined && started(w),
       shadow: false,
       work:
-        w !== undefined && drawn(w) && !deliverable && w.flow !== 'deliver'
+        w !== undefined && drawn(w) && !deliverable && !w.delivers
           ? {
               number: w.number,
               now: w.now,

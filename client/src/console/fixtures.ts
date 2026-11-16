@@ -562,7 +562,7 @@ export function fixtureItems(start = Date.now()): Items {
         added: m.work.added,
         dependsOn: m.dependsOn,
         history: { first: { title: m.title, level: '2', dependsOn: m.dependsOn }, changes: [] },
-        work: { ...m.work, item: Number(n), flow: FLOW.name },
+        work: { ...m.work, item: Number(n), flow: FLOW.name, delivers: false },
       }),
     ),
   };

@@ -3,9 +3,18 @@
 //! flows give (each cell, line, group and block, a datum each cell or each line has its own of by its name as made),
 //! leaves out what the engine itself declares, read from its declarations (the sources, acts, tools and system parts of
 //! what it has, its data beside the flows and their values, every place the words beside the flows fill, and the
-//! directories of the format), and fails where a source that is not a test holds one of the rest as a string
-//! literal: each Rust file of a crate's `src` outside its items marked `#[cfg(test)]` and the files they declare, and
-//! the page's code without its tests, fixtures, mocks and made-up data.
+//! directories of the format), and fails where a source that is not a test holds one of the rest: as a string literal
+//! whole, inside a longer one, or as a key of an object written in the page's code, in each Rust file of a crate's
+//! `src` outside its items marked `#[cfg(test)]` and the files they declare, and in the page's code without its tests,
+//! fixtures, mocks and made-up data, but for those a module of it imports.
+//!
+//! Its limit: what the engine declares as its own, its acts, sources, tools and the places its words fill, is the
+//! engine's vocabulary, which its code may name, so a flow's name that is also one of them (the block `check` and the
+//! act `check`, the flow `deliver` and the act `deliver`, the blocks `title`, `code`, `tests`, `checked` and the group
+//! `change`, each a place) is left out, as nothing tells the two apart in a text; and a name that is a plain word, such
+//! as `plan` or `found`, is found inside a longer text, or as a key, only where it is written as a name, between
+//! backticks, since prose and the code's own words use it for its meaning. A name with a digit or an `_` is no word, and
+//! is found wherever it stands.
 //!
 //! It reads every source of the repository once and compiles the two flows, well under a second beside the crate's
 //! other tests. It is worth that: a name written in the code holds for one flow alone, and nothing else finds it until
@@ -32,10 +41,12 @@ struct Literal {
 }
 
 /// What a source holds that the guard reads: its string literals outside its comments and, in Rust, outside each item
-/// marked `#[cfg(test)]`; and the modules it declares as tests, each by its name, whose files are tests whole.
+/// marked `#[cfg(test)]`; in the page's code, each key of an object written without quotes; and the modules it declares
+/// as tests, each by its name, whose files are tests whole.
 #[derive(Debug, Default)]
 struct Scanned {
     literals: Vec<Literal>,
+    keys: Vec<Literal>,
     tests: Vec<String>,
 }
 
@@ -50,6 +61,8 @@ struct Scanner {
     lines: Vec<usize>,
     /// The depth of braces now.
     depth: usize,
+    /// The brackets open now, innermost last: `(`, `[` or `{`.
+    open: Vec<char>,
     /// Of an item marked `#[cfg(test)]` being read: the depth of braces it began at, and whether its body opened.
     test: Option<(usize, bool)>,
     scanned: Scanned,
@@ -77,6 +90,7 @@ impl Scanner {
             rust,
             lines,
             depth: 0,
+            open: Vec::new(),
             test: None,
             scanned: Scanned::default(),
         };
@@ -137,9 +151,16 @@ impl Scanner {
                 self.template();
             } else if self.rust && c == 'r' && self.raw_begins() {
                 self.raw();
+            } else if !self.rust && ident(c) && self.key_begins() {
+                self.key();
             } else {
                 match c {
+                    '(' | '[' => self.open.push(c),
+                    ')' | ']' => {
+                        self.open.pop();
+                    }
                     '{' => {
+                        self.open.push(c);
                         open += 1;
                         self.depth += 1;
                         if let Some((at, _)) = self.test {
@@ -151,6 +172,7 @@ impl Scanner {
                             self.at += 1;
                             return;
                         }
+                        self.open.pop();
                         open = open.saturating_sub(1);
                         self.depth = self.depth.saturating_sub(1);
                         if self.test == Some((self.depth, true)) {
@@ -162,6 +184,42 @@ impl Scanner {
                 }
                 self.at += 1;
             }
+        }
+    }
+
+    /// Whether a name here begins a key of an object written without quotes, in the page's code: the innermost bracket
+    /// open is a brace, the name comes first in it or after a comma, and a `:` follows it, or `?:`.
+    fn key_begins(&self) -> bool {
+        if self.open.last() != Some(&'{') || (self.at > 0 && self.get(self.at - 1).is_some_and(ident)) {
+            return false;
+        }
+        let mut i = self.at;
+        while i > 0 && self.get(i - 1).is_some_and(char::is_whitespace) {
+            i -= 1;
+        }
+        if !matches!(i.checked_sub(1).and_then(|i| self.get(i)), Some('{' | ',')) {
+            return false;
+        }
+        let mut j = self.at;
+        while self.get(j).is_some_and(ident) {
+            j += 1;
+        }
+        if self.get(j) == Some('?') {
+            j += 1;
+        }
+        self.get(j) == Some(':') && self.get(j + 1) != Some(':')
+    }
+
+    /// A key of an object written without quotes, kept with the line it stands on.
+    fn key(&mut self) {
+        let start = self.at;
+        while self.get(self.at).is_some_and(ident) {
+            self.at += 1;
+        }
+        if self.test.is_none() {
+            let text: String = self.chars[start..self.at].iter().collect();
+            let line = self.line(start);
+            self.scanned.keys.push(Literal { text, line });
         }
     }
 
@@ -325,7 +383,18 @@ fn flows() -> Vec<PathBuf> {
     flows
 }
 
-/// Every name in braces the files beside the flows write: the places their words fill.
+/// What of a file beside the flows its words are, in which a name in braces is a place the engine fills: of a TOML
+/// file, its lines but its comments; of a text of the engine's words, all of it.
+fn filled(path: &Path, text: &str) -> String {
+    if path.extension().is_some_and(|e| e == "toml") {
+        let words = text.lines().filter(|line| !line.trim_start().starts_with('#'));
+        words.collect::<Vec<_>>().join("\n")
+    } else {
+        text.to_string()
+    }
+}
+
+/// Every name in braces the files beside the flows write in their words: the places the engine fills.
 fn places() -> BTreeSet<String> {
     fn walk(dir: &Path, into: &mut BTreeSet<String>) {
         let Ok(entries) = fs::read_dir(dir) else { return };
@@ -337,6 +406,7 @@ fn places() -> BTreeSet<String> {
                 continue;
             }
             let Ok(text) = fs::read_to_string(&path) else { continue };
+            let text = filled(&path, &text);
             for piece in text.split('{').skip(1) {
                 let Some((name, _)) = piece.split_once('}') else {
                     continue;
@@ -375,12 +445,19 @@ fn flow_names() -> BTreeSet<String> {
                 engines.extend(block.values.iter().flatten().cloned());
             }
         }
-        names.extend(compiled.cells.iter().map(|c| c.id.as_str().to_string()));
-        names.extend(compiled.lines.keys().cloned());
-        names.extend(compiled.groups.keys().cloned());
-        names.extend(compiled.blocks.keys().map(ToString::to_string));
+        names.extend(given(&compiled));
     }
     names.retain(|n| !engines.contains(n));
+    names
+}
+
+/// The names a flow gives: its own, and each of its cells, lines, groups and blocks.
+fn given(compiled: &flow::Compiled) -> BTreeSet<String> {
+    let mut names = BTreeSet::from([compiled.name.clone()]);
+    names.extend(compiled.cells.iter().map(|c| c.id.as_str().to_string()));
+    names.extend(compiled.lines.keys().cloned());
+    names.extend(compiled.groups.keys().cloned());
+    names.extend(compiled.blocks.keys().map(ToString::to_string));
     names
 }
 
@@ -421,24 +498,93 @@ fn rust_sources() -> Vec<(PathBuf, Scanned)> {
 }
 
 /// The page's code that is no test, each read: each TypeScript file under `client/src` whose name says no test,
-/// fixture, mock or made-up data.
+/// fixture, mock or made-up data, and each such file but a test that one of them imports, as the page then runs it.
 fn page_sources() -> Vec<(PathBuf, Scanned)> {
     let mut all = Vec::new();
     files(&root().join("client").join("src"), &["ts", "tsx"], &mut all);
-    (all.into_iter())
-        .filter(|p| {
-            let name = p
-                .file_name()
-                .map(|n| n.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            !["test", "fixture", "mock", "fake"].iter().any(|w| name.contains(w))
-        })
+    let name = |p: &Path| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    };
+    let test = |p: &Path| name(p).contains("test");
+    let made_up = |p: &Path| ["fixture", "mock", "fake"].iter().any(|w| name(p).contains(w));
+    let mut sources: Vec<PathBuf> = all.iter().filter(|p| !test(p) && !made_up(p)).cloned().collect();
+    let mut i = 0;
+    while i < sources.len() {
+        let text = fs::read_to_string(&sources[i]).unwrap_or_default();
+        let dir = sources[i].parent().map(Path::to_path_buf).unwrap_or_default();
+        for imported in imports(&text) {
+            let path = dir.join(&imported);
+            let file = ["ts", "tsx"]
+                .iter()
+                .map(|e| path.with_extension(e))
+                .find(|f| all.contains(f));
+            if let Some(file) = file.filter(|f| !test(f) && !sources.contains(f)) {
+                sources.push(file);
+            }
+        }
+        i += 1;
+    }
+    (sources.into_iter())
         .map(|p| {
             let text = fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
             let scanned = Scanner::scan(&text, false);
             (p, scanned)
         })
         .collect()
+}
+
+/// The modules a file of the page's code imports by a path of its own (`from './mock'`), each as written; what it
+/// imports from a package, or only when asked (`import('./fixtures')`), is no part of it as it runs.
+fn imports(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim_start();
+        let begins = ["import ", "export ", "}"].iter().any(|w| line.starts_with(w));
+        let Some(at) = line.find(" from '").filter(|_| begins) else {
+            continue;
+        };
+        let rest = &line[at + " from '".len()..];
+        if let Some(path) = rest.split('\'').next().filter(|p| p.starts_with('.')) {
+            out.push(path.to_string());
+        }
+    }
+    out
+}
+
+/// Whether a name is no word of prose or of the code's own: it holds a digit or an `_`.
+fn no_word(name: &str) -> bool {
+    name.chars().any(|c| c.is_ascii_digit() || c == '_')
+}
+
+/// The names a literal holds, as the module says: itself whole; or, inside a longer text, each name written
+/// between backticks, and each that is no word, holding a digit or an `_`, wherever it stands.
+fn named<'a>(text: &str, names: &'a BTreeSet<String>) -> Vec<&'a str> {
+    if let Some(name) = names.get(text) {
+        return vec![name.as_str()];
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if !(ident(chars[i]) || chars[i] == '.') {
+            i += 1;
+            continue;
+        }
+        let begins = i;
+        while i < chars.len() && (ident(chars[i]) || chars[i] == '.') {
+            i += 1;
+        }
+        let token: String = chars[begins..i].iter().collect();
+        let token = token.trim_end_matches('.');
+        let Some(name) = names.get(token) else { continue };
+        let quoted = begins > 0 && chars[begins - 1] == '`' && chars.get(begins + token.chars().count()) == Some(&'`');
+        if quoted || no_word(token) {
+            out.push(name.as_str());
+        }
+    }
+    out
 }
 
 #[test]
@@ -452,8 +598,15 @@ fn no_source_names_a_cell_line_group_or_block_of_a_flow() {
     let mut found = Vec::new();
     for (path, scanned) in rust_sources().into_iter().chain(page_sources()) {
         let at = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
-        for literal in scanned.literals.iter().filter(|l| names.contains(&l.text)) {
-            found.push(format!("{at}:{}: \"{}\"", literal.line, literal.text));
+        for literal in &scanned.literals {
+            for name in named(&literal.text, &names) {
+                found.push(format!("{at}:{}: {name} in \"{}\"", literal.line, literal.text));
+            }
+        }
+        for key in &scanned.keys {
+            for name in named(&key.text, &names).into_iter().filter(|n| no_word(n)) {
+                found.push(format!("{at}:{}: {name}, a key", key.line));
+            }
         }
     }
     assert!(
@@ -507,4 +660,70 @@ fn a_name_is_found_in_the_pages_code_and_not_in_an_apostrophe_or_a_comment() {
             ("double", 6)
         ]
     );
+}
+
+#[test]
+fn a_flow_gives_its_own_name_beside_those_of_its_cells_lines_groups_and_blocks() {
+    let source = flow::Source {
+        flow: "name = \"greeting\"\norder = [\"say\"]\n\n[limits]\nruns = 1\nreturns = 1\ncalls = 1\n\n[blocks.request]\npeople = true\n\n[blocks.said]\n".to_string(),
+        cells: [(
+            "say".to_string(),
+            "title = \"Say\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"request\"]\noutputs = [\"said\"]\n".to_string(),
+        )]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    let compiled = flow::compile(&source, &has).expect("the flow compiles");
+    assert_eq!(
+        given(&compiled),
+        ["greeting", "request", "said", "say"]
+            .map(String::from)
+            .into_iter()
+            .collect()
+    );
+}
+
+#[test]
+fn a_key_of_an_object_written_without_quotes_is_found_in_the_pages_code() {
+    let text =
+        "const w = { R1: 'Research', plan?: 1 };\nfunction f(x: number, y: { z: number }) { return x ? a : b; }\n";
+    let scanned = Scanner::scan(text, false);
+    let keys: Vec<(&str, usize)> = scanned.keys.iter().map(|k| (k.text.as_str(), k.line)).collect();
+    assert_eq!(keys, [("R1", 1), ("plan", 1), ("z", 2)]);
+}
+
+#[test]
+fn a_name_inside_a_longer_text_is_found_where_it_is_written_as_a_name_or_is_no_word() {
+    let names: BTreeSet<String> = ["M1", "plan", "plan_owner"].map(String::from).into_iter().collect();
+    assert_eq!(named("waits at M1 now", &names), ["M1"]);
+    assert_eq!(named("the plan holds", &names), Vec::<&str>::new());
+    assert_eq!(named("`plan` is new", &names), ["plan"]);
+    assert_eq!(named("M1.75 2.5h10", &names), Vec::<&str>::new());
+    assert_eq!(named("see plan_owner.", &names), ["plan_owner"]);
+    assert_eq!(named("plan", &names), ["plan"]);
+}
+
+#[test]
+fn a_place_is_a_name_in_braces_the_words_write_and_none_a_comment_writes() {
+    let toml = filled(
+        Path::new("words.toml"),
+        "# {gone} is said in a comment\nkey = \"{kept}\"\n",
+    );
+    assert!(toml.contains("{kept}") && !toml.contains("{gone}"), "{toml}");
+    let words = filled(Path::new("how.md"), "Fill {this} in.");
+    assert!(words.contains("{this}"));
+}
+
+#[test]
+fn a_file_of_made_up_data_a_module_of_the_page_imports_is_read_with_it() {
+    let text = "import { a } from './mock';\nimport {\n  b,\n} from '../works/fake';\nimport { c } from 'react';\nconst d = await import('./fixtures');\n";
+    assert_eq!(imports(text), ["./mock", "../works/fake"]);
+    let read: Vec<PathBuf> = page_sources().into_iter().map(|(p, _)| p).collect();
+    assert!(read.iter().any(|p| p.ends_with("console/mock.ts")), "{read:?}");
+    assert!(read.iter().any(|p| p.ends_with("console/fake.ts")), "{read:?}");
 }

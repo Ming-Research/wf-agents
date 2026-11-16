@@ -169,16 +169,16 @@ const ITEM_263: Partial<Made> = {
 /// The messages of item 263's work, in English.
 const messages263 = (now: number): Message[] => [
   {
-    who: 'engineer',
+    who: 'builder',
     at: now - 7.5 * HOUR,
     to: ['owner'],
     quote: null,
     text:
       "This work changes flow.json (the text of the architect's cell H1, and one check in engine.checks), so its merge " +
-      "waits for your approval at M1; the pull request will link the flow page's comparison.",
+      "waits for your approval at the check; the pull request will link the flow page's comparison.",
   },
   {
-    who: 'engineer',
+    who: 'builder',
     at: now - 7.4 * HOUR,
     to: ['owner'],
     quote: null,
@@ -190,10 +190,10 @@ const messages263 = (now: number): Message[] => [
   {
     who: 'architect',
     at: now - 6 * HOUR,
-    to: ['engineer'],
+    to: ['builder'],
     quote: null,
     text:
-      'About your side report at R1 (the page shows every fault but flow_anomaly as a cache miss): confirmed in ' +
+      'About your side report from the research (the page shows every fault but flow_anomaly as a cache miss): confirmed in ' +
       '`Messages.tsx` line 744. #263 fixes it, with no item of its own: when you add the anomaly fault, look its words up by ' +
       'its kind, and add them to `messages.ts`.',
   },
@@ -259,9 +259,9 @@ const ITEM_262: Partial<Made> = {
       kind: 'text',
       text:
         '```\n' +
-        'work.cost by cell        R1          $4.10\n' +
-        '                         I1          $9.30\n' +
-        '                         V1          $2.20\n' +
+        'work.cost by cell        X0          $4.10\n' +
+        '                         X2          $9.30\n' +
+        '                         X3          $2.20\n' +
         '                         sum        $15.60\n' +
         'billed                              $21.90\n' +
         'round_tries, 37 rows     no cell     $6.30\n' +
@@ -330,12 +330,12 @@ const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 5 * HOUR,
-    to: ['D1'],
+    to: ['X1'],
     quote: quoteOf(ITEM_262_OPEN),
     text: 'Explain why the first is recommended. I do not see what the second one changes.',
   },
   {
-    who: 'D1',
+    who: 'X1',
     at: now - 4.6 * HOUR,
     to: ['owner'],
     quote: null,
@@ -349,12 +349,12 @@ const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 4.2 * HOUR,
-    to: ['D1'],
+    to: ['X1'],
     quote: null,
     text: 'Once the definition changes, will anything written against `work.cost` raise a false alarm?',
   },
   {
-    who: 'D1',
+    who: 'X1',
     at: now - 3.9 * HOUR,
     to: ['owner'],
     quote: null,
@@ -365,12 +365,12 @@ const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 2 * HOUR,
-    to: ['I1'],
+    to: ['X2'],
     quote: 'a try still open counts what it has used so far.',
     text: 'What of the tries left open when the engine restarts? Do they keep growing?',
   },
   {
-    who: 'I1',
+    who: 'X2',
     at: now - 1.6 * HOUR,
     to: ['owner'],
     quote: null,
@@ -469,12 +469,12 @@ const RICH: { starts: string; make: (now: number) => Partial<Made> }[] = [
         {
           who: 'owner',
           at: now - 2 * HOUR,
-          to: ['engineer'],
+          to: ['builder'],
           quote: "show times in the owner's zone",
           text: "Use the zone set in the configuration, not the machine's.",
         },
         {
-          who: 'engineer',
+          who: 'builder',
           at: now - 1.5 * HOUR,
           to: ['owner'],
           quote: null,
