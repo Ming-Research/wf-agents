@@ -60,8 +60,9 @@ between = ", "
 # Each datum the cell is given that is new to it since it last worked from it, or that the session lacks, in `order`:
 # what the flow gives every agent cell, what the cell only reads, what it watches, each list in its own order, and each
 # block the cell writes that none of them gives it, sent only where the session lacks its latest version, as `latest`
-# gives it (design document `data-and-context`, 14, 15, 21). Its content as `given.toml` says for the cell's kind of
-# it, or `held` there where the session holds it already. A datum with no version yet is left out.
+# gives it (design document `data-and-context`, 14, 15, 21). What every cell is given alike comes first, so that
+# sessions share it in the cache (15). Its content as `given.toml` says for the cell's kind of it, or `held` there where
+# the session holds it already. A datum with no version yet is left out.
 [[parts]]
 part = "context"
 order = ["every_agent", "reads", "watches", "outputs"]

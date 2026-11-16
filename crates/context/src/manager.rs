@@ -395,10 +395,6 @@ fn of_cell(records: &Records, run: RunId, cell: &CellSpec) -> bool {
     (records.started.iter()).any(|s| s.run == run && s.cell == cell.id)
 }
 
-/// The version of the datum the cell last worked from: the latest it consumed, where the datum runs the cell (design
-/// document `data-and-context`, 10); of another, the latest its last finished run was given, which is the one written
-/// last before that run's last round began, every round being filled with the latest; and in either case the latest
-/// a run of the cell wrote, where that is later, a cell's own version being no change to it.
 /// Who wrote a version, as a round is told it, worked out from the records and the flow, never stored (design document
 /// `data-and-context`, 29): a run's version by its cell's line, as the flow declares it, nobody where the cell is on no
 /// line; a person's by the owner. Of what the outside writes, the owner's words by the owner; a version of a cell's
@@ -444,6 +440,10 @@ fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView
     }
 }
 
+/// The version of the datum the cell last worked from: the latest it consumed, where the datum runs the cell (design
+/// document `data-and-context`, 10); of another, the latest its last finished run was given, which is the one written
+/// last before that run's last round began, every round being filled with the latest; and in either case the latest
+/// a run of the cell wrote, where that is later, a cell's own version being no change to it.
 fn last_worked_from(flow: &Compiled, records: &Records, cell: &CellSpec, block: &BlockId) -> Option<Seq> {
     let finished = (records.finished.iter()).filter(|f| of_cell(records, f.run, cell));
     let wrote = (finished.clone())
