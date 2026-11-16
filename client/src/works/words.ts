@@ -230,6 +230,23 @@ export function outageDown(outage: Outage): { failure: Failure; why: string } {
 /// A text with its first letter a capital, to begin a sentence.
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
+/// What a wait every work shares holds and until when, a sentence for each kind of cause.
+export function heldWords(service: Outage['service'], failure: Failure): string {
+  if (service === 'host') return "No act of the engine's begins until it is reached again.";
+  switch (failure) {
+    case 'cannotRun':
+      return "No agent's round begins until it runs again.";
+    case 'usageLimit':
+      return "No agent's round begins until the limit resets.";
+    case 'offline':
+      return "No agent's round begins until the service is reached again.";
+    case 'unavailable':
+      return "No agent's round begins until the service answers again.";
+    default:
+      return "No agent's round begins until the cause is gone.";
+  }
+}
+
 /// A wait every work shares, in sentences: what is down and since when; where the latest check of the outside found it
 /// down, what it found, in the engine's words (never the error of the round that met it); and what it holds until it
 /// runs again. None where it holds no work: nothing is then for the owner to know or do. A name or a value in backticks
@@ -241,11 +258,7 @@ export function outageWords(outage: Outage): string | null {
   // The check's time, without its day where that is the day the wait began.
   const at = (ms: number) => (dayOf(ms) === dayOf(outage.since) ? minuteOf(ms) : clock(ms));
   const why = outage.checked && found?.kind === 'down' ? ` At ${at(outage.checked.at)} the check found: ${sentence(found.why)}` : '';
-  const held =
-    outage.service === 'host'
-      ? "No act of the engine's begins until it is reached again."
-      : "No agent's round begins until it runs again.";
-  return `${capital(failureWords(down.failure))} since ${clock(outage.since)}.${why} ${held}`;
+  return `${capital(failureWords(down.failure))} since ${clock(outage.since)}.${why} ${heldWords(outage.service, down.failure)}`;
 }
 
 /// What a round asked for.

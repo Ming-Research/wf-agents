@@ -5,7 +5,7 @@ import { act, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Changed, Engine, Item, Items, Wait } from '../works-api';
+import type { Changed, Engine, Item, Items, Outage, Wait } from '../works-api';
 import { waitingCount } from '../works/waiting';
 import { waitCount, waitCounted } from '../works/words';
 import { fixtureCopies, fixtureItems, fixtureWork } from '../works/fixtures';
@@ -158,25 +158,41 @@ describe('the System view', () => {
     );
   });
 
+  /// A wait every work shares, the check of the outside having found it down, as the latest check says it.
+  const sharedWait = (holds: boolean): Outage => ({
+    service: 'agents',
+    failure: 'cannotRun',
+    why: 'Not logged in',
+    work: 3,
+    run: 2,
+    round: 1,
+    since: 0,
+    checked: {
+      at: 0,
+      taken: 2,
+      found: holds
+        ? { kind: 'down', failure: 'cannotRun', why: 'It is not signed in, as `claude auth status` says.' }
+        : { kind: 'well' },
+    },
+    until: { kind: holds ? 'checked' : 'well', at: 0 },
+    holds,
+  });
+
+  it('says none where the wait every work shares holds no work, in no colour of a problem', async () => {
+    const s = sources();
+    const items = fixtureItems();
+    s.works.loadItems = async () => ({ ...items, outage: sharedWait(false) });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const shared = part(container, 'Now').querySelectorAll('dd')[2] as HTMLElement;
+    expect(shared.textContent).toBe('none');
+    expect(shared.classList.contains('failed')).toBe(false);
+  });
+
   it("says the wait every work shares in sentences, the names and values it marks in the monospace", async () => {
     const s = sources();
     const items = fixtureItems();
-    const found = 'It is not signed in, as `claude auth status` says.';
-    s.works.loadItems = async () => ({
-      ...items,
-      outage: {
-        service: 'agents',
-        failure: 'cannotRun',
-        why: 'Not logged in',
-        work: 3,
-        run: 2,
-        round: 1,
-        since: 0,
-        checked: { at: 0, taken: 2, found: { kind: 'down', failure: 'cannotRun', why: found } },
-        until: { kind: 'checked', at: 0 },
-        holds: true,
-      },
-    });
+    s.works.loadItems = async () => ({ ...items, outage: sharedWait(true) });
     const { container } = draw(<SystemView period="week" />, s);
     await settle();
     const shared = part(container, 'Now').querySelectorAll('dd')[2] as HTMLElement;

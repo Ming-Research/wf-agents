@@ -12,9 +12,7 @@ week across the end of summer time began an hour off, and four weeks came back a
 The wait every work shares is said as what is down since when, what the engine's check found where it found it down, and
 what it holds; it says nothing where it holds no work, and never the round that met it, its error, or when the engine
 checks next. `wf-agents wait` and `list` say the round and the next check.
-Why: The owner has nothing to do with either, and the assistant traces a stop with both; saying them on the page too was
-turned down as a second copy of what the assistant reads (principle one-thing-one-place), and the round's raw error
-as text written for agents and not for the owner (Article 8).
+Why: The owner has nothing to do with either, and the assistant traces a stop with both (Article 8).
 
 ### decision a-number-standing-alone-has-no-border
 A number of the system's view that stands alone, with what it counts under it, has no border round it.

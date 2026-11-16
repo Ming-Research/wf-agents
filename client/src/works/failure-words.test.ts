@@ -33,7 +33,7 @@ describe('the words of a round that failed and of the waits that follow', () => 
   it('says a wait every work shares: what is down since when, what a check found, and what it holds', () => {
     const words = outageWords(outage({}));
     expect(words).toMatch(
-      /^The account's usage limit was reached since [^.]*\. No agent's round begins until it runs again\.$/,
+      /^The account's usage limit was reached since [^.]*\. No agent's round begins until the limit resets\.$/,
     );
     expect(words).not.toContain('W3');
     expect(words).not.toContain("You've hit your limit");
@@ -62,6 +62,11 @@ describe('the words of a round that failed and of the waits that follow', () => 
     });
     // It holds no work, so nothing is said: the owner has nothing to know or do.
     expect(outageWords(well)).toBeNull();
+    // Each kind of cause says what it holds until in words that fit it.
+    const held = (failure: Outage['failure']) => outageWords(outage({ failure }));
+    expect(held('offline')).toMatch(/\. No agent's round begins until the service is reached again\.$/);
+    expect(held('unavailable')).toMatch(/\. No agent's round begins until the service answers again\.$/);
+    expect(held('other')).toMatch(/\. No agent's round begins until the cause is gone\.$/);
     const host = outage({ service: 'host', failure: 'offline', until: { kind: 'looked', at: 0 } });
     expect(outageWords(host)).toMatch(/No act of the engine's begins until it is reached again\.$/);
   });
