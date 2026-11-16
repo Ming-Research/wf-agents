@@ -1420,7 +1420,7 @@ pub(crate) fn rule(
             let by_judge =
                 |v: &Version<'_>| (v.by.and_then(|run| runs.get(&run))).is_some_and(|r| r.started.cell == judge.id);
             for v in versions.get_mut(&of.dialogue).into_iter().flatten() {
-                if v.at < ruling && by_judge(v) && v.at > ruling {
+                if v.at < ruling && by_judge(v) {
                     v.ruled = true;
                 }
             }
