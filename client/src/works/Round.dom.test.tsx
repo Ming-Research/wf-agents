@@ -41,7 +41,7 @@ function sourceOf(over: Partial<Source> = {}): Source & { reads: { doing: number
     loadItems: async () => fixtureItems(),
     loadProjects: async () => fixtureProjects(),
     loadWork: async (n) => fixtureWork(n),
-    loadVersion: async (n, block, at) => fixtureVersion(n, block, at),
+    loadVersion: async (n, block, number) => fixtureVersion(n, block, number),
     loadRound: async (n, run, round) => fixtureRound(n, run, round),
     loadTold: async (n, run, round) => fixtureTold(n, run, round),
     loadDoing: async (n, run, round) => {
@@ -160,7 +160,7 @@ describe("a round's part of a run's panel", () => {
   it('shows what was filled into its session, each part as the flow\'s files name it, before what it was sent', async () => {
     const panel = await runPanel(fixtureWork(41), 1, sourceOf());
     const first = roundPart(panel, 1);
-    expect(rows(pair(first, 'Filled'))).toEqual(['work', 'outputs', 'context request@1', 'task']);
+    expect(rows(pair(first, 'Filled'))).toEqual(['work', 'outputs', 'context request v1', 'task']);
     // The second round is given the results of the first one's calls.
     expect(rows(pair(roundPart(panel, 2), 'Filled'))).toEqual(['results [1, 2]']);
     const order = [...first.querySelectorAll('dt, button')].map((e) => e.textContent?.trim());

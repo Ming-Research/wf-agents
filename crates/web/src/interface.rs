@@ -49,7 +49,7 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
         .route("/api/v1/levels", get(move || async move { Json(shown.clone()) }))
         .route("/api/v1/projects", get(move || async move { Json(named.clone()) }))
         .route("/api/v1/works/{work}", get(work))
-        .route("/api/v1/works/{work}/versions/{block}/{at}", get(version))
+        .route("/api/v1/works/{work}/versions/{block}/{version}", get(version))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}", get(round))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}/told", get(told))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}/doing", get(doing))
@@ -279,16 +279,17 @@ async fn work(State(handle): State<Handle>, path: Result<Path<u64>, PathRejectio
     found(page, number, missing)
 }
 
+/// The content of a version of a block, the version by its number among the block's versions.
 async fn version(State(handle): State<Handle>, path: Result<Path<(u64, String, u64)>, PathRejection>) -> Response {
-    let (number, block, at) = match path {
-        Ok(Path((number, block, at))) => (WorkNumber(number), block, at),
+    let (number, block, version) = match path {
+        Ok(Path((number, block, version))) => (WorkNumber(number), block, version),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no version of {block} at {at}.", number.0);
+    let missing = format!("Work {} has no version {version} of {block}.", number.0);
     let page = handle.read(move |driver| {
         driver
             .work(number)
-            .map(|_| Ok(VersionPage::of(driver, number, &block, at)))
+            .map(|_| Ok(VersionPage::of(driver, number, &block, version)))
     });
     found(page.await, number, missing)
 }

@@ -75,7 +75,7 @@ function fixtureSource(over: Partial<Source> = {}): TestSource {
       s.reads.work += 1;
       return fixtureWork(n);
     },
-    loadVersion: async (n, block, at) => fixtureVersion(n, block, at),
+    loadVersion: async (n, block, number) => fixtureVersion(n, block, number),
     loadRound: async (n, run, round) => {
       s.reads.round += 1;
       return fixtureRound(n, run, round);
@@ -459,7 +459,7 @@ describe('the panel of a step', () => {
     await chooseStep(page, 6);
     const deep = page.querySelector('aside[aria-label="Run 5 of deep_research"]') as HTMLElement;
     expect(deep.textContent).toContain('said not to matter');
-    expect(deep.textContent).toMatch(/kept the meaning of @\d+/);
+    expect(deep.textContent).toMatch(/kept the meaning of v\d+/);
     // The plan's second run wrote needs_deep_research as it was: a choice keeps its meaning while its value does.
     await chooseStep(page, 5);
     const plan = page.querySelector('aside[aria-label="Run 4 of plan"]') as HTMLElement;
@@ -489,7 +489,8 @@ describe('the panel of a step', () => {
     const page = draw(<WorkScreen page={work} onActed={() => undefined} />, fixtureSource());
     expect(texts(page, '.step-lead .step-words')[4]).toBe(`the owner wrote ${write.block}, said nothing yet`);
     const blocks = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
-    const row = [...blocks.querySelectorAll('.list-row')].find((r) => r.textContent?.startsWith(`@${write.at}`) ?? false);
+    const number = version(write.block, write.at).number;
+    const row = [...blocks.querySelectorAll('.list-row')].find((r) => r.textContent?.startsWith(`v${number}`) ?? false);
     expect(row?.textContent).toContain('said nothing yet');
     await chooseStep(page, 4);
     const panel = page.querySelector(`aside[aria-label="Write of ${write.block}"]`) as HTMLElement;
@@ -545,6 +546,23 @@ describe('the panel of a step', () => {
     expect(panel.querySelector('.list-row')?.textContent).toContain('the owner');
     await click(button(panel, 'Show content'));
     expect(panel.querySelector('pre.content')?.textContent).toContain('List the works of every item');
+  });
+
+  // A version is shown by `v` and its number among its block's versions, never by its place among the work's steps: a
+  // block whose second version came after other writes is shown as v1 and v2 all the same.
+  it('shows each version by v and its number among its block’s versions, never by its place', () => {
+    const work = fixtureWork(41);
+    const block = work.blocks.find((b) => b.versions.length >= 2 && b.versions[1].at > b.versions[0].at + 1);
+    if (block === undefined) throw new Error('no block of the fixture has a second version after other steps');
+    const { page } = drawWork(41);
+    const panel = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
+    const label = `${block.name} ${block.versions.length}`;
+    const part = [...panel.querySelectorAll('.panel-part')].find(
+      (p) => p.querySelector('.panel-part-label')?.textContent === label,
+    );
+    const marks = [...(part?.querySelectorAll('.list-row') ?? [])].map((r) => r.querySelector('.mono')?.textContent);
+    expect(marks).toEqual(block.versions.map((_, i) => `v${i + 1}`));
+    expect(panel.textContent).not.toContain('@');
   });
 });
 

@@ -41,11 +41,11 @@ const dayKey = (ms: number) => {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 };
 
-/// The cell whose write gave a block the meaning it had at this version, where a run wrote it.
-function meaningWriter(versions: Block[], block: string, at: number | null): string | null {
+/// The cell whose write gave a block the meaning it had at the version of this number, where a run wrote it.
+function meaningWriter(versions: Block[], block: string, number: number | null): string | null {
   const all = versions.find((b) => b.name === block)?.versions ?? [];
-  const version = all.find((v) => v.at === at);
-  const by = all.find((v) => v.at === version?.meaning)?.by;
+  const version = all.find((v) => v.number === number);
+  const by = all.find((v) => v.number === version?.meaning)?.by;
   return by?.kind === 'run' ? by.cell : null;
 }
 

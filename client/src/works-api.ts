@@ -1,7 +1,7 @@
 // The items and the works as the pages read them, as `crates/web/src/works.rs` gives them: the types here follow
 // those, field for field. Every time is in milliseconds since the start of 1970. A place (`at`) is the place of an
-// entry in the order of what happened to a work; a version of a block is named by the place of the entry that wrote
-// it.
+// entry in the order of what happened to a work, which orders the steps; a version of a block is named by its number
+// among the block's versions, the first being 1, and shown as `v` and the number.
 //
 // The routes:
 // - `GET  /api/v1/backup`: how the copies of the database stand (`Copies`).
@@ -12,7 +12,8 @@
 // - `GET  /api/v1/levels`: the levels an item may be given, with what each is for (`Levels`).
 // - `GET  /api/v1/projects`: the projects the installation names, in order of their names (`Projects`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
-// - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
+// - `GET  /api/v1/works/{work}/versions/{block}/{version}`: the content of a version of a block, by its number
+//   (`VersionPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/told`: what the round was told and what came back of it, as
 //   its carrier kept them (`ToldPage`); no try where it kept nothing.
@@ -247,8 +248,9 @@ export interface Wait {
 
 /// What the owner does that ends a wait on them.
 export type Ends =
-  /// Answers this version of the work's question by one of its options, on its card at the plan's end.
-  | { kind: 'answer'; question: string; version: number }
+  /// Answers this version of the work's question by one of its options, on its card at the plan's end: the version by
+  /// its number among the versions of its cell's questions, none where it has none.
+  | { kind: 'answer'; question: string; version: number | null }
   /// Answers in words the question this call puts, on its card at the plan's end.
   | { kind: 'reply'; call: number }
   /// Lets the run at its limit go on, as the result of this call.
@@ -339,13 +341,15 @@ export interface CellDetail {
 /// outside, or an act of the engine; or a cell, by a run of it, a question it asked included.
 export type Writer = { kind: 'owner' } | { kind: 'outside' } | { kind: 'run'; run: number; cell: string };
 
-/// A version of a block: one write of it.
+/// A version of a block: one write of it, at the place `at` among the steps, named by its `number` among the block's
+/// versions.
 export interface Version {
   at: number;
+  number: number;
   time: number;
   by: Writer;
-  /// The version at which the meaning it has last changed: itself, or an earlier one; none where the block has said
-  /// nothing yet, as of a first version handed in as changing nothing.
+  /// The version at which the meaning it has last changed, by its number: itself, or an earlier one; none where the
+  /// block has said nothing yet, as of a first version handed in as changing nothing.
   meaning: number | null;
   value: string | null;
   /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
@@ -515,7 +519,7 @@ export interface CallRow {
 }
 
 export type RunEnd =
-  /// It finished and wrote these blocks: each is the version of its block named by `at`.
+  /// It finished and wrote these blocks: each is the version of its block written at `at`.
   | { kind: 'finished'; at: number; time: number; writes: Handed[] }
   | { kind: 'abandoned'; at: number; time: number };
 
@@ -610,8 +614,9 @@ export interface Question {
   name: string;
   /// The cell it belongs to.
   cell: string;
-  /// The version an answer names: the place of the latest.
-  version: number;
+  /// The version an answer names: the number of the latest among the versions of its cell's questions; none where it
+  /// has none, as a question of a cell with no questions of its own.
+  version: number | null;
   /// The engine itself asked it, and not the cell's agent.
   engine: boolean;
   /// The cell waits for the answer: the work goes past it to no later cell until it is answered; else it goes on by
@@ -640,7 +645,7 @@ export interface Speaking {
 
 export interface VersionPage {
   block: string;
-  at: number;
+  number: number;
   content: string;
 }
 
@@ -771,7 +776,7 @@ export type Act =
   | { kind: 'cancel'; why?: string | null }
   /// Gives a call that waits for a person its result.
   | { kind: 'result'; call: number; result: string }
-  /// Answers a version of a question, taking an option counted from one, and nothing else.
+  /// Answers a version of a question, by its number, taking an option counted from one, and nothing else.
   | { kind: 'answer'; question: string; version: number; option: number }
   /// Has the line begin a new session at its next round.
   | { kind: 'newSession'; line: string }
@@ -880,8 +885,8 @@ export interface Copies {
 export const loadCopies = () => read<Copies>('/api/v1/backup');
 export const loadItems = () => read<Items>('/api/v1/items');
 export const loadWork = (work: number) => read<WorkPage>(`/api/v1/works/${work}`);
-export const loadVersion = (work: number, block: string, at: number) =>
-  read<VersionPage>(`/api/v1/works/${work}/versions/${encodeURIComponent(block)}/${at}`);
+export const loadVersion = (work: number, block: string, version: number) =>
+  read<VersionPage>(`/api/v1/works/${work}/versions/${encodeURIComponent(block)}/${version}`);
 export const loadRound = (work: number, run: number, round: number) =>
   read<RoundPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}`);
 export const loadTold = (work: number, run: number, round: number) =>

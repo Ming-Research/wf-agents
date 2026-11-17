@@ -174,8 +174,8 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 };
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 let mut texts = Vec::new();
-                for (name, at) in texts_of(&page, block.as_deref())? {
-                    let path = format!("/api/v1/works/{work}/versions/{}/{at}", encoded(&name));
+                for (name, version) in texts_of(&page, block.as_deref())? {
+                    let path = format!("/api/v1/works/{work}/versions/{}/{version}", encoded(&name));
                     let version: VersionPage = send(address, Method::GET, &path, None::<&()>).await?;
                     texts.push((name, version.content));
                 }
@@ -477,12 +477,13 @@ async fn send<T: DeserializeOwned, B: Serialize>(
     serde_json::from_slice(body).map_err(|e| format!("The engine's answer cannot be read: {e}."))
 }
 
-/// A question as it stands, in lines: its name, cell and version, the first line of what it asks, its options and the
-/// owner's answer; of one withdrawn, why.
+/// A question as it stands, in lines: its name, cell and version, by its number, the first line of what it asks, its
+/// options and the owner's answer; of one withdrawn, why.
 fn question(q: &QuestionPage) -> Vec<String> {
     let by = if q.engine { ", asked by the engine" } else { "" };
     let waits = if q.waits { ", waits" } else { "" };
-    let head = format!("  {} (of {}, version {}{by}{waits})", q.name, q.cell, q.version);
+    let version = q.version.map_or_else(|| "none".to_string(), |n| n.to_string());
+    let head = format!("  {} (of {}, version {version}{by}{waits})", q.name, q.cell);
     if let Some(why) = &q.withdrawn {
         return vec![format!("{head}: withdrawn: {why}")];
     }
@@ -501,10 +502,7 @@ fn question(q: &QuestionPage) -> Vec<String> {
             let why = a.why.as_deref().map_or_else(String::new, |why| format!(": \"{why}\""));
             format!("    answered {}{why}", a.option)
         }
-        None => format!(
-            "    unanswered: wf-agents answer <work> {} {} <option>",
-            q.name, q.version
-        ),
+        None => format!("    unanswered: wf-agents answer <work> {} {version} <option>", q.name),
     });
     lines
 }
@@ -1241,11 +1239,11 @@ fn tags_said(tags: &Tags) -> String {
     lines.join("\n")
 }
 
-/// The blocks whose text is to be read, with the version of each: the one named, or every block people write, as the
-/// flow declares them, whose latest version the owner wrote, which is the item's own text. The owner's words to a cell
-/// and answers are the owner's too, and no text of the item's.
+/// The blocks whose text is to be read, with the number of the version of each: the one named, or every block people
+/// write, as the flow declares them, whose latest version the owner wrote, which is the item's own text. The owner's
+/// words to a cell and answers are the owner's too, and no text of the item's.
 fn texts_of(page: &WorkPage, block: Option<&str>) -> Result<Vec<(String, u64)>, String> {
-    let latest = |b: &web::works::Block| b.versions.last().map(|v| (b.name.clone(), v.at));
+    let latest = |b: &web::works::Block| b.versions.last().map(|v| (b.name.clone(), v.number));
     match block {
         Some(name) => {
             let found = page.blocks.iter().find(|b| b.name == name).and_then(latest);
@@ -2272,7 +2270,7 @@ mod tests {
             .map(|n| QuestionPage {
                 name: format!("q{n:03}"),
                 cell: "plan".to_string(),
-                version: n,
+                version: Some(n),
                 engine: false,
                 waits: true,
                 withdrawn: None,
@@ -2452,9 +2450,10 @@ mod tests {
             name: name.to_string(),
             versions: vec![Version {
                 at,
+                number: 1,
                 time: at,
                 by,
-                meaning: Some(at),
+                meaning: Some(1),
                 value: None,
                 said_to: None,
                 chars: 5,

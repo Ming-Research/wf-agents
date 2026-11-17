@@ -167,17 +167,19 @@ fn researched(questions: Vec<Question>) -> (W, Vec<Effect>) {
 }
 
 impl W {
-    /// The latest version of the question.
-    fn version(&self, name: &str) -> Seq {
-        (self.work.records.questions.iter())
+    /// The latest version of the question, by its number among the versions of its cell's questions, as the owner
+    /// answers it.
+    fn version(&self, name: &str) -> u64 {
+        let latest = (self.work.records.questions.iter())
             .filter(|q| q.name == name)
-            .map(|q| q.at)
-            .max()
-            .expect("the question was asked")
+            .max_by_key(|q| q.at)
+            .expect("the question was asked");
+        let number = engine::asked::number_of(&self.flow, &self.work.records, &latest.cell, latest.at);
+        number.expect("a version of its cell's questions")
     }
 
-    /// The owner answers the version of the question, taking the option.
-    fn answers(&mut self, name: &str, version: Seq, option: u64) -> Vec<Effect> {
+    /// The owner answers the version of the question of this number, taking the option.
+    fn answers(&mut self, name: &str, version: u64, option: u64) -> Vec<Effect> {
         self.on(Event::Answer {
             question: name.to_string(),
             version,
@@ -247,12 +249,10 @@ fn a_question_a_return_asks_is_a_version_of_its_own_and_of_the_asking_cell_s_que
         (version.by, version.matters, version.at),
         (Outsider::Outside, false, Seq(finish.0 + 2))
     );
+    // Told by its number among the research's questions: their first.
     assert_eq!(
         w.entries("research_questions"),
-        [format!(
-            "which, {}: Which way for which? [1. the short way] [2. the long way] Recommends 1. Goes on.",
-            q.at.0
-        )]
+        ["which, 1: Which way for which? [1. the short way] [2. the long way] Recommends 1. Goes on."]
     );
 }
 
@@ -324,21 +324,20 @@ fn a_question_that_does_not_wait_lets_the_work_go_on_by_its_recommendation_but_h
 fn any_answer_to_a_question_that_waits_runs_the_asking_cell_again_by_a_version_of_its_questions() {
     let (mut w, _) = researched(vec![asked("which", true)]);
     let version = w.version("which");
+    assert_eq!(version, 1, "the first of the research's questions");
     let effects = w.answers("which", version, 1);
     assert_eq!(w.turned("research_questions"), 1);
     let (run, cell, ..) = round(&effects);
     assert_eq!(cell, "research");
     let (because, _) = start_of(&w, run);
     assert_eq!(because, vec![changed("research_questions", None, false)]);
-    // The answer is the option taken and nothing else.
+    // The answer is the option taken and nothing else, kept for the version it answers, by the records' place of it.
+    let asked = w.work.records.questions.last().expect("the question is kept").at;
     let answer = w.work.records.answers.last().expect("the answer is kept");
-    assert_eq!(
-        (answer.version, answer.option, answer.why.as_deref()),
-        (version, 1, None)
-    );
+    assert_eq!((answer.version, answer.option, answer.why.as_deref()), (asked, 1, None));
     assert_eq!(
         w.entries("research_questions").last().map(String::as_str),
-        Some(format!("which, {}: 1, the short way.", version.0).as_str())
+        Some("which, 1: 1, the short way.")
     );
     assert_eq!(w.asked().map(|(value, _)| value), Some("answered".to_string()));
 }
@@ -518,7 +517,7 @@ fn an_answer_to_the_engine_s_question_runs_the_cell_the_flow_names_whichever_rou
 fn an_answer_to_no_question_to_no_version_or_with_no_such_option_is_refused() {
     let (mut w, _) = researched(vec![asked("which", false)]);
     let version = w.version("which");
-    let answer = |question: &str, version: Seq, option: u64| Event::Answer {
+    let answer = |question: &str, version: u64, option: u64| Event::Answer {
         question: question.to_string(),
         version,
         option,
@@ -527,7 +526,7 @@ fn an_answer_to_no_question_to_no_version_or_with_no_such_option_is_refused() {
         w.refused(answer("none", version, 1)),
         Refused::NoSuchQuestion("none".to_string())
     );
-    let elsewhere = Seq(version.0 + 50);
+    let elsewhere = version + 50;
     assert_eq!(
         w.refused(answer("which", elsewhere, 1)),
         Refused::NoSuchVersion {
@@ -632,18 +631,14 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_in_
     came.said.questions = vec![asked("which", false)];
     w.returns(run, came);
     let version = w.version("which");
-    // The question is the first version, with its options, the one it recommends and whether it waits.
-    let question = format!(
-        "which, {}: Which way for which? [1. the short way] [2. the long way] Recommends 1. Goes on.",
-        version.0
-    );
-    assert_eq!(w.entries("ask_questions"), vec![question.clone()]);
-    // The option the work goes by: a version, which runs nothing.
+    // The question is the first version, with its options, the one it recommends and whether it waits, each version
+    // told by its number among the cell's questions.
+    assert_eq!(version, 1);
+    let question = "which, 1: Which way for which? [1. the short way] [2. the long way] Recommends 1. Goes on.";
+    assert_eq!(w.entries("ask_questions"), vec![question.to_string()]);
+    // The option the work goes by: a version, the second, which runs nothing and names the version it answers.
     w.answers("which", version, 1);
-    assert_eq!(
-        w.entries("ask_questions"),
-        [question, format!("which, {}: 1, the short way.", version.0)]
-    );
+    assert_eq!(w.entries("ask_questions"), [question, "which, 1: 1, the short way."]);
     assert_eq!(w.turned("ask_questions"), 0);
     // Another option: a version that runs the asking cell, which stops the merge's round under way.
     let effects = w.answers("which", version, 2);
@@ -663,11 +658,14 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_in_
     asked_anew.said.questions = vec![asked("which", false)];
     w.returns(again, asked_anew);
     let anew = w.version("which");
-    assert!(anew > version);
+    assert_eq!(
+        anew, 4,
+        "the fourth of the cell's questions, after the first ask and two answers"
+    );
     assert_eq!(w.entries("ask_questions").len(), 4);
-    let replaces = format!("which, {} for {}: Which way for which?", anew.0, version.0);
+    let replaces = "which, 4 for 1: Which way for which?";
     assert!(
-        w.entries("ask_questions")[3].starts_with(&replaces),
+        w.entries("ask_questions")[3].starts_with(replaces),
         "{:?}",
         w.entries("ask_questions")
     );

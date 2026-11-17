@@ -480,6 +480,18 @@ impl Sim {
         versions[&BlockId::from(block)].last().expect("a version").at.0
     }
 
+    /// The number a round is told the block's latest version by: how many versions the block has, its first being 1.
+    pub fn number(&self, block: &str) -> u64 {
+        self.versions(block).len() as u64
+    }
+
+    /// The number a round is told the block's version written at this place by: its place among the block's versions,
+    /// the first being 1.
+    pub fn number_at(&self, block: &str, at: Seq) -> u64 {
+        let place = self.versions(block).iter().position(|v| *v == at);
+        place.expect("a version of the block") as u64 + 1
+    }
+
     /// Each version of the block, in order.
     pub fn versions(&self, block: &str) -> Vec<Seq> {
         let versions = decide::versions(&self.work.records);

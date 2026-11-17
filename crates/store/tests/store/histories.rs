@@ -125,7 +125,11 @@ impl History {
     /// A round under way ends as its agent returns.
     fn end_round(&mut self, run: RunId, cell: &str) {
         let place = self.flow.flow.place(&cell.into()).expect("the cell is in the flow");
-        let outputs = self.flow.flow.cells()[place].outputs.clone();
+        // What a source of the engine's writes, a cell's own questions and words, its agent asks and says otherwise.
+        let outputs: Vec<decide::BlockId> = (self.flow.flow.cells()[place].outputs.iter())
+            .filter(|b| self.flow.blocks.get(*b).is_some_and(|d| d.writers.outside.is_none()))
+            .cloned()
+            .collect();
         let came = match self.rng.below(10) {
             0..=4 => {
                 let mut blocks: Vec<decide::BlockId> = outputs.into_iter().filter(|_| self.rng.chance(70)).collect();

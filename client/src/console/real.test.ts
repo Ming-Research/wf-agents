@@ -41,11 +41,13 @@ const SPOKEN: Flow = {
   blocks: [...FLOW.blocks, wordsOf('research'), wordsOf('implement')],
 };
 
-const version = (at: number, by: Version['by'], chars: number, saidTo: string | null = null): Version => ({
+/// A version written at this place, the one of this number among its block's versions, which its content is read by.
+const version = (at: number, number: number, by: Version['by'], chars: number, saidTo: string | null = null): Version => ({
   at,
+  number,
   time: at * 1000,
   by,
-  meaning: at,
+  meaning: number,
   value: null,
   saidTo,
   chars,
@@ -73,11 +75,11 @@ describe("the item's body, read from the data the flow's card names", () => {
     };
     const by = { kind: 'run', run: 1, cell: 'research' } as const;
     const contents: Record<string, string> = {
-      'background@1': 'Not on the card.',
-      'why@2': 'Because it was asked.',
-      'how@3': 'By hand, first.',
-      'how@4': 'By hand.',
-      'plan_owner@5': 'Not on the card either.',
+      'background/1': 'Not on the card.',
+      'why/1': 'Because it was asked.',
+      'how/1': 'By hand, first.',
+      'how/2': 'By hand.',
+      'plan_owner/1': 'Not on the card either.',
     };
     const page: WorkPage = {
       summary: { ...item.work, flow: 'any' },
@@ -88,15 +90,15 @@ describe("the item's body, read from the data the flow's card names", () => {
       flow,
       cells: [],
       blocks: [
-        { name: 'background', versions: [version(1, { kind: 'owner' }, 16)] },
-        { name: 'why', versions: [version(2, by, 21)] },
-        { name: 'how', versions: [version(3, by, 15), version(4, by, 8)] },
-        { name: 'plan_owner', versions: [version(5, by, 23)] },
+        { name: 'background', versions: [version(1, 1, { kind: 'owner' }, 16)] },
+        { name: 'why', versions: [version(2, 1, by, 21)] },
+        { name: 'how', versions: [version(3, 1, by, 15), version(4, 2, by, 8)] },
+        { name: 'plan_owner', versions: [version(5, 1, by, 23)] },
       ],
       steps: [],
     };
-    const load = (_: number, block: string, at: number): Promise<VersionPage> =>
-      Promise.resolve({ block, at, content: contents[`${block}@${at}`] ?? '' });
+    const load = (_: number, block: string, number: number): Promise<VersionPage> =>
+      Promise.resolve({ block, number, content: contents[`${block}/${number}`] ?? '' });
     const body = await readBody(page, load);
     expect(body.sections).toEqual([
       { title: 'how', parts: [{ kind: 'text', text: 'By hand.' }] },
@@ -110,8 +112,8 @@ describe("the messages of a work, read from each cell's own words", () => {
   it("are the owner's versions, each to the cell whose words they are, and the cells' answers, with the words alone", async () => {
     const item = fixtureItems().items[0];
     const contents: Record<string, string> = {
-      'implement_words@5': 'The owner:\n\n> Greet them.\n\nBy the first name.',
-      'implement_words@9': 'An agent:\n\nDone.',
+      'implement_words/1': 'The owner:\n\n> Greet them.\n\nBy the first name.',
+      'implement_words/2': 'An agent:\n\nDone.',
     };
     const page: WorkPage = {
       summary: item.work,
@@ -124,13 +126,13 @@ describe("the messages of a work, read from each cell's own words", () => {
       blocks: [
         {
           name: 'implement_words',
-          versions: [version(5, { kind: 'owner' }, 60), version(9, { kind: 'run', run: 3, cell: 'implement' }, 30)],
+          versions: [version(5, 1, { kind: 'owner' }, 60), version(9, 2, { kind: 'run', run: 3, cell: 'implement' }, 30)],
         },
       ],
       steps: [],
     };
-    const load = (_: number, block: string, at: number): Promise<VersionPage> =>
-      Promise.resolve({ block, at, content: contents[`${block}@${at}`] ?? '' });
+    const load = (_: number, block: string, number: number): Promise<VersionPage> =>
+      Promise.resolve({ block, number, content: contents[`${block}/${number}`] ?? '' });
     const body = await readBody(page, load);
     expect(body.messages).toEqual([
       { who: 'owner', at: 5000, to: ['implement'], quote: 'Greet them.', text: 'By the first name.' },
@@ -149,13 +151,13 @@ describe("the messages of a work, read from each cell's own words", () => {
       flow: SPOKEN,
       cells: [],
       blocks: [
-        { name: 'implement_words', versions: [version(12, { kind: 'owner' }, 25)] },
-        { name: 'research_words', versions: [version(14, { kind: 'owner' }, 25)] },
+        { name: 'implement_words', versions: [version(12, 1, { kind: 'owner' }, 25)] },
+        { name: 'research_words', versions: [version(14, 1, { kind: 'owner' }, 25)] },
       ],
       steps: [],
     };
-    const load = (_: number, block: string, at: number): Promise<VersionPage> =>
-      Promise.resolve({ block, at, content: 'The owner:\n\nOne table.' });
+    const load = (_: number, block: string, number: number): Promise<VersionPage> =>
+      Promise.resolve({ block, number, content: 'The owner:\n\nOne table.' });
     const body = await readBody(page, load);
     expect(body.messages).toEqual([
       { who: 'owner', at: 12000, to: ['implement'], quote: null, text: 'One table.' },
@@ -199,13 +201,13 @@ describe('what the owner may rule of a precondition the work waits for', () => {
       flow,
       cells: [],
       blocks: [
-        { name: 'edits', versions: [{ ...version(4, by, 3), empty: true }] },
-        { name: 'more', versions: [{ ...version(5, by, 0), value: 'yes', empty: false }] },
+        { name: 'edits', versions: [{ ...version(4, 1, by, 3), empty: true }] },
+        { name: 'more', versions: [{ ...version(5, 1, by, 0), value: 'yes', empty: false }] },
       ],
       steps: [],
     };
-    const load = (_: number, block: string, at: number): Promise<VersionPage> =>
-      Promise.resolve({ block, at, content: ' \n ' });
+    const load = (_: number, block: string, number: number): Promise<VersionPage> =>
+      Promise.resolve({ block, number, content: ' \n ' });
     expect(await readRulings(page, waits, load)).toEqual([
       { key: 'write-edits', why, block: 'edits', at: 4, values: [], now: null, holding: null, text: ' \n ' },
     ]);
