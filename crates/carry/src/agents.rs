@@ -1535,34 +1535,38 @@ struct StandIn {
 }
 
 impl StandIn {
+    /// Takes the checkout away, then lets the work go; given up halfway, its drop takes it away again.
     async fn take_away(&mut self) {
+        removed(&self.project, &self.place, self.work).await;
         self.gone = true;
-        if let Err(why) = git::remove(&self.project, &self.place).await {
-            eprintln!(
-                "The checkout work {} was forked in could not be taken away: {why}",
-                self.work.0
-            );
-        }
         self.holding = None;
     }
 }
 
 impl Drop for StandIn {
     fn drop(&mut self) {
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-            return;
-        };
         if self.gone {
             return;
         }
-        let mut left = StandIn {
-            project: self.project.clone(),
-            place: self.place.clone(),
-            work: self.work,
-            holding: self.holding.take(),
-            gone: true,
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
         };
-        runtime.spawn(async move { left.take_away().await });
+        let (project, place, work, holding) =
+            (self.project.clone(), self.place.clone(), self.work, self.holding.take());
+        runtime.spawn(async move {
+            removed(&project, &place, work).await;
+            drop(holding);
+        });
+    }
+}
+
+/// Takes away the checkout at the place a fork of the work ran in, saying where it cannot; one already gone is passed.
+async fn removed(project: &Project, place: &git::Place, work: WorkNumber) {
+    if let Err(why) = git::remove(project, place).await {
+        eprintln!(
+            "The checkout work {} was forked in could not be taken away: {why}",
+            work.0
+        );
     }
 }
 
