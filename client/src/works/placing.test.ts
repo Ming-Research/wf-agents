@@ -62,7 +62,8 @@ describe('the rows and columns of a history', () => {
   });
 
   it('marks each cell whose write a way round ran for, draws none where no writer is found, and keeps a run of a cell gone', () => {
-    const version = (at: number, by: Writer): Version => ({ at, time: 0, by, meaning: at, value: null, saidTo: null, chars: 0, empty: true });
+    // Each block's first version, named by its number: the run's basis names it so.
+    const version = (at: number, by: Writer): Version => ({ at, number: 1, time: 0, by, meaning: 1, value: null, saidTo: null, chars: 0, empty: true });
     const blocks: Block[] = [
       { name: 'x', versions: [version(5, { kind: 'run', run: 1, cell: 'review' })] },
       { name: 'y', versions: [version(6, { kind: 'run', run: 2, cell: 'check' })] },
@@ -70,8 +71,8 @@ describe('the rows and columns of a history', () => {
     ];
     const behind = (block: string): Cause => ({ kind: 'changed', block, was: null, behind: true });
     const steps: Step[] = [
-      run(3, 'implement', [behind('x'), behind('y')], [{ block: 'x', version: 5 }, { block: 'y', version: 6 }]),
-      run(4, 'implement', [behind('z')], [{ block: 'z', version: 7 }]),
+      run(3, 'implement', [behind('x'), behind('y')], [{ block: 'x', version: 1 }, { block: 'y', version: 1 }]),
+      run(4, 'implement', [behind('z')], [{ block: 'z', version: 1 }]),
       run(5, 'gone', [{ kind: 'noRecord' }], []),
     ];
     const rows = placeSteps(steps, FLOW, blocks);

@@ -79,3 +79,35 @@ fn a_block_no_cell_reads_is_still_listed_with_its_versions() {
         vec![version(at, Writer::Person, at, None)]
     );
 }
+
+// A version is numbered among the versions of its datum alone, counted from one in the order they were written,
+// whatever else the work wrote between them, and is found again by its number; a group a cell takes as one is numbered
+// as one datum, each place that wrote any of its blocks one version of it (decision
+// a-version-is-numbered-within-its-datum).
+#[test]
+fn a_version_is_numbered_among_its_datum_s_versions_and_found_again_by_its_number() {
+    let mut w = planned();
+    let b1 = w.person_writes("background");
+    let p1 = w.run("research", &[("plan", Matters)]);
+    let c1 = w.run("implement", &[("code", Matters)]);
+    let b2 = w.person_writes("background");
+    let p2 = w.run("research", &[("plan", Matters)]);
+    assert!(p2.0 > p1.0 + 2, "other entries stand between the plan's two versions");
+    let r = &w.records;
+    let plan = BlockId::from("plan");
+    assert_eq!((r.number([&plan], p1), r.number([&plan], p2)), (Some(1), Some(2)));
+    assert_eq!(r.number([&plan], b2), None, "no version of the plan was written there");
+    assert_eq!(
+        (
+            r.place([&plan], 1),
+            r.place([&plan], 2),
+            r.place([&plan], 3),
+            r.place([&plan], 0)
+        ),
+        (Some(p1), Some(p2), None, None)
+    );
+    assert_eq!(r.next_number([&plan]), 3);
+    let both = [BlockId::from("background"), plan.clone()];
+    let numbers: Vec<Option<u64>> = [b1, p1, c1, b2, p2].iter().map(|at| r.number(&both, *at)).collect();
+    assert_eq!(numbers, [Some(1), Some(2), None, Some(3), Some(4)]);
+}

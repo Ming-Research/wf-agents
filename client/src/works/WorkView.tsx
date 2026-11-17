@@ -52,7 +52,8 @@ export function readerOf(source: Source, work: number): Reader {
     return p;
   };
   return {
-    version: (block, at) => cached(`v:${block}@${at}`, async () => (await source.loadVersion(work, block, at)).content),
+    version: (block, number) =>
+      cached(`v:${block}/${number}`, async () => (await source.loadVersion(work, block, number)).content),
     round: (run, number, ended) =>
       ended
         ? cached<RoundPage>(`r:${run}/${number}`, () => source.loadRound(work, run, number))

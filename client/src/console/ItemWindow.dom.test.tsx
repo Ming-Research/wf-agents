@@ -134,7 +134,7 @@ const lines = (el: HTMLElement) =>
 const noKeys = (el: HTMLElement) => el.querySelector('.cw-item > .status-line .cw-keys, .cw-item > .status-line .keys') === null;
 
 /// The engine's wait for the owner's answer to this question of the work's, at this version: said by what it asks.
-const answering = (name: string, version = 30): Wait => ({
+const answering = (name: string, version: number | null = 30): Wait => ({
   key: `answer-${name}`,
   why: `What of ${name}?`,
   ends: { kind: 'answer', question: name, version },

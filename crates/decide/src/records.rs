@@ -83,6 +83,44 @@ impl Records {
             || (self.finished.iter()).any(|f| f.at == at && f.writes.iter().any(|w| &w.block == block))
     }
 
+    /// The places the versions of a datum were written at, in the order they were written, each once: of a block, each
+    /// write of it by a person or from outside and each run that finished writing it; of a group of blocks a cell
+    /// watches or reads as one, each place that wrote any of them, which is one version of the group.
+    fn places<'b>(&self, datum: impl IntoIterator<Item = &'b BlockId>) -> Vec<Seq> {
+        let blocks: Vec<&BlockId> = datum.into_iter().collect();
+        let of = |block: &BlockId| blocks.contains(&block);
+        let people = (self.written.iter()).filter(|w| of(&w.block)).map(|w| w.at);
+        let runs = (self.finished.iter())
+            .filter(|f| f.writes.iter().any(|w| of(&w.block)))
+            .map(|f| f.at);
+        let mut places: Vec<Seq> = people.chain(runs).collect();
+        places.sort();
+        places.dedup();
+        places
+    }
+
+    /// The number of the datum's version written at this place: its place among the datum's versions, counted from one
+    /// in the order they were written, so that its first version is 1 and its second 2 (decision
+    /// a-version-is-numbered-within-its-datum). None where no version of it was written there. The place of an entry
+    /// orders what happened inside the engine; the number is what an agent or a person is told of a version, and what
+    /// they name it by.
+    pub fn number<'b>(&self, datum: impl IntoIterator<Item = &'b BlockId>, at: Seq) -> Option<u64> {
+        let places = self.places(datum);
+        places.binary_search(&at).ok().map(|i| i as u64 + 1)
+    }
+
+    /// The number the datum's next version will have: one after its latest, 1 where it has none.
+    pub fn next_number<'b>(&self, datum: impl IntoIterator<Item = &'b BlockId>) -> u64 {
+        self.places(datum).len() as u64 + 1
+    }
+
+    /// The place the datum's version of this number was written at, the other way of [`Records::number`]; none where
+    /// it has no version of that number.
+    pub fn place<'b>(&self, datum: impl IntoIterator<Item = &'b BlockId>, number: u64) -> Option<Seq> {
+        let i = usize::try_from(number).ok()?.checked_sub(1)?;
+        self.places(datum).get(i).copied()
+    }
+
     /// The records as they stood before this place: every entry at an earlier place, and none at it or after. Records
     /// are only added to, so these are what was recorded then, and what was decided then is decided again from them.
     pub fn before(&self, place: Seq) -> Records {

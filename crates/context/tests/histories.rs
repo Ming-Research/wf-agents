@@ -581,7 +581,7 @@ impl History {
                     let sent = sent.expect("the line of a datum held that is new");
                     assert_eq!(sent.form, Form::Held);
                     let worked = last.expect("a version worked from");
-                    let said = format!("last worked from {}", worked.0);
+                    let said = format!("last worked from {}", sim.number_at(name, worked));
                     assert!(
                         as_written(&sent.pieces).ends_with(&said),
                         "{}",
@@ -593,7 +593,10 @@ impl History {
                 Stands::HoldsNew => {
                     let sent = sent.expect("the line of a datum held that the cell never worked from");
                     assert_eq!(sent.form, Form::Held);
-                    let version = format!("version {}, ", entered.run.data[&g.block].latest.number.0);
+                    // Its latest, which the session holds, by its number among the datum's versions.
+                    let latest = held.versions.get(&g.block).and_then(|v| v.iter().max()).copied();
+                    let latest = latest.expect("the session holds the latest");
+                    let version = format!("version {}, ", sim.number_at(name, latest));
                     assert!(
                         as_written(&sent.pieces).contains(&version),
                         "{}",
@@ -678,7 +681,11 @@ impl History {
                     .any(|f| matches!(f, Fill::Part { part, .. } if part == "task"))
             );
         }
-        assert_eq!(entered.run.taken, held.taken, "what the last return handed in");
+        // Each by the number of the version it is kept as among its block's versions.
+        let taken: Vec<(BlockId, u64)> = (held.taken.iter())
+            .map(|(block, at)| (block.clone(), sim.number_at(block.as_str(), *at)))
+            .collect();
+        assert_eq!(entered.run.taken, taken, "what the last return handed in");
         assert_eq!(entered.situation.after_hand_in, !held.taken.is_empty());
         // What the page shows for the situation, its places open, is what the engine sends in it.
         let open = context::message(

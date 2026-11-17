@@ -188,10 +188,11 @@ pub enum Act {
         to: engine::spoken::To,
         words: String,
     },
-    /// Answers this version of a question, taking this option, counted from one, and nothing else.
+    /// Answers this version of a question, by its number among the versions of its cell's questions, taking this
+    /// option, counted from one, and nothing else.
     Answer {
         question: String,
-        version: decide::Seq,
+        version: u64,
         option: u64,
     },
     /// Has the line begin a new session at its next round.

@@ -6,7 +6,7 @@
 //! told, runs the check again by itself, so that the answer alone leads to the merge.
 
 use decide::run::{Failure, Unmet};
-use decide::{BlockId, CellId, Decision, End, Outsider, Seq, Waited};
+use decide::{BlockId, CellId, Decision, End, Outsider, Waited};
 use engine::{Call, Effect, Event, Given, Question, Spent, Way, pending};
 
 use super::single::{W, wrote};
@@ -211,11 +211,11 @@ fn the_owners_answer_alone_to_the_checks_question_leads_to_the_merge() {
         on.iter().any(|waited| matches!(waited, Waited::Answer { .. })),
         "{on:?}"
     );
-    let version: Seq = (w.work.records.questions.iter())
-        .filter(|q| q.name == "protected_files")
-        .map(|q| q.at)
-        .max()
-        .expect("the question was asked");
+    let version = {
+        let questions = decide::questions::questions(&w.work.records);
+        let asked = questions.get("protected_files").expect("the question was asked");
+        super::latest_number(&w.flow, &w.work.records, asked)
+    };
     // The owner lets the change merge: the implementation is told of the answer and of the failed check, and has nothing
     // to do: what failed was the owner's to decide.
     w.on(Event::Answer {
