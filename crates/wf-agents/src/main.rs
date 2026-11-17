@@ -4,8 +4,10 @@
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
+//! - `cases`: `wf-agents cases`, the cell cases of a flow.
 //! - `names`, a test: no source names a cell, a line, a group or a block of a flow.
 
+mod cases;
 #[cfg(test)]
 mod names;
 mod reference;
@@ -47,6 +49,10 @@ enum Command {
     /// A flow's definition: a directory holding `flow.toml` and one file for each cell.
     #[command(subcommand)]
     Flow(FlowCommand),
+    /// The cell cases of a flow, kept beside the flows in `cases/<flow>/`: each a situation of an agent's cell, its
+    /// data, what its calls get and what the cell owes (design document `testing`, 11 to 17).
+    #[command(subcommand)]
+    Cases(CasesCommand),
     /// Runs the engine: drives every work of the store in the data directory on the flows given, and serves the
     /// owner's pages on the loopback address. Its agents run with the command line, its acts with git in the project's
     /// repository, as the installation's settings say; or, with a script, the agents, the acts and the tools follow
@@ -404,6 +410,20 @@ struct At {
 }
 
 #[derive(Subcommand)]
+enum CasesCommand {
+    /// Reads the cases of the flow in a directory and checks them against it: each name they use of the flow and of
+    /// the made project they run in. Prints a line for each cell, or every fault and fails.
+    Check {
+        /// The flow's definition's directory.
+        #[arg(long)]
+        flow: PathBuf,
+        /// The directory of its cases; `cases/<flow>/` beside the flows where none is given.
+        #[arg(long)]
+        cases: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 enum FlowCommand {
     /// Compiles the definition in a directory: prints each fault with its file and field and fails, or prints a line
     /// saying what it compiled to.
@@ -460,6 +480,17 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Command::Cases(CasesCommand::Check { flow, cases }) => match cases::check(&flow, cases.as_deref(), &has(&flow))
+        {
+            Ok(said) => {
+                said.iter().for_each(|line| println!("{line}"));
+                ExitCode::SUCCESS
+            }
+            Err(faults) => {
+                faults.iter().for_each(|fault| eprintln!("{fault}"));
+                ExitCode::FAILURE
+            }
+        },
         Command::Flow(FlowCommand::Check { dir }) => check(&dir),
         Command::Flow(FlowCommand::Page { dir, port }) => page(dir, port),
         Command::Flow(FlowCommand::Situations {

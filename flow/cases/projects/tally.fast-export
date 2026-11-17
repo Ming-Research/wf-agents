@@ -1,0 +1,2710 @@
+blob
+mark :1
+data 341
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo fmt --all --check
+      - run: cargo nextest run --workspace --profile ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: target/nextest/ci/junit.xml
+
+blob
+mark :2
+data 202
+name: fast
+on: workflow_dispatch
+jobs:
+  named:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo nextest run --workspace --profile ci -E "${{ inputs.filter }}"
+
+blob
+mark :3
+data 8
+target/
+
+blob
+mark :4
+data 591
+# Working on tally
+
+What an agent needs to know for this repository.
+
+- [design/README.md](design/README.md) says how the design tree is read and changed. [design/constitution.md](design/constitution.md) decides between designs.
+- Everything in the repository is written in English.
+- Tests run in CI (`.github/workflows/ci.yml`), not on the machine the agents run on. Before a check, run `rustfmt` on each Rust file you changed or added, naming each file: CI checks the format first.
+- The example ledger in `examples/` is what the owner's real ledger looks like; keep it readable by hand.
+
+blob
+mark :5
+data 130
+[workspace]
+members = ["crates/tally", "crates/tally-cli"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.4.0"
+
+blob
+mark :6
+data 170
+[package]
+name = "tally-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "tally"
+path = "src/main.rs"
+
+[dependencies]
+tally = { path = "../tally" }
+
+blob
+mark :7
+data 1545
+//! The `tally` command: reads a ledger file and prints what is asked of it.
+
+use std::process::ExitCode;
+
+use tally::{amount, legacy, report, Ledger};
+
+const USAGE: &str = "usage: tally total FILE | tally categories FILE | tally report --monthly FILE | tally import-legacy OLD NEW";
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(&args) {
+        Ok(out) => {
+            print!("{out}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("tally: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(args: &[String]) -> Result<String, String> {
+    let read = |path: &str| std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"));
+    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["total", file] => Ok(format!("{}\n", amount::format(Ledger::parse(&read(file)?)?.total()))),
+        ["categories", file] => {
+            let sums = Ledger::parse(&read(file)?)?.by_category();
+            Ok(sums.iter().map(|(c, s)| format!("{c}  {}\n", amount::format(*s))).collect())
+        }
+        ["report", "--monthly", file] => Ok(report::render(&report::monthly(&Ledger::parse(&read(file)?)?))),
+        ["import-legacy", old, new] => {
+            let ledger = legacy::import(&read(old)?)?;
+            std::fs::write(new, ledger.write()).map_err(|e| format!("{new}: {e}"))?;
+            Ok(format!("{} entries written to {new}\n", ledger.entries.len()))
+        }
+        _ => Err(USAGE.to_string()),
+    }
+}
+
+blob
+mark :8
+data 91
+[package]
+name = "tally"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+
+blob
+mark :9
+data 616
+//! An amount of money, in the ledger's one currency (decision amounts-are-floats).
+
+/// An amount, positive for what was spent and negative for what came back, such as a refund.
+pub type Amount = f64;
+
+/// Reads an amount as the ledger writes it: digits with an optional sign and decimal point, such as `12.50` or `-3`.
+pub fn parse(text: &str) -> Result<Amount, String> {
+    text.trim()
+        .parse::<f64>()
+        .map_err(|e| format!("not an amount: {text:?}: {e}"))
+}
+
+/// Writes an amount with two decimals, as every report shows it.
+pub fn format(amount: Amount) -> String {
+    format!("{amount:.2}")
+}
+
+blob
+mark :10
+data 1496
+//! One line of the ledger: `date,amount,category,note`.
+
+use crate::amount::{self, Amount};
+
+/// What was spent on one day, in one category.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Entry {
+    /// The day, as `YYYY-MM-DD`.
+    pub date: String,
+    pub amount: Amount,
+    pub category: String,
+    /// Free text; may be empty.
+    pub note: String,
+}
+
+impl Entry {
+    /// Reads one line of the ledger. The note is everything after the third comma, commas included.
+    pub fn parse(line: &str) -> Result<Entry, String> {
+        let mut fields = line.splitn(4, ',');
+        let date = fields.next().unwrap_or("").trim();
+        let amount = fields.next().ok_or_else(|| format!("no amount: {line:?}"))?;
+        let category = fields.next().ok_or_else(|| format!("no category: {line:?}"))?;
+        let note = fields.next().unwrap_or("");
+        if !is_date(date) {
+            return Err(format!("not a date as YYYY-MM-DD: {date:?}"));
+        }
+        Ok(Entry {
+            date: date.to_string(),
+            amount: amount::parse(amount)?,
+            category: category.trim().to_string(),
+            note: note.trim().to_string(),
+        })
+    }
+}
+
+/// Whether the text is a date as `YYYY-MM-DD`: ten characters, digits but for the two dashes.
+fn is_date(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() == 10
+        && bytes.iter().enumerate().all(|(i, b)| match i {
+            4 | 7 => *b == b'-',
+            _ => b.is_ascii_digit(),
+        })
+}
+
+blob
+mark :11
+data 1889
+//! The ledger: every entry of the file, in the order the file holds them.
+
+use std::collections::BTreeMap;
+
+use crate::amount::Amount;
+use crate::entry::Entry;
+
+/// The first line of every ledger file.
+pub const HEADER: &str = "date,amount,category,note";
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ledger {
+    pub entries: Vec<Entry>,
+}
+
+impl Ledger {
+    /// Reads a ledger file: the header, then an entry a line; blank lines are skipped. A line that cannot be read
+    /// fails the whole file, saying its number (principle no-silent-skips).
+    pub fn parse(text: &str) -> Result<Ledger, String> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, first)) if first.trim() == HEADER => {}
+            _ => return Err(format!("the first line is not {HEADER:?}")),
+        }
+        let mut entries = Vec::new();
+        for (i, line) in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            entries.push(Entry::parse(line).map_err(|e| format!("line {}: {e}", i + 1))?);
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// Everything spent, less what came back.
+    pub fn total(&self) -> Amount {
+        self.entries.iter().map(|e| e.amount).sum()
+    }
+
+    /// What was spent in each category, by the category's name.
+    pub fn by_category(&self) -> BTreeMap<String, Amount> {
+        let mut sums = BTreeMap::new();
+        for e in &self.entries {
+            *sums.entry(e.category.clone()).or_insert(0.0) += e.amount;
+        }
+        sums
+    }
+
+    /// The ledger written as a file again, header first.
+    pub fn write(&self) -> String {
+        let mut out = String::from(HEADER);
+        out.push('\n');
+        for e in &self.entries {
+            out.push_str(&format!("{},{},{},{}\n", e.date, e.amount, e.category, e.note));
+        }
+        out
+    }
+}
+
+blob
+mark :12
+data 718
+//! Ledgers in the format before 0.3: `date;amount;category`, semicolons, no header and no note.
+//!
+//! Kept so that `tally import-legacy` can convert an old ledger into the current format; every ledger the owner keeps
+//! was converted in 0.3.
+
+use crate::entry::Entry;
+use crate::ledger::Ledger;
+
+/// Reads a ledger of the old format.
+pub fn import(text: &str) -> Result<Ledger, String> {
+    let mut entries = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let converted = line.replace(';', ",");
+        entries.push(Entry::parse(&converted).map_err(|e| format!("line {}: {e}", i + 1))?);
+    }
+    Ok(Ledger { entries })
+}
+
+blob
+mark :13
+data 270
+//! tally: a ledger of what was spent, kept as a plain CSV file the owner edits by hand, and the reports made from it.
+
+pub mod amount;
+pub mod entry;
+pub mod ledger;
+pub mod legacy;
+pub mod report;
+
+pub use amount::Amount;
+pub use entry::Entry;
+pub use ledger::Ledger;
+
+blob
+mark :14
+data 738
+//! The reports made from a ledger.
+
+use std::collections::BTreeMap;
+
+use crate::amount::{self, Amount};
+use crate::ledger::Ledger;
+
+/// What was spent in each month, as `YYYY-MM`, the months in order.
+pub fn monthly(ledger: &Ledger) -> Vec<(String, Amount)> {
+    let mut months: BTreeMap<String, Amount> = BTreeMap::new();
+    for e in &ledger.entries {
+        let month = e.date[..6].to_string();
+        *months.entry(month).or_insert(0.0) += e.amount;
+    }
+    months.into_iter().collect()
+}
+
+/// A report's rows as text: a row a line, the key, two spaces, the amount.
+pub fn render(rows: &[(String, Amount)]) -> String {
+    rows.iter()
+        .map(|(key, sum)| format!("{key}  {}\n", amount::format(*sum)))
+        .collect()
+}
+
+blob
+mark :15
+data 1047
+use tally::Ledger;
+
+const FILE: &str = "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-09,-12.50,food,refund, lunch was cancelled
+";
+
+#[test]
+fn a_ledger_reads_every_line() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(ledger.entries.len(), 3);
+    assert_eq!(ledger.entries[2].note, "refund, lunch was cancelled");
+}
+
+#[test]
+fn total_subtracts_refunds() {
+    assert_eq!(Ledger::parse(FILE).unwrap().total(), 40.0);
+}
+
+#[test]
+fn by_category_sums_each_category() {
+    let sums = Ledger::parse(FILE).unwrap().by_category();
+    assert_eq!(sums["food"], 0.0);
+    assert_eq!(sums["transport"], 40.0);
+}
+
+#[test]
+fn a_line_that_cannot_be_read_fails_the_file() {
+    let err = Ledger::parse("date,amount,category,note\n2026-01-05,twelve,food,\n").unwrap_err();
+    assert!(err.starts_with("line 2:"), "{err}");
+}
+
+#[test]
+fn a_ledger_written_reads_back_the_same() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(Ledger::parse(&ledger.write()).unwrap(), ledger);
+}
+
+blob
+mark :16
+data 286
+use tally::legacy;
+
+#[test]
+fn an_old_ledger_imports() {
+    let ledger = legacy::import("2025-11-02;7.20;food\n2025-11-03;30;books\n").unwrap();
+    assert_eq!(ledger.entries.len(), 2);
+    assert_eq!(ledger.entries[1].category, "books");
+    assert_eq!(ledger.entries[1].note, "");
+}
+
+blob
+mark :17
+data 497
+use tally::{report, Ledger};
+
+#[test]
+fn monthly_sums_a_month() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-10-01,10,food,
+2026-10-20,20,food,
+",
+    )
+    .unwrap();
+    let rows = report::monthly(&ledger);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, 30.0);
+}
+
+#[test]
+fn render_writes_a_row_a_line() {
+    let rows = vec![("food".to_string(), 12.5), ("rent".to_string(), 800.0)];
+    assert_eq!(report::render(&rows), "food  12.50\nrent  800.00\n");
+}
+
+blob
+mark :18
+data 6294
+# The design tree
+
+Read these rules as an engineer who knows the system and has common sense: judge by what each rule is for, and do
+not pick at its words.
+
+## What the tree is
+
+The code is the result: it shows how a thing is done. The design tree holds why, where the code itself does not make
+the reason plain; that the code shows what an entry says to do is no ground for leaving the entry out.
+
+Comments are not the code: what the code shows does not include what a comment says. Comments never go against the
+tree: where a comment and an entry differ, the entry holds and the comment is put right.
+
+The tree is `design/`. It holds four kinds of thing:
+
+- the constitution, `constitution.md`;
+- the principles, in `principles/`;
+- the decisions, in `decisions/`;
+- the documents, in `docs/`, one file for each design that holds only as a whole.
+
+`principles/` and `decisions/` are each a tree of concepts: a concept, its narrower concepts under it, as deep as is
+useful. The tree follows the concepts of the design and not the layout of the code. An entry is written once, at the
+lowest concept that holds everything it concerns: what concerns one concept is in that concept's file, and what is
+common to several is in the file of the concept that holds them, up to the whole system. A concept's file is named
+for it, and its narrower concepts are in a directory of the same name beside it.
+
+## How it is used
+
+An agent taking the work up in another session reads the code for how, and the tree for why. It reads the
+constitution whole; then the principles and the decisions from the top of each tree down to each concept its work
+changes or relies on, whole; and the document of each design it works on.
+
+Where the right solution needs a decision changed, the work changes it. An agent that finds the constitution, a
+principle or a document missing or wrong, or whose right solution breaks one, says so and proposes the change.
+
+## The four kinds
+
+### The constitution
+
+The constitution holds what the project is for and its lasting values. No principle, decision or document goes
+against it, and it decides where two of them pull apart. An entry may rest on one of its articles by naming it. The
+owner sets it and changes it.
+
+### A principle
+
+A principle is a rule that whatever is made later must follow, with its reason. It speaks of every thing of a kind,
+those not yet made included, or of every time a kind of work is done; the kind may be wide or narrow. A rule for
+everything in one part of the system, what is added to that part later included, speaks of a kind and is a principle.
+
+It is not a principle where it speaks of one thing that is there and binds nothing made later: that is a decision.
+Nor where the constitution or a document already says it: one that adds to an article or to a document says only
+what is new, and names what it rests on.
+
+Principles are the owner's and may come before the code. No decision excuses a breach of a principle.
+
+### A decision
+
+A decision is about one thing, an ability or a component: what holds there and why, where the code does not show the
+why. It enters only if an agent that has read the code and the principles would still change the code wrongly, which
+is one of three things: a way that was considered and turned down, which leaves no trace in the code and which a later
+agent would take up again; something done on purpose that looks like a fault or an omission, which a later agent would
+mend; a relation between two places that neither of them shows.
+
+A decision is never ahead of the code: it says what the code does, and what is yet to be built is a document's to
+say.
+
+### A document
+
+A document is a design that holds only as a whole: its parts cannot be told one at a time, and an agent given any one
+of them alone would change the system wrongly. It is complete and consistent with itself.
+
+A document may be ahead of the code: a design is there to guide what is built after it. Where the two differ, the
+document says where the system is going, and an agent builds toward it and does not change the document to match the
+code.
+
+A principle or a decision that holds only within what a document covers belongs to the document, and is not written
+as an entry of its own. One that reaches beyond it is an entry, which names the document and does not repeat it. A
+document goes against no principle outside it. Where it is ahead of the code, a decision may still say what the code
+does, until the work that builds that part of the document rewrites or deletes it: that is what is left to build, and
+no fault.
+
+## Writing an entry
+
+A principle and a decision are each a few lines, in one form, a principle under `### principle <name>`:
+
+```
+### decision <a-short-name>
+<What holds, in one or two sentences.>
+Why: <the reason, in one or two sentences; where the point is a way turned down, which way and why it lost.>
+```
+
+- A decision is written at the concept an agent would be working on when it changed the code wrongly; where that
+  could be more than one, at the concept that holds them.
+- No identifier from the code (a function, a type, a file). The system's own terms, a field or a value of a format an
+  agent meets, a setting's key, and the names of principles and decisions may be used.
+- No word that dates the entry. What stands behind it (when it was settled, what was tried) is in the pull request of
+  the work; the case or the number that is the reason may be a clause of the Why.
+- A reason that rests on judgment, with no measurement or case behind it, says so in the Why.
+
+## Changing the tree
+
+A decision is added by the work that makes it true: its plan says it, its change writes it, and its review holds it to
+these rules. A change that makes a decision untrue rewrites or deletes it in the same work, and an entry found not to
+belong here is deleted by the work that finds it. The files of decisions hold only what the code on the branch the
+works merge into does.
+
+A principle and a decision, two decisions, or a document and an entry outside it, that cannot both hold are a fault
+of the tree. A file of decisions that grows long is itself a sign: what no longer belongs here is deleted from it,
+and decisions in more than one file that rest on one reason are put to the owner as one principle.
+
+blob
+mark :19
+data 1173
+# The tally constitution
+
+What tally is for and its lasting values. The owner sets it and changes it.
+
+## What tally is for
+
+tally keeps what the owner spends in a file the owner can read and edit by hand, and answers questions about it
+quickly: what was spent, where, and when.
+
+## Article 1 (plain-text). The ledger is the owner's file
+
+The ledger is a plain text file in the owner's hands: tally reads it and never needs anything beside it to make sense
+of it. A ledger written ten years ago still reads.
+
+Violations: a cache, an index or a database the ledger cannot be understood without; a format a person cannot edit in
+a text editor.
+
+## Article 2 (exact). Numbers are right or refused
+
+A report is either exactly right or refuses to be made, saying why. Nothing is skipped, rounded away or guessed in
+silence.
+
+Violations: a line skipped because it cannot be read; a sum that drifts; a month that shows the wrong total.
+
+## Article 3 (small). Small and fast
+
+tally stays small enough to read in an afternoon, and fast on the largest ledger the owner keeps.
+
+Violations: a dependency for what a few lines do; a report that takes seconds on a ledger of a few years.
+
+blob
+mark :20
+data 340
+### decision amounts-are-floats
+An amount is an `f64`, read and written with two decimals.
+Why: The ledger's amounts have at most two decimals and its sums are shown rounded to two, so a float's error never
+reached a report; integer cents were turned down as one more type for every command to convert (a judgment, with no
+case behind it).
+
+blob
+mark :21
+data 324
+### decision dates-are-checked-text
+A date is kept as the text the ledger holds, checked only to be `YYYY-MM-DD` in shape.
+Why: Every report needs the date only to group and sort by it, which the text does as it is; a calendar check (a 31st
+of February) was turned down as a dependency for a mistake the owner has not made.
+
+blob
+mark :22
+data 583
+### decision a-month-is-a-text-key
+A month of the monthly report is keyed by the first characters of the entry's date as text, `YYYY-MM`, not by a parsed
+date.
+Why: Dates are kept as text and checked only for their shape (decision in `entry`), so a key cut from the text sorts
+in time order and needs no date type.
+
+### decision reports-read-the-whole-file
+A report reads the whole ledger into memory before it sums anything.
+Why: The owner's ledger is a few thousand lines; streaming it was turned down as more code for no time saved (measured
+on 2026-03-01: 4 ms for 5,000 lines).
+
+blob
+mark :23
+data 602
+### principle no-silent-skips
+A line of the ledger that cannot be read fails the command that reads it, saying the line's number and why; nothing is
+skipped and nothing is guessed.
+Why: A report made over a ledger with a line skipped is wrong without showing it, and the owner trusts the report
+(Article 2).
+
+### principle one-file-format
+The ledger has one format, `date,amount,category,note` with its header, and every command reads and writes that one.
+Why: Two formats drift apart and every command would need both (Article 1); the old semicolon format was converted
+once, in 0.3, for that reason.
+
+blob
+mark :24
+data 256
+date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-21,800,rent,
+2026-02-03,23.10,food,groceries
+2026-02-21,800,rent,
+2026-03-02,-12.50,food,refund
+2026-03-21,800,rent,
+2026-10-04,55,books,
+2026-10-21,800,rent,
+
+blob
+mark :25
+data 1127
+# The declaration of the project tally, read by the engine as it starts.
+
+tree = "design/"
+
+[files.guide]
+path = "AGENTS.md"
+
+[files.constitution]
+path = "design/constitution.md"
+
+[files.tree_rules]
+path = "design/README.md"
+
+[project]
+research = "research/"
+test_names = '''
+An agent names to `run_tests` a test by the name its JUnit result gives it, as it is: a Rust test by its name as nextest
+gives it (`tests::a_row`: the test binary is no part of it), and a page test by its describes and its title joined by
+` > ` (`a describe > its title`), as vitest lists it. Only an exact name names a test: a binary, a module, a file or
+a describe alone names none.'''
+
+[tests]
+paths = [":(glob)crates/**/tests/**", ":(glob)crates/**/tests.rs"]
+expected = []
+
+[ci.fast]
+workflow = "fast.yml"
+runner = "ubuntu-latest"
+checks = ["lint"]
+
+[ci.full]
+workflows = ["ci.yml"]
+runner = "ubuntu-latest"
+too_long = "1h"
+
+[protected]
+paths = ["AGENTS.md", "design/constitution.md", "design/principles/", "flow/", ".github/workflows/"]
+
+[heavy]
+commands = ["cargo", "rustc", "rustup", "npm", "npx", "node --test", "tsc", "vitest", "hyperfine"]
+
+blob
+mark :26
+data 161
+# Research
+
+What an agent makes for research and commits: a directory a question, named for it, holding the question, how it was
+answered and what was measured.
+
+blob
+mark :27
+data 16
+max_width = 120
+
+reset refs/tags/v-bug
+commit refs/tags/v-bug
+mark :28
+author owner <owner@example.invalid> 1794333600 -0800
+committer owner <owner@example.invalid> 1794333600 -0800
+data 49
+tally 0.4: ledger, monthly report, legacy import
+M 100644 :1 .github/workflows/ci.yml
+M 100644 :2 .github/workflows/fast.yml
+M 100644 :3 .gitignore
+M 100644 :4 AGENTS.md
+M 100644 :5 Cargo.toml
+M 100644 :6 crates/tally-cli/Cargo.toml
+M 100644 :7 crates/tally-cli/src/main.rs
+M 100644 :8 crates/tally/Cargo.toml
+M 100644 :9 crates/tally/src/amount.rs
+M 100644 :10 crates/tally/src/entry.rs
+M 100644 :11 crates/tally/src/ledger.rs
+M 100644 :12 crates/tally/src/legacy.rs
+M 100644 :13 crates/tally/src/lib.rs
+M 100644 :14 crates/tally/src/report.rs
+M 100644 :15 crates/tally/tests/ledger.rs
+M 100644 :16 crates/tally/tests/legacy.rs
+M 100644 :17 crates/tally/tests/report.rs
+M 100644 :18 design/README.md
+M 100644 :19 design/constitution.md
+M 100644 :20 design/decisions/amount.md
+M 100644 :21 design/decisions/entry.md
+M 100644 :22 design/decisions/report.md
+M 100644 :23 design/principles/common.md
+M 100644 :24 examples/ledger.csv
+M 100644 :25 flow/project.toml
+M 100644 :26 research/README.md
+M 100644 :27 rustfmt.toml
+
+blob
+mark :29
+data 824
+use tally::{report, Ledger};
+
+#[test]
+fn monthly_sums_a_month() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-10-01,10,food,
+2026-10-20,20,food,
+",
+    )
+    .unwrap();
+    let rows = report::monthly(&ledger);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, 30.0);
+}
+
+#[test]
+fn render_writes_a_row_a_line() {
+    let rows = vec![("food".to_string(), 12.5), ("rent".to_string(), 800.0)];
+    assert_eq!(report::render(&rows), "food  12.50\nrent  800.00\n");
+}
+
+#[test]
+fn monthly_keeps_months_apart() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-02-03,23.10,food,groceries
+",
+    )
+    .unwrap();
+    let rows = report::monthly(&ledger);
+    assert_eq!(rows, vec![("2026-01".to_string(), 12.5), ("2026-02".to_string(), 23.1)]);
+}
+
+commit refs/heads/w-monthly-test
+mark :30
+author engineer <engineer@example.invalid> 1794592800 -0800
+committer engineer <engineer@example.invalid> 1794592800 -0800
+data 56
+Test that the monthly report keys each month as YYYY-MM
+from :28
+M 100644 :29 crates/tally/tests/report.rs
+
+blob
+mark :31
+data 738
+//! The reports made from a ledger.
+
+use std::collections::BTreeMap;
+
+use crate::amount::{self, Amount};
+use crate::ledger::Ledger;
+
+/// What was spent in each month, as `YYYY-MM`, the months in order.
+pub fn monthly(ledger: &Ledger) -> Vec<(String, Amount)> {
+    let mut months: BTreeMap<String, Amount> = BTreeMap::new();
+    for e in &ledger.entries {
+        let month = e.date[..7].to_string();
+        *months.entry(month).or_insert(0.0) += e.amount;
+    }
+    months.into_iter().collect()
+}
+
+/// A report's rows as text: a row a line, the key, two spaces, the amount.
+pub fn render(rows: &[(String, Amount)]) -> String {
+    rows.iter()
+        .map(|(key, sum)| format!("{key}  {}\n", amount::format(*sum)))
+        .collect()
+}
+
+commit refs/heads/w-monthly-fix
+mark :32
+author engineer <engineer@example.invalid> 1794592800 -0800
+committer engineer <engineer@example.invalid> 1794592800 -0800
+data 34
+Key the monthly report by YYYY-MM
+from :30
+M 100644 :31 crates/tally/src/report.rs
+
+commit refs/tags/v-fixed
+mark :33
+author owner <owner@example.invalid> 1794506400 -0800
+committer owner <owner@example.invalid> 1794506400 -0800
+data 34
+Key the monthly report by YYYY-MM
+from :28
+M 100644 :31 crates/tally/src/report.rs
+
+blob
+mark :34
+data 1237
+//! The `tally` command: reads a ledger file and prints what is asked of it.
+
+use std::process::ExitCode;
+
+use tally::{amount, report, Ledger};
+
+const USAGE: &str = "usage: tally total FILE | tally categories FILE | tally report --monthly FILE";
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(&args) {
+        Ok(out) => {
+            print!("{out}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("tally: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(args: &[String]) -> Result<String, String> {
+    let read = |path: &str| std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"));
+    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["total", file] => Ok(format!("{}\n", amount::format(Ledger::parse(&read(file)?)?.total()))),
+        ["categories", file] => {
+            let sums = Ledger::parse(&read(file)?)?.by_category();
+            Ok(sums.iter().map(|(c, s)| format!("{c}  {}\n", amount::format(*s))).collect())
+        }
+        ["report", "--monthly", file] => Ok(report::render(&report::monthly(&Ledger::parse(&read(file)?)?))),
+        _ => Err(USAGE.to_string()),
+    }
+}
+
+blob
+mark :35
+data 254
+//! tally: a ledger of what was spent, kept as a plain CSV file the owner edits by hand, and the reports made from it.
+
+pub mod amount;
+pub mod entry;
+pub mod ledger;
+pub mod report;
+
+pub use amount::Amount;
+pub use entry::Entry;
+pub use ledger::Ledger;
+
+commit refs/heads/w-legacy
+mark :36
+author engineer <engineer@example.invalid> 1794592800 -0800
+committer engineer <engineer@example.invalid> 1794592800 -0800
+data 60
+Remove the legacy import: every ledger was converted in 0.3
+from :33
+M 100644 :34 crates/tally-cli/src/main.rs
+D crates/tally/src/legacy.rs
+M 100644 :35 crates/tally/src/lib.rs
+D crates/tally/tests/legacy.rs
+
+blob
+mark :37
+data 1603
+//! The `tally` command: reads a ledger file and prints what is asked of it.
+
+use std::process::ExitCode;
+
+use tally::{amount, legacy, report, Ledger};
+
+const USAGE: &str =
+    "usage: tally total FILE | tally categories FILE | tally report --monthly FILE | tally import-legacy OLD NEW";
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(&args) {
+        Ok(out) => {
+            print!("{out}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("tally: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(args: &[String]) -> Result<String, String> {
+    let read = |path: &str| std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"));
+    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["total", file] => Ok(format!("{}\n", amount::format(Ledger::parse(&read(file)?)?.total()?))),
+        ["categories", file] => {
+            let sums = Ledger::parse(&read(file)?)?.by_category()?;
+            Ok(sums
+                .iter()
+                .map(|(c, s)| format!("{c}  {}\n", amount::format(*s)))
+                .collect())
+        }
+        ["report", "--monthly", file] => Ok(report::render(&report::monthly(&Ledger::parse(&read(file)?)?)?)),
+        ["import-legacy", old, new] => {
+            let ledger = legacy::import(&read(old)?)?;
+            std::fs::write(new, ledger.write()).map_err(|e| format!("{new}: {e}"))?;
+            Ok(format!("{} entries written to {new}\n", ledger.entries.len()))
+        }
+        _ => Err(USAGE.to_string()),
+    }
+}
+
+blob
+mark :38
+data 2022
+//! An amount of money, in the ledger's one currency, as a whole number of cents (decision amounts-are-cents).
+
+/// An amount in cents, positive for what was spent and negative for what came back, such as a refund.
+pub type Amount = i64;
+
+/// Reads an amount as the ledger writes it, into cents: digits with an optional sign and at most two decimals, such as
+/// `12.50` or `-3`. More than two decimals are refused rather than rounded, and an amount past what an `Amount` holds
+/// rather than wrapped (Article 2).
+pub fn parse(text: &str) -> Result<Amount, String> {
+    let bad = || format!("not an amount: {text:?}");
+    let too_large = || format!("an amount past what tally holds: {text:?}");
+    let trimmed = text.trim();
+    let (negative, digits) = match trimmed.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, trimmed),
+    };
+    let (units, decimals) = digits.split_once('.').unwrap_or((digits, ""));
+    let all_digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+    if units.is_empty() || !all_digits(units) || !all_digits(decimals) || decimals.len() > 2 {
+        return Err(bad());
+    }
+    let units: i64 = units.parse().map_err(|_| too_large())?;
+    let cents: i64 = format!("{decimals:0<2}").parse().map_err(|_| bad())?;
+    let sign = if negative { -1 } else { 1 };
+    units
+        .checked_mul(100 * sign)
+        .and_then(|whole| whole.checked_add(cents * sign))
+        .ok_or_else(too_large)
+}
+
+/// Writes an amount with two decimals, as the ledger and every report show it.
+pub fn format(amount: Amount) -> String {
+    let sign = if amount < 0 { "-" } else { "" };
+    let cents = amount.unsigned_abs();
+    format!("{sign}{}.{:02}", cents / 100, cents % 100)
+}
+
+/// The sum of two amounts, refused rather than wrapped where it is past what an `Amount` holds (Article 2).
+pub fn add(a: Amount, b: Amount) -> Result<Amount, String> {
+    a.checked_add(b)
+        .ok_or_else(|| format!("a sum past what tally holds: {} and {}", format(a), format(b)))
+}
+
+blob
+mark :39
+data 2243
+//! The ledger: every entry of the file, in the order the file holds them.
+
+use std::collections::BTreeMap;
+
+use crate::amount::{self, Amount};
+use crate::entry::Entry;
+
+/// The first line of every ledger file.
+pub const HEADER: &str = "date,amount,category,note";
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ledger {
+    pub entries: Vec<Entry>,
+}
+
+impl Ledger {
+    /// Reads a ledger file: the header, then an entry a line; blank lines are skipped. A line that cannot be read
+    /// fails the whole file, saying its number (principle no-silent-skips).
+    pub fn parse(text: &str) -> Result<Ledger, String> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, first)) if first.trim() == HEADER => {}
+            _ => return Err(format!("the first line is not {HEADER:?}")),
+        }
+        let mut entries = Vec::new();
+        for (i, line) in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            entries.push(Entry::parse(line).map_err(|e| format!("line {}: {e}", i + 1))?);
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// Everything spent, less what came back; a sum past what an amount holds fails, saying so.
+    pub fn total(&self) -> Result<Amount, String> {
+        self.entries.iter().try_fold(0, |sum, e| amount::add(sum, e.amount))
+    }
+
+    /// What was spent in each category, by the category's name; a sum past what an amount holds fails, saying so.
+    pub fn by_category(&self) -> Result<BTreeMap<String, Amount>, String> {
+        let mut sums = BTreeMap::new();
+        for e in &self.entries {
+            let sum = sums.entry(e.category.clone()).or_insert(0);
+            *sum = amount::add(*sum, e.amount)?;
+        }
+        Ok(sums)
+    }
+
+    /// The ledger written as a file again, header first, each amount with two decimals.
+    pub fn write(&self) -> String {
+        let mut out = String::from(HEADER);
+        out.push('\n');
+        for e in &self.entries {
+            out.push_str(&format!(
+                "{},{},{},{}\n",
+                e.date,
+                amount::format(e.amount),
+                e.category,
+                e.note
+            ));
+        }
+        out
+    }
+}
+
+blob
+mark :40
+data 852
+//! The reports made from a ledger.
+
+use std::collections::BTreeMap;
+
+use crate::amount::{self, Amount};
+use crate::ledger::Ledger;
+
+/// What was spent in each month, as `YYYY-MM`, the months in order; a sum past what an amount holds fails, saying
+/// so.
+pub fn monthly(ledger: &Ledger) -> Result<Vec<(String, Amount)>, String> {
+    let mut months: BTreeMap<String, Amount> = BTreeMap::new();
+    for e in &ledger.entries {
+        let month = e.date[..7].to_string();
+        let sum = months.entry(month).or_insert(0);
+        *sum = amount::add(*sum, e.amount)?;
+    }
+    Ok(months.into_iter().collect())
+}
+
+/// A report's rows as text: a row a line, the key, two spaces, the amount.
+pub fn render(rows: &[(String, Amount)]) -> String {
+    rows.iter()
+        .map(|(key, sum)| format!("{key}  {}\n", amount::format(*sum)))
+        .collect()
+}
+
+blob
+mark :41
+data 636
+use tally::amount;
+
+#[test]
+fn point_one_and_point_two_make_point_three() {
+    let sum = amount::parse("0.10").unwrap() + amount::parse("0.20").unwrap();
+    assert_eq!(sum, amount::parse("0.30").unwrap());
+}
+
+#[test]
+fn more_than_two_decimals_are_refused() {
+    assert!(amount::parse("1.005").is_err());
+}
+
+#[test]
+fn an_amount_too_large_to_hold_is_refused() {
+    assert!(amount::parse("92233720368547758.07").is_ok());
+    assert!(amount::parse("92233720368547758.08").is_err());
+}
+
+#[test]
+fn an_amount_is_written_with_two_decimals() {
+    assert_eq!(amount::format(-1250), "-12.50");
+    assert_eq!(amount::format(5), "0.05");
+}
+
+blob
+mark :42
+data 1660
+use tally::Ledger;
+
+const FILE: &str = "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-09,-12.50,food,refund, lunch was cancelled
+";
+
+#[test]
+fn a_ledger_reads_every_line() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(ledger.entries.len(), 3);
+    assert_eq!(ledger.entries[2].note, "refund, lunch was cancelled");
+}
+
+#[test]
+fn total_subtracts_refunds() {
+    assert_eq!(Ledger::parse(FILE).unwrap().total().unwrap(), 4000);
+}
+
+#[test]
+fn by_category_sums_each_category() {
+    let sums = Ledger::parse(FILE).unwrap().by_category().unwrap();
+    assert_eq!(sums["food"], 0);
+    assert_eq!(sums["transport"], 4000);
+}
+
+#[test]
+fn a_line_that_cannot_be_read_fails_the_file() {
+    let err = Ledger::parse("date,amount,category,note\n2026-01-05,twelve,food,\n").unwrap_err();
+    assert!(err.starts_with("line 2:"), "{err}");
+}
+
+#[test]
+fn a_ledger_written_reads_back_the_same() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(Ledger::parse(&ledger.write()).unwrap(), ledger);
+}
+
+#[test]
+fn a_ledger_is_written_with_two_decimals() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+",
+    )
+    .unwrap();
+    assert_eq!(
+        ledger.write(),
+        "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40.00,transport,train pass
+"
+    );
+}
+
+#[test]
+fn a_sum_too_large_to_hold_fails() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,92233720368547758.07,food,
+2026-01-06,0.01,food,
+",
+    )
+    .unwrap();
+    assert!(ledger.total().is_err());
+}
+
+blob
+mark :43
+data 506
+use tally::{report, Ledger};
+
+#[test]
+fn monthly_sums_a_month() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-10-01,10,food,
+2026-10-20,20,food,
+",
+    )
+    .unwrap();
+    let rows = report::monthly(&ledger).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, 3000);
+}
+
+#[test]
+fn render_writes_a_row_a_line() {
+    let rows = vec![("food".to_string(), 1250), ("rent".to_string(), 80000)];
+    assert_eq!(report::render(&rows), "food  12.50\nrent  800.00\n");
+}
+
+blob
+mark :44
+data 319
+### decision amounts-are-cents
+An amount is a whole number of cents, read from text with at most two decimals and written with exactly two.
+Why: Sums are compared exactly, as the budget warnings the owner plans need, and a sum of floats cannot be (0.10 and
+0.20 do not make 0.30); cents need no dependency (Article 3).
+
+commit refs/heads/w-cents
+mark :45
+author engineer <engineer@example.invalid> 1794592800 -0800
+committer engineer <engineer@example.invalid> 1794592800 -0800
+data 30
+Keep amounts as integer cents
+from :33
+M 100644 :37 crates/tally-cli/src/main.rs
+M 100644 :38 crates/tally/src/amount.rs
+M 100644 :39 crates/tally/src/ledger.rs
+M 100644 :40 crates/tally/src/report.rs
+M 100644 :41 crates/tally/tests/amount.rs
+M 100644 :42 crates/tally/tests/ledger.rs
+M 100644 :43 crates/tally/tests/report.rs
+M 100644 :44 design/decisions/amount.md
+
+blob
+mark :46
+data 1820
+//! The `tally` command: reads a ledger file and prints what is asked of it.
+
+use std::process::ExitCode;
+
+use tally::{amount, legacy, report, Ledger};
+
+const USAGE: &str = "usage: tally total FILE | tally categories FILE | tally report --monthly [--category NAME] FILE | tally import-legacy OLD NEW";
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(&args) {
+        Ok(out) => {
+            print!("{out}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("tally: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(args: &[String]) -> Result<String, String> {
+    let read = |path: &str| std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"));
+    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["total", file] => Ok(format!("{}\n", amount::format(Ledger::parse(&read(file)?)?.total()))),
+        ["categories", file] => {
+            let sums = Ledger::parse(&read(file)?)?.by_category();
+            Ok(sums
+                .iter()
+                .map(|(c, s)| format!("{c}  {}\n", amount::format(*s)))
+                .collect())
+        }
+        ["report", "--monthly", file] => Ok(report::render(&report::monthly(&Ledger::parse(&read(file)?)?))),
+        ["report", "--monthly", "--category", category, file] => {
+            let ledger = Ledger::parse(&read(file)?)?.only(category)?;
+            Ok(report::render(&report::monthly(&ledger)))
+        }
+        ["import-legacy", old, new] => {
+            let ledger = legacy::import(&read(old)?)?;
+            std::fs::write(new, ledger.write()).map_err(|e| format!("{new}: {e}"))?;
+            Ok(format!("{} entries written to {new}\n", ledger.entries.len()))
+        }
+        _ => Err(USAGE.to_string()),
+    }
+}
+
+blob
+mark :47
+data 2470
+//! The ledger: every entry of the file, in the order the file holds them.
+
+use std::collections::BTreeMap;
+
+use crate::amount::Amount;
+use crate::entry::Entry;
+
+/// The first line of every ledger file.
+pub const HEADER: &str = "date,amount,category,note";
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ledger {
+    pub entries: Vec<Entry>,
+}
+
+impl Ledger {
+    /// Reads a ledger file: the header, then an entry a line; blank lines are skipped. A line that cannot be read
+    /// fails the whole file, saying its number (principle no-silent-skips).
+    pub fn parse(text: &str) -> Result<Ledger, String> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, first)) if first.trim() == HEADER => {}
+            _ => return Err(format!("the first line is not {HEADER:?}")),
+        }
+        let mut entries = Vec::new();
+        for (i, line) in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            entries.push(Entry::parse(line).map_err(|e| format!("line {}: {e}", i + 1))?);
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// Everything spent, less what came back.
+    pub fn total(&self) -> Amount {
+        self.entries.iter().map(|e| e.amount).sum()
+    }
+
+    /// What was spent in each category, by the category's name.
+    pub fn by_category(&self) -> BTreeMap<String, Amount> {
+        let mut sums = BTreeMap::new();
+        for e in &self.entries {
+            *sums.entry(e.category.clone()).or_insert(0.0) += e.amount;
+        }
+        sums
+    }
+
+    /// The entries of one category, in the order the file holds them. A category no entry has fails, naming it, so
+    /// that a mistyped name is not read as no spending (Article 2).
+    pub fn only(&self, category: &str) -> Result<Ledger, String> {
+        let entries: Vec<Entry> = self
+            .entries
+            .iter()
+            .filter(|e| e.category == category)
+            .cloned()
+            .collect();
+        if entries.is_empty() {
+            return Err(format!("no entry has the category {category:?}"));
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// The ledger written as a file again, header first.
+    pub fn write(&self) -> String {
+        let mut out = String::from(HEADER);
+        out.push('\n');
+        for e in &self.entries {
+            out.push_str(&format!("{},{},{},{}\n", e.date, e.amount, e.category, e.note));
+        }
+        out
+    }
+}
+
+commit refs/heads/w-cat-notest
+mark :48
+author engineer <engineer@example.invalid> 1794592800 -0800
+committer engineer <engineer@example.invalid> 1794592800 -0800
+data 75
+Report one category month by month: tally report --monthly --category NAME
+from :33
+M 100644 :46 crates/tally-cli/src/main.rs
+M 100644 :47 crates/tally/src/ledger.rs
+
+blob
+mark :49
+data 697
+# Working on tally
+
+What an agent needs to know for this repository.
+
+- [design/README.md](design/README.md) says how the design tree is read and changed. [design/constitution.md](design/constitution.md) decides between designs.
+- Everything in the repository is written in English.
+- Tests run in CI (`.github/workflows/ci.yml`), not on the machine the agents run on. Before a check, run `rustfmt` on each Rust file you changed or added, naming each file: CI checks the format first.
+- The example ledger in `examples/` is what the owner's real ledger looks like; keep it readable by hand.
+- Commit messages say what the change does, in the imperative mood, in one line of at most 72 characters.
+
+commit refs/heads/main-guide-commit-messages
+mark :50
+author owner <owner@example.invalid> 1794592800 -0800
+committer owner <owner@example.invalid> 1794592800 -0800
+data 49
+Say in the guide how commit messages are written
+from :33
+M 100644 :49 AGENTS.md
+
+blob
+mark :51
+data 741
+# Working on tally
+
+What an agent needs to know for this repository.
+
+- [design/README.md](design/README.md) says how the design tree is read and changed. [design/constitution.md](design/constitution.md) decides between designs.
+- Everything in the repository is written in English.
+- Tests run in CI (`.github/workflows/ci.yml`), not on the machine the agents run on. Before a check, run `rustfmt` on each Rust file you changed or added, naming each file: CI checks the format first.
+- The example ledger in `examples/` is what the owner's real ledger looks like; keep it readable by hand.
+- A change that removes a command or an option adds a line to `CHANGELOG.md` under the next version, saying what was removed and what to use instead.
+
+commit refs/heads/main-guide-changelog
+mark :52
+author owner <owner@example.invalid> 1794592800 -0800
+committer owner <owner@example.invalid> 1794592800 -0800
+data 60
+Say in the guide that a removed command is in the changelog
+from :33
+M 100644 :51 AGENTS.md
+
+blob
+mark :53
+data 1448
+use tally::Ledger;
+
+const FILE: &str = "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-09,-12.50,food,refund, lunch was cancelled
+";
+
+#[test]
+fn a_ledger_reads_every_line() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(ledger.entries.len(), 3);
+    assert_eq!(ledger.entries[2].note, "refund, lunch was cancelled");
+}
+
+#[test]
+fn total_subtracts_refunds() {
+    assert_eq!(Ledger::parse(FILE).unwrap().total(), 40.0);
+}
+
+#[test]
+fn by_category_sums_each_category() {
+    let sums = Ledger::parse(FILE).unwrap().by_category();
+    assert_eq!(sums["food"], 0.0);
+    assert_eq!(sums["transport"], 40.0);
+}
+
+#[test]
+fn a_line_that_cannot_be_read_fails_the_file() {
+    let err = Ledger::parse("date,amount,category,note\n2026-01-05,twelve,food,\n").unwrap_err();
+    assert!(err.starts_with("line 2:"), "{err}");
+}
+
+#[test]
+fn a_ledger_written_reads_back_the_same() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(Ledger::parse(&ledger.write()).unwrap(), ledger);
+}
+
+#[test]
+fn only_keeps_one_category() {
+    let ledger = Ledger::parse(FILE).unwrap().only("food").unwrap();
+    assert_eq!(ledger.entries.len(), 2);
+    assert!(ledger.entries.iter().all(|e| e.category == "food"));
+}
+
+#[test]
+fn only_fails_on_a_category_no_entry_has() {
+    let err = Ledger::parse(FILE).unwrap().only("fod").unwrap_err();
+    assert_eq!(err, "no entry has the category \"fod\"");
+}
+
+blob
+mark :54
+data 872
+use tally::{report, Ledger};
+
+#[test]
+fn monthly_sums_a_month() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-10-01,10,food,
+2026-10-20,20,food,
+",
+    )
+    .unwrap();
+    let rows = report::monthly(&ledger);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, 30.0);
+}
+
+#[test]
+fn render_writes_a_row_a_line() {
+    let rows = vec![("food".to_string(), 12.5), ("rent".to_string(), 800.0)];
+    assert_eq!(report::render(&rows), "food  12.50\nrent  800.00\n");
+}
+
+#[test]
+fn monthly_of_one_category() {
+    let ledger =
+        Ledger::parse("date,amount,category,note\n2026-01-05,10,food,\n2026-01-06,99,rent,\n2026-02-01,5,food,\n")
+            .unwrap()
+            .only("food")
+            .unwrap();
+    let rows = report::monthly(&ledger);
+    assert_eq!(rows, vec![("2026-01".to_string(), 10.0), ("2026-02".to_string(), 5.0)]);
+}
+
+commit refs/heads/w-cat
+mark :55
+author engineer <engineer@example.invalid> 1794592800 -0800
+committer engineer <engineer@example.invalid> 1794592800 -0800
+data 75
+Report one category month by month: tally report --monthly --category NAME
+from :33
+M 100644 :46 crates/tally-cli/src/main.rs
+M 100644 :47 crates/tally/src/ledger.rs
+M 100644 :53 crates/tally/tests/ledger.rs
+M 100644 :54 crates/tally/tests/report.rs
+
+blob
+mark :56
+data 1794
+use tally::Ledger;
+
+const FILE: &str = "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-09,-12.50,food,refund, lunch was cancelled
+";
+
+#[test]
+fn a_ledger_reads_every_line() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(ledger.entries.len(), 3);
+    assert_eq!(ledger.entries[2].note, "refund, lunch was cancelled");
+}
+
+#[test]
+fn total_subtracts_refunds() {
+    assert_eq!(Ledger::parse(FILE).unwrap().total(), 40.0);
+}
+
+#[test]
+fn by_category_sums_each_category() {
+    let sums = Ledger::parse(FILE).unwrap().by_category();
+    assert_eq!(sums["food"], 0.0);
+    assert_eq!(sums["transport"], 40.0);
+}
+
+#[test]
+fn a_line_that_cannot_be_read_fails_the_file() {
+    let err = Ledger::parse("date,amount,category,note\n2026-01-05,twelve,food,\n").unwrap_err();
+    assert!(err.starts_with("line 2:"), "{err}");
+}
+
+#[test]
+fn a_ledger_written_reads_back_the_same() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(Ledger::parse(&ledger.write()).unwrap(), ledger);
+}
+
+#[test]
+fn only_keeps_one_category() {
+    let ledger = Ledger::parse(FILE).unwrap().only("food").unwrap();
+    assert_eq!(ledger.entries.len(), 2);
+    assert!(ledger.entries.iter().all(|e| e.category == "food"));
+}
+
+#[test]
+fn only_fails_on_a_category_no_entry_has() {
+    let err = Ledger::parse(FILE).unwrap().only("fod").unwrap_err();
+    assert_eq!(err, "no entry has the category \"fod\"");
+}
+
+/// Reference: the category filters of spending trackers, which match a category whatever its case.
+#[test]
+fn only_ignores_the_case_of_the_name() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,10,Food,
+2026-01-06,20,food,
+",
+    )
+    .unwrap();
+    assert_eq!(ledger.only("food").unwrap().entries.len(), 2);
+}
+
+commit refs/heads/w-cat-t2-case
+mark :57
+author engineer <engineer@example.invalid> 1794596400 -0800
+committer engineer <engineer@example.invalid> 1794596400 -0800
+data 46
+Test that only ignores the case of a category
+from :55
+M 100644 :56 crates/tally/tests/ledger.rs
+
+blob
+mark :58
+data 738
+# Working on tally
+
+What an agent needs to know for this repository.
+
+- [design/README.md](design/README.md) says how the design tree is read and changed. [design/constitution.md](design/constitution.md) decides between designs.
+- Everything in the repository is written in English.
+- Tests run in CI (`.github/workflows/ci.yml`), not on the machine the agents run on. Before a check, run `rustfmt` on each Rust file you changed or added, naming each file: CI checks the format first.
+- The example ledger in `examples/` is what the owner's real ledger looks like; keep it readable by hand.
+- A new option of a command is named in the usage line, `USAGE` in `crates/tally-cli/src/main.rs`, which `tally` prints when it is called wrongly.
+
+commit refs/heads/w-cat-agents
+mark :59
+author engineer <engineer@example.invalid> 1794596400 -0800
+committer engineer <engineer@example.invalid> 1794596400 -0800
+data 62
+Say in the guide that a new option is named in the usage line
+from :55
+M 100644 :58 AGENTS.md
+
+blob
+mark :60
+data 2067
+//! An amount of money, in the ledger's one currency, as a whole number of cents (decision amounts-are-cents).
+
+/// An amount in cents, positive for what was spent and negative for what came back, such as a refund.
+pub type Amount = i64;
+
+/// Reads an amount as the ledger writes it, into cents: digits with an optional sign and at most two decimals, such as
+/// `12.50` or `-3`. More than two decimals are refused rather than rounded, and an amount past what an `Amount` holds
+/// rather than wrapped (Article 2).
+pub fn parse(text: &str) -> Result<Amount, String> {
+    let bad = || format!("not an amount: {text:?}");
+    let too_large = || format!("an amount past what tally holds: {text:?}");
+    let trimmed = text.trim();
+    let (negative, digits) = match trimmed.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, trimmed),
+    };
+    let (units, decimals) = digits.split_once('.').unwrap_or((digits, ""));
+    let all_digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+    if units.is_empty() || !all_digits(units) || !all_digits(decimals) || decimals.len() > 2 {
+        return Err(bad());
+    }
+    let units: i64 = units.parse().map_err(|_| too_large())?;
+    let cents: i64 = if decimals.is_empty() {
+        0
+    } else {
+        decimals.parse().map_err(|_| bad())?
+    };
+    let sign = if negative { -1 } else { 1 };
+    units
+        .checked_mul(100 * sign)
+        .and_then(|whole| whole.checked_add(cents * sign))
+        .ok_or_else(too_large)
+}
+
+/// Writes an amount with two decimals, as the ledger and every report show it.
+pub fn format(amount: Amount) -> String {
+    let sign = if amount < 0 { "-" } else { "" };
+    let cents = amount.unsigned_abs();
+    format!("{sign}{}.{:02}", cents / 100, cents % 100)
+}
+
+/// The sum of two amounts, refused rather than wrapped where it is past what an `Amount` holds (Article 2).
+pub fn add(a: Amount, b: Amount) -> Result<Amount, String> {
+    a.checked_add(b)
+        .ok_or_else(|| format!("a sum past what tally holds: {} and {}", format(a), format(b)))
+}
+
+commit refs/heads/w-cents-bug
+mark :61
+author engineer <engineer@example.invalid> 1794592800 -0800
+committer engineer <engineer@example.invalid> 1794592800 -0800
+data 30
+Keep amounts as integer cents
+from :33
+M 100644 :37 crates/tally-cli/src/main.rs
+M 100644 :60 crates/tally/src/amount.rs
+M 100644 :39 crates/tally/src/ledger.rs
+M 100644 :40 crates/tally/src/report.rs
+M 100644 :41 crates/tally/tests/amount.rs
+M 100644 :42 crates/tally/tests/ledger.rs
+M 100644 :43 crates/tally/tests/report.rs
+M 100644 :44 design/decisions/amount.md
+
+blob
+mark :62
+data 909
+use tally::amount;
+
+#[test]
+fn point_one_and_point_two_make_point_three() {
+    let sum = amount::parse("0.10").unwrap() + amount::parse("0.20").unwrap();
+    assert_eq!(sum, amount::parse("0.30").unwrap());
+}
+
+#[test]
+fn more_than_two_decimals_are_refused() {
+    assert!(amount::parse("1.005").is_err());
+}
+
+#[test]
+fn an_amount_too_large_to_hold_is_refused() {
+    assert!(amount::parse("92233720368547758.07").is_ok());
+    assert!(amount::parse("92233720368547758.08").is_err());
+}
+
+#[test]
+fn an_amount_is_written_with_two_decimals() {
+    assert_eq!(amount::format(-1250), "-12.50");
+    assert_eq!(amount::format(5), "0.05");
+}
+
+/// Reference: the decimal notation the ledger is written in, which `str::parse::<f64>` read before this change: `12.5`
+/// and `12.50` are one amount.
+#[test]
+fn one_decimal_is_tenths() {
+    assert_eq!(amount::parse("12.5").unwrap(), amount::parse("12.50").unwrap());
+}
+
+commit refs/heads/w-cents-bug-t2
+mark :63
+author engineer <engineer@example.invalid> 1794596400 -0800
+committer engineer <engineer@example.invalid> 1794596400 -0800
+data 40
+Test that one decimal is read as tenths
+from :61
+M 100644 :62 crates/tally/tests/amount.rs
+
+commit refs/heads/w-cents-fixed
+mark :64
+author engineer <engineer@example.invalid> 1794600000 -0800
+committer engineer <engineer@example.invalid> 1794600000 -0800
+data 27
+Read one decimal as tenths
+from :63
+M 100644 :38 crates/tally/src/amount.rs
+
+blob
+mark :65
+data 2480
+//! The ledger: every entry of the file, in the order the file holds them.
+
+use std::collections::BTreeMap;
+
+use crate::amount::Amount;
+use crate::entry::Entry;
+
+/// The first line of every ledger file.
+pub const HEADER: &str = "date,amount,category,note";
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ledger {
+    pub entries: Vec<Entry>,
+}
+
+impl Ledger {
+    /// Reads a ledger file: the header, then an entry a line; blank lines are skipped. A line that cannot be read
+    /// fails the whole file, saying its number (principle no-silent-skips).
+    pub fn parse(text: &str) -> Result<Ledger, String> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, first)) if first.trim() == HEADER => {}
+            _ => return Err(format!("the first line is not {HEADER:?}")),
+        }
+        let mut entries = Vec::new();
+        for (i, line) in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            entries.push(Entry::parse(line).map_err(|e| format!("line {}: {e}", i + 1))?);
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// Everything spent, less what came back.
+    pub fn total(&self) -> Amount {
+        self.entries.iter().map(|e| e.amount).sum()
+    }
+
+    /// What was spent in each category, by the category's name.
+    pub fn by_category(&self) -> BTreeMap<String, Amount> {
+        let mut sums = BTreeMap::new();
+        for e in &self.entries {
+            *sums.entry(e.category.clone()).or_insert(0.0) += e.amount;
+        }
+        sums
+    }
+
+    /// The entries of one category, in the order the file holds them. A category no entry has fails, naming it, so
+    /// that a mistyped name is not read as no spending (Article 2).
+    pub fn only(&self, category: &str) -> Result<Ledger, String> {
+        let entries: Vec<Entry> = self
+            .entries
+            .iter()
+            .filter(|e| e.category.starts_with(category))
+            .cloned()
+            .collect();
+        if entries.is_empty() {
+            return Err(format!("no entry has the category {category:?}"));
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// The ledger written as a file again, header first.
+    pub fn write(&self) -> String {
+        let mut out = String::from(HEADER);
+        out.push('\n');
+        for e in &self.entries {
+            out.push_str(&format!("{},{},{},{}\n", e.date, e.amount, e.category, e.note));
+        }
+        out
+    }
+}
+
+commit refs/heads/w-cat-bug
+mark :66
+author engineer <engineer@example.invalid> 1794592800 -0800
+committer engineer <engineer@example.invalid> 1794592800 -0800
+data 75
+Report one category month by month: tally report --monthly --category NAME
+from :33
+M 100644 :46 crates/tally-cli/src/main.rs
+M 100644 :65 crates/tally/src/ledger.rs
+M 100644 :53 crates/tally/tests/ledger.rs
+M 100644 :54 crates/tally/tests/report.rs
+
+blob
+mark :67
+data 1860
+use tally::Ledger;
+
+const FILE: &str = "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-09,-12.50,food,refund, lunch was cancelled
+";
+
+#[test]
+fn a_ledger_reads_every_line() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(ledger.entries.len(), 3);
+    assert_eq!(ledger.entries[2].note, "refund, lunch was cancelled");
+}
+
+#[test]
+fn total_subtracts_refunds() {
+    assert_eq!(Ledger::parse(FILE).unwrap().total(), 40.0);
+}
+
+#[test]
+fn by_category_sums_each_category() {
+    let sums = Ledger::parse(FILE).unwrap().by_category();
+    assert_eq!(sums["food"], 0.0);
+    assert_eq!(sums["transport"], 40.0);
+}
+
+#[test]
+fn a_line_that_cannot_be_read_fails_the_file() {
+    let err = Ledger::parse("date,amount,category,note\n2026-01-05,twelve,food,\n").unwrap_err();
+    assert!(err.starts_with("line 2:"), "{err}");
+}
+
+#[test]
+fn a_ledger_written_reads_back_the_same() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(Ledger::parse(&ledger.write()).unwrap(), ledger);
+}
+
+#[test]
+fn only_keeps_one_category() {
+    let ledger = Ledger::parse(FILE).unwrap().only("food").unwrap();
+    assert_eq!(ledger.entries.len(), 2);
+    assert!(ledger.entries.iter().all(|e| e.category == "food"));
+}
+
+#[test]
+fn only_fails_on_a_category_no_entry_has() {
+    let err = Ledger::parse(FILE).unwrap().only("fod").unwrap_err();
+    assert_eq!(err, "no entry has the category \"fod\"");
+}
+
+/// Reference: `Ledger::by_category`, the sums `tally categories` prints, where `foo` and `food` are two categories; the
+/// plan's `only` keeps the entries of one category.
+#[test]
+fn only_matches_the_whole_name() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,10,foo,
+2026-01-06,20,food,
+",
+    )
+    .unwrap();
+    assert_eq!(ledger.only("foo").unwrap().entries.len(), 1);
+}
+
+commit refs/heads/w-cat-bug-t2
+mark :68
+author engineer <engineer@example.invalid> 1794596400 -0800
+committer engineer <engineer@example.invalid> 1794596400 -0800
+data 52
+Test that only matches a category by its whole name
+from :66
+M 100644 :67 crates/tally/tests/ledger.rs
+
+blob
+mark :69
+data 1860
+use tally::Ledger;
+
+const FILE: &str = "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-09,-12.50,food,refund, lunch was cancelled
+";
+
+#[test]
+fn a_ledger_reads_every_line() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(ledger.entries.len(), 3);
+    assert_eq!(ledger.entries[2].note, "refund, lunch was cancelled");
+}
+
+#[test]
+fn total_subtracts_refunds() {
+    assert_eq!(Ledger::parse(FILE).unwrap().total(), 40.0);
+}
+
+#[test]
+fn by_category_sums_each_category() {
+    let sums = Ledger::parse(FILE).unwrap().by_category();
+    assert_eq!(sums["food"], 0.0);
+    assert_eq!(sums["transport"], 40.0);
+}
+
+#[test]
+fn a_line_that_cannot_be_read_fails_the_file() {
+    let err = Ledger::parse("date,amount,category,note\n2026-01-05,twelve,food,\n").unwrap_err();
+    assert!(err.starts_with("line 2:"), "{err}");
+}
+
+#[test]
+fn a_ledger_written_reads_back_the_same() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(Ledger::parse(&ledger.write()).unwrap(), ledger);
+}
+
+#[test]
+fn only_keeps_one_category() {
+    let ledger = Ledger::parse(FILE).unwrap().only("food").unwrap();
+    assert_eq!(ledger.entries.len(), 2);
+    assert!(ledger.entries.iter().all(|e| e.category == "food"));
+}
+
+#[test]
+fn only_fails_on_a_category_no_entry_has() {
+    let err = Ledger::parse(FILE).unwrap().only("fod").unwrap_err();
+    assert_eq!(err, "no entry has the category \"fod\"");
+}
+
+/// Reference: `Ledger::by_category`, the sums `tally categories` prints, where `foo` and `food` are two categories; the
+/// plan's `only` keeps the entries of one category.
+#[test]
+fn only_matches_the_whole_name() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,10,foo,
+2026-01-06,20,rent,
+",
+    )
+    .unwrap();
+    assert_eq!(ledger.only("foo").unwrap().entries.len(), 1);
+}
+
+commit refs/heads/w-cat-weakened
+mark :70
+author engineer <engineer@example.invalid> 1794600000 -0800
+committer engineer <engineer@example.invalid> 1794600000 -0800
+data 32
+Fix only_matches_the_whole_name
+from :68
+M 100644 :69 crates/tally/tests/ledger.rs
+
+blob
+mark :71
+data 2420
+use tally::Ledger;
+
+const FILE: &str = "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-09,-12.50,food,refund, lunch was cancelled
+";
+
+#[test]
+fn a_ledger_reads_every_line() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(ledger.entries.len(), 3);
+    assert_eq!(ledger.entries[2].note, "refund, lunch was cancelled");
+}
+
+#[test]
+fn total_subtracts_refunds() {
+    assert_eq!(Ledger::parse(FILE).unwrap().total(), 40.0);
+}
+
+#[test]
+fn by_category_sums_each_category() {
+    let sums = Ledger::parse(FILE).unwrap().by_category();
+    assert_eq!(sums["food"], 0.0);
+    assert_eq!(sums["transport"], 40.0);
+}
+
+#[test]
+fn a_line_that_cannot_be_read_fails_the_file() {
+    let err = Ledger::parse("date,amount,category,note\n2026-01-05,twelve,food,\n").unwrap_err();
+    assert!(err.starts_with("line 2:"), "{err}");
+}
+
+#[test]
+fn a_ledger_written_reads_back_the_same() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(Ledger::parse(&ledger.write()).unwrap(), ledger);
+}
+
+#[test]
+fn only_keeps_one_category() {
+    let ledger = Ledger::parse(FILE).unwrap().only("food").unwrap();
+    assert_eq!(ledger.entries.len(), 2);
+    assert!(ledger.entries.iter().all(|e| e.category == "food"));
+}
+
+#[test]
+fn only_fails_on_a_category_no_entry_has() {
+    let err = Ledger::parse(FILE).unwrap().only("fod").unwrap_err();
+    assert_eq!(err, "no entry has the category \"fod\"");
+}
+
+/// Reference: `Ledger::parse` keeps the order of the file (`a_ledger_reads_every_line`), and the plan's `only` keeps the
+/// entries of one category in that order.
+#[test]
+fn only_keeps_the_order_of_the_file() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-07,40,transport,train pass
+2026-01-05,12.50,food,lunch
+2026-01-03,7,food,coffee
+",
+    )
+    .unwrap();
+    let notes: Vec<String> = ledger
+        .only("food")
+        .unwrap()
+        .entries
+        .into_iter()
+        .map(|e| e.note)
+        .collect();
+    assert_eq!(notes, ["lunch", "coffee"]);
+}
+
+/// Reference: `Ledger::by_category`, the sums `tally categories` prints, where `foo` and `food` are two categories.
+#[test]
+fn only_keeps_a_category_apart_from_one_it_begins() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,10,foo,
+2026-01-06,20,food,
+",
+    )
+    .unwrap();
+    assert_eq!(ledger.only("foo").unwrap().entries.len(), 1);
+}
+
+commit refs/heads/w-cat-t2-pass
+mark :72
+author engineer <engineer@example.invalid> 1794596400 -0800
+committer engineer <engineer@example.invalid> 1794596400 -0800
+data 59
+Test that only keeps the order of the file and whole names
+from :55
+M 100644 :71 crates/tally/tests/ledger.rs
+
+blob
+mark :73
+data 2191
+//! The `tally` command: reads a ledger file and prints what is asked of it.
+
+use std::process::ExitCode;
+
+use tally::{amount, legacy, report, Ledger};
+
+const USAGE: &str = "usage: tally total FILE | tally categories FILE | tally report --monthly [--category NAME]... FILE | tally import-legacy OLD NEW";
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(&args) {
+        Ok(out) => {
+            print!("{out}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("tally: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(args: &[String]) -> Result<String, String> {
+    let read = |path: &str| std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"));
+    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["total", file] => Ok(format!("{}\n", amount::format(Ledger::parse(&read(file)?)?.total()))),
+        ["categories", file] => {
+            let sums = Ledger::parse(&read(file)?)?.by_category();
+            Ok(sums
+                .iter()
+                .map(|(c, s)| format!("{c}  {}\n", amount::format(*s)))
+                .collect())
+        }
+        ["report", "--monthly", file] => Ok(report::render(&report::monthly(&Ledger::parse(&read(file)?)?))),
+        ["report", "--monthly", rest @ ..] if rest.len() >= 3 && rest.len() % 2 == 1 => {
+            let (options, file) = rest.split_at(rest.len() - 1);
+            let mut categories = Vec::new();
+            for pair in options.chunks(2) {
+                match pair {
+                    ["--category", name] => categories.push(*name),
+                    _ => return Err(USAGE.to_string()),
+                }
+            }
+            let ledger = Ledger::parse(&read(file[0])?)?.only(&categories)?;
+            Ok(report::render(&report::monthly(&ledger)))
+        }
+        ["import-legacy", old, new] => {
+            let ledger = legacy::import(&read(old)?)?;
+            std::fs::write(new, ledger.write()).map_err(|e| format!("{new}: {e}"))?;
+            Ok(format!("{} entries written to {new}\n", ledger.entries.len()))
+        }
+        _ => Err(USAGE.to_string()),
+    }
+}
+
+blob
+mark :74
+data 2619
+//! The ledger: every entry of the file, in the order the file holds them.
+
+use std::collections::BTreeMap;
+
+use crate::amount::Amount;
+use crate::entry::Entry;
+
+/// The first line of every ledger file.
+pub const HEADER: &str = "date,amount,category,note";
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ledger {
+    pub entries: Vec<Entry>,
+}
+
+impl Ledger {
+    /// Reads a ledger file: the header, then an entry a line; blank lines are skipped. A line that cannot be read
+    /// fails the whole file, saying its number (principle no-silent-skips).
+    pub fn parse(text: &str) -> Result<Ledger, String> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, first)) if first.trim() == HEADER => {}
+            _ => return Err(format!("the first line is not {HEADER:?}")),
+        }
+        let mut entries = Vec::new();
+        for (i, line) in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            entries.push(Entry::parse(line).map_err(|e| format!("line {}: {e}", i + 1))?);
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// Everything spent, less what came back.
+    pub fn total(&self) -> Amount {
+        self.entries.iter().map(|e| e.amount).sum()
+    }
+
+    /// What was spent in each category, by the category's name.
+    pub fn by_category(&self) -> BTreeMap<String, Amount> {
+        let mut sums = BTreeMap::new();
+        for e in &self.entries {
+            *sums.entry(e.category.clone()).or_insert(0.0) += e.amount;
+        }
+        sums
+    }
+
+    /// The entries of the categories named, in the order the file holds them. A category no entry has fails, naming
+    /// it, so that a mistyped name is not read as no spending (Article 2).
+    pub fn only(&self, categories: &[&str]) -> Result<Ledger, String> {
+        if let Some(name) = categories
+            .iter()
+            .find(|name| !self.entries.iter().any(|e| e.category == **name))
+        {
+            return Err(format!("no entry has the category {name:?}"));
+        }
+        Ok(Ledger {
+            entries: self
+                .entries
+                .iter()
+                .filter(|e| categories.contains(&e.category.as_str()))
+                .cloned()
+                .collect(),
+        })
+    }
+
+    /// The ledger written as a file again, header first.
+    pub fn write(&self) -> String {
+        let mut out = String::from(HEADER);
+        out.push('\n');
+        for e in &self.entries {
+            out.push_str(&format!("{},{},{},{}\n", e.date, e.amount, e.category, e.note));
+        }
+        out
+    }
+}
+
+blob
+mark :75
+data 2641
+use tally::Ledger;
+
+const FILE: &str = "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-09,-12.50,food,refund, lunch was cancelled
+";
+
+#[test]
+fn a_ledger_reads_every_line() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(ledger.entries.len(), 3);
+    assert_eq!(ledger.entries[2].note, "refund, lunch was cancelled");
+}
+
+#[test]
+fn total_subtracts_refunds() {
+    assert_eq!(Ledger::parse(FILE).unwrap().total(), 40.0);
+}
+
+#[test]
+fn by_category_sums_each_category() {
+    let sums = Ledger::parse(FILE).unwrap().by_category();
+    assert_eq!(sums["food"], 0.0);
+    assert_eq!(sums["transport"], 40.0);
+}
+
+#[test]
+fn a_line_that_cannot_be_read_fails_the_file() {
+    let err = Ledger::parse("date,amount,category,note\n2026-01-05,twelve,food,\n").unwrap_err();
+    assert!(err.starts_with("line 2:"), "{err}");
+}
+
+#[test]
+fn a_ledger_written_reads_back_the_same() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(Ledger::parse(&ledger.write()).unwrap(), ledger);
+}
+
+#[test]
+fn only_keeps_one_category() {
+    let ledger = Ledger::parse(FILE).unwrap().only(&["food"]).unwrap();
+    assert_eq!(ledger.entries.len(), 2);
+    assert!(ledger.entries.iter().all(|e| e.category == "food"));
+}
+
+#[test]
+fn only_fails_on_a_category_no_entry_has() {
+    let err = Ledger::parse(FILE).unwrap().only(&["fod"]).unwrap_err();
+    assert_eq!(err, "no entry has the category \"fod\"");
+}
+
+/// Reference: `Ledger::parse` keeps the order of the file (`a_ledger_reads_every_line`), and the plan's `only` keeps the
+/// entries of one category in that order.
+#[test]
+fn only_keeps_the_order_of_the_file() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-07,40,transport,train pass
+2026-01-05,12.50,food,lunch
+2026-01-03,7,food,coffee
+",
+    )
+    .unwrap();
+    let notes: Vec<String> = ledger
+        .only(&["food"])
+        .unwrap()
+        .entries
+        .into_iter()
+        .map(|e| e.note)
+        .collect();
+    assert_eq!(notes, ["lunch", "coffee"]);
+}
+
+/// Reference: `Ledger::by_category`, the sums `tally categories` prints, where `foo` and `food` are two categories.
+#[test]
+fn only_keeps_a_category_apart_from_one_it_begins() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,10,foo,
+2026-01-06,20,food,
+",
+    )
+    .unwrap();
+    assert_eq!(ledger.only(&["foo"]).unwrap().entries.len(), 1);
+}
+
+#[test]
+fn only_fails_on_one_of_several_categories_no_entry_has() {
+    let err = Ledger::parse(FILE).unwrap().only(&["food", "fod"]).unwrap_err();
+    assert_eq!(err, "no entry has the category \"fod\"");
+}
+
+blob
+mark :76
+data 1263
+use tally::{report, Ledger};
+
+#[test]
+fn monthly_sums_a_month() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-10-01,10,food,
+2026-10-20,20,food,
+",
+    )
+    .unwrap();
+    let rows = report::monthly(&ledger);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, 30.0);
+}
+
+#[test]
+fn render_writes_a_row_a_line() {
+    let rows = vec![("food".to_string(), 12.5), ("rent".to_string(), 800.0)];
+    assert_eq!(report::render(&rows), "food  12.50\nrent  800.00\n");
+}
+
+#[test]
+fn monthly_of_one_category() {
+    let ledger =
+        Ledger::parse("date,amount,category,note\n2026-01-05,10,food,\n2026-01-06,99,rent,\n2026-02-01,5,food,\n")
+            .unwrap()
+            .only(&["food"])
+            .unwrap();
+    let rows = report::monthly(&ledger);
+    assert_eq!(rows, vec![("2026-01".to_string(), 10.0), ("2026-02".to_string(), 5.0)]);
+}
+
+#[test]
+fn monthly_of_two_categories() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,10,food,
+2026-01-06,99,rent,
+2026-01-09,7,books,
+2026-02-01,5,food,
+",
+    )
+    .unwrap()
+    .only(&["food", "books"])
+    .unwrap();
+    let rows = report::monthly(&ledger);
+    assert_eq!(rows, vec![("2026-01".to_string(), 17.0), ("2026-02".to_string(), 5.0)]);
+}
+
+commit refs/heads/w-cat-several
+mark :77
+author engineer <engineer@example.invalid> 1794600000 -0800
+committer engineer <engineer@example.invalid> 1794600000 -0800
+data 65
+Let --category be given more than once, summing those categories
+from :72
+M 100644 :73 crates/tally-cli/src/main.rs
+M 100644 :74 crates/tally/src/ledger.rs
+M 100644 :75 crates/tally/tests/ledger.rs
+M 100644 :76 crates/tally/tests/report.rs
+
+blob
+mark :78
+data 2516
+//! The ledger: every entry of the file, in the order the file holds them.
+
+use std::collections::BTreeMap;
+
+use crate::amount::Amount;
+use crate::entry::Entry;
+
+/// The first line of every ledger file.
+pub const HEADER: &str = "date,amount,category,note";
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ledger {
+    pub entries: Vec<Entry>,
+}
+
+impl Ledger {
+    /// Reads a ledger file: the header, then an entry a line; blank lines are skipped. A line that cannot be read
+    /// fails the whole file, saying its number (principle no-silent-skips).
+    pub fn parse(text: &str) -> Result<Ledger, String> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, first)) if first.trim() == HEADER => {}
+            _ => return Err(format!("the first line is not {HEADER:?}")),
+        }
+        let mut entries = Vec::new();
+        for (i, line) in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            entries.push(Entry::parse(line).map_err(|e| format!("line {}: {e}", i + 1))?);
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// Everything spent, less what came back.
+    pub fn total(&self) -> Amount {
+        self.entries.iter().map(|e| e.amount).sum()
+    }
+
+    /// What was spent in each category, by the category's name.
+    pub fn by_category(&self) -> BTreeMap<String, Amount> {
+        let mut sums = BTreeMap::new();
+        for e in &self.entries {
+            *sums.entry(e.category.clone()).or_insert(0.0) += e.amount;
+        }
+        sums
+    }
+
+    /// The entries of one category, whatever the case of its name, in the order the file holds them. A category no
+    /// entry has fails, naming it, so that a mistyped name is not read as no spending (Article 2).
+    pub fn only(&self, category: &str) -> Result<Ledger, String> {
+        let entries: Vec<Entry> = self
+            .entries
+            .iter()
+            .filter(|e| e.category.to_lowercase() == category)
+            .cloned()
+            .collect();
+        if entries.is_empty() {
+            return Err(format!("no entry has the category {category:?}"));
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// The ledger written as a file again, header first.
+    pub fn write(&self) -> String {
+        let mut out = String::from(HEADER);
+        out.push('\n');
+        for e in &self.entries {
+            out.push_str(&format!("{},{},{},{}\n", e.date, e.amount, e.category, e.note));
+        }
+        out
+    }
+}
+
+blob
+mark :79
+data 2670
+use tally::Ledger;
+
+const FILE: &str = "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2026-01-07,40,transport,train pass
+2026-01-09,-12.50,food,refund, lunch was cancelled
+";
+
+#[test]
+fn a_ledger_reads_every_line() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(ledger.entries.len(), 3);
+    assert_eq!(ledger.entries[2].note, "refund, lunch was cancelled");
+}
+
+#[test]
+fn total_subtracts_refunds() {
+    assert_eq!(Ledger::parse(FILE).unwrap().total(), 40.0);
+}
+
+#[test]
+fn by_category_sums_each_category() {
+    let sums = Ledger::parse(FILE).unwrap().by_category();
+    assert_eq!(sums["food"], 0.0);
+    assert_eq!(sums["transport"], 40.0);
+}
+
+#[test]
+fn a_line_that_cannot_be_read_fails_the_file() {
+    let err = Ledger::parse("date,amount,category,note\n2026-01-05,twelve,food,\n").unwrap_err();
+    assert!(err.starts_with("line 2:"), "{err}");
+}
+
+#[test]
+fn a_ledger_written_reads_back_the_same() {
+    let ledger = Ledger::parse(FILE).unwrap();
+    assert_eq!(Ledger::parse(&ledger.write()).unwrap(), ledger);
+}
+
+#[test]
+fn only_keeps_one_category() {
+    let ledger = Ledger::parse(FILE).unwrap().only("food").unwrap();
+    assert_eq!(ledger.entries.len(), 2);
+    assert!(ledger.entries.iter().all(|e| e.category == "food"));
+}
+
+#[test]
+fn only_fails_on_a_category_no_entry_has() {
+    let err = Ledger::parse(FILE).unwrap().only("fod").unwrap_err();
+    assert_eq!(err, "no entry has the category \"fod\"");
+}
+
+/// Reference: `Ledger::parse` keeps the order of the file (`a_ledger_reads_every_line`), and the plan's `only` keeps the
+/// entries of one category in that order.
+#[test]
+fn only_keeps_the_order_of_the_file() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-07,40,transport,train pass
+2026-01-05,12.50,food,lunch
+2026-01-03,7,food,coffee
+",
+    )
+    .unwrap();
+    let notes: Vec<String> = ledger
+        .only("food")
+        .unwrap()
+        .entries
+        .into_iter()
+        .map(|e| e.note)
+        .collect();
+    assert_eq!(notes, ["lunch", "coffee"]);
+}
+
+/// Reference: `Ledger::by_category`, the sums `tally categories` prints, where `foo` and `food` are two categories.
+#[test]
+fn only_keeps_a_category_apart_from_one_it_begins() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,10,foo,
+2026-01-06,20,food,
+",
+    )
+    .unwrap();
+    assert_eq!(ledger.only("foo").unwrap().entries.len(), 1);
+}
+
+#[test]
+fn only_ignores_the_case_of_the_category() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,10,Food,
+2026-01-06,20,food,
+",
+    )
+    .unwrap();
+    assert_eq!(ledger.only("food").unwrap().entries.len(), 2);
+}
+
+commit refs/heads/w-cat-nocase-bug
+mark :80
+author engineer <engineer@example.invalid> 1794600000 -0800
+committer engineer <engineer@example.invalid> 1794600000 -0800
+data 35
+Match a category whatever its case
+from :72
+M 100644 :78 crates/tally/src/ledger.rs
+M 100644 :79 crates/tally/tests/ledger.rs
+
+commit refs/heads/w-cat-fixed
+mark :81
+author engineer <engineer@example.invalid> 1794600000 -0800
+committer engineer <engineer@example.invalid> 1794600000 -0800
+data 35
+Match a category by its whole name
+from :68
+M 100644 :47 crates/tally/src/ledger.rs
+
+blob
+mark :82
+data 2489
+//! The ledger: every entry of the file, in the order the file holds them.
+
+use std::collections::BTreeMap;
+
+use crate::amount::Amount;
+use crate::entry::Entry;
+
+/// The first line of every ledger file.
+pub const HEADER: &str = "date,amount,category,note";
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ledger {
+    pub entries: Vec<Entry>,
+}
+
+impl Ledger {
+    /// Reads a ledger file: the header, then an entry a line; blank lines are skipped. A line that cannot be read
+    /// fails the whole file, saying its number (principle no-silent-skips).
+    pub fn parse(text: &str) -> Result<Ledger, String> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, first)) if first.trim() == HEADER => {}
+            _ => return Err(format!("the first line is not {HEADER:?}")),
+        }
+        let mut entries = Vec::new();
+        for (i, line) in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            entries.push(Entry::parse(line).map_err(|e| format!("line {}: {e}", i + 1))?);
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// Everything spent, less what came back.
+    pub fn total(&self) -> Amount {
+        self.entries.iter().map(|e| e.amount).sum()
+    }
+
+    /// What was spent in each category, by the category's name.
+    pub fn by_category(&self) -> BTreeMap<String, Amount> {
+        let mut sums = BTreeMap::new();
+        for e in &self.entries {
+            *sums.entry(e.category.clone()).or_insert(0.0) += e.amount;
+        }
+        sums
+    }
+
+    /// The entries of one category, in the order the file holds them. A category no entry has fails, naming it, so
+    /// that a mistyped name is not read as no spending (Article 2).
+    pub fn only(&self, category: &str) -> Result<Ledger, String> {
+        let entries: Vec<Entry> = self
+            .entries
+            .iter()
+            .filter(|e| e.category.eq_ignore_ascii_case(category))
+            .cloned()
+            .collect();
+        if entries.is_empty() {
+            return Err(format!("no entry has the category {category:?}"));
+        }
+        Ok(Ledger { entries })
+    }
+
+    /// The ledger written as a file again, header first.
+    pub fn write(&self) -> String {
+        let mut out = String::from(HEADER);
+        out.push('\n');
+        for e in &self.entries {
+            out.push_str(&format!("{},{},{},{}\n", e.date, e.amount, e.category, e.note));
+        }
+        out
+    }
+}
+
+commit refs/heads/w-cat-fix-nocase
+mark :83
+author engineer <engineer@example.invalid> 1794600000 -0800
+committer engineer <engineer@example.invalid> 1794600000 -0800
+data 35
+Match a category by its whole name
+from :68
+M 100644 :82 crates/tally/src/ledger.rs
+
+blob
+mark :84
+data 736
+//! The reports made from a ledger.
+
+use std::collections::BTreeMap;
+
+use crate::amount::{self, Amount};
+use crate::ledger::Ledger;
+
+/// What was spent in each month, as `YYYY-MM`, the months in order.
+pub fn monthly(ledger: &Ledger) -> Vec<(String, Amount)> {
+    let mut months: BTreeMap<String, Amount> = BTreeMap::new();
+    for e in &ledger.entries {
+        let month=e.date[..7].to_string();
+        *months.entry(month).or_insert(0.0) += e.amount;
+    }
+    months.into_iter().collect()
+}
+
+/// A report's rows as text: a row a line, the key, two spaces, the amount.
+pub fn render(rows: &[(String, Amount)]) -> String {
+    rows.iter()
+        .map(|(key, sum)| format!("{key}  {}\n", amount::format(*sum)))
+        .collect()
+}
+
+commit refs/heads/w-monthly-fmt
+mark :85
+author engineer <engineer@example.invalid> 1794862167 -0800
+committer engineer <engineer@example.invalid> 1794862167 -0800
+data 34
+Key the monthly report by YYYY-MM
+from :30
+M 100644 :84 crates/tally/src/report.rs
+
+blob
+mark :86
+data 748
+use tally::{report, Ledger};
+
+#[test]
+fn monthly_sums_a_month() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-10-01,10,food,
+2026-10-20,20,food,
+",
+    )
+    .unwrap();
+    let rows = report::monthly(&ledger);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, 30.0);
+}
+
+#[test]
+fn render_writes_a_row_a_line() {
+    let rows = vec![("food".to_string(), 12.5), ("rent".to_string(), 800.0)];
+    assert_eq!(report::render(&rows), "food  12.50\nrent  800.00\n");
+}
+
+#[test]
+fn monthly_keeps_two_months_apart() {
+    let ledger = Ledger::parse(
+        "date,amount,category,note
+2026-01-05,12.50,food,lunch
+2027-01-03,23.10,food,groceries
+",
+    )
+    .unwrap();
+    assert_eq!(report::monthly(&ledger).len(), 2);
+}
+
+commit refs/heads/w-monthly-weak
+mark :87
+author engineer <engineer@example.invalid> 1794862469 -0800
+committer engineer <engineer@example.invalid> 1794862469 -0800
+data 34
+Key the monthly report by YYYY-MM
+from :28
+M 100644 :31 crates/tally/src/report.rs
+M 100644 :86 crates/tally/tests/report.rs
+
+reset refs/heads/w-cat-behind
+from :55
+

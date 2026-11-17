@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 backup = { path = "../backup" }
 carry = { path = "../carry" }
+cases = { path = "../cases" }
 clap = { version = "4.6.7", features = ["derive"] }
 context = { path = "../context" }
 driver = { path = "../driver" }
@@ -22,11 +23,10 @@ serde.workspace = true
 serde_json = "1.0.154"
 service = { path = "../service" }
 store = { path = "../store" }
+# The directories a run of the cell cases makes and removes.
+tempfile.workspace = true
 tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread"] }
 web = { path = "../web" }
-
-[dev-dependencies]
-tempfile.workspace = true
 
 [lints]
 workspace = true
