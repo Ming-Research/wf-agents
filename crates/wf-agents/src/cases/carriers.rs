@@ -38,11 +38,13 @@ pub enum Note {
     Called { tool: String },
 }
 
-/// Whether the history is still being handed in.
+/// Whether the history is still being handed in, or the case's cell's rounds are the real carrier's, or the case is
+/// over and every round is held.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
     History,
     Real,
+    Over,
 }
 
 /// What the carriers of a case share.
@@ -122,6 +124,11 @@ impl Shared {
             stand_in: making.stand_in,
             notes: making.notes,
         })
+    }
+
+    /// Ends the case: no round given from now on is carried out.
+    pub fn over(&self) {
+        self.state().phase = Phase::Over;
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {

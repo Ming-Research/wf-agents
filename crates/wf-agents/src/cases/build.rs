@@ -82,6 +82,9 @@ pub struct Building {
     inbox: service::Inbox,
     notes: UnboundedReceiver<Note>,
     agents: Arc<Agents>,
+    shared: Arc<Shared>,
+    /// Whether the build ends with the cell's first round, as it does where a stand-in carries it.
+    first_only: bool,
 }
 
 /// The block people write that is no choice: the item's background, written as it is added and anew by the owner.
@@ -143,7 +146,7 @@ pub async fn build(with: &With<'_>) -> Result<Building, String> {
     let carriers = Carriers {
         agents: agents.clone(),
         acts: Arc::new(Acts { shared: shared.clone() }),
-        tools: Arc::new(Calls { shared }),
+        tools: Arc::new(Calls { shared: shared.clone() }),
         slots: 1,
         outside: Arc::new(outside),
         host: None,
@@ -160,6 +163,8 @@ pub async fn build(with: &With<'_>) -> Result<Building, String> {
         inbox,
         notes,
         agents,
+        shared,
+        first_only: with.program.is_some(),
     };
     building.work = building.add(flow, case, with.item)?;
     building.history(flow, case, &order, with.commits).await?;
@@ -313,6 +318,11 @@ impl Building {
                 _ => None,
             };
             let index = ended.and_then(|run| heard.handed.get(&run).copied());
+            let of_cell = |run: RunId| (heard.real.iter()).any(|(cell, r, _)| *cell == case.cell && *r == run);
+            if self.first_only && ended.is_some_and(of_cell) {
+                // Nothing the engine gives once the cell's first round ends is carried out.
+                self.shared.over();
+            }
             if let Some(i) = index {
                 for act in &order.rounds[i].before {
                     self.put(flow, act, commits)?;
