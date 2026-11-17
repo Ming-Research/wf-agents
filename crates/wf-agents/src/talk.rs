@@ -18,9 +18,10 @@ use web::attention::{Attention, Line, Stuck};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::system::{Past, System, UnderWay};
 use web::works::{
-    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, Found, ItemChanged,
-    ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person,
-    QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Step, Until, VersionPage, Waited, WorkPage, Writer,
+    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, ForkAsked, ForkPage,
+    Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage,
+    Pauser, Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Step, Until, VersionPage, Waited,
+    WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -40,6 +41,13 @@ pub enum Asked {
         limit: usize,
     },
     Act(u64, Act),
+    /// A fork of the session of a round of a run asked a question: the run's last round that ran where none is named.
+    Fork {
+        work: u64,
+        run: u64,
+        round: Option<usize>,
+        question: String,
+    },
     /// The owner's pause of everything set, or lifted.
     Everything(EngineAct),
     /// A cancel for this reason, which says afterwards what the work is: cancelled, or ended otherwise before it could
@@ -190,6 +198,17 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 let path = format!("/api/v1/system?weeks={from}");
                 let system: System = send(address, Method::GET, &path, None::<&()>).await?;
                 Ok(system_said(&system, days, limit))
+            }
+            Asked::Fork {
+                work,
+                run,
+                round,
+                question,
+            } => {
+                let path = format!("/api/v1/works/{work}/runs/{run}/forks");
+                let asked = ForkAsked { round, question };
+                let page: ForkPage = send(address, Method::POST, &path, Some(&asked)).await?;
+                Ok(forked_said(&page))
             }
             Asked::Act(work, act) => {
                 let resumed = act == Act::Resume {};
@@ -2576,5 +2595,178 @@ mod tests {
     fn a_text_in_a_query_is_written_so_that_no_byte_of_it_ends_the_query() {
         assert_eq!(encoded("a b&c=d/é"), "a%20b%26c%3Dd%2F%C3%A9");
         assert_eq!(encoded("3,2.1.0"), "3%2C2.1.0");
+    }
+}
+
+/// The most of each field of a fork's return that is said, in characters: the whole is kept on the engine's machine, in
+/// the file the words name.
+const FORK_FIELD: usize = 4_000;
+
+/// The share of what the session held below which a fork is said not to have been read from the cache.
+const READ_ENOUGH: u64 = 80;
+
+/// What a fork answered, in words: each field of its return that holds something, by its key, each cut at
+/// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, and the
+/// share of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent.
+pub fn forked_said(page: &ForkPage) -> String {
+    if !page.kept.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    let cut = |text: &str| -> String {
+        match text.chars().count() > FORK_FIELD {
+            true => format!(
+                "{}… (cut; whole in {})",
+                text.chars().take(FORK_FIELD).collect::<String>(),
+                page.kept
+            ),
+            false => text.to_string(),
+        }
+    };
+    let answer: Option<serde_json::Value> = page.answer.as_deref().and_then(|a| serde_json::from_str(a).ok());
+    let mut fields = Vec::new();
+    if let Some(answer) = &answer {
+        gather("", answer, &mut fields);
+    }
+    match fields.is_empty() {
+        true => out.push_str(&format!("The fork said:\n{}\n", cut(page.text.trim()))),
+        false => {
+            for (key, text) in fields {
+                out.push_str(&format!("{key}:\n{}\n", cut(&text)));
+            }
+        }
+    }
+    out.push_str(&format!("\nIt cost ${:.4}.\n", page.usd_micros as f64 / 1e6));
+    let share = match (page.read, page.held) {
+        (Some(read), Some(held)) if held > 0 => Some((read.min(held) * 100 / held, read, held)),
+        _ => None,
+    };
+    match (share, page.expired) {
+        (Some((share, read, held)), _) if share >= READ_ENOUGH => out.push_str(&format!(
+            "Its first request read {share}% of the session from the cache ({read} of the {held} tokens it held).\n"
+        )),
+        (Some((share, read, held)), Some(minutes)) => out.push_str(&format!(
+            "Its first request read only {share}% of the session from the cache ({read} of the {held} tokens it held): the \
+             session's cache had expired, its last round having ended {minutes} minutes past the cache's life.\n"
+        )),
+        (Some((share, read, held)), None) => out.push_str(&format!(
+            "Its first request read only {share}% of the session from the cache ({read} of the {held} tokens it held), \
+             under {READ_ENOUGH}%: the fork did not begin as the session did, and was not read from the cache.\n"
+        )),
+        (None, _) => out.push_str("What its first request read from the cache, or what the session held, is not known.\n"),
+    }
+    if !page.later.is_empty() {
+        let later: Vec<String> = page
+            .later
+            .iter()
+            .map(|(run, round)| format!("run {run} round {round}"))
+            .collect();
+        out.push_str(&format!(
+            "The session holds later rounds besides: {}.\n",
+            later.join(", ")
+        ));
+    }
+    out.push_str(&format!("The answer is kept in {}.\n", page.kept));
+    out
+}
+
+/// Each field of a return that holds text, by its key, its path through the return joined by dots.
+fn gather(at: &str, value: &serde_json::Value, out: &mut Vec<(String, String)>) {
+    let key = |k: &str| {
+        if at.is_empty() {
+            k.to_string()
+        } else {
+            format!("{at}.{k}")
+        }
+    };
+    match value {
+        serde_json::Value::Object(map) => map.iter().for_each(|(k, v)| gather(&key(k), v, out)),
+        serde_json::Value::Array(items) => {
+            let texts: Vec<String> = items.iter().filter_map(|i| i.as_str().map(str::to_string)).collect();
+            if texts.len() == items.len() && !texts.is_empty() {
+                out.push((at.to_string(), texts.join("\n")));
+            } else {
+                items
+                    .iter()
+                    .enumerate()
+                    .for_each(|(n, v)| gather(&key(&(n + 1).to_string()), v, out));
+            }
+        }
+        serde_json::Value::String(text) if !text.trim().is_empty() => out.push((at.to_string(), text.clone())),
+        serde_json::Value::Bool(_) | serde_json::Value::Number(_) => out.push((at.to_string(), value.to_string())),
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod fork_tests {
+    use super::*;
+
+    fn page() -> ForkPage {
+        ForkPage {
+            answer: Some(r#"{"outcome":{"dealt_with":[],"observations":["Read two ways."],"outputs":{}}}"#.to_string()),
+            text: String::new(),
+            usd_micros: 41_000,
+            read: Some(9_000),
+            held: Some(10_000),
+            expired: None,
+            later: Vec::new(),
+            kept: "/k/7-1.fork.1.answer".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_forks_answer_is_said_field_by_field_with_its_cost_and_the_share_of_the_session_read_from_the_cache() {
+        assert_eq!(
+            forked_said(&page()),
+            "outcome.observations:\nRead two ways.\n\nIt cost $0.0410.\nIts first request read 90% of the session from \
+             the cache (9000 of the 10000 tokens it held).\nThe answer is kept in /k/7-1.fork.1.answer.\n"
+        );
+        let under = ForkPage {
+            read: Some(3_000),
+            ..page()
+        };
+        assert!(forked_said(&under).contains(
+            "read only 30% of the session from the cache (3000 of the 10000 tokens it held), under 80%: the fork did \
+             not begin as the session did, and was not read from the cache."
+        ));
+        let expired = ForkPage {
+            read: Some(0),
+            expired: Some(42),
+            ..page()
+        };
+        assert!(forked_said(&expired).contains(
+            "the session's cache had expired, its last round having ended 42 minutes past the cache's life."
+        ));
+        let unknown = ForkPage { held: None, ..page() };
+        assert!(
+            forked_said(&unknown)
+                .contains("What its first request read from the cache, or what the session held, is not known.")
+        );
+    }
+
+    #[test]
+    fn a_long_field_is_cut_saying_where_it_is_whole_and_the_later_rounds_of_the_session_are_named() {
+        let long = ForkPage {
+            answer: Some(serde_json::json!({ "outcome": { "observations": ["x".repeat(5_000)] } }).to_string()),
+            later: vec![(8, 1), (8, 2)],
+            ..page()
+        };
+        let said = forked_said(&long);
+        assert!(
+            said.contains(&format!(
+                "{}… (cut; whole in /k/7-1.fork.1.answer)",
+                "x".repeat(FORK_FIELD)
+            )),
+            "{said}"
+        );
+        assert!(said.contains("The session holds later rounds besides: run 8 round 1, run 8 round 2."));
+        // No return: what the program said is said.
+        let text = ForkPage {
+            answer: None,
+            text: "It said this.".to_string(),
+            ..page()
+        };
+        assert!(forked_said(&text).starts_with("The fork said:\nIt said this.\n"));
     }
 }

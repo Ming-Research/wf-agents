@@ -1626,6 +1626,52 @@ pub enum Act {
     Say { to: SpokenTo, words: String },
 }
 
+/// A fork of a round's session asked by whoever plans the work (design document `testing`, 34): the round, the run's
+/// last that ran where none is named, and the question.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ForkAsked {
+    #[serde(default)]
+    pub round: Option<usize>,
+    pub question: String,
+}
+
+/// What a fork answered, as the engine's carrier gives it ([`service::Forked`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkPage {
+    /// Its return, as JSON text, where it wrote one; else nothing.
+    pub answer: Option<String>,
+    /// What its program said at its end.
+    pub text: String,
+    /// What it cost, in millionths of a dollar.
+    pub usd_micros: u64,
+    /// What its first call read from the cache, and what the session held, in tokens, where each is known.
+    pub read: Option<u64>,
+    pub held: Option<u64>,
+    /// How many minutes past its cache's life the session's last round ended, where it did.
+    pub expired: Option<u64>,
+    /// The later rounds the session holds, by run and number.
+    pub later: Vec<(u64, usize)>,
+    /// The file the answer is kept in, on the engine's machine.
+    pub kept: String,
+}
+
+impl ForkPage {
+    pub fn of(forked: service::Forked) -> ForkPage {
+        ForkPage {
+            answer: forked.answer,
+            text: forked.text,
+            usd_micros: forked.usd_micros,
+            read: forked.read,
+            held: forked.held,
+            expired: forked.expired,
+            later: forked.later.into_iter().map(|(run, round)| (run.0, round)).collect(),
+            kept: forked.kept,
+        }
+    }
+}
+
 /// What the act that says the owner's words answers with: the cell the engine gave them to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
