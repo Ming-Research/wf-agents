@@ -332,6 +332,22 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Asks a fork of the session a round of a work ran in a question, through the running engine: with the round's own
+    /// system prompt, form of return, tools, model and effort, so that its first request is read from the cache; every
+    /// use of a tool refused, so that nothing of the work changes; its answer in the return's form. Prints each field of
+    /// the answer, what the fork cost, and the share of the session its first request read from the cache.
+    Fork {
+        work: u64,
+        run: u64,
+        /// The round of the run whose session is forked; the run's last that ran where none is given.
+        #[arg(long)]
+        round: Option<usize>,
+        /// The file that holds the question.
+        #[arg(long)]
+        question: PathBuf,
+        #[command(flatten)]
+        at: At,
+    },
     /// Answers a version of a question of a work, taking an option, counted from one.
     Answer {
         work: u64,
@@ -595,6 +611,27 @@ fn main() -> ExitCode {
         Command::Result { work, call, result, at } => {
             talk::ask(at.port, Asked::Act(work, Act::Result { call, result }))
         }
+        Command::Fork {
+            work,
+            run,
+            round,
+            question,
+            at,
+        } => match std::fs::read_to_string(&question) {
+            Ok(question) => talk::ask(
+                at.port,
+                Asked::Fork {
+                    work,
+                    run,
+                    round,
+                    question,
+                },
+            ),
+            Err(e) => {
+                eprintln!("{}: {e}", question.display());
+                ExitCode::FAILURE
+            }
+        },
         Command::Answer {
             work,
             question,

@@ -227,6 +227,34 @@ pub fn arguments(
     args
 }
 
+/// The arguments of a fork of a session: those of the session's round, as [`arguments`] makes them with `--resume`, so
+/// that the fork's first request begins as the session's did and is read from the prompt cache (the same system prompt,
+/// form of return, tools, model and effort); but for its settings' hooks, which gain one that refuses every use of a
+/// tool before it runs ([`refusal`]), and the session, forked after it rather than gone on with in place. The tools stay
+/// in the request: one given none, its front changed, read nothing of the session from the cache.
+pub fn forked(mut args: Vec<String>) -> Vec<String> {
+    let at = args.iter().position(|a| a == "--settings").map(|i| i + 1);
+    if let Some(value) = at.and_then(|i| args.get_mut(i)) {
+        let mut settings: Value = serde_json::from_str(value).unwrap_or_else(|_| json!({}));
+        let refuse = json!([{ "type": "command", "command": refusal() }]);
+        settings["hooks"]["PreToolUse"] = json!([{ "matcher": "*", "hooks": refuse }]);
+        *value = settings.to_string();
+    }
+    args.push("--fork-session".to_string());
+    args
+}
+
+/// The hook's shell command that refuses the use of a tool, as the command line takes a hook's exit with 2, saying
+/// nothing; but the program's own tool for the return, which it lets through, so that the answer comes in the return's
+/// form. It reads what the program says of the tool on its standard input, whole, as the words' hook does.
+pub fn refusal() -> String {
+    format!(
+        "input=$(cat); case \"$input\" in \
+         *'\"tool_name\":\"{STRUCTURED_OUTPUT}\"'* | *'\"tool_name\": \"{STRUCTURED_OUTPUT}\"'*) exit 0 ;; \
+         *) exit 2 ;; esac"
+    )
+}
+
 /// The families of models the command line knows, each also its alias for the family's latest model.
 const FAMILIES: [&str; 5] = ["haiku", "sonnet", "opus", "fable", "mythos"];
 
@@ -1315,6 +1343,71 @@ mod tests {
         );
         let at = args.iter().position(|a| a == "--model").expect("a model");
         assert_eq!(args[at..at + 4], ["--model", "claude-opus-5-5", "--effort", "xhigh"]);
+    }
+
+    /// How the refusing hook a fork is given ends where the command line asks it of a use of the tool of this name.
+    fn refused(tool: &str) -> Option<i32> {
+        use std::io::Write;
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", &refusal()])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("sh runs");
+        let input = json!({ "tool_name": tool, "tool_input": { "text": "x".repeat(200_000) } }).to_string();
+        let _ = child.stdin.take().expect("its input").write_all(input.as_bytes());
+        child.wait().expect("it ends").code()
+    }
+
+    #[test]
+    fn a_fork_is_given_every_argument_of_its_sessions_round_but_a_hook_that_refuses_each_tool_and_the_fork() {
+        let ran = RanOn {
+            level: "2".to_string(),
+            model: "claude-sonnet-5-5".to_string(),
+            effort: Some("high".to_string()),
+            account: None,
+        };
+        let compacted = Compacted {
+            marks: PathBuf::from("compacted"),
+            again: PathBuf::from("again.md"),
+        };
+        let permissions = Permissions::of(false, &[], &["cargo".to_string()], &Default::default());
+        let session = Uuid::nil();
+        let round = arguments(
+            &agents(),
+            &ran,
+            "SYSTEM",
+            "SCHEMA",
+            &permissions,
+            &compacted,
+            &words(),
+            session,
+            Begin::Resume,
+        );
+        let fork = forked(round.clone());
+        assert_eq!(fork.len(), round.len() + 1);
+        assert_eq!(fork.last().map(String::as_str), Some("--fork-session"));
+        let at = round.iter().position(|a| a == "--settings").expect("its settings") + 1;
+        for (i, (was, is)) in round.iter().zip(&fork).enumerate().filter(|(i, _)| *i != at) {
+            assert_eq!(was, is, "argument {i}");
+        }
+        let was: Value = serde_json::from_str(&round[at]).expect("the round's settings");
+        let is: Value = serde_json::from_str(&fork[at]).expect("the fork's settings");
+        // The round's own hooks stay, the fork's files theirs; one that refuses each use of a tool is added.
+        assert_eq!(is["hooks"]["SessionStart"], was["hooks"]["SessionStart"]);
+        assert_eq!(is["hooks"]["PostToolUse"], was["hooks"]["PostToolUse"]);
+        assert_eq!(is["autoMemoryEnabled"], false);
+        assert_eq!(is["hooks"]["PreToolUse"][0]["matcher"], "*");
+        assert_eq!(is["hooks"]["PreToolUse"][0]["hooks"][0]["command"], refusal());
+    }
+
+    #[test]
+    fn the_refusing_hook_refuses_every_tool_but_the_programs_own_for_the_return() {
+        assert_eq!(refused("Bash"), Some(2));
+        assert_eq!(refused("Read"), Some(2));
+        assert_eq!(refused("Task"), Some(2));
+        assert_eq!(refused(STRUCTURED_OUTPUT), Some(0));
     }
 
     /// Runs the hook's command as the command line does after a use of the tool of this name, in the directory, and

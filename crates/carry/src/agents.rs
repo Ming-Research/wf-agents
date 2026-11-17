@@ -92,7 +92,9 @@ use decide::run::{Failure, Unmet};
 use decide::{BlockId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
-use service::{Clock, Doing, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Told};
+use service::{
+    Clock, Doing, Fork, Forked, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Told,
+};
 use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::oneshot;
@@ -327,6 +329,14 @@ impl Rounds for Agents {
 
     fn policy(&self) -> Option<Policy> {
         Some(self.inner.settings.policy())
+    }
+
+    fn fork(
+        &self,
+        fork: Fork,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Forked, String>> + Send + '_>> {
+        // Whoever asks stops the fork by giving the request up: its program ends with it.
+        Box::pin(async move { self.inner.fork(&fork).await })
     }
 
     fn ping(&self, ping: Ping, reply: PingReply) {
@@ -639,7 +649,9 @@ impl Inner {
         let command = &self.settings.agents.command;
         let read = match (read, status) {
             (Ok(read), _) => read,
-            (Err(no), Some(status)) if status.success() => return failed(no.why, no.said, no.spent),
+            (Err(no), Some(status)) if status.success() => {
+                return failed(no.why, no.said, no.spent);
+            }
             (Err(no), Some(status)) => {
                 let why = match had_result {
                     true => no.why,
@@ -1143,36 +1155,23 @@ impl Inner {
         let Ok(_one) = lock.try_lock() else {
             return Err(failed(said.under_way.clone()));
         };
-        let session = session::session(self.installation, ping.work, line, ping.session);
-        // The session's last round that ran, whose command line it is sent with.
-        let last = (work.ran.iter().rev()).find(|r| {
-            let cell = work.records.started.iter().find(|s| s.run == r.run).map(|s| &s.cell);
-            let spec = cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell));
-            spec.and_then(|c| c.line.as_deref()) == Some(line)
-        });
-        let no_round = || failed(fill(&said.no_round, &[("line", line)]));
-        let (run, number, on) = last.map(|r| (r.run, r.round, r.on.clone())).ok_or_else(no_round)?;
-        let started = (work.records.started.iter())
-            .find(|s| s.run == run)
-            .ok_or_else(no_round)?;
-        let cell = (flow.cells.iter())
-            .find(|c| c.id == started.cell)
-            .ok_or_else(no_round)?;
+        let made = self
+            .session_line(flow, work, ping.work, line, ping.session, of)
+            .map_err(|no| match no {
+                NoLine::Round => failed(fill(&said.no_round, &[("line", line)])),
+                NoLine::System(why) => failed(fill(&said.no_system, &[("why", &why)])),
+            })?;
+        let SessionLine {
+            session,
+            run,
+            number,
+            on,
+            system,
+            form,
+            permissions,
+        } = made;
         let place = git::place(&self.data, &git::tag(&self.installation), ping.work);
         let dir = git::worktree(&place).map_err(failed)?;
-        // What the session began with, as its rounds are given it.
-        let began = |what| {
-            let at = system::kept_at(&self.data, session, what);
-            std::fs::read_to_string(&at).map_err(|e| {
-                let why = format!("{}: {e}", at.file_name().unwrap_or_default().to_string_lossy());
-                failed(fill(&said.no_system, &[("why", &why)]))
-            })
-        };
-        let system = began(system::Begun::System)?;
-        let form = began(system::Begun::Form)?;
-        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let refused = permissions::refused_commands(&of.beside);
-        let permissions = Permissions::of(cell.reads_only, args, &refused, added);
         let base =
             kept::base(&self.data, ping.work, run, number).with_file_name(format!("ping-{line}-{}", ping.session));
         let compacted = Compacted {
@@ -1246,6 +1245,348 @@ impl Inner {
         let why = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
         Err((why, spent))
     }
+}
+
+/// The command line of a session's last round that ran, which the cache keeps the session under: what a keep-warm ping
+/// and a fork of the session are sent with. The round, what it ran on, what the session began with as its rounds are
+/// given it, and the permissions of the round's line.
+struct SessionLine {
+    session: Uuid,
+    run: RunId,
+    number: usize,
+    on: RanOn,
+    system: String,
+    form: String,
+    permissions: Permissions,
+}
+
+/// Why a session's command line cannot be made: no round of it ran, or what it began with was not kept, with why.
+enum NoLine {
+    Round,
+    System(String),
+}
+
+impl Inner {
+    /// The command line of the session of this number of the line in the work, as [`SessionLine`] says.
+    fn session_line(
+        &self,
+        flow: &flow::Compiled,
+        work: &Work,
+        number: WorkNumber,
+        line: &str,
+        of_session: u32,
+        of: &Of,
+    ) -> Result<SessionLine, NoLine> {
+        let session = session::session(self.installation, number, line, of_session);
+        let spec = |run: RunId| {
+            let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
+            cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell))
+        };
+        let in_session = |r: &&work::Ran| {
+            let at = work::sessions::start(work, r.run, r.round);
+            spec(r.run).and_then(|c| c.line.as_deref()) == Some(line)
+                && work::sessions::number_at(work, line, at) == of_session
+        };
+        let last = (work.ran.iter().rev()).find(in_session).ok_or(NoLine::Round)?;
+        let cell = spec(last.run).ok_or(NoLine::Round)?;
+        let began = |what| {
+            let at = system::kept_at(&self.data, session, what);
+            std::fs::read_to_string(&at)
+                .map_err(|e| NoLine::System(format!("{}: {e}", at.file_name().unwrap_or_default().to_string_lossy())))
+        };
+        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
+        let refused = permissions::refused_commands(&of.beside);
+        Ok(SessionLine {
+            session,
+            run: last.run,
+            number: last.round,
+            on: last.on.clone(),
+            system: began(system::Begun::System)?,
+            form: began(system::Begun::Form)?,
+            permissions: Permissions::of(cell.reads_only, args, &refused, added),
+        })
+    }
+
+    /// Asks a fork of the session the fork's round ran in its question ([`Rounds::fork`]): on the command line of that
+    /// session's last round, forked ([`cli::forked`]), in the work's worktree, or, where the work has ended and its
+    /// worktree is gone, a checkout of its kept branch made at the worktree's place and taken away after;
+    /// holding the work, so that no round of it runs beside the fork. What the fork was told, its stream and its answer
+    /// are kept beside the round's, its hooks' files are its own and taken away after.
+    async fn fork(&self, fork: &Fork) -> Result<Forked, String> {
+        let of = crate::projects::of(&self.projects, &fork.item)?;
+        let (flow, work) = (&*fork.flow, &*fork.kept);
+        let Ok(one) = self.lock(fork.work).try_lock_owned() else {
+            return Err(format!(
+                "A round of work {} is under way: ask the fork once it has ended.",
+                fork.work.0
+            ));
+        };
+        // Held until the fork has ended, and what it stood in is taken away.
+        let mut holding = Some(one);
+        let started = (work.records.started.iter()).find(|s| s.run == fork.run);
+        let cell = started.and_then(|s| flow.cells.iter().find(|c| c.id == s.cell));
+        let line = cell
+            .and_then(|c| c.line.clone())
+            .ok_or("The round's cell runs in no session.")?;
+        let of_session = work::sessions::number_at(work, &line, work::sessions::start(work, fork.run, fork.round));
+        let made = self
+            .session_line(flow, work, fork.work, &line, of_session, of)
+            .map_err(|no| match no {
+                NoLine::Round => "No round of the session ran.".to_string(),
+                NoLine::System(why) => format!("What the session began with was not kept: {why}."),
+            })?;
+        // The later rounds of the session, which its fork holds besides the round asked of.
+        let asked_at = work::sessions::start(work, fork.run, fork.round);
+        let mut later: Vec<(RunId, usize)> = Vec::new();
+        for r in work.ran.iter() {
+            let at = work::sessions::start(work, r.run, r.round);
+            let of_line = (work.records.started.iter())
+                .find(|s| s.run == r.run)
+                .and_then(|s| flow.cells.iter().find(|c| c.id == s.cell))
+                .is_some_and(|c| c.line.as_deref() == Some(line.as_str()));
+            let same = of_line && work::sessions::number_at(work, &line, at) == of_session;
+            if same && at > asked_at && !later.contains(&(r.run, r.round)) {
+                later.push((r.run, r.round));
+            }
+        }
+        let place = git::place(&self.data, &git::tag(&self.installation), fork.work);
+        if !place.dir.exists() && !fork.ended {
+            return Err(format!(
+                "Work {} has not ended, and its worktree is not there.",
+                fork.work.0
+            ));
+        }
+        // What stands in for an ended work's worktree, which is let go (decision letting-go-at-the-end), is a checkout
+        // with no branch, taken away after: one made now, or one an earlier fork could not take away. The work's own
+        // worktree, on its branch, is left to the work's end.
+        let standing = if fork.ended {
+            git::configuration(&of.project, &place).await?;
+            !place.dir.exists() || !git::said(&place.dir, &["symbolic-ref", "--quiet", "HEAD"]).await?.ok
+        } else {
+            false
+        };
+        let mut stand_in = standing.then(|| StandIn {
+            project: of.project.clone(),
+            place: place.clone(),
+            work: fork.work,
+            holding: holding.take(),
+            gone: false,
+        });
+        if !place.dir.exists() {
+            // A worktree whose directory was taken away is named by the repository until it is pruned.
+            git::git(&of.project.repo, &["worktree", "prune"]).await?;
+            let dir = place.dir.to_string_lossy().to_string();
+            let added = git::git(
+                &of.project.repo,
+                &["worktree", "add", "--detach", &dir, &place.reference()],
+            )
+            .await;
+            added.map_err(|why| format!("The work's worktree is gone, and its branch could not stand in: {why}"))?;
+        }
+        let asked = self.forked(fork, &made, (&line, of_session), &place.dir).await;
+        if let Some(stand_in) = stand_in.as_mut() {
+            stand_in.take_away().await;
+        }
+        let (answer, text, spent, read, kept) = asked?;
+        let held = (work.spent.get(&(made.run, made.number))).and_then(|s| s.context_tokens);
+        // The session's last call: its last round's end, or a keep-warm ping of it since that was read from the cache.
+        let ended = (work.records.returned.iter())
+            .filter(|r| r.run == made.run)
+            .nth(made.number.saturating_sub(1))
+            .map(|e| e.at);
+        let pinged = (work.pinged.iter())
+            .filter(|p| p.line == line && p.session == of_session && p.failed.is_none())
+            .map(|p| p.at)
+            .max();
+        let when = ended.max(pinged).and_then(|at| work.time_of(at)).map(|t| t.0);
+        let now = self.clock.now().ok().map(|t| t.0);
+        let expired = match (when, now, self.settings.cache_ms()) {
+            (Some(when), Some(now), Some(life)) if now.saturating_sub(when) > life => {
+                Some((now - when - life) / 60_000)
+            }
+            _ => None,
+        };
+        Ok(Forked {
+            answer,
+            text,
+            usd_micros: spent.usd_micros,
+            read,
+            held,
+            expired,
+            later,
+            kept: kept.display().to_string(),
+        })
+    }
+
+    /// Runs the fork's program in this directory on the session's command line, forked, keeping what it was told, its
+    /// stream and its answer beside the round's; gives its return, what its program said at its end, what it cost and
+    /// what its first call read from the cache.
+    async fn forked(
+        &self,
+        fork: &Fork,
+        made: &SessionLine,
+        (line, of_session): (&str, u32),
+        dir: &Path,
+    ) -> Result<(Option<String>, String, Spent, Option<u64>, PathBuf), String> {
+        let base = kept::base(&self.data, fork.work, fork.run, fork.round);
+        let name = base.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let n = (1..)
+            .find(|n| !base.with_file_name(format!("{name}.fork.{n}.message.md")).exists())
+            .unwrap_or(1);
+        let at = |what: &str| base.with_file_name(format!("{name}.fork.{n}.{what}"));
+        if let Some(parent) = base.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        let compacted = Compacted {
+            marks: at("compacted"),
+            again: at("again.md"),
+        };
+        let words = Words {
+            waiting: at("words.json"),
+            given: at("given"),
+        };
+        // A fork's compaction gives the session nothing again.
+        write(&compacted.again, b"").await?;
+        write(&at("message.md"), fork.question.as_bytes()).await?;
+        let agents = &self.settings.agents;
+        let round = cli::arguments(
+            agents,
+            &made.on,
+            &made.system,
+            &made.form,
+            &made.permissions,
+            &compacted,
+            &words,
+            made.session,
+            Begin::Resume,
+        );
+        let mut command = Command::new(&agents.command);
+        command
+            .args(cli::forked(round))
+            .env_clear()
+            .envs(cli::environment(agents, std::env::vars()))
+            .current_dir(dir);
+        let before = session_cost(&fork.flow, &fork.kept, line, of_session);
+        let mut stream = cli::Stream::default();
+        let mut lines = Vec::new();
+        let mut each = |line: &[u8]| {
+            stream.line(line);
+            lines.extend_from_slice(line);
+            lines.push(b'\n');
+        };
+        let mut never = crate::held::Stop::never();
+        let ran = process::streamed(
+            command,
+            Some(cli::stdin(&fork.question)),
+            None,
+            &mut never,
+            None,
+            &mut each,
+        )
+        .await;
+        for file in [&compacted.marks, &compacted.again, &words.waiting] {
+            let _ = tokio::fs::remove_file(file).await;
+        }
+        write(&at("stream.jsonl"), &lines).await?;
+        let Ran::Ended { status, stderr, .. } = ran? else {
+            return Err("The fork's program was stopped before it ended.".to_string());
+        };
+        let read = stream.own.first.map(|(read, _)| read);
+        let text = (String::from_utf8_lossy(&lines).lines())
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .rev()
+            .find(|v| v["type"] == "result")
+            .and_then(|v| v["result"].as_str().map(str::to_string))
+            .unwrap_or_default();
+        let (answer, spent) = match cli::read(&lines, Begin::Resume, before) {
+            Ok(read) => (Some(read.structured.to_string()), read.spent),
+            // Neither a return nor words: why is what the stream and the program's end say.
+            Err(no) if text.is_empty() => {
+                let mut why = no.why;
+                if !status.success() {
+                    let of = crate::projects::of(&self.projects, &fork.item)?;
+                    let end = process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes());
+                    let ended = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
+                    why = format!("{why}; {ended}");
+                }
+                let cost = (no.spent.or_else(|| stream.priced()))
+                    .map(|spent| format!(" It cost ${:.4}.", spent.usd_micros as f64 / 1e6))
+                    .unwrap_or_default();
+                return Err(format!("The fork wrote no answer: {why}.{cost}"));
+            }
+            Err(no) => (None, no.spent.unwrap_or_else(|| stream.priced().unwrap_or_default())),
+        };
+        let kept = answer.clone().unwrap_or_else(|| text.clone());
+        write(&at("answer"), kept.as_bytes()).await?;
+        Ok((answer, text, spent, read, at("answer")))
+    }
+}
+
+/// A checkout at an ended work's worktree's place that a fork ran in: taken away once the fork is done with it, or, where
+/// the fork is given up before, as it is dropped; the work held until it is.
+struct StandIn {
+    project: Project,
+    place: git::Place,
+    work: WorkNumber,
+    holding: Option<tokio::sync::OwnedMutexGuard<()>>,
+    gone: bool,
+}
+
+impl StandIn {
+    /// Takes the checkout away, then lets the work go; given up halfway, its drop takes it away again.
+    async fn take_away(&mut self) {
+        removed(&self.project, &self.place, self.work).await;
+        self.gone = true;
+        self.holding = None;
+    }
+}
+
+impl Drop for StandIn {
+    fn drop(&mut self) {
+        if self.gone {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let (project, place, work, holding) =
+            (self.project.clone(), self.place.clone(), self.work, self.holding.take());
+        runtime.spawn(async move {
+            removed(&project, &place, work).await;
+            drop(holding);
+        });
+    }
+}
+
+/// Takes away the checkout at the place a fork of the work ran in, saying where it cannot; one already gone is passed.
+async fn removed(project: &Project, place: &git::Place, work: WorkNumber) {
+    if let Err(why) = git::remove(project, place).await {
+        eprintln!(
+            "The checkout work {} was forked in could not be taken away: {why}",
+            work.0
+        );
+    }
+}
+
+/// What the line's session of this number cost before now, in millionths of a dollar: its rounds and its keep-warm
+/// pings, which the program's result counts in the session's total.
+fn session_cost(flow: &flow::Compiled, work: &Work, line: &str, of_session: u32) -> u64 {
+    let on_line = |run: RunId| {
+        let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
+        let spec = cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell));
+        spec.and_then(|c| c.line.as_deref()) == Some(line)
+    };
+    let in_it =
+        |run: RunId, k: usize| work::sessions::number_at(work, line, work::sessions::start(work, run, k)) == of_session;
+    let rounds = (work.spent.iter())
+        .filter(|((run, k), _)| on_line(*run) && in_it(*run, *k))
+        .map(|(_, spent)| spent.usd_micros);
+    let pings = (work.pinged.iter())
+        .filter(|p| p.line == line && p.session == of_session)
+        .map(|p| p.spent.usd_micros);
+    rounds.chain(pings).sum()
 }
 
 /// Where the work's spend and time are counted from, as its history judges them: the place where it was last let on
@@ -1760,6 +2101,220 @@ mod tests {
             flow,
             flow::agents::read(&root).expect("the files beside the flows are read"),
         )
+    }
+
+    /// A work whose run 7, of R2, ran its first round, its try on these at 3, and whose round ended at 4.
+    fn ran_once(on: RanOn) -> Work {
+        let mut work = Work::default();
+        work.records.started.push(decide::Started {
+            run: RunId(7),
+            cell: "R2".into(),
+            at: Seq(1),
+            because: Vec::new(),
+            basis: Default::default(),
+        });
+        work.records.rounds.push(Began {
+            run: RunId(7),
+            at: Seq(2),
+        });
+        work.records.returned.push(Returned {
+            run: RunId(7),
+            at: Seq(4),
+        });
+        work.ran.push(work::Ran {
+            at: Seq(3),
+            run: RunId(7),
+            round: 1,
+            attempt: 1,
+            on,
+        });
+        work
+    }
+
+    #[tokio::test]
+    async fn a_fork_runs_on_its_sessions_round_command_line_in_the_worktree_and_keeps_its_answer() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let data = std::path::absolute(dir.path()).expect("absolute");
+        // A stand-in for the program that keeps its arguments and where it ran, and prints a stream: its start, its first
+        // call's prompt, read mostly from the cache, and its result, with a return.
+        let program = data.join("program.sh");
+        let stream = [
+            r#"{"type":"system","subtype":"init","claude_code_version":"9.9.9"}"#,
+            r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000}}},"parent_tool_use_id":null}"#,
+            r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000,"output_tokens":20},"structured_output":{"outcome":{"observations":["The task reads two ways."]}}}"#,
+        ];
+        let printed: String = stream.iter().map(|line| format!("printf '%s\\n' '{line}'\n")).collect();
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\nls > '{0}/listed'\ncat > /dev/null\n{printed}",
+            data.display()
+        );
+        std::fs::write(&program, script).expect("written");
+        std::fs::set_permissions(&program, std::os::unix::fs::PermissionsExt::from_mode(0o755)).expect("made runnable");
+        let mut settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
+        settings.agents.command = program.display().to_string();
+        let repo = git::tests::Repo::new("true");
+        let project = repo.project.clone();
+        let (flow, beside) = engineer();
+        let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
+        // The time now is ten thousand seconds in; the cache keeps a session an hour after its last call.
+        let agents = Agents::with_clock(
+            settings,
+            data.clone(),
+            Uuid::nil(),
+            [("example".to_string(), of)].into(),
+            Arc::new(service::TokioClock::new(work::Time(10_000_000))),
+        );
+        let on = RanOn {
+            level: "2".to_string(),
+            model: "claude-sonnet-5-5".to_string(),
+            effort: Some("high".to_string()),
+            account: None,
+        };
+        let session = session::session(Uuid::nil(), WorkNumber(3), "engineer", 0);
+        let keep = |what, text: &str| {
+            let at = system::kept_at(&data, session, what);
+            std::fs::create_dir_all(at.parent().expect("a directory")).expect("made");
+            std::fs::write(at, text).expect("kept");
+        };
+        keep(system::Begun::System, "THE SYSTEM PROMPT");
+        keep(system::Begun::Form, "{\"type\":\"object\"}");
+        let place = git::place(&data, &git::tag(&Uuid::nil()), WorkNumber(3));
+        std::fs::create_dir_all(&place.dir).expect("the worktree");
+        let first = store::First {
+            title: "Greet the user".to_string(),
+            level: None,
+            project: Some("example".to_string()),
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+        };
+        let fork = Fork {
+            work: WorkNumber(3),
+            flow: Arc::new(flow),
+            item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
+            kept: Arc::new(Work {
+                moments: vec![
+                    work::Moment {
+                        from: Seq(1),
+                        at: work::Time(1_000_000),
+                    },
+                    work::Moment {
+                        from: Seq(5),
+                        at: work::Time(6_000_000),
+                    },
+                ],
+                ..ran_once(on)
+            }),
+            run: RunId(7),
+            round: 1,
+            question: "Which words can be read two ways?".to_string(),
+            ended: false,
+        };
+        let forked = agents.inner.fork(&fork).await.expect("the fork is asked");
+        let answer: serde_json::Value =
+            serde_json::from_str(forked.answer.as_deref().expect("a return")).expect("JSON");
+        assert_eq!(answer["outcome"]["observations"][0], "The task reads two ways.");
+        assert_eq!(forked.read, Some(9000));
+        assert_eq!(forked.usd_micros, 500_000);
+        // Its round ended at a thousand seconds: the cache let the session go 5,400 seconds ago.
+        assert_eq!(forked.expired, Some(90));
+        assert!(std::path::Path::new(&forked.kept).is_file(), "{}", forked.kept);
+        // Given the session's own command line: what it began with, its model and effort, resumed and forked.
+        let args = std::fs::read_to_string(data.join("args")).expect("its arguments");
+        let args: Vec<&str> = args.lines().collect();
+        let after = |flag: &str| args.iter().position(|a| *a == flag).map(|i| args[i + 1]);
+        assert_eq!(after("--append-system-prompt"), Some("THE SYSTEM PROMPT"));
+        assert_eq!(after("--json-schema"), Some("{\"type\":\"object\"}"));
+        assert_eq!(after("--model"), Some("claude-sonnet-5-5"));
+        assert_eq!(after("--effort"), Some("high"));
+        assert_eq!(after("--resume"), Some(session.to_string().as_str()));
+        assert_eq!(args.last(), Some(&"--fork-session"));
+        let cwd = std::fs::read_to_string(data.join("cwd")).expect("where it ran");
+        let worktree = std::fs::canonicalize(&place.dir).expect("the worktree");
+        assert_eq!(std::fs::canonicalize(cwd.trim()).expect("a directory"), worktree);
+        // What it was asked and answered is kept beside the round's; its hooks' files are taken away.
+        let kept = |n: usize, what: &str| {
+            let base = kept::base(&data, WorkNumber(3), RunId(7), 1);
+            let name = base.file_name().expect("a name").to_string_lossy().to_string();
+            base.with_file_name(format!("{name}.fork.{n}.{what}"))
+        };
+        assert_eq!(
+            std::fs::read_to_string(kept(1, "message.md")).expect("kept"),
+            fork.question
+        );
+        assert!(
+            std::fs::read_to_string(kept(1, "answer"))
+                .expect("kept")
+                .contains("two ways")
+        );
+        for gone in ["compacted", "again.md", "words.json"] {
+            assert!(!kept(1, gone).exists(), "{gone}");
+        }
+        // The program's result says the session's total: the fork cost what it adds to what the session cost before,
+        // its rounds and its pings, and not a later session's of the line; it held what its last round's prompt held.
+        // The ping, at six thousand seconds, was the session's last call.
+        let mut paid = (*fork.kept).clone();
+        paid.sessions.push(work::Session {
+            at: Seq(6),
+            line: "engineer".to_string(),
+            why: Why::Owner,
+        });
+        let spent = |usd_micros, context_tokens| Spent {
+            usd_micros,
+            context_tokens,
+            ..Spent::default()
+        };
+        paid.spent.insert((RunId(7), 1), spent(100_000, Some(10_000)));
+        paid.pinged.push(work::Pinged {
+            at: Seq(5),
+            line: "engineer".to_string(),
+            session: 0,
+            spent: spent(50_000, None),
+            failed: None,
+        });
+        let again = Fork {
+            kept: Arc::new(paid),
+            ..fork.clone()
+        };
+        let forked = agents.inner.fork(&again).await.expect("asked again");
+        assert_eq!(forked.usd_micros, 350_000);
+        assert_eq!(forked.held, Some(10_000));
+        assert_eq!(forked.expired, Some(6));
+        assert!(forked.later.is_empty());
+        assert!(kept(2, "answer").is_file());
+        // A work that has not ended, its worktree gone, is not forked in a directory made for it.
+        std::fs::remove_dir_all(&place.dir).expect("removed");
+        let refused = agents.inner.fork(&fork).await.expect_err("refused");
+        assert_eq!(refused, "Work 3 has not ended, and its worktree is not there.");
+        assert!(!place.dir.exists());
+        // A work that has ended, its worktree gone, is forked in a checkout of its kept branch at the worktree's place,
+        // taken away after; the branch stays.
+        git::tests::run(&repo.project.repo, &["branch", &place.branch]);
+        let ended = Fork { ended: true, ..fork };
+        agents.inner.fork(&ended).await.expect("asked in a checkout");
+        let cwd = std::fs::read_to_string(data.join("cwd")).expect("where it ran");
+        let at = std::fs::canonicalize(&data)
+            .expect("the data")
+            .join(place.dir.strip_prefix(&data).expect("in the data"));
+        assert_eq!(Path::new(cwd.trim()), at);
+        let listed = std::fs::read_to_string(data.join("listed")).expect("what it held");
+        assert!(listed.lines().any(|f| f == "greeting.txt"), "{listed}");
+        assert!(!place.dir.exists());
+        let worktrees = git::tests::run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
+        assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 1);
+        git::tests::run(&repo.project.repo, &["rev-parse", "--verify", &place.reference()]);
+        // The work's own worktree, on its branch, is left to the work's end; a checkout with no branch that an earlier
+        // fork left there is taken away.
+        let dir = place.dir.display().to_string();
+        git::tests::run(&repo.project.repo, &["worktree", "add", &dir, &place.branch]);
+        agents.inner.fork(&ended).await.expect("asked in the work's worktree");
+        assert!(place.dir.join("greeting.txt").is_file());
+        git::tests::run(&repo.project.repo, &["worktree", "remove", "--force", &dir]);
+        git::tests::run(
+            &repo.project.repo,
+            &["worktree", "add", "--detach", &dir, &place.branch],
+        );
+        agents.inner.fork(&ended).await.expect("asked in what was left");
+        assert!(!place.dir.exists());
     }
 
     /// The carrier of the engineer's flow's rounds, its data in this directory, and R2's first round of run 7 of work

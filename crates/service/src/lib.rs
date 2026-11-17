@@ -61,8 +61,8 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Doing, Network, Outside, Ping, PingReply, Release, ReleaseReply, Returned, Round,
-    RoundReply, Rounds, Saying, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, Doing, Fork, Forked, Network, Outside, Ping, PingReply, Release, ReleaseReply, Returned,
+    Round, RoundReply, Rounds, Saying, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Under};
@@ -983,6 +983,53 @@ impl Handle {
             Ok(system) => system,
             Err(e) => Err(format!("what was kept of it could not be read: {e}")),
         }))
+    }
+
+    /// Asks a fork of the session the round of this number of the run ran in, the run's last round that ran where none
+    /// is named, a question, through the agents' carrier, off the loop: none where there is no such work, and inside,
+    /// what the fork answered or why it could not be asked.
+    pub async fn fork(
+        &self,
+        work: WorkNumber,
+        run: RunId,
+        round: Option<usize>,
+        question: String,
+    ) -> Result<Option<Result<Forked, String>>, Refusal> {
+        let asked = self
+            .read(move |driver| {
+                let kept = driver.work(work)?;
+                let ran = (kept.work.ran.iter()).filter(|r| r.run == run).map(|r| r.round).max();
+                let Some(round) = round.or(ran) else {
+                    return Some(Err(format!("Work {} has no round of run {} that ran.", work.0, run.0)));
+                };
+                if !kept.work.ran.iter().any(|r| r.run == run && r.round == round) {
+                    return Some(Err(format!(
+                        "Work {} has no round {round} of run {} that ran.",
+                        work.0, run.0
+                    )));
+                }
+                let ended = matches!(
+                    decide::decide(&kept.flow.flow, &kept.work.records),
+                    decide::Decision::Ended(_)
+                );
+                Some(Ok(Fork {
+                    work,
+                    flow: Arc::new(kept.flow.clone()),
+                    item: kept.item.clone(),
+                    kept: Arc::new(kept.work.clone()),
+                    run,
+                    round,
+                    question,
+                    ended,
+                }))
+            })
+            .await?;
+        let fork = match asked {
+            None => return Ok(None),
+            Some(Err(why)) => return Ok(Some(Err(why))),
+            Some(Ok(fork)) => fork,
+        };
+        Ok(Some(self.carriers.agents.fork(fork).await))
     }
 
     /// What the agent of the round of this number of the run was last seen doing, as the carrier of its cell's kind

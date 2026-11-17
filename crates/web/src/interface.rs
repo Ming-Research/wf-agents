@@ -24,8 +24,9 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::plan::{Candidates, Graph, HITS, Hits, PlanChanges, PlanMark, Tags, Way};
 use crate::works::{
-    Act, Added, Broken, CallPage, Changed, DoingPage, Engine, EngineAct, ItemChanges, Items, ItemsChanged, LevelsPage,
-    NewItem, ProjectsPage, Refusal, RoundPage, Said, SystemPage, ToldPage, VersionPage, WorkPage,
+    Act, Added, Broken, CallPage, Changed, DoingPage, Engine, EngineAct, ForkAsked, ForkPage, ItemChanges, Items,
+    ItemsChanged, LevelsPage, NewItem, ProjectsPage, Refusal, RoundPage, Said, SystemPage, ToldPage, VersionPage,
+    WorkPage,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
@@ -58,6 +59,7 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
         )
         .route("/api/v1/works/{work}/calls/{call}", get(call))
         .route("/api/v1/works/{work}/acts", post(act))
+        .route("/api/v1/works/{work}/runs/{run}/forks", post(fork))
         .route("/api/v1/attention", get(crate::attention::attention))
         .route("/api/v1/system", get(crate::system::system))
         .route("/api/v1/engine", get(engine))
@@ -382,6 +384,31 @@ async fn act(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection
         })
         .into_response(),
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(refusal) => refused(&refusal),
+    }
+}
+
+/// A fork of a round's session asked a question, which the engine's agents' carrier asks off the loop: what it
+/// answered, or why it could not be asked.
+async fn fork(State(handle): State<Handle>, path: Result<Path<(u64, u64)>, PathRejection>, body: Bytes) -> Response {
+    let (number, run) = match path {
+        Ok(Path((number, run))) => (WorkNumber(number), RunId(run)),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let asked: ForkAsked = match serde_json::from_slice(&body) {
+        Ok(asked) => asked,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The fork asked cannot be read: {e}.")),
+    };
+    if asked.question.trim().is_empty() {
+        return fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "The question says nothing.".to_string(),
+        );
+    }
+    match handle.fork(number, run, asked.round, asked.question).await {
+        Ok(Some(Ok(forked))) => Json(ForkPage::of(forked)).into_response(),
+        Ok(Some(Err(why))) => fail(StatusCode::UNPROCESSABLE_ENTITY, why),
+        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no work {}.", number.0)),
         Err(refusal) => refused(&refusal),
     }
 }
