@@ -14,7 +14,7 @@ held = "## `{block}`, version {number}{by}, in this session already; you last wo
 held_new = "## `{block}`, version {number}{by}, in this session already"
 # Who wrote a version, as the round is told it: the line of the cell whose run wrote it, `{line}`, the design tree and
 # the work's head a round's end read among them; or the owner. Nothing where neither did: what an act of the engine
-# writes, and what the outside writes with no round.
+# writes, and what the outside writes, what taking main in reads for a round among it.
 by_line = ", written on the line `{line}`"
 by_owner = ", written by the owner"
 
