@@ -515,7 +515,7 @@ export const nowTone = (s: Pick<Summary, 'now' | 'cells' | 'waits'>): Tone => st
 export function causeRest(cause: Cause, wayRound = false): string {
   if (cause.kind === 'noRecord') return 'the cell had no record';
   if (cause.kind === 'results') return `the results of ${plural(cause.calls.length, 'call')} it asked for are in`;
-  const since = cause.was === null ? ', which its record knew no version of' : ` since @${cause.was}`;
+  const since = cause.was === null ? ', which its record knew no version of' : ` since v${cause.was}`;
   const behind = cause.behind ? `, by a cell after it${wayRound ? ': a way round' : ''}` : '';
   return `changed in meaning${since}${behind}`;
 }
@@ -556,7 +556,7 @@ export function unmetWords(unmet: Unmet): string {
     case 'dealtWithNothing':
       return 'it dealt with nothing that ran the round and asked for no call';
     case 'writtenOver':
-      return `it wrote ${unmet.block}, which another wrote at @${unmet.version} since the round was told of it`;
+      return `it wrote ${unmet.block}, which another wrote at v${unmet.version} since the round was told of it`;
     case 'choiceChanged':
       return `it handed in ${unmet.block}, a choice, as changing nothing in meaning with another value`;
     case 'asksAndWorks':

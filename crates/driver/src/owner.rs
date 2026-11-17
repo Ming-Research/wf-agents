@@ -49,8 +49,10 @@ pub struct Waiting {
 /// What the owner does that ends a wait on them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ends {
-    /// Answers the latest version of the work's question of this name, by one of its options.
-    Answer { question: String, version: Seq },
+    /// Answers the latest version of the work's question of this name, by one of its options: the version by its number
+    /// among the versions of its cell's questions, none where it has none, as a question of a cell with no questions of
+    /// its own.
+    Answer { question: String, version: Option<u64> },
     /// Answers in words the question this call puts to them.
     Reply { call: CallId },
     /// Lets the run that reached its limit go on, as the result of this call.
@@ -240,9 +242,10 @@ fn question(kept: &Kept<'_>, name: &str, standing: &Standing<'_>, waits: &mut Ve
         Some(work::Question::Asked { ask, .. }) => ask.clone(),
         _ => name.to_string(),
     };
+    let latest = standing.latest;
     let ends = Ends::Answer {
         question: name.to_string(),
-        version: standing.latest.at,
+        version: engine::asked::number_of(kept.flow, &kept.work.records, &latest.cell, latest.at),
     };
     let key = format!("answer-{name}");
     if !waits.iter().any(|w| w.key == key) {
@@ -518,9 +521,10 @@ mod tests {
                 question: "way".to_string(),
             }],
         );
+        // The cell has no questions of its own in this flow, so no version of them names the question.
         let ends = Ends::Answer {
             question: "way".to_string(),
-            version: Seq(3),
+            version: None,
         };
         assert_eq!(
             of(&work, &decision),

@@ -204,7 +204,7 @@ pub fn refused_words(refused: &Refused) -> String {
         }
         Refused::NoSuchQuestion(question) => format!("the work has no question {question}"),
         Refused::NoSuchVersion { question, version } => {
-            format!("the question {question} has no version {} that asks it", version.0)
+            format!("the question {question} has no version {version} that asks it")
         }
         Refused::NotAnOption { question, option } => {
             format!("the version of the question {question} answered has no option {option}")

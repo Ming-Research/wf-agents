@@ -338,7 +338,8 @@ async fn a_round_is_given_each_try_with_what_it_ran_on_and_what_was_filled_into_
             "ran": { "level": "3", "model": "claude-opus-5-5", "effort": "high" },
             "filled": [[
                 { "kind": "part", "part": "task" },
-                { "kind": "whole", "block": "request", "version": 3 },
+                // The request's first version, by its number among the request's versions.
+                { "kind": "whole", "block": "request", "version": 1 },
             ]],
         }])
     );

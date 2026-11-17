@@ -349,7 +349,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Answers a version of a question of a work, taking an option, counted from one.
+    /// Answers a version of a question of a work, by its number among the versions of its cell's questions, taking an
+    /// option, counted from one.
     Answer {
         work: u64,
         question: String,

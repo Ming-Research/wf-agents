@@ -143,7 +143,8 @@ const answerKey = (question: string) => `answer-${question}`;
 /// the engine's list names holds the work, at its cell or at the merge.
 function questionsStanding(questions: Question[] | undefined, s: Summary): Choice[] {
   return (questions ?? []).flatMap((q): Choice[] => {
-    if (q.withdrawn !== null || q.ask === null) return [];
+    // A question no version of its cell's questions names cannot be answered by one.
+    if (q.withdrawn !== null || q.ask === null || q.version === null) return [];
     const answered = q.answer !== null;
     const held = answered ? { holds: false } : holding(s, answerKey(q.name));
     return [

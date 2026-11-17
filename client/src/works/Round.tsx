@@ -72,12 +72,11 @@ export function ContextKeys({ context, compactions }: { context: number; compact
   );
 }
 
-/// A version of a block, named by its place: `plan@12`.
-function Version({ block, at }: { block: string; at: number }) {
+/// A version of a block, named by its number among the block's versions: `plan v2`.
+function Version({ block, number }: { block: string; number: number }) {
   return (
     <>
-      {block}
-      <span className="muted">@{at}</span>
+      {block} <span className="muted">v{number}</span>
     </>
   );
 }
@@ -94,14 +93,14 @@ function FillRow({ fill }: { fill: Fill }) {
     case 'whole':
       return (
         <ListRow>
-          <Attr name="context" value={<Version block={fill.block} at={fill.version} />} />
+          <Attr name="context" value={<Version block={fill.block} number={fill.version} />} />
         </ListRow>
       );
     case 'change':
       return (
         <ListRow>
-          <Attr name="context" value={<Version block={fill.block} at={fill.version} />} />
-          <Attr name="since" value={`@${fill.since}`} />
+          <Attr name="context" value={<Version block={fill.block} number={fill.version} />} />
+          <Attr name="since" value={`v${fill.since}`} />
         </ListRow>
       );
     case 'results':

@@ -2006,7 +2006,7 @@ fn said(beside: &Beside, told: &Telling) -> String {
         (Some(does), Some(text)) => flow::agents::fill(text, &[("do", does.trim())]),
         _ => String::new(),
     };
-    let number = told.number.0.to_string();
+    let number = told.number.to_string();
     let places = [
         ("entry", told.entry.as_str()),
         ("block", told.block.as_str()),

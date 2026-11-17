@@ -38,7 +38,8 @@ export interface Source {
   /// The projects the installation names.
   loadProjects(): Promise<Projects>;
   loadWork(work: number): Promise<WorkPage>;
-  loadVersion(work: number, block: string, at: number): Promise<VersionPage>;
+  /// The content of the block's version of this number.
+  loadVersion(work: number, block: string, number: number): Promise<VersionPage>;
   loadRound(work: number, run: number, round: number): Promise<RoundPage>;
   loadTold(work: number, run: number, round: number): Promise<ToldPage>;
   loadDoing(work: number, run: number, round: number): Promise<DoingPage>;
@@ -82,7 +83,7 @@ export const FIXTURES: Source = {
   loadItems: async () => (await import('./fixtures')).fixtureItems(),
   loadProjects: async () => (await import('./fixtures')).fixtureProjects(),
   loadWork: async (work) => (await import('./fixtures')).fixtureWork(work),
-  loadVersion: async (work, block, at) => (await import('./fixtures')).fixtureVersion(work, block, at),
+  loadVersion: async (work, block, number) => (await import('./fixtures')).fixtureVersion(work, block, number),
   loadRound: async (work, run, round) => (await import('./fixtures')).fixtureRound(work, run, round),
   loadTold: async (work, run, round) => (await import('./fixtures')).fixtureTold(work, run, round),
   loadDoing: async (work, run, round) => (await import('./fixtures')).fixtureDoing(work, run, round),

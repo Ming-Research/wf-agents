@@ -22,8 +22,8 @@ import type { Item, Version, VersionPage, Wait, WorkPage } from '../works-api';
 import { askedMock, bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
 import type { Body, Choice, Message, Part } from './window';
 
-/// Reads the content of a version of a block.
-export type LoadVersion = (work: number, block: string, at: number) => Promise<VersionPage>;
+/// Reads the content of a version of a block, by its number among the block's versions.
+export type LoadVersion = (work: number, block: string, number: number) => Promise<VersionPage>;
 
 /// What a card and the window show of an item that the engine does not give: made up with the mocks, none without.
 export function itemOf(item: Item): ItemMock {
@@ -48,14 +48,14 @@ const EMPTY: Body = { sections: [], choicesWait: false, messages: [] };
 /// `readBody` fills.
 export const firstBody = (item: Item): Body => (mocksShown() ? bodyMock(item) : EMPTY);
 
-/// The contents of versions read, by work, block and place: a version never changes.
+/// The contents of versions read, by work, block and number: a version never changes.
 const read = new Map<string, Promise<string>>();
 
-function contentOf(load: LoadVersion, work: number, block: string, at: number): Promise<string> {
-  const key = `${work}:${block}@${at}`;
+function contentOf(load: LoadVersion, work: number, block: string, number: number): Promise<string> {
+  const key = `${work}:${block}/${number}`;
   let kept = read.get(key);
   if (kept === undefined) {
-    kept = load(work, block, at).then((p) => p.content);
+    kept = load(work, block, number).then((p) => p.content);
     // A read that failed is tried again the next time.
     void kept.catch(() => read.delete(key));
     read.set(key, kept);
@@ -114,7 +114,7 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
   const current = async (block: string): Promise<Part[]> => {
     const last = versionsOf(page, block).at(-1);
     if (last === undefined) return [];
-    const text = await contentOf(load, work, block, last.at);
+    const text = await contentOf(load, work, block, last.number);
     return text.trim() === '' ? [] : [{ kind: 'text', text }];
   };
   // A section for each datum the flow's card names, in its order and by its name.
@@ -128,7 +128,7 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
   });
   const said = await Promise.all([
     ...words.map(async ({ v, block, cell }): Promise<Message & { place: number }> => {
-      const entry = await contentOf(load, work, block.name, v.at);
+      const entry = await contentOf(load, work, block.name, v.number);
       const text = (name: string) => block.writes?.find(([n]) => n === name)?.[1];
       if (v.by.kind === 'run') {
         const answer = placesOf(entry, text('reply'))?.get('reply') ?? entry;
@@ -139,7 +139,7 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     }),
     ...notes.flatMap((b) =>
       versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
-        const { quote, text } = quoted(await contentOf(load, work, b.name, v.at));
+        const { quote, text } = quoted(await contentOf(load, work, b.name, v.number));
         return { who: 'owner', at: v.time, to: [b.readBy.cells[0]], quote, text, place: v.at };
       }),
     ),
@@ -198,7 +198,7 @@ export async function readRulings(page: WorkPage, waits: Wait[], load: LoadVersi
         values,
         now: v?.value ?? null,
         holding: ends.value,
-        text: v !== undefined && v.chars > 0 ? await contentOf(load, work, ends.block, v.at) : '',
+        text: v !== undefined && v.chars > 0 ? await contentOf(load, work, ends.block, v.number) : '',
       });
       return [read()];
     }),
