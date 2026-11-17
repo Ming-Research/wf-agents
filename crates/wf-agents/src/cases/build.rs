@@ -102,16 +102,7 @@ fn background(flow: &Compiled) -> Result<BlockId, String> {
 /// Builds the try: the installation, the work through its history, and the cell's first round.
 pub async fn build(with: &With<'_>) -> Result<Building, String> {
     let (flow, case) = (with.flow, with.case);
-    let installation = installation::make(
-        with.settings,
-        with.project,
-        with.made,
-        with.beside,
-        with.imported,
-        with.dir,
-        &with.item.main,
-        with.program,
-    )?;
+    let installation = installation::make(with)?;
     let id = carry::session::installation(&installation.data)?;
     let tag = carry::git::tag(&id);
     let main =

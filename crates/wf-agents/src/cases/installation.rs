@@ -43,24 +43,18 @@ pub fn real_project<'s>(settings: &'s carry::Settings, named: Option<&str>) -> R
     }
 }
 
-/// Makes the installation in `dir`, which does not exist yet: its data directory, the made project's repository from
-/// the imported one with its main at `main`, and its settings from the real installation's and its project's; with
-/// `program`, the agents' command line is that program in place of the real one.
-pub fn make(
-    real: &carry::Settings,
-    project: &Project,
-    name: &str,
-    beside: &flow::agents::Agents,
-    imported: &Path,
-    dir: &Path,
-    main: &str,
-    program: Option<&Path>,
-) -> Result<Installation, String> {
+/// Makes the installation of the try in its directory, which does not exist yet: its data directory, the made
+/// project's repository from the imported one with its main at the commit the case's item starts from, and its
+/// settings from the real installation's and its project's; where another program stands in for the agents', the
+/// agents' command line is that program.
+pub fn make(with: &super::build::With<'_>) -> Result<Installation, String> {
+    let (real, project, name, beside) = (with.settings, with.project, with.made, with.beside);
+    let (dir, main, program) = (with.dir, with.item.main.as_str(), with.program);
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let dir = std::path::absolute(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let data = dir.join("data");
     std::fs::create_dir_all(&data).map_err(|e| format!("{}: {e}", data.display()))?;
-    let repo = made::project(imported, &dir.join("project"), main)?;
+    let repo = made::project(with.imported, &dir.join("project"), main)?;
     let mut settings = real.clone();
     let mut made = project.clone();
     made.repo = repo.clone();

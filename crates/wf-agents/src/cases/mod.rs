@@ -129,9 +129,6 @@ pub const AT_ONCE: usize = 10;
 /// [`AT_ONCE`] at a time; a line for each, saying what ran its cell and the hashes of what its cell's line was sent, or
 /// why it was refused. What each build made is removed.
 pub fn build_cases(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, Vec<String>> {
-    if !asked.runs.as_os_str().is_empty() {
-        return Err(vec!["the cases are not built yet".to_string()]);
-    }
     let flow_dir = asked.flow_dir;
     let read = read(flow_dir, asked.cases_dir, has)?;
     let source = flow::read(flow_dir).map_err(|e| vec![format!("{}: {e}", flow_dir.display())])?;
