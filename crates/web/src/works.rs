@@ -1649,7 +1649,8 @@ pub struct ForkPage {
     /// What its first call read from the cache, and what the session held, in tokens, where each is known.
     pub read: Option<u64>,
     pub held: Option<u64>,
-    /// How many minutes past its cache's life the session's last round ended, where it did.
+    /// How many minutes before the session's cache had expired, where it had: since its last call, by a round or a
+    /// keep-warm ping, more than the cache's life had passed.
     pub expired: Option<u64>,
     /// The later rounds the session holds, by run and number.
     pub later: Vec<(u64, usize)>,

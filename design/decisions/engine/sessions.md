@@ -39,22 +39,13 @@ A compaction of a line's session by the agents' program during a round is record
 Why: A compacted session holds a summary where it held what the line read, so it is a session reopened (document data-and-context, 15, 26): on a line whose reading cell watches the line's `session`, that cell runs again by the rule that runs any cell, a new version of what it watches, only if the compaction is a new version of that datum; on another line, the next cell entered reads the tree first, as in any session that has not (25). The program keeps the session under its id, so a new id would have the next round begin a session that exists (decision a-lost-session-keeps-its-id).
 
 ### decision a-fork-keeps-the-sessions-tools
-A fork of a round's session is given the command line of the session's last round whole, its tools among it, and a
-hook refuses each use of a tool but the program's own for the return; the tool list is never taken away.
-Why: The form and the tools stand at the front of every request (principle one-form-of-return-for-a-session), so a
-fork given no tools read nothing of its session from the cache, and one such fork cost $13.83. A hook that refused the
-return's tool too would leave the fork no way to answer in the return's form.
+A fork of a round's session is given the command line of the session's last round whole, its tools among it, and a hook refuses each use of a tool but the program's own for the return; the tool list is never taken away.
+Why: The tools stand at the front of every request, before the system prompt and the messages, and the cache is read only as far as a request begins as the session's did; a fork given no tools reads none of its session from the cache and pays for all of it again. A hook that refused the return's tool too would leave the fork no way to answer in the return's form.
 
 ### decision a-fork-of-an-ended-work-stands-in-for-its-worktree
-Where a work has ended and its worktree is gone, a checkout of its kept branch is made at the worktree's place for a
-fork of one of its sessions and taken away after; a work that has not ended and has no worktree is refused.
-Why: The program finds a session by the directory it ran in, and an ended work's worktree is let go (decision
-letting-go-at-the-end) while its branch is kept. A checkout, not an empty directory, so that the program sees a
-repository as the session's rounds did (a judgment, not measured); and only for an ended work, since a directory at the
-place of one that goes on would be taken for its worktree by its next round.
+Where a work has ended and its worktree is gone, a checkout of its kept branch is made at the worktree's place for a fork of one of its sessions and taken away after; a work that has not ended and has no worktree is refused.
+Why: The program finds a session by the directory it ran in, and an ended work's worktree is let go (decision letting-go-at-the-end) while its branch is kept. A checkout, not an empty directory, so that the program sees a repository as the session's rounds did (a judgment, not measured); and only for an ended work, since a directory at the place of one that goes on would be taken for its worktree by its next round.
 
 ### decision a-forks-spend-is-kept-with-its-answer
-A fork's spend is said to whoever asked it and kept with what it was told, its stream and its answer beside its round's,
-not put in the work's records.
-Why: A fork is a look of whoever plans the work at one round's words, asked of the engine apart from the work's own way
-through the flow; its stream holds what it read and cost, which a later look reads there.
+A fork's spend is said to whoever asked it and kept with what it was told, its stream and its answer beside its round's, not put in the work's records.
+Why: A fork is a look of whoever plans the work at one round's words, asked of the engine apart from the work's own way through the flow; its stream holds what it read and cost, which a later look reads there.

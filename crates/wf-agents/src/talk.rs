@@ -2644,7 +2644,7 @@ pub fn forked_said(page: &ForkPage) -> String {
         )),
         (Some((share, read, held)), Some(minutes)) => out.push_str(&format!(
             "Its first request read only {share}% of the session from the cache ({read} of the {held} tokens it held): the \
-             session's cache had expired, its last round having ended {minutes} minutes past the cache's life.\n"
+             session's cache had expired {minutes} minutes before.\n"
         )),
         (Some((share, read, held)), None) => out.push_str(&format!(
             "Its first request read only {share}% of the session from the cache ({read} of the {held} tokens it held), \
@@ -2732,9 +2732,7 @@ mod fork_tests {
             expired: Some(42),
             ..page()
         };
-        assert!(forked_said(&expired).contains(
-            "the session's cache had expired, its last round having ended 42 minutes past the cache's life."
-        ));
+        assert!(forked_said(&expired).contains("the session's cache had expired 42 minutes before."));
         let unknown = ForkPage { held: None, ..page() };
         assert!(
             forked_said(&unknown)

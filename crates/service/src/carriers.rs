@@ -147,8 +147,9 @@ pub struct Fork {
 
 /// What a fork answered: its return, as JSON, where it wrote one, and what its program said at its end; what the fork
 /// cost, in millionths of a dollar; what its first call read from the cache, and what the session held, the context its
-/// last round ended with, in tokens, where each is known; how many minutes past its cache's life the session's last
-/// round ended, where it did; the later rounds the session holds, by run and number; and the file the answer is kept in.
+/// last round ended with, in tokens, where each is known; how many minutes before the session's cache had expired, its
+/// last call, by a round or a keep-warm ping, more than the cache's life before, where it had; the later rounds the
+/// session holds, by run and number; and the file the answer is kept in.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Forked {
     pub answer: Option<String>,

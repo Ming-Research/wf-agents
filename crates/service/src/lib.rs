@@ -985,9 +985,6 @@ impl Handle {
         }))
     }
 
-    /// What the agent of the round of this number of the run was last seen doing, as the carrier of its cell's kind
-    /// keeps it as it comes: none where there is no such work, and inside, none where the work has no such round, or
-    /// why it could not be read. It is read off the loop, as [`Handle::told`] reads.
     /// Asks a fork of the session the round of this number of the run ran in, the run's last round that ran where none
     /// is named, a question, through the agents' carrier, off the loop: none where there is no such work, and inside,
     /// what the fork answered or why it could not be asked.
@@ -1035,6 +1032,9 @@ impl Handle {
         Ok(Some(self.carriers.agents.fork(fork).await))
     }
 
+    /// What the agent of the round of this number of the run was last seen doing, as the carrier of its cell's kind
+    /// keeps it as it comes: none where there is no such work, and inside, none where the work has no such round, or
+    /// why it could not be read. It is read off the loop, as [`Handle::told`] reads.
     pub async fn doing(
         &self,
         work: WorkNumber,

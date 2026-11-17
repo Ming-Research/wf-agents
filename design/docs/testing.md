@@ -248,11 +248,11 @@ of each part.
 34. What an agent thinks of a cell is asked after its round, in a fork of its session, nothing of the work changed:
     `wf-agents fork` asks it through the engine, on the command line of the session's last round, every use of a tool
     refused (decision a-fork-keeps-the-sessions-tools); the round itself runs as usual, and the agent is not told it is
-    being tested. The fork is asked only
-    about the cell's text: which words can be read another way, what is missing or unneeded, how to fix each, quoting
-    the text. An agent that knows it is being tested does not do what it would in real work (an inference, not
-    measured). The return cannot show which words can be read another way; the fork, holding everything the round saw,
-    can. Asking why it acted as it did is refused whole by the model's safety check (it happened on 2026-11-08).
+    being tested. The fork is asked only about the cell's text: which words can be read another way, what is missing or
+    unneeded, how to fix each, quoting the text. An agent that knows it is being tested does not do what it would in
+    real work (an inference, not measured). The return cannot show which words can be read another way; the fork,
+    holding everything the round saw, can. Asking why it acted as it did is refused whole by the model's safety check
+    (it happened on 2026-11-08).
 
 35. What is read of each round is read where it shows: its inputs on the round's panel, as they were sent, and in its
     line's system prompt, against what its cell names and the order the flow declares (principle cache-order); its

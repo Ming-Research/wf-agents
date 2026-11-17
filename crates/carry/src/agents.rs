@@ -102,7 +102,7 @@ use uuid::Uuid;
 use work::{Back, Measures, RanOn, Spent, Why, Work};
 
 use crate::catch_up::{self, CaughtUp};
-use crate::cli::{self, Begin, Calls, Compacted, InSession, Words};
+use crate::cli::{self, Begin, Calls, Compacted, InSession, NoResult, Words};
 use crate::guard::{Crossing, Guard};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::{self, Permissions};
@@ -335,7 +335,13 @@ impl Rounds for Agents {
         &self,
         fork: Fork,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Forked, String>> + Send + '_>> {
-        Box::pin(async move { self.inner.fork(&fork).await })
+        // A task of its own, so that a request given up halfway does not cut the fork off and leave its checkout behind.
+        let inner = self.inner.clone();
+        let task = tokio::spawn(async move { inner.fork(&fork).await });
+        Box::pin(async move {
+            task.await
+                .unwrap_or_else(|e| Err(format!("The fork ended abruptly: {e}")))
+        })
     }
 
     fn ping(&self, ping: Ping, reply: PingReply) {
@@ -1352,6 +1358,8 @@ impl Inner {
             (true, _) => false,
             (false, true) => {
                 git::configuration(&of.project, &place).await?;
+                // A worktree whose directory was taken away is named by the repository until it is pruned.
+                git::git(&of.project.repo, &["worktree", "prune"]).await?;
                 let dir = place.dir.to_string_lossy().to_string();
                 let added = git::git(
                     &of.project.repo,
@@ -1369,18 +1377,25 @@ impl Inner {
                 ));
             }
         };
-        let asked = self.forked(fork, &made, &place.dir).await;
-        if stood {
-            git::remove(&of.project, &place).await?;
+        let asked = self.forked(fork, &made, (&line, of_session), &place.dir).await;
+        if stood && let Err(why) = git::remove(&of.project, &place).await {
+            eprintln!(
+                "The checkout made for a fork of work {} could not be taken away: {why}",
+                fork.work.0
+            );
         }
         let (answer, text, spent, read, kept) = asked?;
         let held = (work.spent.get(&(made.run, made.number))).and_then(|s| s.context_tokens);
+        // The session's last call: its last round's end, or a keep-warm ping of it since that was read from the cache.
         let ended = (work.records.returned.iter())
             .filter(|r| r.run == made.run)
-            .nth(made.number.saturating_sub(1));
-        let when = ended
-            .and_then(|e| work.moments.iter().rev().find(|m| m.from <= e.at))
-            .map(|m| m.at.0);
+            .nth(made.number.saturating_sub(1))
+            .map(|e| e.at);
+        let pinged = (work.pinged.iter())
+            .filter(|p| p.line == line && p.session == of_session && p.failed.is_none())
+            .map(|p| p.at)
+            .max();
+        let when = ended.max(pinged).and_then(|at| work.time_of(at)).map(|t| t.0);
         let now = self.clock.now().ok().map(|t| t.0);
         let expired = match (when, now, self.settings.cache_ms()) {
             (Some(when), Some(now), Some(life)) if now.saturating_sub(when) > life => {
@@ -1407,6 +1422,7 @@ impl Inner {
         &self,
         fork: &Fork,
         made: &SessionLine,
+        (line, of_session): (&str, u32),
         dir: &Path,
     ) -> Result<(Option<String>, String, Spent, Option<u64>, PathBuf), String> {
         let base = kept::base(&self.data, fork.work, fork.run, fork.round);
@@ -1449,11 +1465,7 @@ impl Inner {
             .env_clear()
             .envs(cli::environment(agents, std::env::vars()))
             .current_dir(dir);
-        let line = (fork.flow.cells.iter())
-            .find(|c| (fork.kept.records.started.iter()).any(|s| s.run == made.run && s.cell == c.id))
-            .and_then(|c| c.line.clone())
-            .unwrap_or_default();
-        let before = cli::in_session(&fork.flow, &fork.kept, &line, made.run, made.number + 1).before;
+        let before = session_cost(&fork.flow, &fork.kept, line, of_session);
         let mut stream = cli::Stream::default();
         let mut lines = Vec::new();
         let mut each = |line: &[u8]| {
@@ -1475,22 +1487,50 @@ impl Inner {
             let _ = tokio::fs::remove_file(file).await;
         }
         write(&at("stream.jsonl"), &lines).await?;
-        ran?;
+        let Ran::Ended { status, stderr, .. } = ran? else {
+            return Err("The fork's program was stopped before it ended.".to_string());
+        };
         let read = stream.own.first.map(|(read, _)| read);
         let text = (String::from_utf8_lossy(&lines).lines())
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-            .filter(|v| v["type"] == "result")
-            .last()
+            .rev()
+            .find(|v| v["type"] == "result")
             .and_then(|v| v["result"].as_str().map(str::to_string))
             .unwrap_or_default();
         let (answer, spent) = match cli::read(&lines, Begin::Resume, before) {
             Ok(read) => (Some(read.structured.to_string()), read.spent),
+            // The program ended with no result: why is in what it said at its end.
+            Err(NoResult { spent: None, .. }) if !status.success() => {
+                let of = crate::projects::of(&self.projects, &fork.item)?;
+                let end = process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes());
+                let why = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
+                return Err(format!("The fork ended with no answer: {why}"));
+            }
             Err(no) => (None, no.spent.unwrap_or_else(|| stream.priced().unwrap_or_default())),
         };
         let kept = answer.clone().unwrap_or_else(|| text.clone());
         write(&at("answer"), kept.as_bytes()).await?;
         Ok((answer, text, spent, read, at("answer")))
     }
+}
+
+/// What the line's session of this number cost before now, in millionths of a dollar: its rounds and its keep-warm
+/// pings, which the program's result counts in the session's total.
+fn session_cost(flow: &flow::Compiled, work: &Work, line: &str, of_session: u32) -> u64 {
+    let on_line = |run: RunId| {
+        let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
+        let spec = cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell));
+        spec.and_then(|c| c.line.as_deref()) == Some(line)
+    };
+    let in_it =
+        |run: RunId, k: usize| work::sessions::number_at(work, line, work::sessions::start(work, run, k)) == of_session;
+    let rounds = (work.spent.iter())
+        .filter(|((run, k), _)| on_line(*run) && in_it(*run, *k))
+        .map(|(_, spent)| spent.usd_micros);
+    let pings = (work.pinged.iter())
+        .filter(|p| p.line == line && p.session == of_session)
+        .map(|p| p.spent.usd_micros);
+    rounds.chain(pings).sum()
 }
 
 /// Where the work's spend and time are counted from, as its history judges them: the place where it was last let on
@@ -2049,14 +2089,15 @@ mod tests {
         ];
         let printed: String = stream.iter().map(|line| format!("printf '%s\\n' '{line}'\n")).collect();
         let script = format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\ncat > /dev/null\n{printed}",
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\nls > '{0}/listed'\ncat > /dev/null\n{printed}",
             data.display()
         );
         std::fs::write(&program, script).expect("written");
         std::fs::set_permissions(&program, std::os::unix::fs::PermissionsExt::from_mode(0o755)).expect("made runnable");
         let mut settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
         settings.agents.command = program.display().to_string();
-        let project = settings.projects["example"].clone();
+        let repo = git::tests::Repo::new("true");
+        let project = repo.project.clone();
         let (flow, beside) = engineer();
         let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
         let agents = Agents::new(
@@ -2118,11 +2159,70 @@ mod tests {
         let cwd = std::fs::read_to_string(data.join("cwd")).expect("where it ran");
         let worktree = std::fs::canonicalize(&place.dir).expect("the worktree");
         assert_eq!(std::fs::canonicalize(cwd.trim()).expect("a directory"), worktree);
+        // What it was asked and answered is kept beside the round's; its hooks' files are taken away.
+        let kept = |n: usize, what: &str| {
+            let base = kept::base(&data, WorkNumber(3), RunId(7), 1);
+            let name = base.file_name().expect("a name").to_string_lossy().to_string();
+            base.with_file_name(format!("{name}.fork.{n}.{what}"))
+        };
+        assert_eq!(
+            std::fs::read_to_string(kept(1, "message.md")).expect("kept"),
+            fork.question
+        );
+        assert!(
+            std::fs::read_to_string(kept(1, "answer"))
+                .expect("kept")
+                .contains("two ways")
+        );
+        for gone in ["compacted", "again.md", "words.json"] {
+            assert!(!kept(1, gone).exists(), "{gone}");
+        }
+        // The program's result says the session's total: the fork cost what it adds to what the session cost before,
+        // its rounds and its pings, and held what its last round's prompt held.
+        let mut paid = (*fork.kept).clone();
+        let spent = |usd_micros, context_tokens| Spent {
+            usd_micros,
+            context_tokens,
+            ..Spent::default()
+        };
+        paid.spent.insert((RunId(7), 1), spent(100_000, Some(10_000)));
+        paid.pinged.push(work::Pinged {
+            at: Seq(5),
+            line: "engineer".to_string(),
+            session: 0,
+            spent: spent(50_000, None),
+            failed: None,
+        });
+        let again = Fork {
+            kept: Arc::new(paid),
+            ..fork.clone()
+        };
+        let forked = agents.inner.fork(&again).await.expect("asked again");
+        assert_eq!(forked.usd_micros, 350_000);
+        assert_eq!(forked.held, Some(10_000));
+        assert!(forked.later.is_empty());
+        assert!(kept(2, "answer").is_file());
         // A work that has not ended, its worktree gone, is not forked in a directory made for it.
         std::fs::remove_dir_all(&place.dir).expect("removed");
         let refused = agents.inner.fork(&fork).await.expect_err("refused");
         assert_eq!(refused, "Work 3 has not ended, and its worktree is not there.");
         assert!(!place.dir.exists());
+        // A work that has ended, its worktree gone, is forked in a checkout of its kept branch at the worktree's place,
+        // taken away after; the branch stays.
+        git::tests::run(&repo.project.repo, &["branch", &place.branch]);
+        let ended = Fork { ended: true, ..fork };
+        agents.inner.fork(&ended).await.expect("asked in a checkout");
+        let cwd = std::fs::read_to_string(data.join("cwd")).expect("where it ran");
+        let at = std::fs::canonicalize(&data)
+            .expect("the data")
+            .join(place.dir.strip_prefix(&data).expect("in the data"));
+        assert_eq!(Path::new(cwd.trim()), at);
+        let listed = std::fs::read_to_string(data.join("listed")).expect("what it held");
+        assert!(listed.lines().any(|f| f == "greeting.txt"), "{listed}");
+        assert!(!place.dir.exists());
+        let worktrees = git::tests::run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
+        assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 1);
+        git::tests::run(&repo.project.repo, &["rev-parse", "--verify", &place.reference()]);
     }
 
     /// The carrier of the engineer's flow's rounds, its data in this directory, and R2's first round of run 7 of work
