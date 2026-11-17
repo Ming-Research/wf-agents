@@ -2,12 +2,17 @@
 //! waits for the review's yes, whatever main does, so that no branch the review has not seen is checked or merged; the
 //! work's head, which the review takes and which runs the check, holds the merge to the head the review saw; the
 //! implementation answers a red check by what runs the check again, a commit or a question, and a return that answers
-//! it with neither is sent back; and the owner's answer to a question the check asked, which only the implementation is
-//! told, runs the check again by itself, so that the answer alone leads to the merge.
+//! it with neither is sent back; the owner's answer to a question the check asked, which only the implementation is
+//! told, runs the check again by itself, so that the answer alone leads to the merge; and a question of a protected
+//! change asked early, as a round of the implementation ends, holds the check and not the work, which goes by the option
+//! it recommends until the owner answers.
+
+use std::path::Path;
 
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CellId, Decision, End, Outsider, Waited};
-use engine::{Call, Effect, Event, Given, Question, Spent, Way, pending};
+use engine::{Call, Came, Effect, Event, Given, Question, Spent, Way, pending};
+use flow::agents::{AskProtected, fill};
 
 use super::single::{W, wrote};
 
@@ -26,25 +31,9 @@ fn seen(w: &W) -> Vec<(String, Option<String>)> {
 }
 
 /// The work from its start to the review's yes on the implementation's code, which its round committed at the head
-/// `c1`: the research hands in a plan with no deeper look and no change of the tree, both reviews of the plan find
-/// nothing to change, and the review asks for no testing.
+/// `c1`: planned ([`W::planned`]), and the review asks for no testing.
 fn reviewed_at_c1() -> W {
-    let mut w = W::started();
-    w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
-    w.hands_in(
-        "R1",
-        &[
-            ("deep_needed", Some("no")),
-            ("plan_owner", None),
-            ("plan_agent", None),
-            ("acceptance", None),
-        ],
-        Vec::new(),
-    );
-    w.hands_in("R2", &[], Vec::new());
-    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
-    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
+    let mut w = W::planned();
     w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
     w.hands_in(
         "T1",
@@ -148,21 +137,134 @@ fn a_head_the_check_reads_that_the_review_has_not_seen_runs_the_review_before_th
     assert_eq!(w.decision(), Decision::Ended(End::Merged));
 }
 
-/// The question the check asks of a change to a file the project protects, as the engine asks it.
-fn protected() -> Question {
-    let way = |does: &str| Way {
-        does: does.to_string(),
-        follows: format!("what follows from {does}"),
-    };
+/// The words of the question the engine asks of a change to a file the project protects, as `flow/agents/asks.toml`
+/// has them.
+fn protected_words() -> AskProtected {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let agents = flow::agents::read(&root).expect("the words beside the flows are read");
+    agents.asks.protected
+}
+
+/// The question the engine asks of a change of `AGENTS.md`, which the work says why of, as it asks it, in the words
+/// of `flow/agents/asks.toml`: holding the work where the check before the merge asks it, and not where it is asked
+/// early, as a round of the implementation ends.
+fn protected(waits: bool) -> Question {
+    let words = protected_words();
+    let why = "The guide must say it.";
+    let file = fill(&words.file, &[("path", "AGENTS.md"), ("why", why), ("diff", "+Rules.")]);
     Question::Asked {
-        name: "protected_files".to_string(),
-        waits: true,
+        name: words.name,
+        waits,
         recommends: None,
-        ask: "Whether this work's change to files that govern the agents may merge.".to_string(),
-        options: vec![way("Let it merge"), way("Take it back")],
-        about: Some("AGENTS.md".to_string()),
-        reasons: Default::default(),
+        ask: fill(&words.ask, &[("files", file.as_str())]),
+        options: (words.options.iter())
+            .map(|o| Way {
+                does: o.does.clone(),
+                follows: o.follows.clone(),
+            })
+            .collect(),
+        about: Some("AGENTS.md 0b5e".to_string()),
+        reasons: [("AGENTS.md".to_string(), why.to_string())].into(),
     }
+}
+
+/// The number of the latest version of the question of this name, by which the owner answers it.
+fn version(w: &W, name: &str) -> u64 {
+    let questions = decide::questions::questions(&w.work.records);
+    let asked = questions.get(name).expect("the question was asked");
+    super::latest_number(&w.flow, &w.work.records, asked)
+}
+
+/// How many runs of the cell began.
+fn runs(w: &W, cell: &str) -> usize {
+    (w.work.records.started.iter())
+        .filter(|s| s.cell.as_str() == cell)
+        .count()
+}
+
+// Asked early, as a round of the implementation ends, the question of a protected change does not hold the work, which
+// goes on by the option the question recommends, the one that lets the change merge (design document
+// `data-and-context`, 31 and 34): the owner taking it while the review runs changes nothing the work goes by, stops no
+// round and runs no cell again, and the check follows the review. Taking the change back stops the review's round under
+// way, and the work goes back to the implementation, which made the change.
+#[test]
+fn an_early_protected_question_answered_as_it_recommends_stops_nothing_and_taken_back_returns_to_the_implementation() {
+    let words = protected_words();
+    let other = if words.merges == 1 { 2 } else { 1 };
+    for option in [words.merges, other] {
+        let mut w = W::planned();
+        w.hands_in("I1", &[("code", None), ("evidence", None)], vec![protected(false)]);
+        let (review, cell) = w.round();
+        assert_eq!(cell, "T1", "asked early, the question does not hold the work");
+        let implementing = runs(&w, "I1");
+        let answer = Event::Answer {
+            question: words.name.clone(),
+            version: version(&w, &words.name),
+            option,
+        };
+        let effects = w.on(answer);
+        let stopped = effects.contains(&Effect::Stop { run: review });
+        if option == words.merges {
+            assert!(!stopped, "the option it recommends stops no round: {effects:?}");
+            assert_eq!(w.round(), (review, "T1".to_string()), "the review goes on");
+            w.hands_in(
+                "T1",
+                &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
+                Vec::new(),
+            );
+            assert_eq!(w.round().1, "M1", "the check follows the review");
+            assert_eq!(
+                (runs(&w, "I1"), runs(&w, "T1")),
+                (implementing, 1),
+                "no cell runs again"
+            );
+        } else {
+            assert!(stopped, "taking the change back stops the review: {effects:?}");
+            w.on(Event::Returned {
+                run: review,
+                came: Came::hands_in(Vec::new()),
+                spent: Spent::default(),
+            });
+            let (run, cell) = w.round();
+            assert_eq!(cell, "I1", "the work goes back to the implementation");
+            assert_eq!(w.told(run, "I1"), ["i1_questions"]);
+        }
+    }
+}
+
+// Asked early, the question lets the work go on to the review's yes, and the check waits while it stands unanswered;
+// the owner's answer letting the change merge runs the check, and no cell before it.
+#[test]
+fn the_check_waits_for_the_answer_to_an_early_protected_question() {
+    let words = protected_words();
+    let mut w = W::planned();
+    w.hands_in("I1", &[("code", None), ("evidence", None)], vec![protected(false)]);
+    w.hands_in(
+        "T1",
+        &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
+        Vec::new(),
+    );
+    let Decision::Wait { at, on } = w.decision() else {
+        panic!("the work does not wait: {:?}", w.decision());
+    };
+    assert_eq!(at.as_str(), "M1");
+    let unanswered = decide::Condition::Is {
+        block: "asked".into(),
+        value: "answered".into(),
+    };
+    assert!(
+        on.iter()
+            .any(|waited| matches!(waited, Waited::Precondition { on, .. } if *on == unanswered)),
+        "{on:?}"
+    );
+    let implementing = runs(&w, "I1");
+    w.on(Event::Answer {
+        question: words.name.clone(),
+        version: version(&w, &words.name),
+        option: words.merges,
+    });
+    assert_eq!(w.round().1, "M1", "the answer runs the check");
+    assert_eq!(runs(&w, "I1"), implementing, "the implementation does not run again");
 }
 
 #[test]
@@ -202,7 +304,7 @@ fn the_owners_answer_alone_to_the_checks_question_leads_to_the_merge() {
     // The check finds a change to a protected file the owner has not let merge, and asks the owner, in the questions of
     // the implementation, which the flow names for what the engine asks: the work waits there for the answer, the
     // implementation entered for nothing else meanwhile.
-    w.hands_in("M1", &[("checked", Some("no")), ("check", None)], vec![protected()]);
+    w.hands_in("M1", &[("checked", Some("no")), ("check", None)], vec![protected(true)]);
     let Decision::Wait { at, on } = w.decision() else {
         panic!("the work does not wait for the answer: {:?}", w.decision());
     };
@@ -211,11 +313,7 @@ fn the_owners_answer_alone_to_the_checks_question_leads_to_the_merge() {
         on.iter().any(|waited| matches!(waited, Waited::Answer { .. })),
         "{on:?}"
     );
-    let version = {
-        let questions = decide::questions::questions(&w.work.records);
-        let asked = questions.get("protected_files").expect("the question was asked");
-        super::latest_number(&w.flow, &w.work.records, asked)
-    };
+    let version = version(&w, "protected_files");
     // The owner lets the change merge: the implementation is told of the answer and of the failed check, and has nothing
     // to do: what failed was the owner's to decide.
     w.on(Event::Answer {

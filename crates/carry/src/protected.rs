@@ -457,7 +457,11 @@ pub(crate) mod tests {
         };
         assert_eq!(name, "protected_files");
         assert!(!waits, "asked as a round ends, the question does not hold the work");
-        assert_eq!(recommends, None, "the engine recommends nothing");
+        assert_eq!(
+            recommends,
+            Some(words().merges),
+            "it recommends letting the change merge"
+        );
         // Each file, with its reason in the work's words, and then its own change.
         let (guide, cell) = (
             ask.find("- AGENTS.md. Why: The guide must say it.\n").expect(&ask),
